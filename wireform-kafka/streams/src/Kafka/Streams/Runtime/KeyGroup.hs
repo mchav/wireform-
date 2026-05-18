@@ -32,9 +32,18 @@ module Kafka.Streams.Runtime.KeyGroup
   ( -- * Identity
     KeyGroupId (..)
   , KeyGroupCount (..)
+    -- * Config
+  , KeyGroupConfig (..)
+  , defaultKeyGroupConfig
+    -- * Assignment
+  , KeyGroupAssignment (..)
+  , WarmupProgress (..)
+  , emptyAssignment
+  , assignedToKeyGroupRange
     -- * Routing
   , keyGroupOf
   , keyGroupOfHash
+  , keyGroupOfBytes
   , keyGroupRangeOf
     -- * Membership
   , KeyGroupRange (..)
@@ -43,10 +52,16 @@ module Kafka.Streams.Runtime.KeyGroup
   , rangeToList
   ) where
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Hashable (Hashable, hash)
 import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
 import Data.List (sort)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import GHC.Generics (Generic)
 
 ----------------------------------------------------------------------
@@ -66,6 +81,65 @@ newtype KeyGroupId = KeyGroupId { unKeyGroupId :: Int }
 newtype KeyGroupCount = KeyGroupCount { unKeyGroupCount :: Int }
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass Hashable
+
+----------------------------------------------------------------------
+-- Config
+----------------------------------------------------------------------
+
+-- | Topology-wide key-group configuration. The runtime treats
+-- 'kgcTotal' as immutable for the lifetime of the application;
+-- changing it requires a key-space migration analogous to a
+-- topic repartition.
+--
+-- 'kgcHash' is the function the runtime uses to hash a record's
+-- raw key bytes to an 'Int'. The default (`xxHash64`-style; we
+-- use 'Data.Hashable' here as a stand-in) is sufficient for
+-- most workloads; override only when byte-identical behaviour
+-- with a JVM partitioner is required.
+data KeyGroupConfig = KeyGroupConfig
+  { kgcTotal :: !KeyGroupCount
+  , kgcHash  :: !(ByteString -> Int)
+  }
+
+-- | Default config: 128 key-groups (matches Flink's
+-- @setDefaultMaxParallelism@), 'Data.Hashable' over the key
+-- bytes.
+defaultKeyGroupConfig :: KeyGroupConfig
+defaultKeyGroupConfig = KeyGroupConfig
+  { kgcTotal = KeyGroupCount 128
+  , kgcHash  = hash . BS.unpack
+  }
+
+----------------------------------------------------------------------
+-- Assignment
+----------------------------------------------------------------------
+
+-- | Per-instance view of which key-groups this runtime owns
+-- right now, plus the warm-up state for key-groups it has
+-- agreed to take over but hasn't yet finished restoring.
+data KeyGroupAssignment = KeyGroupAssignment
+  { kgaOwned   :: !(Set KeyGroupId)
+  , kgaWarming :: !(Map KeyGroupId WarmupProgress)
+  } deriving stock (Eq, Show, Generic)
+
+-- | Progress of a warm-up sweep for one key-group. The runtime
+-- compares 'wpReplayedOffset' against 'wpEndOffset' to decide
+-- when the standby is caught up enough to promote.
+data WarmupProgress = WarmupProgress
+  { wpReplayedOffset :: !Int
+  , wpEndOffset      :: !Int
+  } deriving stock (Eq, Show, Generic)
+
+-- | The empty assignment: own nothing, warm nothing. The
+-- runtime starts here and the assignor pushes the live
+-- assignment in as a side-effect.
+emptyAssignment :: KeyGroupAssignment
+emptyAssignment = KeyGroupAssignment Set.empty Map.empty
+
+-- | Project an assignment to a 'KeyGroupRange' that the routing
+-- hot path consults via 'inKeyGroupRange'.
+assignedToKeyGroupRange :: KeyGroupAssignment -> KeyGroupRange
+assignedToKeyGroupRange = rangeFromList . Set.toAscList . kgaOwned
 
 ----------------------------------------------------------------------
 -- Routing
@@ -93,6 +167,19 @@ keyGroupOfHash
   -> KeyGroupId
 keyGroupOfHash (KeyGroupCount n) h =
   KeyGroupId (abs h `mod` max 1 n)
+
+-- | Hash a raw 'ByteString' key onto a key-group using a
+-- 'KeyGroupConfig'. This is the runtime's hot-path call: the
+-- engine has the serialised key bytes already and the config
+-- pre-built.
+keyGroupOfBytes
+  :: KeyGroupConfig
+  -> ByteString
+  -> KeyGroupId
+keyGroupOfBytes cfg kb =
+  let !h = kgcHash cfg kb
+      KeyGroupCount n = kgcTotal cfg
+  in KeyGroupId (abs h `mod` max 1 n)
 
 -- | Convert a key-group id into the partition it routes to. The
 -- mapping is fixed: @key-group i@ → @partition (i mod

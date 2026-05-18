@@ -13,6 +13,7 @@ module Kafka.Streams.Config
     StreamsConfig (..)
   , DslStore (..)
   , RackAwareStrategy (..)
+  , DispatchMode (..)
   , defaultStreamsConfig
     -- * Processing semantics
   , ProcessingGuarantee (..)
@@ -131,7 +132,29 @@ data StreamsConfig = StreamsConfig
   , upgradeFrom              :: !(Maybe Text)
     -- ^ @upgrade.from@ — multi-version upgrade compatibility
     --   knob (read by the assignor on a rolling upgrade).
+  , dispatchMode             :: !DispatchMode
+    -- ^ Riffle \xc2\xa72 — pick which 'Kafka.Streams.Runtime.WorkerPool'
+    --   constructor the runtime uses. Default
+    --   'DispatchPartition' preserves today's behaviour.
   }
+
+-- | Riffle \xc2\xa72 worker-pool dispatch mode. Picked at startup; the
+-- pool is built once and routes records by this scheme for its
+-- lifetime.
+data DispatchMode
+  = DispatchPartition
+    -- ^ Current behaviour: 'newWorkerPool' with explicit
+    -- per-worker @(topic, partition)@ ownership.
+  | DispatchHashed
+    -- ^ Current behaviour: 'newWorkerPoolHashed', routes by
+    -- @hash (topic, partition) mod workerCount@.
+  | DispatchKeyGroup
+    -- ^ Riffle behaviour: 'newWorkerPoolKeyGrouped' with a
+    -- 'Kafka.Streams.Runtime.KeyGroup.KeyGroupConfig'. The
+    -- runtime hashes record keys to key-groups and dispatches
+    -- by the live 'KeyGroupAssignment'. Decouples parallelism
+    -- from partition count.
+  deriving stock (Eq, Show)
 
 -- | KIP-591 @default.dsl.store@ enum.
 data DslStore
@@ -186,6 +209,7 @@ defaultStreamsConfig = StreamsConfig
   , rackAwareNonOverlapCost    = 10
   , windowSizeMs               = Nothing
   , upgradeFrom                = Nothing
+  , dispatchMode               = DispatchPartition
   }
 
 ----------------------------------------------------------------------

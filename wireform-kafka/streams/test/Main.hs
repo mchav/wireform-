@@ -95,6 +95,7 @@ import qualified Streams.Properties.KeyGroupAssignorSpec
 import qualified Streams.Properties.TieredStoreSpec
 import qualified Streams.Properties.RemoteKVStoreSpec
 import qualified Streams.Properties.StoreRefSpec
+import qualified Streams.Properties.KeyGroupDispatchSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -192,5 +193,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Properties.TieredStoreSpec.tests
       , Streams.Properties.RemoteKVStoreSpec.tests
       , Streams.Properties.StoreRefSpec.tests
+      , Streams.Properties.KeyGroupDispatchSpec.tests
       ]
   ]
