@@ -2,25 +2,22 @@
 
 -- |
 -- Module      : Kafka.Streams.Examples.IdiomaticPipeline
--- Description : Reusable composable fragments via 'Pipeline'
+-- Description : Reusable composable fragments via 'F.Topology'
 --
--- The other examples mirror the JVM fluent-builder shape
--- one combinator at a time. This one shows the
--- "Haskell-native" complement: 'Pipeline' values composed with
--- 'Control.Category.(>>>)' and applied to a 'KStream' at the
--- site that uses them.
+-- The other examples in this package mirror the JVM fluent-builder
+-- shape one combinator at a time. This one shows the
+-- "Haskell-native" complement: building reusable transformation
+-- fragments as first-class 'F.Topology' values and composing them
+-- with 'Control.Category.(>>>)'.
 --
--- The point of 'Pipeline' isn't to replace the core DSL — it's
--- to let you name and reuse transformation fragments as
--- values. A 'Pipeline' is a 'Control.Category.Category', so
--- two fragments compose into one fragment without losing the
--- ability to apply it later.
---
+-- A 'F.Topology' is a 'Control.Category.Category' so two fragments
+-- compose into one fragment without ever bottoming out into 'IO'.
 -- Equivalent JVM idiom: extracting a topology-building helper
 -- method that takes a @KStream@ and returns a transformed
 -- @KStream@.
 module Kafka.Streams.Examples.IdiomaticPipeline
   ( runDemo
+  , idiomaticPipelineTopology
   , buildPipelineTopology
     -- * Reusable fragments
   , normalise
@@ -30,34 +27,37 @@ module Kafka.Streams.Examples.IdiomaticPipeline
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
+import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
-import Kafka.Streams.Pipeline
+import qualified Kafka.Streams.Topology.Free as F
 
 -- | Strip whitespace + uppercase every value. A reusable
 -- fragment — could be defined in a shared module and used by
 -- many topologies.
-normalise :: Pipeline (KStream T.Text T.Text) (KStream T.Text T.Text)
-normalise = pmapValues T.strip >>> pmapValues T.toUpper
+normalise :: F.Topology (KStream Text Text) (KStream Text Text)
+normalise = F.mapValues T.strip >>> F.mapValues T.toUpper
 
 -- | Drop records whose value is empty after normalisation.
-dropEmpties :: Pipeline (KStream T.Text T.Text) (KStream T.Text T.Text)
-dropEmpties = pfilter (\r -> recordValue r /= "")
+dropEmpties :: F.Topology (KStream Text Text) (KStream Text Text)
+dropEmpties = F.filter (\r -> recordValue r /= "")
 
--- | Build a topology that wires the two fragments together
--- using 'Control.Category.(>>>)' and applies them to a single
--- source stream.
+-- | Wire the two fragments together with 'Control.Category.(>>>)'
+-- and bracket them by a source / sink. The optimiser sees the
+-- whole topology — fusion is across fragment boundaries, not
+-- inside each one separately, so reusing fragments costs
+-- nothing at run time.
+idiomaticPipelineTopology :: F.Topology Void ()
+idiomaticPipelineTopology =
+  F.source "lines-in" textSerde textSerde
+    >>> normalise
+    >>> dropEmpties
+    >>> F.sink "lines-out" textSerde textSerde
+
 buildPipelineTopology :: IO Topology
-buildPipelineTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b (topicName "lines-in")
-            (consumed textSerde textSerde)
-  out <- applyPipeline (normalise >>> dropEmpties) src
-  toTopic (topicName "lines-out") (produced textSerde textSerde) out
-  buildTopology b
+buildPipelineTopology = F.buildTopologyFrom idiomaticPipelineTopology
 
--- | Run the topology against the in-process driver and print
--- the records routed to @lines-out@.
 runDemo :: IO ()
 runDemo = do
   putStrLn "=== IdiomaticPipelineDemo ==="

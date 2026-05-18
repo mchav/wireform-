@@ -6,7 +6,7 @@
 -- Description : KIP-150 cogroup — combine multiple grouped streams
 --               with distinct value types into one aggregate
 --
--- 'cogroup' lets you merge two (or more) grouped streams of
+-- 'F.cogroup' lets you merge two (or more) grouped streams of
 -- different value types into a shared aggregator. The classic
 -- demo: one stream of "deposit" amounts and another of
 -- "withdrawal" amounts, both keyed by accountId, contribute to a
@@ -26,53 +26,64 @@
 -- balance.toStream().to("balances-out");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). The cogroup is built up incrementally
+-- inside a small 'F.liftIO_' block — it's the cleanest way to
+-- combine the two source-rooted 'KGroupedStream' fragments into
+-- the @(CogroupedStream, KGroupedStream)@ tuple that
+-- 'F.addCogrouped' expects without contorting the source legs.
 module Kafka.Streams.Examples.Cogroup
   ( runDemo
+  , cogroupTopology
   , buildCogroupTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Cogroup as Cog
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
+
+cogroupTopology :: F.Topology Void ()
+cogroupTopology =
+  -- Build a CogroupedStream by compiling each source-rooted
+  -- 'F.Topology' fragment into the shared 'StreamsBuilder' and
+  -- chaining 'cogroup' / 'addCogrouped' against the resulting
+  -- 'KGroupedStream' handles.
+  F.liftIO_ "build-balance-cogroup"
+    (\b _ -> do
+        dgrp <- F.compileInBuilder b deposits
+        wgrp <- F.compileInBuilder b withdrawals
+        let cog0 = Cog.cogroup dgrp     (\_k v acc -> acc + v)
+            cog  = Cog.addCogrouped cog0 wgrp (\_k v acc -> acc - v)
+        pure cog)
+    >>> F.aggregateCogrouped (pure (0 :: Int64)) balancesMat
+    >>> F.toStream
+    >>> F.sink "balances-out" textSerde int64Serde
+  where
+    deposits :: F.Topology Void (KGroupedStream Text Int64)
+    deposits =
+      F.source "deposits" textSerde int64Serde
+        >>> F.groupByKey (grouped textSerde int64Serde)
+
+    withdrawals :: F.Topology Void (KGroupedStream Text Int64)
+    withdrawals =
+      F.source "withdrawals" textSerde int64Serde
+        >>> F.groupByKey (grouped textSerde int64Serde)
+
+    balancesMat :: Materialized Text Int64
+    balancesMat =
+      Mat.withValueSerde int64Serde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "balances-store")
 
 buildCogroupTopology :: IO Topology
-buildCogroupTopology = do
-  b <- newStreamsBuilder
-  deposits <- streamFromTopic b
-                 (topicName "deposits")
-                 (consumed textSerde int64Serde)
-  withdrawals <- streamFromTopic b
-                    (topicName "withdrawals")
-                    (consumed textSerde int64Serde)
-  let dgrp = groupByKey (grouped textSerde int64Serde) deposits
-      wgrp = groupByKey (grouped textSerde int64Serde) withdrawals
-  -- Shared aggregator state: Int64 running balance.
-  let cog = addCogrouped
-              (cogroup dgrp (\_k v acc -> acc + v))
-              wgrp
-              (\_k v acc -> acc - v)
-  balances <- aggregateCogrouped
-                (pure (0 :: Int64))
-                (materializedAs (storeName "balances-store"))
-                cog
-  -- Stream the table out as KTable.toStream().to(...).
-  -- ctlNode is the cogroup's emit anchor; build a KStream pinned
-  -- to it so we can sink it to a topic.
-  let s = KStream
-            { kstreamBuilder    = ctlBuilder balances
-            , kstreamParent     = ctlNode balances
-            , kstreamKeySerde   = textSerde
-            , kstreamValueSerde = int64Serde
-            }
-  toTopic
-    (topicName "balances-out")
-    (produced textSerde int64Serde)
-    s
-  buildTopology b
+buildCogroupTopology = F.buildTopologyFrom cogroupTopology
 
 runDemo :: IO ()
 runDemo = do

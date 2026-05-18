@@ -5,7 +5,7 @@
 -- Module      : Kafka.Streams.Examples.InventoryFKJoin
 -- Description : KIP-213 KTable-KTable foreign-key join
 --
--- Demonstrates 'foreignKeyJoinKTable': product catalog @KTable@
+-- Demonstrates 'F.foreignKeyJoin': product catalog @KTable@
 -- joined into a per-warehouse inventory @KTable@ on a foreign
 -- key extracted from the inventory value.
 --
@@ -22,47 +22,51 @@
 -- stocked.toStream().to("stocked");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow): both sides are materialised as tables,
+-- paired with '&&&', and run through 'F.foreignKeyJoin' before a
+-- 'F.toStream' + 'F.sink' tail.
 module Kafka.Streams.Examples.InventoryFKJoin
   ( runDemo
+  , fkJoinTopology
   , buildFKJoinTopology
   ) where
 
+import Control.Arrow ((&&&))
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
+
+fkJoinTopology :: F.Topology Void ()
+fkJoinTopology =
+  (inventory &&& products)
+    >>> F.foreignKeyJoin
+          (\v -> T.takeWhile (/= '|') v)
+          (\inv prod ->
+              prod <> "|" <> T.drop 1 (T.dropWhile (/= '|') inv))
+          stockedMat
+    >>> F.toStream
+    >>> F.sink "stocked" textSerde textSerde
+  where
+    inventory :: F.Topology Void (KTable Text Text)
+    inventory = F.tableSource "inventory" textSerde textSerde
+
+    products :: F.Topology Void (KTable Text Text)
+    products = F.tableSource "products"  textSerde textSerde
+
+    stockedMat :: Materialized Text Text
+    stockedMat =
+      Mat.withValueSerde textSerde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "stocked-store")
 
 buildFKJoinTopology :: IO Topology
-buildFKJoinTopology = do
-  b <- newStreamsBuilder
-  -- inventory: warehouseId -> "productId|qty"
-  inventory <- tableFromTopic b
-                  (topicName "inventory")
-                  (consumed textSerde textSerde)
-                  (materializedAs (storeName "inventory-store"))
-  -- products: productId -> "name|category"
-  products <- tableFromTopic b
-                 (topicName "products")
-                 (consumed textSerde textSerde)
-                 (materializedAs (storeName "products-store"))
-  -- KIP-213 inner FK join: extract the productId from the
-  -- inventory value, look it up in the products table, emit
-  -- "warehouse -> name|category|qty".
-  stocked <- foreignKeyJoinKTable
-                (\v -> T.takeWhile (/= '|') v)               -- FK extractor
-                (\inv prod ->
-                   prod <> "|" <> T.drop 1 (T.dropWhile (/= '|') inv))
-                (materializedAs (storeName "stocked-store"))
-                inventory
-                products
-  s <- toKStreamFromKTable stocked
-  toTopic
-    (topicName "stocked")
-    (produced textSerde textSerde)
-    (s { kstreamValueSerde = textSerde })
-  buildTopology b
+buildFKJoinTopology = F.buildTopologyFrom fkJoinTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -87,12 +91,8 @@ runDemo = do
   inv "w-east" "p-2|45"
   inv "w-west" "p-1|80"
 
-  -- Update product metadata mid-stream — every subscribing
-  -- inventory row re-emits with the new product info.
   prod "p-1" "Single-Origin Coffee|grocery"
 
-  -- Switch a warehouse from p-1 to p-3 (not yet in product table)
-  -- — the inner join drops it until the product arrives.
   inv "w-east" "p-3|10"
   prod "p-3" "Stovetop Kettle|kitchenware"
 
