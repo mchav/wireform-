@@ -65,7 +65,7 @@ import Kafka.Streams.Processor
   , getStateStore
   , processorName
   )
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (HasSerde (..), Serde)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
   )
@@ -173,7 +173,7 @@ globalSourceProc sn = do
 -- Mirrors @KStream.join(GlobalKTable, KeyValueMapper, ValueJoiner)@.
 joinKStreamGlobalKTable
   :: forall k v kg vg v'
-   . (Ord kg)
+   . (Ord kg, HasSerde v')
   => (k -> v -> kg)        -- ^ derive lookup key from stream record
   -> (v -> vg -> v')       -- ^ joiner
   -> KStream k v
@@ -206,7 +206,7 @@ joinKStreamGlobalKTable keyMap joiner s g = do
 -- | Left-join a stream with a global table.
 leftJoinKStreamGlobalKTable
   :: forall k v kg vg v'
-   . (Ord kg)
+   . (Ord kg, HasSerde v')
   => (k -> v -> kg)
   -> (v -> Maybe vg -> v')
   -> KStream k v
@@ -232,7 +232,7 @@ leftJoinKStreamGlobalKTable keyMap joiner s g = do
     { kstreamBuilder    = b
     , kstreamParent     = nm
     , kstreamKeySerde   = kstreamKeySerde s
-    , kstreamValueSerde = error "GlobalKTable left join: downstream serde unset"
+    , kstreamValueSerde = serde
     }
 
 data GMode v vg v' where

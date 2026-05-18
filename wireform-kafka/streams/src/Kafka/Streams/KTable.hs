@@ -58,7 +58,7 @@ import Kafka.Streams.Processor
   , getStateStore
   , processorName
   )
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (HasSerde (..), Serde)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
   )
@@ -254,7 +254,7 @@ filterNotTable p = filterTable (not . p)
 -- /JVM equivalent:/ @KTable.mapValues(ValueMapper, Materialized)@.
 mapValuesTable
   :: forall k v v'
-   . Ord k
+   . (Ord k, HasSerde v')
   => (v -> v')
   -> Materialized k v'
   -> KTable k v
@@ -283,7 +283,7 @@ mapValuesTable f m parent = do
     , ktableStore      = storeNm
     , ktableBuilder    = b
     , ktableKeySerde   = ktableKeySerde parent
-    , ktableValueSerde = error "KTable.mapValues: pass Materialized with serde to set output"
+    , ktableValueSerde = serde
     }
 
 -- | Stateful value-only transform on a 'KTable'. Mirrors

@@ -54,9 +54,19 @@ Record helpers ('serializeRecord' / 'deserializeRecord') apply a
 module Kafka.Serde
   ( -- * Type
     Serde (..)
-  , serde
+  , mkSerde
   , unsafeSerde
   , imap
+    -- * Type class
+  --
+  -- 'HasSerde' supplies the /default/ wire codec for a type. The
+  -- streams DSL resolves serdes through this class at every
+  -- type-changing operator (e.g. 'mapValues' picks up the new
+  -- value's 'Serde' via @'HasSerde' v'@). For non-default
+  -- encodings, every operator has a @'With'@ variant that
+  -- accepts an explicit 'Serde' (or a wrapping config like
+  -- 'Produced' \/ 'Repartitioned' \/ 'Grouped').
+  , HasSerde (..)
     -- * Built-ins
   , byteStringSerde
   , textSerde
@@ -114,8 +124,18 @@ data Serde a = Serde
   deriving stock (Generic)
 
 -- | Convenience builder for a total deserialiser.
-serde :: (a -> ByteString) -> (ByteString -> a) -> Serde a
-serde s d = Serde s (Right . d)
+mkSerde :: (a -> ByteString) -> (ByteString -> a) -> Serde a
+mkSerde s d = Serde s (Right . d)
+
+-- | Types whose default wire codec is implicit. Used by the
+-- streams DSL to resolve serdes at every type-changing
+-- operation. Provide an instance to make a type usable without
+-- threading an explicit 'Serde' through every operator; for
+-- alternative codecs over the same Haskell type, wrap with a
+-- @newtype@ that supplies its own 'HasSerde' instance, or
+-- reach for a @*With@ variant that takes an explicit 'Serde'.
+class HasSerde a where
+  serde :: Serde a
 
 -- | Convenience builder for a partial deserialiser whose error
 -- channel is 'String'.
@@ -130,7 +150,29 @@ imap toA fromA s = Serde
   }
 
 byteStringSerde :: Serde ByteString
-byteStringSerde = serde id id
+byteStringSerde = mkSerde id id
+
+----------------------------------------------------------------------
+-- HasSerde instances for the shipped built-in serdes
+--
+-- The streams DSL relies on these to resolve serdes implicitly at
+-- type-changing operators. The instance set mirrors the @builtIn@
+-- export list above; the orphan-instance rule keeps them in this
+-- module rather than scattered through the codebase.
+----------------------------------------------------------------------
+
+instance HasSerde ByteString where serde = byteStringSerde
+instance HasSerde Text       where serde = textSerde
+instance HasSerde ()         where serde = voidSerde
+instance HasSerde Int16      where serde = int16Serde
+instance HasSerde Int32      where serde = int32Serde
+instance HasSerde Int64      where serde = int64Serde
+instance HasSerde Word16     where serde = word16Serde
+instance HasSerde Word32     where serde = word32Serde
+instance HasSerde Word64     where serde = word64Serde
+instance HasSerde Double     where serde = doubleSerde
+instance HasSerde Float      where serde = floatSerde
+instance HasSerde UUID       where serde = uuidSerde
 
 -- | UTF-8 'Text' serde. Mirrors @org.apache.kafka.common.serialization.StringSerializer@.
 textSerde :: Serde Text

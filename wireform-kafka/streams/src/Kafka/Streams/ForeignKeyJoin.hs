@@ -109,6 +109,7 @@ import Kafka.Streams.State.Store
   )
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Joined as Joined
+import Kafka.Streams.Serde (HasSerde (..))
 import qualified Data.Text as T
 import Kafka.Streams.Types (Record (..))
 
@@ -126,7 +127,7 @@ mkToken v = SubscriptionToken (hash v)
 -- subscription token verification.
 foreignKeyJoinKTable
   :: forall k v fk vr v'
-   . (Ord k, Ord fk, Hashable v)
+   . (Ord k, Ord fk, Hashable v, HasSerde v')
   => (v -> fk)                 -- foreign-key extractor
   -> (v -> vr -> v')           -- joiner
   -> Materialized k v'
@@ -140,7 +141,7 @@ foreignKeyJoinKTable extractor joiner =
 -- on the right side; left records always emit at least once.
 leftForeignKeyJoinKTable
   :: forall k v fk vr v'
-   . (Ord k, Ord fk, Hashable v)
+   . (Ord k, Ord fk, Hashable v, HasSerde v')
   => (v -> fk)
   -> (v -> Maybe vr -> v')
   -> Materialized k v'
@@ -171,7 +172,7 @@ leftForeignKeyJoinKTable extractor joiner =
 -- topologies when the runtime gains full support.
 foreignKeyJoinKTableWith
   :: forall k v fk vr v'
-   . (Ord k, Ord fk, Hashable v)
+   . (Ord k, Ord fk, Hashable v, HasSerde v')
   => Joined.TableJoined k fk
   -> (v -> fk)
   -> (v -> vr -> v')
@@ -184,7 +185,7 @@ foreignKeyJoinKTableWith _tj extractor joiner =
 
 leftForeignKeyJoinKTableWith
   :: forall k v fk vr v'
-   . (Ord k, Ord fk, Hashable v)
+   . (Ord k, Ord fk, Hashable v, HasSerde v')
   => Joined.TableJoined k fk
   -> (v -> fk)
   -> (v -> Maybe vr -> v')
@@ -202,7 +203,7 @@ data FKMode v vr v' where
 
 buildFKJoin
   :: forall k v fk vr v'
-   . (Ord k, Ord fk, Hashable v)
+   . (Ord k, Ord fk, Hashable v, HasSerde v')
   => String                            -- prefix (debug only)
   -> (v -> fk)
   -> FKMode v vr v'
@@ -284,7 +285,7 @@ buildFKJoin _prefix extractor mode m kl kr = do
     , ktableStore      = outNm
     , ktableBuilder    = b
     , ktableKeySerde   = ktableKeySerde kl
-    , ktableValueSerde = error "FK join: pass Materialized with serde to set output"
+    , ktableValueSerde = serde
     }
 
 -- | Trivial passthrough used as the FK-join's output anchor so

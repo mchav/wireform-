@@ -55,7 +55,9 @@ buildSuppressTopo cfg windowSizeMs graceMs = do
   -- WindowedKey. Different input keys -> different windowed
   -- keys -> different buffer slots (so we can fill the cap).
   let toWindowed k v = (WindowedKey k (Timestamp 0), v)
-  ws <- mapKeyValue toWindowed s
+  -- WindowedKey has no default HasSerde instance, so supply the
+  -- pair of serdes explicitly via mapKeyValueWith.
+  ws <- mapKeyValueWith (windowedSerde textSerde) int64Serde toWindowed s
   out <- suppressWindowedWith
            (millis graceMs)
            windowSizeMs

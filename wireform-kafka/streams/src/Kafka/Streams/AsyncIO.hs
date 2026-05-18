@@ -61,9 +61,17 @@ module Kafka.Streams.AsyncIO
   ( -- * Re-exports from "Kafka.Streams.AsyncIO.Config"
     module Kafka.Streams.AsyncIO.Config
     -- * Smart constructors over 'KStream'
+  --
+  -- Each operation has two forms: a default-serde variant that
+  -- resolves the new wire type's 'Serde' via 'HasSerde', and a
+  -- @*With@ override that takes an explicit 'Serde' (useful for
+  -- alternative codecs over the same Haskell type).
   , asyncMapValues
+  , asyncMapValuesWith
   , asyncMapKeyValue
+  , asyncMapKeyValueWith
   , asyncConcatMapValues
+  , asyncConcatMapValuesWith
     -- * Processor builders
   --
   -- Used by the 'Kafka.Streams.Topology.Free.Prim' interpreter.
@@ -103,6 +111,7 @@ import Data.Sequence (Seq, (|>))
 import Kafka.Streams.AsyncIO.Config
 import Kafka.Streams.KStream (KStream (..))
 import qualified Kafka.Streams.KStream as KS
+import Kafka.Streams.Serde (HasSerde (..), Serde)
 import Kafka.Streams.Processor
   ( Cancellable (..)
   , Processor (..)
@@ -135,30 +144,53 @@ import Kafka.Streams.Types (Record (..))
 -- @
 asyncMapValues
   :: forall k v v'
-   . AsyncIOConfig
+   . HasSerde v'
+  => AsyncIOConfig
   -> (v -> IO v')
   -> KStream k v
   -> IO (KStream k v')
-asyncMapValues cfg f s =
+asyncMapValues = asyncMapValuesWith serde
+
+-- | 'asyncMapValues' with an explicit downstream value 'Serde'.
+asyncMapValuesWith
+  :: forall k v v'
+   . Serde v'
+  -> AsyncIOConfig
+  -> (v -> IO v')
+  -> KStream k v
+  -> IO (KStream k v')
+asyncMapValuesWith vs' cfg f s =
   KS.attachProcessor s (aioName cfg)
     (asyncMapValuesProc cfg f)
     (kstreamKeySerde s)
-    (kstreamValueSerdeMissing "asyncMapValues")
+    vs'
 
 -- | Async analogue of 'Kafka.Streams.KStream.mapKeyValueM'. May
--- change both key and value; the downstream key serde is
--- inherited as a thunk that the next @to@\/@through@ must supply.
+-- change both key and value; the new types' default serdes are
+-- resolved via 'HasSerde'.
 asyncMapKeyValue
   :: forall k v k' v'
-   . AsyncIOConfig
+   . (HasSerde k', HasSerde v')
+  => AsyncIOConfig
   -> (k -> v -> IO (k', v'))
   -> KStream k v
   -> IO (KStream k' v')
-asyncMapKeyValue cfg f s =
+asyncMapKeyValue = asyncMapKeyValueWith serde serde
+
+-- | 'asyncMapKeyValue' with explicit downstream key + value 'Serde's.
+asyncMapKeyValueWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> AsyncIOConfig
+  -> (k -> v -> IO (k', v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+asyncMapKeyValueWith ks' vs' cfg f s =
   KS.attachProcessor s (aioName cfg)
     (asyncMapKeyValueProc cfg f)
-    (kstreamKeySerdeMissing "asyncMapKeyValue")
-    (kstreamValueSerdeMissing "asyncMapKeyValue")
+    ks'
+    vs'
 
 -- | Async analogue of 'Kafka.Streams.KStream.concatMapValues' but
 -- with effectful expansion: each input record yields zero or more
@@ -167,15 +199,26 @@ asyncMapKeyValue cfg f s =
 -- ordering across input records follows 'aioOutputMode'.
 asyncConcatMapValues
   :: forall k v v'
-   . AsyncIOConfig
+   . HasSerde v'
+  => AsyncIOConfig
   -> (v -> IO [v'])
   -> KStream k v
   -> IO (KStream k v')
-asyncConcatMapValues cfg f s =
+asyncConcatMapValues = asyncConcatMapValuesWith serde
+
+-- | 'asyncConcatMapValues' with an explicit downstream value 'Serde'.
+asyncConcatMapValuesWith
+  :: forall k v v'
+   . Serde v'
+  -> AsyncIOConfig
+  -> (v -> IO [v'])
+  -> KStream k v
+  -> IO (KStream k v')
+asyncConcatMapValuesWith vs' cfg f s =
   KS.attachProcessor s (aioName cfg)
     (asyncConcatMapValuesProc cfg f)
     (kstreamKeySerde s)
-    (kstreamValueSerdeMissing "asyncConcatMapValues")
+    vs'
 
 ----------------------------------------------------------------------
 -- Processor builders
@@ -704,15 +747,3 @@ recordWithKeyValue r k' v' = Record
   , recordHeaders   = recordHeaders r
   }
 
--- Lazy-error thunks matching the existing imperative-DSL convention
--- (see 'Kafka.Streams.KStream.mapValuesM') — the downstream serde
--- is left missing and the next @to@\/@through@ must supply one.
-kstreamKeySerdeMissing :: String -> a
-kstreamKeySerdeMissing nm =
-  error ("Kafka.Streams.AsyncIO." <> nm
-        <> ": downstream key Serde unset; supply via to/through")
-
-kstreamValueSerdeMissing :: String -> a
-kstreamValueSerdeMissing nm =
-  error ("Kafka.Streams.AsyncIO." <> nm
-        <> ": downstream value Serde unset; supply via to/through")
