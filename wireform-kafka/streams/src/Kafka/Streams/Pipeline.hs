@@ -53,8 +53,8 @@ module Kafka.Streams.Pipeline
   , pmapKeyValue
   , pfilter
   , pfilterNot
-  , pflatMapValues
-  , pflatMapKeyValue
+  , pconcatMapValues
+  , pconcatMapKeyValue
   , ppeek
   , pselectKey
   , pvalues
@@ -219,16 +219,16 @@ pfilterNot
 pfilterNot p = Pipeline (KS.filterNotStream p)
 
 -- | One-to-many value transform.
-pflatMapValues
+pconcatMapValues
   :: (v -> [v'])
   -> Pipeline (KS.KStream k v) (KS.KStream k v')
-pflatMapValues f = Pipeline (KS.flatMapValues f)
+pconcatMapValues f = Pipeline (KS.concatMapValues f)
 
 -- | One-to-many key+value transform.
-pflatMapKeyValue
+pconcatMapKeyValue
   :: (k -> v -> [(k', v')])
   -> Pipeline (KS.KStream k v) (KS.KStream k' v')
-pflatMapKeyValue f = Pipeline (KS.flatMapKeyValue f)
+pconcatMapKeyValue f = Pipeline (KS.concatMapKeyValue f)
 
 -- | Side-effecting observer; doesn't change the stream.
 ppeek

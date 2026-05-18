@@ -398,15 +398,15 @@ primNode p0 = case p0 of
     ("AsyncMapValues\n" <> aioConfigLabel cfg,     "ellipse")
   AsyncMapKeyValue cfg _   ->
     ("AsyncMapKeyValue\n" <> aioConfigLabel cfg,   "ellipse")
-  AsyncFlatMapValues cfg _ ->
-    ("AsyncFlatMapValues\n" <> aioConfigLabel cfg, "ellipse")
+  AsyncConcatMapValues cfg _ ->
+    ("AsyncConcatMapValues\n" <> aioConfigLabel cfg, "ellipse")
   MapRecord _              -> ("MapRecord",         "ellipse")
   MapRecordM _             -> ("MapRecordM",        "ellipse")
   NoFuse                   -> ("NoFuse",            "doublecircle")
   Filter _                 -> ("Filter",            "ellipse")
   FilterNot _              -> ("FilterNot",         "ellipse")
-  FlatMapValues _          -> ("FlatMapValues",     "ellipse")
-  FlatMapKeyValue _        -> ("FlatMapKeyValue",   "ellipse")
+  ConcatMapValues _          -> ("ConcatMapValues",     "ellipse")
+  ConcatMapKeyValue _        -> ("ConcatMapKeyValue",   "ellipse")
   Peek _                   -> ("Peek",              "ellipse")
   Foreach _                -> ("Foreach",           "invtrapezium")
   SelectKey _              -> ("SelectKey",         "ellipse")

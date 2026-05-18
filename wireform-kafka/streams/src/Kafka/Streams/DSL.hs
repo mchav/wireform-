@@ -91,8 +91,8 @@ module Kafka.Streams.DSL
   , mapWithKeyM
   , filter
   , filterNot
-  , flatMap
-  , flatMapWithKey
+  , concatMap
+  , concatMapWithKey
   , peek
   , foreach
   , selectKey
@@ -127,7 +127,7 @@ module Kafka.Streams.DSL
   , Pipe (..)
   ) where
 
-import Prelude hiding (filter, map, mapM)
+import Prelude hiding (concatMap, filter, map, mapM)
 
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -356,14 +356,20 @@ filterNot
   :: (Record k v -> Bool) -> KStream k v -> Streams (KStream k v)
 filterNot p s = liftIO (KS.filterNotStream p s)
 
--- | One-to-many value-only expansion. Mirrors @KStream.flatMapValues@.
-flatMap :: (v -> [v']) -> KStream k v -> Streams (KStream k v')
-flatMap f s = liftIO (KS.flatMapValues f s)
+-- | One-to-many value-only expansion. Mirrors
+-- 'Kafka.Streams.KStream.concatMapValues' (the JVM
+-- @KStream.flatMapValues@). The name follows Haskell's
+-- 'Data.List.concatMap' convention rather than Scala's
+-- @flatMap@.
+concatMap :: (v -> [v']) -> KStream k v -> Streams (KStream k v')
+concatMap f s = liftIO (KS.concatMapValues f s)
 
--- | One-to-many (key, value) expansion. Mirrors @KStream.flatMap@.
-flatMapWithKey
+-- | One-to-many @(key, value)@ expansion. Mirrors
+-- 'Kafka.Streams.KStream.concatMapKeyValue' (the JVM
+-- @KStream.flatMap@).
+concatMapWithKey
   :: (k -> v -> [(k', v')]) -> KStream k v -> Streams (KStream k' v')
-flatMapWithKey f s = liftIO (KS.flatMapKeyValue f s)
+concatMapWithKey f s = liftIO (KS.concatMapKeyValue f s)
 
 -- | Side-effecting observer (record is unchanged). Mirrors @KStream.peek@.
 peek

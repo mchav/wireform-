@@ -9,7 +9,7 @@
 -- The 'Kafka.Streams.Topology.Free' AST optimiser applies a long
 -- list of semantics-preserving rewrites: 'MapValues' \/
 -- 'MapKeyValue' \/ 'MapRecord' fusion, 'Filter' \/ 'FilterNot'
--- fusion, 'FlatMapValues' fusion, 'Peek' fusion, 'Tap' collapse,
+-- fusion, 'ConcatMapValues' fusion, 'Peek' fusion, 'Tap' collapse,
 -- repartition collapse, repartition hoisting, auto-insert
 -- repartition, 'optFuseSyncIntoAsync' from the Riffle work, etc.
 --
@@ -87,8 +87,8 @@ opToFragment = \case
     F.filter (\r -> T.length (recordValue r) < n)
   OpFilterNotShort n     ->
     F.filterNot (\r -> T.length (recordValue r) < n)
-  OpFlatMapWords         -> F.flatMapValues T.words
-  OpFlatMapDuplicate     -> F.flatMapValues (\v -> [v, v])
+  OpFlatMapWords         -> F.concatMapValues T.words
+  OpFlatMapDuplicate     -> F.concatMapValues (\v -> [v, v])
   OpPeek                 -> F.peek (\_r -> pure ())
   OpNoFuse               -> F.noFuse
   OpRepartition pfx      -> F.repartition pfx

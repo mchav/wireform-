@@ -12,7 +12,7 @@
 --
 -- @
 -- builder.<String,String>stream("streams-plaintext-input")
---        .flatMapValues(value -> Arrays.asList(value.split("\\W+")))
+--        .concatMapValues(value -> Arrays.asList(value.split("\\W+")))
 --        .to("streams-linesplit-output");
 -- @
 --
@@ -34,7 +34,7 @@ buildLineSplitTopology = do
   src <- streamFromTopic b
             (topicName "streams-plaintext-input")
             (consumed textSerde textSerde)
-  words_ <- flatMapValues (T.words :: Text -> [Text]) src
+  words_ <- concatMapValues (T.words :: Text -> [Text]) src
   toTopic
     (topicName "streams-linesplit-output")
     (produced textSerde textSerde)

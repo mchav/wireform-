@@ -63,7 +63,7 @@ module Kafka.Streams.AsyncIO
     -- * Smart constructors over 'KStream'
   , asyncMapValues
   , asyncMapKeyValue
-  , asyncFlatMapValues
+  , asyncConcatMapValues
     -- * Processor builders
   --
   -- Used by the 'Kafka.Streams.Topology.Free.Prim' interpreter.
@@ -73,7 +73,7 @@ module Kafka.Streams.AsyncIO
   -- 'Kafka.Streams.Topology.Topology' graph by hand.
   , asyncMapValuesProc
   , asyncMapKeyValueProc
-  , asyncFlatMapValuesProc
+  , asyncConcatMapValuesProc
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -160,22 +160,22 @@ asyncMapKeyValue cfg f s =
     (kstreamKeySerdeMissing "asyncMapKeyValue")
     (kstreamValueSerdeMissing "asyncMapKeyValue")
 
--- | Async analogue of 'Kafka.Streams.KStream.flatMapValues' but
+-- | Async analogue of 'Kafka.Streams.KStream.concatMapValues' but
 -- with effectful expansion: each input record yields zero or more
 -- outputs, computed on the worker pool. Ordering across the
 -- emitted list is preserved within a single input record;
 -- ordering across input records follows 'aioOutputMode'.
-asyncFlatMapValues
+asyncConcatMapValues
   :: forall k v v'
    . AsyncIOConfig
   -> (v -> IO [v'])
   -> KStream k v
   -> IO (KStream k v')
-asyncFlatMapValues cfg f s =
+asyncConcatMapValues cfg f s =
   KS.attachProcessor s (aioName cfg)
-    (asyncFlatMapValuesProc cfg f)
+    (asyncConcatMapValuesProc cfg f)
     (kstreamKeySerde s)
-    (kstreamValueSerdeMissing "asyncFlatMapValues")
+    (kstreamValueSerdeMissing "asyncConcatMapValues")
 
 ----------------------------------------------------------------------
 -- Processor builders
@@ -212,13 +212,13 @@ asyncMapKeyValueProc cfg f =
            (!k', !v') <- f k (recordValue r)
            pure (Seq.singleton (recordWithKeyValue r k' v')))
 
--- | Processor backing 'asyncFlatMapValues'.
-asyncFlatMapValuesProc
+-- | Processor backing 'asyncConcatMapValues'.
+asyncConcatMapValuesProc
   :: forall k v v'
    . AsyncIOConfig
   -> (v -> IO [v'])
   -> IO (Processor k v)
-asyncFlatMapValuesProc cfg f =
+asyncConcatMapValuesProc cfg f =
   buildAsyncProcessor cfg
     (\r -> do
        vs <- f (recordValue r)

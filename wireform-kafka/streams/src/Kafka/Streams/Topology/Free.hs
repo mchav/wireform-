@@ -313,7 +313,7 @@ module Kafka.Streams.Topology.Free
   -- whenever the per-record IO is latency-bound.
   , asyncMapValues
   , asyncMapKeyValue
-  , asyncFlatMapValues
+  , asyncConcatMapValues
     -- ** Named operator variants (KIP-307)
   , filterNamed
   , mapValuesNamed
@@ -345,8 +345,8 @@ module Kafka.Streams.Topology.Free
   , aggregateWindowedCogrouped
   , filter
   , filterNot
-  , flatMapValues
-  , flatMapKeyValue
+  , concatMapValues
+  , concatMapKeyValue
   , peek
   , foreach
   , prints
@@ -653,7 +653,7 @@ data Prim i o where
   -- zero or more outputs, computed on the worker pool. Within a
   -- single record, output ordering follows the returned list; across
   -- input records, output ordering follows 'aioOutputMode'.
-  AsyncFlatMapValues   :: !AIO.AsyncIOConfig
+  AsyncConcatMapValues   :: !AIO.AsyncIOConfig
                        -> (v -> IO [v'])
                        -> Prim (KStream k v) (KStream k v')
   -- | Full-record pure transform: see key, value, timestamp,
@@ -669,8 +669,8 @@ data Prim i o where
                   -> Prim (KStream k v) (KStream k' v')
   Filter          :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
   FilterNot       :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
-  FlatMapValues   :: (v -> [v'])       -> Prim (KStream k v) (KStream k v')
-  FlatMapKeyValue :: (k -> v -> [(k', v')])
+  ConcatMapValues   :: (v -> [v'])       -> Prim (KStream k v) (KStream k v')
+  ConcatMapKeyValue :: (k -> v -> [(k', v')])
                   -> Prim (KStream k v) (KStream k' v')
   Peek            :: (Record k v -> IO ()) -> Prim (KStream k v) (KStream k v)
   Foreach         :: (Record k v -> IO ()) -> Prim (KStream k v) ()
@@ -1007,14 +1007,14 @@ runPrim b = go
     go (MapKeyValueM f)      = KS.mapKeyValueM f
     go (AsyncMapValues cfg f)     = AIO.asyncMapValues cfg f
     go (AsyncMapKeyValue cfg f)   = AIO.asyncMapKeyValue cfg f
-    go (AsyncFlatMapValues cfg f) = AIO.asyncFlatMapValues cfg f
+    go (AsyncConcatMapValues cfg f) = AIO.asyncConcatMapValues cfg f
     go (MapRecord f)         = KS.mapRecord f
     go (MapRecordM f)        = KS.mapRecordM f
     go NoFuse                = pure
     go (Filter p)            = KS.filterStream p
     go (FilterNot p)         = KS.filterNotStream p
-    go (FlatMapValues f)     = KS.flatMapValues f
-    go (FlatMapKeyValue f)   = KS.flatMapKeyValue f
+    go (ConcatMapValues f)     = KS.concatMapValues f
+    go (ConcatMapKeyValue f)   = KS.concatMapKeyValue f
     go (Peek f)              = KS.peekStream f
     go (Foreach f)           = KS.foreachStream f
     go (SelectKey f)         = KS.selectKey f
@@ -1700,7 +1700,7 @@ through t ks vs = liftPrim (Through (topicName t) (produced ks vs))
 -- == Repartition implications
 --
 -- Transforms that change the /key/ ('mapKeyValue', 'mapKeyValueM',
--- 'flatMapKeyValue', 'selectKey') mark the stream as
+-- 'concatMapKeyValue', 'selectKey') mark the stream as
 -- /needing repartition/ for any subsequent stateful operation
 -- (groupBy, join, aggregate). Use 'repartition' explicitly when
 -- you want to force the shuffle at a particular point — Kafka's
@@ -1816,11 +1816,11 @@ asyncMapKeyValue cfg = liftPrim . AsyncMapKeyValue cfg
 -- a (possibly empty) list of outputs. Within one input record
 -- the output ordering follows the returned list; across input
 -- records it follows 'AIO.aioOutputMode'.
-asyncFlatMapValues
+asyncConcatMapValues
   :: AIO.AsyncIOConfig
   -> (v -> IO [v'])
   -> Topology (KStream k v) (KStream k v')
-asyncFlatMapValues cfg = liftPrim . AsyncFlatMapValues cfg
+asyncConcatMapValues cfg = liftPrim . AsyncConcatMapValues cfg
 
 -- | Apply a pure transform to the full 'Record' — key, value,
 -- timestamp, and headers all in scope. Useful when the
@@ -1948,13 +1948,13 @@ filterNot = liftPrim . FilterNot
 -- changing only the value (key + timestamp + headers all
 -- inherited from the input record).
 --
--- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
+-- /JVM equivalent:/ @KStream.concatMapValues(ValueMapper)@.
 --
 -- Useful for record-splitting (e.g. line → words) and
 -- conditional emission (e.g. @Just x -> [x]; Nothing -> []@).
 -- An empty list drops the input record entirely.
-flatMapValues :: (v -> [v']) -> Topology (KStream k v) (KStream k v')
-flatMapValues = liftPrim . FlatMapValues
+concatMapValues :: (v -> [v']) -> Topology (KStream k v) (KStream k v')
+concatMapValues = liftPrim . ConcatMapValues
 
 -- | Expand each record into zero or more output records,
 -- potentially changing both key and value.
@@ -1965,9 +1965,9 @@ flatMapValues = liftPrim . FlatMapValues
 -- repartition for downstream stateful ops; insert
 -- 'repartition' before any stateful stage if you're changing
 -- the partitioning.
-flatMapKeyValue
+concatMapKeyValue
   :: (k -> v -> [(k', v')]) -> Topology (KStream k v) (KStream k' v')
-flatMapKeyValue = liftPrim . FlatMapKeyValue
+concatMapKeyValue = liftPrim . ConcatMapKeyValue
 
 -- | Run a side-effecting observer per record and pass the
 -- record through unchanged. Useful for metrics, logging, or
@@ -2213,7 +2213,7 @@ toStream = liftPrim ToStream
 -- == When to call this
 --
 -- Insert 'repartition' between a key-changing op (a
--- 'selectKey' / 'mapKeyValue' / 'flatMapKeyValue') and a
+-- 'selectKey' / 'mapKeyValue' / 'concatMapKeyValue') and a
 -- subsequent stateful op (a 'groupBy' / 'aggregate' / 'join')
 -- to make the broker re-shuffle records so per-key ordering
 -- holds.
@@ -2269,7 +2269,7 @@ repartitionWith = liftPrim . RepartitionWith
 -- needs to read/write the state store.
 --
 -- If the upstream had a key-changing op ('selectKey',
--- 'mapKeyValue', 'flatMapKeyValue') without an explicit
+-- 'mapKeyValue', 'concatMapKeyValue') without an explicit
 -- 'repartition' in between, the broker partition layout no
 -- longer matches the new key and the aggregation will silently
 -- produce wrong results. Either insert 'repartition' or use
@@ -3408,15 +3408,15 @@ labelPrim p0 = case p0 of
     "AsyncMapValues(" <> AIO.aioName cfg <> ")"
   AsyncMapKeyValue cfg _   ->
     "AsyncMapKeyValue(" <> AIO.aioName cfg <> ")"
-  AsyncFlatMapValues cfg _ ->
-    "AsyncFlatMapValues(" <> AIO.aioName cfg <> ")"
+  AsyncConcatMapValues cfg _ ->
+    "AsyncConcatMapValues(" <> AIO.aioName cfg <> ")"
   MapRecord _        -> "MapRecord"
   MapRecordM _       -> "MapRecordM"
   NoFuse             -> "NoFuse"
   Filter _           -> "Filter"
   FilterNot _        -> "FilterNot"
-  FlatMapValues _    -> "FlatMapValues"
-  FlatMapKeyValue _  -> "FlatMapKeyValue"
+  ConcatMapValues _    -> "ConcatMapValues"
+  ConcatMapKeyValue _  -> "ConcatMapKeyValue"
   Peek _             -> "Peek"
   Foreach _          -> "Foreach"
   SelectKey _        -> "SelectKey"
@@ -3596,7 +3596,7 @@ prettyPrintDeep = T.intercalate " " . inspectDeep
 -- The rewrite set covers Category\/Arrow laws (Id collapse, Arr
 -- fusion, push-pure-through-First\/Second\/Parallel\/Fanout,
 -- right-associate Compose), KStream operator fusion
--- (MapValues\/MapValuesM\/MapKeyValue\/FlatMapValues\/Filter\/
+-- (MapValues\/MapValuesM\/MapKeyValue\/ConcatMapValues\/Filter\/
 -- FilterNot\/SelectKey\/Peek), and structural identity collapse
 -- (Tap Id, First Id, Parallel Id Id, etc).
 --
@@ -3672,8 +3672,8 @@ data OptimizeConfig = OptimizeConfig
     -- | Fuse adjacent 'Filter' \/ 'FilterNot'.
   , optFuseFilters       :: !Bool
 
-    -- | Fuse 'FlatMapValues' with adjacent 'MapValues' and itself.
-  , optFuseFlatMaps      :: !Bool
+    -- | Fuse 'ConcatMapValues' with adjacent 'MapValues' and itself.
+  , optFuseConcatMaps      :: !Bool
 
     -- | Fuse adjacent 'SelectKey'.
   , optFuseSelectKeys    :: !Bool
@@ -3704,7 +3704,7 @@ data OptimizeConfig = OptimizeConfig
     -- | Drop a 'Repartition' that's about to be invalidated by a
     -- /key-changing/ op. Pattern: @'SelectKey' f '.' 'Repartition' _ = 'SelectKey' f@
     -- (similarly for 'MapKeyValue' / 'MapKeyValueM' /
-    -- 'FlatMapKeyValue', plus the 'RepartitionWith' variant).
+    -- 'ConcatMapKeyValue', plus the 'RepartitionWith' variant).
     -- Saves a wasted shuffle when callers accidentally write
     -- @repartition >>> selectKey@ instead of the other way
     -- around. The downstream stateful op will still need its
@@ -3721,7 +3721,7 @@ data OptimizeConfig = OptimizeConfig
     --   * @'MapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'MapValues' g@
     --   * @'Filter' q '.' 'Repartition' p    = 'Repartition' p '.' 'Filter' q@
     --   * @'FilterNot' q '.' 'Repartition' p = 'Repartition' p '.' 'FilterNot' q@
-    --   * @'FlatMapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'FlatMapValues' g@
+    --   * @'ConcatMapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'ConcatMapValues' g@
     --   * and the 'RepartitionWith' analogues.
     --
     -- Only pure key-preserving ops are hoisted — IO variants
@@ -3736,7 +3736,7 @@ data OptimizeConfig = OptimizeConfig
     -- /auto-insert-repartition-on-stateful-op/ behaviour. When
     -- enabled, the optimiser walks the AST in flow order tracking
     -- a /key-dirty/ flag (set by 'SelectKey' / 'MapKeyValue' /
-    -- 'MapKeyValueM' / 'FlatMapKeyValue'; cleared by 'Repartition'
+    -- 'MapKeyValueM' / 'ConcatMapKeyValue'; cleared by 'Repartition'
     -- / 'RepartitionWith') and inserts a 'Repartition' on the
     -- relevant 'KStream' edge whenever a stateful op would
     -- otherwise read mis-partitioned records:
@@ -3804,7 +3804,7 @@ defaultOptimizeConfig = OptimizeConfig
   , optFusePureFunctions            = True
   , optFuseMaps                     = True
   , optFuseFilters                  = True
-  , optFuseFlatMaps                 = True
+  , optFuseConcatMaps                 = True
   , optFuseSelectKeys               = True
   , optFusePeeks                    = True
   , optCollapseIdentity             = True
@@ -3827,7 +3827,7 @@ noOptimization = OptimizeConfig
   , optFusePureFunctions            = False
   , optFuseMaps                     = False
   , optFuseFilters                  = False
-  , optFuseFlatMaps                 = False
+  , optFuseConcatMaps                 = False
   , optFuseSelectKeys               = False
   , optFusePeeks                    = False
   , optCollapseIdentity             = False
@@ -4033,7 +4033,7 @@ autoInsertRepartitionPass cfg t0
     walkPrim _ p@(SelectKey _)        = (True, liftPrim p)
     walkPrim _ p@(MapKeyValue _)      = (True, liftPrim p)
     walkPrim _ p@(MapKeyValueM _)     = (True, liftPrim p)
-    walkPrim _ p@(FlatMapKeyValue _)  = (True, liftPrim p)
+    walkPrim _ p@(ConcatMapKeyValue _)  = (True, liftPrim p)
     -- Repartitions clear dirty.
     walkPrim _ p@(Repartition _)      = (False, liftPrim p)
     walkPrim _ p@(RepartitionWith _)  = (False, liftPrim p)
@@ -4091,7 +4091,7 @@ endsKeyDirty = go False
     go _ (Lift (SelectKey _))       = True
     go _ (Lift (MapKeyValue _))     = True
     go _ (Lift (MapKeyValueM _))    = True
-    go _ (Lift (FlatMapKeyValue _)) = True
+    go _ (Lift (ConcatMapKeyValue _)) = True
     go _ (Lift (Repartition _))     = False
     go _ (Lift (RepartitionWith _)) = False
     go d (Lift _)                   = d
@@ -4261,8 +4261,8 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (AsyncMapKeyValue aioCfg (\k v ->
       let (!k', !v') = f' k v
       in g' k' v')))
-  (Lift (AsyncFlatMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
-    Just (liftPrim (AsyncFlatMapValues aioCfg (\v -> g' (f' v))))
+  (Lift (AsyncConcatMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncConcatMapValues aioCfg (\v -> g' (f' v))))
 
   -- MapRecord family — full-record transforms compose just like
   -- their value-only counterparts.
@@ -4276,12 +4276,12 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (MapRecordM (\r -> f' r >>= g')))
 
   -- FlatMap fusion
-  (Lift (FlatMapValues g'), Lift (MapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (g' . f')))
-  (Lift (MapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (fmap g' . f')))
-  (Lift (FlatMapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (\v -> concatMap g' (f' v))))
+  (Lift (ConcatMapValues g'), Lift (MapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (g' . f')))
+  (Lift (MapValues g'), Lift (ConcatMapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (fmap g' . f')))
+  (Lift (ConcatMapValues g'), Lift (ConcatMapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (\v -> concatMap g' (f' v))))
 
   -- Filter / FilterNot fusion. 'f' runs first, so the conjunction's
   -- left-hand side is the inner predicate.
@@ -4375,12 +4375,12 @@ fuseStep cfg g f = case (g, f) of
   (Lift (MapKeyValueM f'), Lift (RepartitionWith _))
     | optDropPreKeyChangeRepartition cfg ->
         Just (liftPrim (MapKeyValueM f'))
-  (Lift (FlatMapKeyValue f'), Lift (Repartition _))
+  (Lift (ConcatMapKeyValue f'), Lift (Repartition _))
     | optDropPreKeyChangeRepartition cfg ->
-        Just (liftPrim (FlatMapKeyValue f'))
-  (Lift (FlatMapKeyValue f'), Lift (RepartitionWith _))
+        Just (liftPrim (ConcatMapKeyValue f'))
+  (Lift (ConcatMapKeyValue f'), Lift (RepartitionWith _))
     | optDropPreKeyChangeRepartition cfg ->
-        Just (liftPrim (FlatMapKeyValue f'))
+        Just (liftPrim (ConcatMapKeyValue f'))
 
   -- Hoist pure key-preserving stateless ops /upstream/ of an
   -- adjacent Repartition. Result: the op runs before the shuffle
@@ -4400,9 +4400,9 @@ fuseStep cfg g f = case (g, f) of
   (Lift (MapValues g'), Lift (Repartition pfx))
     | optHoistThroughRepartition cfg ->
         Just (Compose (liftPrim (Repartition pfx)) (liftPrim (MapValues g')))
-  (Lift (FlatMapValues g'), Lift (Repartition pfx))
+  (Lift (ConcatMapValues g'), Lift (Repartition pfx))
     | optHoistThroughRepartition cfg ->
-        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (FlatMapValues g')))
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (ConcatMapValues g')))
 
   -- Value-type-preserving predicates hoist through both
   -- 'Repartition' /and/ 'RepartitionWith' — no type juggling

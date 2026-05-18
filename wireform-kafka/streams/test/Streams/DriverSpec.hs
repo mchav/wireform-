@@ -105,15 +105,15 @@ map_values = testCase "mapValues transforms each value" $ do
   closeDriver driver
 
 ----------------------------------------------------------------------
--- 4. flatMapValues
+-- 4. concatMapValues
 ----------------------------------------------------------------------
 
 flatmap_values :: TestTree
-flatmap_values = testCase "flatMapValues splits each record" $ do
+flatmap_values = testCase "concatMapValues splits each record" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
-  s' <- flatMapValues (T.words) s
+  s' <- concatMapValues (T.words) s
   toTopic (topicName "out") (produced textSerde textSerde) s'
   topo <- buildTopology b
   driver <- newDriver topo "test-app"

@@ -294,14 +294,14 @@ Concrete changes:
        -> (k -> v -> IO (k', v'))
        -> Prim (KStream k v) (KStream k' v')
 
-     AsyncFlatMapValues
+     AsyncConcatMapValues
        :: !AsyncIOConfig
        -> (v -> IO [v'])
        -> Prim (KStream k v) (KStream k v')
    ```
 
    Smart constructors `asyncMapValues` / `asyncMapKeyValue` /
-   `asyncFlatMapValues` ship in the same module.
+   `asyncConcatMapValues` ship in the same module.
 
 2. **`AsyncIOConfig`** as a new module
    `Kafka.Streams.AsyncIO.Config`:

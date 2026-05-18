@@ -29,8 +29,8 @@
 --   * 'filterNotStream'         — @KStream.filterNot@
 --   * 'mapValues'               — @KStream.mapValues@
 --   * 'mapKeyValue'             — @KStream.map@
---   * 'flatMapValues'           — @KStream.flatMapValues@
---   * 'flatMapKeyValue'         — @KStream.flatMap@
+--   * 'concatMapValues'           — @KStream.concatMapValues@
+--   * 'concatMapKeyValue'         — @KStream.flatMap@
 --   * 'foreachStream'           — @KStream.foreach@
 --   * 'peekStream'              — @KStream.peek@
 --   * 'selectKey'               — @KStream.selectKey@
@@ -62,8 +62,8 @@ module Kafka.Streams.KStream
   , mapKeyValueM
   , mapRecord
   , mapRecordM
-  , flatMapValues
-  , flatMapKeyValue
+  , concatMapValues
+  , concatMapKeyValue
   , peekStream
   , peekStreamNamed
   , foreachStream
@@ -105,7 +105,7 @@ module Kafka.Streams.KStream
   , transformValuesStream
   , processStream
   , processValuesStream
-  , flatTransformValues
+  , concatTransformValues
     -- * Extension hooks
   --
   -- 'attachProcessor' is the primitive every stateless and stateful
@@ -510,22 +510,22 @@ mapRecordProc f = do
 -- | Expand each record into zero or more output records,
 -- changing only the value.
 --
--- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
-flatMapValues
+-- /JVM equivalent:/ @KStream.concatMapValues(ValueMapper)@.
+concatMapValues
   :: forall k v v'
    . (v -> [v'])
   -> KStream k v
   -> IO (KStream k v')
-flatMapValues f s =
+concatMapValues f s =
   attachProcessor s "KSTREAM-FLATMAPVALUES"
-    (flatMapValuesProc @k @v @v' f)
+    (concatMapValuesProc @k @v @v' f)
     (kstreamKeySerde s)
-    (error "KStream.flatMapValues: downstream value Serde unset")
+    (error "KStream.concatMapValues: downstream value Serde unset")
 
-flatMapValuesProc
+concatMapValuesProc
   :: forall k v v'
    . (v -> [v']) -> IO (Processor k v)
-flatMapValuesProc f = do
+concatMapValuesProc f = do
   ctxRef <- newIORef Nothing
   pure Processor
     { procName    = processorName "KSTREAM-FLATMAPVALUES"
@@ -553,22 +553,22 @@ flatMapValuesProc f = do
 -- key feeds downstream partitioning.
 --
 -- /JVM equivalent:/ @KStream.flatMap(KeyValueMapper)@.
-flatMapKeyValue
+concatMapKeyValue
   :: forall k v k' v'
    . (k -> v -> [(k', v')])
   -> KStream k v
   -> IO (KStream k' v')
-flatMapKeyValue f s =
+concatMapKeyValue f s =
   attachProcessor s "KSTREAM-FLATMAP"
-    (flatMapKVProc @k @v @k' @v' f)
-    (error "KStream.flatMapKeyValue: downstream key Serde unset")
-    (error "KStream.flatMapKeyValue: downstream value Serde unset")
+    (concatMapKVProc @k @v @k' @v' f)
+    (error "KStream.concatMapKeyValue: downstream key Serde unset")
+    (error "KStream.concatMapKeyValue: downstream value Serde unset")
 
-flatMapKVProc
+concatMapKVProc
   :: forall k v k' v'
    . (k -> v -> [(k', v')])
   -> IO (Processor k v)
-flatMapKVProc f = do
+concatMapKVProc f = do
   ctxRef <- newIORef Nothing
   pure Processor
     { procName    = processorName "KSTREAM-FLATMAP"
@@ -1902,7 +1902,7 @@ valuesStream s = do
     }
 
 ----------------------------------------------------------------------
--- flatTransformValues
+-- concatTransformValues
 ----------------------------------------------------------------------
 
 -- | Stateful 0-to-many emit on the value side. The user-supplied
@@ -1910,10 +1910,10 @@ valuesStream s = do
 -- zero, one, or many times per input record. State stores listed
 -- in @stores@ are attached and accessible via 'getStateStore'.
 --
--- Mirrors @KStream.flatTransformValues@. Identical to
+-- Mirrors @KStream.concatTransformValues@. Identical to
 -- 'processValuesStream' (same plumbing); kept as a separate name
 -- for users porting from Java.
-flatTransformValues
+concatTransformValues
   :: forall k v v'
    . T.Text
   -> [StoreName]
@@ -1921,4 +1921,4 @@ flatTransformValues
   -> Serde v'
   -> KStream k v
   -> IO (KStream k v')
-flatTransformValues = processValuesStream
+concatTransformValues = processValuesStream
