@@ -83,6 +83,7 @@ import qualified Streams.Antithesis.WorkerPoolSMSpec
 import qualified Streams.Antithesis.ObservabilityTopologySpec
 import qualified Streams.Antithesis.OrphanTopicsSpec
 import qualified Streams.Antithesis.ChangelogReplaySpec
+import qualified Streams.Antithesis.WatermarkSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -168,5 +169,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.ObservabilityTopologySpec.tests
       , Streams.Antithesis.OrphanTopicsSpec.tests
       , Streams.Antithesis.ChangelogReplaySpec.tests
+      , Streams.Antithesis.WatermarkSpec.tests
       ]
   ]
