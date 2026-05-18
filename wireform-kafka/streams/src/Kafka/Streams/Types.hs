@@ -39,7 +39,9 @@ import Data.Int (Int32, Int64)
 import Data.List (foldl')
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.String (IsString (..))
 import Data.Text (Text)
+import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
 import Kafka.Streams.Time (Timestamp)
@@ -49,6 +51,13 @@ import Kafka.Streams.Time (Timestamp)
 newtype TopicName = TopicName { unTopicName :: Text }
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
+
+-- | String literals desugar straight to 'TopicName' under
+-- @OverloadedStrings@, which mirrors how Kafka topic names appear in
+-- config files and tests. The constructor itself stays unexported so
+-- everything still goes through the 'Text' boundary.
+instance IsString TopicName where
+  fromString = TopicName . Text.pack
 
 topicName :: Text -> TopicName
 topicName = TopicName

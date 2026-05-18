@@ -90,9 +90,9 @@ buildAsyncDriver cfg0 f = do
   deposits <- newTVarIO (0 :: Int)
   let cfg = cfg0 { aioOnDeposit = atomically (modifyTVar' deposits (+ 1)) }
   b <- newStreamsBuilder
-  s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+  s <- streamFromTopic b "in" (consumed textSerde textSerde)
   s' <- asyncMapValues cfg f s
-  toTopic (topicName "out") (produced textSerde textSerde) s'
+  toTopic "out" (produced textSerde textSerde) s'
   topo <- buildTopology b
   driver <- newDriver topo "asyncio-test"
   let waitForDeposits n = atomically $ do
@@ -182,13 +182,13 @@ ordered_preserves_input_order =
     (driver, waitFor) <- buildAsyncDriver cfg f
 
     let inputs = ["alpha", "bravo", "charlie", "delta", "echo"]
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) inputs
 
     waitFor (length inputs)
     fireDrainPunctuator driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= map T.toUpper inputs
     closeDriver driver
 
@@ -211,12 +211,12 @@ drain_via_punctuator =
     -- One input; without the punctuator fire, the single completed
     -- result would stay in the reorder buffer until the next
     -- pipeInput.
-    pipeInput driver (topicName "in") Nothing (bytes "once") t0 0
+    pipeInput driver "in" Nothing (bytes "once") t0 0
     waitFor 1
 
     fireDrainPunctuator driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["ONCE"]
     closeDriver driver
 
@@ -239,13 +239,13 @@ drop_and_continue_skips_failure =
     (driver, waitFor) <- buildAsyncDriver cfg f
 
     let inputs = ["a", "boom", "b", "c"]
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) inputs
     waitFor (length inputs)
 
     fireDrainPunctuator driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     -- "boom" drops, the surviving three preserve input order.
     map (unbytes . crValue) out @?= ["A", "B", "C"]
     closeDriver driver
@@ -268,12 +268,12 @@ log_and_continue_skips_failure =
           | otherwise = pure (T.toUpper v)
     (driver, waitFor) <- buildAsyncDriver cfg f
 
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["k", "x", "q"]
     waitFor 3
     fireDrainPunctuator driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["K", "Q"]
     closeDriver driver
 
@@ -296,7 +296,7 @@ fail_task_surfaces_exception =
     -- First pipeInput enqueues; its drain on entry has nothing to
     -- flush. The worker fails and sets the failure TVar (the
     -- failure path also fires the deposit hook).
-    pipeInput driver (topicName "in") Nothing (bytes "die") t0 0
+    pipeInput driver "in" Nothing (bytes "die") t0 0
     waitFor 1
 
     -- The next drain (whether from a pipeInput or the punctuator)
@@ -340,7 +340,7 @@ unordered_emits_in_completion_order =
 
     (driver, waitFor) <- buildAsyncDriver cfg f
 
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["a", "b", "c"]
 
     -- Release in c, a, b order. The deposit hook observes the
@@ -356,7 +356,7 @@ unordered_emits_in_completion_order =
 
     fireDrainPunctuator driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["C", "A", "B"]
     closeDriver driver
 
@@ -384,14 +384,14 @@ topology_free_async_map_values_smoke =
     (_, topo) <- F.compile topology
     driver <- newDriver topo "asyncio-free-smoke"
 
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                    Nothing (bytes v) t0 0) ["x", "y", "z"]
     atomically $ do
       n <- readTVar deposits
       if n >= 3 then pure () else retry
     advanceWallClockTime driver 250
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["X", "Y", "Z"]
     closeDriver driver
 
@@ -433,13 +433,13 @@ fusion_hoists_pure_into_async =
     -- And the fused topology still runs to the same output.
     (_, topo) <- F.compile topology
     driver <- newDriver topo "asyncio-fusion"
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["alpha", "bravo"]
     atomically $ do
       n <- readTVar deposits
       if n >= 2 then pure () else retry
     advanceWallClockTime driver 250
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["ALPHA", "BRAVO"]
     closeDriver driver
 
@@ -464,14 +464,14 @@ commit_drains_in_flight_work =
     (driver, _waitFor) <- buildAsyncDriver cfg f
 
     let inputs = ["alpha", "bravo", "charlie"]
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) inputs
 
     -- Don't advance wall clock. commitDriver MUST drain on its
     -- own via the engine's drainPreCommit hook.
     commitDriver driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= map T.toUpper inputs
     closeDriver driver
 
@@ -507,8 +507,8 @@ commit_waits_for_slow_user_io =
           pure (T.toUpper v)
     (driver, _waitFor) <- buildAsyncDriver cfg f
 
-    pipeInput driver (topicName "in") Nothing (bytes "a") t0 0
-    pipeInput driver (topicName "in") Nothing (bytes "b") t0 0
+    pipeInput driver "in" Nothing (bytes "a") t0 0
+    pipeInput driver "in" Nothing (bytes "b") t0 0
 
     -- Wait until both workers are parked on their gate. After
     -- this barrier we know: submitted == 2, deposited == 0, two
@@ -539,7 +539,7 @@ commit_waits_for_slow_user_io =
     putMVar gateB ()
     atomically (takeTMVar commitDone)
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["A", "B"]
     closeDriver driver
 
@@ -558,12 +558,12 @@ commit_drains_unordered =
     (driver, _waitFor) <- buildAsyncDriver cfg f
 
     let inputs = ["x", "y", "z"]
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) inputs
 
     commitDriver driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     -- Unordered: assert membership, not order. The drain
     -- guarantees all submitted records show up.
     map (unbytes . crValue) out
@@ -601,9 +601,9 @@ buildAsyncDriverState cfg0 f = do
             userHook
         }
   b <- newStreamsBuilder
-  s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
+  s <- streamFromTopic b "in" (consumed textSerde textSerde)
   s' <- asyncMapValues cfg f s
-  toTopic (topicName "out") (produced textSerde textSerde) s'
+  toTopic "out" (produced textSerde textSerde) s'
   topo <- buildTopology b
   driver <- newDriver topo "asyncio-chaos"
   pure (driver, depositsTV)
@@ -659,11 +659,11 @@ prop_ordered_under_completion_permutation =
         -- the gates still open.
         releaser <- Async.async $
           forM_ perm $ \i -> putMVar (gates !! i) ()
-        mapM_ (\v -> pipeInput driver (topicName "in")
+        mapM_ (\v -> pipeInput driver "in"
                       Nothing (bytes v) t0 0) inputs
         Async.wait releaser
         commitDriver driver
-        records <- readOutput driver (topicName "out")
+        records <- readOutput driver "out"
         closeDriver driver
         pure records
       let observed = map (unbytes . crValue) out
@@ -695,11 +695,11 @@ prop_unordered_is_permutation_of_input =
         let inputs = map (T.pack . show) [0 .. n - 1]
         releaser <- Async.async $
           forM_ perm $ \i -> putMVar (gates !! i) ()
-        mapM_ (\v -> pipeInput driver (topicName "in")
+        mapM_ (\v -> pipeInput driver "in"
                       Nothing (bytes v) t0 0) inputs
         Async.wait releaser
         commitDriver driver
-        records <- readOutput driver (topicName "out")
+        records <- readOutput driver "out"
         closeDriver driver
         pure records
       let observed = List.sort (map (unbytes . crValue) out)
@@ -737,11 +737,11 @@ prop_per_key_ordering_preserved =
         releaser <- Async.async $
           forM_ perm $ \i -> putMVar (gates !! i) ()
         forM_ inputs $ \(k, v) ->
-          pipeInput driver (topicName "in")
+          pipeInput driver "in"
             (Just (bytes k)) (bytes v) t0 0
         Async.wait releaser
         commitDriver driver
-        records <- readOutput driver (topicName "out")
+        records <- readOutput driver "out"
         closeDriver driver
         pure records
       let observed = map (\r -> ( fmap unbytes (crKey r)
@@ -769,11 +769,11 @@ prop_identical_drivers_produce_identical_output =
           runOnce = do
             (driver, depositsTV) <- buildAsyncDriverState cfg
               (\v -> pure (T.toUpper v))
-            mapM_ (\v -> pipeInput driver (topicName "in")
+            mapM_ (\v -> pipeInput driver "in"
                           Nothing (bytes v) t0 0) inputs
             waitDeposits depositsTV n
             commitDriver driver
-            out <- readOutput driver (topicName "out")
+            out <- readOutput driver "out"
             closeDriver driver
             pure out
       (a, b) <- H.evalIO $ do
@@ -814,11 +814,11 @@ prop_drop_and_continue_keeps_survivors_in_order =
                    else pure (T.toUpper v)
         (driver, depositsTV) <- buildAsyncDriverState cfg f
         let inputs = map (T.pack . show) [0 .. n - 1]
-        mapM_ (\v -> pipeInput driver (topicName "in")
+        mapM_ (\v -> pipeInput driver "in"
                       Nothing (bytes v) t0 0) inputs
         waitDeposits depositsTV n
         commitDriver driver
-        records <- readOutput driver (topicName "out")
+        records <- readOutput driver "out"
         closeDriver driver
         pure records
       let observed = map (unbytes . crValue) out
@@ -860,7 +860,7 @@ prop_custom_failure_handler_runs_for_each_failure =
                    else pure v
         (driver, depositsTV) <- buildAsyncDriverState cfg f
         let inputs = map (T.pack . show) [0 .. n - 1]
-        mapM_ (\v -> pipeInput driver (topicName "in")
+        mapM_ (\v -> pipeInput driver "in"
                       Nothing (bytes v) t0 0) inputs
         waitDeposits depositsTV n
         commitDriver driver
@@ -885,7 +885,7 @@ custom_failure_handler_blocking_blocks_drain =
           }
         f _v = Exception.throwIO (Exception.ErrorCall "synthetic")
     (driver, _) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "die") t0 0
+    pipeInput driver "in" Nothing (bytes "die") t0 0
 
     -- Without releasing the gate, commitDriver must block — the
     -- handler hasn't acknowledged the failure yet.
@@ -923,14 +923,14 @@ custom_failure_handler_throwing_doesnt_lose_other_records =
           | v == "bang" = Exception.throwIO (Exception.ErrorCall "boom")
           | otherwise   = pure (T.toUpper v)
     (driver, _) <- buildAsyncDriverState cfg f
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["a", "bang", "b"]
     -- commitDriver's EOS drain blocks until every in-flight
     -- request is resolved (success or skip) before forwarding
     -- the reorder buffer downstream. Independent of any
     -- wall-clock trigger.
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     let observed = map (unbytes . crValue) out
     -- Order-preserving: "A" then "B". The failing "bang" slot
     -- became a skip, so it doesn't show up.
@@ -962,10 +962,10 @@ retry_fixed_eventually_succeeds =
             then Exception.throwIO (Exception.ErrorCall "transient")
             else pure (T.toUpper v)
     (driver, depositsTV) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "ok") t0 0
+    pipeInput driver "in" Nothing (bytes "ok") t0 0
     waitDeposits depositsTV 1
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["OK"]
     -- The work fired 3 times: 2 failures + 1 success.
     readTVarIO attempts >>= (@?= 3)
@@ -990,10 +990,10 @@ retry_fixed_exhausts_then_applies_policy =
           atomically (modifyTVar' attempts (+ 1))
           Exception.throwIO (Exception.ErrorCall "permanent")
     (driver, depositsTV) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "x") t0 0
+    pipeInput driver "in" Nothing (bytes "x") t0 0
     waitDeposits depositsTV 1
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= []
     -- Initial attempt + 2 retries.
     readTVarIO attempts >>= (@?= 3)
@@ -1022,10 +1022,10 @@ retry_backoff_recovers =
             then Exception.throwIO (Exception.ErrorCall "transient-bo")
             else pure v
     (driver, depositsTV) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "v") t0 0
+    pipeInput driver "in" Nothing (bytes "v") t0 0
     waitDeposits depositsTV 1
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["v"]
     closeDriver driver
 
@@ -1049,13 +1049,13 @@ timeout_fires_for_blocked_io =
           takeMVar gate  -- never released by the test
           pure "unreached"
     (driver, depositsTV) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "x") t0 0
+    pipeInput driver "in" Nothing (bytes "x") t0 0
     -- Timeout fires on the worker thread independent of any
     -- test signal; we observe via the deposit counter that the
     -- worker dropped the slot.
     waitDeposits depositsTV 1
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= []
     -- Release the gate so closeDriver doesn't have to send a
     -- cancellation through the racy timeout / shutdown
@@ -1086,11 +1086,11 @@ backpressure_no_deadlock_buffer_one =
     (driver, depositsTV) <- buildAsyncDriverState cfg f
     let n      = 20 :: Int
         inputs = map (T.pack . show) [0 .. n - 1]
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) inputs
     waitDeposits depositsTV n
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?=
       map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
@@ -1118,13 +1118,13 @@ backpressure_blocks_pipe_when_buffer_full =
     -- First record: worker picks it up, blocks on gate.
     -- Second + third records: queued in the buffer (capacity
     -- 2). Fourth record: pipeInput MUST block.
-    pipeInput driver (topicName "in") Nothing (bytes "a") t0 0
-    pipeInput driver (topicName "in") Nothing (bytes "b") t0 0
-    pipeInput driver (topicName "in") Nothing (bytes "c") t0 0
+    pipeInput driver "in" Nothing (bytes "a") t0 0
+    pipeInput driver "in" Nothing (bytes "b") t0 0
+    pipeInput driver "in" Nothing (bytes "c") t0 0
 
     pipeDone <- newEmptyTMVarIO
     _ <- Async.async $ do
-      pipeInput driver (topicName "in") Nothing (bytes "d") t0 0
+      pipeInput driver "in" Nothing (bytes "d") t0 0
       atomically (putTMVar pipeDone ())
 
     notDoneYet <- atomically (isEmptyTMVar pipeDone)
@@ -1142,7 +1142,7 @@ backpressure_blocks_pipe_when_buffer_full =
     atomically (takeTMVar pipeDone)
 
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["A", "B", "C", "D"]
     closeDriver driver
 
@@ -1162,11 +1162,11 @@ pipe_then_commit_pipe_then_commit_preserves_all =
 
     let batches = [["a", "b"], ["c"], ["d", "e", "f"]]
     forM_ batches $ \batch -> do
-      mapM_ (\v -> pipeInput driver (topicName "in")
+      mapM_ (\v -> pipeInput driver "in"
                     Nothing (bytes v) t0 0) batch
       commitDriver driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= map T.toUpper (concat batches)
     closeDriver driver
@@ -1188,7 +1188,7 @@ drain_during_active_workload =
 
     let total = 15 :: Int
     forM_ [0 .. total - 1] $ \i -> do
-      pipeInput driver (topicName "in")
+      pipeInput driver "in"
         Nothing (bytes (T.pack (show i))) t0 0
       -- Fire the punctuator after each record so the drain
       -- interleaves with submission.
@@ -1197,7 +1197,7 @@ drain_during_active_workload =
     waitDeposits depositsTV total
     commitDriver driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= map (T.toUpper . T.pack . show) [0 .. total - 1]
     closeDriver driver
@@ -1219,12 +1219,12 @@ buffer_capacity_one_serialises_records =
 
     let n = 10 :: Int
     forM_ [0 .. n - 1] $ \i ->
-      pipeInput driver (topicName "in")
+      pipeInput driver "in"
         Nothing (bytes (T.pack (show i))) t0 0
     waitDeposits depositsTV n
     commitDriver driver
 
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
@@ -1264,7 +1264,7 @@ close_with_idle_workers_clean =
           }
     (driver, depositsTV) <- buildAsyncDriverState cfg
       (\v -> pure (T.toUpper v))
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["x", "y"]
     waitDeposits depositsTV 2
     commitDriver driver
@@ -1286,8 +1286,8 @@ close_with_workers_blocked_mid_io_clean =
           }
         f _v = takeMVar gate >> pure "ok"
     (driver, _) <- buildAsyncDriverState cfg f
-    pipeInput driver (topicName "in") Nothing (bytes "a") t0 0
-    pipeInput driver (topicName "in") Nothing (bytes "b") t0 0
+    pipeInput driver "in" Nothing (bytes "a") t0 0
+    pipeInput driver "in" Nothing (bytes "b") t0 0
 
     -- close races with the workers being blocked on the gate.
     -- 'closeProc' must send Async.cancel so the workers
@@ -1316,11 +1316,11 @@ double_commit_after_drain_idempotent =
           }
     (driver, depositsTV) <- buildAsyncDriverState cfg
       (\v -> pure (T.toUpper v))
-    pipeInput driver (topicName "in") Nothing (bytes "p") t0 0
+    pipeInput driver "in" Nothing (bytes "p") t0 0
     waitDeposits depositsTV 1
     commitDriver driver
     commitDriver driver   -- second commit: nothing in flight
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out @?= ["P"]
     closeDriver driver
 
@@ -1349,7 +1349,7 @@ observer_hook_failure_surfaces_but_other_records_continue =
     (driver, _) <- buildAsyncDriverState cfg f
     -- For a deposit-hook-counting test we keep the driver's
     -- own deposit TVar separate by using a different ctor.
-    mapM_ (\v -> pipeInput driver (topicName "in")
+    mapM_ (\v -> pipeInput driver "in"
                   Nothing (bytes v) t0 0) ["x", "y", "z"]
     atomically $ do
       n <- readTVar callCount
@@ -1366,7 +1366,7 @@ observer_hook_failure_surfaces_but_other_records_continue =
         assertBool "expected hook failure to surface on drain" False
     -- The collected records up to the failure should include
     -- the first deposit ("X") at minimum.
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     let observed = map (unbytes . crValue) out
     assertBool
       ("expected at least one record forwarded; got "
@@ -1394,11 +1394,11 @@ stress_many_records_few_workers_ordered =
         f v = pure (T.toUpper v)
     (driver, depositsTV) <- buildAsyncDriverState cfg f
     forM_ [0 .. n - 1] $ \i ->
-      pipeInput driver (topicName "in")
+      pipeInput driver "in"
         Nothing (bytes (T.pack (show i))) t0 0
     waitDeposits depositsTV n
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
@@ -1419,11 +1419,11 @@ stress_many_workers_few_records =
         f v = pure (T.toUpper v)
     (driver, depositsTV) <- buildAsyncDriverState cfg f
     forM_ [0 .. n - 1] $ \i ->
-      pipeInput driver (topicName "in")
+      pipeInput driver "in"
         Nothing (bytes (T.pack (show i))) t0 0
     waitDeposits depositsTV n
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
@@ -1450,11 +1450,11 @@ stress_mixed_success_and_failure =
             else pure v
     (driver, depositsTV) <- buildAsyncDriverState cfg f
     forM_ [0 .. n - 1] $ \i ->
-      pipeInput driver (topicName "in")
+      pipeInput driver "in"
         Nothing (bytes (T.pack (show i))) t0 0
     waitDeposits depositsTV n
     commitDriver driver
-    out <- readOutput driver (topicName "out")
+    out <- readOutput driver "out"
     map (unbytes . crValue) out
       @?= [T.pack (show i) | i <- [0 .. n - 1], odd i]
     closeDriver driver
