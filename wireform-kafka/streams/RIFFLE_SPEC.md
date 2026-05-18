@@ -845,15 +845,70 @@ explicitly opts in.
 **Phase 2** (depends on Phase 1 plumbing):
 
 8. Two-phase commit sink interface + JDBC / Iceberg / S3 / HTTP
-   reference sinks.
+   reference sinks. The contract lives in
+   `Kafka.Streams.Sinks.TwoPhase`: `TwoPhaseSink` with
+   `prepare` / `commit` / `abort` / `recover`, the
+   `withTwoPhaseSinks` extension on `EOSCoordinator`, and three
+   in-process reference sinks (in-memory, filesystem
+   atomic-rename, HTTP-echo). The real JDBC / Iceberg / S3 /
+   HTTP adapters live in separate packages because each pulls
+   in its own driver. **Landed.**
 9. Cross-source watermark coordinator + `WatermarkStrategy` +
    alignment groups + idle-source detection.
-10. Event-time TTL on state stores.
+   `Kafka.Streams.Watermark` ships `monotonicAscending`,
+   `boundedOutOfOrderness`, and `noWatermark` strategies, a
+   thread-safe `WatermarkCoordinator` that publishes the
+   min-of-live-sources effective watermark with idle-timeout
+   skipping, and alignment groups (`shouldPauseSource` /
+   `alignmentBacklog`) so a fast source can be backpressured
+   onto a slow joiner. Wiring into the engine source-processor
+   boundary is deferred. **Landed.**
+10. Event-time TTL on state stores. The
+    `Kafka.Streams.State.KeyValue.TTL` wrapper takes
+    `TTLConfig { ttlDuration, ttlClock }` (clock is
+    event-time, from `ctxStreamTime`) and lazily filters
+    expired entries on every read while exposing
+    `expireBefore now` for active sweeping from a
+    punctuator. **Landed.**
 11. Schema-versioned stores + burn-in migration.
-12. CDC source primitive.
+    `Kafka.Streams.State.KeyValue.SchemaVersioned` adds
+    `SchemaVersion` + `SchemaMigration` chains, a wrapper that
+    stamps every write with the current version and migrates
+    reads forward, and `burnInMigrate` to rewrite older entries
+    onto the current version with resumable
+    `BurnInProgress`. **Landed.**
+12. CDC source primitive. `Kafka.Streams.Sources.CDC` defines
+    the `CDCEvent` ADT (matches Debezium / DMS wire schema:
+    Insert / Update / Delete with before- and after-image),
+    `CDCSource` for the poll loop, `inMemoryCDCSource` for
+    tests, and `applyCDCToKVStore` / `cdcToKTableStep` for the
+    canonical CDC-to-KTable mapping. **Landed.**
 13. Key-group-aware assignor + KIP-848 rebalance protocol.
+    `Kafka.Streams.Runtime.KeyGroup` defines the routing
+    primitive (decouples parallelism from partition count);
+    `Kafka.Streams.Runtime.RebalanceProtocol` defines the
+    KIP-848 wire types + incremental `reconcile` /
+    `applyReconciliation` (guarantees no task is double-owned
+    during a transfer); `Assignor.assignKeyGroups` is the
+    sticky, balanced key-group assigner used by the runtime
+    once it switches off the old protocol. **Landed.**
 14. Hot-tier + cold-tier (S3) store backend.
+    `Kafka.Streams.State.KeyValue.Tiered` wraps a hot
+    `KeyValueStore` + a `ColdTier` (point get/put/delete + bulk
+    scan — the API S3 / GCS satisfy in practice). Reads probe
+    hot, fall through to cold and promote; eviction policies
+    decide which entries to demote when the hot tier exceeds
+    its budget. The cold tier ships an in-process reference;
+    the S3 adapter lands in `wireform-s3`. **Landed.**
 15. Remote-KV store backend (FoundationDB / TiKV / DynamoDB).
+    `Kafka.Streams.State.KeyValue.Remote` defines the
+    `RemoteKVClient` contract and an in-process mock with a
+    per-call fault policy so the chaos suite can drive
+    arbitrary error schedules. The wrapper exposes the
+    `KeyValueStore` interface and surfaces `RemoteRetryable` /
+    `RemoteFatal` as exceptions the runtime's standard handler
+    decides on. The real FDB / TiKV / DynamoDB adapters live
+    in separate packages. **Landed.**
 
 ---
 
