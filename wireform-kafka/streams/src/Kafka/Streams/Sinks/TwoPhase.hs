@@ -56,6 +56,7 @@ module Kafka.Streams.Sinks.TwoPhase
     TwoPhaseSink (..)
   , SinkTxnId (..)
   , SinkOutcome (..)
+  , RecoveryDecision (..)
   , noopTwoPhaseSink
     -- * Reference sinks
   , inMemoryTwoPhaseSink
@@ -68,6 +69,8 @@ module Kafka.Streams.Sinks.TwoPhase
   , withTwoPhaseSinks
     -- * Direct driving (for tests / non-EOS callers)
   , runSinkCommitCycle
+    -- * Topology compile path (used by the Free DSL Prim)
+  , compileSinkTwoPhase
   ) where
 
 import Control.Exception (SomeException, try)
@@ -98,6 +101,8 @@ import Data.ByteString (ByteString)
 import Kafka.Streams.Runtime.EOS
   ( EOSCoordinator (..)
   )
+import qualified Kafka.Streams.KStream as KS
+import Kafka.Streams.Types (Record)
 
 ----------------------------------------------------------------------
 -- Contract
@@ -120,6 +125,22 @@ data SinkOutcome
     -- ^ The sink has lost consistency between the prepared batch
     -- and the downstream system in a way that the runtime can't
     -- recover from automatically. The cycle becomes 'CommitFatal'.
+  deriving stock (Eq, Show)
+
+-- | What the runtime should do with a half-committed sink txn
+-- discovered on startup via 'tpsRecover'. Mirrors Flink's
+-- @TwoPhaseCommitSinkFunction.recoverAndCommit@ vs
+-- @recoverAndAbort@ vs "give up" trichotomy.
+data RecoveryDecision
+  = CommitFromToken
+    -- ^ The producer transaction had committed; finish the
+    -- sink txn so the downstream sees the same data.
+  | AbortFromToken
+    -- ^ The producer transaction had aborted; roll back the
+    -- sink txn so neither side keeps the data.
+  | UnknownLeaveAsIs
+    -- ^ The runtime can't tell; log the token and leave the
+    -- sink alone for an operator to resolve manually.
   deriving stock (Eq, Show)
 
 -- | A sink with two-phase commit semantics, parameterised by the
@@ -145,20 +166,34 @@ data TwoPhaseSink r = TwoPhaseSink
   { tpsName    :: !Text
     -- ^ Stable identifier (for logging / metrics / failure
     -- attribution).
+  , tpsStage   :: !(r -> IO ())
+    -- ^ Per-record /stage/ hook. The topology's
+    -- 'Kafka.Streams.Topology.Free.SinkTwoPhase' processor
+    -- calls this for every record on the stream as it arrives.
+    -- The sink decides whether to buffer in memory and flush
+    -- on 'tpsPrepare', or to write speculatively and verify on
+    -- prepare. Reference sinks ship the buffering variant.
   , tpsPrepare :: !(SinkTxnId -> [r] -> IO SinkOutcome)
+    -- ^ Transition the staged rows + the explicit @[r]@ batch
+    -- to the /prepared/ state. The @[r]@ argument is the
+    -- caller-side batch (used by 'withTwoPhaseSinks' when it
+    -- has its own row source via @rowsFor@); pass @[]@ if all
+    -- rows arrive via 'tpsStage'. Sinks must merge the two
+    -- sources before preparing.
   , tpsCommit  :: !(SinkTxnId -> IO SinkOutcome)
   , tpsAbort   :: !(SinkTxnId -> IO SinkOutcome)
   , tpsRecover :: !(IO [SinkTxnId])
     -- ^ List of txns currently in the @prepared@ state on the
     -- downstream. The runtime should call this on startup, decide
-    -- per-txn whether to commit or abort based on its offset
-    -- checkpoint, and then drive 'tpsCommit' / 'tpsAbort'.
+    -- per-txn whether to commit or abort (the per-token decision
+    -- is the sink's via 'RecoveryDecision').
   }
 
 -- | Sink that ignores every operation. Useful as a default.
 noopTwoPhaseSink :: Text -> TwoPhaseSink r
 noopTwoPhaseSink nm = TwoPhaseSink
   { tpsName    = nm
+  , tpsStage   = \_   -> pure ()
   , tpsPrepare = \_ _ -> pure SinkOK
   , tpsCommit  = \_   -> pure SinkOK
   , tpsAbort   = \_   -> pure SinkOK
@@ -190,13 +225,19 @@ readPreparedRows = readIORef . imsPrepared
 -- the prepared batch.
 inMemoryTwoPhaseSink :: Text -> IO (TwoPhaseSink r, InMemorySinkState r)
 inMemoryTwoPhaseSink nm = do
-  prep <- newIORef Map.empty
-  done <- newIORef []
+  prep   <- newIORef Map.empty
+  done   <- newIORef []
+  staged <- newIORef ([] :: [r])
   let s = InMemorySinkState prep done
   pure
     ( TwoPhaseSink
         { tpsName    = nm
-        , tpsPrepare = \txn rows -> do
+        , tpsStage   = \r ->
+            atomicModifyIORef' staged (\rs -> (r : rs, ()))
+        , tpsPrepare = \txn extraRows -> do
+            stagedRows <- atomicModifyIORef' staged
+                            (\rs -> ([], reverse rs))
+            let rows = stagedRows ++ extraRows
             atomicModifyIORef' prep (\m ->
               (Map.insert txn rows m, ()))
             pure SinkOK
@@ -241,10 +282,16 @@ filesystemTwoPhaseSink
 filesystemTwoPhaseSink root encode nm = do
   createDirectoryIfMissing True (root </> "prepared")
   createDirectoryIfMissing True (root </> "committed")
+  staged <- newIORef ([] :: [r])
   pure TwoPhaseSink
     { tpsName    = nm
-    , tpsPrepare = \(SinkTxnId txn) rows -> do
-        let path = root </> "prepared" </> T.unpack txn <> ".batch"
+    , tpsStage   = \r ->
+        atomicModifyIORef' staged (\rs -> (r : rs, ()))
+    , tpsPrepare = \(SinkTxnId txn) extraRows -> do
+        stagedRows <- atomicModifyIORef' staged
+                        (\rs -> ([], reverse rs))
+        let rows = stagedRows ++ extraRows
+            path = root </> "prepared" </> T.unpack txn <> ".batch"
             body = BS.intercalate "\n" (map encode rows)
         r <- try (BS.writeFile path body)
         case r of
@@ -296,10 +343,16 @@ httpEchoTwoPhaseSink
   -> ([r] -> IO ())
   -> IO (TwoPhaseSink r)
 httpEchoTwoPhaseSink nm onCommit = do
-  buf <- newIORef (Map.empty :: Map SinkTxnId [r])
+  buf    <- newIORef (Map.empty :: Map SinkTxnId [r])
+  staged <- newIORef ([] :: [r])
   pure TwoPhaseSink
     { tpsName    = nm
-    , tpsPrepare = \txn rows -> do
+    , tpsStage   = \r ->
+        atomicModifyIORef' staged (\rs -> (r : rs, ()))
+    , tpsPrepare = \txn extraRows -> do
+        stagedRows <- atomicModifyIORef' staged
+                        (\rs -> ([], reverse rs))
+        let rows = stagedRows ++ extraRows
         atomicModifyIORef' buf (\m -> (Map.insert txn rows m, ()))
         pure SinkOK
     , tpsCommit  = \txn -> do
@@ -324,31 +377,35 @@ httpEchoTwoPhaseSink nm onCommit = do
 ----------------------------------------------------------------------
 
 -- | Extend an existing 'EOSCoordinator' with a list of 2PC sinks.
+-- Hooks into the spec'd 5-step commit cycle as described in
+-- Riffle \xc2\xa74:
+--
+-- @
+-- beginTxn \xe2\x86\x92 flush \xe2\x86\x92 commitOffsets
+--           \xe2\x86\x92 preCommit2PC      \xe2\x86\x90 we hook here
+--           \xe2\x86\x92 commitTxn
+--           \xe2\x86\x92 commit2PC         \xe2\x86\x90 and here
+--           \xe2\x86\x92 storeCommit
+-- @
+--
+-- Failure semantics, end-to-end:
+--
+--   * 'preCommit2PC' fails \xe2\x87\x92 producer txn aborts, every sink
+--     that successfully prepared also aborts ('abort2PC').
+--   * 'commitTxn' fails after a successful prepare \xe2\x87\x92 same
+--     story: producer aborts, sinks roll back.
+--   * 'commit2PC' fails AFTER the producer txn already
+--     committed \xe2\x87\x92 unrecoverable. The cycle returns
+--     'CommitFatal', the in-flight 'SinkTxnId' stays in the
+--     sink's prepared map, and on restart the runtime calls
+--     'tpsRecover' + 'tpsCommit' / 'tpsAbort' to resolve the
+--     stranded txn.
 --
 -- The caller supplies a @rowsFor@ closure that yields the
 -- per-sink batch of rows for the current commit cycle. This is
 -- typically populated by the engine's pre-commit drain (e.g. an
 -- @asyncMapValues@-style operator pushes finished rows into a
 -- 'TQueue' that 'rowsFor' drains and returns).
---
--- The cycle:
---
---   1. The engine's pre-commit drain pushes rows into per-sink
---      buffers.
---   2. The wrapped coordinator's 'storeCommit' first invokes
---      'tpsPrepare' on every sink (with the rows from @rowsFor@).
---   3. If every prepare succeeds, the original 'storeCommit'
---      fires (Phase 1 store buffer drain).
---   4. If the original 'storeCommit' succeeds, each sink's
---      'tpsCommit' fires in declaration order.
---   5. If any prepare or original storeCommit fails, the
---      wrapped 'storeAbort' fires 'tpsAbort' on every sink that
---      had received a prepare, then the original 'storeAbort'.
---
--- The order matters: prepare BEFORE storeCommit so a 2PC sink
--- failure aborts the cycle before draining the in-memory store
--- buffer; tpsCommit AFTER storeCommit so the sink only becomes
--- visible if the upstream Kafka transaction is durable.
 withTwoPhaseSinks
   :: forall r
    . EOSCoordinator
@@ -389,35 +446,43 @@ withTwoPhaseSinks base sinks rowsFor nextTxnLabel = do
                                        <> err))
       go sinks
     abortAll txn =
-      -- Abort path is best-effort and never short-circuits — every
-      -- sink gets its chance to clean up.
       forM_ sinks (\s -> tpsAbort s txn)
+    freshTxn = do
+      txnLabel <- nextTxnLabel
+      let !txn = SinkTxnId txnLabel
+      writeIORef inFlight (Just txn)
+      pure txn
+    currentTxn = readIORef inFlight
+    clearTxn = writeIORef inFlight Nothing
 
   pure base
-    { storeCommit = do
-        txnLabel <- nextTxnLabel
-        let !txn = SinkTxnId txnLabel
-        writeIORef inFlight (Just txn)
+    { preCommit2PC = do
+        txn <- freshTxn
         prep <- prepareAll txn
         case prep of
-          Left err -> pure (Left ("twoPhase: " <> err))
+          Left err -> pure (Left err)
           Right () -> do
-            inner <- base.storeCommit
-            case inner of
-              Left err -> pure (Left ("twoPhase storeCommit: " <> err))
-              Right () -> do
-                done <- commitAll txn
-                writeIORef inFlight Nothing
-                case done of
-                  Left err -> pure (Left ("twoPhase: " <> err))
-                  Right () -> pure (Right ())
-    , storeAbort  = do
-        mTxn <- readIORef inFlight
+            innerR <- base.preCommit2PC
+            case innerR of
+              Left e -> pure (Left e)
+              Right () -> pure (Right ())
+    , commit2PC = do
+        mTxn <- currentTxn
+        case mTxn of
+          Nothing  -> base.commit2PC
+          Just txn -> do
+            done <- commitAll txn
+            clearTxn
+            case done of
+              Left err -> pure (Left err)
+              Right () -> base.commit2PC
+    , abort2PC = do
+        mTxn <- currentTxn
         case mTxn of
           Just txn -> abortAll txn
           Nothing  -> pure ()
-        writeIORef inFlight Nothing
-        base.storeAbort
+        clearTxn
+        base.abort2PC
     }
 
 ----------------------------------------------------------------------
@@ -451,3 +516,30 @@ runSinkCommitCycle sink txn body = do
       | otherwise -> do
           _ <- tpsAbort sink txn
           pure (Right ())
+
+----------------------------------------------------------------------
+-- Compile path for the SinkTwoPhase Prim
+----------------------------------------------------------------------
+
+-- | Compile a 'TwoPhaseSink' attached to a 'KStream' into a
+-- foreach processor: every record on the stream gets staged via
+-- 'tpsStage'. The sink's per-record buffer is consumed on the
+-- next 'tpsPrepare' invocation (driven by the 'EOSCoordinator''s
+-- 'preCommit2PC' hook through 'withTwoPhaseSinks').
+--
+-- The caller is responsible for wiring the sink into the
+-- coordinator separately. The compile path here only owns the
+-- per-record staging.
+compileSinkTwoPhase
+  :: forall k v opaque
+   . opaque
+    -- ^ The topology builder. The compile path doesn't need it
+    -- directly — 'KS.foreachStream' picks the builder out of the
+    -- 'KStream' — but the Free DSL passes it positionally, so
+    -- we accept and ignore it here to keep the call shape
+    -- uniform with 'Sink' \/ 'SinkExtracted'.
+  -> TwoPhaseSink (Record k v)
+  -> KS.KStream k v
+  -> IO ()
+compileSinkTwoPhase _ sink =
+  KS.foreachStream (tpsStage sink)

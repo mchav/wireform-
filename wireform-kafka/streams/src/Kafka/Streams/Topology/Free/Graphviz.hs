@@ -84,6 +84,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 
 import qualified Kafka.Streams.AsyncIO.Config as AIO
+import qualified Kafka.Streams.Sinks.TwoPhase as TPS
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Topology.Free
@@ -389,6 +390,8 @@ primNode p0 = case p0 of
   GlobalSource tn _ _      -> ("GlobalSource\n" <> showTopic tn, "box")
   Sink tn _                -> ("Sink\n" <> showTopic tn, "invtrapezium")
   SinkExtracted _ _        -> ("SinkExtracted", "invtrapezium")
+  SinkTwoPhase sink        ->
+    ("SinkTwoPhase\n" <> TPS.tpsName sink, "invtrapezium")
   Through tn _             -> ("Through\n" <> showTopic tn, "box")
   MapValues _              -> ("MapValues",         "ellipse")
   MapValuesM _             -> ("MapValuesM",        "ellipse")

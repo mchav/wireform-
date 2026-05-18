@@ -282,4 +282,53 @@ tests = testGroup "Two-phase-commit sink"
       H.withTests 60 prop_filesystem_crash_consistency
   , testProperty "withTwoPhaseSinks ties commit to runCommitCycle outcome" $
       H.withTests 80 prop_eos_integration
+  , unit_stage_then_prepare_includes_staged
+  , unit_five_step_cycle_order
   ]
+
+-- | A sink whose 'tpsStage' really buffers staged rows so the
+-- subsequent 'tpsPrepare' picks them up alongside any
+-- caller-supplied @[r]@. Verifies the contract change that
+-- introduced 'tpsStage' for the Riffle \xc2\xa74 SinkTwoPhase Prim.
+unit_stage_then_prepare_includes_staged :: TestTree
+unit_stage_then_prepare_includes_staged =
+  testCase "tpsStage rows surface through tpsPrepare and reach the committed view" $ do
+    (sink, st) <- inMemoryTwoPhaseSink "stage"
+    tpsStage sink "a"
+    tpsStage sink "b"
+    -- Caller supplies no extra rows; staged rows are still
+    -- prepared.
+    _ <- tpsPrepare sink (mkTxn 1) []
+    _ <- tpsCommit sink (mkTxn 1)
+    rs <- readCommittedRows st
+    rs @?= ["a", "b" :: Text]
+
+-- | Drives the 5-step cycle and asserts the prepare \xe2\x86\x92 commit
+-- \xe2\x86\x92 storeCommit invocation order recorded by the coordinator.
+unit_five_step_cycle_order :: TestTree
+unit_five_step_cycle_order =
+  testCase "runCommitCycle invokes preCommit2PC \xe2\x86\x92 commitTxn \xe2\x86\x92 commit2PC \xe2\x86\x92 storeCommit in order" $ do
+    trace <- newIORef ([] :: [Text])
+    let bump t = atomicModifyIORef' trace (\xs -> (t : xs, ()))
+        coord = noopEOSCoordinator
+          { beginTxn      = bump "begin" >> pure (Right ())
+          , commitOffsets = \_ _ -> bump "commitOffsets" >> pure (Right ())
+          , preCommit2PC  = bump "preCommit2PC" >> pure (Right ())
+          , commitTxn     = bump "commitTxn" >> pure (Right ())
+          , commit2PC     = bump "commit2PC" >> pure (Right ())
+          , storeCommit   = bump "storeCommit" >> pure (Right ())
+          }
+    out <- runCommitCycle coord "g" (pure HM.empty)
+             (bump "flushBody")
+    case out of
+      CommitSucceeded -> pure ()
+      _ -> error ("expected CommitSucceeded, got " <> show out)
+    got <- reverse <$> readIORef trace
+    got @?= [ "begin"
+            , "flushBody"
+            , "commitOffsets"
+            , "preCommit2PC"
+            , "commitTxn"
+            , "commit2PC"
+            , "storeCommit"
+            ]

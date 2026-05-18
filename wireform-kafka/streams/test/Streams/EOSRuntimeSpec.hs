@@ -33,6 +33,9 @@ recordingCoord = do
             log_ "commitOffsets" *> pure (Right ())
         , storeCommit = log_ "storeCommit" *> pure (Right ())
         , storeAbort  = log_ "storeAbort"  *> pure (Right ())
+        , preCommit2PC = pure (Right ())
+        , commit2PC    = pure (Right ())
+        , abort2PC     = pure ()
         }
   pure (coord, reverse <$> readIORef buf)
 

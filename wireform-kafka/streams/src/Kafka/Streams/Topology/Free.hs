@@ -482,6 +482,7 @@ import qualified System.IO.Unsafe as IOUnsafe
 
 import qualified Kafka.Streams.AsyncIO as AIO
 import qualified Kafka.Streams.AsyncIO.Config as AIO
+import qualified Kafka.Streams.Sinks.TwoPhase as TPS
 import Kafka.Streams.Cogroup (CogroupedStream)
 import qualified Kafka.Streams.Cogroup as Cog
 import Kafka.Streams.Consumed
@@ -625,6 +626,13 @@ data Prim i o where
                -> Prim (KStream k v) ()
   Through      :: !TopicName -> !(Produced k v)
                -> Prim (KStream k v) (KStream k v)
+  -- | Riffle \xc2\xa74: two-phase-commit sink. Each record is staged
+  -- into the sink's per-cycle buffer via 'tpsPrepare'; the
+  -- runtime's 'EOSCoordinator.preCommit2PC' \/ 'commit2PC' /
+  -- 'abort2PC' hooks drive the commit cycle. Wire the sink into
+  -- the coordinator with 'Kafka.Streams.Sinks.TwoPhase.withTwoPhaseSinks'.
+  SinkTwoPhase :: !(TPS.TwoPhaseSink (Record k v))
+               -> Prim (KStream k v) ()
 
   -- ------------------------------------------------------------------
   -- Stateless 'KStream' transforms
@@ -1018,6 +1026,7 @@ runPrim b = go
     go (Sink topic p)        = KS.toTopic topic p
     go (SinkExtracted e p)   = KS.toExtracted e p
     go (Through topic p)     = KS.throughTopic topic p
+    go (SinkTwoPhase sink)   = TPS.compileSinkTwoPhase b sink
 
     -- Stateless
     go (MapValues f)         = KS.mapValues f
@@ -1667,6 +1676,18 @@ sink t ks vs = sinkWith (topicName t) (produced ks vs)
 -- with these serdes", prefer 'sink'.
 sinkWith :: TopicName -> Produced k v -> Topology (KStream k v) ()
 sinkWith t p = liftPrim (Sink t p)
+
+-- | Riffle \xc2\xa74: terminate the stream into a two-phase-commit sink.
+-- Every record is staged via 'TPS.tpsStage'; the runtime's
+-- 'Kafka.Streams.Runtime.EOS.EOSCoordinator' drives prepare /
+-- commit / abort through the 5-step cycle once the sink has
+-- been wired in via 'TPS.withTwoPhaseSinks'. The same
+-- contract works for JDBC \/ Iceberg \/ S3 \/ HTTP adapters
+-- shipped in separate packages.
+sinkTwoPhase
+  :: TPS.TwoPhaseSink (Record k v)
+  -> Topology (KStream k v) ()
+sinkTwoPhase = liftPrim . SinkTwoPhase
 
 -- | Per-record dynamic-topic sink (KIP-303). The supplied
 -- 'KS.TopicNameExtractor' is consulted for every record and
@@ -3435,6 +3456,7 @@ labelPrim p0 = case p0 of
   GlobalSource t _ _ -> "GlobalSource(" <> showTopic t <> ")"
   Sink t _           -> "Sink("         <> showTopic t <> ")"
   SinkExtracted _ _  -> "SinkExtracted"
+  SinkTwoPhase sink  -> "SinkTwoPhase(" <> TPS.tpsName sink <> ")"
   Through t _        -> "Through("      <> showTopic t <> ")"
   MapValues _        -> "MapValues"
   MapValuesM _       -> "MapValuesM"

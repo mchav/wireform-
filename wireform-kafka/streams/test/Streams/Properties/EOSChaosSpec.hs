@@ -156,6 +156,9 @@ mkCoord s = do
             stepEither TCommitOffsets (schCommitOffsets s)
         , storeCommit   = stepEither TStoreCommit (schStoreCommit s)
         , storeAbort    = bump TStoreAbort >> pure (Right ())
+        , preCommit2PC  = pure (Right ())
+        , commit2PC     = pure (Right ())
+        , abort2PC      = pure ()
         }
       readTrace = reverse <$> readIORef traceRef
   pure (coord, readTrace)
@@ -235,6 +238,9 @@ propGetOffsetsThrows = H.property $ do
               pure (Right ())
           , storeCommit   = bump TStoreCommit >> pure (Right ())
           , storeAbort    = bump TStoreAbort >> pure (Right ())
+          , preCommit2PC  = pure (Right ())
+          , commit2PC     = pure (Right ())
+          , abort2PC      = pure ()
           }
         oops = throwIO (ErrorCall "<getOffsets boom>")
     o <- runCommitCycle coord "group" oops (pure ())
@@ -284,6 +290,9 @@ propAbortTxnLeftIsTolerated = H.property $ do
               pure (Right ())
           , storeCommit   = bump TStoreCommit >> pure (Right ())
           , storeAbort    = bump TStoreAbort >> pure (Right ())
+          , preCommit2PC  = pure (Right ())
+          , commit2PC     = pure (Right ())
+          , abort2PC      = pure ()
           }
     o <- runCommitCycle coord "g" (pure HM.empty)
            (throwIO (ErrorCall "<flush boom>"))
@@ -324,6 +333,9 @@ propStoreAbortLeftIsTolerated = H.property $ do
           , storeAbort    = do
               bump TStoreAbort
               pure (Left "store-abort-failed")
+          , preCommit2PC  = pure (Right ())
+          , commit2PC     = pure (Right ())
+          , abort2PC      = pure ()
           }
     o <- runCommitCycle coord "g" (pure HM.empty)
            (throwIO (ErrorCall "<flush boom>"))
