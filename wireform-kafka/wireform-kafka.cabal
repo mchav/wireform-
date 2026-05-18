@@ -457,6 +457,9 @@ library wireform-kafka-streams
         Kafka.Streams.Sources.CDC
         Kafka.Streams.Runtime.KeyGroup
         Kafka.Streams.Runtime.RebalanceProtocol
+        Kafka.Streams.Runtime.ObjectStore
+        Kafka.Streams.State.KeyValue.Snapshot
+        Kafka.Streams.Runtime.Snapshot
         Kafka.Streams.State.KeyValue.Tiered
         Kafka.Streams.State.KeyValue.Remote
         Kafka.Streams.State.Ref
@@ -658,6 +661,7 @@ test-suite wireform-kafka-streams-test
         Streams.Properties.StoreRefSpec
         Streams.Properties.KeyGroupDispatchSpec
         Streams.Properties.WatermarkWiringSpec
+        Streams.Properties.SnapshotSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
