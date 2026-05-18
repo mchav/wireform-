@@ -79,6 +79,7 @@ import qualified Streams.Antithesis.KVStoreSMSpec
 import qualified Streams.Antithesis.OptimizerEqSpec
 import qualified Streams.Antithesis.WindowMathSpec
 import qualified Streams.Antithesis.EOSChaosSpec
+import qualified Streams.Antithesis.WorkerPoolSMSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -160,5 +161,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.OptimizerEqSpec.tests
       , Streams.Antithesis.WindowMathSpec.tests
       , Streams.Antithesis.EOSChaosSpec.tests
+      , Streams.Antithesis.WorkerPoolSMSpec.tests
       ]
   ]

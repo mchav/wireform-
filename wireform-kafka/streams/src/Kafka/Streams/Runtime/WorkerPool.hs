@@ -489,11 +489,27 @@ workerLoop :: Worker -> IO ()
 workerLoop w = loop
   where
     loop = do
+      -- Drain semantics:
+      --
+      --   * If the inbox is non-empty, take the next record
+      --     (whether or not 'workerStop' is set). Otherwise
+      --     'removePoolWorker' would deadlock waiting for
+      --     'workerProcessed' to catch up to 'workerSubmitted'
+      --     when records have been queued but not yet
+      --     processed at the moment shutdown is requested.
+      --
+      --   * If the inbox is empty, only block when 'workerStop'
+      --     is False; once stop is True the worker exits
+      --     promptly so the pool can join it.
       next <- atomically $ do
-        s <- readTVar (workerStop w)
-        if s
-          then pure Nothing
-          else Just <$> readTQueue (workerInbox w)
+        empty <- isEmptyTQueue (workerInbox w)
+        if not empty
+          then Just <$> readTQueue (workerInbox w)
+          else do
+            s <- readTVar (workerStop w)
+            if s
+              then pure Nothing
+              else retry
       case next of
         Nothing -> pure ()
         Just r  -> do
