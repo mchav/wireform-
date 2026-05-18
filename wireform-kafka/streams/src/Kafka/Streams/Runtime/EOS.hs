@@ -41,7 +41,6 @@ module Kafka.Streams.Runtime.EOS
 
 import Control.Exception (SomeException, try)
 import Data.Int (Int64)
-import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -116,30 +115,44 @@ runCommitCycle coord groupId getOffsets flushBody = do
       case bodyR of
         Left e -> doAbort ("flush: " <> T.pack (show e))
         Right () -> do
-          offs <- getOffsets
-          step2 <- coord.commitOffsets groupId offs
-          case step2 of
-            Left err -> doAbort ("commitOffsets: " <> err)
-            Right () -> do
-              step3 <- coord.commitTxn
-              case step3 of
-                Left err -> doAbort ("commit: " <> err)
+          -- Read the committed offset snapshot. Unlike the
+          -- coordinator callbacks, this is supplied by the
+          -- caller (the engine's consumer position bookkeeping)
+          -- and is not necessarily total — a closed consumer,
+          -- a metadata fault, or an in-flight rebalance can all
+          -- cause it to throw. The cycle treats any synchronous
+          -- exception here as a commit failure and triggers the
+          -- usual abort path so the producer transaction and
+          -- store buffers don't leak across cycles.
+          offsR <- try getOffsets :: IO (Either SomeException
+                                          (HashMap KC.TopicPartition Int64))
+          case offsR of
+            Left e -> doAbort ("getOffsets: " <> T.pack (show e))
+            Right offs -> do
+              step2 <- coord.commitOffsets groupId offs
+              case step2 of
+                Left err -> doAbort ("commitOffsets: " <> err)
                 Right () -> do
-                  -- KIP-892: the producer commit succeeded, so
-                  -- the changelog records are durable; only now
-                  -- is it safe to drain the per-task
-                  -- TransactionalStore buffers onto their
-                  -- underlying stores.
-                  step4 <- coord.storeCommit
-                  case step4 of
-                    Left err ->
-                      -- The wire commit succeeded but the
-                      -- store commit failed: log the runtime
-                      -- as fatal (no clean recovery — the
-                      -- store and the log are now permanently
-                      -- inconsistent for this task).
-                      pure (CommitFatal ("storeCommit: " <> err))
-                    Right () -> pure CommitSucceeded
+                  step3 <- coord.commitTxn
+                  case step3 of
+                    Left err -> doAbort ("commit: " <> err)
+                    Right () -> do
+                      -- KIP-892: the producer commit succeeded,
+                      -- so the changelog records are durable;
+                      -- only now is it safe to drain the
+                      -- per-task TransactionalStore buffers
+                      -- onto their underlying stores.
+                      step4 <- coord.storeCommit
+                      case step4 of
+                        Left err ->
+                          -- The wire commit succeeded but the
+                          -- store commit failed: log the
+                          -- runtime as fatal (no clean
+                          -- recovery — the store and the log
+                          -- are now permanently inconsistent
+                          -- for this task).
+                          pure (CommitFatal ("storeCommit: " <> err))
+                        Right () -> pure CommitSucceeded
   where
     doAbort reason = do
       _ <- coord.abortTxn
