@@ -766,7 +766,11 @@ explicitly opts in.
 
 1. Async I/O operator family — biggest user-visible leverage,
    most self-contained, no new modules touched outside
-   `Topology.Free` + `Runtime.AsyncIO` + `EOS`.
+   `Topology.Free` + `AsyncIO` + `Engine`. Validated by the
+   `Streams.AsyncIOSpec` suite (36 cases including 250+
+   Hedgehog-randomised executions across permutation,
+   failure-injection, retry/timeout, concurrency, lifecycle,
+   and stress groups). **Landed.**
 2. Snapshot-aware `KeyValueStore` shape + the
    `Kafka.Streams.Runtime.Snapshot` module + an in-memory and an
    FS-backed `ObjectStoreClient` (S3 wire ships in Phase 2 once

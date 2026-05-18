@@ -450,32 +450,43 @@ handleResult
   -> Either SomeException (Seq (Record k' v'))
   -> IO ()
 handleResult st cfg sn r = do
-  case r of
-    Right batch ->
-      depositSuccess st cfg sn batch
-    Left e -> do
-      keep <- applyFailurePolicy (aioOnFailure cfg) e
-      if keep
-        then
-          -- Failure was non-fatal — record a skipped slot so the
-          -- ordered drain doesn't stall on a hole.
-          depositSkip st cfg sn
-        else do
-          -- Failure is fatal — surface to the stream thread on
-          -- the next drain. We deposit a skipped slot too so the
-          -- drain machinery can keep going, but the failure
-          -- TVar is what the stream thread inspects.
-          atomically $
-            writeTVar (apsFailure st) (Just e)
-          depositSkip st cfg sn
-  -- Fire the post-deposit observability hook. Run AFTER the
-  -- STM deposit so observers see only durable state. Swallowed
-  -- exceptions keep a buggy hook from killing the worker
-  -- thread; we surface the failure via the failure TVar.
-  hookResult <- try (aioOnDeposit cfg) :: IO (Either SomeException ())
-  case hookResult of
-    Right () -> pure ()
-    Left  he -> atomically $ writeTVar (apsFailure st) (Just he)
+  -- During shutdown the engine no longer drains nor inspects
+  -- 'apsFailure'; bumping deposited / firing the hook / setting
+  -- failure flags would just be dead writes. Short-circuit so
+  -- the worker can exit promptly when 'closeProc' has set the
+  -- shutdown flag and cancelled its outstanding IO.
+  shutdownNow <- readTVarIO (apsShutdown st)
+  if shutdownNow
+    then pure ()
+    else do
+      case r of
+        Right batch ->
+          depositSuccess st cfg sn batch
+        Left e -> do
+          keep <- applyFailurePolicy (aioOnFailure cfg) e
+          if keep
+            then
+              -- Failure was non-fatal — record a skipped slot
+              -- so the ordered drain doesn't stall on a hole.
+              depositSkip st cfg sn
+            else do
+              -- Failure is fatal — surface to the stream
+              -- thread on the next drain. We deposit a skipped
+              -- slot too so the drain machinery can keep
+              -- going, but the failure TVar is what the stream
+              -- thread inspects.
+              atomically $
+                writeTVar (apsFailure st) (Just e)
+              depositSkip st cfg sn
+      -- Fire the post-deposit observability hook. Run AFTER
+      -- the STM deposit so observers see only durable state.
+      -- A throwing hook surfaces via the failure TVar; the
+      -- worker keeps running so other in-flight work isn't
+      -- lost.
+      hookResult <- try (aioOnDeposit cfg) :: IO (Either SomeException ())
+      case hookResult of
+        Right () -> pure ()
+        Left  he -> atomically $ writeTVar (apsFailure st) (Just he)
 
 depositSuccess
   :: AsyncProcState k v k' v'
@@ -636,14 +647,27 @@ closeProc st = do
     Nothing -> pure ()
   atomically $ writeTVar (apsShutdown st) True
   ws <- readIORef (apsWorkersRef st)
+  -- Cancel each worker so any in-flight user 'IO' (typically
+  -- blocked on a 'MVar', a socket, a database call) is broken
+  -- out of via an async exception. Without this, a hung user
+  -- handler would keep 'closeProc' (and therefore
+  -- 'closeDriver' / 'closeEngine' / EOS shutdown) blocked
+  -- indefinitely.
+  --
+  -- The worker's @try@ wrapper catches 'AsyncCancelled' as a
+  -- regular failure; 'handleResult' short-circuits when
+  -- 'apsShutdown' is set so the cancellation is /not/ routed
+  -- through the configured failure policy.
+  mapM_ Async.cancel ws
   mapM_ (void . waitCatch) ws
   -- Final drain attempts to forward anything that completed
   -- between the last drain and shutdown. We don't have a
   -- 'ProcessorContext' here (the engine has torn the chain down
   -- in 'closeEngine'), so we simply clear the reorder buffer to
-  -- release memory. The pre-commit drain hook (separate PR) is
+  -- release memory. The pre-commit drain hook on commit is
   -- the mechanism that guarantees no in-flight work is lost
-  -- across a commit boundary.
+  -- across a commit boundary; close after a commit therefore
+  -- has nothing left to forward.
   atomically $ do
     writeTVar (apsReorder st) Map.empty
     -- Drain unordered queue
