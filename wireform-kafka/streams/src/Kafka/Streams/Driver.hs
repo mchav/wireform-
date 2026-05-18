@@ -391,7 +391,7 @@ data OutputRecord k v = OutputRecord
 decodeOutput
   :: Serde k -> Serde v
   -> CollectedRecord
-  -> Either String (OutputRecord k v)
+  -> Either Text (OutputRecord k v)
 decodeOutput ks vs cr = do
   k <- maybe (Right Nothing) (fmap Just . deserialize ks) (crKey cr)
   v <- deserialize vs (crValue cr)
@@ -477,7 +477,7 @@ pipeAll tit = mapM_ (\(k, v, ts) -> pipeKVAt tit k v ts 0)
 -- | Drain every record currently on the output topic and decode
 -- each one through the bound serdes. Caller decides how to consume.
 readKeyValuesToList
-  :: TestOutputTopic k v -> IO [Either String (Maybe k, v)]
+  :: TestOutputTopic k v -> IO [Either Text (Maybe k, v)]
 readKeyValuesToList TestOutputTopic{..} = do
   rs <- readOutput totDriver totTopic
   pure (map decodePair rs)
@@ -497,7 +497,7 @@ readValuesToList tot = do
 
 -- | Read one (key, value) pair, decoded. Returns @Nothing@ if the
 -- output topic is empty.
-readKV :: TestOutputTopic k v -> IO (Maybe (Either String (Maybe k, v)))
+readKV :: TestOutputTopic k v -> IO (Maybe (Either Text (Maybe k, v)))
 readKV tot = do
   pairs <- readKeyValuesToList tot
   case pairs of
@@ -527,7 +527,7 @@ data TestRecord k v = TestRecord
 toTestRecord
   :: Serde k -> Serde v
   -> CollectedRecord
-  -> Either String (TestRecord k v)
+  -> Either Text (TestRecord k v)
 toTestRecord ks vs cr = do
   k <- maybe (Right Nothing) (fmap Just . deserialize ks) (crKey cr)
   v <- deserialize vs (crValue cr)

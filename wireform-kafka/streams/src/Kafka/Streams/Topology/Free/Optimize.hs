@@ -13,7 +13,7 @@
 --
 -- topo' :: F.Topology i o -> F.Topology i o
 -- topo' = Opt.optimizeWith (Opt.defaultOptimizeConfig
---                            { Opt.optFuseFlatMaps = False })
+--                            { Opt.optFuseConcatMaps = False })
 -- @
 --
 -- without having to know that the implementation lives one module

@@ -3,7 +3,7 @@
 
 -- |
 -- Module      : Kafka.Streams.Examples.WordCount
--- Description : Classic word-count — flatMapValues + groupBy + count
+-- Description : Classic word-count — concatMapValues + groupBy + count
 --
 -- Mirror of @org.apache.kafka.streams.examples.wordcount.WordCountDemo@,
 -- the canonical "hello world" of stateful streams processing.
@@ -12,7 +12,7 @@
 --
 -- @
 -- KStream<String, String> source = builder.stream("streams-plaintext-input");
--- source.flatMapValues(v -> Arrays.asList(v.toLowerCase().split("\\W+")))
+-- source.concatMapValues(v -> Arrays.asList(v.toLowerCase().split("\\W+")))
 --       .groupBy((key, word) -> word)
 --       .count(Materialized.as("counts-store"))
 --       .toStream()
@@ -38,8 +38,8 @@ buildWordCountTopology = do
   src <- streamFromTopic b
             (topicName "streams-plaintext-input")
             (consumed textSerde textSerde)
-  -- flatMapValues: lowercase + split on whitespace
-  words_ <- flatMapValues
+  -- concatMapValues: lowercase + split on whitespace
+  words_ <- concatMapValues
               (T.words . T.toLower :: Text -> [Text])
               src
   -- groupBy(word) — i.e. selectKey(value) + groupByKey
@@ -96,7 +96,7 @@ runDemo = do
       let wd = case crKey cr of
             Just k  -> BSC.unpack k
             Nothing -> "<no-key>"
-          cnt = case deserialize int64Serde (crValue cr) :: Either String Int64 of
+          cnt = case deserialize int64Serde (crValue cr) :: Either Text Int64 of
             Right n  -> show n
-            Left err -> "?(" <> err <> ")"
+            Left err -> "?(" <> T.unpack err <> ")"
       in putStrLn ("  " <> wd <> " = " <> cnt)

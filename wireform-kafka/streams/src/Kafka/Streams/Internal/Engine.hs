@@ -38,6 +38,7 @@ module Kafka.Streams.Internal.Engine
   , engineCollector
   , engineStreamTime
   , engineWallClock
+  , attachWatermarkCoordinator
   , engineMetrics
   , buildEngine
   , feedSource
@@ -46,6 +47,7 @@ module Kafka.Streams.Internal.Engine
   , triggerStreamTimePunctuators
   , triggerWallClockPunctuators
   , commitEngine
+  , drainPreCommit
   , closeEngine
   , storeByName
   , streamTimeOfEngine
@@ -58,7 +60,7 @@ module Kafka.Streams.Internal.Engine
   , unsafeUnerase
   ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (forM, forM_)
 import Data.ByteString (ByteString)
 import Data.IORef
@@ -121,6 +123,7 @@ import Kafka.Streams.Time
   , runTimestampExtractor
   , utcTimeToTimestamp
   )
+import qualified Kafka.Streams.Watermark as Watermark
 import Kafka.Streams.Types
   ( Record (..)
   , RecordMetadata (..)
@@ -209,6 +212,29 @@ data Engine = Engine
   , engineDeserHandler :: !DeserializationHandler
   , engineMetrics      :: !MetricsRegistry
   , engineCommitRequested :: !(IORef Bool)
+  , engineAsyncDrains  :: !(IORef [IO ()])
+    -- ^ Riffle: pre-commit drain registry. Processors that own
+    -- background workers (today: 'Kafka.Streams.AsyncIO') register
+    -- a drain action via 'ctxRegisterPreCommitDrain' during
+    -- 'procInit'. 'commitEngine' runs every registered drain
+    -- /before/ flushing stores and the record collector so that:
+    --
+    --   * In-flight async results are forwarded downstream and
+    --     captured by the same commit transaction that captures
+    --     the source-record offsets.
+    --   * The producer's 'TxnOffsetCommit' is consistent with
+    --     what the operator has emitted (the EOS contract).
+    --
+    -- Drains run synchronously on the stream thread in
+    -- registration order. An exception from any drain
+    -- propagates as a 'commitEngine' failure.
+  , engineWatermarkCoord :: !(IORef (Maybe Watermark.WatermarkCoordinator))
+    -- ^ Riffle \xc2\xa75: optional cross-source watermark coordinator.
+    -- 'Nothing' (the default) preserves per-task 'StreamTime'
+    -- semantics. When set (via 'attachWatermarkCoordinator')
+    -- 'handleSource' calls
+    -- 'Kafka.Streams.Watermark.reportRecord' for every record
+    -- whose source carries a 'sourceWatermarkStrategy'.
   }
 
 ----------------------------------------------------------------------
@@ -244,6 +270,8 @@ buildEngine validated tid appId collector deserHandler = do
   pesRef        <- newIORef []
   metrics       <- noopMetricsRegistry
   commitReqRef  <- newIORef False
+  drainsRef     <- newIORef []
+  wmCoordRef    <- newIORef Nothing
 
   let engine = Engine
         { engineTopology     = topo
@@ -262,6 +290,8 @@ buildEngine validated tid appId collector deserHandler = do
         , engineDeserHandler = deserHandler
         , engineMetrics      = metrics
         , engineCommitRequested = commitReqRef
+        , engineAsyncDrains  = drainsRef
+        , engineWatermarkCoord = wmCoordRef
         }
 
   -- Wire processors first so children-of references resolve.
@@ -429,6 +459,19 @@ handleSource engine spec children si = do
               mk v (siTimestamp si) st
       atomicModifyIORef' (engineStreamTime engine) $ \cur ->
         (advanceStreamTime ts cur, ())
+      -- Riffle \xc2\xa75: if a watermark coordinator is wired and
+      -- this source carries a 'WatermarkStrategy', report the
+      -- record's extracted timestamp. The coordinator is
+      -- responsible for running the strategy's generator and
+      -- updating its per-source watermark.
+      mWc <- readIORef (engineWatermarkCoord engine)
+      case (mWc, Topo.sourceWatermarkStrategy spec) of
+        (Just wc, Just _strat) -> do
+          let sid = Watermark.SourceId
+                (Topo.unNodeName (Topo.sourceName spec))
+          _ <- Watermark.reportRecord wc sid ts
+          pure ()
+        _ -> pure ()
       writeIORef (engineCurrentMd engine) (Just RecordMetadata
         { rmTopic     = siTopic si
         , rmPartition = fromIntegral (siPartition si)
@@ -459,7 +502,7 @@ handleSource engine spec children si = do
 -- topology builder paired this 'Serde' with the same 'k' that
 -- downstream processors will receive.
 decodeKeyErased
-  :: Topo.AnySerde -> Maybe ByteString -> Either String (Maybe Erased)
+  :: Topo.AnySerde -> Maybe ByteString -> Either Text (Maybe Erased)
 decodeKeyErased _ Nothing = Right Nothing
 decodeKeyErased (Topo.AnySerde s) (Just kb) =
   case deserialize s kb of
@@ -467,7 +510,7 @@ decodeKeyErased (Topo.AnySerde s) (Just kb) =
     Right k -> Right (Just (erase k))
 
 decodeValErased
-  :: Topo.AnySerde -> ByteString -> Either String Erased
+  :: Topo.AnySerde -> ByteString -> Either Text Erased
 decodeValErased (Topo.AnySerde s) bs =
   fmap erase (deserialize s bs)
 
@@ -493,13 +536,13 @@ handleDeserError
   :: forall a b
    . Engine
   -> SourceInput
-  -> Either String a
-  -> Either String b
+  -> Either Text a
+  -> Either Text b
   -> IO ()
 handleDeserError engine si keyR valR = do
   let reason = case (keyR, valR) of
-        (Left e, _) -> "key: " <> T.pack e
-        (_, Left e) -> "value: " <> T.pack e
+        (Left e, _) -> "key: " <> e
+        (_, Left e) -> "value: " <> e
         _           -> "unknown"
       ex = DeserializationException
         { topic     = unTopicName (siTopic si)
@@ -575,6 +618,14 @@ makeContext engine selfNm = ProcessorContext
           Just hs -> (Just (Kafka.Streams.Types.addHeader h hs), ())
   , ctxRequestCommit =
       writeIORef (engineCommitRequested engine) True
+  , ctxRegisterPreCommitDrain = \action ->
+      atomicModifyIORef' (engineAsyncDrains engine)
+        (\xs -> (action : xs, ()))
+  , ctxCoordinatedWatermark = do
+      mCoord <- readIORef (engineWatermarkCoord engine)
+      case mCoord of
+        Nothing -> pure Nothing
+        Just wc -> Just <$> Watermark.currentEffectiveWatermark wc
   }
 
 eraseRecord :: Record k v -> Record Erased Erased
@@ -627,6 +678,33 @@ advanceWallClock engine deltaMs = do
   atomicModifyIORef' (engineWallClock engine) $ \(Timestamp t) ->
     (Timestamp (t + deltaMs), ())
   triggerWallClockPunctuators engine
+
+-- | Riffle \xc2\xa75: wire a 'WatermarkCoordinator' to this engine. The
+-- runtime calls this once at engine construction time after
+-- building the per-app coordinator and before the first record
+-- is fed; subsequent record ingestion in 'handleSource' reports
+-- timestamps to the coordinator for every source whose
+-- 'sourceWatermarkStrategy' is 'Just'.
+--
+-- Idempotent: calling it again overwrites the previous
+-- coordinator handle, useful for tests that rebind.
+attachWatermarkCoordinator
+  :: Engine
+  -> Watermark.WatermarkCoordinator
+  -> IO ()
+attachWatermarkCoordinator engine wc = do
+  writeIORef (engineWatermarkCoord engine) (Just wc)
+  -- Register every source that carries a strategy.
+  forM_ (Map.toList (Topo.topoSources
+                       (engineTopology engine))) $ \(_nm, spec) ->
+    case Topo.sourceWatermarkStrategy spec of
+      Nothing -> pure ()
+      Just strat -> do
+        let sid = Watermark.SourceId
+              (Topo.unNodeName (Topo.sourceName spec))
+            grp = fmap Watermark.unAlignmentGroupId
+                       (Watermark.wsAlignment strat)
+        Watermark.registerSource wc sid strat grp
 
 advanceStreamTimeTo :: Engine -> Timestamp -> IO ()
 advanceStreamTimeTo engine ts = do
@@ -697,6 +775,12 @@ takeCommitRequested engine =
 
 commitEngine :: Engine -> IO ()
 commitEngine engine = do
+  -- Riffle: pre-commit drain runs FIRST. Any in-flight async work
+  -- that completed after the last drain — or that's still in
+  -- flight — is forwarded downstream now, so the records land in
+  -- the collector and become part of the same commit transaction
+  -- as the source offsets they were produced from.
+  drainPreCommit engine
   m <- readIORef (engineStores engine)
   forM_ (Map.elems m) $ \se -> do
     eflush <- try (storeEntryFlush se) :: IO (Either SomeException ())
@@ -705,6 +789,37 @@ commitEngine engine = do
       _      -> pure ()
   collectorFlush (engineCollector engine)
   Met.incCounter (engineMetrics engine) Met.commitTotal
+
+-- | Run every registered pre-commit drain in /registration order/.
+--
+-- Drains run synchronously on the stream thread because the
+-- forwarding they perform (via 'ProcessorContext.ctxForward') is
+-- not thread-safe. Each drain blocks until its background workers
+-- have caught up, then forwards any pending output downstream.
+--
+-- Called automatically as the first step of 'commitEngine'.
+-- Exposed publicly for callers (and tests) that need an explicit
+-- drain boundary outside of a full commit cycle — e.g. the
+-- 'Kafka.Streams.Runtime.EOS.EOSCoordinator' production runtime
+-- can invoke this directly between @beginTxn@ and @commitOffsets@.
+drainPreCommit :: Engine -> IO ()
+drainPreCommit engine = do
+  drains <- readIORef (engineAsyncDrains engine)
+  -- Drains were prepended at registration time; reverse so they
+  -- run in registration order.
+  mapM_ runOne (reverse drains)
+  where
+    runOne action = do
+      r <- try action :: IO (Either SomeException ())
+      case r of
+        Right () -> pure ()
+        Left e   -> do
+          putStrLn ("[streams] pre-commit drain failed: " <> show e)
+          -- Re-throw so 'commitEngine' surfaces the failure to
+          -- the runtime; EOS-mode runtimes will abort the
+          -- transaction rather than commit an inconsistent
+          -- state.
+          throwIO e
 
 closeEngine :: Engine -> IO ()
 closeEngine engine = do

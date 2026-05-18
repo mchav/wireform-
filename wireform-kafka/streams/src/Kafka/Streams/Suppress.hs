@@ -58,6 +58,18 @@ module Kafka.Streams.Suppress
   , maxRecordsBufferConfig
   , shutDownWhenFull
   , emitEarlyWhenFull
+  , dropOldestSilently
+    -- * Dead-letter shelf (KIP-1033-style overflow routing)
+  --
+  -- Routes the oldest over-cap entries to a side topic instead of
+  -- throwing or emitting them early. The Riffle spec calls this
+  -- the @shed@ policy alongside @drop@ / @fail@ /
+  -- @spill-to-durable-state@; @drop@ ships as 'DropOldestSilently',
+  -- @fail@ as 'ShutdownWhenFull', and @shed@ as the dedicated
+  -- 'suppressWindowedShed' operator below. The spill policy is
+  -- deferred until snapshot-aware state backends land.
+  , DeadLetterShelf (..)
+  , suppressWindowedShed
   ) where
 
 import Data.IORef
@@ -83,14 +95,16 @@ import Kafka.Streams.TimeWindowedKStream
   ( EmitStrategy (..)
   , WindowedTableHandle (..)
   )
+import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
+  , effectiveTime
   , forwardRecord
   , getStateStore
   , processorName
   )
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (Serde, serialize)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
   )
@@ -105,7 +119,7 @@ import Kafka.Streams.State.Store
   )
 import Kafka.Streams.Time (Duration, Timestamp (..), durationMillis)
 import qualified Kafka.Streams.Topology as Topo
-import Kafka.Streams.Types (Record (..), emptyHeaders)
+import Kafka.Streams.Types (Record (..), TopicName, emptyHeaders, unTopicName)
 
 ----------------------------------------------------------------------
 -- WindowedTableHandle -> KStream
@@ -296,6 +310,173 @@ data SuppressBufferFullException = SuppressBufferFullException
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Exception)
 
+----------------------------------------------------------------------
+-- DeadLetterShelf (shed-to-DLQ overflow routing)
+--
+-- The Riffle spec's @shed@ policy: when a bounded suppress buffer
+-- exceeds its record cap, the oldest entries are serialised and
+-- pushed to a configured side topic instead of being dropped, emitted
+-- early, or failing the task. Downstream of the suppress operator
+-- /does not/ see the shed records.
+----------------------------------------------------------------------
+
+-- | Dead-letter routing for over-cap suppress entries. The cap +
+-- topic + serdes are bundled because they must agree on the wire
+-- type of the side stream.
+data DeadLetterShelf k v = DeadLetterShelf
+  { dlsTopic       :: !TopicName
+    -- ^ Side topic that receives the shed records.
+  , dlsKeySerde    :: !(Serde (WindowedKey k))
+    -- ^ Serde used to encode the windowed key on the wire.
+  , dlsValueSerde  :: !(Serde v)
+    -- ^ Serde used to encode the buffered value on the wire.
+  , dlsRecordCap   :: !Int
+    -- ^ Record budget. When the buffer holds more than this, the
+    --   oldest entries (by 'WindowedKey' start timestamp) are
+    --   shed in order until the buffer is back under the cap.
+  }
+
+-- | Bounded @suppressUntilWindowCloses@ with a /dead-letter
+-- shelf/. When the buffer exceeds 'dlsRecordCap', the oldest
+-- entries are serialised through 'dlsKeySerde' /
+-- 'dlsValueSerde' and routed to 'dlsTopic' via the engine's
+-- record collector. Downstream of this operator never sees the
+-- shed records.
+--
+-- @
+-- shed <- DeadLetterShelf
+--   { dlsTopic       = topicName \"suppress-dlq\"
+--   , dlsKeySerde    = windowedSerde textSerde
+--   , dlsValueSerde  = int64Serde
+--   , dlsRecordCap   = 1024
+--   }
+-- supressedStream <-
+--   suppressWindowedShed (millis 5_000) 60_000 shed inputStream
+-- @
+--
+-- 'suppressWindowedShed' is the typed analogue of the @shed@
+-- entry in the Riffle bounded-buffer policy enumeration. The
+-- other three policies (@fail@ \/ @drop@ \/ @emit-early@) are
+-- carried via 'BufferOverflowPolicy' on 'suppressWindowedWith'.
+suppressWindowedShed
+  :: forall k v
+   . Ord k
+  => Duration                              -- ^ grace period
+  -> Int64                                 -- ^ window size (ms)
+  -> DeadLetterShelf k v
+  -> KStream (WindowedKey k) v
+  -> IO (KStream (WindowedKey k) v)
+suppressWindowedShed grace windowSize shelf s = do
+  let b = kstreamBuilder s
+  bufNm <- freshStoreName b "SUPPRESS-SHED-BUFFER"
+  procNm <- freshNodeName b "SUPPRESS-SHED"
+  let bufBuilder = inMemoryKeyValueStoreBuilder bufNm
+                     :: StoreBuilderKV (WindowedKey k) v
+  withTopology_ b $ \t ->
+    let !t1 = Topo.addProcessorWith
+                Topo.ProcessorSpec
+                  { Topo.processorSpecName     = procNm
+                  , Topo.processorSpecParents  = [kstreamParent s]
+                  , Topo.processorSpecSupplier =
+                      Topo.AnyProcessor
+                        (suppressWindowedShedProc @k @v
+                           bufNm (durationMillis grace) windowSize shelf)
+                  , Topo.processorSpecStores   = [bufNm]
+                  } t
+        !t2 = Topo.addStateStoreKV bufBuilder [procNm] t1
+     in t2
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = procNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+suppressWindowedShedProc
+  :: forall k v
+   . Ord k
+  => StoreName
+  -> Int64                                 -- grace ms
+  -> Int64                                 -- window size ms
+  -> DeadLetterShelf k v
+  -> IO (Processor (WindowedKey k) v)
+suppressWindowedShedProc sn graceMs winMs shelf = do
+  ctxRef  <- newIORef Nothing
+  bufRef  <- newIORef (Nothing :: Maybe (KeyValueStore (WindowedKey k) v))
+  sizeRef <- newIORef (0 :: Int)
+  let !cap_ = shelf.dlsRecordCap
+  pure Processor
+    { procName = processorName "SUPPRESS-SHED"
+    , procInit = \ctx -> do
+        writeIORef ctxRef (Just ctx)
+        getStateStore ctx sn >>= \case
+          Just (AnyKeyValueStore kvs) ->
+            writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
+          _ -> error $ "suppress-shed: buffer store missing: " <> show sn
+    , procClose = pure ()
+    , procProcess = \r -> case recordKey r of
+        Nothing -> pure ()
+        Just wk -> do
+          mctx <- readIORef ctxRef
+          mbuf <- readIORef bufRef
+          case (mctx, mbuf) of
+            (Just ctx, Just buf_) -> do
+              existing <- kvsGet buf_ wk
+              kvsPut buf_ wk (recordValue r)
+              case existing of
+                Just _  -> pure ()
+                Nothing -> modifyIORef' sizeRef (+ 1)
+              flushDueShed ctx buf_ sizeRef
+              enforceShed ctx buf_ sizeRef cap_
+            _ -> pure ()
+    }
+  where
+    flushDueShed ctx buf_ sizeRef = do
+      Timestamp now <- effectiveTime ctx
+      it <- kvsAll buf_
+      entries <- kvIteratorToList it
+      mapM_
+        (\(wk@(WindowedKey _ (Timestamp wstart)), v) -> do
+            let !winEnd = wstart + winMs
+            if now > winEnd + graceMs
+              then do
+                _ <- kvsDelete buf_ wk
+                modifyIORef' sizeRef (\n -> max 0 (n - 1))
+                forwardRecord ctx
+                  (Record (Just wk) v (Timestamp winEnd) emptyHeaders
+                    :: Record (WindowedKey k) v)
+              else pure ())
+        entries
+    enforceShed ctx buf_ sizeRef cap = do
+      cur <- readIORef sizeRef
+      if cur <= cap
+        then pure ()
+        else do
+          it <- kvsAll buf_
+          entries <- kvIteratorToList it
+          let !ordered =
+                List.sortOn (\(WindowedKey _ ts, _) -> ts) entries
+          shedUntil ctx buf_ sizeRef cap ordered
+    shedUntil _ _ _ _ [] = pure ()
+    shedUntil ctx buf_ sizeRef cap ((wk, v) : rest) = do
+      cur <- readIORef sizeRef
+      if cur <= cap
+        then pure ()
+        else do
+          let !keyBytes = Just (serialize shelf.dlsKeySerde wk)
+              !valBytes = serialize shelf.dlsValueSerde v
+              !ts       = let WindowedKey _ wstart = wk in wstart
+          _ <- kvsDelete buf_ wk
+          modifyIORef' sizeRef (\n -> max 0 (n - 1))
+          ctxEmitToTopic ctx
+            (Kafka.Streams.Processor.SinkEmit
+              { Kafka.Streams.Processor.seTopic     = unTopicName shelf.dlsTopic
+              , Kafka.Streams.Processor.seKey       = keyBytes
+              , Kafka.Streams.Processor.seValue     = valBytes
+              , Kafka.Streams.Processor.seTimestamp = ts
+              })
+          shedUntil ctx buf_ sizeRef cap rest
+
 suppressWindowedProc
   :: forall k v
    . Ord k
@@ -346,7 +527,7 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
     }
   where
     flushDue ctx buf_ sizeRef = do
-      Timestamp now <- ctxStreamTime ctx
+      Timestamp now <- effectiveTime ctx
       it <- kvsAll buf_
       entries <- kvIteratorToList it
       mapM_
@@ -370,16 +551,25 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
           ShutdownWhenFull ->
             throwIO (SuppressBufferFullException sn cap cur)
           EmitEarlyWhenFull -> do
-            -- Flush oldest-window-first until we're back under
-            -- the cap. Sort by window-start since
-            -- WindowedKey contains the Timestamp.
-            it <- kvsAll buf_
-            entries <- kvIteratorToList it
-            let !ordered =
-                  List.sortOn (\(WindowedKey _ ts, _) -> ts) entries
-            evictUntil ctx buf_ sizeRef cap ordered
-    evictUntil _ _ _ _ [] = pure ()
-    evictUntil ctx buf_ sizeRef cap ((wk@(WindowedKey _ (Timestamp wstart)), v) : rest) = do
+            ordered <- orderedEntries buf_
+            evictUntil EvictEmit ctx buf_ sizeRef cap ordered
+          DropOldestSilently -> do
+            ordered <- orderedEntries buf_
+            evictUntil EvictDrop ctx buf_ sizeRef cap ordered
+    -- Eviction mode: should the evicted record be forwarded
+    -- downstream, or silently dropped?
+    --
+    -- 'EmitEarlyWhenFull' uses 'EvictEmit'; 'DropOldestSilently'
+    -- uses 'EvictDrop'. The shed-to-DLQ operator
+    -- ('suppressWindowedShed') has its own variant in
+    -- 'suppressWindowedShedProc'.
+    orderedEntries buf_ = do
+      it <- kvsAll buf_
+      entries <- kvIteratorToList it
+      pure (List.sortOn (\(WindowedKey _ ts, _) -> ts) entries)
+    evictUntil _ _ _ _ _ [] = pure ()
+    evictUntil mode ctx buf_ sizeRef cap
+               ((wk@(WindowedKey _ (Timestamp wstart)), v) : rest) = do
       cur <- readIORef sizeRef
       if cur <= cap
         then pure ()
@@ -387,10 +577,16 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
           let !winEnd = wstart + winMs
           _ <- kvsDelete buf_ wk
           modifyIORef' sizeRef (\n -> max 0 (n - 1))
-          forwardRecord ctx
-            (Record (Just wk) v (Timestamp winEnd) emptyHeaders
-              :: Record (WindowedKey k) v)
-          evictUntil ctx buf_ sizeRef cap rest
+          case mode of
+            EvictEmit ->
+              forwardRecord ctx
+                (Record (Just wk) v (Timestamp winEnd) emptyHeaders
+                  :: Record (WindowedKey k) v)
+            EvictDrop -> pure ()
+          evictUntil mode ctx buf_ sizeRef cap rest
+
+-- | Per-call eviction mode for the 'enforceCap' helper.
+data EvictMode = EvictEmit | EvictDrop
 
 -- | Effective record cap for a 'BufferConfig'. We treat
 -- 'bufMaxBytes' and 'bufMaxRecords' as the same approximate
@@ -468,7 +664,7 @@ suppressTimeLimitProc sn limitMs = do
           mbuf <- readIORef bufRef
           case (mctx, mbuf) of
             (Just ctx, Just buf_) -> do
-              Timestamp now <- ctxStreamTime ctx
+              Timestamp now <- effectiveTime ctx
               -- Step 1: flush any expired buffered entries (the
               -- existing buffered value, NOT the just-arrived one).
               flushExpired ctx buf_ now
@@ -578,15 +774,25 @@ data BufferConfig = BufferConfig
 
 -- | What to do when a bounded suppress buffer overflows. Mirrors
 -- Java's 'BufferConfig.shutDownWhenFull' /
--- 'emitEarlyWhenFull' (KIP-328).
+-- 'emitEarlyWhenFull' (KIP-328) and extends with the
+-- Riffle-spec @drop@ policy ('DropOldestSilently'). The @shed@
+-- policy is exposed separately via 'suppressWindowedShed'
+-- because it carries typed-serde + topic config that doesn't fit
+-- a plain enum.
 data BufferOverflowPolicy
   = ShutdownWhenFull
     -- ^ JVM default for bounded buffers: tear the stream down
-    --   when the budget is exceeded.
+    --   when the budget is exceeded ('Fail' in the Riffle spec).
   | EmitEarlyWhenFull
-    -- ^ Emit the buffered windows even though grace hasn't
-    --   elapsed yet, freeing space for new entries. Trades
-    --   some correctness for liveness.
+    -- ^ Emit the buffered windows downstream even though grace
+    --   hasn't elapsed yet, freeing space for new entries.
+    --   Trades correctness (downstream sees premature emissions)
+    --   for liveness.
+  | DropOldestSilently
+    -- ^ Discard the oldest over-cap entries without emitting them.
+    --   Trades correctness (downstream never sees the dropped
+    --   records) for both memory bound and liveness. The Riffle
+    --   spec's @drop@ policy.
   deriving (Eq, Show)
 
 unboundedBufferConfig :: BufferConfig
@@ -606,3 +812,7 @@ shutDownWhenFull b = b { overflow = ShutdownWhenFull }
 
 emitEarlyWhenFull :: BufferConfig -> BufferConfig
 emitEarlyWhenFull b = b { overflow = EmitEarlyWhenFull }
+
+-- | Set the overflow policy to 'DropOldestSilently'.
+dropOldestSilently :: BufferConfig -> BufferConfig
+dropOldestSilently b = b { overflow = DropOldestSilently }

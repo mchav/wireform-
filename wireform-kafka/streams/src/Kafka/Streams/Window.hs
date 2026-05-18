@@ -83,25 +83,46 @@ tumblingWindows size =
         , windowsGracePeriod = 0
         }
 
--- | Hopping windows: every @advance@ ms a new window opens; they
--- overlap if @advance < size@. Each record falls into
--- @ceil(size/advance)@ windows.
+-- | Hopping windows: every @advance@ ms a new window opens at an
+-- advance-aligned offset; each window has the configured size.
+--
+-- * If @advance < size@ the windows overlap and a record falls
+--   into @ceil(size \/ advance)@ of them.
+-- * If @advance == size@ the policy degenerates to tumbling; each
+--   record falls into exactly one window.
+-- * If @advance > size@ there are /gaps/ between windows; a
+--   record whose timestamp falls in a gap belongs to no window
+--   and 'windowsAssign' returns @[]@.
+--
+-- Every returned window has a start that is a multiple of
+-- @advance@ — the property is exercised by
+-- 'Streams.Properties.WindowMathSpec'.
 hoppingWindows :: Duration -> Duration -> Windows
 hoppingWindows size advance =
   let !sz = durationMillis size
       !ad = max 1 (durationMillis advance)
    in Windows
         { windowsAssign = \(Timestamp t) ->
-            -- The smallest start s such that s + sz > t and (s mod ad) == 0
-            -- is t - ((t mod ad) + sz - ad). We then iterate until s > t.
-            let firstStart = t - (((t `mod` ad) + sz - ad) `mod` sz)
-                go s
-                  | s > t     = []
-                  | s + sz <= t = go (s + ad)
-                  | otherwise =
-                      Window (Timestamp s) (Timestamp (s + sz)) : go (s + ad)
-                walk = go firstStart
-             in walk
+            -- A window with start @k * ad@ covers @t@ iff
+            -- @k * ad <= t < k * ad + sz@. Rearranging:
+            --
+            --   @ceil((t - sz + 1) \/ ad) <= k <= floor(t \/ ad)@.
+            --
+            -- When the lower bound exceeds the upper bound, the
+            -- record falls in a gap (only possible when
+            -- @ad > sz@) and the policy assigns no windows.
+            let !kHi    = t `div` ad
+                !kLoNum = t - sz + 1
+                !kLo    =
+                  if kLoNum <= 0
+                    then 0
+                    else (kLoNum + ad - 1) `div` ad
+                mk k =
+                  let !s = k * ad
+                  in Window (Timestamp s) (Timestamp (s + sz))
+            in if kLo > kHi
+                 then []
+                 else map mk [kLo .. kHi]
         , windowsSize     = sz
         , windowsAdvance  = ad
         , windowsRetention = sz + ad

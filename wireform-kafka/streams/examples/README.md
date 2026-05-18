@@ -26,8 +26,8 @@ With no arguments the executable prints the index.
 | Name           | Module                                          | Mirrors                              | Demonstrates                                          |
 | -------------- | ----------------------------------------------- | ------------------------------------ | ----------------------------------------------------- |
 | `pipe`         | `Kafka.Streams.Examples.Pipe`                   | `PipeDemo`                           | source → sink                                         |
-| `line-split`   | `Kafka.Streams.Examples.LineSplit`              | `LineSplitDemo`                      | `flatMapValues`                                       |
-| `word-count`   | `Kafka.Streams.Examples.WordCount`              | `WordCountDemo`                      | `flatMapValues` + `groupBy` + `count` + `toStream`    |
+| `line-split`   | `Kafka.Streams.Examples.LineSplit`              | `LineSplitDemo`                      | `concatMapValues`                                       |
+| `word-count`   | `Kafka.Streams.Examples.WordCount`              | `WordCountDemo`                      | `concatMapValues` + `groupBy` + `count` + `toStream`    |
 | `page-views`   | `Kafka.Streams.Examples.PageViewRegion`         | `PageViewTypedDemo`                  | KStream-KTable inner join                             |
 | `temperature`  | `Kafka.Streams.Examples.Temperature`            | `TemperatureDemo`                    | tumbling window + `reduce` + `suppress`               |
 | `top-articles` | `Kafka.Streams.Examples.TopArticles`            | `TopArticlesDemo`                    | hopping window + `count`                              |

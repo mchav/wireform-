@@ -31,11 +31,13 @@ module Kafka.Streams.Runtime.WorkerPool
   , Worker (..)
   , newWorkerPool
   , newWorkerPoolHashed
+  , newWorkerPoolKeyGrouped
   , poolWorkers
   , poolWorkersSnapshot
   , poolWorkerCount
   , submitRecord
   , submitRecordHashed
+  , submitRecordKeyGrouped
   , waitForQuiescence
   , commitAllWorkers
   , closeWorkerPool
@@ -49,6 +51,9 @@ module Kafka.Streams.Runtime.WorkerPool
   , workerProcessedCount
   , workerEngine
   , workerCollector
+    -- * Key-group dispatch state (Riffle \xc2\xa72)
+  , poolKeyGroupAssignment
+  , updateKeyGroupAssignment
   ) where
 
 import Control.Concurrent.Async
@@ -69,9 +74,12 @@ import Data.IORef
   , newIORef
   , readIORef
   )
+import qualified Data.ByteString as BS
+import qualified Data.Foldable as Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
+import qualified Data.List as Data.List
 import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -89,6 +97,14 @@ import Kafka.Streams.Internal.RecordCollector
   , inMemoryCollector
   )
 import Kafka.Streams.Processor (TaskId (..))
+import Kafka.Streams.Runtime.KeyGroup
+  ( KeyGroupAssignment
+  , KeyGroupConfig
+  , KeyGroupId (..)
+  , emptyAssignment
+  , keyGroupOfBytes
+  )
+import qualified Kafka.Streams.Runtime.KeyGroup as KG
 import Kafka.Streams.Time (Timestamp)
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Types (TopicName)
@@ -150,6 +166,18 @@ data WorkerPool = WorkerPool
     -- ^ Monotonic worker-id allocator. New workers get a fresh
     -- id even after removals, so routing-table entries never
     -- accidentally point at the wrong worker after churn.
+  , poolKeyGroupCfg   :: !(Maybe KeyGroupConfig)
+    -- ^ Riffle \xc2\xa72 key-group dispatch. Present iff the pool was
+    -- built via 'newWorkerPoolKeyGrouped'; otherwise the
+    -- pool routes by partition (existing semantics).
+  , poolKeyGroupTV    :: !(TVar KeyGroupAssignment)
+    -- ^ Live key-group ownership. The assignor pushes new
+    -- assignments here in response to rebalance events; the
+    -- hot path consults it on every 'submitRecordKeyGrouped'.
+  , poolKeyGroupOwner :: !(TVar (HashMap.HashMap KeyGroupId Int))
+    -- ^ KeyGroupId \xe2\x86\x92 workerId routing. Updated atomically
+    -- whenever the assignment changes; the hot path is a
+    -- single STM read.
   }
 
 -- | Read the current worker vector. Reads see a consistent
@@ -197,14 +225,19 @@ newWorkerPool topo appId perWorkerOwnership = do
   byIdxTV <- newTVarIO $ HashMap.fromList
     (V.toList (V.map (\w -> (workerId w, w)) workers))
   nextIdTV <- newTVarIO n
+  kgTV    <- newTVarIO emptyAssignment
+  kgOwnTV <- newTVarIO HashMap.empty
   pure WorkerPool
-    { poolWorkersTV    = workersTV
-    , poolByIdxTV      = byIdxTV
-    , poolRouting      = routing
-    , poolNextOff      = off
-    , poolTopo         = topo
-    , poolAppId        = appId
-    , poolNextWorkerId = nextIdTV
+    { poolWorkersTV     = workersTV
+    , poolByIdxTV       = byIdxTV
+    , poolRouting       = routing
+    , poolNextOff       = off
+    , poolTopo          = topo
+    , poolAppId         = appId
+    , poolNextWorkerId  = nextIdTV
+    , poolKeyGroupCfg   = Nothing
+    , poolKeyGroupTV    = kgTV
+    , poolKeyGroupOwner = kgOwnTV
     }
   where
     buildWorker topology aId idx owned =
@@ -268,6 +301,36 @@ newWorkerPoolHashed topo appId n
   | n < 1     = error "newWorkerPoolHashed: worker count must be >= 1"
   | otherwise = newWorkerPool topo appId
                   (replicate n HashSet.empty)
+
+-- | Build a key-group-dispatched pool (Riffle \xc2\xa72). The runtime
+-- routes records by hashing the key onto a 'KeyGroupId' via the
+-- supplied 'KeyGroupConfig', then dispatches the record to the
+-- worker that owns that key-group per the live
+-- 'KeyGroupAssignment'.
+--
+-- The pool starts with @n@ workers and an empty assignment. The
+-- runtime (or the test) calls 'updateKeyGroupAssignment' to
+-- publish the live ownership map; until then,
+-- 'submitRecordKeyGrouped' silently drops records the same way
+-- 'submitRecord' silently drops records for partitions whose
+-- owner has been removed.
+--
+-- Decoupling parallelism from partition count: the worker count
+-- and the key-group count are independent. Typical deployments
+-- pick @kgcTotal@ as a power of two well above the maximum
+-- anticipated parallelism (128 / 256 / 1024) and let the
+-- assignor balance key-groups across workers.
+newWorkerPoolKeyGrouped
+  :: Topo.TopologyValid
+  -> Text                                 -- ^ application id
+  -> Int                                  -- ^ worker count (>= 1)
+  -> KeyGroupConfig
+  -> IO WorkerPool
+newWorkerPoolKeyGrouped topo appId n cfg
+  | n < 1 = error "newWorkerPoolKeyGrouped: worker count must be >= 1"
+  | otherwise = do
+      pool <- newWorkerPool topo appId (replicate n HashSet.empty)
+      pure pool { poolKeyGroupCfg = Just cfg }
 
 ----------------------------------------------------------------------
 -- Submit
@@ -370,6 +433,83 @@ chooseHashed ids h =
    in if n == 0
         then 0
         else ids V.! (h `mod` n)
+
+----------------------------------------------------------------------
+-- Key-group dispatch (Riffle \xc2\xa72)
+----------------------------------------------------------------------
+
+-- | Enqueue a record onto the worker that owns the key-group
+-- the record hashes into. Requires the pool to have been built
+-- via 'newWorkerPoolKeyGrouped' and an assignment to have been
+-- published via 'updateKeyGroupAssignment'. Otherwise the
+-- record is silently dropped (matching the
+-- partition-not-assigned semantics of 'submitRecord').
+submitRecordKeyGrouped
+  :: WorkerPool
+  -> TopicName
+  -> Maybe ByteString
+  -> ByteString
+  -> Timestamp
+  -> Int                              -- ^ partition (carried through)
+  -> IO ()
+submitRecordKeyGrouped pool topic mKey val ts part =
+  case poolKeyGroupCfg pool of
+    Nothing  -> pure ()
+    Just cfg -> do
+      off <- atomicModifyIORef' (poolNextOff pool)
+               (\n -> (n + 1, n))
+      let !kb = case mKey of
+            Nothing -> BS.empty
+            Just b  -> b
+          !kg = keyGroupOfBytes cfg kb
+      mw <- atomically $ do
+        owners <- readTVar (poolKeyGroupOwner pool)
+        case HashMap.lookup kg owners of
+          Nothing  -> pure Nothing
+          Just wid -> do
+            byIdx <- readTVar (poolByIdxTV pool)
+            case HashMap.lookup wid byIdx of
+              Nothing -> pure Nothing
+              Just w  -> do
+                writeTQueue (workerInbox w)
+                  (WorkRecord topic mKey val ts part off)
+                modifyTVar' (workerSubmitted w) (+ 1)
+                pure (Just w)
+      _ <- pure mw
+      pure ()
+
+-- | Read the live key-group assignment as the assignor last
+-- published it.
+poolKeyGroupAssignment :: WorkerPool -> IO KeyGroupAssignment
+poolKeyGroupAssignment = readTVarIO . poolKeyGroupTV
+
+-- | Publish a new key-group assignment. The pool atomically
+-- rebuilds the @KeyGroupId \xe2\x86\x92 workerId@ owner map by
+-- distributing owned key-groups round-robin across the current
+-- live worker set. Subsequent 'submitRecordKeyGrouped' calls
+-- see the new assignment immediately.
+--
+-- The runtime would call this from the rebalance listener
+-- whenever 'Kafka.Streams.Runtime.RebalanceProtocol.applyReconciliation'
+-- changes the local instance's owned set.
+updateKeyGroupAssignment
+  :: WorkerPool
+  -> KeyGroupAssignment
+  -> IO ()
+updateKeyGroupAssignment pool asg = atomically $ do
+  ws <- readTVar (poolWorkersTV pool)
+  let !ids = V.toList (V.map workerId ws)
+  let !owned = KG.kgaOwned asg
+      !n     = length ids
+      !pairs = if n == 0
+                 then []
+                 else zipWith (\kg i -> (kg, ids !! (i `mod` n)))
+                              (Data.List.sort (toList owned))
+                              [0 :: Int ..]
+  writeTVar (poolKeyGroupTV pool) asg
+  writeTVar (poolKeyGroupOwner pool) (HashMap.fromList pairs)
+  where
+    toList s = HashSet.toList (HashSet.fromList (Data.Foldable.toList s))
 
 -- | Block until every record submitted so far has finished
 -- processing on the right worker.  Coordinated via per-worker
@@ -489,11 +629,27 @@ workerLoop :: Worker -> IO ()
 workerLoop w = loop
   where
     loop = do
+      -- Drain semantics:
+      --
+      --   * If the inbox is non-empty, take the next record
+      --     (whether or not 'workerStop' is set). Otherwise
+      --     'removePoolWorker' would deadlock waiting for
+      --     'workerProcessed' to catch up to 'workerSubmitted'
+      --     when records have been queued but not yet
+      --     processed at the moment shutdown is requested.
+      --
+      --   * If the inbox is empty, only block when 'workerStop'
+      --     is False; once stop is True the worker exits
+      --     promptly so the pool can join it.
       next <- atomically $ do
-        s <- readTVar (workerStop w)
-        if s
-          then pure Nothing
-          else Just <$> readTQueue (workerInbox w)
+        empty <- isEmptyTQueue (workerInbox w)
+        if not empty
+          then Just <$> readTQueue (workerInbox w)
+          else do
+            s <- readTVar (workerStop w)
+            if s
+              then pure Nothing
+              else retry
       case next of
         Nothing -> pure ()
         Just r  -> do

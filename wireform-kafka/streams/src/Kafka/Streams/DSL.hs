@@ -91,8 +91,8 @@ module Kafka.Streams.DSL
   , mapWithKeyM
   , filter
   , filterNot
-  , flatMap
-  , flatMapWithKey
+  , concatMap
+  , concatMapWithKey
   , peek
   , foreach
   , selectKey
@@ -127,7 +127,7 @@ module Kafka.Streams.DSL
   , Pipe (..)
   ) where
 
-import Prelude hiding (filter, map, mapM)
+import Prelude hiding (concatMap, filter, map, mapM)
 
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -147,7 +147,7 @@ import Kafka.Streams.KTable (KTable)
 import Kafka.Streams.Materialized (Materialized)
 import qualified Kafka.Streams.Materialized as Mat
 import Kafka.Streams.Produced (Produced, produced)
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (HasSerde, Serde)
 import Kafka.Streams.StreamsBuilder
   ( StreamsBuilder
   , buildTopology
@@ -327,23 +327,25 @@ through t ks vs s = liftIO (KS.throughTopic (topicName t) (produced ks vs) s)
 ----------------------------------------------------------------------
 
 -- | Pure value-only map. Equivalent to @KStream.mapValues@.
-map :: (v -> v') -> KStream k v -> Streams (KStream k v')
+map :: HasSerde v' => (v -> v') -> KStream k v -> Streams (KStream k v')
 map f s = liftIO (KS.mapValues f s)
 
 -- | Pure (key, value) map. Equivalent to @KStream.map@.
 mapWithKey
-  :: (k -> v -> (k', v')) -> KStream k v -> Streams (KStream k' v')
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> (k', v')) -> KStream k v -> Streams (KStream k' v')
 mapWithKey f s = liftIO (KS.mapKeyValue f s)
 
 -- | Effectful value-only map. Equivalent to @KStream.mapValues@
 -- with an embedded @IO@.
-mapM :: (v -> IO v') -> KStream k v -> Streams (KStream k v')
+mapM :: HasSerde v' => (v -> IO v') -> KStream k v -> Streams (KStream k v')
 mapM f s = liftIO (KS.mapValuesM f s)
 
 -- | Effectful (key, value) map. Equivalent to @KStream.map@ with
 -- an embedded @IO@.
 mapWithKeyM
-  :: (k -> v -> IO (k', v')) -> KStream k v -> Streams (KStream k' v')
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> IO (k', v')) -> KStream k v -> Streams (KStream k' v')
 mapWithKeyM f s = liftIO (KS.mapKeyValueM f s)
 
 -- | Keep records satisfying the predicate. Mirrors @KStream.filter@.
@@ -356,14 +358,23 @@ filterNot
   :: (Record k v -> Bool) -> KStream k v -> Streams (KStream k v)
 filterNot p s = liftIO (KS.filterNotStream p s)
 
--- | One-to-many value-only expansion. Mirrors @KStream.flatMapValues@.
-flatMap :: (v -> [v']) -> KStream k v -> Streams (KStream k v')
-flatMap f s = liftIO (KS.flatMapValues f s)
+-- | One-to-many value-only expansion. Mirrors
+-- 'Kafka.Streams.KStream.concatMapValues' (the JVM
+-- @KStream.flatMapValues@). The name follows Haskell's
+-- 'Data.List.concatMap' convention rather than Scala's
+-- @flatMap@.
+concatMap
+  :: HasSerde v'
+  => (v -> [v']) -> KStream k v -> Streams (KStream k v')
+concatMap f s = liftIO (KS.concatMapValues f s)
 
--- | One-to-many (key, value) expansion. Mirrors @KStream.flatMap@.
-flatMapWithKey
-  :: (k -> v -> [(k', v')]) -> KStream k v -> Streams (KStream k' v')
-flatMapWithKey f s = liftIO (KS.flatMapKeyValue f s)
+-- | One-to-many @(key, value)@ expansion. Mirrors
+-- 'Kafka.Streams.KStream.concatMapKeyValue' (the JVM
+-- @KStream.flatMap@).
+concatMapWithKey
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> [(k', v')]) -> KStream k v -> Streams (KStream k' v')
+concatMapWithKey f s = liftIO (KS.concatMapKeyValue f s)
 
 -- | Side-effecting observer (record is unchanged). Mirrors @KStream.peek@.
 peek
@@ -376,7 +387,8 @@ foreach f s = liftIO (KS.foreachStream f s)
 
 -- | Re-key the stream from the full record. Mirrors @KStream.selectKey@.
 selectKey
-  :: (Record k v -> k') -> KStream k v -> Streams (KStream k' v)
+  :: HasSerde k'
+  => (Record k v -> k') -> KStream k v -> Streams (KStream k' v)
 selectKey f s = liftIO (KS.selectKey f s)
 
 -- | Drop the key. Mirrors @KStream.values@.
@@ -483,7 +495,7 @@ aggregate z step m g = liftIO (KGS.aggregateStream z step m g)
 -- | Stream-table inner join. Mirrors
 -- @KStream.join(KTable, ValueJoiner, Joined)@.
 join
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v -> vt -> v')
   -> Joined k v vt
   -> KStream k v
@@ -493,7 +505,7 @@ join j jo s t = liftIO (KS.joinKStreamKTable j jo s t)
 
 -- | Stream-table left join.
 leftJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v -> Maybe vt -> v')
   -> Joined k v vt
   -> KStream k v

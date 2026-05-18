@@ -29,8 +29,8 @@
 --   * 'filterNotStream'         — @KStream.filterNot@
 --   * 'mapValues'               — @KStream.mapValues@
 --   * 'mapKeyValue'             — @KStream.map@
---   * 'flatMapValues'           — @KStream.flatMapValues@
---   * 'flatMapKeyValue'         — @KStream.flatMap@
+--   * 'concatMapValues'           — @KStream.concatMapValues@
+--   * 'concatMapKeyValue'         — @KStream.flatMap@
 --   * 'foreachStream'           — @KStream.foreach@
 --   * 'peekStream'              — @KStream.peek@
 --   * 'selectKey'               — @KStream.selectKey@
@@ -55,15 +55,23 @@ module Kafka.Streams.KStream
   , filterStreamNamed
   , filterNotStream
   , mapValues
+  , mapValuesWith
   , mapValuesNamed
   , mapValuesM
+  , mapValuesMWith
   , mapKeyValue
+  , mapKeyValueWith
   , mapKeyValueNamed
   , mapKeyValueM
+  , mapKeyValueMWith
   , mapRecord
+  , mapRecordWith
   , mapRecordM
-  , flatMapValues
-  , flatMapKeyValue
+  , mapRecordMWith
+  , concatMapValues
+  , concatMapValuesWith
+  , concatMapKeyValue
+  , concatMapKeyValueWith
   , peekStream
   , peekStreamNamed
   , foreachStream
@@ -72,6 +80,7 @@ module Kafka.Streams.KStream
   , printToHandle
   , valuesStream
   , selectKey
+  , selectKeyWith
   , selectKeyNamed
     -- * Composition
   , mergeStreams
@@ -105,7 +114,16 @@ module Kafka.Streams.KStream
   , transformValuesStream
   , processStream
   , processValuesStream
-  , flatTransformValues
+  , concatTransformValues
+    -- * Extension hooks
+  --
+  -- 'attachProcessor' is the primitive every stateless and stateful
+  -- transform on this module is built on. It is exported so the
+  -- 'Kafka.Streams.AsyncIO' family (and any future
+  -- 'wireform-kafka-streams' Riffle extension) can plug in fresh
+  -- processor primitives without duplicating the
+  -- "fresh node name + addProcessor + return a KStream" boilerplate.
+  , attachProcessor
   ) where
 
 import qualified Control.Concurrent.Async
@@ -156,7 +174,7 @@ import Kafka.Streams.Processor
   , processorName
   )
 import qualified Kafka.Streams.Types
-import Kafka.Streams.Serde (Serde, serialize)
+import Kafka.Streams.Serde (HasSerde (..), Serde, serialize)
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStoreBuilder
   )
@@ -224,6 +242,7 @@ streamFromTopic b topic c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Nothing
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure KStream
     { kstreamBuilder    = b
@@ -261,6 +280,7 @@ streamFromPattern b pattern c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Just pattern
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure KStream
     { kstreamBuilder    = b
@@ -356,8 +376,18 @@ filterProcessor nm p = do
 -- | Apply a pure function to every record's value.
 --
 -- /JVM equivalent:/ @KStream.mapValues(ValueMapper)@.
-mapValues :: forall k v v'. (v -> v') -> KStream k v -> IO (KStream k v')
-mapValues f s = mapValuesM (pure . f) s
+mapValues
+  :: forall k v v'
+   . HasSerde v'
+  => (v -> v') -> KStream k v -> IO (KStream k v')
+mapValues f s = mapValuesMWith serde (pure . f) s
+
+-- | 'mapValues' with an explicit downstream value 'Serde'.
+mapValuesWith
+  :: forall k v v'
+   . Serde v'
+  -> (v -> v') -> KStream k v -> IO (KStream k v')
+mapValuesWith vs' f s = mapValuesMWith vs' (pure . f) s
 
 -- | Apply an effectful function to every record's value. The
 -- 'IO' action runs once per record on the stream thread; it
@@ -367,12 +397,21 @@ mapValues f s = mapValuesM (pure . f) s
 -- /JVM equivalent:/ no direct match — closest is the
 -- @ValueMapper@ + a separate side-effect channel. We model
 -- the @IO@ in the type signature so the cost is visible.
-mapValuesM :: forall k v v'. (v -> IO v') -> KStream k v -> IO (KStream k v')
-mapValuesM f s =
+mapValuesM
+  :: forall k v v'
+   . HasSerde v'
+  => (v -> IO v') -> KStream k v -> IO (KStream k v')
+mapValuesM = mapValuesMWith serde
+
+-- | 'mapValuesM' with an explicit downstream value 'Serde'.
+mapValuesMWith
+  :: forall k v v'
+   . Serde v' -> (v -> IO v') -> KStream k v -> IO (KStream k v')
+mapValuesMWith vs' f s =
   attachProcessor s "KSTREAM-MAPVALUES"
     (mapValuesProc @k @v @v' f)
     (kstreamKeySerde s)
-    (error "KStream.mapValues: downstream value Serde unset; supply via to/through")
+    vs'
 
 -- Processor whose input is @Record k v@ and that forwards a
 -- @Record k v'@ via 'ctxForward'. The forward type is universally
@@ -409,22 +448,45 @@ mapValuesProc f = do
 -- /JVM equivalent:/ @KStream.map(KeyValueMapper)@.
 mapKeyValue
   :: forall k v k' v'
-   . (k -> v -> (k', v'))
+   . (HasSerde k', HasSerde v')
+  => (k -> v -> (k', v'))
   -> KStream k v
   -> IO (KStream k' v')
 mapKeyValue f = mapKeyValueM (\k v -> pure (f k v))
 
+-- | 'mapKeyValue' with explicit downstream key + value 'Serde's.
+mapKeyValueWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> (k -> v -> (k', v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapKeyValueWith ks' vs' f =
+  mapKeyValueMWith ks' vs' (\k v -> pure (f k v))
+
 -- | Effectful version of 'mapKeyValue'.
 mapKeyValueM
   :: forall k v k' v'
-   . (k -> v -> IO (k', v'))
+   . (HasSerde k', HasSerde v')
+  => (k -> v -> IO (k', v'))
   -> KStream k v
   -> IO (KStream k' v')
-mapKeyValueM f s =
+mapKeyValueM = mapKeyValueMWith serde serde
+
+-- | 'mapKeyValueM' with explicit downstream key + value serdes.
+mapKeyValueMWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> (k -> v -> IO (k', v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapKeyValueMWith ks' vs' f s =
   attachProcessor s "KSTREAM-MAP"
     (mapKVProc @k @v @k' @v' f)
-    (error "KStream.mapKeyValue: downstream key Serde unset")
-    (error "KStream.mapKeyValue: downstream value Serde unset")
+    ks'
+    vs'
 
 mapKVProc
   :: forall k v k' v'
@@ -461,23 +523,45 @@ mapKVProc f = do
 -- common stateless shape as a smart constructor.
 mapRecord
   :: forall k v k' v'
-   . (Record k v -> Record k' v')
+   . (HasSerde k', HasSerde v')
+  => (Record k v -> Record k' v')
   -> KStream k v
   -> IO (KStream k' v')
 mapRecord f = mapRecordM (pure . f)
+
+-- | 'mapRecord' with explicit downstream key + value 'Serde's.
+mapRecordWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> (Record k v -> Record k' v')
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordWith ks' vs' f = mapRecordMWith ks' vs' (pure . f)
 
 -- | Effectful 'mapRecord'. The 'IO' runs once per record on the
 -- stream thread — same backpressure caveat as 'mapValuesM'.
 mapRecordM
   :: forall k v k' v'
-   . (Record k v -> IO (Record k' v'))
+   . (HasSerde k', HasSerde v')
+  => (Record k v -> IO (Record k' v'))
   -> KStream k v
   -> IO (KStream k' v')
-mapRecordM f s =
+mapRecordM = mapRecordMWith serde serde
+
+-- | 'mapRecordM' with explicit downstream key + value serdes.
+mapRecordMWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> (Record k v -> IO (Record k' v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordMWith ks' vs' f s =
   attachProcessor s "KSTREAM-MAPRECORD"
     (mapRecordProc f)
-    (error "KStream.mapRecord: downstream key Serde unset")
-    (error "KStream.mapRecord: downstream value Serde unset")
+    ks'
+    vs'
 
 mapRecordProc
   :: forall k v k' v'
@@ -501,22 +585,32 @@ mapRecordProc f = do
 -- | Expand each record into zero or more output records,
 -- changing only the value.
 --
--- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
-flatMapValues
+-- /JVM equivalent:/ @KStream.concatMapValues(ValueMapper)@.
+concatMapValues
   :: forall k v v'
-   . (v -> [v'])
+   . HasSerde v'
+  => (v -> [v'])
   -> KStream k v
   -> IO (KStream k v')
-flatMapValues f s =
-  attachProcessor s "KSTREAM-FLATMAPVALUES"
-    (flatMapValuesProc @k @v @v' f)
-    (kstreamKeySerde s)
-    (error "KStream.flatMapValues: downstream value Serde unset")
+concatMapValues = concatMapValuesWith serde
 
-flatMapValuesProc
+-- | 'concatMapValues' with an explicit downstream value 'Serde'.
+concatMapValuesWith
+  :: forall k v v'
+   . Serde v'
+  -> (v -> [v'])
+  -> KStream k v
+  -> IO (KStream k v')
+concatMapValuesWith vs' f s =
+  attachProcessor s "KSTREAM-FLATMAPVALUES"
+    (concatMapValuesProc @k @v @v' f)
+    (kstreamKeySerde s)
+    vs'
+
+concatMapValuesProc
   :: forall k v v'
    . (v -> [v']) -> IO (Processor k v)
-flatMapValuesProc f = do
+concatMapValuesProc f = do
   ctxRef <- newIORef Nothing
   pure Processor
     { procName    = processorName "KSTREAM-FLATMAPVALUES"
@@ -544,22 +638,33 @@ flatMapValuesProc f = do
 -- key feeds downstream partitioning.
 --
 -- /JVM equivalent:/ @KStream.flatMap(KeyValueMapper)@.
-flatMapKeyValue
+concatMapKeyValue
   :: forall k v k' v'
-   . (k -> v -> [(k', v')])
+   . (HasSerde k', HasSerde v')
+  => (k -> v -> [(k', v')])
   -> KStream k v
   -> IO (KStream k' v')
-flatMapKeyValue f s =
-  attachProcessor s "KSTREAM-FLATMAP"
-    (flatMapKVProc @k @v @k' @v' f)
-    (error "KStream.flatMapKeyValue: downstream key Serde unset")
-    (error "KStream.flatMapKeyValue: downstream value Serde unset")
+concatMapKeyValue = concatMapKeyValueWith serde serde
 
-flatMapKVProc
+-- | 'concatMapKeyValue' with explicit downstream key + value serdes.
+concatMapKeyValueWith
+  :: forall k v k' v'
+   . Serde k'
+  -> Serde v'
+  -> (k -> v -> [(k', v')])
+  -> KStream k v
+  -> IO (KStream k' v')
+concatMapKeyValueWith ks' vs' f s =
+  attachProcessor s "KSTREAM-FLATMAP"
+    (concatMapKVProc @k @v @k' @v' f)
+    ks'
+    vs'
+
+concatMapKVProc
   :: forall k v k' v'
    . (k -> v -> [(k', v')])
   -> IO (Processor k v)
-flatMapKVProc f = do
+concatMapKVProc f = do
   ctxRef <- newIORef Nothing
   pure Processor
     { procName    = processorName "KSTREAM-FLATMAP"
@@ -652,13 +757,23 @@ foreachStream act s = do
 -- /JVM equivalent:/ @KStream.selectKey(KeyValueMapper)@.
 selectKey
   :: forall k v k'
-   . (Record k v -> k')
+   . HasSerde k'
+  => (Record k v -> k')
   -> KStream k v
   -> IO (KStream k' v)
-selectKey f s =
+selectKey = selectKeyWith serde
+
+-- | 'selectKey' with an explicit downstream key 'Serde'.
+selectKeyWith
+  :: forall k v k'
+   . Serde k'
+  -> (Record k v -> k')
+  -> KStream k v
+  -> IO (KStream k' v)
+selectKeyWith ks' f s =
   attachProcessor s "KSTREAM-SELECTKEY"
     (selectKeyProc @k @v @k' f)
-    (error "KStream.selectKey: downstream key Serde unset")
+    ks'
     (kstreamValueSerde s)
 
 selectKeyProc
@@ -846,7 +961,7 @@ throughTopic topic p s = do
 -- /JVM equivalent:/ @KStream.join(KTable, ValueJoiner)@.
 joinKStreamKTable
   :: forall k v vt v'
-   . Ord k
+   . (Ord k, HasSerde v')
   => (v -> vt -> v')
   -> Joined k v vt
   -> KStream k v
@@ -875,7 +990,7 @@ joinKStreamKTable joiner _j s tab = do
     { kstreamBuilder    = b
     , kstreamParent     = nm
     , kstreamKeySerde   = kstreamKeySerde s
-    , kstreamValueSerde = error "KStream.join: downstream value Serde unset"
+    , kstreamValueSerde = serde
     }
 
 -- | Left join: stream records always emit, with @Nothing@ on
@@ -884,7 +999,7 @@ joinKStreamKTable joiner _j s tab = do
 -- /JVM equivalent:/ @KStream.leftJoin(KTable, ValueJoiner)@.
 leftJoinKStreamKTable
   :: forall k v vt v'
-   . Ord k
+   . (Ord k, HasSerde v')
   => (v -> Maybe vt -> v')
   -> Joined k v vt
   -> KStream k v
@@ -908,7 +1023,7 @@ leftJoinKStreamKTable joiner _j s tab = do
     { kstreamBuilder    = b
     , kstreamParent     = nm
     , kstreamKeySerde   = kstreamKeySerde s
-    , kstreamValueSerde = error "KStream.leftJoin: downstream value Serde unset"
+    , kstreamValueSerde = serde
     }
 
 -- | The join processor. The KTable side has already updated its store
@@ -1550,7 +1665,8 @@ filterStreamNamed nm pred_ s = do
 -- | 'mapValues' with an explicit topology node name.
 mapValuesNamed
   :: forall k v v'
-   . Kafka.Streams.Named.Named
+   . HasSerde v'
+  => Kafka.Streams.Named.Named
   -> (v -> v')
   -> KStream k v
   -> IO (KStream k v')
@@ -1563,14 +1679,14 @@ mapValuesNamed nm f s = do
     { kstreamBuilder    = b
     , kstreamParent     = nodeNm
     , kstreamKeySerde   = kstreamKeySerde s
-    , kstreamValueSerde = error
-        "KStream.mapValuesNamed: downstream value Serde unset"
+    , kstreamValueSerde = serde
     }
 
 -- | 'mapKeyValue' with an explicit topology node name.
 mapKeyValueNamed
   :: forall k v k' v'
-   . Kafka.Streams.Named.Named
+   . (HasSerde k', HasSerde v')
+  => Kafka.Streams.Named.Named
   -> (k -> v -> (k', v'))
   -> KStream k v
   -> IO (KStream k' v')
@@ -1583,8 +1699,8 @@ mapKeyValueNamed nm f s = do
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nodeNm
-    , kstreamKeySerde   = error "mapKeyValueNamed: downstream key Serde unset"
-    , kstreamValueSerde = error "mapKeyValueNamed: downstream value Serde unset"
+    , kstreamKeySerde   = serde
+    , kstreamValueSerde = serde
     }
 
 -- | 'peekStream' with an explicit topology node name.
@@ -1621,7 +1737,8 @@ peekStreamNamed nm act s = do
 -- | 'selectKey' with an explicit topology node name.
 selectKeyNamed
   :: forall k v k'
-   . Kafka.Streams.Named.Named
+   . HasSerde k'
+  => Kafka.Streams.Named.Named
   -> (Record k v -> k')
   -> KStream k v
   -> IO (KStream k' v)
@@ -1633,7 +1750,7 @@ selectKeyNamed nm f s = do
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nodeNm
-    , kstreamKeySerde   = error "selectKeyNamed: downstream key Serde unset"
+    , kstreamKeySerde   = serde
     , kstreamValueSerde = kstreamValueSerde s
     }
 
@@ -1753,7 +1870,7 @@ toKStreamFromKTable kt = do
 -- single-task driver doesn't distinguish the two.
 groupByKTable
   :: forall k v k'
-   . (Ord k, Ord k')
+   . (Ord k, Ord k', HasSerde k', HasSerde v)
   => (k -> v -> k')
   -> Kafka.Streams.KTable.KTable k v
   -> IO (KStream k' v)
@@ -1888,12 +2005,12 @@ valuesStream s = do
   pure KStream
     { kstreamBuilder    = b
     , kstreamParent     = nm
-    , kstreamKeySerde   = error "valuesStream: () key serde unset"
+    , kstreamKeySerde   = serde
     , kstreamValueSerde = kstreamValueSerde s
     }
 
 ----------------------------------------------------------------------
--- flatTransformValues
+-- concatTransformValues
 ----------------------------------------------------------------------
 
 -- | Stateful 0-to-many emit on the value side. The user-supplied
@@ -1901,10 +2018,10 @@ valuesStream s = do
 -- zero, one, or many times per input record. State stores listed
 -- in @stores@ are attached and accessible via 'getStateStore'.
 --
--- Mirrors @KStream.flatTransformValues@. Identical to
+-- Mirrors @KStream.concatTransformValues@. Identical to
 -- 'processValuesStream' (same plumbing); kept as a separate name
 -- for users porting from Java.
-flatTransformValues
+concatTransformValues
   :: forall k v v'
    . T.Text
   -> [StoreName]
@@ -1912,4 +2029,4 @@ flatTransformValues
   -> Serde v'
   -> KStream k v
   -> IO (KStream k v')
-flatTransformValues = processValuesStream
+concatTransformValues = processValuesStream

@@ -105,15 +105,15 @@ map_values = testCase "mapValues transforms each value" $ do
   closeDriver driver
 
 ----------------------------------------------------------------------
--- 4. flatMapValues
+-- 4. concatMapValues
 ----------------------------------------------------------------------
 
 flatmap_values :: TestTree
-flatmap_values = testCase "flatMapValues splits each record" $ do
+flatmap_values = testCase "concatMapValues splits each record" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
-  s' <- flatMapValues (T.words) s
+  s' <- concatMapValues (T.words) s
   toTopic (topicName "out") (produced textSerde textSerde) s'
   topo <- buildTopology b
   driver <- newDriver topo "test-app"
@@ -215,10 +215,16 @@ map_keys_then_sink :: TestTree
 map_keys_then_sink = testCase "mapKeyValue rewrites both" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
-  s' <- mapKeyValue (\k v -> (T.reverse k, T.length v)) s
+  -- 'Int' has no default 'HasSerde' (the built-in is Int64);
+  -- supply an Int serde explicitly via mapKeyValueWith.
+  let intSerde =
+        Kafka.Streams.imap (fromIntegral @Int @Int64)
+                           (fromIntegral @Int64 @Int) int64Serde
+  s' <- mapKeyValueWith textSerde intSerde
+          (\k v -> (T.reverse k, T.length v)) s
   toTopic
     (topicName "out")
-    (produced textSerde (Kafka.Streams.imap (fromIntegral @Int @Int64) (fromIntegral @Int64 @Int) int64Serde))
+    (produced textSerde intSerde)
     s'
   topo <- buildTopology b
   driver <- newDriver topo "test-app"

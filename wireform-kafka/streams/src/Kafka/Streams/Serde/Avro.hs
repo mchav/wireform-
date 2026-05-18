@@ -32,6 +32,7 @@ module Kafka.Streams.Serde.Avro
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.Text as T
 
 import Kafka.Streams.Serde (Serde (..))
 import qualified Kafka.Streams.Serde.SchemaRegistry as SR
@@ -63,6 +64,8 @@ avroSerde AvroSerdeConfig{..} =
     , SR.srscSchema  = ascSchema
     , SR.srscPayload = Serde
         { serialize   = runAvroEncoder ascEncoder
-        , deserialize = runAvroDecoder ascDecoder
+        , deserialize = \b -> case runAvroDecoder ascDecoder b of
+            Left e  -> Left (T.pack e)
+            Right a -> Right a
         }
     }

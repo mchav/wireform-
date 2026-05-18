@@ -71,7 +71,7 @@ list of what isn't there yet.
 | ---------------------------- | -------------------------------------------------- |
 | `KStream.filter` / `filterNot` | `filterStream` / `filterNotStream` (+ `*Named`)  |
 | `KStream.map` / `mapValues`  | `mapKeyValue` / `mapValues` (+ `*M` IO variants, `*Named`) |
-| `KStream.flatMap` / `flatMapValues` | `flatMapKeyValue` / `flatMapValues`         |
+| `KStream.flatMap` / `concatMapValues` | `concatMapKeyValue` / `concatMapValues`         |
 | `KStream.selectKey`          | `selectKey` (+ `selectKeyNamed`)                   |
 | `KStream.peek`               | `peekStream` (+ `peekStreamNamed`)                 |
 | `KStream.foreach`            | `foreachStream`                                    |

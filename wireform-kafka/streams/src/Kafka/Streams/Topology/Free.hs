@@ -302,6 +302,18 @@ module Kafka.Streams.Topology.Free
   , mapRecord
   , mapRecordM
   , noFuse
+    -- * Riffle: async I\/O transforms
+  --
+  -- See "Kafka.Streams.AsyncIO" for the contract: bounded
+  -- worker pool, backpressure via a bounded in-flight queue,
+  -- ordered\/unordered output, explicit failure policy, and
+  -- EOS-compatible drain. Construct an 'AIO.AsyncIOConfig'
+  -- (or start from 'AIO.defaultAsyncIOConfig') and reach for
+  -- one of these instead of 'mapValuesM' \/ 'mapKeyValueM'
+  -- whenever the per-record IO is latency-bound.
+  , asyncMapValues
+  , asyncMapKeyValue
+  , asyncConcatMapValues
     -- ** Named operator variants (KIP-307)
   , filterNamed
   , mapValuesNamed
@@ -333,8 +345,8 @@ module Kafka.Streams.Topology.Free
   , aggregateWindowedCogrouped
   , filter
   , filterNot
-  , flatMapValues
-  , flatMapKeyValue
+  , concatMapValues
+  , concatMapKeyValue
   , peek
   , foreach
   , prints
@@ -468,6 +480,9 @@ import Data.Void (Void)
 import GHC.Generics (Generic)
 import qualified System.IO.Unsafe as IOUnsafe
 
+import qualified Kafka.Streams.AsyncIO as AIO
+import qualified Kafka.Streams.AsyncIO.Config as AIO
+import qualified Kafka.Streams.Sinks.TwoPhase as TPS
 import Kafka.Streams.Cogroup (CogroupedStream)
 import qualified Kafka.Streams.Cogroup as Cog
 import Kafka.Streams.Consumed
@@ -476,6 +491,7 @@ import Kafka.Streams.Consumed
   , consumedExtractor
   , consumedKeySerde
   , consumedOffsetReset
+  , consumedWatermark
   , consumedValueSerde
   )
 import qualified Kafka.Streams.Joined as Joined
@@ -502,7 +518,7 @@ import qualified Kafka.Streams.Materialized as Mat
 import Kafka.Streams.Processor (Processor)
 import Kafka.Streams.Produced (Produced, produced)
 import qualified Kafka.Streams.Repartitioned as Rep
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (HasSerde, Serde)
 import qualified Kafka.Streams.SessionWindowedKStream as SWKS
 import Kafka.Streams.State.Store
   ( StoreBuilderKV
@@ -611,36 +627,75 @@ data Prim i o where
                -> Prim (KStream k v) ()
   Through      :: !TopicName -> !(Produced k v)
                -> Prim (KStream k v) (KStream k v)
+  -- | Riffle \xc2\xa74: two-phase-commit sink. Each record is staged
+  -- into the sink's per-cycle buffer via 'tpsPrepare'; the
+  -- runtime's 'EOSCoordinator.preCommit2PC' \/ 'commit2PC' /
+  -- 'abort2PC' hooks drive the commit cycle. Wire the sink into
+  -- the coordinator with 'Kafka.Streams.Sinks.TwoPhase.withTwoPhaseSinks'.
+  SinkTwoPhase :: !(TPS.TwoPhaseSink (Record k v))
+               -> Prim (KStream k v) ()
 
   -- ------------------------------------------------------------------
   -- Stateless 'KStream' transforms
   -- ------------------------------------------------------------------
 
-  MapValues       :: (v -> v')         -> Prim (KStream k v) (KStream k v')
-  MapValuesM      :: (v -> IO v')      -> Prim (KStream k v) (KStream k v')
-  MapKeyValue     :: (k -> v -> (k', v'))
+  MapValues       :: HasSerde v'
+                  => (v -> v')         -> Prim (KStream k v) (KStream k v')
+  MapValuesM      :: HasSerde v'
+                  => (v -> IO v')      -> Prim (KStream k v) (KStream k v')
+  MapKeyValue     :: (HasSerde k', HasSerde v')
+                  => (k -> v -> (k', v'))
                   -> Prim (KStream k v) (KStream k' v')
-  MapKeyValueM    :: (k -> v -> IO (k', v'))
+  MapKeyValueM    :: (HasSerde k', HasSerde v')
+                  => (k -> v -> IO (k', v'))
                   -> Prim (KStream k v) (KStream k' v')
+  -- | Riffle async transform on values. Runs @v -> IO v'@ on a
+  -- bounded worker pool with ordered\/unordered output and an
+  -- explicit failure policy. See 'Kafka.Streams.AsyncIO' for the
+  -- full contract (backpressure, EOS, ordering, retry, drain).
+  AsyncMapValues       :: HasSerde v'
+                       => !AIO.AsyncIOConfig
+                       -> (v -> IO v')
+                       -> Prim (KStream k v) (KStream k v')
+  -- | Riffle async transform on key + value. May rekey;
+  -- downstream key + value serdes are resolved via 'HasSerde'.
+  AsyncMapKeyValue     :: (HasSerde k', HasSerde v')
+                       => !AIO.AsyncIOConfig
+                       -> (k -> v -> IO (k', v'))
+                       -> Prim (KStream k v) (KStream k' v')
+  -- | Riffle async flat-map on values. Each input record yields
+  -- zero or more outputs, computed on the worker pool. Within a
+  -- single record, output ordering follows the returned list; across
+  -- input records, output ordering follows 'aioOutputMode'.
+  AsyncConcatMapValues   :: HasSerde v'
+                       => !AIO.AsyncIOConfig
+                       -> (v -> IO [v'])
+                       -> Prim (KStream k v) (KStream k v')
   -- | Full-record pure transform: see key, value, timestamp,
   -- and headers; produce a fresh 'Record'. Use when you need
   -- access to header / timestamp data that 'MapValues' /
   -- 'MapKeyValue' don't expose.
-  MapRecord       :: (Record k v -> Record k' v')
+  MapRecord       :: (HasSerde k', HasSerde v')
+                  => (Record k v -> Record k' v')
                   -> Prim (KStream k v) (KStream k' v')
   -- | Effectful full-record transform. Same backpressure caveat
   -- as 'MapValuesM' — the 'IO' runs synchronously on the
   -- stream thread.
-  MapRecordM      :: (Record k v -> IO (Record k' v'))
+  MapRecordM      :: (HasSerde k', HasSerde v')
+                  => (Record k v -> IO (Record k' v'))
                   -> Prim (KStream k v) (KStream k' v')
   Filter          :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
   FilterNot       :: (Record k v -> Bool) -> Prim (KStream k v) (KStream k v)
-  FlatMapValues   :: (v -> [v'])       -> Prim (KStream k v) (KStream k v')
-  FlatMapKeyValue :: (k -> v -> [(k', v')])
+  ConcatMapValues :: HasSerde v'
+                  => (v -> [v'])       -> Prim (KStream k v) (KStream k v')
+  ConcatMapKeyValue
+                  :: (HasSerde k', HasSerde v')
+                  => (k -> v -> [(k', v')])
                   -> Prim (KStream k v) (KStream k' v')
   Peek            :: (Record k v -> IO ()) -> Prim (KStream k v) (KStream k v)
   Foreach         :: (Record k v -> IO ()) -> Prim (KStream k v) ()
-  SelectKey       :: (Record k v -> k')    -> Prim (KStream k v) (KStream k' v)
+  SelectKey       :: HasSerde k'
+                  => (Record k v -> k')    -> Prim (KStream k v) (KStream k' v)
   Values          :: Prim (KStream k v) (KStream () v)
   Print           :: (Show k, Show v)
                   => !Text -> !(String -> IO ())
@@ -740,20 +795,25 @@ data Prim i o where
   -- ------------------------------------------------------------------
 
   StreamTableJoin
-    :: Ord k => (v -> vt -> v') -> !(Joined k v vt)
+    :: (Ord k, HasSerde v')
+    => (v -> vt -> v') -> !(Joined k v vt)
     -> Prim (KStream k v, KTable k vt) (KStream k v')
   StreamTableLeftJoin
-    :: Ord k => (v -> Maybe vt -> v') -> !(Joined k v vt)
+    :: (Ord k, HasSerde v')
+    => (v -> Maybe vt -> v') -> !(Joined k v vt)
     -> Prim (KStream k v, KTable k vt) (KStream k v')
 
   StreamStreamJoin
-    :: Ord k => (v1 -> v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    :: (Ord k, HasSerde v')
+    => (v1 -> v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
     -> Prim (KStream k v1, KStream k v2) (KStream k v')
   StreamStreamLeftJoin
-    :: Ord k => (v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    :: (Ord k, HasSerde v')
+    => (v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
     -> Prim (KStream k v1, KStream k v2) (KStream k v')
   StreamStreamOuterJoin
-    :: Ord k => (Maybe v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
+    :: (Ord k, HasSerde v')
+    => (Maybe v1 -> Maybe v2 -> v') -> !JoinWindows -> !(Joined k v1 v2)
     -> Prim (KStream k v1, KStream k v2) (KStream k v')
 
   TableTableJoin
@@ -767,19 +827,21 @@ data Prim i o where
     -> Prim (KTable k v1, KTable k v2) (KTable k v')
 
   ForeignKeyJoin
-    :: (Ord k, Ord fk, Hashable v)
+    :: (Ord k, Ord fk, Hashable v, HasSerde v')
     => (v -> fk) -> (v -> vr -> v') -> !(Materialized k v')
     -> Prim (KTable k v, KTable fk vr) (KTable k v')
   LeftForeignKeyJoin
-    :: (Ord k, Ord fk, Hashable v)
+    :: (Ord k, Ord fk, Hashable v, HasSerde v')
     => (v -> fk) -> (v -> Maybe vr -> v') -> !(Materialized k v')
     -> Prim (KTable k v, KTable fk vr) (KTable k v')
 
   StreamGlobalTableJoin
-    :: Ord kg => (k -> v -> kg) -> (v -> vg -> v')
+    :: (Ord kg, HasSerde v')
+    => (k -> v -> kg) -> (v -> vg -> v')
     -> Prim (KStream k v, GlobalKTable kg vg) (KStream k v')
   StreamGlobalTableLeftJoin
-    :: Ord kg => (k -> v -> kg) -> (v -> Maybe vg -> v')
+    :: (Ord kg, HasSerde v')
+    => (k -> v -> kg) -> (v -> Maybe vg -> v')
     -> Prim (KStream k v, GlobalKTable kg vg) (KStream k v')
 
   -- ------------------------------------------------------------------
@@ -793,7 +855,7 @@ data Prim i o where
     :: Ord k => (Record k v -> Bool) -> !(Materialized k v)
     -> Prim (KTable k v) (KTable k v)
   MapValuesTable
-    :: Ord k => (v -> v') -> !(Materialized k v')
+    :: (Ord k, HasSerde v') => (v -> v') -> !(Materialized k v')
     -> Prim (KTable k v) (KTable k v')
   TransformValuesTable
     :: Ord k => !Text -> !(IO (Processor k v)) -> ![StoreName]
@@ -965,19 +1027,23 @@ runPrim b = go
     go (Sink topic p)        = KS.toTopic topic p
     go (SinkExtracted e p)   = KS.toExtracted e p
     go (Through topic p)     = KS.throughTopic topic p
+    go (SinkTwoPhase sink)   = TPS.compileSinkTwoPhase b sink
 
     -- Stateless
     go (MapValues f)         = KS.mapValues f
     go (MapValuesM f)        = KS.mapValuesM f
     go (MapKeyValue f)       = KS.mapKeyValue f
     go (MapKeyValueM f)      = KS.mapKeyValueM f
+    go (AsyncMapValues cfg f)     = AIO.asyncMapValues cfg f
+    go (AsyncMapKeyValue cfg f)   = AIO.asyncMapKeyValue cfg f
+    go (AsyncConcatMapValues cfg f) = AIO.asyncConcatMapValues cfg f
     go (MapRecord f)         = KS.mapRecord f
     go (MapRecordM f)        = KS.mapRecordM f
     go NoFuse                = pure
     go (Filter p)            = KS.filterStream p
     go (FilterNot p)         = KS.filterNotStream p
-    go (FlatMapValues f)     = KS.flatMapValues f
-    go (FlatMapKeyValue f)   = KS.flatMapKeyValue f
+    go (ConcatMapValues f)     = KS.concatMapValues f
+    go (ConcatMapKeyValue f)   = KS.concatMapKeyValue f
     go (Peek f)              = KS.peekStream f
     go (Foreach f)           = KS.foreachStream f
     go (SelectKey f)         = KS.selectKey f
@@ -1176,6 +1242,7 @@ sourceMultiCompile b ts c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Nothing
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure (KS.KStream
           { KS.kstreamBuilder    = b
@@ -1612,6 +1679,18 @@ sink t ks vs = sinkWith (topicName t) (produced ks vs)
 sinkWith :: TopicName -> Produced k v -> Topology (KStream k v) ()
 sinkWith t p = liftPrim (Sink t p)
 
+-- | Riffle \xc2\xa74: terminate the stream into a two-phase-commit sink.
+-- Every record is staged via 'TPS.tpsStage'; the runtime's
+-- 'Kafka.Streams.Runtime.EOS.EOSCoordinator' drives prepare /
+-- commit / abort through the 5-step cycle once the sink has
+-- been wired in via 'TPS.withTwoPhaseSinks'. The same
+-- contract works for JDBC \/ Iceberg \/ S3 \/ HTTP adapters
+-- shipped in separate packages.
+sinkTwoPhase
+  :: TPS.TwoPhaseSink (Record k v)
+  -> Topology (KStream k v) ()
+sinkTwoPhase = liftPrim . SinkTwoPhase
+
 -- | Per-record dynamic-topic sink (KIP-303). The supplied
 -- 'KS.TopicNameExtractor' is consulted for every record and
 -- decides which topic that record lands in. The wire is closed
@@ -1663,7 +1742,7 @@ through t ks vs = liftPrim (Through (topicName t) (produced ks vs))
 -- == Repartition implications
 --
 -- Transforms that change the /key/ ('mapKeyValue', 'mapKeyValueM',
--- 'flatMapKeyValue', 'selectKey') mark the stream as
+-- 'concatMapKeyValue', 'selectKey') mark the stream as
 -- /needing repartition/ for any subsequent stateful operation
 -- (groupBy, join, aggregate). Use 'repartition' explicitly when
 -- you want to force the shuffle at a particular point — Kafka's
@@ -1683,7 +1762,7 @@ through t ks vs = liftPrim (Through (topicName t) (produced ks vs))
 -- The optimiser fuses chains of 'mapValues' into one
 -- @MapValues (compose ...)@ node, so writing small,
 -- single-responsibility maps is cheap at run time.
-mapValues :: (v -> v') -> Topology (KStream k v) (KStream k v')
+mapValues :: HasSerde v' => (v -> v') -> Topology (KStream k v) (KStream k v')
 mapValues = liftPrim . MapValues
 
 -- | Effectful 'mapValues': the value-transform runs in 'IO',
@@ -1701,7 +1780,9 @@ mapValues = liftPrim . MapValues
 -- need exactly-once semantics, route through a state store
 -- and gate on an idempotency token (the same caveat applies
 -- to JVM @transformValues@).
-mapValuesM :: (v -> IO v') -> Topology (KStream k v) (KStream k v')
+mapValuesM
+  :: HasSerde v'
+  => (v -> IO v') -> Topology (KStream k v) (KStream k v')
 mapValuesM = liftPrim . MapValuesM
 
 -- | Re-key /and/ re-value every record with a pure function.
@@ -1722,7 +1803,8 @@ mapValuesM = liftPrim . MapValuesM
 -- prefer 'selectKey'. If you only need to change the value,
 -- prefer 'mapValues' (avoids the repartition flag).
 mapKeyValue
-  :: (k -> v -> (k', v')) -> Topology (KStream k v) (KStream k' v')
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValue = liftPrim . MapKeyValue
 
 -- | Effectful 'mapKeyValue'. Same trade-offs as 'mapValuesM'
@@ -1730,8 +1812,64 @@ mapKeyValue = liftPrim . MapKeyValue
 -- backpressure) plus the repartition implications of
 -- 'mapKeyValue'.
 mapKeyValueM
-  :: (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValueM = liftPrim . MapKeyValueM
+
+-- | Riffle async value transform.
+--
+-- The supplied @v -> IO v'@ runs on a bounded worker pool with
+-- backpressure, EOS-correct drain, ordered\/unordered output,
+-- and explicit failure policy. See 'Kafka.Streams.AsyncIO' for
+-- the contract.
+--
+-- Differs from 'mapValuesM' by /not/ running on the stream
+-- thread: latency-bound work (HTTP enrichment, DB lookups)
+-- doesn't stall the engine.
+--
+-- == When to use this
+--
+--   * Per-record IO whose latency dominates throughput.
+--   * Operations that benefit from parallelism but whose
+--     output ordering still needs to match input ordering
+--     ('AIO.OrderedOutput').
+--
+-- == When /not/ to use this
+--
+--   * Pure value transforms — use 'mapValues'.
+--   * Logging / metrics — use 'peek'.
+--   * Effects that must be EOS-atomic with downstream sinks —
+--     keep them on-thread with 'mapValuesM'; the
+--     async-operator drain is on commit-cycle boundaries, not
+--     per-record.
+asyncMapValues
+  :: HasSerde v'
+  => AIO.AsyncIOConfig
+  -> (v -> IO v')
+  -> Topology (KStream k v) (KStream k v')
+asyncMapValues cfg = liftPrim . AsyncMapValues cfg
+
+-- | Riffle async key+value transform. Same trade-offs as
+-- 'asyncMapValues' plus the repartition implications of
+-- 'mapKeyValue' (downstream stateful ops need an explicit
+-- 'repartition' if the new key changes the partitioning).
+asyncMapKeyValue
+  :: (HasSerde k', HasSerde v')
+  => AIO.AsyncIOConfig
+  -> (k -> v -> IO (k', v'))
+  -> Topology (KStream k v) (KStream k' v')
+asyncMapKeyValue cfg = liftPrim . AsyncMapKeyValue cfg
+
+-- | Riffle async flat-map on values. Each input record yields
+-- a (possibly empty) list of outputs. Within one input record
+-- the output ordering follows the returned list; across input
+-- records it follows 'AIO.aioOutputMode'.
+asyncConcatMapValues
+  :: HasSerde v'
+  => AIO.AsyncIOConfig
+  -> (v -> IO [v'])
+  -> Topology (KStream k v) (KStream k v')
+asyncConcatMapValues cfg = liftPrim . AsyncConcatMapValues cfg
 
 -- | Apply a pure transform to the full 'Record' — key, value,
 -- timestamp, and headers all in scope. Useful when the
@@ -1749,7 +1887,8 @@ mapKeyValueM = liftPrim . MapKeyValueM
 -- fusion for a particularly expensive transform, wrap with
 -- 'noFuse' on either side.
 mapRecord
-  :: (Record k v -> Record k' v')
+  :: (HasSerde k', HasSerde v')
+  => (Record k v -> Record k' v')
   -> Topology (KStream k v) (KStream k' v')
 mapRecord = liftPrim . MapRecord
 
@@ -1783,7 +1922,8 @@ mapRecord = liftPrim . MapRecord
 --   '>>>' F.mapValues normalise
 -- @
 mapRecordM
-  :: (Record k v -> IO (Record k' v'))
+  :: (HasSerde k', HasSerde v')
+  => (Record k v -> IO (Record k' v'))
   -> Topology (KStream k v) (KStream k' v')
 mapRecordM = liftPrim . MapRecordM
 
@@ -1859,13 +1999,15 @@ filterNot = liftPrim . FilterNot
 -- changing only the value (key + timestamp + headers all
 -- inherited from the input record).
 --
--- /JVM equivalent:/ @KStream.flatMapValues(ValueMapper)@.
+-- /JVM equivalent:/ @KStream.concatMapValues(ValueMapper)@.
 --
 -- Useful for record-splitting (e.g. line → words) and
 -- conditional emission (e.g. @Just x -> [x]; Nothing -> []@).
 -- An empty list drops the input record entirely.
-flatMapValues :: (v -> [v']) -> Topology (KStream k v) (KStream k v')
-flatMapValues = liftPrim . FlatMapValues
+concatMapValues
+  :: HasSerde v'
+  => (v -> [v']) -> Topology (KStream k v) (KStream k v')
+concatMapValues = liftPrim . ConcatMapValues
 
 -- | Expand each record into zero or more output records,
 -- potentially changing both key and value.
@@ -1876,9 +2018,10 @@ flatMapValues = liftPrim . FlatMapValues
 -- repartition for downstream stateful ops; insert
 -- 'repartition' before any stateful stage if you're changing
 -- the partitioning.
-flatMapKeyValue
-  :: (k -> v -> [(k', v')]) -> Topology (KStream k v) (KStream k' v')
-flatMapKeyValue = liftPrim . FlatMapKeyValue
+concatMapKeyValue
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> [(k', v')]) -> Topology (KStream k v) (KStream k' v')
+concatMapKeyValue = liftPrim . ConcatMapKeyValue
 
 -- | Run a side-effecting observer per record and pass the
 -- record through unchanged. Useful for metrics, logging, or
@@ -1917,7 +2060,9 @@ foreach = liftPrim . Foreach
 -- the optimiser pairs @selectKey >>> groupByKey@ into a
 -- single @groupBy@ node which matches the Apache docs'
 -- recommended pattern.
-selectKey :: (Record k v -> k') -> Topology (KStream k v) (KStream k' v)
+selectKey
+  :: HasSerde k'
+  => (Record k v -> k') -> Topology (KStream k v) (KStream k' v)
 selectKey = liftPrim . SelectKey
 
 -- | Drop the key — the resulting stream is keyed by @()@.
@@ -2124,7 +2269,7 @@ toStream = liftPrim ToStream
 -- == When to call this
 --
 -- Insert 'repartition' between a key-changing op (a
--- 'selectKey' / 'mapKeyValue' / 'flatMapKeyValue') and a
+-- 'selectKey' / 'mapKeyValue' / 'concatMapKeyValue') and a
 -- subsequent stateful op (a 'groupBy' / 'aggregate' / 'join')
 -- to make the broker re-shuffle records so per-key ordering
 -- holds.
@@ -2180,7 +2325,7 @@ repartitionWith = liftPrim . RepartitionWith
 -- needs to read/write the state store.
 --
 -- If the upstream had a key-changing op ('selectKey',
--- 'mapKeyValue', 'flatMapKeyValue') without an explicit
+-- 'mapKeyValue', 'concatMapKeyValue') without an explicit
 -- 'repartition' in between, the broker partition layout no
 -- longer matches the new key and the aggregation will silently
 -- produce wrong results. Either insert 'repartition' or use
@@ -2529,7 +2674,7 @@ aggregateCogrouped seed m = liftPrim (AggregateCogrouped seed m)
 --
 -- /JVM equivalent:/ @KStream.join(KTable, ValueJoiner, Joined)@.
 streamTableJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v -> vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
 streamTableJoin j jo = liftPrim (StreamTableJoin j jo)
@@ -2541,7 +2686,7 @@ streamTableJoin j jo = liftPrim (StreamTableJoin j jo)
 --
 -- /JVM equivalent:/ @KStream.leftJoin(KTable, ValueJoiner, Joined)@.
 streamTableLeftJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v -> Maybe vt -> v') -> Joined k v vt
   -> Topology (KStream k v, KTable k vt) (KStream k v')
 streamTableLeftJoin j jo = liftPrim (StreamTableLeftJoin j jo)
@@ -2557,7 +2702,7 @@ streamTableLeftJoin j jo = liftPrim (StreamTableLeftJoin j jo)
 -- 'JoinWindows' duration; downstream emission happens
 -- per match.
 streamStreamJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v1 -> v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
@@ -2571,7 +2716,7 @@ streamStreamJoin j w jo = liftPrim (StreamStreamJoin j w jo)
 --
 -- /JVM equivalent:/ @KStream.leftJoin(KStream, ValueJoiner, JoinWindows, StreamJoined)@.
 streamStreamLeftJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v1 -> Maybe v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
@@ -2583,7 +2728,7 @@ streamStreamLeftJoin j w jo = liftPrim (StreamStreamLeftJoin j w jo)
 --
 -- /JVM equivalent:/ @KStream.outerJoin(KStream, ValueJoiner, JoinWindows, StreamJoined)@.
 streamStreamOuterJoin
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (Maybe v1 -> Maybe v2 -> v')
   -> JoinWindows -> Joined k v1 v2
   -> Topology (KStream k v1, KStream k v2) (KStream k v')
@@ -2633,7 +2778,7 @@ tableTableOuterJoin j m = liftPrim (TableTableOuterJoin j m)
 -- subscription token mechanism used by the implementation to
 -- detect which left rows are affected by a right update.
 foreignKeyJoin
-  :: (Ord k, Ord fk, Hashable v)
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
   => (v -> fk)
   -> (v -> vr -> v')
   -> Materialized k v'
@@ -2646,7 +2791,7 @@ foreignKeyJoin ext j m = liftPrim (ForeignKeyJoin ext j m)
 --
 -- /JVM equivalent:/ @KTable.leftJoin(KTable, fkExtractor, ValueJoiner, Materialized)@.
 leftForeignKeyJoin
-  :: (Ord k, Ord fk, Hashable v)
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
   => (v -> fk)
   -> (v -> Maybe vr -> v')
   -> Materialized k v'
@@ -2664,7 +2809,7 @@ leftForeignKeyJoin ext j m = liftPrim (LeftForeignKeyJoin ext j m)
 -- required/: a 'GlobalKTable' is cluster-replicated, so
 -- every task has the full table available locally.
 streamGlobalTableJoin
-  :: Ord kg
+  :: (Ord kg, HasSerde v')
   => (k -> v -> kg)
   -> (v -> vg -> v')
   -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
@@ -2675,7 +2820,7 @@ streamGlobalTableJoin km j = liftPrim (StreamGlobalTableJoin km j)
 --
 -- /JVM equivalent:/ @KStream.leftJoin(GlobalKTable, KeyValueMapper, ValueJoiner)@.
 streamGlobalTableLeftJoin
-  :: Ord kg
+  :: (Ord kg, HasSerde v')
   => (k -> v -> kg)
   -> (v -> Maybe vg -> v')
   -> Topology (KStream k v, GlobalKTable kg vg) (KStream k v')
@@ -2718,7 +2863,7 @@ filterNotTable p m = liftPrim (FilterNotTable p m)
 --
 -- /JVM equivalent:/ @KTable.mapValues(ValueMapper, Materialized)@.
 mapValuesTable
-  :: Ord k
+  :: (Ord k, HasSerde v')
   => (v -> v') -> Materialized k v'
   -> Topology (KTable k v) (KTable k v')
 mapValuesTable f m = liftPrim (MapValuesTable f m)
@@ -2991,14 +3136,16 @@ filterNamed nm p =
 
 -- | 'mapValues' with an explicit topology node name.
 mapValuesNamed
-  :: Named.Named -> (v -> v')
+  :: HasSerde v'
+  => Named.Named -> (v -> v')
   -> Topology (KStream k v) (KStream k v')
 mapValuesNamed nm f =
   liftIO_ "mapValues-named" (\_b s -> KS.mapValuesNamed nm f s)
 
 -- | 'mapKeyValue' with an explicit topology node name.
 mapKeyValueNamed
-  :: Named.Named -> (k -> v -> (k', v'))
+  :: (HasSerde k', HasSerde v')
+  => Named.Named -> (k -> v -> (k', v'))
   -> Topology (KStream k v) (KStream k' v')
 mapKeyValueNamed nm f =
   liftIO_ "mapKeyValue-named" (\_b s -> KS.mapKeyValueNamed nm f s)
@@ -3012,7 +3159,8 @@ peekNamed nm act =
 
 -- | 'selectKey' with an explicit topology node name.
 selectKeyNamed
-  :: Named.Named -> (Record k v -> k')
+  :: HasSerde k'
+  => Named.Named -> (Record k v -> k')
   -> Topology (KStream k v) (KStream k' v)
 selectKeyNamed nm f =
   liftIO_ "selectKey-named" (\_b s -> KS.selectKeyNamed nm f s)
@@ -3214,7 +3362,7 @@ transformStream prefix stores sup ks' vs' =
 -- which parts of the override are honored by the in-process
 -- driver today.
 foreignKeyJoinWith
-  :: (Ord k, Ord fk, Hashable v)
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
   => Joined.TableJoined k fk
   -> (v -> fk)
   -> (v -> vr -> v')
@@ -3226,7 +3374,7 @@ foreignKeyJoinWith tj ext j m =
 
 -- | 'leftForeignKeyJoin' with a 'TableJoined' override.
 leftForeignKeyJoinWith
-  :: (Ord k, Ord fk, Hashable v)
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
   => Joined.TableJoined k fk
   -> (v -> fk)
   -> (v -> Maybe vr -> v')
@@ -3310,18 +3458,25 @@ labelPrim p0 = case p0 of
   GlobalSource t _ _ -> "GlobalSource(" <> showTopic t <> ")"
   Sink t _           -> "Sink("         <> showTopic t <> ")"
   SinkExtracted _ _  -> "SinkExtracted"
+  SinkTwoPhase sink  -> "SinkTwoPhase(" <> TPS.tpsName sink <> ")"
   Through t _        -> "Through("      <> showTopic t <> ")"
   MapValues _        -> "MapValues"
   MapValuesM _       -> "MapValuesM"
   MapKeyValue _      -> "MapKeyValue"
   MapKeyValueM _     -> "MapKeyValueM"
+  AsyncMapValues cfg _     ->
+    "AsyncMapValues(" <> AIO.aioName cfg <> ")"
+  AsyncMapKeyValue cfg _   ->
+    "AsyncMapKeyValue(" <> AIO.aioName cfg <> ")"
+  AsyncConcatMapValues cfg _ ->
+    "AsyncConcatMapValues(" <> AIO.aioName cfg <> ")"
   MapRecord _        -> "MapRecord"
   MapRecordM _       -> "MapRecordM"
   NoFuse             -> "NoFuse"
   Filter _           -> "Filter"
   FilterNot _        -> "FilterNot"
-  FlatMapValues _    -> "FlatMapValues"
-  FlatMapKeyValue _  -> "FlatMapKeyValue"
+  ConcatMapValues _    -> "ConcatMapValues"
+  ConcatMapKeyValue _  -> "ConcatMapKeyValue"
   Peek _             -> "Peek"
   Foreach _          -> "Foreach"
   SelectKey _        -> "SelectKey"
@@ -3501,7 +3656,7 @@ prettyPrintDeep = T.intercalate " " . inspectDeep
 -- The rewrite set covers Category\/Arrow laws (Id collapse, Arr
 -- fusion, push-pure-through-First\/Second\/Parallel\/Fanout,
 -- right-associate Compose), KStream operator fusion
--- (MapValues\/MapValuesM\/MapKeyValue\/FlatMapValues\/Filter\/
+-- (MapValues\/MapValuesM\/MapKeyValue\/ConcatMapValues\/Filter\/
 -- FilterNot\/SelectKey\/Peek), and structural identity collapse
 -- (Tap Id, First Id, Parallel Id Id, etc).
 --
@@ -3577,8 +3732,8 @@ data OptimizeConfig = OptimizeConfig
     -- | Fuse adjacent 'Filter' \/ 'FilterNot'.
   , optFuseFilters       :: !Bool
 
-    -- | Fuse 'FlatMapValues' with adjacent 'MapValues' and itself.
-  , optFuseFlatMaps      :: !Bool
+    -- | Fuse 'ConcatMapValues' with adjacent 'MapValues' and itself.
+  , optFuseConcatMaps      :: !Bool
 
     -- | Fuse adjacent 'SelectKey'.
   , optFuseSelectKeys    :: !Bool
@@ -3609,7 +3764,7 @@ data OptimizeConfig = OptimizeConfig
     -- | Drop a 'Repartition' that's about to be invalidated by a
     -- /key-changing/ op. Pattern: @'SelectKey' f '.' 'Repartition' _ = 'SelectKey' f@
     -- (similarly for 'MapKeyValue' / 'MapKeyValueM' /
-    -- 'FlatMapKeyValue', plus the 'RepartitionWith' variant).
+    -- 'ConcatMapKeyValue', plus the 'RepartitionWith' variant).
     -- Saves a wasted shuffle when callers accidentally write
     -- @repartition >>> selectKey@ instead of the other way
     -- around. The downstream stateful op will still need its
@@ -3626,7 +3781,7 @@ data OptimizeConfig = OptimizeConfig
     --   * @'MapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'MapValues' g@
     --   * @'Filter' q '.' 'Repartition' p    = 'Repartition' p '.' 'Filter' q@
     --   * @'FilterNot' q '.' 'Repartition' p = 'Repartition' p '.' 'FilterNot' q@
-    --   * @'FlatMapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'FlatMapValues' g@
+    --   * @'ConcatMapValues' g '.' 'Repartition' p = 'Repartition' p '.' 'ConcatMapValues' g@
     --   * and the 'RepartitionWith' analogues.
     --
     -- Only pure key-preserving ops are hoisted — IO variants
@@ -3641,7 +3796,7 @@ data OptimizeConfig = OptimizeConfig
     -- /auto-insert-repartition-on-stateful-op/ behaviour. When
     -- enabled, the optimiser walks the AST in flow order tracking
     -- a /key-dirty/ flag (set by 'SelectKey' / 'MapKeyValue' /
-    -- 'MapKeyValueM' / 'FlatMapKeyValue'; cleared by 'Repartition'
+    -- 'MapKeyValueM' / 'ConcatMapKeyValue'; cleared by 'Repartition'
     -- / 'RepartitionWith') and inserts a 'Repartition' on the
     -- relevant 'KStream' edge whenever a stateful op would
     -- otherwise read mis-partitioned records:
@@ -3675,6 +3830,27 @@ data OptimizeConfig = OptimizeConfig
     -- @'Tap' t1 '.' 'Tap' t2 = 'Tap' ('Fanout' t2 t1 '>>>' Arr (const ()))@.
   , optFuseTaps            :: !Bool
 
+    -- | Riffle rule: lift an adjacent pure 'MapValues' /
+    -- 'MapKeyValue' into an immediately-following
+    -- 'AsyncMapValues' / 'AsyncMapKeyValue' so the pure part
+    -- runs on the async worker instead of the stream thread.
+    --
+    -- The fusion is /one-sided/: a pure op /before/ an async op
+    -- is hoisted into the async worker (correct because the
+    -- worker still observes records in the same logical order
+    -- the stream thread enqueued them). A pure op /after/ an
+    -- async op is /not/ fused — the post-async forward happens
+    -- on the stream thread, so leaving the pure op as a
+    -- distinct sync node is fine and keeps the AsyncIO
+    -- bookkeeping focused on the actually-async work.
+    --
+    -- Adjacent async-async fusion is /not/ performed: two
+    -- async ops carry independent 'AsyncIOConfig' instances
+    -- (different buffer budgets, retry policies, ordering
+    -- modes). Collapsing them would silently change the
+    -- backpressure profile.
+  , optFuseSyncIntoAsync   :: !Bool
+
     -- | Upper bound on rewrite passes. Each iteration must reduce
     -- node count or termination is forced; this is a belt-and-
     -- braces guard against pathological inputs.
@@ -3688,7 +3864,7 @@ defaultOptimizeConfig = OptimizeConfig
   , optFusePureFunctions            = True
   , optFuseMaps                     = True
   , optFuseFilters                  = True
-  , optFuseFlatMaps                 = True
+  , optFuseConcatMaps                 = True
   , optFuseSelectKeys               = True
   , optFusePeeks                    = True
   , optCollapseIdentity             = True
@@ -3699,6 +3875,7 @@ defaultOptimizeConfig = OptimizeConfig
   , optAutoInsertRepartition        = True
   , optCollapseValues               = True
   , optFuseTaps                     = True
+  , optFuseSyncIntoAsync            = True
   , optMaxPasses                    = 12
   }
 
@@ -3710,7 +3887,7 @@ noOptimization = OptimizeConfig
   , optFusePureFunctions            = False
   , optFuseMaps                     = False
   , optFuseFilters                  = False
-  , optFuseFlatMaps                 = False
+  , optFuseConcatMaps                 = False
   , optFuseSelectKeys               = False
   , optFusePeeks                    = False
   , optCollapseIdentity             = False
@@ -3721,6 +3898,7 @@ noOptimization = OptimizeConfig
   , optAutoInsertRepartition        = False
   , optCollapseValues               = False
   , optFuseTaps                     = False
+  , optFuseSyncIntoAsync            = False
   , optMaxPasses                    = 0
   }
 
@@ -3915,7 +4093,7 @@ autoInsertRepartitionPass cfg t0
     walkPrim _ p@(SelectKey _)        = (True, liftPrim p)
     walkPrim _ p@(MapKeyValue _)      = (True, liftPrim p)
     walkPrim _ p@(MapKeyValueM _)     = (True, liftPrim p)
-    walkPrim _ p@(FlatMapKeyValue _)  = (True, liftPrim p)
+    walkPrim _ p@(ConcatMapKeyValue _)  = (True, liftPrim p)
     -- Repartitions clear dirty.
     walkPrim _ p@(Repartition _)      = (False, liftPrim p)
     walkPrim _ p@(RepartitionWith _)  = (False, liftPrim p)
@@ -3973,7 +4151,7 @@ endsKeyDirty = go False
     go _ (Lift (SelectKey _))       = True
     go _ (Lift (MapKeyValue _))     = True
     go _ (Lift (MapKeyValueM _))    = True
-    go _ (Lift (FlatMapKeyValue _)) = True
+    go _ (Lift (ConcatMapKeyValue _)) = True
     go _ (Lift (Repartition _))     = False
     go _ (Lift (RepartitionWith _)) = False
     go d (Lift _)                   = d
@@ -4129,6 +4307,23 @@ fuseStep cfg g f = case (g, f) of
                                       (!k', !v') <- f' k v
                                       g' k' v')))
 
+  -- Riffle: hoist a pure pre-async op into the async worker.
+  --
+  -- The downstream is async; the upstream is a pure
+  -- 'MapValues' / 'MapKeyValue'. The worker pool will compute
+  -- the composed function instead of the stream thread doing
+  -- the pure half; the bookkeeping (ordering, retry, drain)
+  -- is unchanged because we keep the async constructor and
+  -- its 'AsyncIOConfig'.
+  (Lift (AsyncMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncMapValues aioCfg (\v -> g' (f' v))))
+  (Lift (AsyncMapKeyValue aioCfg g'), Lift (MapKeyValue f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncMapKeyValue aioCfg (\k v ->
+      let (!k', !v') = f' k v
+      in g' k' v')))
+  (Lift (AsyncConcatMapValues aioCfg g'), Lift (MapValues f')) | optFuseSyncIntoAsync cfg ->
+    Just (liftPrim (AsyncConcatMapValues aioCfg (\v -> g' (f' v))))
+
   -- MapRecord family — full-record transforms compose just like
   -- their value-only counterparts.
   (Lift (MapRecord g'), Lift (MapRecord f')) | optFuseMaps cfg ->
@@ -4141,12 +4336,12 @@ fuseStep cfg g f = case (g, f) of
     Just (liftPrim (MapRecordM (\r -> f' r >>= g')))
 
   -- FlatMap fusion
-  (Lift (FlatMapValues g'), Lift (MapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (g' . f')))
-  (Lift (MapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (fmap g' . f')))
-  (Lift (FlatMapValues g'), Lift (FlatMapValues f')) | optFuseFlatMaps cfg ->
-    Just (liftPrim (FlatMapValues (\v -> concatMap g' (f' v))))
+  (Lift (ConcatMapValues g'), Lift (MapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (g' . f')))
+  (Lift (MapValues g'), Lift (ConcatMapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (fmap g' . f')))
+  (Lift (ConcatMapValues g'), Lift (ConcatMapValues f')) | optFuseConcatMaps cfg ->
+    Just (liftPrim (ConcatMapValues (\v -> concatMap g' (f' v))))
 
   -- Filter / FilterNot fusion. 'f' runs first, so the conjunction's
   -- left-hand side is the inner predicate.
@@ -4240,12 +4435,12 @@ fuseStep cfg g f = case (g, f) of
   (Lift (MapKeyValueM f'), Lift (RepartitionWith _))
     | optDropPreKeyChangeRepartition cfg ->
         Just (liftPrim (MapKeyValueM f'))
-  (Lift (FlatMapKeyValue f'), Lift (Repartition _))
+  (Lift (ConcatMapKeyValue f'), Lift (Repartition _))
     | optDropPreKeyChangeRepartition cfg ->
-        Just (liftPrim (FlatMapKeyValue f'))
-  (Lift (FlatMapKeyValue f'), Lift (RepartitionWith _))
+        Just (liftPrim (ConcatMapKeyValue f'))
+  (Lift (ConcatMapKeyValue f'), Lift (RepartitionWith _))
     | optDropPreKeyChangeRepartition cfg ->
-        Just (liftPrim (FlatMapKeyValue f'))
+        Just (liftPrim (ConcatMapKeyValue f'))
 
   -- Hoist pure key-preserving stateless ops /upstream/ of an
   -- adjacent Repartition. Result: the op runs before the shuffle
@@ -4265,9 +4460,9 @@ fuseStep cfg g f = case (g, f) of
   (Lift (MapValues g'), Lift (Repartition pfx))
     | optHoistThroughRepartition cfg ->
         Just (Compose (liftPrim (Repartition pfx)) (liftPrim (MapValues g')))
-  (Lift (FlatMapValues g'), Lift (Repartition pfx))
+  (Lift (ConcatMapValues g'), Lift (Repartition pfx))
     | optHoistThroughRepartition cfg ->
-        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (FlatMapValues g')))
+        Just (Compose (liftPrim (Repartition pfx)) (liftPrim (ConcatMapValues g')))
 
   -- Value-type-preserving predicates hoist through both
   -- 'Repartition' /and/ 'RepartitionWith' — no type juggling

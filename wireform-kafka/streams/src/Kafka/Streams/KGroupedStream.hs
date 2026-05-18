@@ -52,6 +52,7 @@ import Kafka.Streams.KStream
   , kstreamParent
   , kstreamValueSerde
   , selectKey
+  , selectKeyWith
   )
 import Kafka.Streams.Materialized
   ( Materialized (..)
@@ -114,7 +115,10 @@ groupByStream
   -> KStream k v
   -> IO (KGroupedStream k' v)
 groupByStream f g s = do
-  s' <- selectKey f s
+  -- Use the supplied 'Grouped' as the explicit serde for the new
+  -- key; this is the per-call override that doesn't depend on
+  -- 'HasSerde' instances for the user's key type.
+  s' <- selectKeyWith (groupedKeySerde g) f s
   pure KGroupedStream
     { kgsParent  = kstreamParent s'
     , kgsKey     = groupedKeySerde g

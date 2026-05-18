@@ -83,6 +83,8 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 
+import qualified Kafka.Streams.AsyncIO.Config as AIO
+import qualified Kafka.Streams.Sinks.TwoPhase as TPS
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Topology.Free
@@ -388,18 +390,26 @@ primNode p0 = case p0 of
   GlobalSource tn _ _      -> ("GlobalSource\n" <> showTopic tn, "box")
   Sink tn _                -> ("Sink\n" <> showTopic tn, "invtrapezium")
   SinkExtracted _ _        -> ("SinkExtracted", "invtrapezium")
+  SinkTwoPhase sink        ->
+    ("SinkTwoPhase\n" <> TPS.tpsName sink, "invtrapezium")
   Through tn _             -> ("Through\n" <> showTopic tn, "box")
   MapValues _              -> ("MapValues",         "ellipse")
   MapValuesM _             -> ("MapValuesM",        "ellipse")
   MapKeyValue _            -> ("MapKeyValue",       "ellipse")
   MapKeyValueM _           -> ("MapKeyValueM",      "ellipse")
+  AsyncMapValues cfg _     ->
+    ("AsyncMapValues\n" <> aioConfigLabel cfg,     "ellipse")
+  AsyncMapKeyValue cfg _   ->
+    ("AsyncMapKeyValue\n" <> aioConfigLabel cfg,   "ellipse")
+  AsyncConcatMapValues cfg _ ->
+    ("AsyncConcatMapValues\n" <> aioConfigLabel cfg, "ellipse")
   MapRecord _              -> ("MapRecord",         "ellipse")
   MapRecordM _             -> ("MapRecordM",        "ellipse")
   NoFuse                   -> ("NoFuse",            "doublecircle")
   Filter _                 -> ("Filter",            "ellipse")
   FilterNot _              -> ("FilterNot",         "ellipse")
-  FlatMapValues _          -> ("FlatMapValues",     "ellipse")
-  FlatMapKeyValue _        -> ("FlatMapKeyValue",   "ellipse")
+  ConcatMapValues _          -> ("ConcatMapValues",     "ellipse")
+  ConcatMapKeyValue _        -> ("ConcatMapKeyValue",   "ellipse")
   Peek _                   -> ("Peek",              "ellipse")
   Foreach _                -> ("Foreach",           "invtrapezium")
   SelectKey _              -> ("SelectKey",         "ellipse")
@@ -469,6 +479,20 @@ primNode p0 = case p0 of
     ("ProcessWithStateStoreS\n" <> nm <> "\n"
        <> Store.unStoreName (Store.sbSName b), "box")
   Lifted nm _                      -> ("Lifted\n" <> nm, "octagon")
+
+-- | Compact textual badge for an 'AIO.AsyncIOConfig' embedded in a
+-- DOT label: shows the operator name and the headline knobs
+-- (buffer + workers + ordering) so the rendered graph reflects
+-- the configured concurrency.
+aioConfigLabel :: AIO.AsyncIOConfig -> Text
+aioConfigLabel cfg =
+  AIO.aioName cfg
+    <> "[buf=" <> T.pack (show (AIO.aioBufferCapacity cfg))
+    <> ",w=" <> T.pack (show (AIO.aioWorkers cfg))
+    <> "," <> outputModeLabel (AIO.aioOutputMode cfg) <> "]"
+  where
+    outputModeLabel AIO.OrderedOutput   = "ord"
+    outputModeLabel AIO.UnorderedOutput = "unord"
 
 leafNode :: DotConfig -> Int -> Text -> Text -> TB.Builder
 leafNode cfg i lab shape =

@@ -19,6 +19,7 @@ module Kafka.Streams.Serde.JsonSchema
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.Text as T
 
 import Kafka.Streams.Serde (Serde (..))
 import qualified Kafka.Streams.Serde.SchemaRegistry as SR
@@ -47,6 +48,8 @@ jsonSchemaSerde JsonSchemaSerdeConfig{..} =
     , SR.srscSchema  = jssSchema
     , SR.srscPayload = Serde
         { serialize   = runJsonSchemaEncoder jssEncoder
-        , deserialize = runJsonSchemaDecoder jssDecoder
+        , deserialize = \b -> case runJsonSchemaDecoder jssDecoder b of
+            Left e  -> Left (T.pack e)
+            Right a -> Right a
         }
     }

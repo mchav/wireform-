@@ -54,6 +54,11 @@ module Kafka.Streams.Runtime.Assignor
     -- * Property-style invariants
   , validateAssignment
   , AssignmentInvariant (..)
+    -- * Key-group-aware assignment (Riffle Phase 2 §6)
+  , KeyGroupAssignment
+  , assignKeyGroups
+  , validateKeyGroupAssignment
+  , KeyGroupInvariant (..)
   ) where
 
 import Data.Foldable (foldl')
@@ -502,3 +507,191 @@ validateAssignment tasks numStandby asg =
               , t <- Set.toList (ta.active `Set.intersection` ta.standby)
               ]
    in missing <> dups <> tooMany <> overlap
+
+----------------------------------------------------------------------
+-- Key-group-aware assignment (Riffle Phase 2 §6)
+----------------------------------------------------------------------
+
+-- | One member's assignment in a key-group-aware deployment:
+-- the set of key-group ids it owns. This is the building block
+-- on which the runtime constructs per-worker
+-- 'KeyGroupRange's.
+type KeyGroupAssignment = Map MemberId (Set Int)
+
+-- | Stick-y assignment of a flat key-group id space across the
+-- given members. Mirrors Flink's @KeyGroupRangeAssignment@: the
+-- key-group id space is partitioned into roughly-equal
+-- contiguous ranges so that hash-routed records on the hot path
+-- pay only a range check instead of a map lookup.
+--
+--   * Stickiness: if @previous@ already assigned key-group @i@
+--     to a still-live member, the new assignment keeps it
+--     there.
+--   * Balance: each member gets either @floor(N/M)@ or
+--     @ceil(N/M)@ key-groups.
+--   * Total coverage: every key-group in @[0, count - 1]@ is
+--     assigned to exactly one member.
+assignKeyGroups
+  :: Set MemberId
+  -> Int                            -- ^ total number of key-groups
+  -> KeyGroupAssignment             -- ^ previous assignment (sticky)
+  -> KeyGroupAssignment
+assignKeyGroups members keyGroupCount previous
+  | Set.null members = Map.empty
+  | otherwise =
+      let memList = Set.toAscList members
+          everyKg = [0 .. keyGroupCount - 1]
+          -- Stickiness: keep key-groups whose previous owner is
+          -- still in the member set.
+          kept :: KeyGroupAssignment
+          kept = Map.fromList
+            [ (m, Set.filter (\k -> k >= 0 && k < keyGroupCount)
+                              (Map.findWithDefault Set.empty m previous))
+            | m <- memList
+            ]
+          assignedSoFar :: Set Int
+          assignedSoFar =
+            foldr Set.union Set.empty (Map.elems kept)
+          unassigned = filter (`Set.notMember` assignedSoFar) everyKg
+          -- Compute target sizes.
+          n = keyGroupCount
+          m = length memList
+          baseSize = n `div` m
+          extras   = n `mod` m
+          targetSize idx
+            | idx < extras = baseSize + 1
+            | otherwise    = baseSize
+          go [] _ acc = acc
+          go _  []  acc = acc
+          go (k : rest) ((mid, idx) : queue) acc =
+            let already = Map.findWithDefault Set.empty mid acc
+            in if Set.size already < targetSize idx
+                 then go rest queue
+                        (Map.adjust (Set.insert k) mid acc)
+                 else go (k : rest) queue acc
+          memQueue = zip memList [0 ..]
+          startAcc = Map.fromList
+            [ (mid, Map.findWithDefault Set.empty mid kept)
+            | mid <- memList
+            ]
+          dropped = dropOverflow memList kept (zip memList [0 ..])
+            startAcc
+          afterRedistribute = go unassigned (cycleQueue memQueue) dropped
+          rebalanced = redistribute memList afterRedistribute
+                         [ targetSize idx | idx <- [0 .. m - 1] ]
+      in rebalanced
+
+-- | Cycle through a non-empty queue forever. Used as the
+-- round-robin order when handing out unassigned key-groups.
+cycleQueue :: [a] -> [a]
+cycleQueue xs = xs ++ cycleQueue xs
+
+-- | If a member's sticky inheritance is larger than its target
+-- size, drop the overflow into the unassigned pool so a smaller
+-- member can pick it up.
+dropOverflow
+  :: [MemberId]
+  -> KeyGroupAssignment
+  -> [(MemberId, Int)]
+  -> KeyGroupAssignment
+  -> KeyGroupAssignment
+dropOverflow memList kept queue acc =
+  let n = sum (Set.size <$> Map.elems acc)
+      m = length memList
+      baseSize = n `div` m
+      extras   = n `mod` m
+      targetSize idx
+        | idx < extras = baseSize + 1
+        | otherwise    = baseSize
+      shrink (mid, idx) m_ =
+        let cur = Map.findWithDefault Set.empty mid m_
+            t   = targetSize idx
+        in if Set.size cur <= t
+             then m_
+             else
+               let !shrinkBy = Set.size cur - t
+                   !toDrop   = Set.fromList
+                                 (take shrinkBy (Set.toAscList cur))
+                   !cur'     = Set.difference cur toDrop
+               in Map.insert mid cur' m_
+  in foldr shrink acc queue
+{-# WARNING dropOverflow "internal helper; do not export" #-}
+
+-- | After the greedy fill, walk the members once more and move
+-- key-groups from over-sized members to under-sized ones to hit
+-- the per-member target exactly. Run iteratively in case
+-- redistributing creates new imbalance.
+redistribute
+  :: [MemberId]
+  -> KeyGroupAssignment
+  -> [Int]                  -- per-member target sizes (idx-aligned)
+  -> KeyGroupAssignment
+redistribute mems acc targets = loop acc
+  where
+    loop a =
+      let pairs = zip mems targets
+          (overs, unders) = List.partition
+            (\(mid, t) -> Set.size (Map.findWithDefault Set.empty mid a) > t)
+            pairs
+          undersByDeficit = filter
+            (\(mid, t) -> Set.size (Map.findWithDefault Set.empty mid a) < t)
+            pairs
+      in case (overs, undersByDeficit) of
+        ((mO, _) : _, (mU, _) : _) ->
+          let setO = Map.findWithDefault Set.empty mO a
+              (one, _setO') = (Set.findMin setO, Set.deleteMin setO)
+              !a' = Map.adjust (Set.delete one) mO a
+              !a''  = Map.adjust (Set.insert one) mU a'
+          in loop a''
+        _ -> a
+
+-- | Property-style invariants for a 'KeyGroupAssignment'. The
+-- assignment is well-formed if every key-group in @[0, count -
+-- 1]@ is assigned to exactly one member and the per-member
+-- sizes are within one of the average.
+data KeyGroupInvariant
+  = MissingKeyGroup !Int
+  | DuplicateKeyGroup !Int !MemberId !MemberId
+  | OutOfRangeKeyGroup !Int !MemberId
+  | UnbalancedMember !MemberId !Int !Int   -- ^ member, size, expected
+  deriving stock (Eq, Show)
+
+validateKeyGroupAssignment
+  :: Int                     -- ^ total key-groups
+  -> KeyGroupAssignment
+  -> [KeyGroupInvariant]
+validateKeyGroupAssignment n asg =
+  let everyKg     = [0 .. n - 1]
+      ownerMap :: Map Int [MemberId]
+      ownerMap =
+        Map.fromListWith (<>)
+          [ (k, [mid])
+          | (mid, ks) <- Map.toList asg
+          , k <- Set.toList ks
+          ]
+      missing = [ MissingKeyGroup k
+                | k <- everyKg, not (Map.member k ownerMap) ]
+      dups = [ DuplicateKeyGroup k a b
+             | (k, ms) <- Map.toList ownerMap
+             , a : b : _ <- [ms]
+             ]
+      outRange = [ OutOfRangeKeyGroup k mid
+                 | (mid, ks) <- Map.toList asg
+                 , k <- Set.toList ks
+                 , k < 0 || k >= n
+                 ]
+      m         = Map.size asg
+      baseSize  = if m == 0 then 0 else n `div` m
+      extras    = if m == 0 then 0 else n `mod` m
+      sortedSizes = List.sortBy
+                      (\(_, s1) (_, s2) -> compare s2 s1)
+                      [ (mid, Set.size ks)
+                      | (mid, ks) <- Map.toList asg ]
+      expected idx
+        | idx < extras = baseSize + 1
+        | otherwise    = baseSize
+      unbal = [ UnbalancedMember mid sz (expected idx)
+              | ((mid, sz), idx) <- zip sortedSizes [0 ..]
+              , sz /= expected idx
+              ]
+   in missing <> dups <> outRange <> unbal

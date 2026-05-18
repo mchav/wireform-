@@ -53,8 +53,8 @@ module Kafka.Streams.Pipeline
   , pmapKeyValue
   , pfilter
   , pfilterNot
-  , pflatMapValues
-  , pflatMapKeyValue
+  , pconcatMapValues
+  , pconcatMapKeyValue
   , ppeek
   , pselectKey
   , pvalues
@@ -85,7 +85,7 @@ import qualified Kafka.Streams.KStream as KS
 import Kafka.Streams.KTable (KTable)
 import Kafka.Streams.Materialized (Materialized)
 import Kafka.Streams.Produced (Produced, produced)
-import Kafka.Streams.Serde (Serde)
+import Kafka.Streams.Serde (HasSerde, Serde)
 import Kafka.Streams.Types (Record, TopicName, topicName)
 import qualified Data.Text as T
 
@@ -195,13 +195,15 @@ applyPipeline = runPipeline
 
 -- | Pure value-only transform.
 pmapValues
-  :: (v -> v')
+  :: HasSerde v'
+  => (v -> v')
   -> Pipeline (KS.KStream k v) (KS.KStream k v')
 pmapValues f = Pipeline (KS.mapValues f)
 
 -- | Pure key+value transform.
 pmapKeyValue
-  :: (k -> v -> (k', v'))
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> (k', v'))
   -> Pipeline (KS.KStream k v) (KS.KStream k' v')
 pmapKeyValue f = Pipeline (KS.mapKeyValue f)
 
@@ -219,16 +221,18 @@ pfilterNot
 pfilterNot p = Pipeline (KS.filterNotStream p)
 
 -- | One-to-many value transform.
-pflatMapValues
-  :: (v -> [v'])
+pconcatMapValues
+  :: HasSerde v'
+  => (v -> [v'])
   -> Pipeline (KS.KStream k v) (KS.KStream k v')
-pflatMapValues f = Pipeline (KS.flatMapValues f)
+pconcatMapValues f = Pipeline (KS.concatMapValues f)
 
 -- | One-to-many key+value transform.
-pflatMapKeyValue
-  :: (k -> v -> [(k', v')])
+pconcatMapKeyValue
+  :: (HasSerde k', HasSerde v')
+  => (k -> v -> [(k', v')])
   -> Pipeline (KS.KStream k v) (KS.KStream k' v')
-pflatMapKeyValue f = Pipeline (KS.flatMapKeyValue f)
+pconcatMapKeyValue f = Pipeline (KS.concatMapKeyValue f)
 
 -- | Side-effecting observer; doesn't change the stream.
 ppeek
@@ -238,7 +242,8 @@ ppeek f = Pipeline (KS.peekStream f)
 
 -- | Re-key the stream from the full record.
 pselectKey
-  :: (Record k v -> k')
+  :: HasSerde k'
+  => (Record k v -> k')
   -> Pipeline (KS.KStream k v) (KS.KStream k' v)
 pselectKey f = Pipeline (KS.selectKey f)
 

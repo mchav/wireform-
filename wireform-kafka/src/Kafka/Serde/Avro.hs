@@ -59,6 +59,7 @@ module Kafka.Serde.Avro
   ) where
 
 import qualified Data.ByteString as BS
+import qualified Data.Text       as T
 
 import           Kafka.Serde     (Serde (..))
 
@@ -83,9 +84,11 @@ avroSerde
   -> Serde a
 avroSerde schema = Serde
   { serialize   = \a -> Avro.Encode.encodeAvro schema (Avro.Class.toAvro a)
-  , deserialize = \b -> do
-      val <- Avro.Decode.decodeAvro schema b
-      Avro.Class.fromAvro val
+  , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
+      Left e    -> Left (T.pack e)
+      Right val -> case Avro.Class.fromAvro val of
+        Left e'  -> Left (T.pack e')
+        Right a' -> Right a'
   }
 
 -- | Dynamic-value serde. Operates directly on 'Avro.Value.Value'
@@ -94,7 +97,9 @@ avroSerde schema = Serde
 avroValueSerde :: Avro.Schema.AvroType -> Serde Avro.Value.Value
 avroValueSerde schema = Serde
   { serialize   = Avro.Encode.encodeAvro schema
-  , deserialize = Avro.Decode.decodeAvro schema
+  , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
+      Left e  -> Left (T.pack e)
+      Right v -> Right v
   }
 
 -- | Standalone encode of an 'Avro.Value.Value'. Identical to

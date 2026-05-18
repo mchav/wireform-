@@ -223,6 +223,9 @@ commit_cycle_invokes_eos_coordinator =
               log_ "commitOffsets" *> pure (Right ())
           , storeCommit = log_ "storeCommit" *> pure (Right ())
           , storeAbort  = log_ "storeAbort"  *> pure (Right ())
+          , preCommit2PC = pure (Right ())
+          , commit2PC    = pure (Right ())
+          , abort2PC     = pure ()
           }
     applyEOSCoordinator ks coord
 

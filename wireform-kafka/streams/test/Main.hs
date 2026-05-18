@@ -74,6 +74,32 @@ import qualified Streams.SchemaRegistryHttpSpec
 import qualified Streams.SchemaRegistryFormatsSpec
 import qualified Streams.TopologyFreeSpec
 import qualified Streams.TopologyFreeArrowSpec
+import qualified Streams.AsyncIOSpec
+import qualified Streams.Properties.KVStoreSMSpec
+import qualified Streams.Properties.OptimizerEqSpec
+import qualified Streams.Properties.WindowMathSpec
+import qualified Streams.Properties.EOSChaosSpec
+import qualified Streams.Properties.WorkerPoolSMSpec
+import qualified Streams.Properties.ObservabilityTopologySpec
+import qualified Streams.Properties.OrphanTopicsSpec
+import qualified Streams.Properties.ChangelogReplaySpec
+import qualified Streams.Properties.WatermarkSpec
+import qualified Streams.Properties.WorkerPoolConcurrentSpec
+import qualified Streams.Properties.AtLeastOnceRedeliverySpec
+import qualified Streams.Properties.TwoPhaseSinkSpec
+import qualified Streams.Properties.WatermarkCoordSpec
+import qualified Streams.Properties.TTLSpec
+import qualified Streams.Properties.SchemaVersionedSpec
+import qualified Streams.Properties.CDCSourceSpec
+import qualified Streams.Properties.KeyGroupAssignorSpec
+import qualified Streams.Properties.TieredStoreSpec
+import qualified Streams.Properties.RemoteKVStoreSpec
+import qualified Streams.Properties.StoreRefSpec
+import qualified Streams.Properties.KeyGroupDispatchSpec
+import qualified Streams.Properties.WatermarkWiringSpec
+import qualified Streams.Properties.SnapshotSpec
+import qualified Streams.Properties.OperatorWatermarkSpec
+import qualified Streams.Properties.RebalanceBridgeSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -149,4 +175,32 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.SchemaRegistryFormatsSpec.tests
   , Streams.TopologyFreeSpec.tests
   , Streams.TopologyFreeArrowSpec.tests
+  , Streams.AsyncIOSpec.tests
+  , testGroup "Properties"
+      [ Streams.Properties.KVStoreSMSpec.tests
+      , Streams.Properties.OptimizerEqSpec.tests
+      , Streams.Properties.WindowMathSpec.tests
+      , Streams.Properties.EOSChaosSpec.tests
+      , Streams.Properties.WorkerPoolSMSpec.tests
+      , Streams.Properties.ObservabilityTopologySpec.tests
+      , Streams.Properties.OrphanTopicsSpec.tests
+      , Streams.Properties.ChangelogReplaySpec.tests
+      , Streams.Properties.WatermarkSpec.tests
+      , Streams.Properties.WorkerPoolConcurrentSpec.tests
+      , Streams.Properties.AtLeastOnceRedeliverySpec.tests
+      , Streams.Properties.TwoPhaseSinkSpec.tests
+      , Streams.Properties.WatermarkCoordSpec.tests
+      , Streams.Properties.TTLSpec.tests
+      , Streams.Properties.SchemaVersionedSpec.tests
+      , Streams.Properties.CDCSourceSpec.tests
+      , Streams.Properties.KeyGroupAssignorSpec.tests
+      , Streams.Properties.TieredStoreSpec.tests
+      , Streams.Properties.RemoteKVStoreSpec.tests
+      , Streams.Properties.StoreRefSpec.tests
+      , Streams.Properties.KeyGroupDispatchSpec.tests
+      , Streams.Properties.WatermarkWiringSpec.tests
+      , Streams.Properties.SnapshotSpec.tests
+      , Streams.Properties.OperatorWatermarkSpec.tests
+      , Streams.Properties.RebalanceBridgeSpec.tests
+      ]
   ]

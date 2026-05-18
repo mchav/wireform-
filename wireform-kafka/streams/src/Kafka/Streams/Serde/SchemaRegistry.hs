@@ -477,7 +477,7 @@ registrySerde SchemaRegistrySerdeConfig {..} = do
              unsafeBlocking resolveId payload
       , deserialize = \bs ->
           case decodeEnvelope bs of
-            Left err -> Left err
+            Left err -> Left (T.pack err)
             Right (_sid, payload) -> deserialize srscPayload payload
       }
   where

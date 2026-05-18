@@ -230,13 +230,13 @@ test_source_sink_passthrough =
 
 test_chain_of_stateless_transforms :: TestTree
 test_chain_of_stateless_transforms =
-  testCase "chain of mapValues / filter / flatMapValues works" $ do
+  testCase "chain of mapValues / filter / concatMapValues works" $ do
     let topology :: F.Topology Void ()
         topology =
           F.source "in" textSerde textSerde
             >>> F.mapValues T.strip
             >>> F.filter (\r -> recordValue r /= "")
-            >>> F.flatMapValues T.words
+            >>> F.concatMapValues T.words
             >>> F.mapValues T.toUpper
             >>> F.sink "out" textSerde textSerde
 
@@ -1107,7 +1107,7 @@ test_optimize_preserves_observable_behaviour =
             >>> F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
             >>> F.filter (\r -> T.length (recordValue r) > 1)
-            >>> F.flatMapValues T.words
+            >>> F.concatMapValues T.words
             >>> F.mapValues (<> "!")
             >>> F.sink "out" textSerde textSerde
 
@@ -1477,6 +1477,9 @@ mkRecordingCoord = do
         , commitOffsets = \_ _ -> log_ "commitOffsets" *> pure (Right ())
         , storeCommit   = log_ "storeCommit" *> pure (Right ())
         , storeAbort    = log_ "storeAbort"  *> pure (Right ())
+        , preCommit2PC  = pure (Right ())
+        , commit2PC     = pure (Right ())
+        , abort2PC      = pure ()
         }
   pure (coord, reverse <$> readIORef buf)
 
@@ -2323,22 +2326,22 @@ test_drop_repartition_before_mapKeyValue =
       "MapKeyValue" `elem` toks
 
 ----------------------------------------------------------------------
--- 61. repartition >>> flatMapKeyValue drops the wasted repartition
+-- 61. repartition >>> concatMapKeyValue drops the wasted repartition
 ----------------------------------------------------------------------
 
 test_drop_repartition_before_flatMapKeyValue :: TestTree
 test_drop_repartition_before_flatMapKeyValue =
-  testCase "repartition immediately followed by flatMapKeyValue is dropped" $ do
+  testCase "repartition immediately followed by concatMapKeyValue is dropped" $ do
     let topology :: F.Topology (KStream Text Text) (KStream Text Text)
         topology =
           F.repartition "wasted"
-            >>> F.flatMapKeyValue (\_ v -> [("k1", v), ("k2", v)])
+            >>> F.concatMapKeyValue (\_ v -> [("k1", v), ("k2", v)])
 
         toks = F.inspect (F.optimize topology)
     assertBool "optimised AST drops the wasted Repartition" $
       not (any (T.isPrefixOf "Repartition") toks)
-    assertBool "FlatMapKeyValue is preserved" $
-      "FlatMapKeyValue" `elem` toks
+    assertBool "ConcatMapKeyValue is preserved" $
+      "ConcatMapKeyValue" `elem` toks
 
 ----------------------------------------------------------------------
 -- 62. repartition >>> mapValues swaps so mapValues runs upstream

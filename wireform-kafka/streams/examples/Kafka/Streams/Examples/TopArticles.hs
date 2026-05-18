@@ -32,6 +32,7 @@ module Kafka.Streams.Examples.TopArticles
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
+import Data.Text (Text)
 
 import Kafka.Streams
 
@@ -104,7 +105,7 @@ runDemo = do
              let k = case crKey cr of
                        Just b  -> BSC.unpack b
                        Nothing -> "<no-key>"
-                 n = case deserialize int64Serde (crValue cr) :: Either String Int64 of
+                 n = case deserialize int64Serde (crValue cr) :: Either Text Int64 of
                        Right x -> x
                        Left _  -> 0
              in case lookup k acc of

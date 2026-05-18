@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Kafka.Serde
@@ -54,9 +55,20 @@ Record helpers ('serializeRecord' / 'deserializeRecord') apply a
 module Kafka.Serde
   ( -- * Type
     Serde (..)
-  , serde
+  , mkSerde
+  , mkTotalSerde
   , unsafeSerde
   , imap
+    -- * Type class
+  --
+  -- 'HasSerde' supplies the /default/ wire codec for a type. The
+  -- streams DSL resolves serdes through this class at every
+  -- type-changing operator (e.g. 'mapValues' picks up the new
+  -- value's 'Serde' via @'HasSerde' v'@). For non-default
+  -- encodings, every operator has a @'With'@ variant that
+  -- accepts an explicit 'Serde' (or a wrapping config like
+  -- 'Produced' \/ 'Repartitioned' \/ 'Grouped').
+  , HasSerde (..)
     -- * Built-ins
   , byteStringSerde
   , textSerde
@@ -105,22 +117,55 @@ import           GHC.Float            (castDoubleToWord64, castFloatToWord32, ca
 import           GHC.Generics         (Generic)
 import           GHC.IO               (unsafePerformIO)
 
--- | Bidirectional codec.  'deserialize' returns 'Either' so callers
--- can route failures through a deserialisation handler.
+-- | Bidirectional codec.  'deserialize' returns 'Either Text' so
+-- callers can route failures through a deserialisation handler.
+-- The error channel is 'Text' (not 'String') because every
+-- caller that re-emits the message either logs it or wraps it in
+-- a 'DeserializationException', both of which take 'Text'.
 data Serde a = Serde
   { serialize   :: a -> ByteString
-  , deserialize :: ByteString -> Either String a
+  , deserialize :: ByteString -> Either Text a
   }
   deriving stock (Generic)
 
--- | Convenience builder for a total deserialiser.
-serde :: (a -> ByteString) -> (ByteString -> a) -> Serde a
-serde s d = Serde s (Right . d)
+-- | Convenience builder for a 'Serde'. Takes a serialiser and a
+-- failable deserialiser; parsing can and will fail (truncated
+-- frames, version skew, schema-registry misses, etc.) so the
+-- decoder's signature reflects that.
+--
+-- For a /total/ deserialiser (i.e. one whose decode never
+-- fails — typically because it's wrapping a fixed-shape host
+-- representation), use 'mkTotalSerde' instead.
+mkSerde
+  :: (a -> ByteString)
+  -> (ByteString -> Either Text a)
+  -> Serde a
+mkSerde = Serde
 
--- | Convenience builder for a partial deserialiser whose error
--- channel is 'String'.
+-- | Convenience builder for a serde whose decoder cannot fail
+-- (the inverse function is total). The 'Serde' it produces wraps
+-- the result in 'Right' on every call.
+mkTotalSerde :: (a -> ByteString) -> (ByteString -> a) -> Serde a
+mkTotalSerde s d = Serde s (Right . d)
+
+-- | Types whose default wire codec is implicit. Used by the
+-- streams DSL to resolve serdes at every type-changing
+-- operation. Provide an instance to make a type usable without
+-- threading an explicit 'Serde' through every operator; for
+-- alternative codecs over the same Haskell type, wrap with a
+-- @newtype@ that supplies its own 'HasSerde' instance, or
+-- reach for a @*With@ variant that takes an explicit 'Serde'.
+class HasSerde a where
+  serde :: Serde a
+
+-- | Build a 'Serde' from a 'String'-error decoder. Retained for
+-- adapters whose underlying decoder (Aeson, Avro, Proto) reports
+-- errors as 'String'; the wrapper packs the message into 'Text'
+-- at the boundary.
 unsafeSerde :: (a -> ByteString) -> (ByteString -> Either String a) -> Serde a
-unsafeSerde = Serde
+unsafeSerde s d = Serde s (\bs -> case d bs of
+  Left e  -> Left (T.pack e)
+  Right a -> Right a)
 
 -- | Invariant-map a 'Serde' through an iso @(b -> a, a -> b)@.
 imap :: (b -> a) -> (a -> b) -> Serde a -> Serde b
@@ -130,14 +175,37 @@ imap toA fromA s = Serde
   }
 
 byteStringSerde :: Serde ByteString
-byteStringSerde = serde id id
+byteStringSerde = mkTotalSerde id id
+
+----------------------------------------------------------------------
+-- HasSerde instances for the shipped built-in serdes
+--
+-- The streams DSL relies on these to resolve serdes implicitly at
+-- type-changing operators. The instance set mirrors the @builtIn@
+-- export list above; the orphan-instance rule keeps them in this
+-- module rather than scattered through the codebase.
+----------------------------------------------------------------------
+
+instance HasSerde ByteString where serde = byteStringSerde
+instance HasSerde Text       where serde = textSerde
+instance HasSerde ()         where serde = voidSerde
+instance HasSerde Int16      where serde = int16Serde
+instance HasSerde Int32      where serde = int32Serde
+instance HasSerde Int64      where serde = int64Serde
+instance HasSerde Word16     where serde = word16Serde
+instance HasSerde Word32     where serde = word32Serde
+instance HasSerde Word64     where serde = word64Serde
+instance HasSerde Double     where serde = doubleSerde
+instance HasSerde Float      where serde = floatSerde
+instance HasSerde UUID       where serde = uuidSerde
 
 -- | UTF-8 'Text' serde. Mirrors @org.apache.kafka.common.serialization.StringSerializer@.
 textSerde :: Serde Text
 textSerde =
   Serde
     { serialize   = TE.encodeUtf8
-    , deserialize = either (Left . show) Right . TE.decodeUtf8'
+    , deserialize = either (Left . T.pack . show) Right
+                       . TE.decodeUtf8'
     }
 
 utf8Serde :: Serde String
@@ -372,7 +440,9 @@ listSerde inner = Serde
 jsonSerde :: (Aeson.ToJSON a, Aeson.FromJSON a) => Serde a
 jsonSerde = Serde
   { serialize   = BL.toStrict . Aeson.encode
-  , deserialize = Aeson.eitherDecodeStrict
+  , deserialize = \b -> case Aeson.eitherDecodeStrict b of
+      Left e  -> Left (T.pack e)
+      Right a -> Right a
   }
 
 -- | Length-prefix the value with a 32-bit big-endian byte-count, then
@@ -395,8 +465,8 @@ lengthPrefixedSerde inner = Serde
               rest   = BS.drop 4 b
               n      = hostToBE32 (peekHostWord32 header)
            in if fromIntegral n /= BS.length rest
-                then Left
-                  $ "lengthPrefixedSerde: declared "
+                then Left $ T.pack $
+                  "lengthPrefixedSerde: declared "
                   <> show n <> " bytes, payload had "
                   <> show (BS.length rest)
                 else deserialize inner rest
@@ -412,8 +482,8 @@ prefixedSerde tag inner = Serde
         Nothing       -> Left "prefixedSerde: empty input"
         Just (t, rest)
           | t == tag  -> deserialize inner rest
-          | otherwise -> Left
-              $ "prefixedSerde: expected tag "
+          | otherwise -> Left $ T.pack $
+              "prefixedSerde: expected tag "
               <> show tag <> ", got " <> show t
   }
 
@@ -435,7 +505,7 @@ deserializeRecord
   -> Serde v
   -> Maybe ByteString
   -> ByteString
-  -> Either String (Maybe k, v)
+  -> Either Text (Maybe k, v)
 deserializeRecord ks vs mkb vb = do
   k <- maybe (Right Nothing) (fmap Just . deserialize ks) mkb
   v <- deserialize vs vb

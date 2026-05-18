@@ -41,7 +41,6 @@ module Kafka.Streams.Runtime.EOS
 
 import Control.Exception (SomeException, try)
 import Data.Int (Int64)
-import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -75,6 +74,25 @@ data EOSCoordinator = EOSCoordinator
     --   buffered writes. Called when the producer transaction
     --   aborts so the store and the broker-side log stay
     --   consistent.
+  , preCommit2PC   :: !(IO (Either Text ()))
+    -- ^ Riffle \xc2\xa74: two-phase-commit sink /prepare/ phase. Fired
+    --   AFTER the per-task @flushBody@ has produced records and
+    --   AFTER 'commitOffsets' but BEFORE 'commitTxn', so a
+    --   failure here aborts the producer transaction. Default
+    --   ('noopEOSCoordinator'): @pure (Right ())@.
+  , commit2PC      :: !(IO (Either Text ()))
+    -- ^ Riffle \xc2\xa74: two-phase-commit sink /commit/ phase. Fired
+    --   AFTER 'commitTxn' succeeds but BEFORE 'storeCommit'.
+    --   Failure here is unrecoverable: the producer transaction
+    --   is durable but the 2PC sink could not finalise, so the
+    --   cycle returns 'CommitFatal' and the runtime's
+    --   'tpsRecover' decides per-token on restart.
+  , abort2PC       :: !(IO ())
+    -- ^ Riffle \xc2\xa74: best-effort cleanup for any sink that had
+    --   been pre-committed in this cycle. Fired alongside
+    --   'abortTxn' / 'storeAbort' on the recovery path. Return
+    --   value intentionally discarded — failures here are
+    --   logged but don't change the cycle outcome.
   }
 
 -- | The do-nothing coordinator: every step succeeds without side
@@ -88,6 +106,9 @@ noopEOSCoordinator = EOSCoordinator
   , commitOffsets = \_ _ -> pure (Right ())
   , storeCommit   = pure (Right ())
   , storeAbort    = pure (Right ())
+  , preCommit2PC  = pure (Right ())
+  , commit2PC     = pure (Right ())
+  , abort2PC      = pure ()
   }
 
 -- | Result of one commit cycle.
@@ -116,36 +137,73 @@ runCommitCycle coord groupId getOffsets flushBody = do
       case bodyR of
         Left e -> doAbort ("flush: " <> T.pack (show e))
         Right () -> do
-          offs <- getOffsets
-          step2 <- coord.commitOffsets groupId offs
-          case step2 of
-            Left err -> doAbort ("commitOffsets: " <> err)
-            Right () -> do
-              step3 <- coord.commitTxn
-              case step3 of
-                Left err -> doAbort ("commit: " <> err)
+          -- Read the committed offset snapshot. Unlike the
+          -- coordinator callbacks, this is supplied by the
+          -- caller (the engine's consumer position bookkeeping)
+          -- and is not necessarily total — a closed consumer,
+          -- a metadata fault, or an in-flight rebalance can all
+          -- cause it to throw. The cycle treats any synchronous
+          -- exception here as a commit failure and triggers the
+          -- usual abort path so the producer transaction and
+          -- store buffers don't leak across cycles.
+          offsR <- try getOffsets :: IO (Either SomeException
+                                          (HashMap KC.TopicPartition Int64))
+          case offsR of
+            Left e -> doAbort ("getOffsets: " <> T.pack (show e))
+            Right offs -> do
+              step2 <- coord.commitOffsets groupId offs
+              case step2 of
+                Left err -> doAbort ("commitOffsets: " <> err)
                 Right () -> do
-                  -- KIP-892: the producer commit succeeded, so
-                  -- the changelog records are durable; only now
-                  -- is it safe to drain the per-task
-                  -- TransactionalStore buffers onto their
-                  -- underlying stores.
-                  step4 <- coord.storeCommit
-                  case step4 of
-                    Left err ->
-                      -- The wire commit succeeded but the
-                      -- store commit failed: log the runtime
-                      -- as fatal (no clean recovery — the
-                      -- store and the log are now permanently
-                      -- inconsistent for this task).
-                      pure (CommitFatal ("storeCommit: " <> err))
-                    Right () -> pure CommitSucceeded
+                  -- Riffle \xc2\xa74: 2PC sink pre-commit fires here.
+                  -- The sinks have flushed their batches in the
+                  -- @flushBody@ above; this step asks them to
+                  -- transition to "prepared". A failure aborts
+                  -- the producer txn too.
+                  step3 <- coord.preCommit2PC
+                  case step3 of
+                    Left err -> doAbort ("preCommit2PC: " <> err)
+                    Right () -> do
+                      step4 <- coord.commitTxn
+                      case step4 of
+                        Left err -> doAbort ("commit: " <> err)
+                        Right () -> do
+                          -- Riffle \xc2\xa74: producer txn is now
+                          -- durable; finalise the 2PC sinks.
+                          -- A failure here is FATAL — the wire
+                          -- side is committed but the sink is
+                          -- still half-prepared. The runtime's
+                          -- 'tpsRecover' decides per-token on
+                          -- restart.
+                          step5 <- coord.commit2PC
+                          case step5 of
+                            Left err ->
+                              pure (CommitFatal
+                                ("commit2PC: " <> err))
+                            Right () -> do
+                              -- KIP-892: the producer commit
+                              -- succeeded, so the changelog
+                              -- records are durable; only now
+                              -- is it safe to drain the
+                              -- per-task TransactionalStore
+                              -- buffers onto their underlying
+                              -- stores.
+                              step6 <- coord.storeCommit
+                              case step6 of
+                                Left err ->
+                                  pure (CommitFatal
+                                    ("storeCommit: " <> err))
+                                Right () -> pure CommitSucceeded
   where
     doAbort reason = do
       _ <- coord.abortTxn
       -- KIP-892: matching abort on the store side discards
       -- buffered writes so a retry starts from a clean slate.
       _ <- coord.storeAbort
+      -- Riffle \xc2\xa74: best-effort 2PC sink abort. Whatever was
+      -- pre-committed gets rolled back; the result is
+      -- intentionally ignored.
+      coord.abort2PC
       pure (CommitAborted reason)
 
 ----------------------------------------------------------------------
@@ -168,6 +226,9 @@ newRealEOSCoordinator txn = EOSCoordinator
     -- by default. Callers that materialise stores wrap the
     -- coordinator with 'withTransactionalStores' below.
   , storeAbort  = pure (Right ())
+  , preCommit2PC = pure (Right ())
+  , commit2PC    = pure (Right ())
+  , abort2PC     = pure ()
   }
   where
     wrapTE = either (Left . T.pack . show) Right

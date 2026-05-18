@@ -450,6 +450,21 @@ library wireform-kafka-streams
         Kafka.Streams.TopologyDescription
         Kafka.Streams.Metrics
         Kafka.Streams.Stores
+        Kafka.Streams.Sinks.TwoPhase
+        Kafka.Streams.Watermark
+        Kafka.Streams.State.KeyValue.TTL
+        Kafka.Streams.State.KeyValue.SchemaVersioned
+        Kafka.Streams.Sources.CDC
+        Kafka.Streams.Runtime.KeyGroup
+        Kafka.Streams.Runtime.RebalanceProtocol
+        Kafka.Streams.Runtime.ObjectStore
+        Kafka.Streams.State.KeyValue.Snapshot
+        Kafka.Streams.Runtime.Snapshot
+        Kafka.Streams.Runtime.RebalanceBridge
+        Kafka.Streams.State.KeyValue.Tiered
+        Kafka.Streams.State.KeyValue.Remote
+        Kafka.Streams.State.Ref
+        Kafka.Streams.EmitPolicy
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
@@ -512,6 +527,10 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.SchemaRegistry.Http
         Kafka.Streams.Printed
         Kafka.Streams.InteractiveQueries
+        Kafka.Streams.AsyncIO
+        Kafka.Streams.AsyncIO.Config
+        Kafka.Streams.Observability.Topology
+        Kafka.Streams.Observability.OrphanTopics
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
@@ -621,10 +640,37 @@ test-suite wireform-kafka-streams-test
         Streams.SchemaRegistryFormatsSpec
         Streams.TopologyFreeSpec
         Streams.TopologyFreeArrowSpec
+        Streams.AsyncIOSpec
+        Streams.Properties.KVStoreSMSpec
+        Streams.Properties.OptimizerEqSpec
+        Streams.Properties.WindowMathSpec
+        Streams.Properties.EOSChaosSpec
+        Streams.Properties.WorkerPoolSMSpec
+        Streams.Properties.ObservabilityTopologySpec
+        Streams.Properties.OrphanTopicsSpec
+        Streams.Properties.ChangelogReplaySpec
+        Streams.Properties.WatermarkSpec
+        Streams.Properties.WorkerPoolConcurrentSpec
+        Streams.Properties.AtLeastOnceRedeliverySpec
+        Streams.Properties.TwoPhaseSinkSpec
+        Streams.Properties.WatermarkCoordSpec
+        Streams.Properties.TTLSpec
+        Streams.Properties.SchemaVersionedSpec
+        Streams.Properties.CDCSourceSpec
+        Streams.Properties.KeyGroupAssignorSpec
+        Streams.Properties.TieredStoreSpec
+        Streams.Properties.RemoteKVStoreSpec
+        Streams.Properties.StoreRefSpec
+        Streams.Properties.KeyGroupDispatchSpec
+        Streams.Properties.WatermarkWiringSpec
+        Streams.Properties.SnapshotSpec
+        Streams.Properties.OperatorWatermarkSpec
+        Streams.Properties.RebalanceBridgeSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
         wireform-kafka,
+        aeson                     >= 2.0   && < 2.3,
         async                     >= 2.2   && < 3,
         bytestring,
         containers,

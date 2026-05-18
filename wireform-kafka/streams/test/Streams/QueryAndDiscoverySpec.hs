@@ -86,7 +86,7 @@ host_info_parses =
       Right (HostInfo h p) -> do
         h @?= "kafka-app-1.example.com"
         p @?= 9909
-      Left e -> error e
+      Left e   -> error e
     -- And rejects garbage.
     case parseHostInfo "no-port-here" of
       Left _  -> pure ()
