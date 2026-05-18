@@ -636,6 +636,7 @@ test-suite wireform-kafka-streams-test
         Streams.Antithesis.ChangelogReplaySpec
         Streams.Antithesis.WatermarkSpec
         Streams.Antithesis.WorkerPoolConcurrentSpec
+        Streams.Antithesis.AtLeastOnceRedeliverySpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
