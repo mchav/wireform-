@@ -841,33 +841,78 @@ explicitly opts in.
    FS-backed `ObjectStoreClient` (S3 wire ships in Phase 2 once
    `wireform-s3` lands or via an external dependency).
 3. Typed `StoreRef k v` + the typed `processStream` overload.
-4. `suppressUntilWindowCloses` bounded-buffer variant.
-5. Orphan-internal-topic detection diagnostic.
-6. Topology DAG JSON observability snapshot.
-7. Key-group module + `newWorkerPoolKeyGrouped` entry point
-   (hand-driven assignment; the assignor integration is Phase 2).
+4. `suppressUntilWindowCloses` bounded-buffer variant. **Landed.**
+5. Orphan-internal-topic detection diagnostic. **Landed.**
+6. Topology DAG JSON observability snapshot. **Landed.**
+7. Key-group module + `newWorkerPoolKeyGrouped` entry point.
+   Hand-driven assignment lives in
+   `Kafka.Streams.Runtime.KeyGroup` (defining `KeyGroupConfig`,
+   `KeyGroupAssignment`, `WarmupProgress`,
+   `assignedToKeyGroupRange`); `newWorkerPoolKeyGrouped` /
+   `submitRecordKeyGrouped` /
+   `updateKeyGroupAssignment` in `WorkerPool` route records by
+   the live assignment, and `StreamsConfig.dispatchMode`
+   (`DispatchPartition | DispatchHashed | DispatchKeyGroup`)
+   picks the constructor at startup. **Landed.**
+
+In addition to the original Phase-1 line items, the following
+Phase-1 \xc2\xa71 / \xc2\xa76 items landed in the same series:
+
+* **Snapshot-aware KV store + `Runtime.Snapshot` + `ObjectStoreClient`**:
+  `Kafka.Streams.Runtime.ObjectStore` defines the contract +
+  ships `inMemoryObjectStore` and `filesystemObjectStore`
+  references; `Kafka.Streams.State.KeyValue.Snapshot` defines
+  `SnapshotPlan`, `SnapshotManifest`, `snapshotStore`,
+  `restoreFromSnapshot`, `listSnapshots`;
+  `Kafka.Streams.Runtime.Snapshot` owns the lifecycle (`SnapshotState`,
+  `shouldSnapshot`, `publishIfDue`, `recoverStore`,
+  `pruneOldSnapshots`). Recovery is now O(time-since-last-snapshot)
+  rather than O(state-size). The S3 / GCS / Azure adapters
+  ship in their respective packages. **Landed.**
+* **Typed `StoreRef k v`**: `Kafka.Streams.State.Ref` adds
+  `StoreKind`, `StoreRef (kind :: StoreKind) k v`,
+  `SomeStoreRef`, and `kvRefOfBuilder` / `windowRefOfBuilder`
+  / `sessionRefOfBuilder` smart constructors. Lookup helpers
+  `getKVStoreRef` / `getWindowStoreRef` / `getSessionStoreRef`
+  type-check the kind at compile time. The stringly-typed
+  `getStateStore` / `processStream` calls remain. **Landed.**
 
 **Phase 2** (depends on Phase 1 plumbing):
 
 8. Two-phase commit sink interface + JDBC / Iceberg / S3 / HTTP
    reference sinks. The contract lives in
    `Kafka.Streams.Sinks.TwoPhase`: `TwoPhaseSink` with
-   `prepare` / `commit` / `abort` / `recover`, the
-   `withTwoPhaseSinks` extension on `EOSCoordinator`, and three
-   in-process reference sinks (in-memory, filesystem
-   atomic-rename, HTTP-echo). The real JDBC / Iceberg / S3 /
-   HTTP adapters live in separate packages because each pulls
-   in its own driver. **Landed.**
+   `tpsStage` / `tpsPrepare` / `tpsCommit` / `tpsAbort` /
+   `tpsRecover` + `RecoveryDecision`, the `withTwoPhaseSinks`
+   extension on `EOSCoordinator`, three in-process reference
+   sinks (in-memory, filesystem atomic-rename, HTTP-echo), the
+   `Topology.Free.SinkTwoPhase` Prim + `sinkTwoPhase` smart
+   constructor + a foreach-style `compileSinkTwoPhase` that
+   stages per-record into the sink's internal buffer. The 5-step
+   commit cycle (`beginTxn \xe2\x86\x92 flushBody \xe2\x86\x92 commitOffsets \xe2\x86\x92
+   preCommit2PC \xe2\x86\x92 commitTxn \xe2\x86\x92 commit2PC \xe2\x86\x92 storeCommit`) is
+   wired into `runCommitCycle` so the producer transaction
+   straddles the 2PC. The real JDBC / Iceberg / S3 / HTTP
+   adapters live in separate packages because each pulls in its
+   own driver. **Landed.**
 9. Cross-source watermark coordinator + `WatermarkStrategy` +
    alignment groups + idle-source detection.
-   `Kafka.Streams.Watermark` ships `monotonicAscending`,
-   `boundedOutOfOrderness`, and `noWatermark` strategies, a
-   thread-safe `WatermarkCoordinator` that publishes the
-   min-of-live-sources effective watermark with idle-timeout
-   skipping, and alignment groups (`shouldPauseSource` /
-   `alignmentBacklog`) so a fast source can be backpressured
-   onto a slow joiner. Wiring into the engine source-processor
-   boundary is deferred. **Landed.**
+   `Kafka.Streams.Watermark` ships the full rich strategy
+   record `{ wsName, wsGenerator, wsIdleness, wsAlignment }`
+   with the `WatermarkGenerator` ADT (`MonotonicTimestamps`,
+   `BoundedOutOfOrderness`, `NoWatermarkGen`,
+   `CustomGenerator`), `IdlenessConfig`, and `AlignmentGroupId`.
+   The runtime side wires through
+   `Consumed.withWatermarkStrategy` \xe2\x86\x92 `SourceSpec.sourceWatermarkStrategy`
+   \xe2\x86\x92 `Engine.attachWatermarkCoordinator`, so every record on a
+   strategy-attached source reports its timestamp to the
+   coordinator via `reportRecord`. `WatermarkCoordinator`
+   publishes the min-of-live-sources effective watermark with
+   idle-timeout skipping and alignment-group backpressure
+   (`shouldPauseSource` / `alignmentBacklog`). Engine-side
+   consumption (windows reading `currentEffectiveWatermark`
+   instead of per-task `engineStreamTime`) is the remaining
+   per-operator change. **Landed.**
 10. Event-time TTL on state stores. The
     `Kafka.Streams.State.KeyValue.TTL` wrapper takes
     `TTLConfig { ttlDuration, ttlClock }` (clock is
