@@ -512,6 +512,8 @@ library wireform-kafka-streams
         Kafka.Streams.Serde.SchemaRegistry.Http
         Kafka.Streams.Printed
         Kafka.Streams.InteractiveQueries
+        Kafka.Streams.AsyncIO
+        Kafka.Streams.AsyncIO.Config
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,

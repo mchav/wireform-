@@ -106,6 +106,15 @@ module Kafka.Streams.KStream
   , processStream
   , processValuesStream
   , flatTransformValues
+    -- * Extension hooks
+  --
+  -- 'attachProcessor' is the primitive every stateless and stateful
+  -- transform on this module is built on. It is exported so the
+  -- 'Kafka.Streams.AsyncIO' family (and any future
+  -- 'wireform-kafka-streams' Riffle extension) can plug in fresh
+  -- processor primitives without duplicating the
+  -- "fresh node name + addProcessor + return a KStream" boilerplate.
+  , attachProcessor
   ) where
 
 import qualified Control.Concurrent.Async
