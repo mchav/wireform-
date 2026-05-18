@@ -76,6 +76,7 @@ import qualified Streams.TopologyFreeSpec
 import qualified Streams.TopologyFreeArrowSpec
 import qualified Streams.AsyncIOSpec
 import qualified Streams.Antithesis.KVStoreSMSpec
+import qualified Streams.Antithesis.OptimizerEqSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -154,5 +155,6 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.AsyncIOSpec.tests
   , testGroup "Antithesis"
       [ Streams.Antithesis.KVStoreSMSpec.tests
+      , Streams.Antithesis.OptimizerEqSpec.tests
       ]
   ]
