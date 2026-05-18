@@ -491,6 +491,7 @@ import Kafka.Streams.Consumed
   , consumedExtractor
   , consumedKeySerde
   , consumedOffsetReset
+  , consumedWatermark
   , consumedValueSerde
   )
 import qualified Kafka.Streams.Joined as Joined
@@ -1241,6 +1242,7 @@ sourceMultiCompile b ts c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Nothing
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure (KS.KStream
           { KS.kstreamBuilder    = b

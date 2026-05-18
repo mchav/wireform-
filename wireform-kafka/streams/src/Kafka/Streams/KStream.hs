@@ -242,6 +242,7 @@ streamFromTopic b topic c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Nothing
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure KStream
     { kstreamBuilder    = b
@@ -279,6 +280,7 @@ streamFromPattern b pattern c = do
         , Topo.sourceExtractor   = Topo.AnyTimestampExtractor (consumedExtractor c)
         , Topo.sourceOffsetReset = consumedOffsetReset c
         , Topo.sourcePattern     = Just pattern
+        , Topo.sourceWatermarkStrategy = consumedWatermark c
         }
   pure KStream
     { kstreamBuilder    = b

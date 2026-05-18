@@ -128,6 +128,7 @@ import Kafka.Streams.State.Store
 import qualified Kafka.Streams.State.Store
 import qualified Kafka.Streams.Time
 import qualified Kafka.Streams.Topology.Optimization
+import qualified Kafka.Streams.Watermark as Watermark
 import Kafka.Streams.Time (TimestampExtractor)
 import Kafka.Streams.Types (NodeName (..), TopicName, nodeName, unNodeName)
 
@@ -185,6 +186,14 @@ data SourceSpec = SourceSpec
     -- means "subscribe to the explicit 'sourceTopics' list",
     -- which is the only mode the in-process driver supports
     -- today.
+  , sourceWatermarkStrategy :: !(Maybe Watermark.WatermarkStrategy)
+    -- ^ Riffle \xc2\xa75: optional per-source watermark strategy.
+    -- 'Nothing' (the default) preserves the legacy per-task
+    -- 'StreamTime' behaviour exactly. 'Just s' opts the source
+    -- into the cross-source watermark coordinator: the runtime
+    -- registers the source with the coordinator at startup
+    -- and reports every record's timestamp via
+    -- 'Kafka.Streams.Watermark.reportRecord'.
   }
 
 -- | Processor node specification.
@@ -330,6 +339,7 @@ addSource nm ts ks vs ex t =
     , sourceExtractor   = AnyTimestampExtractor ex
     , sourceOffsetReset = Consumed.OffsetEarliest
     , sourcePattern     = Nothing
+    , sourceWatermarkStrategy = Nothing
     }
 
 -- | 'addSource' that lets the caller install a custom 'TopologyError'
@@ -917,6 +927,7 @@ addGlobalStore builder sourceNm procNm topic ks vs ex updater t0 =
       , sourceExtractor   = AnyTimestampExtractor ex
       , sourceOffsetReset = Consumed.OffsetEarliest
       , sourcePattern     = Nothing
+      , sourceWatermarkStrategy = Nothing
       }
 
 attachToProcessor

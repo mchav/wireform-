@@ -38,6 +38,7 @@ module Kafka.Streams.Internal.Engine
   , engineCollector
   , engineStreamTime
   , engineWallClock
+  , attachWatermarkCoordinator
   , engineMetrics
   , buildEngine
   , feedSource
@@ -122,6 +123,7 @@ import Kafka.Streams.Time
   , runTimestampExtractor
   , utcTimeToTimestamp
   )
+import qualified Kafka.Streams.Watermark as Watermark
 import Kafka.Streams.Types
   ( Record (..)
   , RecordMetadata (..)
@@ -226,6 +228,13 @@ data Engine = Engine
     -- Drains run synchronously on the stream thread in
     -- registration order. An exception from any drain
     -- propagates as a 'commitEngine' failure.
+  , engineWatermarkCoord :: !(IORef (Maybe Watermark.WatermarkCoordinator))
+    -- ^ Riffle \xc2\xa75: optional cross-source watermark coordinator.
+    -- 'Nothing' (the default) preserves per-task 'StreamTime'
+    -- semantics. When set (via 'attachWatermarkCoordinator')
+    -- 'handleSource' calls
+    -- 'Kafka.Streams.Watermark.reportRecord' for every record
+    -- whose source carries a 'sourceWatermarkStrategy'.
   }
 
 ----------------------------------------------------------------------
@@ -262,6 +271,7 @@ buildEngine validated tid appId collector deserHandler = do
   metrics       <- noopMetricsRegistry
   commitReqRef  <- newIORef False
   drainsRef     <- newIORef []
+  wmCoordRef    <- newIORef Nothing
 
   let engine = Engine
         { engineTopology     = topo
@@ -281,6 +291,7 @@ buildEngine validated tid appId collector deserHandler = do
         , engineMetrics      = metrics
         , engineCommitRequested = commitReqRef
         , engineAsyncDrains  = drainsRef
+        , engineWatermarkCoord = wmCoordRef
         }
 
   -- Wire processors first so children-of references resolve.
@@ -448,6 +459,19 @@ handleSource engine spec children si = do
               mk v (siTimestamp si) st
       atomicModifyIORef' (engineStreamTime engine) $ \cur ->
         (advanceStreamTime ts cur, ())
+      -- Riffle \xc2\xa75: if a watermark coordinator is wired and
+      -- this source carries a 'WatermarkStrategy', report the
+      -- record's extracted timestamp. The coordinator is
+      -- responsible for running the strategy's generator and
+      -- updating its per-source watermark.
+      mWc <- readIORef (engineWatermarkCoord engine)
+      case (mWc, Topo.sourceWatermarkStrategy spec) of
+        (Just wc, Just _strat) -> do
+          let sid = Watermark.SourceId
+                (Topo.unNodeName (Topo.sourceName spec))
+          _ <- Watermark.reportRecord wc sid ts
+          pure ()
+        _ -> pure ()
       writeIORef (engineCurrentMd engine) (Just RecordMetadata
         { rmTopic     = siTopic si
         , rmPartition = fromIntegral (siPartition si)
@@ -649,6 +673,33 @@ advanceWallClock engine deltaMs = do
   atomicModifyIORef' (engineWallClock engine) $ \(Timestamp t) ->
     (Timestamp (t + deltaMs), ())
   triggerWallClockPunctuators engine
+
+-- | Riffle \xc2\xa75: wire a 'WatermarkCoordinator' to this engine. The
+-- runtime calls this once at engine construction time after
+-- building the per-app coordinator and before the first record
+-- is fed; subsequent record ingestion in 'handleSource' reports
+-- timestamps to the coordinator for every source whose
+-- 'sourceWatermarkStrategy' is 'Just'.
+--
+-- Idempotent: calling it again overwrites the previous
+-- coordinator handle, useful for tests that rebind.
+attachWatermarkCoordinator
+  :: Engine
+  -> Watermark.WatermarkCoordinator
+  -> IO ()
+attachWatermarkCoordinator engine wc = do
+  writeIORef (engineWatermarkCoord engine) (Just wc)
+  -- Register every source that carries a strategy.
+  forM_ (Map.toList (Topo.topoSources
+                       (engineTopology engine))) $ \(_nm, spec) ->
+    case Topo.sourceWatermarkStrategy spec of
+      Nothing -> pure ()
+      Just strat -> do
+        let sid = Watermark.SourceId
+              (Topo.unNodeName (Topo.sourceName spec))
+            grp = fmap Watermark.unAlignmentGroupId
+                       (Watermark.wsAlignment strat)
+        Watermark.registerSource wc sid strat grp
 
 advanceStreamTimeTo :: Engine -> Timestamp -> IO ()
 advanceStreamTimeTo engine ts = do

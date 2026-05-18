@@ -657,6 +657,7 @@ test-suite wireform-kafka-streams-test
         Streams.Properties.RemoteKVStoreSpec
         Streams.Properties.StoreRefSpec
         Streams.Properties.KeyGroupDispatchSpec
+        Streams.Properties.WatermarkWiringSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
