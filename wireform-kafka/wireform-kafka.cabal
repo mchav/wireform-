@@ -459,6 +459,7 @@ library wireform-kafka-streams
         Kafka.Streams.Runtime.RebalanceProtocol
         Kafka.Streams.State.KeyValue.Tiered
         Kafka.Streams.State.KeyValue.Remote
+        Kafka.Streams.State.Ref
         Kafka.Streams.Query
         Kafka.Streams.Mock.Cluster
         Kafka.Streams.Mock.Fault
@@ -654,6 +655,7 @@ test-suite wireform-kafka-streams-test
         Streams.Properties.KeyGroupAssignorSpec
         Streams.Properties.TieredStoreSpec
         Streams.Properties.RemoteKVStoreSpec
+        Streams.Properties.StoreRefSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
