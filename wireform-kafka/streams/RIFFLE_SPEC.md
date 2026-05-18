@@ -328,7 +328,7 @@ Concrete changes:
    data AsyncRetryStrategy
      = NoRetry
      | RetryFixed   !Int !Duration
-     | RetryBackoff !Int !Duration !Double  -- attempts, initial, multiplier
+     | RetryBackoff !Int !Duration !Int     -- attempts, initial, multiplier
 
    data AsyncPunctuator
      = NoTimeoutSweep

@@ -172,10 +172,20 @@ data AsyncRetryStrategy
   | RetryFixed !Int !Duration
     -- ^ Up to @n@ retry attempts, each separated by a fixed
     -- delay.
-  | RetryBackoff !Int !Duration !Double
-    -- ^ Up to @n@ retry attempts. Delay = @initial * multiplier
-    -- ^ (attempt - 1)@. Cap is the initial delay times
-    -- @multiplier ^ n@.
+  | RetryBackoff !Int !Duration !Int
+    -- ^ @RetryBackoff attempts initial multiplier@. Up to
+    -- @attempts@ retries; the delay before retry @k@ (zero-
+    -- indexed) is @initial * multiplier ^ k@.
+    --
+    -- The multiplier is an 'Int' on purpose — integer math
+    -- only, no @Double@ in the hot path. Typical values are
+    -- @2@ (exponential backoff) or @10@ (decade backoff). For
+    -- a non-integer ratio, model it as multiple short fixed
+    -- retries instead.
+    --
+    -- Overflow on extreme inputs is clamped at @maxBound ::
+    -- Int64@ ms (~292 million years); a single retry will
+    -- never wait longer than that.
   deriving stock (Eq, Show, Generic)
 
 -- | Convenience: don't retry.

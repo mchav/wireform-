@@ -470,17 +470,55 @@ retryAttempts = \case
 -- first retry sleeps with @attemptIdx = 0@.
 sleepRetry :: AsyncRetryStrategy -> Int -> IO ()
 sleepRetry s attemptIdx = case s of
-  NoRetry          -> pure ()
-  RetryFixed _ dur -> sleepDuration dur
-  RetryBackoff _ initial mult ->
-    let factor   = mult ^^ attemptIdx
-        scaledMs = fromIntegral (durationMillis initial) * factor :: Double
-    in threadDelay (max 0 (floor (scaledMs * 1000)))
+  NoRetry                      -> pure ()
+  RetryFixed _ dur             -> sleepDuration dur
+  RetryBackoff _ initial mult  ->
+    -- Pure 'Int64' math: delayMs = initialMs * mult ^ attemptIdx,
+    -- clamped at 'maxBound :: Int64' so extreme inputs (e.g.
+    -- @mult = 10 ^^ 20@) don't wrap around to a negative sleep.
+    let !baseMs   = durationMillis initial
+        !factor   = ipowClamped (fromIntegral (max 1 mult)) attemptIdx
+        !delayMs  = saturatingMul baseMs factor
+    in when (delayMs > 0)
+         (threadDelay (saturatingToMicros delayMs))
 
 sleepDuration :: Duration -> IO ()
 sleepDuration d =
   let ms = durationMillis d
-  in when (ms > 0) (threadDelay (fromIntegral (ms * 1000)))
+  in when (ms > 0) (threadDelay (saturatingToMicros ms))
+
+-- | @ipowClamped base exp@: @base ^ exp@ in 'Int64', clamped at
+-- 'maxBound' to avoid wrap-around on extreme inputs. Negative
+-- exponents are treated as zero (caller bug; better than crashing
+-- the worker thread).
+ipowClamped :: Int64 -> Int -> Int64
+ipowClamped _ e | e <= 0 = 1
+ipowClamped b e          = go 1 e
+  where
+    !cap = maxBound :: Int64
+    go !acc 0  = acc
+    go !acc k
+      | acc > cap `div` (max 1 b) = cap
+      | otherwise                 = go (acc * b) (k - 1)
+
+-- | Saturating multiplication on 'Int64' — returns 'maxBound' if
+-- the unbounded product would overflow.
+saturatingMul :: Int64 -> Int64 -> Int64
+saturatingMul a b
+  | a == 0 || b == 0      = 0
+  | a > cap `div` b       = cap
+  | otherwise             = a * b
+  where
+    !cap = maxBound :: Int64
+
+-- | Convert a millisecond count to microseconds for
+-- 'threadDelay', clamped at 'maxBound :: Int' so we never pass a
+-- negative or wrapped value to the RTS.
+saturatingToMicros :: Int64 -> Int
+saturatingToMicros ms
+  | ms <= 0                                            = 0
+  | ms > fromIntegral (maxBound :: Int) `div` 1000     = maxBound
+  | otherwise                                          = fromIntegral ms * 1000
 
 ----------------------------------------------------------------------
 -- Result handling

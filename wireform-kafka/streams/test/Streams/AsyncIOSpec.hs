@@ -1010,7 +1010,7 @@ retry_backoff_recovers =
           { aioBufferCapacity = 2
           , aioWorkers        = 1
           , aioOutputMode     = OrderedOutput
-          , aioRetry          = RetryBackoff 4 (Time.millis 1) 2.0
+          , aioRetry          = RetryBackoff 4 (Time.millis 1) 2
           , aioOnFailure      = FailTask
           , aioDrainTrigger   = DrainOnEntry
           }
