@@ -86,6 +86,7 @@ import qualified Streams.Antithesis.ChangelogReplaySpec
 import qualified Streams.Antithesis.WatermarkSpec
 import qualified Streams.Antithesis.WorkerPoolConcurrentSpec
 import qualified Streams.Antithesis.AtLeastOnceRedeliverySpec
+import qualified Streams.Antithesis.TwoPhaseSinkSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -174,5 +175,6 @@ main = defaultMain $ testGroup "kafka-streams"
       , Streams.Antithesis.WatermarkSpec.tests
       , Streams.Antithesis.WorkerPoolConcurrentSpec.tests
       , Streams.Antithesis.AtLeastOnceRedeliverySpec.tests
+      , Streams.Antithesis.TwoPhaseSinkSpec.tests
       ]
   ]
