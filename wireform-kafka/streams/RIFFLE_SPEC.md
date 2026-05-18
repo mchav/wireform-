@@ -794,6 +794,43 @@ explicitly opts in.
    document suitable for a web-UI overlay; the live variant
    layers in counter / gauge / DurationStats snapshots from the
    engine's `MetricsRegistry`. **Landed.**
+
+7. Library-wide antithesis / Jepsen-style chaos suite —
+   `Streams.Antithesis.*` covers the cross-cutting correctness
+   invariants the unit tests cannot:
+
+   * `KVStoreSMSpec` — state-machine vs `Data.Map` model
+     (in-memory + KIP-892 transactional store).
+   * `OptimizerEqSpec` — optimised vs unoptimised topology output.
+   * `WindowMathSpec` — 17 properties on tumbling / hopping /
+     sliding / unlimited / session windows.
+   * `EOSChaosSpec` — `runCommitCycle` schedule against a
+     pure model, plus extensions for `getOffsets` throwing,
+     `abortTxn` returning Left, and `storeAbort` returning Left.
+   * `WorkerPoolSMSpec` — sequential pool dynamics.
+   * `WorkerPoolConcurrentSpec` — concurrent submit + add / remove
+     conservation; sticky routing under concurrency.
+   * `ObservabilityTopologySpec` — DAG JSON renderer round-trips.
+   * `OrphanTopicsSpec` — internal-topic detector edge cases.
+   * `ChangelogReplaySpec` — Jepsen-style active/standby
+     replication: interleaved replay equivalence, multi-replica
+     convergence, promote-on-failover via 2nd-gen standby
+     replay, per-store isolation on shared changelog.
+   * `WatermarkSpec` — stream-time = running-max under
+     out-of-order input; backwards `advanceDriverStreamTime`
+     is a no-op.
+   * `AtLeastOnceRedeliverySpec` — induced redelivery via
+     `seekMC`; output multiset is a superset of the input
+     multiset; per-value redelivery is bounded by the rewind
+     distance.
+
+   Found bugs along the way: `TransactionalStore` iterator
+   bypassing buffered writes (`kvsRange`/`kvsAll`),
+   `hoppingWindows` mis-alignment when `size < advance`,
+   `WorkerPool.removePoolWorker` deadlock when the inbox wasn't
+   fully drained, and an unwrapped `getOffsets` exception in
+   `runCommitCycle` that bypassed the abort path. All fixed in
+   the same PR as their tests. **Landed.**
 2. Snapshot-aware `KeyValueStore` shape + the
    `Kafka.Streams.Runtime.Snapshot` module + an in-memory and an
    FS-backed `ObjectStoreClient` (S3 wire ships in Phase 2 once
