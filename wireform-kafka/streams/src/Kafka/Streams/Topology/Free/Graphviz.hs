@@ -83,6 +83,7 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 
+import qualified Kafka.Streams.AsyncIO.Config as AIO
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Topology.Free
@@ -393,6 +394,12 @@ primNode p0 = case p0 of
   MapValuesM _             -> ("MapValuesM",        "ellipse")
   MapKeyValue _            -> ("MapKeyValue",       "ellipse")
   MapKeyValueM _           -> ("MapKeyValueM",      "ellipse")
+  AsyncMapValues cfg _     ->
+    ("AsyncMapValues\n" <> aioConfigLabel cfg,     "ellipse")
+  AsyncMapKeyValue cfg _   ->
+    ("AsyncMapKeyValue\n" <> aioConfigLabel cfg,   "ellipse")
+  AsyncFlatMapValues cfg _ ->
+    ("AsyncFlatMapValues\n" <> aioConfigLabel cfg, "ellipse")
   MapRecord _              -> ("MapRecord",         "ellipse")
   MapRecordM _             -> ("MapRecordM",        "ellipse")
   NoFuse                   -> ("NoFuse",            "doublecircle")
@@ -469,6 +476,20 @@ primNode p0 = case p0 of
     ("ProcessWithStateStoreS\n" <> nm <> "\n"
        <> Store.unStoreName (Store.sbSName b), "box")
   Lifted nm _                      -> ("Lifted\n" <> nm, "octagon")
+
+-- | Compact textual badge for an 'AIO.AsyncIOConfig' embedded in a
+-- DOT label: shows the operator name and the headline knobs
+-- (buffer + workers + ordering) so the rendered graph reflects
+-- the configured concurrency.
+aioConfigLabel :: AIO.AsyncIOConfig -> Text
+aioConfigLabel cfg =
+  AIO.aioName cfg
+    <> "[buf=" <> T.pack (show (AIO.aioBufferCapacity cfg))
+    <> ",w=" <> T.pack (show (AIO.aioWorkers cfg))
+    <> "," <> outputModeLabel (AIO.aioOutputMode cfg) <> "]"
+  where
+    outputModeLabel AIO.OrderedOutput   = "ord"
+    outputModeLabel AIO.UnorderedOutput = "unord"
 
 leafNode :: DotConfig -> Int -> Text -> Text -> TB.Builder
 leafNode cfg i lab shape =

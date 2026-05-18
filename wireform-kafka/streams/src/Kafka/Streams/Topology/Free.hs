@@ -302,6 +302,18 @@ module Kafka.Streams.Topology.Free
   , mapRecord
   , mapRecordM
   , noFuse
+    -- * Riffle: async I\/O transforms
+  --
+  -- See "Kafka.Streams.AsyncIO" for the contract: bounded
+  -- worker pool, backpressure via a bounded in-flight queue,
+  -- ordered\/unordered output, explicit failure policy, and
+  -- EOS-compatible drain. Construct an 'AIO.AsyncIOConfig'
+  -- (or start from 'AIO.defaultAsyncIOConfig') and reach for
+  -- one of these instead of 'mapValuesM' \/ 'mapKeyValueM'
+  -- whenever the per-record IO is latency-bound.
+  , asyncMapValues
+  , asyncMapKeyValue
+  , asyncFlatMapValues
     -- ** Named operator variants (KIP-307)
   , filterNamed
   , mapValuesNamed
@@ -468,6 +480,8 @@ import Data.Void (Void)
 import GHC.Generics (Generic)
 import qualified System.IO.Unsafe as IOUnsafe
 
+import qualified Kafka.Streams.AsyncIO as AIO
+import qualified Kafka.Streams.AsyncIO.Config as AIO
 import Kafka.Streams.Cogroup (CogroupedStream)
 import qualified Kafka.Streams.Cogroup as Cog
 import Kafka.Streams.Consumed
@@ -622,6 +636,26 @@ data Prim i o where
                   -> Prim (KStream k v) (KStream k' v')
   MapKeyValueM    :: (k -> v -> IO (k', v'))
                   -> Prim (KStream k v) (KStream k' v')
+  -- | Riffle async transform on values. Runs @v -> IO v'@ on a
+  -- bounded worker pool with ordered\/unordered output and an
+  -- explicit failure policy. See 'Kafka.Streams.AsyncIO' for the
+  -- full contract (backpressure, EOS, ordering, retry, drain).
+  AsyncMapValues       :: !AIO.AsyncIOConfig
+                       -> (v -> IO v')
+                       -> Prim (KStream k v) (KStream k v')
+  -- | Riffle async transform on key + value. May rekey; downstream
+  -- key serde is left as a thunk until @to@\/@through@ supplies one,
+  -- matching 'MapKeyValueM' semantics.
+  AsyncMapKeyValue     :: !AIO.AsyncIOConfig
+                       -> (k -> v -> IO (k', v'))
+                       -> Prim (KStream k v) (KStream k' v')
+  -- | Riffle async flat-map on values. Each input record yields
+  -- zero or more outputs, computed on the worker pool. Within a
+  -- single record, output ordering follows the returned list; across
+  -- input records, output ordering follows 'aioOutputMode'.
+  AsyncFlatMapValues   :: !AIO.AsyncIOConfig
+                       -> (v -> IO [v'])
+                       -> Prim (KStream k v) (KStream k v')
   -- | Full-record pure transform: see key, value, timestamp,
   -- and headers; produce a fresh 'Record'. Use when you need
   -- access to header / timestamp data that 'MapValues' /
@@ -971,6 +1005,9 @@ runPrim b = go
     go (MapValuesM f)        = KS.mapValuesM f
     go (MapKeyValue f)       = KS.mapKeyValue f
     go (MapKeyValueM f)      = KS.mapKeyValueM f
+    go (AsyncMapValues cfg f)     = AIO.asyncMapValues cfg f
+    go (AsyncMapKeyValue cfg f)   = AIO.asyncMapKeyValue cfg f
+    go (AsyncFlatMapValues cfg f) = AIO.asyncFlatMapValues cfg f
     go (MapRecord f)         = KS.mapRecord f
     go (MapRecordM f)        = KS.mapRecordM f
     go NoFuse                = pure
@@ -1732,6 +1769,58 @@ mapKeyValue = liftPrim . MapKeyValue
 mapKeyValueM
   :: (k -> v -> IO (k', v')) -> Topology (KStream k v) (KStream k' v')
 mapKeyValueM = liftPrim . MapKeyValueM
+
+-- | Riffle async value transform.
+--
+-- The supplied @v -> IO v'@ runs on a bounded worker pool with
+-- backpressure, EOS-correct drain, ordered\/unordered output,
+-- and explicit failure policy. See 'Kafka.Streams.AsyncIO' for
+-- the contract.
+--
+-- Differs from 'mapValuesM' by /not/ running on the stream
+-- thread: latency-bound work (HTTP enrichment, DB lookups)
+-- doesn't stall the engine.
+--
+-- == When to use this
+--
+--   * Per-record IO whose latency dominates throughput.
+--   * Operations that benefit from parallelism but whose
+--     output ordering still needs to match input ordering
+--     ('AIO.OrderedOutput').
+--
+-- == When /not/ to use this
+--
+--   * Pure value transforms — use 'mapValues'.
+--   * Logging / metrics — use 'peek'.
+--   * Effects that must be EOS-atomic with downstream sinks —
+--     keep them on-thread with 'mapValuesM'; the
+--     async-operator drain is on commit-cycle boundaries, not
+--     per-record.
+asyncMapValues
+  :: AIO.AsyncIOConfig
+  -> (v -> IO v')
+  -> Topology (KStream k v) (KStream k v')
+asyncMapValues cfg = liftPrim . AsyncMapValues cfg
+
+-- | Riffle async key+value transform. Same trade-offs as
+-- 'asyncMapValues' plus the repartition implications of
+-- 'mapKeyValue' (downstream stateful ops need an explicit
+-- 'repartition' if the new key changes the partitioning).
+asyncMapKeyValue
+  :: AIO.AsyncIOConfig
+  -> (k -> v -> IO (k', v'))
+  -> Topology (KStream k v) (KStream k' v')
+asyncMapKeyValue cfg = liftPrim . AsyncMapKeyValue cfg
+
+-- | Riffle async flat-map on values. Each input record yields
+-- a (possibly empty) list of outputs. Within one input record
+-- the output ordering follows the returned list; across input
+-- records it follows 'AIO.aioOutputMode'.
+asyncFlatMapValues
+  :: AIO.AsyncIOConfig
+  -> (v -> IO [v'])
+  -> Topology (KStream k v) (KStream k v')
+asyncFlatMapValues cfg = liftPrim . AsyncFlatMapValues cfg
 
 -- | Apply a pure transform to the full 'Record' — key, value,
 -- timestamp, and headers all in scope. Useful when the
@@ -3315,6 +3404,12 @@ labelPrim p0 = case p0 of
   MapValuesM _       -> "MapValuesM"
   MapKeyValue _      -> "MapKeyValue"
   MapKeyValueM _     -> "MapKeyValueM"
+  AsyncMapValues cfg _     ->
+    "AsyncMapValues(" <> AIO.aioName cfg <> ")"
+  AsyncMapKeyValue cfg _   ->
+    "AsyncMapKeyValue(" <> AIO.aioName cfg <> ")"
+  AsyncFlatMapValues cfg _ ->
+    "AsyncFlatMapValues(" <> AIO.aioName cfg <> ")"
   MapRecord _        -> "MapRecord"
   MapRecordM _       -> "MapRecordM"
   NoFuse             -> "NoFuse"

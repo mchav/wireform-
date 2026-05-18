@@ -19,12 +19,15 @@ import Control.Concurrent.STM
   , readTVar
   , retry
   )
+import qualified Control.Category as Cat
 import qualified Control.Exception as Exception
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import qualified Kafka.Streams.Topology.Free as F
 
 import Kafka.Streams
 import Kafka.Streams.AsyncIO
@@ -91,6 +94,7 @@ tests = testGroup "AsyncIO"
   , log_and_continue_skips_failure
   , fail_task_surfaces_exception
   , unordered_emits_in_completion_order
+  , topology_free_async_map_values_smoke
   ]
 
 ----------------------------------------------------------------------
@@ -285,4 +289,39 @@ unordered_emits_in_completion_order =
 
     out <- readOutput driver (topicName "out")
     map (unbytes . crValue) out @?= ["C", "A", "B"]
+    closeDriver driver
+
+----------------------------------------------------------------------
+-- Topology.Free AST: AsyncMapValues Prim compiles + runs
+----------------------------------------------------------------------
+
+topology_free_async_map_values_smoke :: TestTree
+topology_free_async_map_values_smoke =
+  testCase "Topology.Free asyncMapValues compiles and forwards" $ do
+    deposits <- newTVarIO (0 :: Int)
+    let cfg = defaultAsyncIOConfig
+          { aioBufferCapacity = 4
+          , aioWorkers        = 2
+          , aioOutputMode     = OrderedOutput
+          , aioOnDeposit      = atomically (modifyTVar' deposits (+ 1))
+          }
+        topology :: F.Topology Void ()
+        topology =
+          F.source "in" textSerde textSerde
+            Cat.>>> F.asyncMapValues cfg pure
+            Cat.>>> F.mapValues T.toUpper
+            Cat.>>> F.sink "out" textSerde textSerde
+
+    (_, topo) <- F.compile topology
+    driver <- newDriver topo "asyncio-free-smoke"
+
+    mapM_ (\v -> pipeInput driver (topicName "in")
+                   Nothing (bytes v) t0 0) ["x", "y", "z"]
+    atomically $ do
+      n <- readTVar deposits
+      if n >= 3 then pure () else retry
+    advanceWallClockTime driver 250
+
+    out <- readOutput driver (topicName "out")
+    map (unbytes . crValue) out @?= ["X", "Y", "Z"]
     closeDriver driver
