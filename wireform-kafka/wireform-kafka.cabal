@@ -623,6 +623,7 @@ test-suite wireform-kafka-streams-test
         Streams.SchemaRegistryFormatsSpec
         Streams.TopologyFreeSpec
         Streams.TopologyFreeArrowSpec
+        Streams.AsyncIOSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

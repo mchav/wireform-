@@ -102,8 +102,14 @@ data AsyncIOConfig = AsyncIOConfig
     -- ^ Logical operator name used in processor / metric labels.
     -- Defaults to @"KSTREAM-ASYNC"@ via 'defaultAsyncIOConfig';
     -- override for finer-grained observability.
+  , aioOnDeposit      :: !(IO ())
+    -- ^ Worker-thread hook fired after each deposit into the
+    -- reorder buffer (whether the slot is a success batch or a
+    -- skip-on-failure). Defaults to @pure ()@. Production use:
+    -- wire to a metrics counter so a gauge tracks
+    -- @completed-requests@. Test use: bump a 'TVar' so the
+    -- harness can observe deposits without racing the user IO.
   }
-  deriving stock Generic
 
 -- | Conservative defaults; tune 'aioBufferCapacity' and
 -- 'aioWorkers' for your I\/O profile.
@@ -117,6 +123,7 @@ defaultAsyncIOConfig = AsyncIOConfig
   , aioOnFailure      = FailTask
   , aioDrainTrigger   = DrainOnEntryAndPunctuator (millis 25)
   , aioName           = "KSTREAM-ASYNC"
+  , aioOnDeposit      = pure ()
   }
 
 -- | Downstream emission order.

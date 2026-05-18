@@ -433,24 +433,33 @@ handleResult
   -> SeqNo
   -> Either SomeException (Seq (Record k' v'))
   -> IO ()
-handleResult st cfg sn = \case
-  Right batch ->
-    depositSuccess st cfg sn batch
-  Left e -> do
-    keep <- applyFailurePolicy (aioOnFailure cfg) e
-    if keep
-      then
-        -- Failure was non-fatal — record a skipped slot so the
-        -- ordered drain doesn't stall on a hole.
-        depositSkip st cfg sn
-      else do
-        -- Failure is fatal — surface to the stream thread on
-        -- the next drain. We deposit a skipped slot too so the
-        -- drain machinery can keep going, but the failure
-        -- TVar is what the stream thread inspects.
-        atomically $
-          writeTVar (apsFailure st) (Just e)
-        depositSkip st cfg sn
+handleResult st cfg sn r = do
+  case r of
+    Right batch ->
+      depositSuccess st cfg sn batch
+    Left e -> do
+      keep <- applyFailurePolicy (aioOnFailure cfg) e
+      if keep
+        then
+          -- Failure was non-fatal — record a skipped slot so the
+          -- ordered drain doesn't stall on a hole.
+          depositSkip st cfg sn
+        else do
+          -- Failure is fatal — surface to the stream thread on
+          -- the next drain. We deposit a skipped slot too so the
+          -- drain machinery can keep going, but the failure
+          -- TVar is what the stream thread inspects.
+          atomically $
+            writeTVar (apsFailure st) (Just e)
+          depositSkip st cfg sn
+  -- Fire the post-deposit observability hook. Run AFTER the
+  -- STM deposit so observers see only durable state. Swallowed
+  -- exceptions keep a buggy hook from killing the worker
+  -- thread; we surface the failure via the failure TVar.
+  hookResult <- try (aioOnDeposit cfg) :: IO (Either SomeException ())
+  case hookResult of
+    Right () -> pure ()
+    Left  he -> atomically $ writeTVar (apsFailure st) (Just he)
 
 depositSuccess
   :: AsyncProcState k v k' v'
