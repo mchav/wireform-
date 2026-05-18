@@ -57,9 +57,10 @@ buildSuppressTopo cfg windowSizeMs graceMs = do
   -- WindowedKey. Different input keys -> different windowed
   -- keys -> different buffer slots (so we can fill the cap).
   let toWindowed k v = (WindowedKey k (Timestamp 0), v)
-  -- WindowedKey has no default HasSerde instance, so supply the
-  -- pair of serdes explicitly via mapKeyValueWith.
-  ws <- mapKeyValueWith (windowedSerde textSerde) int64Serde toWindowed s
+  -- 'HasSerde k => HasSerde (WindowedKey k)' is in scope via
+  -- Kafka.Streams.Serde.Windowed, so 'mapKeyValue' resolves both
+  -- serdes through the class with no explicit threading.
+  ws <- mapKeyValue toWindowed s
   out <- suppressWindowedWith
            (millis graceMs)
            windowSizeMs
@@ -212,8 +213,7 @@ shed_routes_overflow_to_dead_letter_topic =
     s <- streamFromTopic b (topicName "in")
            (consumed textSerde int64Serde)
     let toWindowed k v = (WindowedKey k (Timestamp 0), v)
-    ws <- mapKeyValueWith
-            (windowedSerde textSerde) int64Serde toWindowed s
+    ws <- mapKeyValue toWindowed s
     let shelf = DeadLetterShelf
           { dlsTopic       = topicName "dlq"
           , dlsKeySerde    = windowedSerde textSerde

@@ -22,12 +22,23 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Word (Word32)
 import Kafka.Streams.Serde (
+  HasSerde (..),
   Serde (..),
   int64Serde,
  )
 import Kafka.Streams.State.Store (WindowedKey (..))
 import Kafka.Streams.Time (Timestamp (..))
 import Wireform.Builder qualified as BB
+
+-- | A 'WindowedKey' inherits the inner key's serde and composes
+-- it with the standard window-start framing. This lives here
+-- (rather than alongside 'WindowedKey' in
+-- 'Kafka.Streams.State.Store') so it can reuse 'windowedSerde'
+-- directly. It's an orphan instance in the strict sense, but
+-- only between two types both owned by this library — no
+-- downstream clash risk.
+instance HasSerde k => HasSerde (WindowedKey k) where
+  serde = windowedSerde serde
 
 
 windowedSerde :: forall k. Serde k -> Serde (WindowedKey k)
