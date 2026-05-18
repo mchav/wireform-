@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.CDCSourceSpec
+-- Module      : Streams.Properties.CDCSourceSpec
 -- Description : Property suite for the CDC source primitive
 --
 -- Properties:
@@ -18,7 +18,7 @@
 --   4. /Drain step model match/: 'cdcToKTableStep' applied
 --      repeatedly equals 'applyCDCToKVStore' folded over all
 --      pushed events.
-module Streams.Antithesis.CDCSourceSpec (tests) where
+module Streams.Properties.CDCSourceSpec (tests) where
 
 import Control.Monad (forM_)
 import qualified Data.Map.Strict as Map

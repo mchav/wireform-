@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.TieredStoreSpec
+-- Module      : Streams.Properties.TieredStoreSpec
 -- Description : Property suite for the tiered KV store wrapper
 --
 -- Properties:
@@ -19,7 +19,7 @@
 --      with hot winning on duplicate keys.
 --   5. /Delete sees both tiers/: deleting a key whose value is
 --      only in cold actually removes it.
-module Streams.Antithesis.TieredStoreSpec (tests) where
+module Streams.Properties.TieredStoreSpec (tests) where
 
 import Control.Monad (forM_)
 import Data.IORef (newIORef, readIORef)

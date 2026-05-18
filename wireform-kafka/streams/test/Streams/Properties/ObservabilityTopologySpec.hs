@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.ObservabilityTopologySpec
+-- Module      : Streams.Properties.ObservabilityTopologySpec
 -- Description : Tests for the topology DAG JSON renderer
 --
 -- Covers:
@@ -13,7 +13,7 @@
 --   * 'insertionOrder' tracks topology mutation order.
 --   * 'applicationId' is stamped when supplied via 'RenderConfig'.
 --   * Live metrics overlay surfaces non-zero counters.
-module Streams.Antithesis.ObservabilityTopologySpec (tests) where
+module Streams.Properties.ObservabilityTopologySpec (tests) where
 
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as AK

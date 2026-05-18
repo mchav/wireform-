@@ -3,8 +3,8 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.ChangelogReplaySpec
--- Description : Jepsen-style failover + replay-equivalence tests
+-- Module      : Streams.Properties.ChangelogReplaySpec
+-- Description : Failover + replay-equivalence properties
 --               for the active/standby state-store machinery
 --
 -- The standby task is supposed to be a perfect, eventually-consistent
@@ -13,8 +13,8 @@
 -- store that replays the topic from offset 0 must converge to the
 -- same logical state as the active.
 --
--- This module checks that contract under the kinds of randomised
--- schedules a Jepsen workload would throw at a replicated system:
+-- This module checks that contract under randomised replication
+-- schedules:
 --
 --   1. Sequential consistency under interleaved replays.
 --      Active receives random op sequences; the standby is
@@ -34,8 +34,7 @@
 --      fresh 'loggedKeyValueStore' against the same topic; run a
 --      suffix; spin up a /second-generation/ standby that replays
 --      the topic from offset 0; it must converge to the
---      post-suffix active state. This is the Jepsen "single-node
---      failure" workload, translated to state-store semantics.
+--      post-suffix active state.
 --
 --   4. Per-store isolation on a shared changelog.
 --      Two active stores publish to the same changelog topic;
@@ -46,7 +45,7 @@
 -- These properties exercise the replication contract at a
 -- significantly stronger level than the existing unit tests in
 -- "Streams.StandbySpec".
-module Streams.Antithesis.ChangelogReplaySpec (tests) where
+module Streams.Properties.ChangelogReplaySpec (tests) where
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -408,7 +407,7 @@ prop_per_store_isolation = H.property $ do
 ----------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "Changelog replay (Jepsen-style)"
+tests = testGroup "Changelog replay"
   [ testProperty "standby replay stays in sync after every advance" $
       H.withTests 120 prop_sequential_consistency
   , testProperty "two standbys with independent schedules converge" $

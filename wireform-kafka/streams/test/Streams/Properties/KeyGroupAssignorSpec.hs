@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.KeyGroupAssignorSpec
+-- Module      : Streams.Properties.KeyGroupAssignorSpec
 -- Description : Property suite for key-group routing,
 --               key-group-aware assignor, and KIP-848 protocol
 --               primitives
@@ -25,7 +25,7 @@
 --      gaining member's 'rAdd'.
 --   7. /Reconciliation convergence/: applying every member's
 --      reconciliation drives 'gsOwned' toward 'gsTarget'.
-module Streams.Antithesis.KeyGroupAssignorSpec (tests) where
+module Streams.Properties.KeyGroupAssignorSpec (tests) where
 
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map

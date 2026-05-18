@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.OptimizerEqSpec
+-- Module      : Streams.Properties.OptimizerEqSpec
 -- Description : Property: optimised and un-optimised compilations
 --               agree observably
 --
@@ -23,7 +23,7 @@
 -- rule will reduce to a minimum reproducer — the smallest
 -- combinator pair whose semantics differ before vs after
 -- optimisation.
-module Streams.Antithesis.OptimizerEqSpec (tests) where
+module Streams.Properties.OptimizerEqSpec (tests) where
 
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC

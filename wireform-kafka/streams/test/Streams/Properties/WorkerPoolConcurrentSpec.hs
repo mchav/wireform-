@@ -2,10 +2,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.WorkerPoolConcurrentSpec
--- Description : Concurrent / Jepsen-style chaos for the WorkerPool
+-- Module      : Streams.Properties.WorkerPoolConcurrentSpec
+-- Description : Concurrent-submit + churn properties for the WorkerPool
 --
--- The existing 'Streams.Antithesis.WorkerPoolSMSpec' drives the
+-- The existing 'Streams.Properties.WorkerPoolSMSpec' drives the
 -- pool sequentially. The real runtime has every public entry
 -- point hit by multiple threads at once:
 --
@@ -30,7 +30,7 @@
 --   4. Add-only churn never drops records: with concurrent
 --      submitters and concurrent 'addPoolWorker', conservation
 --      still holds (added workers are pure additions).
-module Streams.Antithesis.WorkerPoolConcurrentSpec (tests) where
+module Streams.Properties.WorkerPoolConcurrentSpec (tests) where
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM as STM

@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.RemoteKVStoreSpec
+-- Module      : Streams.Properties.RemoteKVStoreSpec
 -- Description : Property suite for the remote-KV backend
 --
 -- Properties:
@@ -19,7 +19,7 @@
 --      call; subsequent calls of the same kind succeed.
 --   4. /putIfAbsent semantics/: identical to a plain store.
 --   5. /Range/: covers the @[lo, hi]@ inclusive band.
-module Streams.Antithesis.RemoteKVStoreSpec (tests) where
+module Streams.Properties.RemoteKVStoreSpec (tests) where
 
 import Control.Exception (Handler (..), catches, try)
 import Control.Monad (forM_)

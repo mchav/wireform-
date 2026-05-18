@@ -2,14 +2,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.WindowMathSpec
+-- Module      : Streams.Properties.WindowMathSpec
 -- Description : Property tests for window-assignment math
 --
 -- The properties below capture invariants of the four shipped
 -- window policies (tumbling, hopping, sliding, unlimited) +
 -- session merges. They run a few hundred randomised cases per
 -- run.
-module Streams.Antithesis.WindowMathSpec (tests) where
+module Streams.Properties.WindowMathSpec (tests) where
 
 import Data.Int (Int64)
 import qualified Hedgehog as H

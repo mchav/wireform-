@@ -635,25 +635,25 @@ test-suite wireform-kafka-streams-test
         Streams.TopologyFreeSpec
         Streams.TopologyFreeArrowSpec
         Streams.AsyncIOSpec
-        Streams.Antithesis.KVStoreSMSpec
-        Streams.Antithesis.OptimizerEqSpec
-        Streams.Antithesis.WindowMathSpec
-        Streams.Antithesis.EOSChaosSpec
-        Streams.Antithesis.WorkerPoolSMSpec
-        Streams.Antithesis.ObservabilityTopologySpec
-        Streams.Antithesis.OrphanTopicsSpec
-        Streams.Antithesis.ChangelogReplaySpec
-        Streams.Antithesis.WatermarkSpec
-        Streams.Antithesis.WorkerPoolConcurrentSpec
-        Streams.Antithesis.AtLeastOnceRedeliverySpec
-        Streams.Antithesis.TwoPhaseSinkSpec
-        Streams.Antithesis.WatermarkCoordSpec
-        Streams.Antithesis.TTLSpec
-        Streams.Antithesis.SchemaVersionedSpec
-        Streams.Antithesis.CDCSourceSpec
-        Streams.Antithesis.KeyGroupAssignorSpec
-        Streams.Antithesis.TieredStoreSpec
-        Streams.Antithesis.RemoteKVStoreSpec
+        Streams.Properties.KVStoreSMSpec
+        Streams.Properties.OptimizerEqSpec
+        Streams.Properties.WindowMathSpec
+        Streams.Properties.EOSChaosSpec
+        Streams.Properties.WorkerPoolSMSpec
+        Streams.Properties.ObservabilityTopologySpec
+        Streams.Properties.OrphanTopicsSpec
+        Streams.Properties.ChangelogReplaySpec
+        Streams.Properties.WatermarkSpec
+        Streams.Properties.WorkerPoolConcurrentSpec
+        Streams.Properties.AtLeastOnceRedeliverySpec
+        Streams.Properties.TwoPhaseSinkSpec
+        Streams.Properties.WatermarkCoordSpec
+        Streams.Properties.TTLSpec
+        Streams.Properties.SchemaVersionedSpec
+        Streams.Properties.CDCSourceSpec
+        Streams.Properties.KeyGroupAssignorSpec
+        Streams.Properties.TieredStoreSpec
+        Streams.Properties.RemoteKVStoreSpec
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

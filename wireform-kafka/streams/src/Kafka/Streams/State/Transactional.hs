@@ -30,7 +30,7 @@ This module provides the wrapper. It works on any
     'kvsReverseRange' / 'kvsReverseAll' so scans also see
     in-transaction writes (extends read-your-writes from point
     lookups to iterators — caught by the
-    'Streams.Antithesis.KVStoreSMSpec' state-machine test);
+    'Streams.Properties.KVStoreSMSpec' state-machine test);
   * exposes 'commit' and 'abort' that the engine driver calls
     when the producer transaction commits / aborts.
 

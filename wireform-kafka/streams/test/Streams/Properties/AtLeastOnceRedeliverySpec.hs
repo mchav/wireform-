@@ -2,16 +2,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.AtLeastOnceRedeliverySpec
--- Description : Jepsen-style at-least-once + induced-redelivery
+-- Module      : Streams.Properties.AtLeastOnceRedeliverySpec
+-- Description : At-least-once delivery + induced-redelivery
 --               property tests
 --
 -- At-least-once delivery is the contract Kafka Streams falls back
 -- to when EOS is off: every record processed by a topology
 -- /may/ be re-fed if the consumer rewinds, but no record is ever
--- dropped before commit. The Jepsen-style way to stress this is
--- to inject explicit consumer rewinds while records are in flight
--- and assert the multiset invariants downstream.
+-- dropped before commit. We stress this property-style by
+-- injecting explicit consumer rewinds while records are in flight
+-- and asserting the multiset invariants downstream.
 --
 -- Properties:
 --
@@ -27,7 +27,7 @@
 -- induces redelivery via 'seekMC', which is exactly how the
 -- broker-backed runtime would replay records after an
 -- uncommitted-rebalance.
-module Streams.Antithesis.AtLeastOnceRedeliverySpec (tests) where
+module Streams.Properties.AtLeastOnceRedeliverySpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map.Strict as Map
@@ -243,7 +243,7 @@ multisetSubsetOf a b =
 ----------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "AtLeastOnce redelivery (Jepsen-style)"
+tests = testGroup "AtLeastOnce redelivery"
   [ testProperty "no rewind: output multiset equals input multiset" $
       H.withTests 80 prop_no_rewind_is_exact
   , testProperty "induced redelivery: output multiset is superset of input" $

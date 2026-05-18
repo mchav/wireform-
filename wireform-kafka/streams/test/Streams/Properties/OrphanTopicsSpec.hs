@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Streams.Antithesis.OrphanTopicsSpec
+-- Module      : Streams.Properties.OrphanTopicsSpec
 -- Description : Detector tests for orphaned internal topics
-module Streams.Antithesis.OrphanTopicsSpec (tests) where
+module Streams.Properties.OrphanTopicsSpec (tests) where
 
 import qualified Data.Set as Set
 import qualified Data.Text as T

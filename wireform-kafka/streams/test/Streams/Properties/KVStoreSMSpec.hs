@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.KVStoreSMSpec
+-- Module      : Streams.Properties.KVStoreSMSpec
 -- Description : State-machine property test for 'KeyValueStore' backends
 --
 -- Models a key-value store as a 'Data.Map.Strict.Map' and generates
@@ -23,7 +23,7 @@
 -- is 'ByteString'-keyed and exercised separately in
 -- 'Streams.PersistentStoreSpec'. The caching wrapper has its
 -- own coverage in 'Streams.CacheSpec'.
-module Streams.Antithesis.KVStoreSMSpec (tests) where
+module Streams.Properties.KVStoreSMSpec (tests) where
 
 import Data.Int (Int64)
 import qualified Data.List as List

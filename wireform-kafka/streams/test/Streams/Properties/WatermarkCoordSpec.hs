@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.WatermarkCoordSpec
+-- Module      : Streams.Properties.WatermarkCoordSpec
 -- Description : Property suite for the cross-source watermark
 --               coordinator
 --
@@ -23,7 +23,7 @@
 --   5. /Register / unregister round-trip/: after
 --      'unregisterSource', the source no longer contributes to
 --      the min.
-module Streams.Antithesis.WatermarkCoordSpec (tests) where
+module Streams.Properties.WatermarkCoordSpec (tests) where
 
 import Control.Monad (forM_)
 import qualified Data.List as List

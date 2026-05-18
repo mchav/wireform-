@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.SchemaVersionedSpec
+-- Module      : Streams.Properties.SchemaVersionedSpec
 -- Description : Property suite for schema-versioned KV stores +
 --               burn-in migration
 --
@@ -19,7 +19,7 @@
 --      stamped with @current@ and the migrated payload matches
 --      what 'kvsGet' would have produced.
 --   5. Idempotence: a second burn-in migrates zero entries.
-module Streams.Antithesis.SchemaVersionedSpec (tests) where
+module Streams.Properties.SchemaVersionedSpec (tests) where
 
 import Control.Monad (forM_)
 import Data.IORef (readIORef)

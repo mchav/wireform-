@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module      : Streams.Antithesis.TTLSpec
+-- Module      : Streams.Properties.TTLSpec
 -- Description : Property suite for event-time TTL KV wrapper
 --
 -- Properties:
@@ -21,7 +21,7 @@
 --      sequence of @put@s and @expireBefore@s, the live entries
 --      match a pure 'Data.Map' model whose semantics are
 --      \"key -\> (value, expiresAt)\".
-module Streams.Antithesis.TTLSpec (tests) where
+module Streams.Properties.TTLSpec (tests) where
 
 import Control.Monad (forM_)
 import Data.IORef (newIORef, readIORef, writeIORef)

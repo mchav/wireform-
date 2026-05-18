@@ -75,25 +75,25 @@ import qualified Streams.SchemaRegistryFormatsSpec
 import qualified Streams.TopologyFreeSpec
 import qualified Streams.TopologyFreeArrowSpec
 import qualified Streams.AsyncIOSpec
-import qualified Streams.Antithesis.KVStoreSMSpec
-import qualified Streams.Antithesis.OptimizerEqSpec
-import qualified Streams.Antithesis.WindowMathSpec
-import qualified Streams.Antithesis.EOSChaosSpec
-import qualified Streams.Antithesis.WorkerPoolSMSpec
-import qualified Streams.Antithesis.ObservabilityTopologySpec
-import qualified Streams.Antithesis.OrphanTopicsSpec
-import qualified Streams.Antithesis.ChangelogReplaySpec
-import qualified Streams.Antithesis.WatermarkSpec
-import qualified Streams.Antithesis.WorkerPoolConcurrentSpec
-import qualified Streams.Antithesis.AtLeastOnceRedeliverySpec
-import qualified Streams.Antithesis.TwoPhaseSinkSpec
-import qualified Streams.Antithesis.WatermarkCoordSpec
-import qualified Streams.Antithesis.TTLSpec
-import qualified Streams.Antithesis.SchemaVersionedSpec
-import qualified Streams.Antithesis.CDCSourceSpec
-import qualified Streams.Antithesis.KeyGroupAssignorSpec
-import qualified Streams.Antithesis.TieredStoreSpec
-import qualified Streams.Antithesis.RemoteKVStoreSpec
+import qualified Streams.Properties.KVStoreSMSpec
+import qualified Streams.Properties.OptimizerEqSpec
+import qualified Streams.Properties.WindowMathSpec
+import qualified Streams.Properties.EOSChaosSpec
+import qualified Streams.Properties.WorkerPoolSMSpec
+import qualified Streams.Properties.ObservabilityTopologySpec
+import qualified Streams.Properties.OrphanTopicsSpec
+import qualified Streams.Properties.ChangelogReplaySpec
+import qualified Streams.Properties.WatermarkSpec
+import qualified Streams.Properties.WorkerPoolConcurrentSpec
+import qualified Streams.Properties.AtLeastOnceRedeliverySpec
+import qualified Streams.Properties.TwoPhaseSinkSpec
+import qualified Streams.Properties.WatermarkCoordSpec
+import qualified Streams.Properties.TTLSpec
+import qualified Streams.Properties.SchemaVersionedSpec
+import qualified Streams.Properties.CDCSourceSpec
+import qualified Streams.Properties.KeyGroupAssignorSpec
+import qualified Streams.Properties.TieredStoreSpec
+import qualified Streams.Properties.RemoteKVStoreSpec
 
 main :: IO ()
 main = defaultMain $ testGroup "kafka-streams"
@@ -170,25 +170,25 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.TopologyFreeSpec.tests
   , Streams.TopologyFreeArrowSpec.tests
   , Streams.AsyncIOSpec.tests
-  , testGroup "Antithesis"
-      [ Streams.Antithesis.KVStoreSMSpec.tests
-      , Streams.Antithesis.OptimizerEqSpec.tests
-      , Streams.Antithesis.WindowMathSpec.tests
-      , Streams.Antithesis.EOSChaosSpec.tests
-      , Streams.Antithesis.WorkerPoolSMSpec.tests
-      , Streams.Antithesis.ObservabilityTopologySpec.tests
-      , Streams.Antithesis.OrphanTopicsSpec.tests
-      , Streams.Antithesis.ChangelogReplaySpec.tests
-      , Streams.Antithesis.WatermarkSpec.tests
-      , Streams.Antithesis.WorkerPoolConcurrentSpec.tests
-      , Streams.Antithesis.AtLeastOnceRedeliverySpec.tests
-      , Streams.Antithesis.TwoPhaseSinkSpec.tests
-      , Streams.Antithesis.WatermarkCoordSpec.tests
-      , Streams.Antithesis.TTLSpec.tests
-      , Streams.Antithesis.SchemaVersionedSpec.tests
-      , Streams.Antithesis.CDCSourceSpec.tests
-      , Streams.Antithesis.KeyGroupAssignorSpec.tests
-      , Streams.Antithesis.TieredStoreSpec.tests
-      , Streams.Antithesis.RemoteKVStoreSpec.tests
+  , testGroup "Properties"
+      [ Streams.Properties.KVStoreSMSpec.tests
+      , Streams.Properties.OptimizerEqSpec.tests
+      , Streams.Properties.WindowMathSpec.tests
+      , Streams.Properties.EOSChaosSpec.tests
+      , Streams.Properties.WorkerPoolSMSpec.tests
+      , Streams.Properties.ObservabilityTopologySpec.tests
+      , Streams.Properties.OrphanTopicsSpec.tests
+      , Streams.Properties.ChangelogReplaySpec.tests
+      , Streams.Properties.WatermarkSpec.tests
+      , Streams.Properties.WorkerPoolConcurrentSpec.tests
+      , Streams.Properties.AtLeastOnceRedeliverySpec.tests
+      , Streams.Properties.TwoPhaseSinkSpec.tests
+      , Streams.Properties.WatermarkCoordSpec.tests
+      , Streams.Properties.TTLSpec.tests
+      , Streams.Properties.SchemaVersionedSpec.tests
+      , Streams.Properties.CDCSourceSpec.tests
+      , Streams.Properties.KeyGroupAssignorSpec.tests
+      , Streams.Properties.TieredStoreSpec.tests
+      , Streams.Properties.RemoteKVStoreSpec.tests
       ]
   ]

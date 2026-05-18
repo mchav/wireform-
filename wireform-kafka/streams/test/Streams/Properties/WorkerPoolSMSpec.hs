@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.WorkerPoolSMSpec
+-- Module      : Streams.Properties.WorkerPoolSMSpec
 -- Description : State-machine property tests for the WorkerPool
 --               under dynamic membership + hashed routing
 --
@@ -25,7 +25,7 @@
 -- The 'sm-workerpool' suite complements the existing
 -- 'Streams.WorkerPoolSpec' unit tests with hundreds of random
 -- command sequences per CI cycle.
-module Streams.Antithesis.WorkerPoolSMSpec (tests) where
+module Streams.Properties.WorkerPoolSMSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
 import Data.Foldable (toList)

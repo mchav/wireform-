@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.TwoPhaseSinkSpec
+-- Module      : Streams.Properties.TwoPhaseSinkSpec
 -- Description : Chaos / property suite for the 2PC sink contract
 --
 -- Properties:
@@ -22,7 +22,7 @@
 --   6. HTTP echo reference sink: the @onCommit@ callback fires once
 --      per commit, with exactly the prepared rows, in commit order
 --      across many randomised cycles.
-module Streams.Antithesis.TwoPhaseSinkSpec (tests) where
+module Streams.Properties.TwoPhaseSinkSpec (tests) where
 
 import Control.Monad (forM, forM_, when)
 import Data.IORef

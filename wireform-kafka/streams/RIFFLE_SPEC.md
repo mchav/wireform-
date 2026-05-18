@@ -795,9 +795,14 @@ explicitly opts in.
    layers in counter / gauge / DurationStats snapshots from the
    engine's `MetricsRegistry`. **Landed.**
 
-7. Library-wide antithesis / Jepsen-style chaos suite —
-   `Streams.Antithesis.*` covers the cross-cutting correctness
-   invariants the unit tests cannot:
+7. Library-wide property / chaos suite —
+   `Streams.Properties.*` covers the cross-cutting correctness
+   invariants the unit tests cannot. (The original modules were
+   namespaced "Antithesis" / "Jepsen-style", but we never ran
+   those tools against the suite, so the name now reflects what
+   the tests actually are: Hedgehog properties, state-machine
+   models, and fault-injection harnesses driven from in-process
+   mocks.) The suite covers:
 
    * `KVStoreSMSpec` — state-machine vs `Data.Map` model
      (in-memory + KIP-892 transactional store).
@@ -812,8 +817,8 @@ explicitly opts in.
      conservation; sticky routing under concurrency.
    * `ObservabilityTopologySpec` — DAG JSON renderer round-trips.
    * `OrphanTopicsSpec` — internal-topic detector edge cases.
-   * `ChangelogReplaySpec` — Jepsen-style active/standby
-     replication: interleaved replay equivalence, multi-replica
+   * `ChangelogReplaySpec` — active/standby replication
+     properties: interleaved replay equivalence, multi-replica
      convergence, promote-on-failover via 2nd-gen standby
      replay, per-store isolation on shared changelog.
    * `WatermarkSpec` — stream-time = running-max under

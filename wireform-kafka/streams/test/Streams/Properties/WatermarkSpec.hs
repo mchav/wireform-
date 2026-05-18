@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.WatermarkSpec
+-- Module      : Streams.Properties.WatermarkSpec
 -- Description : Stream-time / watermark monotonicity properties
 --
 -- The engine maintains a per-task /stream time/ defined as the max
@@ -29,7 +29,7 @@
 --   5. Out-of-order records do not regress the watermark, and the
 --      final stream time matches what we'd get from feeding the
 --      same records sorted ascending.
-module Streams.Antithesis.WatermarkSpec (tests) where
+module Streams.Properties.WatermarkSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
@@ -231,7 +231,7 @@ prop_backward_advance_is_noop = H.property $ do
 ----------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "Watermark monotonicity (antithesis-style)"
+tests = testGroup "Watermark monotonicity"
   [ testProperty "stream-time = running max of piped timestamps" $
       H.withTests 80 prop_monotonic_under_chaos
   , testProperty "order of inputs does not affect final watermark" $

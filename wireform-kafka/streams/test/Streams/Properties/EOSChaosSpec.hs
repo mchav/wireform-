@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module      : Streams.Antithesis.EOSChaosSpec
+-- Module      : Streams.Properties.EOSChaosSpec
 -- Description : Chaos / fault-injection property for the EOSCoordinator
 --
 -- The EOS-v2 commit cycle in 'Kafka.Streams.Runtime.EOS.runCommitCycle'
@@ -18,7 +18,7 @@
 -- the resulting 'CommitOutcome' matches a pure state-machine model
 -- of the cycle, plus that the abort callbacks fire on every
 -- recoverable failure and only on those.
-module Streams.Antithesis.EOSChaosSpec (tests) where
+module Streams.Properties.EOSChaosSpec (tests) where
 
 import Control.Exception (throwIO, ErrorCall (..))
 import Data.IORef

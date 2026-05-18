@@ -96,7 +96,7 @@ tumblingWindows size =
 --
 -- Every returned window has a start that is a multiple of
 -- @advance@ — the property is exercised by
--- 'Streams.Antithesis.WindowMathSpec'.
+-- 'Streams.Properties.WindowMathSpec'.
 hoppingWindows :: Duration -> Duration -> Windows
 hoppingWindows size advance =
   let !sz = durationMillis size
