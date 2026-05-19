@@ -13,8 +13,10 @@ module Network.HTTP2.Types
   , defaultPriority
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Word
+import GHC.Generics (Generic)
 
 type StreamId = Word32
 
@@ -30,7 +32,9 @@ data FrameType
   | FrameWindowUpdate
   | FrameContinuation
   | FrameUnknown !Word8
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance NFData FrameType
 
 frameTypeToWord8 :: FrameType -> Word8
 frameTypeToWord8 = \case
@@ -76,7 +80,9 @@ data ErrorCode
   | InadequateSecurity
   | HTTP11Required
   | UnknownError !Word32
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance NFData ErrorCode
 
 errorCodeToWord32 :: ErrorCode -> Word32
 errorCodeToWord32 = \case

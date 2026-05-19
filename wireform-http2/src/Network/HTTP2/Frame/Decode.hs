@@ -5,6 +5,7 @@ module Network.HTTP2.Frame.Decode
   , FrameDecodeError (..)
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -13,6 +14,7 @@ import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Ptr
 import Foreign.Storable
+import GHC.Generics (Generic)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Network.HTTP2.Frame.Types
@@ -26,7 +28,9 @@ data FrameDecodeError
   | InvalidSettingsLength
   | InvalidWindowUpdateIncrement
   | InvalidStreamId
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance NFData FrameDecodeError
 
 data DecodeResult
   = DecodeSuccess !Frame

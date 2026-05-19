@@ -14,10 +14,12 @@ module Network.HTTP2.Frame.Types
   , connectionPreface
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Word
+import GHC.Generics (Generic)
 
 import Network.HTTP2.Types
 
@@ -58,7 +60,9 @@ data FrameHeader = FrameHeader
   , fhFlags :: !FrameFlags
   , fhStreamId :: !StreamId
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance NFData FrameHeader
 
 data FramePayload
   = DataFrame !ByteString

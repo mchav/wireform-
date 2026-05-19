@@ -7,7 +7,9 @@ module Network.HTTP2.HPACK.Types
   , defaultEncodeStrategy
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import GHC.Generics (Generic)
 
 data Token = Token
   { tokenIndex :: !Int
@@ -30,7 +32,9 @@ data DecodeError
   | IntegerOverflow
   | InvalidTableSizeUpdate !Int
   | HeaderBlockTruncated
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+
+instance NFData DecodeError
 
 data EncodeStrategy = EncodeStrategy
   { useHuffman :: !Bool
