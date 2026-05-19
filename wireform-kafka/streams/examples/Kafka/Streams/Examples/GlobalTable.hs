@@ -33,7 +33,6 @@ module Kafka.Streams.Examples.GlobalTable
   , buildGlobalTableTopology
   ) where
 
-import Control.Arrow ((&&&))
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
@@ -45,10 +44,9 @@ import qualified Kafka.Streams.Topology.Free as F
 
 globalTableTopology :: F.Topology Void ()
 globalTableTopology =
-  (orders &&& rates)
-    >>> F.streamGlobalTableJoin
-          (\_orderId v -> T.takeWhile (/= '|') v)
-          (\order rate -> order <> "|rate=" <> rate)
+  F.joinStreamGlobalTable orders rates
+    (\_orderId v -> T.takeWhile (/= '|') v)
+    (\order rate -> order <> "|rate=" <> rate)
     >>> F.sink "orders-with-rate" textSerde textSerde
   where
     orders :: F.Topology Void (KStream Text Text)

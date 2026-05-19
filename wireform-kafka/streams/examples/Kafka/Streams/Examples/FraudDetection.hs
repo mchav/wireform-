@@ -39,9 +39,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
-import qualified Kafka.Streams.KStream as KS
 import qualified Kafka.Streams.Materialized as Mat
-import qualified Kafka.Streams.SessionWindowedKStream as SWKS
 import qualified Kafka.Streams.Topology.Free as F
 
 fraudTopology :: F.Topology Void ()
@@ -50,13 +48,7 @@ fraudTopology =
     >>> F.groupByKey (grouped textSerde textSerde)
     >>> F.windowedBySession (sessionWindows (minutes 5))
     >>> F.countSessionWindowed countMat
-    >>> F.liftIO_ "pin-stream-at-session-aggregator"
-          (\_b h -> pure $ KS.KStream
-              { KS.kstreamBuilder    = SWKS.swthBuilder h
-              , KS.kstreamParent     = SWKS.swthNode h
-              , KS.kstreamKeySerde   = textSerde
-              , KS.kstreamValueSerde = int64Serde
-              })
+    >>> F.streamFromSessionWindowed textSerde int64Serde
     >>> F.filter (\r -> recordValue r >= 10)
     >>> F.sink "suspicious-sessions" textSerde int64Serde
   where

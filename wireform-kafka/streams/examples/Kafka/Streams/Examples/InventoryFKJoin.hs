@@ -31,7 +31,6 @@ module Kafka.Streams.Examples.InventoryFKJoin
   , buildFKJoinTopology
   ) where
 
-import Control.Arrow ((&&&))
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
@@ -44,12 +43,11 @@ import qualified Kafka.Streams.Topology.Free as F
 
 fkJoinTopology :: F.Topology Void ()
 fkJoinTopology =
-  (inventory &&& products)
-    >>> F.foreignKeyJoin
-          (\v -> T.takeWhile (/= '|') v)
-          (\inv prod ->
-              prod <> "|" <> T.drop 1 (T.dropWhile (/= '|') inv))
-          stockedMat
+  F.joinForeignKey inventory products
+    (\v -> T.takeWhile (/= '|') v)
+    (\inv prod ->
+        prod <> "|" <> T.drop 1 (T.dropWhile (/= '|') inv))
+    stockedMat
     >>> F.toStream
     >>> F.sink "stocked" textSerde textSerde
   where

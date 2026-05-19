@@ -54,24 +54,31 @@ module Kafka.Streams.KStream
   , filterStream
   , filterStreamNamed
   , filterNotStream
+  , filterNotStreamNamed
   , mapValues
   , mapValuesWith
   , mapValuesNamed
   , mapValuesM
   , mapValuesMWith
+  , mapValuesMNamed
   , mapKeyValue
   , mapKeyValueWith
   , mapKeyValueNamed
   , mapKeyValueM
   , mapKeyValueMWith
+  , mapKeyValueMNamed
   , mapRecord
   , mapRecordWith
+  , mapRecordNamed
   , mapRecordM
   , mapRecordMWith
+  , mapRecordMNamed
   , concatMapValues
   , concatMapValuesWith
+  , concatMapValuesNamed
   , concatMapKeyValue
   , concatMapKeyValueWith
+  , concatMapKeyValueNamed
   , peekStream
   , peekStreamNamed
   , foreachStream
@@ -79,11 +86,13 @@ module Kafka.Streams.KStream
   , printStream
   , printToHandle
   , valuesStream
+  , valuesStreamNamed
   , selectKey
   , selectKeyWith
   , selectKeyNamed
     -- * Composition
   , mergeStreams
+  , mergeStreamsNamed
   , mergeStreamsN
   , branchStream
     -- * Sinks
@@ -95,6 +104,7 @@ module Kafka.Streams.KStream
     -- * Conversions
   , toTable
   , repartition
+  , repartitionNamed
   , repartitionWith
   , toKStreamFromKTable
   , groupByKTable
@@ -1769,6 +1779,187 @@ toTopicNamed nm topic p s = do
     Topo.addSink nodeNm topic
                  (producedKeySerde p) (producedValueSerde p)
                  [kstreamParent s]
+
+----------------------------------------------------------------------
+-- KIP-307 named variants — symmetric coverage
+----------------------------------------------------------------------
+
+-- | 'filterNotStream' with an explicit topology node name.
+filterNotStreamNamed
+  :: forall k v
+   . Kafka.Streams.Named.Named
+  -> (Record k v -> Bool)
+  -> KStream k v
+  -> IO (KStream k v)
+filterNotStreamNamed nm pred_ = filterStreamNamed nm (not . pred_)
+
+-- | 'mapValuesM' with an explicit topology node name.
+mapValuesMNamed
+  :: forall k v v'
+   . HasSerde v'
+  => Kafka.Streams.Named.Named
+  -> (v -> IO v')
+  -> KStream k v
+  -> IO (KStream k v')
+mapValuesMNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-MAPVALUES"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (mapValuesProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = serde
+    }
+
+-- | 'mapKeyValueM' with an explicit topology node name.
+mapKeyValueMNamed
+  :: forall k v k' v'
+   . (HasSerde k', HasSerde v')
+  => Kafka.Streams.Named.Named
+  -> (k -> v -> IO (k', v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapKeyValueMNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-MAP"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (mapKVProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = serde
+    , kstreamValueSerde = serde
+    }
+
+-- | 'mapRecord' with an explicit topology node name.
+mapRecordNamed
+  :: forall k v k' v'
+   . (HasSerde k', HasSerde v')
+  => Kafka.Streams.Named.Named
+  -> (Record k v -> Record k' v')
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordNamed nm f = mapRecordMNamed nm (pure . f)
+
+-- | 'mapRecordM' with an explicit topology node name.
+mapRecordMNamed
+  :: forall k v k' v'
+   . (HasSerde k', HasSerde v')
+  => Kafka.Streams.Named.Named
+  -> (Record k v -> IO (Record k' v'))
+  -> KStream k v
+  -> IO (KStream k' v')
+mapRecordMNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-MAPRECORD"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (mapRecordProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = serde
+    , kstreamValueSerde = serde
+    }
+
+-- | 'concatMapValues' with an explicit topology node name.
+concatMapValuesNamed
+  :: forall k v v'
+   . HasSerde v'
+  => Kafka.Streams.Named.Named
+  -> (v -> [v'])
+  -> KStream k v
+  -> IO (KStream k v')
+concatMapValuesNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-FLATMAPVALUES"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (concatMapValuesProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde s
+    , kstreamValueSerde = serde
+    }
+
+-- | 'concatMapKeyValue' with an explicit topology node name.
+concatMapKeyValueNamed
+  :: forall k v k' v'
+   . (HasSerde k', HasSerde v')
+  => Kafka.Streams.Named.Named
+  -> (k -> v -> [(k', v')])
+  -> KStream k v
+  -> IO (KStream k' v')
+concatMapKeyValueNamed nm f s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-FLATMAP"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (concatMapKVProc f)
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = serde
+    , kstreamValueSerde = serde
+    }
+
+-- | 'valuesStream' with an explicit topology node name.
+valuesStreamNamed
+  :: forall k v
+   . Kafka.Streams.Named.Named
+  -> KStream k v
+  -> IO (KStream () v)
+valuesStreamNamed nm s = do
+  let b = kstreamBuilder s
+  nodeNm <- Kafka.Streams.Named.namedOr b nm "KSTREAM-VALUES"
+  withTopology_ b $
+    Topo.addProcessor nodeNm [kstreamParent s] (selectKeyProc (const ()))
+  pure KStream
+    { kstreamBuilder    = b
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = serde
+    , kstreamValueSerde = kstreamValueSerde s
+    }
+
+-- | 'mergeStreams' with an explicit topology node name.
+mergeStreamsNamed
+  :: Kafka.Streams.Named.Named
+  -> KStream k v
+  -> KStream k v
+  -> IO (KStream k v)
+mergeStreamsNamed nm a b = do
+  let bld = kstreamBuilder a
+  nodeNm <- Kafka.Streams.Named.namedOr bld nm "KSTREAM-MERGE"
+  withTopology_ bld $ \t ->
+    Topo.addProcessorWith
+      Topo.ProcessorSpec
+        { Topo.processorSpecName     = nodeNm
+        , Topo.processorSpecParents  = [kstreamParent a, kstreamParent b]
+        , Topo.processorSpecSupplier =
+            Topo.AnyProcessor (mkPassThrough "KSTREAM-MERGE")
+        , Topo.processorSpecStores   = []
+        }
+      t
+  pure KStream
+    { kstreamBuilder    = bld
+    , kstreamParent     = nodeNm
+    , kstreamKeySerde   = kstreamKeySerde a
+    , kstreamValueSerde = kstreamValueSerde a
+    }
+
+-- | 'repartition' with an explicit topology node name. The name is
+-- used both as the repartition-topic prefix and as the node name
+-- of the synthetic repartition processor.
+repartitionNamed
+  :: Kafka.Streams.Named.Named
+  -> KStream k v
+  -> IO (KStream k v)
+repartitionNamed nm s =
+  let prefix =
+        case Kafka.Streams.Named.unNamed nm of
+          Just n  -> n
+          Nothing -> "repartition"
+   in repartition prefix s
 
 ----------------------------------------------------------------------
 -- KIP-820 process / processValues

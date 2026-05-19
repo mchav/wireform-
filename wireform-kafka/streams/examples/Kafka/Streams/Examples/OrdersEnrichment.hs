@@ -26,7 +26,6 @@ module Kafka.Streams.Examples.OrdersEnrichment
   , buildOrdersEnrichmentTopology
   ) where
 
-import Control.Arrow ((&&&))
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
@@ -38,10 +37,9 @@ import qualified Kafka.Streams.Topology.Free as F
 
 ordersEnrichmentTopology :: F.Topology Void ()
 ordersEnrichmentTopology =
-  (orders &&& customers)
-    >>> F.streamTableJoin
-          (\order profile -> profile <> "|" <> order)
-          (joined textSerde textSerde textSerde)
+  F.joinStreamTable orders customers
+    (\order profile -> profile <> "|" <> order)
+    (joined textSerde textSerde textSerde)
     >>> F.sink "enriched-orders" textSerde textSerde
   where
     orders :: F.Topology Void (KStream Text Text)

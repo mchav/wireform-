@@ -41,7 +41,6 @@ import Data.Void (Void)
 
 import Kafka.Streams
 import qualified Kafka.Streams.Materialized as Mat
-import qualified Kafka.Streams.Suppress as Suppress
 import qualified Kafka.Streams.Topology.Free as F
 
 temperatureTopology :: F.Topology Void ()
@@ -50,9 +49,7 @@ temperatureTopology =
     >>> F.groupByKey (grouped textSerde doubleSerde)
     >>> F.windowedByTime (tumblingWindows (seconds 5))
     >>> F.reduceWindowed max maxMat
-    >>> F.liftIO_ "windowed-handle-to-stream"
-          (\_b h -> Suppress.streamFromWindowedHandle
-                      h textSerde doubleSerde)
+    >>> F.streamFromWindowed textSerde doubleSerde
     >>> F.suppressWindowed (millis 0) (durationMillis (seconds 5))
     >>> F.selectKey
           (\r -> case recordKey r of

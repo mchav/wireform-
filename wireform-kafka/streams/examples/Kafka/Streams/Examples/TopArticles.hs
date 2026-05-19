@@ -42,7 +42,6 @@ import Data.Void (Void)
 
 import Kafka.Streams
 import qualified Kafka.Streams.Materialized as Mat
-import qualified Kafka.Streams.Suppress as Suppress
 import qualified Kafka.Streams.Topology.Free as F
 
 topArticlesTopology :: F.Topology Void ()
@@ -51,9 +50,7 @@ topArticlesTopology =
     >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
     >>> F.windowedByTime (hoppingWindows (minutes 60) (minutes 5))
     >>> F.countWindowed countMat
-    >>> F.liftIO_ "windowed-handle-to-stream"
-          (\_b h -> Suppress.streamFromWindowedHandle
-                      h textSerde int64Serde)
+    >>> F.streamFromWindowed textSerde int64Serde
     >>> F.selectKey
           (\r -> case recordKey r of
                    Just (WindowedKey k _) -> k

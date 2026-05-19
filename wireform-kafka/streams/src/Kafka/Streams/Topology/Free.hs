@@ -292,6 +292,7 @@ module Kafka.Streams.Topology.Free
   , sink
   , sinkWith
   , sinkExtracted
+  , sinkTwoPhase
   , through
 
     -- * Stateless 'KStream' transforms
@@ -316,10 +317,20 @@ module Kafka.Streams.Topology.Free
   , asyncConcatMapValues
     -- ** Named operator variants (KIP-307)
   , filterNamed
+  , filterNotNamed
   , mapValuesNamed
+  , mapValuesMNamed
   , mapKeyValueNamed
+  , mapKeyValueMNamed
+  , mapRecordNamed
+  , mapRecordMNamed
+  , concatMapValuesNamed
+  , concatMapKeyValueNamed
   , peekNamed
   , selectKeyNamed
+  , valuesNamed
+  , mergeNamed
+  , repartitionNamed
   , sinkNamed
     -- ** Windowed emit strategy (KIP-825)
   , withEmitStrategy
@@ -331,8 +342,21 @@ module Kafka.Streams.Topology.Free
   , BufferConfig
   , maxRecordsBufferConfig
   , maxBytesBufferConfig
+  , Suppress.BufferOverflowPolicy (..)
+  , Suppress.unboundedBufferConfig
+  , Suppress.shutDownWhenFull
+  , Suppress.emitEarlyWhenFull
+  , Suppress.dropOldestSilently
+    -- ** Dead-letter shelf (Riffle shed policy)
+  , suppressWindowedShed
+  , Suppress.DeadLetterShelf (..)
+    -- ** Suppressed builder vocabulary
+  , Suppress.Suppressed
+  , Suppress.untilWindowCloses
+  , Suppress.untilTimeLimit
     -- ** Late store attachment + global stores
   , addGlobalStore
+  , addReadOnlyStateStore
   , connectProcessorAndStateStores
     -- ** Rich sink + stateful transform
   , sinkSpec
@@ -366,6 +390,7 @@ module Kafka.Streams.Topology.Free
     -- * 'KStream' \<-\> 'KTable' conversions
   , toTable
   , toStream
+  , groupByKTable
   , repartition
   , repartitionWith
 
@@ -410,11 +435,38 @@ module Kafka.Streams.Topology.Free
   , streamGlobalTableJoin
   , streamGlobalTableLeftJoin
 
+    -- ** Two-input join helpers
+    --
+    -- Convenience wrappers that take both sides as
+    -- @'Topology' 'Void' _@ legs and apply the corresponding
+    -- join primitive. Equivalent to @left '&&&' right '>>>' …@
+    -- but reads better at the call site.
+  , joinStreamTable
+  , leftJoinStreamTable
+  , joinStreamStream
+  , leftJoinStreamStream
+  , outerJoinStreamStream
+  , joinTableTable
+  , leftJoinTableTable
+  , outerJoinTableTable
+  , joinForeignKey
+  , leftJoinForeignKey
+  , joinStreamGlobalTable
+  , leftJoinStreamGlobalTable
+
     -- * KTable
   , filterTable
   , filterNotTable
   , mapValuesTable
   , transformValuesTable
+
+    -- * Windowed-handle conversions
+  --
+  -- Adapters that take an aggregation's @*Handle@ wire and pin a
+  -- 'KStream' at the aggregator's emit node so the rest of the
+  -- pipeline can use the standard stream combinators.
+  , streamFromWindowed
+  , streamFromSessionWindowed
 
     -- * Suppress
   , suppressUntilTimeLimit
@@ -424,6 +476,8 @@ module Kafka.Streams.Topology.Free
   , processStream
   , processValuesStream
   , transformValuesStream
+  , processFixedKeyValuesStream
+  , processFixedKeyValuesWithStateStoreKV
   , withStateStoreKV
   , withStateStoreW
   , withStateStoreS
@@ -467,7 +521,8 @@ module Kafka.Streams.Topology.Free
 
 import Prelude hiding (id, filter, (.))
 
-import Control.Category (Category (..))
+import Control.Arrow ((&&&))
+import Control.Category (Category (..), (>>>))
 import qualified Control.Exception as Exception
 import Data.Hashable (Hashable)
 import Data.Int (Int64)
@@ -515,7 +570,8 @@ import qualified Kafka.Streams.KTable as KT
 import Kafka.Streams.KTable (KTable)
 import Kafka.Streams.Materialized (Materialized)
 import qualified Kafka.Streams.Materialized as Mat
-import Kafka.Streams.Processor (Processor)
+import Kafka.Streams.Processor (FixedKeyProcessor, Processor)
+import qualified Kafka.Streams.Processor as P
 import Kafka.Streams.Produced (Produced, produced)
 import qualified Kafka.Streams.Repartitioned as Rep
 import Kafka.Streams.Serde (HasSerde, Serde)
@@ -535,6 +591,7 @@ import Kafka.Streams.StreamsBuilder
   , newStreamsBuilder
   , withTopology_
   )
+import qualified Kafka.Streams.StreamsBuilder as SB
 import qualified Kafka.Streams.Suppress as Suppress
 import qualified Kafka.Streams.TimeWindowedKStream as TWKS
 import Kafka.Streams.Time (Duration)
@@ -3403,6 +3460,367 @@ aggregateWindowedCogrouped
 aggregateWindowedCogrouped seed m =
   liftIO_ "aggregateWindowedCogrouped" $ \_b twcg ->
     Cog.aggregateWindowedCogrouped seed m twcg
+
+----------------------------------------------------------------------
+-- Windowed-handle conversions
+----------------------------------------------------------------------
+
+-- | Bridge a time-'WindowedTableHandle' into a
+-- @'KStream' ('WindowedKey' k) v@. Each downstream record
+-- corresponds to one update of the underlying window store; with
+-- 'TWKS.emitOnWindowClose' the conversion routes through suppress
+-- so each (key, window) emits exactly once at close + grace.
+--
+-- The supplied serdes are baked into the resulting 'KStream' so
+-- downstream sinks have them available. /JVM equivalent:/
+-- 'TimeWindowedKStream.toStream()'.
+streamFromWindowed
+  :: Ord k
+  => Serde k
+  -> Serde v
+  -> Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
+streamFromWindowed ks vs =
+  liftIO_ "streamFromWindowed" $ \_b h ->
+    Suppress.streamFromWindowedHandle h ks vs
+
+-- | Bridge a 'SWKS.SessionWindowedTableHandle' into a
+-- @'KStream' k v@ pinned at the session aggregator's emit node.
+-- The aggregator forwards plain-keyed records (inner @k@, not
+-- 'SWKS.SessionKey'), so the downstream stream is keyed by @k@.
+streamFromSessionWindowed
+  :: Ord k
+  => Serde k
+  -> Serde v
+  -> Topology (SWKS.SessionWindowedTableHandle k v) (KStream k v)
+streamFromSessionWindowed ks vs =
+  liftIO_ "streamFromSessionWindowed" $ \_b h ->
+    Suppress.streamFromSessionWindowedHandle h ks vs
+
+----------------------------------------------------------------------
+-- Dead-letter shelf (Riffle shed policy)
+----------------------------------------------------------------------
+
+-- | KIP-1033-style overflow routing for the windowed suppress
+-- buffer: when the buffer exceeds 'Suppress.dlsRecordCap', the
+-- oldest entries are serialised and pushed to a configured side
+-- topic instead of being dropped, emitted early, or failing the
+-- task. See 'Suppress.suppressWindowedShed' for the imperative
+-- equivalent.
+suppressWindowedShed
+  :: Ord k
+  => Duration
+  -> Int64
+  -> Suppress.DeadLetterShelf k v
+  -> Topology (KStream (WindowedKey k) v) (KStream (WindowedKey k) v)
+suppressWindowedShed grace winMs shelf =
+  liftIO_ "suppressWindowedShed" $ \_b s ->
+    Suppress.suppressWindowedShed grace winMs shelf s
+
+----------------------------------------------------------------------
+-- KTable.groupBy (Java) lowered onto KStream
+----------------------------------------------------------------------
+
+-- | Java's @KTable.groupBy(KeyValueMapper)@ lowered: convert the
+-- table to a stream, then re-key. Useful when you want to
+-- re-aggregate a 'KTable' under a derived key without taking the
+-- subtractor-aware 'groupTableBy' / 'KGroupedTable' path.
+groupByKTable
+  :: (Ord k, Ord k', HasSerde k', HasSerde v)
+  => (k -> v -> k')
+  -> Topology (KTable k v) (KStream k' v)
+groupByKTable keyMap =
+  liftIO_ "groupByKTable" $ \_b kt -> KS.groupByKTable keyMap kt
+
+----------------------------------------------------------------------
+-- Global read-only state stores (KIP-813)
+----------------------------------------------------------------------
+
+-- | Register a global, read-only state store with a custom
+-- updater processor. Mirrors
+-- 'Kafka.Streams.StreamsBuilder.addReadOnlyStateStore'.
+--
+-- The store is materialised once per Kafka Streams instance and
+-- updated by the @updater@ processor in response to records on
+-- the supplied @topic@. Other processors can /read/ it through
+-- 'getStateStore' but should not write to it (the updater holds
+-- exclusive write access).
+--
+-- Wire is unchanged — compose anywhere with @'>>>'@.
+addReadOnlyStateStore
+  :: StoreBuilderKV k v
+  -> Topo.NodeName              -- ^ source node name
+  -> Topo.NodeName              -- ^ updater (processor) node name
+  -> TopicName                  -- ^ source topic
+  -> Serde k                    -- ^ key serde of the source topic
+  -> Serde v                    -- ^ value serde of the source topic
+  -> Time.TimestampExtractor k v
+  -> Topo.AnyProcessor          -- ^ updater body
+  -> Topology x x
+addReadOnlyStateStore builder srcNm procNm topic ks vs ex updater =
+  liftIO_ "addReadOnlyStateStore" $ \b s -> do
+    SB.addReadOnlyStateStore b builder srcNm procNm topic ks vs ex updater
+    pure s
+
+----------------------------------------------------------------------
+-- KIP-820: FixedKeyProcessor
+----------------------------------------------------------------------
+
+-- | KIP-820 fixed-key processor. The processor's input and output
+-- share a key, expressed in the type — useful when the JVM API
+-- would have you reach for @KStream.processValues@ with a
+-- key-preserving processor supplier.
+--
+-- This is a thin wrapper around 'processValuesStream' that
+-- adapts a 'FixedKeyProcessor' to the regular 'Processor'
+-- shape via 'P.liftFixedKeyProcessor'.
+processFixedKeyValuesStream
+  :: Text
+  -> [StoreName]
+  -> IO (FixedKeyProcessor k v v')
+  -> Serde v'
+  -> Topology (KStream k v) (KStream k v')
+processFixedKeyValuesStream nm stores fkp vs =
+  processValuesStream nm stores (fkp >>= P.liftFixedKeyProcessor) vs
+
+-- | 'processWithStateStoreKV' with a 'FixedKeyProcessor'. The
+-- processor is terminal (returns @()@); use a regular sink or
+-- 'tap' downstream if you need to publish forwarded records.
+processFixedKeyValuesWithStateStoreKV
+  :: Text
+  -> StoreBuilderKV stk stv
+  -> IO (FixedKeyProcessor k v v')
+  -> Topology (KStream k v) ()
+processFixedKeyValuesWithStateStoreKV prefix b fkp =
+  processWithStateStoreKV prefix b (fkp >>= P.liftFixedKeyProcessor)
+
+----------------------------------------------------------------------
+-- KIP-307: more named operator variants (symmetric set)
+----------------------------------------------------------------------
+
+-- | 'filterNot' with an explicit topology node name.
+filterNotNamed
+  :: Named.Named -> (Record k v -> Bool)
+  -> Topology (KStream k v) (KStream k v)
+filterNotNamed nm p =
+  liftIO_ "filterNot-named" (\_b s -> KS.filterStreamNamed nm (not . p) s)
+
+-- | 'mapValuesM' with an explicit topology node name.
+mapValuesMNamed
+  :: HasSerde v'
+  => Named.Named -> (v -> IO v')
+  -> Topology (KStream k v) (KStream k v')
+mapValuesMNamed nm f =
+  liftIO_ "mapValuesM-named" (\_b s -> KS.mapValuesMNamed nm f s)
+
+-- | 'mapKeyValueM' with an explicit topology node name.
+mapKeyValueMNamed
+  :: (HasSerde k', HasSerde v')
+  => Named.Named -> (k -> v -> IO (k', v'))
+  -> Topology (KStream k v) (KStream k' v')
+mapKeyValueMNamed nm f =
+  liftIO_ "mapKeyValueM-named" (\_b s -> KS.mapKeyValueMNamed nm f s)
+
+-- | 'mapRecord' with an explicit topology node name.
+mapRecordNamed
+  :: (HasSerde k', HasSerde v')
+  => Named.Named -> (Record k v -> Record k' v')
+  -> Topology (KStream k v) (KStream k' v')
+mapRecordNamed nm f =
+  liftIO_ "mapRecord-named" (\_b s -> KS.mapRecordNamed nm f s)
+
+-- | 'mapRecordM' with an explicit topology node name.
+mapRecordMNamed
+  :: (HasSerde k', HasSerde v')
+  => Named.Named -> (Record k v -> IO (Record k' v'))
+  -> Topology (KStream k v) (KStream k' v')
+mapRecordMNamed nm f =
+  liftIO_ "mapRecordM-named" (\_b s -> KS.mapRecordMNamed nm f s)
+
+-- | 'concatMapValues' with an explicit topology node name.
+concatMapValuesNamed
+  :: HasSerde v'
+  => Named.Named -> (v -> [v'])
+  -> Topology (KStream k v) (KStream k v')
+concatMapValuesNamed nm f =
+  liftIO_ "concatMapValues-named" (\_b s -> KS.concatMapValuesNamed nm f s)
+
+-- | 'concatMapKeyValue' with an explicit topology node name.
+concatMapKeyValueNamed
+  :: (HasSerde k', HasSerde v')
+  => Named.Named -> (k -> v -> [(k', v')])
+  -> Topology (KStream k v) (KStream k' v')
+concatMapKeyValueNamed nm f =
+  liftIO_ "concatMapKeyValue-named" (\_b s -> KS.concatMapKeyValueNamed nm f s)
+
+-- | 'values' with an explicit topology node name.
+valuesNamed
+  :: Named.Named
+  -> Topology (KStream k v) (KStream () v)
+valuesNamed nm =
+  liftIO_ "values-named" (\_b s -> KS.valuesStreamNamed nm s)
+
+-- | 'merge' with an explicit topology node name for the merge
+-- processor.
+mergeNamed
+  :: Named.Named
+  -> Topology (KStream k v, KStream k v) (KStream k v)
+mergeNamed nm =
+  liftIO_ "merge-named" (\_b (s1, s2) -> KS.mergeStreamsNamed nm s1 s2)
+
+-- | 'repartition' with an explicit 'Named.Named' wrapper around
+-- the generated prefix.
+repartitionNamed
+  :: Named.Named
+  -> Topology (KStream k v) (KStream k v)
+repartitionNamed nm =
+  liftIO_ "repartition-named" (\_b s -> KS.repartitionNamed nm s)
+
+----------------------------------------------------------------------
+-- Two-input join helpers
+--
+-- Convenience wrappers: take both sides as @'Topology' 'Void' _@
+-- legs and apply the corresponding join. Equivalent to
+-- @left '&&&' right '>>>' joinPrim …@ but reads better at the
+-- call site, especially when the two legs are themselves
+-- multi-stage pipelines.
+----------------------------------------------------------------------
+
+-- | Stream-table /inner/ join from two source-rooted legs.
+joinStreamTable
+  :: (Ord k, HasSerde v')
+  => Topology Void (KStream k v)
+  -> Topology Void (KTable k vt)
+  -> (v -> vt -> v')
+  -> Joined k v vt
+  -> Topology Void (KStream k v')
+joinStreamTable left right j jo =
+  (left &&& right) >>> streamTableJoin j jo
+
+-- | Stream-table /left/ join from two source-rooted legs.
+leftJoinStreamTable
+  :: (Ord k, HasSerde v')
+  => Topology Void (KStream k v)
+  -> Topology Void (KTable k vt)
+  -> (v -> Maybe vt -> v')
+  -> Joined k v vt
+  -> Topology Void (KStream k v')
+leftJoinStreamTable left right j jo =
+  (left &&& right) >>> streamTableLeftJoin j jo
+
+-- | Stream-stream /windowed inner/ join from two source-rooted legs.
+joinStreamStream
+  :: (Ord k, HasSerde v')
+  => Topology Void (KStream k v1)
+  -> Topology Void (KStream k v2)
+  -> (v1 -> v2 -> v')
+  -> JoinWindows
+  -> Joined k v1 v2
+  -> Topology Void (KStream k v')
+joinStreamStream left right j w jo =
+  (left &&& right) >>> streamStreamJoin j w jo
+
+-- | Stream-stream /windowed left/ join from two source-rooted legs.
+leftJoinStreamStream
+  :: (Ord k, HasSerde v')
+  => Topology Void (KStream k v1)
+  -> Topology Void (KStream k v2)
+  -> (v1 -> Maybe v2 -> v')
+  -> JoinWindows
+  -> Joined k v1 v2
+  -> Topology Void (KStream k v')
+leftJoinStreamStream left right j w jo =
+  (left &&& right) >>> streamStreamLeftJoin j w jo
+
+-- | Stream-stream /windowed outer/ join from two source-rooted legs.
+outerJoinStreamStream
+  :: (Ord k, HasSerde v')
+  => Topology Void (KStream k v1)
+  -> Topology Void (KStream k v2)
+  -> (Maybe v1 -> Maybe v2 -> v')
+  -> JoinWindows
+  -> Joined k v1 v2
+  -> Topology Void (KStream k v')
+outerJoinStreamStream left right j w jo =
+  (left &&& right) >>> streamStreamOuterJoin j w jo
+
+-- | Table-table /inner/ join from two source-rooted legs.
+joinTableTable
+  :: Ord k
+  => Topology Void (KTable k v1)
+  -> Topology Void (KTable k v2)
+  -> (v1 -> v2 -> v')
+  -> Materialized k v'
+  -> Topology Void (KTable k v')
+joinTableTable left right j m =
+  (left &&& right) >>> tableTableJoin j m
+
+-- | Table-table /left/ join from two source-rooted legs.
+leftJoinTableTable
+  :: Ord k
+  => Topology Void (KTable k v1)
+  -> Topology Void (KTable k v2)
+  -> (v1 -> Maybe v2 -> v')
+  -> Materialized k v'
+  -> Topology Void (KTable k v')
+leftJoinTableTable left right j m =
+  (left &&& right) >>> tableTableLeftJoin j m
+
+-- | Table-table /outer/ join from two source-rooted legs.
+outerJoinTableTable
+  :: Ord k
+  => Topology Void (KTable k v1)
+  -> Topology Void (KTable k v2)
+  -> (Maybe v1 -> Maybe v2 -> v')
+  -> Materialized k v'
+  -> Topology Void (KTable k v')
+outerJoinTableTable left right j m =
+  (left &&& right) >>> tableTableOuterJoin j m
+
+-- | KIP-213 foreign-key /inner/ join from two source-rooted legs.
+joinForeignKey
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
+  => Topology Void (KTable k v)
+  -> Topology Void (KTable fk vr)
+  -> (v -> fk)
+  -> (v -> vr -> v')
+  -> Materialized k v'
+  -> Topology Void (KTable k v')
+joinForeignKey left right ext j m =
+  (left &&& right) >>> foreignKeyJoin ext j m
+
+-- | KIP-213 foreign-key /left/ join from two source-rooted legs.
+leftJoinForeignKey
+  :: (Ord k, Ord fk, Hashable v, HasSerde v')
+  => Topology Void (KTable k v)
+  -> Topology Void (KTable fk vr)
+  -> (v -> fk)
+  -> (v -> Maybe vr -> v')
+  -> Materialized k v'
+  -> Topology Void (KTable k v')
+leftJoinForeignKey left right ext j m =
+  (left &&& right) >>> leftForeignKeyJoin ext j m
+
+-- | Stream-globalTable /inner/ join from two source-rooted legs.
+joinStreamGlobalTable
+  :: (Ord kg, HasSerde v')
+  => Topology Void (KStream k v)
+  -> Topology Void (GlobalKTable kg vg)
+  -> (k -> v -> kg)
+  -> (v -> vg -> v')
+  -> Topology Void (KStream k v')
+joinStreamGlobalTable left right km j =
+  (left &&& right) >>> streamGlobalTableJoin km j
+
+-- | Stream-globalTable /left/ join from two source-rooted legs.
+leftJoinStreamGlobalTable
+  :: (Ord kg, HasSerde v')
+  => Topology Void (KStream k v)
+  -> Topology Void (GlobalKTable kg vg)
+  -> (k -> v -> kg)
+  -> (v -> Maybe vg -> v')
+  -> Topology Void (KStream k v')
+leftJoinStreamGlobalTable left right km j =
+  (left &&& right) >>> streamGlobalTableLeftJoin km j
 
 -- | Walk the AST and collect a per-node textual label
 -- listing.
