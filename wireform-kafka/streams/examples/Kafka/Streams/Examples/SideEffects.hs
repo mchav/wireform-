@@ -63,6 +63,7 @@ import Data.Void (Void)
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 -- | A bag of "external systems" the topology talks to. We pass
@@ -145,7 +146,7 @@ sideEffectsTopology ext =
         <> " value=" <> recordValue r
 
 -- | Build the imperative 'Topology' graph from the AST.
-buildSideEffectsTopology :: Externals -> IO Topology
+buildSideEffectsTopology :: Externals -> IO Topo.Topology
 buildSideEffectsTopology = F.buildTopologyFrom . sideEffectsTopology
 
 ----------------------------------------------------------------------

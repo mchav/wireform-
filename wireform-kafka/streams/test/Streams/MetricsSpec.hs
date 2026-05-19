@@ -9,7 +9,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Internal.Engine (engineMetrics)
 
 bytes :: Text -> BSC.ByteString
@@ -107,7 +107,7 @@ engine_increments_punctuateTotal =
             , procProcess = \_ -> pure ()
             }
     nm <- freshNodeName bld "TICK"
-    withTopology_ bld $ Kafka.Streams.addProcessor nm [kstreamParent src] proc_
+    withTopology_ bld $ Kafka.Streams.Imperative.addProcessor nm [kstreamParent src] proc_
     topo <- buildTopology bld
     driver <- newDriver topo "m-app"
 

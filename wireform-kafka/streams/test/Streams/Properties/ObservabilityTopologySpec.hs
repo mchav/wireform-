@@ -23,7 +23,7 @@ import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Metrics as Met
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Observability.Topology as Obs

@@ -13,7 +13,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as KC
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Query as Q
 import qualified Kafka.Streams.State.KeyValue.Versioned as V
 import qualified Kafka.Streams.State.Window.InMemory as WS

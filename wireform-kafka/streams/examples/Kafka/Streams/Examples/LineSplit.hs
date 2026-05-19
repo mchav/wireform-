@@ -30,6 +30,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 lineSplitTopology :: F.Topology Void ()
@@ -38,7 +39,7 @@ lineSplitTopology =
     >>> F.concatMapValues (T.words :: Text -> [Text])
     >>> F.sink "streams-linesplit-output" textSerde textSerde
 
-buildLineSplitTopology :: IO Topology
+buildLineSplitTopology :: IO Topo.Topology
 buildLineSplitTopology = F.buildTopologyFrom lineSplitTopology
 
 runDemo :: IO ()

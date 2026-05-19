@@ -34,7 +34,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Mock.Cluster as MC
 import qualified Kafka.Streams.Runtime.MultiInstanceMockHarness as H
 

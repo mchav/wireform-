@@ -39,6 +39,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -54,7 +55,7 @@ iqTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materializedAs (storeName "counts-store")
 
-buildIQTopology :: IO Topology
+buildIQTopology :: IO Topo.Topology
 buildIQTopology = snd <$> F.compile iqTopology
 
 runDemo :: IO ()

@@ -41,6 +41,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -63,7 +64,7 @@ topArticlesTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materializedAs (storeName "article-counts")
 
-buildTopArticlesTopology :: IO Topology
+buildTopArticlesTopology :: IO Topo.Topology
 buildTopArticlesTopology = F.buildTopologyFrom topArticlesTopology
 
 runDemo :: IO ()
@@ -102,7 +103,7 @@ runDemo = do
                        Left _  -> 0
              in case lookup k acc of
                   Just prev | prev >= n -> acc
-                  _ -> (k, n) : filter ((/= k) . fst) acc)
+                  _ -> (k, n) : Prelude.filter ((/= k) . fst) acc)
           []
           out
   putStrLn ("Top counts per industry|article ("

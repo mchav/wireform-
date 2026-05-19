@@ -14,7 +14,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Internal.RecordCollector
   ( inMemoryCollector
   , collectorTake

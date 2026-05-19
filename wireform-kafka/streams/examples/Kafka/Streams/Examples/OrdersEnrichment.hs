@@ -33,6 +33,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 ordersEnrichmentTopology :: F.Topology Void ()
@@ -48,7 +49,7 @@ ordersEnrichmentTopology =
     customers :: F.Topology Void (KTable Text Text)
     customers = F.tableSource "customers" textSerde textSerde
 
-buildOrdersEnrichmentTopology :: IO Topology
+buildOrdersEnrichmentTopology :: IO Topo.Topology
 buildOrdersEnrichmentTopology = F.buildTopologyFrom ordersEnrichmentTopology
 
 runDemo :: IO ()

@@ -6,7 +6,7 @@
 -- | Tests for the wired KIP-213 foreign-key join DSL combinator.
 --
 -- The combinator under test is
--- 'Kafka.Streams.foreignKeyJoinKTable'
+-- 'Kafka.Streams.Imperative.foreignKeyJoinKTable'
 -- (and its @left@ variant). The internal subscription-token /
 -- responder protocol is not exposed; we verify it indirectly by
 -- driving the DSL with sequences of left and right updates and
@@ -27,7 +27,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: TestTree
 tests = testGroup "FK-join DSL (KIP-213)"

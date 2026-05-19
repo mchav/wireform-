@@ -11,7 +11,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, assertBool)
 
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: String -> TestTree
 tests brokers = testGroup "RoundTrip"

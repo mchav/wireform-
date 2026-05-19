@@ -31,6 +31,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 -- | Strip whitespace + uppercase every value. A reusable
@@ -55,7 +56,7 @@ idiomaticPipelineTopology =
     >>> dropEmpties
     >>> F.sink "lines-out" textSerde textSerde
 
-buildPipelineTopology :: IO Topology
+buildPipelineTopology :: IO Topo.Topology
 buildPipelineTopology = F.buildTopologyFrom idiomaticPipelineTopology
 
 runDemo :: IO ()

@@ -12,7 +12,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Stores as Stores
 import Kafka.Streams.State.KeyValue.Versioned
   ( VersionedRecord (..)

@@ -36,6 +36,7 @@ import qualified Data.Text as T
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.KStream as KS
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -64,7 +65,7 @@ branchingTopology =
              sinkBranch "warns"  "logs-warns"
              sinkBranch "info"   "logs-info")
 
-buildBranchingTopology :: IO Topology
+buildBranchingTopology :: IO Topo.Topology
 buildBranchingTopology = F.buildTopologyFrom branchingTopology
 
 runDemo :: IO ()

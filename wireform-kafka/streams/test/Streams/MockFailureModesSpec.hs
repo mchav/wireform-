@@ -15,7 +15,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Mock.Cluster
 import Kafka.Streams.Mock.Consumer
 import Kafka.Streams.Mock.Fault

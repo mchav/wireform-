@@ -429,6 +429,7 @@ library wireform-kafka-streams
     hs-source-dirs: streams/src
     exposed-modules:
         Kafka.Streams
+        Kafka.Streams.Imperative
         Kafka.Streams.Config
         Kafka.Streams.Errors
         Kafka.Streams.Discovery

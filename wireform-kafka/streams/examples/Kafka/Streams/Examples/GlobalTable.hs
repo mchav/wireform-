@@ -40,6 +40,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 globalTableTopology :: F.Topology Void ()
@@ -55,7 +56,7 @@ globalTableTopology =
     rates :: F.Topology Void (GlobalKTable Text Text)
     rates = F.globalTableSource "rates" textSerde textSerde
 
-buildGlobalTableTopology :: IO Topology
+buildGlobalTableTopology :: IO Topo.Topology
 buildGlobalTableTopology = F.buildTopologyFrom globalTableTopology
 
 runDemo :: IO ()

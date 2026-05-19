@@ -32,7 +32,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.RebalanceListener as RBL
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.EOS
   ( EOSCoordinator (..)
   )

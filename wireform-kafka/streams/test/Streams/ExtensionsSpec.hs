@@ -15,7 +15,7 @@ import qualified Data.UUID as UUID
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Stores as Stores
 
 bytes :: Text -> BSC.ByteString

@@ -33,6 +33,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 -- | The pipe topology as a first-class 'F.Topology' value. No
@@ -45,7 +46,7 @@ pipeTopology =
 
 -- | Build the imperative 'Topology' graph from the
 -- 'pipeTopology' AST.
-buildPipeTopology :: IO Topology
+buildPipeTopology :: IO Topo.Topology
 buildPipeTopology = F.buildTopologyFrom pipeTopology
 
 -- | Demo run against the in-process test driver. Prints what

@@ -43,6 +43,7 @@ import Data.Void (Void)
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.KStream as KS
 import qualified Kafka.Streams.StreamsBuilder as SB
 import qualified Kafka.Streams.Topology as Topo
@@ -113,7 +114,7 @@ processorAPITopology =
               pure s)
     >>> F.sink "counts-stream" textSerde int64Serde
 
-buildProcessorAPITopology :: IO Topology
+buildProcessorAPITopology :: IO Topo.Topology
 buildProcessorAPITopology = F.buildTopologyFrom processorAPITopology
 
 runDemo :: IO ()

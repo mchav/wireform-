@@ -39,6 +39,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -58,7 +59,7 @@ fraudTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materializedAs (storeName "session-counts")
 
-buildFraudTopology :: IO Topology
+buildFraudTopology :: IO Topo.Topology
 buildFraudTopology = F.buildTopologyFrom fraudTopology
 
 runDemo :: IO ()

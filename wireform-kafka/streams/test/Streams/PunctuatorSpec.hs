@@ -11,7 +11,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: TestTree
 tests = testGroup "Punctuator"
@@ -51,7 +51,7 @@ stream_time_punctuator =
     let bld = kstreamBuilder src
     nm <- freshNodeName bld "PUNCT"
     withTopology_ bld $
-      Kafka.Streams.addProcessor nm [kstreamParent src] (mkProc fired 100 StreamTimePunctuation)
+      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src] (mkProc fired 100 StreamTimePunctuation)
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"
 
@@ -83,7 +83,7 @@ wall_clock_punctuator =
     let bld = kstreamBuilder src
     nm <- freshNodeName bld "PUNCT"
     withTopology_ bld $
-      Kafka.Streams.addProcessor nm [kstreamParent src]
+      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src]
         (mkProc fired 100 WallClockTimePunctuation)
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"
@@ -124,7 +124,7 @@ punctuator_can_be_cancelled =
             }
     nm <- freshNodeName bld "PUNCT-CANC"
     withTopology_ bld $
-      Kafka.Streams.addProcessor nm [kstreamParent src] proc_
+      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src] proc_
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"
 
@@ -149,7 +149,7 @@ punctuator_no_fire_before_due =
     let bld = kstreamBuilder src
     nm <- freshNodeName bld "PUNCT"
     withTopology_ bld $
-      Kafka.Streams.addProcessor nm [kstreamParent src]
+      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src]
         (mkProc fired 1000 WallClockTimePunctuation)
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"

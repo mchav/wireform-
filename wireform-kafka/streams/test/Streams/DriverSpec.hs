@@ -14,7 +14,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: TestTree
 tests = testGroup "Driver"
@@ -218,7 +218,7 @@ map_keys_then_sink = testCase "mapKeyValue rewrites both" $ do
   -- 'Int' has no default 'HasSerde' (the built-in is Int64);
   -- supply an Int serde explicitly via mapKeyValueWith.
   let intSerde =
-        Kafka.Streams.imap (fromIntegral @Int @Int64)
+        Kafka.Streams.Imperative.imap (fromIntegral @Int @Int64)
                            (fromIntegral @Int64 @Int) int64Serde
   s' <- mapKeyValueWith textSerde intSerde
           (\k v -> (T.reverse k, T.length v)) s

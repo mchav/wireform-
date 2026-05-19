@@ -35,6 +35,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
 pageViewRegionTopology :: F.Topology Void ()
@@ -50,7 +51,7 @@ pageViewRegionTopology =
     users :: F.Topology Void (KTable Text Text)
     users = F.tableSource "UserProfiles" textSerde textSerde
 
-buildPageViewRegionTopology :: IO Topology
+buildPageViewRegionTopology :: IO Topo.Topology
 buildPageViewRegionTopology = F.buildTopologyFrom pageViewRegionTopology
 
 runDemo :: IO ()

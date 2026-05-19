@@ -18,7 +18,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.State.Window.Timestamped as TWS
 import qualified Kafka.Streams.State.KeyValue.Timestamped as TS
 

@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.Topology as Topo
 import Kafka.Streams.Observability.OrphanTopics

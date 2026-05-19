@@ -24,7 +24,7 @@ import Data.Map.Strict (Map)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Processor (TaskId (..))
 import qualified Kafka.Streams.State.KeyValue.InMemory as KVInMem
 import Kafka.Streams.Runtime.StandbyTask

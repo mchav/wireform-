@@ -37,6 +37,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -57,7 +58,7 @@ wordCountTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materializedAs (storeName "counts-store")
 
-buildWordCountTopology :: IO Topology
+buildWordCountTopology :: IO Topo.Topology
 buildWordCountTopology = F.buildTopologyFrom wordCountTopology
 
 runDemo :: IO ()

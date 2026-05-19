@@ -40,6 +40,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
@@ -63,7 +64,7 @@ temperatureTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materialized
 
-buildTemperatureTopology :: IO Topology
+buildTemperatureTopology :: IO Topo.Topology
 buildTemperatureTopology = F.buildTopologyFrom temperatureTopology
 
 runDemo :: IO ()

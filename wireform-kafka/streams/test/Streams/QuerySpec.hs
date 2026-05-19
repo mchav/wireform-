@@ -6,7 +6,7 @@ module Streams.QuerySpec (tests) where
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
 
 tests :: TestTree

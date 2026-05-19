@@ -28,7 +28,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import Criterion.Main
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 main :: IO ()
 main = defaultMain
