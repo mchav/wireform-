@@ -28,7 +28,34 @@ cabal run wireform-kafka-streams-examples -- <demo>
 cabal run wireform-kafka-streams-examples -- all
 ```
 
-With no arguments the executable prints the index.
+With no arguments the executable prints the index, including a
+per-demo tag showing whether the demo is broker-compatible.
+
+### Running against a real broker
+
+Most operational and windowed demos depend on test-driver-only
+knobs (explicit record timestamps, `advanceDriverStreamTime`,
+state-store mutation) that the public Kafka client API doesn't
+expose, so they always run against the in-process
+`TopologyTestDriver`. A subset of the stateless / hash-shuffle
+demos (currently `pipe`, `line-split`, `word-count`) is wired
+through `Kafka.Streams.Examples.Runner` and runs identically
+against either the test driver or a live broker:
+
+```
+cabal run wireform-kafka-streams-examples -- --broker localhost:9092 pipe
+WIREFORM_KAFKA_BROKER=localhost:9092 cabal run wireform-kafka-streams-examples -- word-count
+```
+
+Broker mode `ensureTopic`s the demo's input and output topics
+via `Kafka.Client.AdminClient`, then starts the topology via
+`Kafka.Streams.Runtime.startKafkaStreams`, sends records via
+`Kafka.Client.Producer.sendMessage`, and drains the output topics
+via `Kafka.Client.Consumer.poll`. The `--broker` flag (and the
+`WIREFORM_KAFKA_BROKER` env var) match the convention used by
+the integration test suites under `test-integration/`. Demos that
+aren't broker-compatible print a clear stderr warning and fall
+back to the in-process driver.
 
 ## Demos
 
@@ -50,24 +77,6 @@ With no arguments the executable prints the index.
 | `idiomatic`    | `Kafka.Streams.Examples.IdiomaticPipeline`      | n/a (Haskell-native shape)           | Reusable composable fragments via `Pipeline` + `Control.Category.(>>>)` |
 | `global`       | `Kafka.Streams.Examples.GlobalTable`            | GlobalKTable docs                    | cluster-replicated lookup table join                  |
 | `cogroup`      | `Kafka.Streams.Examples.Cogroup`                | cogroup demo                         | cogroup of streams with distinct value types          |
-
-## Operational demos
-
-A second family of demos under `Kafka.Streams.Examples.Ops.*`
-exercises the runtime (`MockSet`, `WorkerPool`, `StandbyTask`,
-`RevocationGrace`) rather than the DSL. They all run on a tiny
-passthrough topology so the interesting thing on screen is the
-operational behaviour, not the topology DAG.
-
-| Name           | Module                                              | Demonstrates                                                                                  |
-| -------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `ops-bringup`  | `Kafka.Streams.Examples.Ops.ClusterBringup`         | A fresh 3-instance cluster joins a 6-partition input and prints the post-rebalance assignment |
-| `ops-crash`    | `Kafka.Streams.Examples.Ops.CrashFailover`          | One instance is killed mid-flight; the survivor inherits its partitions                       |
-| `ops-rolling`  | `Kafka.Streams.Examples.Ops.RollingUpgrade`         | A rolling deploy recycles every instance one at a time; traffic keeps flowing                 |
-| `ops-threads`  | `Kafka.Streams.Examples.Ops.DynamicThreads`         | KIP-663 dynamic `num.stream.threads`: add/remove workers inside one process under load        |
-| `ops-standby`  | `Kafka.Streams.Examples.Ops.StandbyWarmup`          | KIP-441 standby warmup: changelog replay + `classifyWarmups` ready-decision                   |
-| `ops-eos`      | `Kafka.Streams.Examples.Ops.EOSCommit`              | At-least-once vs exactly-once-v2 commit visibility under read-committed; aborted batches      |
-| `ops-revoke`   | `Kafka.Streams.Examples.Ops.RevocationGrace`        | KIP-869 soft-revocation grace policies (`RevokeImmediate` vs `KeepAsStandby`)                 |
 
 Each module starts with a docblock that shows the equivalent
 Java/Scala code from upstream Kafka Streams alongside the Haskell

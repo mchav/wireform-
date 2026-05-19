@@ -747,6 +747,7 @@ executable wireform-kafka-streams-examples
         Kafka.Streams.Examples.Temperature
         Kafka.Streams.Examples.TopArticles
         Kafka.Streams.Examples.WordCount
+        Kafka.Streams.Examples.Runner
         Kafka.Streams.Examples.Ops.Helpers
         Kafka.Streams.Examples.Ops.ClusterBringup
         Kafka.Streams.Examples.Ops.CrashFailover

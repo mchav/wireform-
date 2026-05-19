@@ -33,6 +33,8 @@ import Kafka.Streams
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
+import Kafka.Streams.Examples.Runner
+
 lineSplitTopology :: F.Topology Void ()
 lineSplitTopology =
   F.source "streams-plaintext-input" textSerde textSerde
@@ -42,25 +44,27 @@ lineSplitTopology =
 buildLineSplitTopology :: IO Topo.Topology
 buildLineSplitTopology = F.buildTopologyFrom lineSplitTopology
 
-runDemo :: IO ()
-runDemo = do
+runDemo :: RunMode -> IO ()
+runDemo mode = do
   putStrLn "=== LineSplitDemo ==="
-  topo <- buildLineSplitTopology
-  driver <- newDriver topo "line-split-app"
-
-  mapM_ (sendLine driver)
-    [ "all streams lead to kafka"
-    , "hello kafka streams"
-    , "join kafka summit"
-    ]
-
-  out <- readOutput driver (topicName "streams-linesplit-output")
-  putStrLn ("Words emitted (" <> show (length out) <> "):")
-  mapM_ (\cr -> putStrLn ("  " <> BSC.unpack (crValue cr))) out
-  closeDriver driver
+  let inTopic  = topicName "streams-plaintext-input"
+      outTopic = topicName "streams-linesplit-output"
+  withDemoDriver mode "line-split-app" buildLineSplitTopology
+    [DemoTopic inTopic 1]
+    [DemoTopic outTopic 1]
+    $ \dd -> do
+      mapM_ (sendLine dd inTopic)
+        [ "all streams lead to kafka"
+        , "hello kafka streams"
+        , "join kafka summit"
+        ]
+      ddAdvance dd (Timestamp 0)
+      out <- ddRead dd outTopic
+      putStrLn ("Words emitted (" <> show (length out) <> "):")
+      mapM_ (\cr -> putStrLn ("  " <> BSC.unpack (crValue cr))) out
   where
-    sendLine d line =
-      pipeInput d (topicName "streams-plaintext-input")
+    sendLine d inTopic line =
+      ddSend d inTopic
         Nothing
         (BSC.pack (T.unpack line))
         (Timestamp 0)
