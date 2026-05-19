@@ -574,7 +574,7 @@ import Kafka.Streams.Processor (FixedKeyProcessor, Processor)
 import qualified Kafka.Streams.Processor as P
 import Kafka.Streams.Produced (Produced, produced)
 import qualified Kafka.Streams.Repartitioned as Rep
-import Kafka.Streams.Serde (HasSerde, Serde)
+import Kafka.Streams.Serde (HasSerde, Serde, serde)
 import qualified Kafka.Streams.SessionWindowedKStream as SWKS
 import Kafka.Streams.State.Store
   ( StoreBuilderKV
@@ -3475,26 +3475,31 @@ aggregateWindowedCogrouped seed m =
 -- downstream sinks have them available. /JVM equivalent:/
 -- 'TimeWindowedKStream.toStream()'.
 streamFromWindowed
-  :: (Ord k, Eq v)
-  => Serde k
-  -> Serde v
-  -> Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
-streamFromWindowed ks vs =
+  :: forall k v
+   . (Ord k, Eq v, HasSerde k, HasSerde v)
+  => Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
+streamFromWindowed =
   liftIO_ "streamFromWindowed" $ \_b h ->
-    Suppress.streamFromWindowedHandle h ks vs
+    -- 'Suppress.streamFromWindowedHandle' threads a key serde
+    -- through purely for symmetry: the resulting 'KStream' uses
+    -- an @error "WindowedKey serde unset"@ placeholder for
+    -- 'kstreamKeySerde' because downstream sinks always supply a
+    -- 'windowedSerde'-aware composite via 'Produced'. The class
+    -- 'HasSerde k' constraint matches the rest of the Free DSL
+    -- (no explicit serde threading at type-changing operators).
+    Suppress.streamFromWindowedHandle h (serde @k) (serde @v)
 
 -- | Bridge a 'SWKS.SessionWindowedTableHandle' into a
 -- @'KStream' k v@ pinned at the session aggregator's emit node.
 -- The aggregator forwards plain-keyed records (inner @k@, not
 -- 'SWKS.SessionKey'), so the downstream stream is keyed by @k@.
 streamFromSessionWindowed
-  :: Ord k
-  => Serde k
-  -> Serde v
-  -> Topology (SWKS.SessionWindowedTableHandle k v) (KStream k v)
-streamFromSessionWindowed ks vs =
+  :: forall k v
+   . (Ord k, HasSerde k, HasSerde v)
+  => Topology (SWKS.SessionWindowedTableHandle k v) (KStream k v)
+streamFromSessionWindowed =
   liftIO_ "streamFromSessionWindowed" $ \_b h ->
-    Suppress.streamFromSessionWindowedHandle h ks vs
+    Suppress.streamFromSessionWindowedHandle h (serde @k) (serde @v)
 
 ----------------------------------------------------------------------
 -- Dead-letter shelf (Riffle shed policy)

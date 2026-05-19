@@ -50,7 +50,7 @@ temperatureTopology =
     >>> F.groupByKey (grouped textSerde doubleSerde)
     >>> F.windowedByTime (tumblingWindows (seconds 5))
     >>> F.reduceWindowed max maxMat
-    >>> F.streamFromWindowed textSerde doubleSerde
+    >>> F.streamFromWindowed
     >>> F.suppressWindowed (millis 0) (durationMillis (seconds 5))
     >>> F.selectKey
           (\r -> case recordKey r of

@@ -49,7 +49,7 @@ fraudTopology =
     >>> F.groupByKey (grouped textSerde textSerde)
     >>> F.windowedBySession (sessionWindows (minutes 5))
     >>> F.countSessionWindowed countMat
-    >>> F.streamFromSessionWindowed textSerde int64Serde
+    >>> F.streamFromSessionWindowed
     >>> F.filter (\r -> recordValue r >= 10)
     >>> F.sink "suspicious-sessions" textSerde int64Serde
   where

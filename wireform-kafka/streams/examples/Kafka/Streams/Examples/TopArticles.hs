@@ -51,7 +51,7 @@ topArticlesTopology =
     >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
     >>> F.windowedByTime (hoppingWindows (minutes 60) (minutes 5))
     >>> F.countWindowed countMat
-    >>> F.streamFromWindowed textSerde int64Serde
+    >>> F.streamFromWindowed
     >>> F.selectKey
           (\r -> case recordKey r of
                    Just (WindowedKey k _) -> k
