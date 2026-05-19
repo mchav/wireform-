@@ -3475,7 +3475,7 @@ aggregateWindowedCogrouped seed m =
 -- downstream sinks have them available. /JVM equivalent:/
 -- 'TimeWindowedKStream.toStream()'.
 streamFromWindowed
-  :: Ord k
+  :: (Ord k, Eq v)
   => Serde k
   -> Serde v
   -> Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
