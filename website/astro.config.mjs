@@ -61,6 +61,7 @@ export default defineConfig({
           label: 'Kafka Streams',
           items: [
             { label: 'Overview', slug: 'kafka-streams' },
+            { label: 'Riffle: Flink-class extensions', slug: 'kafka-streams/riffle' },
             {
               label: 'Operating',
               items: [
