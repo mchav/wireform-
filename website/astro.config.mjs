@@ -61,9 +61,20 @@ export default defineConfig({
           label: 'Kafka Streams',
           items: [
             { label: 'Overview', slug: 'kafka-streams' },
+            {
+              label: 'Get started',
+              items: [
+                { label: 'Quickstart', slug: 'kafka-streams/get-started/quickstart' },
+                { label: '1. What is Kafka Streams?', slug: 'kafka-streams/get-started/what-is-kafka-streams' },
+                { label: '2. Your first topology', slug: 'kafka-streams/get-started/your-first-topology' },
+                { label: '3. Stateful processing', slug: 'kafka-streams/get-started/stateful-processing' },
+                { label: '4. Joins and tables', slug: 'kafka-streams/get-started/joins-and-tables' },
+                { label: '5. Going to production', slug: 'kafka-streams/get-started/going-to-production' },
+              ],
+            },
             { label: 'Riffle: Flink-class extensions', slug: 'kafka-streams/riffle' },
             {
-              label: 'Operating',
+              label: 'Operations',
               items: [
                 { label: 'Topology evolution', slug: 'kafka-streams/operating/topology-evolution' },
                 { label: 'Scaling and rebalancing', slug: 'kafka-streams/operating/scaling' },
