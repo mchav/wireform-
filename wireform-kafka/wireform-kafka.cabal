@@ -746,6 +746,14 @@ executable wireform-kafka-streams-examples
         Kafka.Streams.Examples.Temperature
         Kafka.Streams.Examples.TopArticles
         Kafka.Streams.Examples.WordCount
+        Kafka.Streams.Examples.Ops.Helpers
+        Kafka.Streams.Examples.Ops.ClusterBringup
+        Kafka.Streams.Examples.Ops.CrashFailover
+        Kafka.Streams.Examples.Ops.DynamicThreads
+        Kafka.Streams.Examples.Ops.EOSCommit
+        Kafka.Streams.Examples.Ops.RevocationGrace
+        Kafka.Streams.Examples.Ops.RollingUpgrade
+        Kafka.Streams.Examples.Ops.StandbyWarmup
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,

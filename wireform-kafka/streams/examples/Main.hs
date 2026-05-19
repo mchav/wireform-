@@ -23,6 +23,20 @@
 --   * @branching@   — KIP-418 split on predicates
 --   * @global@      — KStream-GlobalKTable join
 --   * @cogroup@     — KIP-150 cogroup of streams with distinct value types
+--
+-- And a second set of /operational/ demos that exercise the
+-- runtime — multi-instance cluster, deployments, crashes,
+-- upgrades, warm failover, EOS:
+--
+--   * @ops-bringup@ — multi-instance assignment over a shared broker
+--   * @ops-crash@   — one instance dies; peers inherit its partitions
+--   * @ops-rolling@ — rolling deploy that recycles instances under load
+--   * @ops-threads@ — KIP-663 in-process @num.stream.threads@ scaling
+--   * @ops-standby@ — warm a standby off the changelog and decide
+--                     when it's ready (KIP-441)
+--   * @ops-eos@     — EOS commit visibility under read-committed
+--                     and behaviour on commit fault
+--   * @ops-revoke@  — KIP-869 soft-revocation grace decisions
 module Main (main) where
 
 import Data.List (intercalate)
@@ -46,6 +60,14 @@ import qualified Kafka.Streams.Examples.Temperature       as Temperature
 import qualified Kafka.Streams.Examples.TopArticles       as TopArticles
 import qualified Kafka.Streams.Examples.WordCount         as WordCount
 
+import qualified Kafka.Streams.Examples.Ops.ClusterBringup   as OpsBringup
+import qualified Kafka.Streams.Examples.Ops.CrashFailover    as OpsCrash
+import qualified Kafka.Streams.Examples.Ops.DynamicThreads   as OpsThreads
+import qualified Kafka.Streams.Examples.Ops.EOSCommit        as OpsEOS
+import qualified Kafka.Streams.Examples.Ops.RevocationGrace  as OpsRevGrace
+import qualified Kafka.Streams.Examples.Ops.RollingUpgrade   as OpsRolling
+import qualified Kafka.Streams.Examples.Ops.StandbyWarmup    as OpsStandby
+
 demos :: [(String, IO ())]
 demos =
   [ ("pipe",        Pipe.runDemo)
@@ -64,6 +86,15 @@ demos =
   , ("global",      GlobalTable.runDemo)
   , ("cogroup",     Cogroup.runDemo)
   , ("idiomatic",   IdiomaticPipeline.runDemo)
+    -- Operational demos: multi-instance cluster, deployments,
+    -- crashes, upgrades, warm failover, EOS.
+  , ("ops-bringup", OpsBringup.runDemo)
+  , ("ops-crash",   OpsCrash.runDemo)
+  , ("ops-rolling", OpsRolling.runDemo)
+  , ("ops-threads", OpsThreads.runDemo)
+  , ("ops-standby", OpsStandby.runDemo)
+  , ("ops-eos",     OpsEOS.runDemo)
+  , ("ops-revoke",  OpsRevGrace.runDemo)
   ]
 
 main :: IO ()
