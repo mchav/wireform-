@@ -2,7 +2,7 @@
 title: Exactly-once across Kafka and other systems
 description: How EOS-v2 works in wireform-kafka-streams, and the two-phase commit sink contract that extends it to Postgres, Iceberg, S3, HTTP, or any other non-Kafka system.
 sidebar:
-  order: 4
+  order: 5
 ---
 
 Exactly-once-semantics on Kafka itself is a known story: transactional producer, `TxnOffsetCommit`, KIP-892 transactional state stores. The library wires all of that for you behind `processingGuarantee = ExactlyOnceP`.

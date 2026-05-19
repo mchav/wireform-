@@ -2,7 +2,7 @@
 title: Runbooks
 description: Common incidents in a wireform-kafka-streams deployment and the procedures for resolving them.
 sidebar:
-  order: 7
+  order: 8
 ---
 
 Each runbook starts with the **alert** the on-call sees, then walks through diagnosis and resolution. The intent is to keep this page open during an incident and follow the steps; the explanatory pages it links to have the deeper story.
@@ -67,7 +67,9 @@ settle, usually within minutes of each other. Common causes:
   `acceptableRecoveryLag` so all instances agree.
 - Monitor GC pauses; alert at p99 > 200 ms.
 - Provision local disk IOPS for RocksDB's compaction worst case,
-  not its steady state.
+  not its steady state. See [Running in containers](./containers/#3-memory-accounting)
+  for how compaction interacts with container memory limits and the
+  OOM-killer.
 
 ---
 
@@ -394,7 +396,8 @@ of unbounded growth:
 - Apply TTLs proactively for any topology where the key
   cardinality is unbounded.
 - Monitor `stateDir` size as a first-class metric, not just disk
-  usage.
+  usage. [Running in containers → disk sizing](./containers/#4-disk-sizing)
+  has the budgeting formula.
 
 ---
 
