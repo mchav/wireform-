@@ -2,7 +2,7 @@
 title: Observability
 description: Metrics, topology JSON, orphan-topic detection, lag tracking, and interactive queries — the surfaces you need wired up before the first production incident.
 sidebar:
-  order: 5
+  order: 6
 ---
 
 A Kafka Streams app fails in ways that a stateless HTTP service does not, and many of those failures are invisible to standard request-latency dashboards. This page enumerates every observability surface the library exposes and what each one tells you.

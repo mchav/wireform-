@@ -2,7 +2,7 @@
 title: Visibility versus ACID databases
 description: How read-after-write, isolation, atomicity, and durability look in Kafka Streams compared with a SQL database — and how to reason about queries against materialised state.
 sidebar:
-  order: 6
+  order: 7
 ---
 
 A Postgres `SELECT` after an `INSERT ... COMMIT` always returns the inserted row. A streams app's view of its state is more nuanced — and the differences are not bugs. They follow from using an append-only log as the source of truth and rebuilding derived state asynchronously.
