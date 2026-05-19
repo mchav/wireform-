@@ -29,14 +29,14 @@ through six ordered steps. The `EOSCoordinator` record is the
 pluggable surface that production code wires to a real
 transactional producer; tests wire it to a recorder. The shape:
 
-```
-beginTxn
-  → flush               (run user processors; send records via transactional producer)
-  → commitOffsets       (TxnOffsetCommit — consumer offsets land inside the txn)
-  → preCommit2PC        (external sinks transition to "prepared")
-  → commitTxn           (producer commits; records + offsets become visible)
-  → commit2PC           (external sinks finalise; their data becomes visible)
-  → storeCommit         (transactional state stores drain to underlying stores)
+```mermaid
+flowchart LR
+  begin["beginTxn"] --> flush["flush\n(run processors; send via transactional producer)"]
+  flush --> off["commitOffsets\n(TxnOffsetCommit;\noffsets land inside the txn)"]
+  off --> pre["preCommit2PC\n(external sinks → 'prepared')"]
+  pre --> ctxn["commitTxn\n(producer commits;\nrecords + offsets visible)"]
+  ctxn --> c2pc["commit2PC\n(external sinks finalise)"]
+  c2pc --> sc["storeCommit\n(transactional stores\ndrain to underlying stores)"]
 ```
 
 The `runCommitCycle` source in `Kafka.Streams.Runtime.EOS` is the
@@ -55,6 +55,28 @@ ground truth for the failure semantics. The summary:
 The two `CommitFatal` cases are the only ones that put the runtime
 into "operator must look" territory. Everything else is
 auto-recoverable on the next cycle.
+
+The same picture as a flow:
+
+```mermaid
+flowchart TD
+  start([Cycle starts]) --> step1[beginTxn]
+  step1 -->|fail| fatal1[CommitFatal\nsupervisor restart]
+  step1 -->|ok| step2[flush]
+  step2 -->|fail| abort[Abort path:\nabortTxn + storeAbort + abort2PC]
+  step2 -->|ok| step3[commitOffsets]
+  step3 -->|fail| abort
+  step3 -->|ok| step4[preCommit2PC]
+  step4 -->|fail| abort
+  step4 -->|ok| step5[commitTxn]
+  step5 -->|fail| abort
+  step5 -->|ok| step6[commit2PC]
+  step6 -->|fail| fatal2["CommitFatal\nstranded SinkTxnId;\ntpsRecover on restart"]
+  step6 -->|ok| step7[storeCommit]
+  step7 -->|fail| fatal3[CommitFatal\nmanual investigation]
+  step7 -->|ok| done([CommitSucceeded])
+  abort --> retry([CommitAborted\nretry next interval])
+```
 
 ## The two-phase commit sink contract
 
@@ -131,6 +153,38 @@ committed:
 
 Use `withTwoPhaseSinks` to compose a list of sinks onto an
 existing `EOSCoordinator`. The signature:
+
+The sink's lifecycle inside one commit cycle:
+
+```mermaid
+sequenceDiagram
+  participant Eng as Engine (stream thread)
+  participant Sink as TwoPhaseSink
+  participant Coord as EOSCoordinator
+  participant Br as Broker
+  Eng->>Sink: tpsStage(record)  ⨯ N
+  Coord->>Sink: tpsPrepare(txnId, [extraRows])
+  Sink-->>Coord: SinkOK
+  Coord->>Br: commitTxn
+  Br-->>Coord: ok
+  Coord->>Sink: tpsCommit(txnId)
+  Sink-->>Coord: SinkOK
+  Note over Sink: Rows visible downstream
+```
+
+On restart after a crash between `commitTxn` and `tpsCommit`:
+
+```mermaid
+sequenceDiagram
+  participant Sink as TwoPhaseSink
+  participant Run as Runtime (boot)
+  Run->>Sink: tpsRecover
+  Sink-->>Run: [stranded SinkTxnId1, ...]
+  Run->>Run: Cross-reference committed offsets
+  Run->>Sink: tpsCommit(SinkTxnId1)\nor tpsAbort(SinkTxnId1)
+  Sink-->>Run: SinkOK
+```
+
 
 ```haskell
 withTwoPhaseSinks

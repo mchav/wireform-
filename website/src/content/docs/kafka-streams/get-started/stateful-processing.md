@@ -177,6 +177,32 @@ A KTable is **derived state**. The truth lives in the Kafka topic
 (or the changelog topic backing the store); the KTable is a
 materialised view.
 
+Same input stream, two interpretations:
+
+```mermaid
+flowchart LR
+  subgraph in[Input records]
+    R1["(alice, 100, t=1)"]
+    R2["(bob,   50, t=2)"]
+    R3["(alice, 150, t=3)"]
+    R4["(alice, 200, t=4)"]
+  end
+  in --> KS["KStream view\n4 independent events"]
+  in --> KT["KTable view\nalice = 200\nbob = 50\n(newer overwrites older)"]
+```
+
+The relationship in your topology:
+
+```mermaid
+flowchart LR
+  Src["KStream\nof events"] --> Group["groupBy"]
+  Group --> Agg["count / aggregate / reduce"]
+  Agg --> Tbl["KTable\nof running result"]
+  Tbl --> ToStr["toStream"]
+  ToStr --> Sink["sink to topic\n(or stream-table join)"]
+  Tbl -. backed by .-> Store[("State store\n+ changelog topic")]
+```
+
 Pattern: `KStream of events → groupBy → aggregate → KTable of
 running result → toStream → sink to a topic`.
 

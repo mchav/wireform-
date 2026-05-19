@@ -102,26 +102,15 @@ Three records out, not four. `dave` doesn't appear in the
 
 Both sides feed into one operator:
 
-```
-        ┌─────────────────┐
-        │  PageViews      │  KStream Text Text
-        │  (per-event)    │   key = user, value = page
-        └────────┬────────┘
-                 │
-                 ▼
-            ┌─────────────────────┐
-            │ joinStreamTable     │
-            │ "for each page view │     KStream Text Text
-            │  look up the user's │     key = user
-            │  current region"    │     value = page,region
-            └─────────┬───────────┘
-                      ▲
-                      │
-            ┌─────────┴───────┐
-            │  UserProfiles   │  KTable Text Text
-            │  (current value │   key = user, value = region
-            │   per key)      │
-            └─────────────────┘
+```mermaid
+flowchart TB
+  PV["PageViews\nKStream Text Text\nkey=user, value=page"]
+  UP["UserProfiles\nKTable Text Text\nkey=user, value=region"]
+  Join{{"joinStreamTable\n'for each page view\nlook up the user's\ncurrent region'"}}
+  Out["EnrichedPageViews\nKStream Text Text\nkey=user, value=page,region"]
+  PV -- per-event --> Join
+  UP -- current value per key --> Join
+  Join --> Out
 ```
 
 The KStream side is "every page view as it happens". The KTable

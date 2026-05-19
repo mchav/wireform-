@@ -23,18 +23,21 @@ Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/
 
 ## Decision tree
 
-```
-Is the lookup table small (fits in memory) and slow-changing?
-├── Yes  → GlobalKTable
-└── No
-    │
-    Is the lookup table keyed and you control the publisher?
-    ├── Yes  → KTable + stream-table join (or foreign-key join)
-    └── No
-        │
-        Can the lookup happen synchronously (latency < 10 ms median)?
-        ├── Yes  → mapValuesM into a connection pool / local cache
-        └── No   → asyncMapValues / asyncMapKeyValue
+```mermaid
+flowchart TD
+  Q1{"Lookup table small\n(fits in memory)\nand slow-changing?"}
+  Q2{"Keyed and you\ncontrol the publisher?"}
+  Q3{"Sync call viable?\n(median p50 under ~10 ms)"}
+  A1["GlobalKTable"]
+  A2["KTable + stream-table join\n(or foreign-key join)"]
+  A3["mapValuesM into a\nconnection pool / local cache"]
+  A4["asyncMapValues /\nasyncMapKeyValue"]
+  Q1 -- Yes --> A1
+  Q1 -- No --> Q2
+  Q2 -- Yes --> A2
+  Q2 -- No --> Q3
+  Q3 -- Yes --> A3
+  Q3 -- No --> A4
 ```
 
 The decision is throughput- and consistency-driven:
@@ -178,6 +181,24 @@ operator owns:
 - Per-request timeout, retry, and failure policy.
 - Integration with the EOS commit cycle via a pre-commit drain
   hook so offsets do not advance past in-flight requests.
+
+The processor is a small system in its own right:
+
+```mermaid
+flowchart LR
+  Up["Upstream\nprocessor"] -->|record| Inbox[("In-flight TBQueue\n(aioBufferCapacity)")]
+  Inbox -->|consumed by| W1["Worker 1"]
+  Inbox -->|consumed by| W2["Worker 2"]
+  Inbox -->|consumed by| Wn["Worker n\n(aioWorkers)"]
+  W1 -->|user IO| Ext[(External\nsystem)]
+  W2 -->|user IO| Ext
+  Wn -->|user IO| Ext
+  W1 -->|result| Reorder[("Reorder buffer\n(if OrderedOutput)")]
+  W2 -->|result| Reorder
+  Wn -->|result| Reorder
+  Reorder -->|drain on stream thread| Down["Downstream\nprocessor"]
+  Coord["EOSCoordinator\ncommit cycle"] -. preCommitDrain hook .-> Reorder
+```
 
 ```haskell
 import qualified Kafka.Streams.AsyncIO.Config as AIO

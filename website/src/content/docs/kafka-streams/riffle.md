@@ -78,7 +78,35 @@ The current code has two layers, and Riffle respects both:
 | Runtime | `Kafka.Streams.Runtime.*` | New modules — `Snapshot`, `KeyGroup`, `RebalanceProtocol`, `RebalanceBridge`. Existing `WorkerPool` / `EOS` / `StandbyTask` keep their current entry points |
 
 The single `compile :: Topology Void o -> IO (o, Topo.Topology)`
-remains the bridge. New `Prim` constructors compile either to
+remains the bridge.
+
+```mermaid
+flowchart TB
+  subgraph dsl["Typed AST — Kafka.Streams.Topology.Free"]
+    Prim["Prim GADT\n(parity + Riffle constructors)"]
+    Opt["Optimizer\n(fusion, repartition, sync→async)"]
+  end
+  subgraph imp["Imperative graph — Kafka.Streams.Topology"]
+    Sources["SourceSpec\n+ optional WatermarkStrategy"]
+    Procs["ProcessorSpec"]
+    Stores["AnyStoreBuilder\n(KV / Window / Session / Snapshot / Tiered / Remote)"]
+  end
+  subgraph rt["Runtime — Kafka.Streams.Runtime.*"]
+    WP["WorkerPool\n(Partition / Hashed / KeyGroup)"]
+    EOS["EOSCoordinator\n(+ 2PC sink hooks)"]
+    Snap["Snapshot manager"]
+    Reb["RebalanceProtocol\n(KIP-848)"]
+    Async["AsyncIO processor"]
+    WC["WatermarkCoordinator"]
+  end
+  dsl --> imp
+  imp --> rt
+```
+
+Riffle features either compile to *existing* `ProcessorSpec`
+shapes (async I/O lives inside one task) or to *new* spec
+shapes added alongside (snapshot-aware stores get their own
+`AnyStoreBuilder` constructor). New `Prim` constructors compile either to
 existing `ProcessorSpec` shapes (for Riffle features that reuse the
 single-task model — e.g. async I/O lives inside one task) or to
 new spec shapes added alongside (for features that need a new

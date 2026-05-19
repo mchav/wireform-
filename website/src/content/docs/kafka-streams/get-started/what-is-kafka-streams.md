@@ -46,15 +46,13 @@ A **topology** is a graph. Nodes are operators (`map`, `filter`,
 `groupBy`, `count`, `join`); edges are streams of typed records
 flowing between them.
 
-```
-Kafka topic ───► [filter] ───► [groupBy + count] ───► Kafka topic
-                                    │
-                                    ▼
-                             [state store]
-                                    │
-                                    ▼
-                          Kafka changelog topic
-                          (so state survives restarts)
+```mermaid
+flowchart LR
+  In[Kafka topic] --> Filter[filter]
+  Filter --> Group[groupBy + count]
+  Group --> Out[Kafka topic]
+  Group -.->|writes per-key state| Store[(state store)]
+  Store -.->|backed by| Changelog[(Kafka changelog topic)]
 ```
 
 Three things the library does for you:
@@ -75,11 +73,20 @@ cluster. The cluster owns the lifecycle.
 In Kafka Streams, the topology is part of *your* service. You
 deploy your service binary like any other:
 
-```
-your-service-v2 binary
-├── HTTP server
-├── Kafka producer / consumer
-└── Streams topology     <-- runs here, in the same OS process
+```mermaid
+flowchart TB
+  subgraph proc["your-service binary (one OS process)"]
+    direction TB
+    HTTP["HTTP / gRPC handlers"]
+    Client["Kafka producer / consumer"]
+    Topo["Streams topology"]
+    Mem["Local state stores"]
+  end
+  Topo -. consumes from .-> Brokers[("Kafka brokers")]
+  Topo -. produces to .-> Brokers
+  Topo -. writes changelog to .-> Brokers
+  Client -. reads / writes .-> Brokers
+  Topo --- Mem
 ```
 
 Consequences:

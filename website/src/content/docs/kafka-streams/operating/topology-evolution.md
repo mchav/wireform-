@@ -240,7 +240,31 @@ the matching changelog write multiplier.
 
 ### Suggested rollout shape
 
-For a topology that owns meaningful state:
+For a topology that owns meaningful state, the rolling deploy
+unfolds along this timeline. `numStandbyReplicas >= 1` is what
+makes the failover step metadata-only:
+
+```mermaid
+sequenceDiagram
+  participant Op as Operator
+  participant v1 as v1 instance (active)
+  participant v1s as v1 instance (standby, lag ≈ 0)
+  participant v2 as v2 instance (new)
+  participant Br as Broker (coordinator)
+  Op->>Op: Run topology JSON golden diff\nRun orphan-topic detector
+  Op->>v2: Start v2 binary
+  v2->>Br: JoinGroup (subscription + member epoch)
+  Br-->>v1s: Reconciliation { rRemove = {T}, ... }
+  v1s->>Br: Heartbeat (released T)
+  Br-->>v2: Reconciliation { rAdd = {T}, ... }
+  v2->>v2: Warm task from standby state\n+ replay tail
+  v2->>Br: Heartbeat (currentlyOwned += T)
+  Note over v2: streamsStatus = RUNNING
+  Op->>v1: Drain + close
+  Op->>Op: Re-run orphan-topic detector
+```
+
+Concrete steps:
 
 1. **Pre-flight (on the operator's machine):**
    - Build v2 locally.

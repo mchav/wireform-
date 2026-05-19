@@ -83,6 +83,30 @@ loop:
    `KafkaStreams`. The handler fires on every revoke / assign so
    you can drain external resources keyed by partition.
 
+A single task moving from member A to member B over three
+heartbeats:
+
+```mermaid
+sequenceDiagram
+  participant Coord as Group coordinator (broker)
+  participant A as Member A (losing task T)
+  participant B as Member B (gaining task T)
+  Note over A,B: Steady state: A owns task T
+  B->>Coord: Heartbeat (join)
+  Coord->>Coord: Recompute TargetAssignment
+  Coord-->>A: Reconciliation { rRemove = {T} }
+  Coord-->>B: Reconciliation { rAdd = {T} }\n(blocked: A still owns T)
+  A->>A: Drain T; commit cycle on T closes
+  A->>Coord: Heartbeat (currentlyOwned no longer includes T)
+  Coord->>Coord: Mark T released
+  Coord-->>B: Reconciliation { rAdd = {T} }
+  B->>B: Fetch standby state / replay tail
+  B->>Coord: Heartbeat (currentlyOwned += T)
+  Note over A,B: New steady state: B owns task T
+```
+
+At no point during the transfer is T owned by both members.
+
 ### The ceiling is the partition count
 
 A group has at most `numStreamThreads × processes` workers, but no

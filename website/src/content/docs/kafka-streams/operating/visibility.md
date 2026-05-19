@@ -64,7 +64,27 @@ extend to cross-task reads even within the same process.
 
 - A 30 s `commitIntervalMs` (default) means downstream
   `read_committed` consumers see records with up to 30 s of
-  staleness. If your downstream service has tight SLAs, shorten
+  staleness.
+
+```mermaid
+sequenceDiagram
+  participant Up as Upstream producer
+  participant Eng as Streams engine
+  participant Store as State store
+  participant IQ as Interactive query
+  participant Down as read_committed consumer
+  Up->>Eng: record at t=0
+  Eng->>Store: put (buffered in txn store)
+  IQ->>Store: get
+  Store-->>IQ: pre-commit value (your call:\nread overlay or underlying?)
+  Note over Eng: ...more records...
+  Eng->>Eng: commit cycle at t=30s
+  Eng->>Down: records become visible
+  Eng->>Store: storeCommit drains txn buffer
+  IQ->>Store: get
+  Store-->>IQ: committed value
+```
+ If your downstream service has tight SLAs, shorten
   the interval or accept the staleness budget.
 - Interactive queries (`Kafka.Streams.InteractiveQueries`) read
   from the **uncommitted** view of the state store by default —

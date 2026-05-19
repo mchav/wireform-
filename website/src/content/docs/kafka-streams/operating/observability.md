@@ -32,6 +32,26 @@ Plus [interactive queries (IQ)](../glossary/#interactive-query-iq) (`Kafka.Strea
 debugging tool — not strictly observability, but the closest thing
 to a "look at the current state" view.
 
+```mermaid
+flowchart LR
+  subgraph rt[Running streams runtime]
+    Eng[Engine]
+    Stores[(State stores)]
+    Standby[(Standby tasks)]
+    Mr["MetricsRegistry\n(counters / gauges / timers)"]
+    Topo[Compiled Topology]
+  end
+  Eng -->|recordCounter| Mr
+  Standby -->|warmup lag| LagL[LagListener callback]
+  Eng -->|state transitions| StateL[StateListener callback]
+  Mr -->|dumpMetrics poll| Push[Push gateway / OTel / Prometheus]
+  Topo -->|topologyDescription| GoldenFile[CI golden file]
+  Topo -->|liveTopologyDescription| UIOverlay[Web UI overlay]
+  Topo -->|detectOrphans + AdminClient.listTopics| Orphan[Orphan-topic log]
+  Stores -->|queryEngineStore / queryKVStore| IQ[Interactive Queries\n(your HTTP handler)]
+```
+
+
 ## Metrics
 
 `Kafka.Streams.Metrics` is an in-process registry of counters,
