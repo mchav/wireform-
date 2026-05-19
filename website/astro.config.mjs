@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import mermaid from 'astro-mermaid';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +30,13 @@ export default defineConfig({
     plugins: [tailwindcss()],
   },
   integrations: [
+    mermaid({
+      theme: 'neutral',
+      autoTheme: true,
+      mermaidConfig: {
+        flowchart: { curve: 'basis' },
+      },
+    }),
     starlight({
       title: 'wireform',
       description:
@@ -56,49 +64,6 @@ export default defineConfig({
         {
           label: 'Concepts',
           autogenerate: { directory: 'concepts' },
-        },
-        {
-          label: 'Kafka Streams',
-          items: [
-            { label: 'Overview', slug: 'kafka-streams' },
-            {
-              label: 'Get started',
-              items: [
-                { label: 'Quickstart', slug: 'kafka-streams/get-started/quickstart' },
-                { label: '1. What is Kafka Streams?', slug: 'kafka-streams/get-started/what-is-kafka-streams' },
-                { label: '2. Your first topology', slug: 'kafka-streams/get-started/your-first-topology' },
-                { label: '3. Stateful processing', slug: 'kafka-streams/get-started/stateful-processing' },
-                { label: '4. Joins and tables', slug: 'kafka-streams/get-started/joins-and-tables' },
-                { label: '5. Going to production', slug: 'kafka-streams/get-started/going-to-production' },
-              ],
-            },
-            { label: 'Riffle: Flink-class extensions', slug: 'kafka-streams/riffle' },
-            {
-              label: 'Operations',
-              items: [
-                { label: 'Topology evolution', slug: 'kafka-streams/operating/topology-evolution' },
-                { label: 'Scaling and rebalancing', slug: 'kafka-streams/operating/scaling' },
-                { label: 'Exactly-once across systems', slug: 'kafka-streams/operating/exactly-once' },
-                { label: 'Observability', slug: 'kafka-streams/operating/observability' },
-                { label: 'Visibility versus ACID', slug: 'kafka-streams/operating/visibility' },
-                { label: 'Runbooks', slug: 'kafka-streams/operating/runbooks' },
-              ],
-            },
-            {
-              label: 'Concepts',
-              items: [
-                { label: 'Topology optimization', slug: 'kafka-streams/concepts/topology-optimization' },
-                { label: 'Dynamic topology changes', slug: 'kafka-streams/concepts/dynamic-topology' },
-              ],
-            },
-            {
-              label: 'Guides',
-              items: [
-                { label: 'Enrichment via external systems', slug: 'kafka-streams/guides/enrichment' },
-              ],
-            },
-            { label: 'Glossary', slug: 'kafka-streams/glossary' },
-          ],
         },
         {
           label: 'API reference',
