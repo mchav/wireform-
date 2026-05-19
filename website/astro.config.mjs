@@ -86,6 +86,7 @@ export default defineConfig({
                 { label: 'Enrichment via external systems', slug: 'kafka-streams/guides/enrichment' },
               ],
             },
+            { label: 'Glossary', slug: 'kafka-streams/glossary' },
           ],
         },
         {
