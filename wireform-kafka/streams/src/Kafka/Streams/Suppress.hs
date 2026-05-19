@@ -428,6 +428,15 @@ suppressWindowedShedProc sn graceMs winMs shelf = do
           Just (AnyKeyValueStore kvs) ->
             writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
           _ -> error $ "suppress-shed: buffer store missing: " <> show sn
+        -- Same flush-on-stream-time-advance contract as
+        -- 'suppressWindowedProc'; see comment there.
+        _ <- schedule ctx 1 StreamTimePunctuation
+               (Punctuator $ \_ -> do
+                  mbuf' <- readIORef bufRef
+                  case mbuf' of
+                    Just buf_ -> flushDueShed ctx buf_ sizeRef
+                    Nothing   -> pure ())
+        pure ()
     , procClose = pure ()
     , procProcess = \r -> case recordKey r of
         Nothing -> pure ()
@@ -687,6 +696,20 @@ suppressTimeLimitProc sn limitMs = do
           Just (AnyKeyValueStore kvs) ->
             writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
           _ -> error $ "suppress-debounce: buffer missing: " <> show sn
+        -- Same flush-on-stream-time-advance contract as
+        -- 'suppressWindowedProc'; without it, a debounced key
+        -- whose source goes silent for longer than 'limitMs'
+        -- would sit in the buffer forever even though the
+        -- runtime's clock has crossed @firstSeen + limitMs@.
+        _ <- schedule ctx 1 StreamTimePunctuation
+               (Punctuator $ \_ -> do
+                  mbuf' <- readIORef bufRef
+                  case mbuf' of
+                    Just buf_ -> do
+                      Timestamp now <- effectiveTime ctx
+                      flushExpired ctx buf_ now
+                    Nothing   -> pure ())
+        pure ()
     , procClose = pure ()
     , procProcess = \r -> case recordKey r of
         Nothing -> pure ()
