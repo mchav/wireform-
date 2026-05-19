@@ -5,20 +5,17 @@ sidebar:
   order: 7
 ---
 
+Each runbook starts with the **alert** the on-call sees, then walks through diagnosis and resolution. The intent is to keep this page open during an incident and follow the steps; the explanatory pages it links to have the deeper story.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-Each runbook below starts with the **alert** the on-call sees,
-then walks through diagnosis and resolution. The intent is to keep
-the page open during an incident and follow the steps; the
-underlying mechanisms are linked back to the explanatory pages.
-
-The runbooks are ordered roughly by frequency in mature
-deployments — rebalance storms and `CommitFatal` are the two you
-will most likely meet first.
-
----
+:::note[TL;DR]
+- Most-common incidents covered: rebalance storm, `CommitFatal` after `commit2PC`, standby that never promotes, orphan internal topics, producer fenced, async-I/O stall, deserialisation flood, unbounded state-dir growth, slow commit cycle, IQ during rebalance.
+- Each runbook is structured the same way: alert → diagnosis → resolve → prevent.
+- Use the quick metric-reference at the bottom when you don't know what to look at first.
+:::
 
 ## Rebalance storm
 

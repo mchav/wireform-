@@ -5,17 +5,21 @@ sidebar:
   order: 1
 ---
 
+The single most-cited reason teams leave Kafka Streams for Flink is "we needed to enrich records from an external API and couldn't do it cleanly." The parity DSL gives you `mapValuesM`, which runs synchronously on the [stream thread](../../glossary/#stream-thread) — throughput collapses when the external call takes 50 ms. The Riffle [async-I/O operator](../../glossary/#async-io-operator) family in `Kafka.Streams.AsyncIO` fixes this.
+
+This page walks through every enrichment pattern, when to use each, and how to size async I/O for your latency budget.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-The single most-cited reason teams leave Kafka Streams for Flink is
-"we needed to enrich records from an external API and couldn't do it
-cleanly". The parity DSL gives you `mapValuesM :: (v -> IO v')`,
-which is synchronous on the [stream thread](../glossary/#stream-thread) — throughput collapses
-when the external call takes 50 ms. The [async-I/O operator](../glossary/#async-io-operator) family
-in `Kafka.Streams.AsyncIO` fixes this; this page walks through
-when to use it, and the four other enrichment patterns to know.
+:::note[TL;DR]
+- Decision tree across six patterns: GlobalKTable (small reference data), KTable join, foreign-key join, sync `mapValuesM`, async I/O, idempotency-token state-store dedup.
+- Async I/O gives you bounded backpressure, EOS-correct offsets, ordered or unordered output, per-request timeout + retry, explicit failure policy.
+- Capacity sizing: `aioWorkers ≈ throughput × medianLatency` (Little's law); `aioBufferCapacity ≈ 4 × aioWorkers` so brief stalls don't immediately propagate.
+- EOS-correct via the pre-commit drain hook — offsets only advance once every in-flight request has deposited a result.
+- For external *writes* with strong consistency, use a [two-phase commit sink](../../operating/exactly-once/) instead.
+:::
 
 ## Decision tree
 

@@ -5,14 +5,19 @@ sidebar:
   order: 5
 ---
 
+A Kafka Streams app fails in ways that a stateless HTTP service does not, and many of those failures are invisible to standard request-latency dashboards. This page enumerates every observability surface the library exposes and what each one tells you.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-A Kafka Streams app fails in ways that a stateless HTTP service does
-not, and many of those failures are invisible to standard
-RED-or-USE dashboards. This page enumerates every observability
-surface the library exposes and what each one tells you.
+:::note[TL;DR]
+- Four surfaces: metrics registry, topology JSON, orphan-topic detector, lag tracking.
+- The metrics registry is plain in-memory; you wire it to your push gateway via a periodic `dumpMetrics` poll.
+- Topology JSON (`topologyDescription` / `liveTopologyDescription`) is a versioned document suitable for CI golden-file diffing and live UI overlays.
+- Always alert on `droppedRecordsTotal` (silent data loss), `commit-cycle-fatal` (operator-required), and per-task warmup lag above `acceptableRecoveryLag`.
+- Interactive queries (IQ) are a debugging surface, not a replacement for a query layer.
+:::
 
 ## The four surfaces
 

@@ -29,6 +29,13 @@ migration.
 Acronyms and jargon used below are defined in the [Glossary](./glossary/).
 :::
 
+:::note[TL;DR]
+- Riffle is an *additive* extension tier on top of the parity Kafka Streams port. Opt in per feature; nothing changes for topologies that don't.
+- Closes the Flink-class gaps without leaving the library-deployment model: async I/O with backpressure + EOS, snapshot-based state recovery, two-phase commit to non-Kafka sinks, cross-source watermarks, key-group rescaling.
+- Six landed areas, listed below with the module to import for each.
+- Recommended adoption order at the bottom of this page if you're picking pieces incrementally.
+:::
+
 Read the design contract in
 [`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md)
 for the full design rationale and roadmap. This page is the

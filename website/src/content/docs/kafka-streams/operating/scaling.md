@@ -5,20 +5,21 @@ sidebar:
   order: 3
 ---
 
+There are three axes to scale a streams app on: more **threads** in a process, more **processes** in the consumer group, or more **key-groups** to shard logical work past the partition count. Each one has its own trade-offs.
+
+This page walks through all three, plus the rebalance protocol and the standby-task machinery that ties them together.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-The parity surface of wireform-kafka-streams scales the same way the
-JVM client does: [parallelism](../glossary/#parallelism) is bounded by the [partition](../glossary/#partition) count of the
-input topics, and a consumer group reshuffles partitions across
-instances when membership changes. The Riffle [key-group](../glossary/#key-group) model
-decouples parallelism from partitions when you need to scale past
-that limit.
-
-This page covers the three axes of scaling — threads inside a
-process, instances across processes, and key-groups across either —
-plus the rebalance protocol that ties them together.
+:::note[TL;DR]
+- Parity Streams parallelism is capped at `numStreamThreads × instances × partition_count`. The Riffle key-group model decouples it from partition count entirely.
+- Three dispatch modes — `DispatchPartition` (default, parity), `DispatchHashed`, `DispatchKeyGroup` (Riffle).
+- `numStandbyReplicas >= 1` is the difference between metadata-only failover and a full changelog replay.
+- KIP-848 incremental rebalance: tasks are never double-owned during a transfer.
+- `addStreamThread` / `removeStreamThread` reshape in-process workers without triggering a broker-side rebalance.
+:::
 
 ## The three axes
 

@@ -5,27 +5,20 @@ sidebar:
   order: 2
 ---
 
+The topology you write is not necessarily the topology that runs. The compiler walks the [`FreeArrow Prim`](../../glossary/#free-arrow--freearrow) AST and applies a set of rewrite passes that reduce node count, eliminate redundant repartitions, hoist pure work out of expensive paths, and (with Riffle async I/O) fuse pure work into async workers.
+
+This page enumerates every rewrite and tells you how to inspect the result.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-The [topology](../glossary/#topology) you write is not necessarily the topology that runs.
-The compiler walks the [`FreeArrow Prim`](../glossary/#free-arrow--freearrow) AST and applies a set of
-rewrite passes that reduce node count, eliminate redundant
-repartitions, hoist pure work out of expensive paths, and (with
-Riffle async I/O) fuse pure work into async workers. Two layers
-exist:
-
-1. **AST-level fusion** — `Kafka.Streams.Topology.Free.Optimize`.
-   Rewrites the typed `Topology i o` value before it is compiled to
-   the imperative graph. Default-on; toggle via `OptimizeConfig`.
-2. **Graph-level (KIP-295) rewrites** —
-   `Kafka.Streams.Topology.Optimization`. The Java-parity knob
-   from `StreamsConfig.topology.optimization`. Default-off; opt in
-   per topology.
-
-This page enumerates both, and explains how to inspect the
-compiled output to verify what actually ran.
+:::note[TL;DR]
+- Two layers: AST-level fusion (`Kafka.Streams.Topology.Free.Optimize`, default-on) and graph-level KIP-295 rewrites (`Kafka.Streams.Topology.Optimization`, default-off).
+- Sixteen AST rewrites for compose-associativity, function fusion, repartition elimination, auto-repartition insertion, and sync-into-async fusion. All toggleable via `OptimizeConfig`.
+- Three KIP-295 graph rewrites change *internal topic layout* — treat them like a topology change between deploys.
+- Inspect what the compiler did via `optimizationStats`; pin the output for CI via `compileNoOptimize` + a golden file.
+:::
 
 ## AST-level rewrites (default-on)
 

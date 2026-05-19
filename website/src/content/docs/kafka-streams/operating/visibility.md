@@ -5,23 +5,21 @@ sidebar:
   order: 6
 ---
 
+A Postgres `SELECT` after an `INSERT ... COMMIT` always returns the inserted row. A streams app's view of its state is more nuanced — and the differences are not bugs. They follow from using an append-only log as the source of truth and rebuilding derived state asynchronously.
+
+This page maps each ACID property onto wireform-kafka-streams so you know which guarantees you get for free and which require explicit work.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-A Postgres `SELECT` after an `INSERT … COMMIT` returns the inserted
-row. A Kafka Streams interactive query after a state-store `put`
-might or might not return the new value, depending on whether the
-write has been forwarded to the read path, whether the [commit cycle](../glossary/#commit-cycle)
-has fired, whether you're querying the right instance, and (under
-EOS) whether the producer transaction committed yet. None of those
-caveats are bugs. They follow directly from a system that uses an
-append-only log as its source of truth and rebuilds derived state
-asynchronously. (Same shape as [CQRS](../glossary/#cqrs-command-query-responsibility-segregation).)
-
-This page maps each ACID property onto wireform-kafka-streams so you
-know which guarantees you get for free and which require explicit
-work.
+:::note[TL;DR]
+- The commit boundary is `commitIntervalMs` (default 30 s), not a `COMMIT` statement. Read-committed downstream consumers see records with up to that much staleness.
+- IQ reads see the live in-memory store; they don't necessarily see writes atomically with the EOS commit cycle.
+- State is partitioned across instances. A query must route to the instance that owns the partition; `StreamsMetadata` + `KeyQueryMetadata` tell you which one.
+- Event time and processing time are different clocks. Windowed aggregations are event-time; processing-rate metrics are wall-clock.
+- Side effects in `peek` / `foreach` / `mapValuesM` replay on rewind. Use a two-phase commit sink or an idempotency token for exactly-once external effects.
+:::
 
 ## A vs. ACID
 

@@ -5,29 +5,21 @@ sidebar:
   order: 2
 ---
 
+Your topology is part of the deployment contract. The internal Kafka topics the framework creates for you depend on operator names — and those names depend on the shape of your code. Get the rolling-deploy story wrong and you'll leak topics on the broker, lose state on rebalance, or strand running tasks.
+
+This page is the operating manual for a binary rollout where the topology might change between versions.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-The default mental model for a binary upgrade — "my service goes from
-v1 to v2, the old pods drain, the new ones come up" — works for a
-plain HTTP service. It mostly works for a Kafka consumer. It breaks
-in surprising ways for a Kafka Streams app because **the topology
-shape is part of the deployment contract**, and that contract is
-encoded in two places the [broker](../glossary/#broker) keeps for you long past your pods'
-lifetime:
-
-1. **[Internal topics](../glossary/#internal-topic)** the framework auto-creates
-   (`<applicationId>-<store>-changelog`,
-   `<applicationId>-<node>-repartition`).
-2. **[Consumer-group](../glossary/#consumer-group) state** that pins which [assignor](../glossary/#assignor) protocol, which
-   subscription metadata shape, and which task ownership the cluster
-   negotiated last time.
-
-This page is the operating manual for a rolling deploy where the
-topology might change between versions. If your topology is
-byte-for-byte identical between v1 and v2, you can skim — the
-interesting failure modes are all in the diff.
+:::note[TL;DR]
+- Five kinds of topology diff each have a different operational story; the table below classifies them.
+- Name every stateful operator explicitly (`Named` + `materializedAs`) — auto-generated names shift when you reshuffle the topology, which renames their changelog topics.
+- Run the [topology-JSON golden-file diff](../observability/#topology-json) in CI and the [orphan-topic detector](../observability/#orphan-internal-topics) on startup.
+- Set `numStandbyReplicas` to at least 1 for any non-trivial state, otherwise rebalance means a full changelog replay.
+- KIP-848 makes the rebalance itself incremental — no double-ownership at any point during a transfer.
+:::
 
 ## What a "topology change" actually means
 

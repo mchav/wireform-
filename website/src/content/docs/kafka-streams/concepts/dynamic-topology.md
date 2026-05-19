@@ -5,17 +5,22 @@ sidebar:
   order: 3
 ---
 
+Kafka Streams builds a [`Topology`](../../glossary/#topology) value once, at compile time, and binds it to consumer-group state, internal topics, and local stores at startup. After that point the topology shape is frozen — but a handful of things around it can still change.
+
+This page is the map of what's mutable where.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-Kafka Streams' [DSL](../glossary/#dsl) builds a [`Topology`](../glossary/#topology) value once, at compile time.
-The runtime takes that value, validates it, walks the graph, and
-binds it to [consumer-group](../glossary/#consumer-group) state, [internal topics](../glossary/#internal-topic), and local [state stores](../glossary/#state-store).
-After that point the topology shape is frozen for the life of the
-`KafkaStreams` instance — but a handful of things around the
-topology can still change. This page is the map of what's mutable
-where.
+:::note[TL;DR]
+- Four tiers: hot (live, no rebalance), warm (live, one rebalance), restart-required, migration-required.
+- Hot tier: worker count, pause/resume, every `set*Listener`, EOS coordinator swap, `setApplicationServer`.
+- Warm tier: group membership changes (add/remove an instance), `applicationServer` advertisement.
+- Restart-required: `processingGuarantee`, `dispatchMode`, most `StreamsConfig` fields.
+- Migration-required: topology shape, `applicationId`, key-group count, stateful-store serde. Each has a documented procedure.
+- Truly mutable topology isn't shipped on purpose; `TopicNameExtractor` / `Branched.withConsumer` / `addReadOnlyStateStore` cover the cases people usually want it for.
+:::
 
 ## The four tiers
 

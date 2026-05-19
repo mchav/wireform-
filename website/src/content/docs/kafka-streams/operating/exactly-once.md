@@ -5,27 +5,21 @@ sidebar:
   order: 4
 ---
 
+Exactly-once-semantics on Kafka itself is a known story: transactional producer, `TxnOffsetCommit`, KIP-892 transactional state stores. The library wires all of that for you behind `processingGuarantee = ExactlyOnceP`.
+
+What that doesn't cover is any side effect that leaves Kafka — a write to Postgres, S3, Iceberg, or an HTTP endpoint. The Riffle [two-phase commit sink](../../glossary/#two-phase-commit-sink) contract closes that gap. This page covers both halves.
+
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
-[Exactly-once-semantics (EOS)](../glossary/#eos--eos-v2--eos-v3) on Kafka itself is well-understood: the
-producer is transactional, the consumer commits its offsets inside
-the same transaction (`TxnOffsetCommit`), and [KIP-892](../glossary/#kip) transactional
-state stores buffer their writes until the broker confirms the
-producer commit. The library wires all of that for you behind
-`processingGuarantee = ExactlyOnceP`.
-
-What that does **not** cover is any side effect that leaves Kafka.
-A `foreach` that POSTs to an HTTP endpoint, a `mapValuesM` that
-writes to Postgres, a sink to S3 or to an Iceberg manifest — none
-of those are inside the producer's transaction. If the runtime
-rewinds on a [rebalance](../glossary/#rebalance) or a fault, those effects [replay](../glossary/#replay).
-
-The Riffle [two-phase-commit sink](../glossary/#two-phase-commit-sink) contract closes that gap. This
-page is the operational reference for both halves: the
-Kafka-internal commit cycle, and the external 2PC sink interface
-that hooks into it.
+:::note[TL;DR]
+- The commit cycle is six ordered steps: `beginTxn → flush → commitOffsets → preCommit2PC → commitTxn → commit2PC → storeCommit`.
+- A `TwoPhaseSink r` has five operations: `tpsStage`, `tpsPrepare`, `tpsCommit`, `tpsAbort`, `tpsRecover`. Every one must be idempotent.
+- Failure at `commit2PC` (after the producer txn already committed) is the only `CommitFatal` case; the in-flight `SinkTxnId` is resolved by `tpsRecover` on next boot.
+- Four reference sinks ship in core (in-memory, filesystem rename, HTTP echo); real adapters for JDBC / Iceberg / S3 live in separate packages.
+- If you just need EOS for the output stream of an async-I/O operator, that comes for free — the pre-commit drain hook handles it.
+:::
 
 ## The commit cycle
 
