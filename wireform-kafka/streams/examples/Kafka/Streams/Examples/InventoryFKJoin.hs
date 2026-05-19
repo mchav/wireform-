@@ -50,13 +50,13 @@ fkJoinTopology =
         prod <> "|" <> T.drop 1 (T.dropWhile (/= '|') inv))
     stockedMat
     >>> F.toStream
-    >>> F.sink "stocked" textSerde textSerde
+    >>> F.sink "stocked"
   where
     inventory :: F.Topology Void (KTable Text Text)
-    inventory = F.tableSource "inventory" textSerde textSerde
+    inventory = F.tableSource "inventory"
 
     products :: F.Topology Void (KTable Text Text)
-    products = F.tableSource "products"  textSerde textSerde
+    products = F.tableSource "products"
 
     stockedMat :: Materialized Text Text
     stockedMat =

@@ -91,7 +91,7 @@ countingProcessor = do
 
 processorAPITopology :: F.Topology Void ()
 processorAPITopology =
-  F.source "events" textSerde textSerde
+  F.source "events"
     >>> F.processValuesStream
           "Counter"
           [storeNm]
@@ -111,7 +111,7 @@ processorAPITopology =
                   [KS.kstreamParent s]
                   t
               pure s)
-    >>> F.sink "counts-stream" textSerde int64Serde
+    >>> F.sink "counts-stream"
 
 buildProcessorAPITopology :: IO Topo.Topology
 buildProcessorAPITopology = F.buildTopologyFrom processorAPITopology

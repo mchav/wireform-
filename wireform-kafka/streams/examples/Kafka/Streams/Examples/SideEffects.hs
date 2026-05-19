@@ -118,7 +118,7 @@ sideEffectsTopology ext =
   enrichLeg <> batchSummaryLeg
   where
     src :: F.Topology Void (KStream Text Text)
-    src = F.source "orders" textSerde textSerde
+    src = F.source "orders"
 
     enrichLeg :: F.Topology Void ()
     enrichLeg =
@@ -127,7 +127,7 @@ sideEffectsTopology ext =
                           (\xs -> xs ++ [trace r]))
         >>> F.mapValuesM (lookupProfile ext)
         >>> F.peek (bumpMetrics ext)
-        >>> F.sink "enriched-orders" textSerde textSerde
+        >>> F.sink "enriched-orders"
 
     batchSummaryLeg :: F.Topology Void ()
     batchSummaryLeg =

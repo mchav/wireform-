@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE KindSignatures #-}
@@ -75,6 +76,7 @@ module Kafka.Streams.Suppress
 
 import Data.IORef
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Unsafe.Coerce as Unsafe
 
@@ -101,10 +103,13 @@ import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Processor (..)
   , ProcessorContext (..)
+  , PunctuationType (..)
+  , Punctuator (..)
   , effectiveTime
   , forwardRecord
   , getStateStore
   , processorName
+  , schedule
   )
 import Kafka.Streams.Serde (Serde, serialize)
 import Kafka.Streams.State.KeyValue.InMemory
@@ -132,23 +137,23 @@ import Kafka.Streams.Types (Record (..), TopicName, emptyHeaders, unTopicName)
 -- of the underlying window store.
 streamFromWindowedHandle
   :: forall k v
-   . Ord k
+   . (Ord k, Eq v)
   => WindowedTableHandle k v
   -> Serde k                          -- ^ key serde for downstream
   -> Serde v                          -- ^ value serde for downstream
   -> IO (KStream (WindowedKey k) v)
 streamFromWindowedHandle h kserde vserde = case wthEmit h of
-  OnWindowClose ->
-    -- KIP-825: defer the (WindowedKey k, v) emission until the
-    -- window has fully closed. The existing
-    -- 'suppressWindowedHandle' helper already implements that
-    -- contract.
-    suppressWindowedHandle
+  OnWindowClose -> do
+    -- Defer the (WindowedKey k, v) emission until the window has
+    -- fully closed. We tap the windowed handle as an emit-on-update
+    -- stream first, then attach the suppress operator on top —
+    -- routing through 'suppressWindowedHandle' here would recurse
+    -- back through this function and loop.
+    s <- doStreamFromWindowedHandle h kserde vserde
+    suppressWindowed
       (millis (windowsGracePeriod (wthWindows h)))
       (windowsSize (wthWindows h))
-      kserde
-      vserde
-      h
+      s
   OnWindowUpdate -> doStreamFromWindowedHandle h kserde vserde
 
 -- | Original behaviour — emit on every update to the window
@@ -157,7 +162,7 @@ streamFromWindowedHandle h kserde vserde = case wthEmit h of
 -- 'wthEmit'.
 doStreamFromWindowedHandle
   :: forall k v
-   . Ord k
+   . (Ord k, Eq v)
   => WindowedTableHandle k v
   -> Serde k
   -> Serde v
@@ -198,12 +203,17 @@ doStreamFromWindowedHandle h kserde vserde = do
 
 windowedAsStreamProc
   :: forall (k :: *) (v :: *) (origIn :: *)
-   . Ord k
+   . (Ord k, Eq v)
   => StoreName
   -> IO (Processor k origIn)
 windowedAsStreamProc sn = do
   ctxRef   <- newIORef Nothing
   storeRef <- newIORef (Nothing :: Maybe (WindowStore k v))
+  -- Tracks the value most recently forwarded for each
+  -- @(k, windowStart)@ pair so we never re-emit unchanged
+  -- entries when the windowed aggregator forwards through us
+  -- for an update to a /different/ window of the same key.
+  lastFwdRef <- newIORef (Map.empty :: Map.Map (k, Timestamp) v)
   pure Processor
     { procName = processorName "WINDOWED-AS-STREAM"
     , procInit = \ctx -> do
@@ -218,15 +228,18 @@ windowedAsStreamProc sn = do
         mst  <- readIORef storeRef
         case (mctx, mst, recordKey r) of
           (Just ctx, Just ws, Just k) -> do
-            -- Forward every entry currently stored for this key,
-            -- which always includes the just-written one.
             it <- wsFetchRange ws k (Timestamp minBound) (Timestamp maxBound)
             entries <- kvIteratorToList it
-            mapM_ (\(ts, v) ->
-                     forwardRecord ctx
-                       (Record (Just (WindowedKey k ts)) v
-                         (recordTimestamp r) (recordHeaders r)
-                         :: Record (WindowedKey k) v))
+            mapM_ (\(ts, v) -> do
+                     prior <- Map.lookup (k, ts) <$> readIORef lastFwdRef
+                     case prior of
+                       Just v' | v' == v -> pure ()
+                       _ -> do
+                         modifyIORef' lastFwdRef (Map.insert (k, ts) v)
+                         forwardRecord ctx
+                           (Record (Just (WindowedKey k ts)) v
+                             (recordTimestamp r) (recordHeaders r)
+                             :: Record (WindowedKey k) v))
                   entries
           _ -> pure ()
     }
@@ -415,6 +428,15 @@ suppressWindowedShedProc sn graceMs winMs shelf = do
           Just (AnyKeyValueStore kvs) ->
             writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
           _ -> error $ "suppress-shed: buffer store missing: " <> show sn
+        -- Same flush-on-stream-time-advance contract as
+        -- 'suppressWindowedProc'; see comment there.
+        _ <- schedule ctx 1 StreamTimePunctuation
+               (Punctuator $ \_ -> do
+                  mbuf' <- readIORef bufRef
+                  case mbuf' of
+                    Just buf_ -> flushDueShed ctx buf_ sizeRef
+                    Nothing   -> pure ())
+        pure ()
     , procClose = pure ()
     , procProcess = \r -> case recordKey r of
         Nothing -> pure ()
@@ -504,6 +526,22 @@ suppressWindowedProc sn graceMs winMs bufCfg = do
           Just (AnyKeyValueStore kvs) ->
             writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
           _ -> error $ "suppress: buffer store missing: " <> show sn
+        -- Mirror Java's @Suppressed@: the suppress operator
+        -- registers a stream-time punctuator so windows whose
+        -- close time has been crossed get flushed even when no
+        -- new input arrives for the affected key. We fire on
+        -- every stream-time advance (@interval = 1@) because the
+        -- punctuator framework only fires once per advance, so
+        -- a larger interval would let advances slip past closed
+        -- windows in between fires.
+        let !punInterval = 1 :: Int
+        _ <- schedule ctx punInterval StreamTimePunctuation
+               (Punctuator $ \_ -> do
+                  mbuf' <- readIORef bufRef
+                  case mbuf' of
+                    Just buf_ -> flushDue ctx buf_ sizeRef
+                    Nothing   -> pure ())
+        pure ()
     , procClose = pure ()
     , procProcess = \r -> case recordKey r of
         Nothing -> pure ()
@@ -658,6 +696,20 @@ suppressTimeLimitProc sn limitMs = do
           Just (AnyKeyValueStore kvs) ->
             writeIORef bufRef (Just (Unsafe.unsafeCoerce kvs))
           _ -> error $ "suppress-debounce: buffer missing: " <> show sn
+        -- Same flush-on-stream-time-advance contract as
+        -- 'suppressWindowedProc'; without it, a debounced key
+        -- whose source goes silent for longer than 'limitMs'
+        -- would sit in the buffer forever even though the
+        -- runtime's clock has crossed @firstSeen + limitMs@.
+        _ <- schedule ctx 1 StreamTimePunctuation
+               (Punctuator $ \_ -> do
+                  mbuf' <- readIORef bufRef
+                  case mbuf' of
+                    Just buf_ -> do
+                      Timestamp now <- effectiveTime ctx
+                      flushExpired ctx buf_ now
+                    Nothing   -> pure ())
+        pure ()
     , procClose = pure ()
     , procProcess = \r -> case recordKey r of
         Nothing -> pure ()
@@ -747,7 +799,7 @@ suppressKStream s =
 -- Mirrors @KTable.suppress(Suppressed.untilWindowCloses(...))@.
 suppressWindowedHandle
   :: forall k v
-   . Ord k
+   . (Ord k, Eq v)
   => Duration                              -- grace
   -> Int64                                 -- window size
   -> Serde k                               -- inner key serde
@@ -755,7 +807,11 @@ suppressWindowedHandle
   -> WindowedTableHandle k v
   -> IO (KStream (WindowedKey k) v)
 suppressWindowedHandle grace winMs ks vs h = do
-  s <- streamFromWindowedHandle h ks vs
+  -- Always tap the handle as an emit-on-update stream here.
+  -- Routing through 'streamFromWindowedHandle' would loop for
+  -- 'OnWindowClose' handles, since that branch delegates back
+  -- to this same function.
+  s <- doStreamFromWindowedHandle h ks vs
   suppressWindowed grace winMs s
 
 -- | Tap a 'SWKS.SessionWindowedTableHandle' as a 'KStream' of

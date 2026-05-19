@@ -46,17 +46,17 @@ import qualified Kafka.Streams.Topology.Free as F
 
 temperatureTopology :: F.Topology Void ()
 temperatureTopology =
-  F.source "temperatures" textSerde doubleSerde
-    >>> F.groupByKey (grouped textSerde doubleSerde)
+  F.source @Text @Double "temperatures"
+    >>> F.groupByKey
     >>> F.windowedByTime (tumblingWindows (seconds 5))
     >>> F.reduceWindowed max maxMat
-    >>> F.streamFromWindowed textSerde doubleSerde
+    >>> F.streamFromWindowed
     >>> F.suppressWindowed (millis 0) (durationMillis (seconds 5))
     >>> F.selectKey
           (\r -> case recordKey r of
                    Just (WindowedKey k _) -> k
                    Nothing                -> "")
-    >>> F.sink "hot-temperatures" textSerde doubleSerde
+    >>> F.sink "hot-temperatures"
   where
     maxMat :: Materialized Text Double
     maxMat =
@@ -83,12 +83,16 @@ runDemo = do
   temp "kitchen" 100   18.5
   temp "kitchen" 1500  20.0
   temp "kitchen" 4500  22.1
+  -- Window [0..5000) for living-room: max = 19.9. Feed this
+  -- record in temporal order; once stream time has advanced
+  -- past 'windowEnd + grace' the windowed-reduce processor
+  -- drops late records and the living-room window never opens.
+  temp "living"  100   19.9
   -- Window [5000..10000): max for kitchen = 24.5
   temp "kitchen" 5500  23.0
   temp "kitchen" 9999  24.5
-  -- Window [0..5000) for living-room: max = 19.9
-  temp "living"  100   19.9
-  -- Push stream-time well past the second window so suppress flushes.
+  -- Push stream-time past the second window's close so the
+  -- KIP-328 'suppress' operator flushes the buffered max.
   advanceDriverStreamTime driver (Timestamp 10001)
 
   out <- readOutput driver (topicName "hot-temperatures")

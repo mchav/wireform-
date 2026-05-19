@@ -41,16 +41,17 @@ import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology.Free as F
 
+import Kafka.Streams.Examples.Runner
+
 wordCountTopology :: F.Topology Void ()
 wordCountTopology =
-  F.source "streams-plaintext-input" textSerde textSerde
+  F.source @Text @Text "streams-plaintext-input"
     >>> F.concatMapValues (T.words . T.toLower :: Text -> [Text])
     >>> F.groupBy
           (\r -> recordValue r)
-          (grouped textSerde textSerde)
     >>> F.count countMat
     >>> F.toStream
-    >>> F.sink "streams-wordcount-output" textSerde int64Serde
+    >>> F.sink "streams-wordcount-output"
   where
     countMat :: Materialized Text Int64
     countMat =
@@ -61,26 +62,28 @@ wordCountTopology =
 buildWordCountTopology :: IO Topo.Topology
 buildWordCountTopology = F.buildTopologyFrom wordCountTopology
 
-runDemo :: IO ()
-runDemo = do
+runDemo :: RunMode -> IO ()
+runDemo mode = do
   putStrLn "=== WordCountDemo ==="
-  topo <- buildWordCountTopology
-  driver <- newDriver topo "word-count-app"
-
-  mapM_ (sendLine driver)
-    [ "all streams lead to kafka"
-    , "hello kafka streams"
-    , "join kafka summit"
-    , "kafka streams kafka summit"
-    ]
-
-  out <- readOutput driver (topicName "streams-wordcount-output")
-  putStrLn ("Word-count updates emitted (" <> show (length out) <> "):")
-  mapM_ printRec out
-  closeDriver driver
+  let inTopic  = topicName "streams-plaintext-input"
+      outTopic = topicName "streams-wordcount-output"
+  withDemoDriver mode "word-count-app" buildWordCountTopology
+    [DemoTopic inTopic 1]
+    [DemoTopic outTopic 1]
+    $ \dd -> do
+      mapM_ (sendLine dd inTopic)
+        [ "all streams lead to kafka"
+        , "hello kafka streams"
+        , "join kafka summit"
+        , "kafka streams kafka summit"
+        ]
+      ddAdvance dd (Timestamp 0)
+      out <- ddRead dd outTopic
+      putStrLn ("Word-count updates emitted (" <> show (length out) <> "):")
+      mapM_ printRec out
   where
-    sendLine d line =
-      pipeInput d (topicName "streams-plaintext-input")
+    sendLine d inTopic line =
+      ddSend d inTopic
         Nothing
         (BSC.pack (T.unpack line))
         (Timestamp 0)

@@ -42,7 +42,7 @@ import qualified Kafka.Streams.Topology.Free as F
 
 branchingTopology :: F.Topology Void ()
 branchingTopology =
-  F.source "logs" textSerde textSerde
+  F.source "logs"
     >>> F.split
           [ F.splitBranch "errors"
               (\r -> "error" `T.isInfixOf` recordValue r)

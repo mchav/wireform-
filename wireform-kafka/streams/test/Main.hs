@@ -58,6 +58,8 @@ import qualified Streams.QueryAndDiscoverySpec
 import qualified Streams.ProcessorAndStoreExtrasSpec
 import qualified Streams.DynamicThreadsSpec
 import qualified Streams.BoundedSuppressSpec
+import qualified Streams.WindowedSuppressIntegrationSpec
+import qualified Streams.IdleHeartbeatSpec
 import qualified Streams.RackAwareAssignorSpec
 import qualified Streams.ProbingRebalanceRuntimeSpec
 import qualified Streams.StandbyTaskSpec
@@ -159,6 +161,8 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.ProcessorAndStoreExtrasSpec.tests
   , Streams.DynamicThreadsSpec.tests
   , Streams.BoundedSuppressSpec.tests
+  , Streams.WindowedSuppressIntegrationSpec.tests
+  , Streams.IdleHeartbeatSpec.tests
   , Streams.RackAwareAssignorSpec.tests
   , Streams.ProbingRebalanceRuntimeSpec.tests
   , Streams.StandbyTaskSpec.tests

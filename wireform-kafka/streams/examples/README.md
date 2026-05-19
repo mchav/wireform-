@@ -28,7 +28,34 @@ cabal run wireform-kafka-streams-examples -- <demo>
 cabal run wireform-kafka-streams-examples -- all
 ```
 
-With no arguments the executable prints the index.
+With no arguments the executable prints the index, including a
+per-demo tag showing whether the demo is broker-compatible.
+
+### Running against a real broker
+
+Most operational and windowed demos depend on test-driver-only
+knobs (explicit record timestamps, `advanceDriverStreamTime`,
+state-store mutation) that the public Kafka client API doesn't
+expose, so they always run against the in-process
+`TopologyTestDriver`. A subset of the stateless / hash-shuffle
+demos (currently `pipe`, `line-split`, `word-count`) is wired
+through `Kafka.Streams.Examples.Runner` and runs identically
+against either the test driver or a live broker:
+
+```
+cabal run wireform-kafka-streams-examples -- --broker localhost:9092 pipe
+WIREFORM_KAFKA_BROKER=localhost:9092 cabal run wireform-kafka-streams-examples -- word-count
+```
+
+Broker mode `ensureTopic`s the demo's input and output topics
+via `Kafka.Client.AdminClient`, then starts the topology via
+`Kafka.Streams.Runtime.startKafkaStreams`, sends records via
+`Kafka.Client.Producer.sendMessage`, and drains the output topics
+via `Kafka.Client.Consumer.poll`. The `--broker` flag (and the
+`WIREFORM_KAFKA_BROKER` env var) match the convention used by
+the integration test suites under `test-integration/`. Demos that
+aren't broker-compatible print a clear stderr warning and fall
+back to the in-process driver.
 
 ## Demos
 

@@ -34,6 +34,7 @@ module Kafka.Client.Internal.BatchAccumulator
   , appendRecordWithCallback
   , appendRecordStamped
   , appendRecordStampedUnsafe
+  , appendRecordStampedAt
   , appendRecordsStamped
     -- * Direct-mode hot path (skip partition lookups)
   , BatchAccumulating
@@ -644,6 +645,99 @@ appendRecordStamped acc@BatchAccumulator{..} tp record callback stamp = do
 -- The single-producer-per-partition contract is still useful for
 -- partitioner-state lock-freeness in the producer above us; we
 -- just don't get the @readIORef + writeIORef@ shortcut here.
+-- | Like 'appendRecordStamped' but accepts an /absolute/
+-- record timestamp override. The accumulator translates it to
+-- the right 'recordTimestampDelta' relative to whichever batch
+-- the record ends up landing in:
+--
+--   * Fast path (current batch already filling) -- delta is
+--     computed against the in-progress batch's 'baBaseTimestamp'
+--     before the CAS, so the wire-level absolute timestamp will
+--     be exactly @ts@. The result of this is race-free because
+--     the batch's base timestamp is set once at creation and
+--     never mutates.
+--   * Slow path (no current batch yet) -- a fresh batch is
+--     created with 'baBaseTimestamp' = @ts@ and the record's
+--     delta = 0, so again the wire timestamp is exactly @ts@.
+--
+-- Pass 'Nothing' for the override to fall back to the legacy
+-- behaviour (wall-clock base, delta = 0).
+{-# INLINE appendRecordStampedAt #-}
+appendRecordStampedAt
+  :: BatchAccumulator
+  -> TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> Maybe Int64                          -- ^ absolute record timestamp
+  -> IO Bool
+appendRecordStampedAt acc@BatchAccumulator{..} tp record callback stamp mTs = do
+  isClosed <- readTVarIO accumulatorClosed
+  if isClosed
+    then pure False
+    else do
+      mq <- HashMap.lookup tp <$> readIORef accumulatorPartitions
+      case mq of
+        Nothing -> slowAppendIOAt tp record callback stamp mTs acc
+        Just queue -> do
+          mba <- readIORef (queueCurrentBatch queue)
+          case mba of
+            Nothing -> slowAppendIOAt tp record callback stamp mTs acc
+            Just ba -> do
+              let !record' = case mTs of
+                    Just ts -> record { RB.recordTimestampDelta =
+                                          ts - baBaseTimestamp ba }
+                    Nothing -> record
+                  !rs    = approximateRecordSize record'
+                  !limit = accumulatorBatchSize accumulatorConfig
+              !ns <- casAppend ba record' callback rs
+              if ns < 0
+                then slowAppendIOAt tp record callback stamp mTs acc
+                else do
+                  when (ns >= limit) $ sealCurrent acc queue ba
+                  pure True
+
+-- | Slow-path variant of 'slowAppendIO' that uses the
+-- caller-supplied absolute timestamp as the new batch's
+-- 'baBaseTimestamp' instead of the wall clock. Falls back to the
+-- wall clock when 'Nothing' is supplied.
+{-# INLINE slowAppendIOAt #-}
+slowAppendIOAt
+  :: TopicPartition
+  -> RB.Record
+  -> RecordCallback
+  -> BatchStamp
+  -> Maybe Int64
+  -> BatchAccumulator
+  -> IO Bool
+slowAppendIOAt tp record callback stamp mTs acc@BatchAccumulator{..} = do
+  baseTime <- case mTs of
+    Just ts -> pure ts
+    Nothing -> getCurrentTimeMillis
+  queue       <- getOrCreatePartitionQueue acc tp
+  candidate   <- newAccumulating accumulatorConfig tp baseTime stamp
+  installed   <- atomicModifyIORef' (queueCurrentBatch queue) $ \mc ->
+    case mc of
+      Just b  -> (Just b, b)
+      Nothing -> (Just candidate, candidate)
+  -- If the slot was already populated by a concurrent caller
+  -- (or by an earlier slow-append for this same partition that
+  -- our own retry collides with), recompute the delta against
+  -- the /installed/ batch's actual base. We are guaranteed
+  -- 'installed' is the live batch at this point.
+  let !record' = case mTs of
+        Just ts ->
+          record { RB.recordTimestampDelta = ts - baBaseTimestamp installed }
+        Nothing -> record
+      !rs    = approximateRecordSize record'
+      !limit = accumulatorBatchSize accumulatorConfig
+  !ns <- casAppend installed record' callback rs
+  if ns < 0
+    then slowAppendIOAt tp record callback stamp mTs acc
+    else do
+      when (ns >= limit) $ sealCurrent acc queue installed
+      pure True
+
 {-# INLINE appendRecordStampedUnsafe #-}
 appendRecordStampedUnsafe
   :: BatchAccumulator

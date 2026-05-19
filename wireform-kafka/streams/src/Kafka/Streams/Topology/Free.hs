@@ -285,6 +285,7 @@ module Kafka.Streams.Topology.Free
   , sourcePattern
   , sourcePatternWith
   , tableSource
+  , tableSourceWith
   , globalTableSource
   , mergeSourced
 
@@ -294,6 +295,7 @@ module Kafka.Streams.Topology.Free
   , sinkExtracted
   , sinkTwoPhase
   , through
+  , throughWith
 
     -- * Stateless 'KStream' transforms
   , mapValues
@@ -396,7 +398,9 @@ module Kafka.Streams.Topology.Free
 
     -- * Grouping + aggregation
   , groupByKey
+  , groupByKeyWith
   , groupBy
+  , groupByWith
   , count
   , reduce
   , aggregate
@@ -554,7 +558,7 @@ import qualified Kafka.Streams.Named as Named
 import qualified Kafka.Streams.ForeignKeyJoin as FK
 import Kafka.Streams.GlobalKTable (GlobalKTable)
 import qualified Kafka.Streams.GlobalKTable as GT
-import Kafka.Streams.Grouped (Grouped (..))
+import Kafka.Streams.Grouped (Grouped (..), grouped)
 import Kafka.Streams.Joined (JoinWindows, Joined)
 import qualified Kafka.Streams.KGroupedStream as KGS
 import Kafka.Streams.KGroupedStream
@@ -574,7 +578,7 @@ import Kafka.Streams.Processor (FixedKeyProcessor, Processor)
 import qualified Kafka.Streams.Processor as P
 import Kafka.Streams.Produced (Produced, produced)
 import qualified Kafka.Streams.Repartitioned as Rep
-import Kafka.Streams.Serde (HasSerde, Serde)
+import Kafka.Streams.Serde (HasSerde, Serde, serde)
 import qualified Kafka.Streams.SessionWindowedKStream as SWKS
 import Kafka.Streams.State.Store
   ( StoreBuilderKV
@@ -1548,8 +1552,10 @@ buildTopologyFrom = fmap snd . compile
 -- For non-default 'Consumed' (e.g. custom timestamp
 -- extractor, latest offset reset) use 'sourceWith'. For
 -- multi-topic sources, see 'sources'.
-source :: Text -> Serde k -> Serde v -> Topology Void (KStream k v)
-source t ks vs = sourceWith (topicName t) (consumed ks vs)
+source
+  :: forall k v. (HasSerde k, HasSerde v)
+  => Text -> Topology Void (KStream k v)
+source t = sourceWith (topicName t) (consumed (serde @k) (serde @v))
 
 -- | Subscribe to a Kafka topic with a fully-specified
 -- 'Consumed'.
@@ -1582,8 +1588,10 @@ sourceWith t c = liftPrim (Source t c)
 -- use 'mergeSourced' instead (which keeps the value types
 -- separate up to the merge point).
 sources
-  :: NonEmpty Text -> Serde k -> Serde v -> Topology Void (KStream k v)
-sources ts ks vs = liftPrim (SourceMulti (fmap topicName ts) (consumed ks vs))
+  :: forall k v. (HasSerde k, HasSerde v)
+  => NonEmpty Text -> Topology Void (KStream k v)
+sources ts = liftPrim
+  (SourceMulti (fmap topicName ts) (consumed (serde @k) (serde @v)))
 
 -- | 'sources' with a fully-specified 'Consumed' (e.g. custom
 -- offset-reset policy, named source node, custom timestamp
@@ -1604,10 +1612,11 @@ sourcesWith ts c = liftPrim (SourceMulti ts c)
 -- 'pipeInput' interface. Against a real broker the runtime
 -- resolves topics at subscribe time.
 sourcePattern
-  :: Text -> Serde k -> Serde v -> Topology Void (KStream k v)
-sourcePattern pat ks vs =
+  :: forall k v. (HasSerde k, HasSerde v)
+  => Text -> Topology Void (KStream k v)
+sourcePattern pat =
   liftIO_ "sourcePattern" $ \b _void -> do
-    KS.streamFromPattern b pat (consumed ks vs)
+    KS.streamFromPattern b pat (consumed (serde @k) (serde @v))
 
 -- | 'sourcePattern' with a fully-specified 'Consumed' (custom
 -- offset-reset policy, named source node, custom timestamp
@@ -1635,10 +1644,22 @@ sourcePatternWith pat c =
 -- 'TableSource' constructor directly or fall back to
 -- 'liftIO_' with the imperative @tableFromTopic@.
 tableSource
-  :: Ord k => Text -> Serde k -> Serde v -> Topology Void (KTable k v)
-tableSource t ks vs =
-  liftPrim (TableSource (topicName t) (consumed ks vs)
-    (Mat.withValueSerde vs (Mat.withKeySerde ks Mat.materialized)))
+  :: forall k v. (Ord k, HasSerde k, HasSerde v)
+  => Text -> Topology Void (KTable k v)
+tableSource t = tableSourceWith (topicName t)
+  (consumed (serde @k) (serde @v))
+  (Mat.withValueSerde (serde @v)
+    (Mat.withKeySerde (serde @k) Mat.materialized))
+
+-- | 'tableSource' with explicit 'Consumed' and 'Materialized'
+-- records. Use this when you need finer control over the source
+-- node (offset reset, timestamp extractor) or the backing store
+-- (named store, custom retention, RocksDB backend).
+tableSourceWith
+  :: Ord k
+  => TopicName -> Consumed k v -> Materialized k v
+  -> Topology Void (KTable k v)
+tableSourceWith t c m = liftPrim (TableSource t c m)
 
 -- | Subscribe to a Kafka topic and materialise it as a
 -- /global/ 'GlobalKTable' — a cluster-wide replicated table.
@@ -1725,8 +1746,10 @@ mergeSourced left right = Compose (liftPrim Merge) (Fanout left right)
 -- producer and commit atomically with the task's offset
 -- commit. Use 'sinkWith' if you need to override the
 -- partitioner or the auto-generated sink-node name.
-sink :: Text -> Serde k -> Serde v -> Topology (KStream k v) ()
-sink t ks vs = sinkWith (topicName t) (produced ks vs)
+sink
+  :: forall k v. (HasSerde k, HasSerde v)
+  => Text -> Topology (KStream k v) ()
+sink t = sinkWith (topicName t) (produced (serde @k) (serde @v))
 
 -- | 'sink' with a fully-specified 'Produced'. Use this when you
 -- need to override the default sink-node name, supply a custom
@@ -1783,8 +1806,22 @@ sinkExtracted e p = liftPrim (SinkExtracted e p)
 -- one round-trip through the broker. If you don't need the
 -- durability, use 'repartition' (logical re-partition, broker
 -- still involved but no extra read) or stay in-process.
-through :: Text -> Serde k -> Serde v -> Topology (KStream k v) (KStream k v)
-through t ks vs = liftPrim (Through (topicName t) (produced ks vs))
+through
+  :: forall k v. (HasSerde k, HasSerde v)
+  => Text -> Topology (KStream k v) (KStream k v)
+through t =
+  throughWith (topicName t) (produced (serde @k) (serde @v))
+
+-- | 'through' with an explicit 'Produced' record. Use when you
+-- need to override the sink-side configuration (custom
+-- partitioner, sink-node name, production-exception handler).
+-- The repartition topic must already exist on the broker (or
+-- be auto-created); the in-process driver materialises it
+-- on demand.
+throughWith
+  :: TopicName -> Produced k v
+  -> Topology (KStream k v) (KStream k v)
+throughWith t p = liftPrim (Through t p)
 
 -- * Stateless 'KStream' transforms --------------------------------
 --
@@ -2388,8 +2425,16 @@ repartitionWith = liftPrim . RepartitionWith
 -- produce wrong results. Either insert 'repartition' or use
 -- 'groupBy' (which the optimiser fuses with an upstream
 -- 'selectKey').
-groupByKey :: Grouped k v -> Topology (KStream k v) (KGroupedStream k v)
-groupByKey = liftPrim . GroupByKey
+groupByKey
+  :: forall k v. (HasSerde k, HasSerde v)
+  => Topology (KStream k v) (KGroupedStream k v)
+groupByKey = groupByKeyWith (grouped (serde @k) (serde @v))
+
+-- | 'groupByKey' with an explicit 'Grouped' record. Use this to
+-- pin a named repartition topic, override either serde, or
+-- attach a 'Named' label.
+groupByKeyWith :: Grouped k v -> Topology (KStream k v) (KGroupedStream k v)
+groupByKeyWith = liftPrim . GroupByKey
 
 -- | Group by a derived key. The supplied function picks a new
 -- key per 'Record'; the upstream value is preserved.
@@ -2407,9 +2452,16 @@ groupByKey = liftPrim . GroupByKey
 -- in-process test driver this is a no-op, but against a real
 -- broker it's what guarantees per-key ordering.
 groupBy
+  :: forall k v k'. (HasSerde k', HasSerde v)
+  => (Record k v -> k')
+  -> Topology (KStream k v) (KGroupedStream k' v)
+groupBy f = groupByWith f (grouped (serde @k') (serde @v))
+
+-- | 'groupBy' with an explicit 'Grouped' record.
+groupByWith
   :: (Record k v -> k') -> Grouped k' v
   -> Topology (KStream k v) (KGroupedStream k' v)
-groupBy f g = liftPrim (GroupBy f g)
+groupByWith f g = liftPrim (GroupBy f g)
 
 -- | Count records per key. The resulting 'KTable' maps each
 -- key to the number of records seen for it.
@@ -3475,26 +3527,31 @@ aggregateWindowedCogrouped seed m =
 -- downstream sinks have them available. /JVM equivalent:/
 -- 'TimeWindowedKStream.toStream()'.
 streamFromWindowed
-  :: Ord k
-  => Serde k
-  -> Serde v
-  -> Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
-streamFromWindowed ks vs =
+  :: forall k v
+   . (Ord k, Eq v, HasSerde k, HasSerde v)
+  => Topology (TWKS.WindowedTableHandle k v) (KStream (WindowedKey k) v)
+streamFromWindowed =
   liftIO_ "streamFromWindowed" $ \_b h ->
-    Suppress.streamFromWindowedHandle h ks vs
+    -- 'Suppress.streamFromWindowedHandle' threads a key serde
+    -- through purely for symmetry: the resulting 'KStream' uses
+    -- an @error "WindowedKey serde unset"@ placeholder for
+    -- 'kstreamKeySerde' because downstream sinks always supply a
+    -- 'windowedSerde'-aware composite via 'Produced'. The class
+    -- 'HasSerde k' constraint matches the rest of the Free DSL
+    -- (no explicit serde threading at type-changing operators).
+    Suppress.streamFromWindowedHandle h (serde @k) (serde @v)
 
 -- | Bridge a 'SWKS.SessionWindowedTableHandle' into a
 -- @'KStream' k v@ pinned at the session aggregator's emit node.
 -- The aggregator forwards plain-keyed records (inner @k@, not
 -- 'SWKS.SessionKey'), so the downstream stream is keyed by @k@.
 streamFromSessionWindowed
-  :: Ord k
-  => Serde k
-  -> Serde v
-  -> Topology (SWKS.SessionWindowedTableHandle k v) (KStream k v)
-streamFromSessionWindowed ks vs =
+  :: forall k v
+   . (Ord k, HasSerde k, HasSerde v)
+  => Topology (SWKS.SessionWindowedTableHandle k v) (KStream k v)
+streamFromSessionWindowed =
   liftIO_ "streamFromSessionWindowed" $ \_b h ->
-    Suppress.streamFromSessionWindowedHandle h ks vs
+    Suppress.streamFromSessionWindowedHandle h (serde @k) (serde @v)
 
 ----------------------------------------------------------------------
 -- Dead-letter shelf (Riffle shed policy)

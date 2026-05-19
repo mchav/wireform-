@@ -41,13 +41,13 @@ ordersEnrichmentTopology =
   F.joinStreamTable orders customers
     (\order profile -> profile <> "|" <> order)
     (joined textSerde textSerde textSerde)
-    >>> F.sink "enriched-orders" textSerde textSerde
+    >>> F.sink "enriched-orders"
   where
     orders :: F.Topology Void (KStream Text Text)
-    orders = F.source "orders" textSerde textSerde
+    orders = F.source "orders"
 
     customers :: F.Topology Void (KTable Text Text)
-    customers = F.tableSource "customers" textSerde textSerde
+    customers = F.tableSource "customers"
 
 buildOrdersEnrichmentTopology :: IO Topo.Topology
 buildOrdersEnrichmentTopology = F.buildTopologyFrom ordersEnrichmentTopology

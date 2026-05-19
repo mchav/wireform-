@@ -43,13 +43,13 @@ pageViewRegionTopology =
   F.joinStreamTable views users
     (\page region -> page <> "," <> region)
     (joined textSerde textSerde textSerde)
-    >>> F.sink "EnrichedPageViews" textSerde textSerde
+    >>> F.sink "EnrichedPageViews"
   where
     views :: F.Topology Void (KStream Text Text)
-    views = F.source "PageViews" textSerde textSerde
+    views = F.source "PageViews"
 
     users :: F.Topology Void (KTable Text Text)
-    users = F.tableSource "UserProfiles" textSerde textSerde
+    users = F.tableSource "UserProfiles"
 
 buildPageViewRegionTopology :: IO Topo.Topology
 buildPageViewRegionTopology = F.buildTopologyFrom pageViewRegionTopology
