@@ -4,7 +4,7 @@
 -- Module      : Kafka.Streams.Examples.Branching
 -- Description : Split a stream by predicate (KIP-418)
 --
--- The KIP-418 'splitStream' operator takes a list of named
+-- The KIP-418 'F.split' operator takes a list of named
 -- predicates and produces one output stream per predicate, plus
 -- (optionally) a default branch for records no predicate
 -- matched.
@@ -19,43 +19,54 @@
 --         .defaultBranch(Branched.as("info"));
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). 'F.split' lands a
+-- @'Data.Map.Strict.Map' Text (KStream k v)@ on the wire; the
+-- routing fragment below destructures it and sinks each named
+-- branch to its own topic.
 module Kafka.Streams.Examples.Branching
   ( runDemo
+  , branchingTopology
   , buildBranchingTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.KStream as KS
+import qualified Kafka.Streams.Topology.Free as F
 
-buildBranchingTopology :: IO Topology
-buildBranchingTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "logs")
-            (consumed textSerde textSerde)
-  -- splitStream returns a Map (BranchName -> KStream); the keys
-  -- come from the Branched.as("...") names, mirroring the JVM.
-  branches <- splitStream
-                [ branchedFrom "errors"
-                    (\r -> "error" `T.isInfixOf` recordValue r)
-                , branchedFrom "warns"
-                    (\r -> "warn"  `T.isInfixOf` recordValue r)
-                ]
-                (Just "info")   -- default branch name
-                src
-  -- Wire each branch to its own sink.
-  let sink name topic =
-        case Map.lookup name branches of
-          Just s  -> toTopic (topicName topic) (produced textSerde textSerde) s
-          Nothing -> error $ "missing branch " <> T.unpack name
-  sink "errors" "logs-errors"
-  sink "warns"  "logs-warns"
-  sink "info"   "logs-info"
-  buildTopology b
+branchingTopology :: F.Topology Void ()
+branchingTopology =
+  F.source "logs" textSerde textSerde
+    >>> F.split
+          [ F.splitBranch "errors"
+              (\r -> "error" `T.isInfixOf` recordValue r)
+          , F.splitBranch "warns"
+              (\r -> "warn"  `T.isInfixOf` recordValue r)
+          ]
+          (Just "info")
+    >>> F.liftIO_ "route-branches"
+          (\_b branches -> do
+             let sinkBranch name topic =
+                   case Map.lookup name branches of
+                     Just s  ->
+                       KS.toTopic
+                         (topicName topic)
+                         (produced textSerde textSerde)
+                         s
+                     Nothing ->
+                       error $ "missing branch " <> T.unpack name
+             sinkBranch "errors" "logs-errors"
+             sinkBranch "warns"  "logs-warns"
+             sinkBranch "info"   "logs-info")
+
+buildBranchingTopology :: IO Topo.Topology
+buildBranchingTopology = F.buildTopologyFrom branchingTopology
 
 runDemo :: IO ()
 runDemo = do

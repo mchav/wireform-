@@ -18,49 +18,46 @@
 -- KStream<String, Order> orders = builder.stream("orders");
 -- KStream<String, Order> withRate = orders.join(
 --   rates,
---   (orderId, order) -> order.currency,    // lookup-key extractor
+--   (orderId, order) -> order.currency,
 --   (order, rate) -> order.applyRate(rate)
 -- );
 -- withRate.to("orders-with-rate");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow): the order 'KStream' and the global
+-- lookup table are paired with '&&&' and routed through
+-- 'F.streamGlobalTableJoin'.
 module Kafka.Streams.Examples.GlobalTable
   ( runDemo
+  , globalTableTopology
   , buildGlobalTableTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free as F
 
-buildGlobalTableTopology :: IO Topology
-buildGlobalTableTopology = do
-  b <- newStreamsBuilder
-  -- Reference data, replicated everywhere.
-  rates <- globalTable
-              b
-              (topicName "rates")
-              (consumed textSerde textSerde)
-              (materializedAs (storeName "rates-store"))
-  -- Order events ("orderId" -> "currency|amount").
-  orders <- streamFromTopic b
-              (topicName "orders")
-              (consumed textSerde textSerde)
-  -- Join: derive the currency from the order value, look it up
-  -- in the global table, append the rate.
-  enriched <- joinKStreamGlobalKTable
-                (\_orderId v -> T.takeWhile (/= '|') v)
-                (\order rate -> order <> "|rate=" <> rate)
-                orders
-                rates
-  toTopic
-    (topicName "orders-with-rate")
-    (produced textSerde textSerde)
-    (enriched { kstreamValueSerde = textSerde })
-  buildTopology b
+globalTableTopology :: F.Topology Void ()
+globalTableTopology =
+  F.joinStreamGlobalTable orders rates
+    (\_orderId v -> T.takeWhile (/= '|') v)
+    (\order rate -> order <> "|rate=" <> rate)
+    >>> F.sink "orders-with-rate" textSerde textSerde
+  where
+    orders :: F.Topology Void (KStream Text Text)
+    orders = F.source "orders" textSerde textSerde
+
+    rates :: F.Topology Void (GlobalKTable Text Text)
+    rates = F.globalTableSource "rates" textSerde textSerde
+
+buildGlobalTableTopology :: IO Topo.Topology
+buildGlobalTableTopology = F.buildTopologyFrom globalTableTopology
 
 runDemo :: IO ()
 runDemo = do

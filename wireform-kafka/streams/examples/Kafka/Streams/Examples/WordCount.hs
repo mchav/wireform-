@@ -19,52 +19,47 @@
 --       .to("streams-wordcount-output", Produced.with(stringSerde, longSerde));
 -- @
 --
--- Haskell — same shape, same operator names:
+-- Haskell, written against the free-arrow 'F.Topology'. The
+-- pipeline reads as a chain of 'Control.Category.(>>>)'-composed
+-- combinators and only at the very edge — 'F.buildTopologyFrom' —
+-- becomes an imperative graph.
 module Kafka.Streams.Examples.WordCount
   ( runDemo
+  , wordCountTopology
   , buildWordCountTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
 
-buildWordCountTopology :: IO Topology
-buildWordCountTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "streams-plaintext-input")
-            (consumed textSerde textSerde)
-  -- concatMapValues: lowercase + split on whitespace
-  words_ <- concatMapValues
-              (T.words . T.toLower :: Text -> [Text])
-              src
-  -- groupBy(word) — i.e. selectKey(value) + groupByKey
-  grouped_ <- groupByStream
-                (\r -> recordValue r)
-                (grouped textSerde textSerde)
-                words_
-  -- count
-  counts <- countStream
-              (materializedAs (storeName "counts-store"))
-              grouped_
-  -- KTable.toStream() — pin a KStream view at the count
-  -- processor's emit node. Same as Java's
-  -- @counts.toStream().to("streams-wordcount-output", ...)@.
-  let countsStream = KStream
-        { kstreamBuilder    = ctlBuilder counts
-        , kstreamParent     = ctlNode counts
-        , kstreamKeySerde   = textSerde
-        , kstreamValueSerde = int64Serde
-        }
-  toTopic
-    (topicName "streams-wordcount-output")
-    (produced textSerde int64Serde)
-    countsStream
-  buildTopology b
+wordCountTopology :: F.Topology Void ()
+wordCountTopology =
+  F.source "streams-plaintext-input" textSerde textSerde
+    >>> F.concatMapValues (T.words . T.toLower :: Text -> [Text])
+    >>> F.groupBy
+          (\r -> recordValue r)
+          (grouped textSerde textSerde)
+    >>> F.count countMat
+    >>> F.toStream
+    >>> F.sink "streams-wordcount-output" textSerde int64Serde
+  where
+    countMat :: Materialized Text Int64
+    countMat =
+      Mat.withValueSerde int64Serde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "counts-store")
+
+buildWordCountTopology :: IO Topo.Topology
+buildWordCountTopology = F.buildTopologyFrom wordCountTopology
 
 runDemo :: IO ()
 runDemo = do

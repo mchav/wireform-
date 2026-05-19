@@ -22,24 +22,31 @@
 -- t.addSink("snk", "summary", "counter");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). 'F.processValuesStream' emits a typed
+-- @KStream k v'@; an 'F.liftIO_' fragment attaches the state
+-- store to the processor's auto-generated node (the upstream
+-- @KStream@ value carries its 'KS.kstreamParent' so the wiring
+-- is local); a downstream 'F.sink' publishes the running counts.
 module Kafka.Streams.Examples.ProcessorAPI
   ( runDemo
+  , processorAPITopology
   , buildProcessorAPITopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.IORef
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 import qualified Unsafe.Coerce as Unsafe
 
 import Kafka.Streams
-import Kafka.Streams.StreamsBuilder (withTopology_)
-import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStoreBuilder)
-import Kafka.Streams.State.Store (StoreBuilderKV)
+import qualified Kafka.Streams.KStream as KS
+import qualified Kafka.Streams.StreamsBuilder as SB
 import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free as F
 
 storeNm :: StoreName
 storeNm = storeName "counter-store"
@@ -59,8 +66,6 @@ countingProcessor = do
             writeIORef storeRef
               (Just (Unsafe.unsafeCoerce kvs))
           _ -> error "counter store missing"
-        -- Optional: schedule a wall-clock punctuator that runs
-        -- once a second to emit a heartbeat summary.
         _ <- schedule ctx
                 1000
                 WallClockTimePunctuation
@@ -84,39 +89,32 @@ countingProcessor = do
             _ -> pure ()
     }
 
-buildProcessorAPITopology :: IO Topology
-buildProcessorAPITopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "events")
-            (consumed textSerde textSerde)
-  -- Low-level processor: maps Text values to running Int64
-  -- counts via processValuesStream (which exposes a typed
-  -- downstream KStream the way KStream.process returns
-  -- KStream<K, V'> on the JVM).
-  counts <- processValuesStream
-              "Counter"
-              [storeNm]
-              countingProcessor
-              int64Serde
-              src
-  -- Attach the state store the processor depends on. The DSL
-  -- 'processValuesStream' takes the store /names/ but doesn't
-  -- add the store itself; that's the caller's job (matches
-  -- Java's @Topology.addStateStore(storeBuilder, "Counter")@).
-  -- We use the KStream's parent NodeName to pin the store
-  -- ownership to the actual processor we just registered.
-  let kvBuilder = inMemoryKeyValueStoreBuilder storeNm
-                    :: StoreBuilderKV Text Int64
-  withTopology_ b $ \t ->
-    Topo.addStateStoreKV kvBuilder
-      [kstreamParent counts]
-      t
-  toTopic
-    (topicName "counts-stream")
-    (produced textSerde int64Serde)
-    counts
-  buildTopology b
+processorAPITopology :: F.Topology Void ()
+processorAPITopology =
+  F.source "events" textSerde textSerde
+    >>> F.processValuesStream
+          "Counter"
+          [storeNm]
+          countingProcessor
+          int64Serde
+    -- Register the counter store, owned by the processor we just
+    -- attached. The 'F.liftIO_' fragment receives the upstream
+    -- 'KStream' so we can recover the processor's auto-generated
+    -- node name via 'KS.kstreamParent' and grant it write access
+    -- to the store.
+    >>> F.liftIO_ "attach-counter-store"
+          (\b s -> do
+              SB.withTopology_ b $ \t ->
+                Topo.addStateStoreKV
+                  (inMemoryKeyValueStoreBuilder storeNm
+                     :: StoreBuilderKV Text Int64)
+                  [KS.kstreamParent s]
+                  t
+              pure s)
+    >>> F.sink "counts-stream" textSerde int64Serde
+
+buildProcessorAPITopology :: IO Topo.Topology
+buildProcessorAPITopology = F.buildTopologyFrom processorAPITopology
 
 runDemo :: IO ()
 runDemo = do

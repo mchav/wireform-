@@ -32,7 +32,7 @@ import Data.List (elemIndex, findIndex)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
 import qualified Unsafe.Coerce as Unsafe
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.EOS
   ( CommitOutcome (..)
   , EOSCoordinator (..)

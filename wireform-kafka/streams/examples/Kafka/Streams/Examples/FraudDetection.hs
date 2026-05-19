@@ -21,49 +21,46 @@
 --         .to("suspicious-sessions");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). The session-windowed handle isn't a
+-- 'KStream' yet — we pin one on 'swthNode' inside 'F.liftIO_' so
+-- the rest of the pipeline composes through the regular Free
+-- combinators.
 module Kafka.Streams.Examples.FraudDetection
   ( runDemo
+  , fraudTopology
   , buildFraudTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
 
-buildFraudTopology :: IO Topology
-buildFraudTopology = do
-  b <- newStreamsBuilder
-  activity <- streamFromTopic b
-                (topicName "user-activity")
-                (consumed textSerde textSerde)
-  let kgs = groupByKey (grouped textSerde textSerde) activity
-      sw  = sessionWindows (minutes 5)
-      swks = windowedBySession sw kgs
-  counts <- countSessionWindowed
-              (materializedAs (storeName "session-counts"))
-              swks
-  -- Pin a KStream<Text, Long> at the session-aggregator's emit
-  -- node. This is the equivalent of @counts.toStream()@ on the
-  -- JVM; we re-stamp the value serde to the int64 count type.
-  let stream = KStream
-        { kstreamBuilder    = swthBuilder counts
-        , kstreamParent     = swthNode counts
-        , kstreamKeySerde   = textSerde
-        , kstreamValueSerde = int64Serde
-        }
-  -- Filter to "suspicious" sessions (>= 10 events in a session).
-  flagged <- filterStream
-              (\r -> recordValue r >= 10)
-              stream
-  toTopic
-    (topicName "suspicious-sessions")
-    (produced textSerde int64Serde)
-    flagged
-  buildTopology b
+fraudTopology :: F.Topology Void ()
+fraudTopology =
+  F.source "user-activity" textSerde textSerde
+    >>> F.groupByKey (grouped textSerde textSerde)
+    >>> F.windowedBySession (sessionWindows (minutes 5))
+    >>> F.countSessionWindowed countMat
+    >>> F.streamFromSessionWindowed textSerde int64Serde
+    >>> F.filter (\r -> recordValue r >= 10)
+    >>> F.sink "suspicious-sessions" textSerde int64Serde
+  where
+    countMat :: Materialized Text Int64
+    countMat =
+      Mat.withValueSerde int64Serde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "session-counts")
+
+buildFraudTopology :: IO Topo.Topology
+buildFraudTopology = F.buildTopologyFrom fraudTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -88,7 +85,6 @@ runDemo = do
   act "bob" (m 10)
   act "bob" (m 20)
 
-  -- Push stream time past the gap so the session windows close.
   advanceDriverStreamTime driver (Timestamp (m 30))
 
   out <- readOutput driver (topicName "suspicious-sessions")

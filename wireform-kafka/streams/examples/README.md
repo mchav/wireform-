@@ -12,6 +12,15 @@ executable so you can run them without configuring a broker — the
 in-process `TopologyTestDriver` feeds sample data and prints the
 resulting sink records.
 
+> The topologies are written against
+> [`Kafka.Streams.Topology.Free`](../src/Kafka/Streams/Topology/Free.hs).
+> Each demo exposes its topology as a pure `F.Topology Void ()` value
+> composed with `Control.Category.(>>>)`, and only at the boundary
+> calls `F.buildTopologyFrom` to compile it into the imperative
+> `Topology` graph the test driver consumes. That keeps the pipeline
+> a first-class value the optimiser, pretty-printer, and graphviz
+> visualiser can all walk.
+
 ## Run
 
 ```

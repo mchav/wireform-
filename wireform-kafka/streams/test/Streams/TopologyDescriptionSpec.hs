@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: TestTree
 tests = testGroup "TopologyDescription"

@@ -13,7 +13,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Serde.Windowed (windowedSerde)
 import Kafka.Streams.State.Store (WindowedKey (..))
 
@@ -112,7 +112,7 @@ record_headers_visible_in_context =
               modifyIORef' seenHeaders id
           }
     nm <- freshNodeName bld "HEADERS-OBS"
-    withTopology_ bld $ Kafka.Streams.addProcessor nm [kstreamParent src] proc_
+    withTopology_ bld $ Kafka.Streams.Imperative.addProcessor nm [kstreamParent src] proc_
     topo <- buildTopology bld
     driver <- newDriver topo "hdr-app"
     pipeInput driver (topicName "in") Nothing (bytes "v") (t 0) 0

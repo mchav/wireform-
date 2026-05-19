@@ -43,6 +43,7 @@ module Kafka.Streams.Suppress
   , suppressWindowedWith
   , suppressUntilTimeLimit
   , streamFromWindowedHandle
+  , streamFromSessionWindowedHandle
   , suppressWindowedHandle
   , SuppressBufferFullException (..)
     -- * Suppressed builder
@@ -95,6 +96,7 @@ import Kafka.Streams.TimeWindowedKStream
   ( EmitStrategy (..)
   , WindowedTableHandle (..)
   )
+import qualified Kafka.Streams.SessionWindowedKStream as SWKS
 import qualified Kafka.Streams.Processor
 import Kafka.Streams.Processor
   ( Processor (..)
@@ -755,6 +757,28 @@ suppressWindowedHandle
 suppressWindowedHandle grace winMs ks vs h = do
   s <- streamFromWindowedHandle h ks vs
   suppressWindowed grace winMs s
+
+-- | Tap a 'SWKS.SessionWindowedTableHandle' as a 'KStream' of
+-- @(k, v)@ records pinned at the session-aggregator's emit node.
+--
+-- The aggregator forwards plain-keyed records (the inner @k@,
+-- not 'SWKS.SessionKey k') so the downstream stream is keyed by
+-- @k@. The supplied serdes are stamped into the resulting
+-- 'KStream' so downstream sinks / joins have them available.
+streamFromSessionWindowedHandle
+  :: forall k v
+   . Ord k
+  => SWKS.SessionWindowedTableHandle k v
+  -> Serde k                          -- ^ key serde for downstream
+  -> Serde v                          -- ^ value serde for downstream
+  -> IO (KStream k v)
+streamFromSessionWindowedHandle h kserde vserde =
+  pure KStream
+    { kstreamBuilder    = SWKS.swthBuilder h
+    , kstreamParent     = SWKS.swthNode h
+    , kstreamKeySerde   = kserde
+    , kstreamValueSerde = vserde
+    }
 
 ----------------------------------------------------------------------
 -- BufferConfig (KIP-328)

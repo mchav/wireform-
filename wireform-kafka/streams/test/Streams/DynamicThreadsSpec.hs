@@ -14,7 +14,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Client.Consumer as KC
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.NativeDriver
 
 tests :: TestTree

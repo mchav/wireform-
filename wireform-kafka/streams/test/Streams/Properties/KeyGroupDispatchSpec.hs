@@ -33,7 +33,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
   ( Timestamp (..)
   , TopologyValid
   , buildTopology

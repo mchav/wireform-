@@ -16,30 +16,31 @@
 --        .to("streams-linesplit-output");
 -- @
 --
--- Haskell:
+-- Haskell (written as a "Kafka.Streams.Topology.Free" value):
 module Kafka.Streams.Examples.LineSplit
   ( runDemo
+  , lineSplitTopology
   , buildLineSplitTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free as F
 
-buildLineSplitTopology :: IO Topology
-buildLineSplitTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "streams-plaintext-input")
-            (consumed textSerde textSerde)
-  words_ <- concatMapValues (T.words :: Text -> [Text]) src
-  toTopic
-    (topicName "streams-linesplit-output")
-    (produced textSerde textSerde)
-    words_
-  buildTopology b
+lineSplitTopology :: F.Topology Void ()
+lineSplitTopology =
+  F.source "streams-plaintext-input" textSerde textSerde
+    >>> F.concatMapValues (T.words :: Text -> [Text])
+    >>> F.sink "streams-linesplit-output" textSerde textSerde
+
+buildLineSplitTopology :: IO Topo.Topology
+buildLineSplitTopology = F.buildTopologyFrom lineSplitTopology
 
 runDemo :: IO ()
 runDemo = do

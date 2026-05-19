@@ -17,30 +17,37 @@
 -- streams.start();
 -- @
 --
--- Haskell — same shape, exact same operator names:
+-- Haskell — same shape, written against
+-- "Kafka.Streams.Topology.Free" so the topology is a first-class
+-- value built with category composition:
 module Kafka.Streams.Examples.Pipe
   ( runDemo
+  , pipeTopology
   , buildPipeTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free as F
 
--- | Build the topology. Plain pipe: source → sink.
-buildPipeTopology :: IO Topology
-buildPipeTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "streams-plaintext-input")
-            (consumed textSerde textSerde)
-  toTopic
-    (topicName "streams-pipe-output")
-    (produced textSerde textSerde)
-    src
-  buildTopology b
+-- | The pipe topology as a first-class 'F.Topology' value. No
+-- 'IO' — composition is pure data, ready to be inspected or
+-- optimised before compilation.
+pipeTopology :: F.Topology Void ()
+pipeTopology =
+  F.source "streams-plaintext-input" textSerde textSerde
+    >>> F.sink   "streams-pipe-output"     textSerde textSerde
+
+-- | Build the imperative 'Topology' graph from the
+-- 'pipeTopology' AST.
+buildPipeTopology :: IO Topo.Topology
+buildPipeTopology = F.buildTopologyFrom pipeTopology
 
 -- | Demo run against the in-process test driver. Prints what
 -- the equivalent JVM PipeDemo would have published to
@@ -58,7 +65,7 @@ runDemo = do
           (Timestamp 0)
           0
   mapM_ send
-    [ ("k1", "all streams lead to kafka")
+    [ ("k1" :: Text, "all streams lead to kafka" :: Text)
     , ("k2", "hello kafka streams")
     , ("k3", "join kafka summit")
     ]

@@ -32,7 +32,7 @@ import qualified Kafka.Common.Quota as Quota
 import qualified Kafka.Common.Resource as Resource
 import qualified Kafka.Serde as Serde
 import Data.IORef
-import qualified Kafka.Streams
+import qualified Kafka.Streams.Imperative
 import qualified Kafka.Streams.Config
 import qualified Kafka.Streams.Runtime
 import qualified Kafka.Streams.Errors as Errors
@@ -608,17 +608,17 @@ telemetry_id_truncates_long_inputs =
 mkTinyKafkaStreams
   :: Kafka.Streams.Config.StreamsConfig -> IO Kafka.Streams.Runtime.KafkaStreams
 mkTinyKafkaStreams cfg = do
-  b <- Kafka.Streams.newStreamsBuilder
-  s <- Kafka.Streams.streamFromTopic
+  b <- Kafka.Streams.Imperative.newStreamsBuilder
+  s <- Kafka.Streams.Imperative.streamFromTopic
          b
-         (Kafka.Streams.topicName "in")
-         (Kafka.Streams.consumed Kafka.Streams.textSerde Kafka.Streams.textSerde)
-  Kafka.Streams.toTopic
-    (Kafka.Streams.topicName "out")
-    (Kafka.Streams.produced Kafka.Streams.textSerde Kafka.Streams.textSerde)
+         (Kafka.Streams.Imperative.topicName "in")
+         (Kafka.Streams.Imperative.consumed Kafka.Streams.Imperative.textSerde Kafka.Streams.Imperative.textSerde)
+  Kafka.Streams.Imperative.toTopic
+    (Kafka.Streams.Imperative.topicName "out")
+    (Kafka.Streams.Imperative.produced Kafka.Streams.Imperative.textSerde Kafka.Streams.Imperative.textSerde)
     s
-  topo <- Kafka.Streams.buildTopology b
-  case Kafka.Streams.validateTopology topo of
+  topo <- Kafka.Streams.Imperative.buildTopology b
+  case Kafka.Streams.Imperative.validateTopology topo of
     Left err -> error (show err)
     Right v  -> Kafka.Streams.Runtime.newKafkaStreams cfg v
 

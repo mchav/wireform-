@@ -17,6 +17,7 @@ module Kafka.Streams.Named
   , named
   , noName
   , namedOr
+  , unNamed
   ) where
 
 import Data.Text (Text)

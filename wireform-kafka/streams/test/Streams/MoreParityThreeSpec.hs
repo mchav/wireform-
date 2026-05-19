@@ -14,7 +14,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
@@ -47,7 +47,7 @@ values_stream_drops_keys =
           , procProcess = \r -> modifyIORef' seen (recordValue r :)
           }
     nm <- freshNodeName bld "OBS"
-    withTopology_ bld $ Kafka.Streams.addProcessor nm [kstreamParent valued] proc_
+    withTopology_ bld $ Kafka.Streams.Imperative.addProcessor nm [kstreamParent valued] proc_
     topo <- buildTopology bld
     driver <- newDriver topo "v-app"
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "a") (t 0) 0

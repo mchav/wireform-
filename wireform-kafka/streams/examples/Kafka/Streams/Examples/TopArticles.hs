@@ -23,53 +23,49 @@
 --      .to("article-counts-stream");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). The windowed handle returned by
+-- 'F.countWindowed' is bridged into a @KStream (WindowedKey k) v@
+-- with 'F.liftIO_' + 'Suppress.streamFromWindowedHandle', then the
+-- window envelope is stripped via 'F.selectKey' before sinking.
 module Kafka.Streams.Examples.TopArticles
   ( runDemo
+  , topArticlesTopology
   , buildTopArticlesTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
 
-buildTopArticlesTopology :: IO Topology
-buildTopArticlesTopology = do
-  b <- newStreamsBuilder
-  -- Source records are values like "tech|haskell-takeover".
-  views <- streamFromTopic b
-              (topicName "article-views")
-              (consumed textSerde textSerde)
-  -- groupByKey on the value (the "industry|article" handle).
-  grouped_ <- groupByStream
-                (\r -> recordValue r)
-                (grouped textSerde textSerde)
-                views
-  -- 1-hour hopping window advancing every 5 minutes.
-  let hopping = hoppingWindows (minutes 60) (minutes 5)
-      tws     = windowedByTime hopping grouped_
-  counts <- countWindowed
-              (materializedAs (storeName "article-counts"))
-              tws
-  -- Tap the windowed table as a KStream<(WindowedKey k), Long>.
-  windowedStream <- streamFromWindowedHandle
-                      counts
-                      textSerde
-                      int64Serde
-  -- Strip the window envelope back to the bare industry|article
-  -- key so the sink topic stays Text-keyed.
-  flat <- selectKey (\r -> case recordKey r of
-                             Just (WindowedKey k _) -> k
-                             Nothing                -> "")
-                    windowedStream
-  toTopic
-    (topicName "article-counts-stream")
-    (produced textSerde int64Serde)
-    (flat { kstreamKeySerde = textSerde, kstreamValueSerde = int64Serde })
-  buildTopology b
+topArticlesTopology :: F.Topology Void ()
+topArticlesTopology =
+  F.source "article-views" textSerde textSerde
+    >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
+    >>> F.windowedByTime (hoppingWindows (minutes 60) (minutes 5))
+    >>> F.countWindowed countMat
+    >>> F.streamFromWindowed textSerde int64Serde
+    >>> F.selectKey
+          (\r -> case recordKey r of
+                   Just (WindowedKey k _) -> k
+                   Nothing                -> "")
+    >>> F.sink "article-counts-stream" textSerde int64Serde
+  where
+    countMat :: Materialized Text Int64
+    countMat =
+      Mat.withValueSerde int64Serde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "article-counts")
+
+buildTopArticlesTopology :: IO Topo.Topology
+buildTopArticlesTopology = F.buildTopologyFrom topArticlesTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -95,9 +91,6 @@ runDemo = do
   view "finance|rates-explained"(m 15)
   view "finance|rates-explained"(m 50)
 
-  -- Drain everything the windowed-as-stream emitted; keep only
-  -- the highest count we've ever seen per key (i.e. the
-  -- "current" hopping-window count after every input fed).
   out <- readOutput driver (topicName "article-counts-stream")
   let topByKey =
         foldr
@@ -110,7 +103,7 @@ runDemo = do
                        Left _  -> 0
              in case lookup k acc of
                   Just prev | prev >= n -> acc
-                  _ -> (k, n) : filter ((/= k) . fst) acc)
+                  _ -> (k, n) : Prelude.filter ((/= k) . fst) acc)
           []
           out
   putStrLn ("Top counts per industry|article ("

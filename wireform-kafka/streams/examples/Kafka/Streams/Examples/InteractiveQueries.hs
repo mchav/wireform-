@@ -22,33 +22,41 @@
 -- KeyValueIterator<String, Long> it = store.range("a", "m");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow). The topology is a five-stage chain that
+-- terminates in the count's materialised KTable — no sink — and the
+-- demo body queries the resulting state store directly.
 module Kafka.Streams.Examples.InteractiveQueries
   ( runDemo
+  , iqTopology
   , buildIQTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Materialized as Mat
+import qualified Kafka.Streams.Topology.Free as F
 
-buildIQTopology :: IO Topology
-buildIQTopology = do
-  b <- newStreamsBuilder
-  src <- streamFromTopic b
-            (topicName "words")
-            (consumed textSerde textSerde)
-  grouped_ <- groupByStream
-                (\r -> recordValue r)
-                (grouped textSerde textSerde)
-                src
-  _counts <- countStream
-              (materializedAs (storeName "counts-store"))
-              grouped_
-  buildTopology b
+iqTopology :: F.Topology Void (KTable Text Int64)
+iqTopology =
+  F.source "words" textSerde textSerde
+    >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
+    >>> F.count countMat
+  where
+    countMat :: Materialized Text Int64
+    countMat =
+      Mat.withValueSerde int64Serde
+        $ Mat.withKeySerde textSerde
+        $ Mat.materializedAs (storeName "counts-store")
+
+buildIQTopology :: IO Topo.Topology
+buildIQTopology = snd <$> F.compile iqTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -56,7 +64,6 @@ runDemo = do
   topo <- buildIQTopology
   driver <- newDriver topo "iq-app"
 
-  -- Pump some words.
   let send w =
         pipeInput driver (topicName "words")
           Nothing
@@ -66,7 +73,6 @@ runDemo = do
   mapM_ send
     ["alice", "bob", "alice", "carol", "alice", "bob", "carol", "carol"]
 
-  -- Point query: get a single key.
   rs <- queryEngineStore @Text @Int64
           (driverEngine driver)
           (storeName "counts-store")
@@ -78,7 +84,6 @@ runDemo = do
               putStrLn ("  get " <> show k <> " = " <> show v))
         ["alice", "bob", "carol", "dave"]
 
-      -- Range scan: iterate every (key, count) in lexical order.
       it <- kvs.roKvAll
       pairs <- kvIteratorToList it
       putStrLn "  range(all):"

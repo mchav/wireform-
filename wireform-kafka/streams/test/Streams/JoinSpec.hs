@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.Joined (symmetricJoinWindows)
 
 tests :: TestTree
@@ -59,7 +59,7 @@ kstream_ktable_inner =
            (consumed textSerde textSerde)
     joined <- joinKStreamKTable
                  (\ev usr -> usr <> ":" <> ev)
-                 (Kafka.Streams.joined textSerde textSerde textSerde)
+                 (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
                  s
                  tab
     toTopic (topicName "out") (produced textSerde textSerde) joined
@@ -91,7 +91,7 @@ kstream_ktable_left =
             (\ev mu -> case mu of
                          Just u  -> u <> ":" <> ev
                          Nothing -> "<unknown>:" <> ev)
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             s
             tab
     toTopic (topicName "out") (produced textSerde textSerde) j
@@ -117,7 +117,7 @@ kstream_ktable_table_updates_propagate =
            (consumed textSerde textSerde)
     j <- joinKStreamKTable
             (\ev u -> u <> ":" <> ev)
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             s
             tab
     toTopic (topicName "out") (produced textSerde textSerde) j
@@ -150,7 +150,7 @@ kstream_kstream_inner_within_window =
     j <- joinKStreamKStream
             (\l r -> l <> "+" <> r)
             (symmetricJoinWindows (millis 100))
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             sl
             sr
     toTopic (topicName "out") (produced textSerde textSerde) j
@@ -180,7 +180,7 @@ kstream_kstream_inner_outside_window =
     j <- joinKStreamKStream
             (\l r -> l <> "+" <> r)
             (symmetricJoinWindows (millis 50))
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             sl
             sr
     toTopic (topicName "out") (produced textSerde textSerde) j
@@ -208,7 +208,7 @@ kstream_kstream_left_unmatched_emits_nothing =
                         Just r -> l <> "+" <> r
                         Nothing -> l <> "+<none>")
             (symmetricJoinWindows (millis 50))
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             sl
             sr
     toTopic (topicName "out") (produced textSerde textSerde) j
@@ -243,7 +243,7 @@ kstream_kstream_outer_emits_both_sides =
                     r = maybe "<>" id mr
                  in l <> "/" <> r)
             (symmetricJoinWindows (millis 50))
-            (Kafka.Streams.joined textSerde textSerde textSerde)
+            (Kafka.Streams.Imperative.joined textSerde textSerde textSerde)
             sl
             sr
     toTopic (topicName "out") (produced textSerde textSerde) j

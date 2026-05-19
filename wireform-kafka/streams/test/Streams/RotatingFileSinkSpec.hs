@@ -20,7 +20,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
   ( Timestamp (..)
   , closeDriver
   , newDriver

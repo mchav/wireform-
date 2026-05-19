@@ -52,7 +52,7 @@ import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import qualified Kafka.Streams.Topology.Free as F
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 import Kafka.Streams.AsyncIO
   ( AsyncDrainTrigger (..)
   , AsyncFailurePolicy (..)

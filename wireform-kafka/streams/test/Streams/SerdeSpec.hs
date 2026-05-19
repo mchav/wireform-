@@ -16,7 +16,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.Hedgehog (testProperty)
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 tests :: TestTree
 tests = testGroup "Serde"

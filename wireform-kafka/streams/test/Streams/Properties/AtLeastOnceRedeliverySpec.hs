@@ -41,9 +41,9 @@ import qualified Hedgehog.Range as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-import qualified Kafka.Streams
-import Kafka.Streams
+import Kafka.Streams.Imperative
   ( Timestamp (..)
+  , TopologyValid
   , buildTopology
   , consumed
   , newStreamsBuilder
@@ -82,7 +82,7 @@ bytes = BSC.pack . T.unpack
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
 
-passthroughValid :: IO Kafka.Streams.TopologyValid
+passthroughValid :: IO TopologyValid
 passthroughValid = do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)

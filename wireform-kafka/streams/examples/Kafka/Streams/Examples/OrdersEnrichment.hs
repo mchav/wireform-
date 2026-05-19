@@ -6,9 +6,8 @@
 -- Description : Multi-stage enrichment — KStream-KTable join
 --
 -- Inspired by the @kafka-streams-examples@ microservices /Orders/
--- topology: an order event stream is enriched first with the
--- customer's profile (KStream-KTable join), then routed to the
--- regional fulfilment topic.
+-- topology: an order event stream is enriched with the customer's
+-- profile via a KStream-KTable join.
 --
 -- Java (paraphrased):
 --
@@ -19,43 +18,39 @@
 -- enriched.to("enriched-orders");
 -- @
 --
--- Haskell:
+-- Haskell (free-arrow): the customer 'KTable' and the order
+-- 'KStream' are paired with '&&&' and fed to 'F.streamTableJoin'.
 module Kafka.Streams.Examples.OrdersEnrichment
   ( runDemo
+  , ordersEnrichmentTopology
   , buildOrdersEnrichmentTopology
   ) where
 
+import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Topology as Topo
+import qualified Kafka.Streams.Topology.Free as F
 
-buildOrdersEnrichmentTopology :: IO Topology
-buildOrdersEnrichmentTopology = do
-  b <- newStreamsBuilder
-  -- Customer profiles ("customerId" -> "name|region").
-  customers <- tableFromTopic b
-                  (topicName "customers")
-                  (consumed textSerde textSerde)
-                  (materializedAs (storeName "customers-store"))
-  -- Order events ("customerId" -> "orderId|amount").
-  orders <- streamFromTopic b
-              (topicName "orders")
-              (consumed textSerde textSerde)
-  -- Inner join: enrich each order with its customer's
-  -- "name|region" record.
-  enriched <- joinKStreamKTable
-                (\order profile ->
-                   profile <> "|" <> order)
-                (joined textSerde textSerde textSerde)
-                orders
-                customers
-  toTopic
-    (topicName "enriched-orders")
-    (produced textSerde textSerde)
-    enriched
-  buildTopology b
+ordersEnrichmentTopology :: F.Topology Void ()
+ordersEnrichmentTopology =
+  F.joinStreamTable orders customers
+    (\order profile -> profile <> "|" <> order)
+    (joined textSerde textSerde textSerde)
+    >>> F.sink "enriched-orders" textSerde textSerde
+  where
+    orders :: F.Topology Void (KStream Text Text)
+    orders = F.source "orders" textSerde textSerde
+
+    customers :: F.Topology Void (KTable Text Text)
+    customers = F.tableSource "customers" textSerde textSerde
+
+buildOrdersEnrichmentTopology :: IO Topo.Topology
+buildOrdersEnrichmentTopology = F.buildTopologyFrom ordersEnrichmentTopology
 
 runDemo :: IO ()
 runDemo = do
@@ -80,8 +75,6 @@ runDemo = do
   cust "c2" "bob|eu-west"   0
   ord  "c1" "o-100|199.95"  10
   ord  "c2" "o-101|49.50"   11
-  -- Customer profile updates mid-stream — subsequent orders see
-  -- the new region.
   cust "c1" "alice|us-west" 12
   ord  "c1" "o-102|14.99"   13
 

@@ -12,7 +12,7 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import Kafka.Streams
+import Kafka.Streams.Imperative
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
