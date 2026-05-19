@@ -5,18 +5,22 @@ sidebar:
   order: 2
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 The default mental model for a binary upgrade — "my service goes from
 v1 to v2, the old pods drain, the new ones come up" — works for a
 plain HTTP service. It mostly works for a Kafka consumer. It breaks
 in surprising ways for a Kafka Streams app because **the topology
 shape is part of the deployment contract**, and that contract is
-encoded in two places the broker keeps for you long past your pods'
+encoded in two places the [broker](../glossary/#broker) keeps for you long past your pods'
 lifetime:
 
-1. **Internal topics** the framework auto-creates
+1. **[Internal topics](../glossary/#internal-topic)** the framework auto-creates
    (`<applicationId>-<store>-changelog`,
    `<applicationId>-<node>-repartition`).
-2. **Consumer-group state** that pins which assignor protocol, which
+2. **[Consumer-group](../glossary/#consumer-group) state** that pins which [assignor](../glossary/#assignor) protocol, which
    subscription metadata shape, and which task ownership the cluster
    negotiated last time.
 
@@ -209,7 +213,7 @@ about it".
 
 The runtime joins a Kafka consumer group keyed on `applicationId`.
 Each new instance is a new group member; rebalances happen
-incrementally under the **KIP-848 next-gen protocol** (see
+incrementally under the **[KIP-848](../glossary/#kip) next-gen protocol** (see
 `Kafka.Streams.Runtime.RebalanceProtocol`). The rules:
 
 - A task is never simultaneously owned by two members. If member A is
@@ -217,7 +221,7 @@ incrementally under the **KIP-848 next-gen protocol** (see
   surfaces T in its `rRemove` set, A acknowledges by dropping T from
   its `currentlyOwned`, then B sees T in its `rAdd`. This is the
   reconciler in `Kafka.Streams.Runtime.RebalanceProtocol.reconcile`.
-- Standby tasks (`StandbyTask`, `StandbyDriver`) keep a warm replica
+- [Standby tasks](../glossary/#standby-task) (`StandbyTask`, `StandbyDriver`) keep a warm replica
   of every active task's state. During a rolling deploy, the standby
   catches up to within `acceptableRecoveryLag` records of the active,
   and at promotion time the rebalance is **metadata-only** for any
@@ -307,7 +311,7 @@ the same consumer group. Three things to be aware of:
    records must tolerate the extra field. This is the standard
    schema-evolution discipline — backwards-and-forwards compatibility
    on the wire serdes, especially when you're using Schema Registry.
-3. **Processing-guarantee mismatch.** Switching `processingGuarantee`
+3. **[Processing-guarantee](../glossary/#processing-guarantee) mismatch.** Switching `processingGuarantee`
    between `AtLeastOnceP` and `ExactlyOnceP` mid-rollout is **not**
    safe. Drain v1 first, then bring up v2 with the new guarantee.
    Otherwise v1 instances are committing offsets outside the

@@ -5,9 +5,13 @@ sidebar:
   order: 4
 ---
 
-Exactly-once-semantics (EOS) on Kafka itself is well-understood: the
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
+[Exactly-once-semantics (EOS)](../glossary/#eos--eos-v2--eos-v3) on Kafka itself is well-understood: the
 producer is transactional, the consumer commits its offsets inside
-the same transaction (`TxnOffsetCommit`), and KIP-892 transactional
+the same transaction (`TxnOffsetCommit`), and [KIP-892](../glossary/#kip) transactional
 state stores buffer their writes until the broker confirms the
 producer commit. The library wires all of that for you behind
 `processingGuarantee = ExactlyOnceP`.
@@ -16,9 +20,9 @@ What that does **not** cover is any side effect that leaves Kafka.
 A `foreach` that POSTs to an HTTP endpoint, a `mapValuesM` that
 writes to Postgres, a sink to S3 or to an Iceberg manifest — none
 of those are inside the producer's transaction. If the runtime
-rewinds on a rebalance or a fault, those effects replay.
+rewinds on a [rebalance](../glossary/#rebalance) or a fault, those effects [replay](../glossary/#replay).
 
-The Riffle two-phase-commit sink contract closes that gap. This
+The Riffle [two-phase-commit sink](../glossary/#two-phase-commit-sink) contract closes that gap. This
 page is the operational reference for both halves: the
 Kafka-internal commit cycle, and the external 2PC sink interface
 that hooks into it.
@@ -92,7 +96,7 @@ The five operations map to a Flink-style two-phase-commit sink:
 - `SinkFatal Text` — invariant broken; the runtime promotes the
   cycle to `CommitFatal` and waits for an operator.
 
-Every operation must be **idempotent**: retries on `SinkRetryable`
+Every operation must be **[idempotent](../glossary/#idempotent--idempotency)**: retries on `SinkRetryable`
 or process restarts can replay any of them. Reference
 implementations in the same module enforce idempotence by treating
 "this txn is already done" as `SinkOK`.

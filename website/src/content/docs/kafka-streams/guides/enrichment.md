@@ -5,11 +5,15 @@ sidebar:
   order: 1
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 The single most-cited reason teams leave Kafka Streams for Flink is
 "we needed to enrich records from an external API and couldn't do it
 cleanly". The parity DSL gives you `mapValuesM :: (v -> IO v')`,
-which is synchronous on the stream thread — throughput collapses
-when the external call takes 50 ms. The async-I/O operator family
+which is synchronous on the [stream thread](../glossary/#stream-thread) — throughput collapses
+when the external call takes 50 ms. The [async-I/O operator](../glossary/#async-io-operator) family
 in `Kafka.Streams.AsyncIO` fixes this; this page walks through
 when to use it, and the four other enrichment patterns to know.
 
@@ -31,7 +35,7 @@ Is the lookup table small (fits in memory) and slow-changing?
 
 The decision is throughput- and consistency-driven:
 
-- **Small, slow-changing, fits in memory** — GlobalKTable. Every
+- **Small, slow-changing, fits in memory** — [GlobalKTable](../glossary/#globalktable). Every
   instance keeps a full local replica; the lookup is a hash-table
   read. Zero per-record I/O.
 - **Keyed, partitionable, published as a Kafka topic** — KTable +
@@ -139,7 +143,7 @@ out <- mapValuesM (\v -> lookupExternal pool v) src
 Properties:
 
 - Runs on the stream thread; blocks downstream.
-- Backpressure is automatic — the consumer poll loop is naturally
+- [Backpressure](../glossary/#backpressure) is automatic — the consumer poll loop is naturally
   paced by the slowest processor.
 - Per-key ordering is preserved.
 - **Not** EOS-correct as a side effect — the external call replays
@@ -196,7 +200,7 @@ deployment tunes at least `aioBufferCapacity` and `aioWorkers`.
 
 ### Picking `aioBufferCapacity` and `aioWorkers`
 
-Per Little's law: `workers ≈ desiredThroughput × medianLatency`.
+Per [Little's law](../glossary/#littles-law): `workers ≈ desiredThroughput × medianLatency`.
 For 10 000 records/sec at 50 ms median latency, you want roughly
 500 workers. `aioBufferCapacity` should be a small multiple of
 `aioWorkers` so a brief bottleneck doesn't immediately backpressure

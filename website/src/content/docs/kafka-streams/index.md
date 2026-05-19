@@ -10,6 +10,11 @@ wireform is in heavy development and has not been published to Hackage yet.
 APIs may change. Use it today by adding the repo as a path dependency.
 :::
 
+:::tip[Unfamiliar terms?]
+Any acronym or jargon below is defined in the [Glossary](./glossary/).
+Link-rich entries cross-reference the deeper pages.
+:::
+
 `wireform-kafka-streams` is a Haskell port of [Apache Kafka
 Streams](https://kafka.apache.org/documentation/streams/). It mirrors the
 JVM DSL operator-for-operator and the runtime contracts
@@ -17,8 +22,8 @@ semantics-for-semantics, then layers an additive extension tier on top —
 called **Riffle** — that closes the operational gaps that historically
 drove teams off Kafka Streams onto Flink.
 
-This section assumes you already know what Kafka is, what a partition is,
-what a consumer group does, and roughly what a streaming topology looks
+This section assumes you already know what Kafka is, what a [partition](./glossary/#partition) is,
+what a [consumer group](./glossary/#consumer-group) does, and roughly what a streaming topology looks
 like. It does **not** assume you have run Kafka Streams in production
 before. The pages here exist because the differences from a normal
 request/response service or from an ACID database are not obvious until

@@ -25,6 +25,10 @@ working. Selecting Riffle is a config toggle, a different smart
 constructor, or a different builder shape — never a forced
 migration.
 
+:::tip[Unfamiliar terms?]
+Acronyms and jargon used below are defined in the [Glossary](./glossary/).
+:::
+
 Read the design contract in
 [`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md)
 for the full design rationale and roadmap. This page is the

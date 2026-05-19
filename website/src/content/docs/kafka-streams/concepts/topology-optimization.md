@@ -5,8 +5,12 @@ sidebar:
   order: 2
 ---
 
-The topology you write is not necessarily the topology that runs.
-The compiler walks the `FreeArrow Prim` AST and applies a set of
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
+The [topology](../glossary/#topology) you write is not necessarily the topology that runs.
+The compiler walks the [`FreeArrow Prim`](../glossary/#free-arrow--freearrow) AST and applies a set of
 rewrite passes that reduce node count, eliminate redundant
 repartitions, hoist pure work out of expensive paths, and (with
 Riffle async I/O) fuse pure work into async workers. Two layers

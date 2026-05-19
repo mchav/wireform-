@@ -5,10 +5,14 @@ sidebar:
   order: 3
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 The parity surface of wireform-kafka-streams scales the same way the
-JVM client does: parallelism is bounded by the partition count of the
+JVM client does: [parallelism](../glossary/#parallelism) is bounded by the [partition](../glossary/#partition) count of the
 input topics, and a consumer group reshuffles partitions across
-instances when membership changes. The Riffle key-group model
+instances when membership changes. The Riffle [key-group](../glossary/#key-group) model
 decouples parallelism from partitions when you need to scale past
 that limit.
 
@@ -58,7 +62,7 @@ worker-pool reshuffle. Neither triggers a broker-side rebalance.
 ## Processes across the group
 
 This is the primary horizontal scale axis. Each new process is a new
-group member; KIP-848 handles the assignment incrementally. The full
+group member; [KIP-848](../glossary/#kip) handles the assignment incrementally via [reconciliation](../glossary/#reconciliation). The full
 loop:
 
 1. New process starts; calls `subscribe`; joins the group with its
@@ -171,7 +175,7 @@ Procedure for the rare switch:
 
 ## Standby tasks
 
-`numStandbyReplicas` in `StreamsConfig` is the per-task replication
+`numStandbyReplicas` in `StreamsConfig` is the per-[task](../glossary/#task) replication
 factor for warm state. The mechanism:
 
 - `Kafka.Streams.Runtime.StandbyTask` runs a second consumer that

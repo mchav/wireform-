@@ -5,6 +5,10 @@ sidebar:
   order: 7
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 Each runbook below starts with the **alert** the on-call sees,
 then walks through diagnosis and resolution. The intent is to keep
 the page open during an incident and follow the steps; the
@@ -24,7 +28,7 @@ REBALANCING -> RUNNING` flapping in logs.
 
 ### Diagnosis
 
-A "storm" is rebalances triggered faster than the group can
+A "storm" is [rebalances](../glossary/#rebalance) triggered faster than the group can
 settle, usually within minutes of each other. Common causes:
 
 1. **Liveness flaps.** One instance is hitting GC pauses, network
@@ -214,7 +218,7 @@ repartition) and its disk usage continues.
 
 ### Diagnosis
 
-Under EOS-V2 the broker fences a producer when a newer producer
+Under [EOS-V2](../glossary/#eos--eos-v2--eos-v3) the broker [fences a producer](../glossary/#fenced-producer) when a newer producer
 with the same `transactional.id` has been observed. This usually
 means:
 

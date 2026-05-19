@@ -5,6 +5,10 @@ sidebar:
   order: 5
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 A Kafka Streams app fails in ways that a stateless HTTP service does
 not, and many of those failures are invisible to standard
 RED-or-USE dashboards. This page enumerates every observability
@@ -19,7 +23,7 @@ surface the library exposes and what each one tells you.
 | Orphan-topic detection | `Kafka.Streams.Observability.OrphanTopics` | Internal topics on the broker that don't belong to the current topology |
 | Lag tracking | `Kafka.Streams.Runtime.LagInfo` + `LagListener` | Per-task warmup lag for standby promotion decisions |
 
-Plus interactive queries (`Kafka.Streams.InteractiveQueries`) as a
+Plus [interactive queries (IQ)](../glossary/#interactive-query-iq) (`Kafka.Streams.InteractiveQueries`) as a
 debugging tool — not strictly observability, but the closest thing
 to a "look at the current state" view.
 

@@ -5,15 +5,19 @@ sidebar:
   order: 6
 ---
 
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
 A Postgres `SELECT` after an `INSERT … COMMIT` returns the inserted
 row. A Kafka Streams interactive query after a state-store `put`
 might or might not return the new value, depending on whether the
-write has been forwarded to the read path, whether the commit cycle
+write has been forwarded to the read path, whether the [commit cycle](../glossary/#commit-cycle)
 has fired, whether you're querying the right instance, and (under
 EOS) whether the producer transaction committed yet. None of those
 caveats are bugs. They follow directly from a system that uses an
 append-only log as its source of truth and rebuilds derived state
-asynchronously.
+asynchronously. (Same shape as [CQRS](../glossary/#cqrs-command-query-responsibility-segregation).)
 
 This page maps each ACID property onto wireform-kafka-streams so you
 know which guarantees you get for free and which require explicit
@@ -239,7 +243,7 @@ stalled is a sign that an idle source is holding back event time.
 A SQL transaction either commits or doesn't. There is no scenario
 in which a row is committed twice.
 
-Kafka Streams **may replay records on failure**:
+Kafka Streams **may [replay](../glossary/#replay) records on failure**:
 
 - At-least-once: any unrecoverable error rewinds the consumer to
   the last committed offset and replays from there. Side effects

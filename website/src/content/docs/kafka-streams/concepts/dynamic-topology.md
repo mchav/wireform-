@@ -5,9 +5,13 @@ sidebar:
   order: 3
 ---
 
-Kafka Streams' DSL builds a `Topology` value once, at compile time.
+:::tip[Unfamiliar terms?]
+Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
+:::
+
+Kafka Streams' [DSL](../glossary/#dsl) builds a [`Topology`](../glossary/#topology) value once, at compile time.
 The runtime takes that value, validates it, walks the graph, and
-binds it to consumer-group state, internal topics, and local stores.
+binds it to [consumer-group](../glossary/#consumer-group) state, [internal topics](../glossary/#internal-topic), and local [state stores](../glossary/#state-store).
 After that point the topology shape is frozen for the life of the
 `KafkaStreams` instance — but a handful of things around the
 topology can still change. This page is the map of what's mutable
