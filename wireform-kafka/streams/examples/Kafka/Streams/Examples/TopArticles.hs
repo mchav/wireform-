@@ -47,8 +47,8 @@ import qualified Kafka.Streams.Topology.Free as F
 
 topArticlesTopology :: F.Topology Void ()
 topArticlesTopology =
-  F.source "article-views" textSerde textSerde
-    >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
+  F.source @Text @Text "article-views"
+    >>> F.groupBy (\r -> recordValue r)
     >>> F.windowedByTime (hoppingWindows (minutes 60) (minutes 5))
     >>> F.countWindowed countMat
     >>> F.streamFromWindowed
@@ -56,7 +56,7 @@ topArticlesTopology =
           (\r -> case recordKey r of
                    Just (WindowedKey k _) -> k
                    Nothing                -> "")
-    >>> F.sink "article-counts-stream" textSerde int64Serde
+    >>> F.sink "article-counts-stream"
   where
     countMat :: Materialized Text Int64
     countMat =

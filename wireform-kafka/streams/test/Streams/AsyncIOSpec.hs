@@ -376,10 +376,10 @@ topology_free_async_map_values_smoke =
           }
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             Cat.>>> F.asyncMapValues cfg pure
             Cat.>>> F.mapValues T.toUpper
-            Cat.>>> F.sink "out" textSerde textSerde
+            Cat.>>> F.sink "out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "asyncio-free-smoke"
@@ -412,10 +412,10 @@ fusion_hoists_pure_into_async =
           }
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             Cat.>>> F.mapValues T.toUpper          -- pure prefix
             Cat.>>> F.asyncMapValues cfg pure       -- async tail
-            Cat.>>> F.sink "out" textSerde textSerde
+            Cat.>>> F.sink "out"
 
     -- With the rule enabled the optimiser should drop one node
     -- (the pure 'MapValues' folds into the async). We assert on

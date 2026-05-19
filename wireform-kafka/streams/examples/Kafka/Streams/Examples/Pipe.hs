@@ -35,8 +35,8 @@ import Kafka.Streams.Examples.Runner
 -- optimised before compilation.
 pipeTopology :: F.Topology Void ()
 pipeTopology =
-  F.source "streams-plaintext-input" textSerde textSerde
-    >>> F.sink   "streams-pipe-output"     textSerde textSerde
+  F.source @Text @Text "streams-plaintext-input"
+    >>> F.sink "streams-pipe-output"
 
 -- | Build the imperative 'Topology' graph from the
 -- 'pipeTopology' AST.

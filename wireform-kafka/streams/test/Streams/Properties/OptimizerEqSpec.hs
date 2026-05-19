@@ -101,9 +101,9 @@ chain (o : os) = opToFragment o >>> chain os
 -- | A closed topology: source >>> chain >>> sink.
 mkTopology :: [Op] -> F.Topology Void ()
 mkTopology ops =
-  F.source "in" textSerde textSerde
+  F.source @Text @Text "in"
     >>> chain ops
-    >>> F.sink "out" textSerde textSerde
+    >>> F.sink "out"
 
 ----------------------------------------------------------------------
 -- Test harness

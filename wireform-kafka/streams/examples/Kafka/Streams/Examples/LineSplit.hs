@@ -37,9 +37,9 @@ import Kafka.Streams.Examples.Runner
 
 lineSplitTopology :: F.Topology Void ()
 lineSplitTopology =
-  F.source "streams-plaintext-input" textSerde textSerde
+  F.source @Text @Text "streams-plaintext-input"
     >>> F.concatMapValues (T.words :: Text -> [Text])
-    >>> F.sink "streams-linesplit-output" textSerde textSerde
+    >>> F.sink "streams-linesplit-output"
 
 buildLineSplitTopology :: IO Topo.Topology
 buildLineSplitTopology = F.buildTopologyFrom lineSplitTopology

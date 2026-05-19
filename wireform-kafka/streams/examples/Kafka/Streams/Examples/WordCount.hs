@@ -45,14 +45,13 @@ import Kafka.Streams.Examples.Runner
 
 wordCountTopology :: F.Topology Void ()
 wordCountTopology =
-  F.source "streams-plaintext-input" textSerde textSerde
+  F.source @Text @Text "streams-plaintext-input"
     >>> F.concatMapValues (T.words . T.toLower :: Text -> [Text])
     >>> F.groupBy
           (\r -> recordValue r)
-          (grouped textSerde textSerde)
     >>> F.count countMat
     >>> F.toStream
-    >>> F.sink "streams-wordcount-output" textSerde int64Serde
+    >>> F.sink "streams-wordcount-output"
   where
     countMat :: Materialized Text Int64
     countMat =

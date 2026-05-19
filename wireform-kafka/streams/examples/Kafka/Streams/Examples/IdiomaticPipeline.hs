@@ -51,10 +51,10 @@ dropEmpties = F.filter (\r -> recordValue r /= "")
 -- nothing at run time.
 idiomaticPipelineTopology :: F.Topology Void ()
 idiomaticPipelineTopology =
-  F.source "lines-in" textSerde textSerde
+  F.source "lines-in"
     >>> normalise
     >>> dropEmpties
-    >>> F.sink "lines-out" textSerde textSerde
+    >>> F.sink "lines-out"
 
 buildPipelineTopology :: IO Topo.Topology
 buildPipelineTopology = F.buildTopologyFrom idiomaticPipelineTopology

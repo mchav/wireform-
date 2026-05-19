@@ -45,13 +45,13 @@ import qualified Kafka.Streams.Topology.Free as F
 
 fraudTopology :: F.Topology Void ()
 fraudTopology =
-  F.source "user-activity" textSerde textSerde
-    >>> F.groupByKey (grouped textSerde textSerde)
+  F.source @Text @Text "user-activity"
+    >>> F.groupByKey
     >>> F.windowedBySession (sessionWindows (minutes 5))
     >>> F.countSessionWindowed countMat
     >>> F.streamFromSessionWindowed
     >>> F.filter (\r -> recordValue r >= 10)
-    >>> F.sink "suspicious-sessions" textSerde int64Serde
+    >>> F.sink "suspicious-sessions"
   where
     countMat :: Materialized Text Int64
     countMat =

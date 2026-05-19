@@ -46,8 +46,8 @@ import qualified Kafka.Streams.Topology.Free as F
 
 temperatureTopology :: F.Topology Void ()
 temperatureTopology =
-  F.source "temperatures" textSerde doubleSerde
-    >>> F.groupByKey (grouped textSerde doubleSerde)
+  F.source @Text @Double "temperatures"
+    >>> F.groupByKey
     >>> F.windowedByTime (tumblingWindows (seconds 5))
     >>> F.reduceWindowed max maxMat
     >>> F.streamFromWindowed
@@ -56,7 +56,7 @@ temperatureTopology =
           (\r -> case recordKey r of
                    Just (WindowedKey k _) -> k
                    Nothing                -> "")
-    >>> F.sink "hot-temperatures" textSerde doubleSerde
+    >>> F.sink "hot-temperatures"
   where
     maxMat :: Materialized Text Double
     maxMat =

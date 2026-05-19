@@ -90,7 +90,7 @@ data EmitMode = EmitOnUpdate | EmitOnClose
 reduceMaxTopology :: EmitMode -> F.Topology Void ()
 reduceMaxTopology emitMode =
   reducePipelineWithStrategy >>> F.streamFromWindowed
-    >>> F.sink "out" (windowedSerde textSerde) doubleSerde
+    >>> F.sink "out"
   where
     maxMat :: Materialized Text Double
     maxMat =
@@ -100,8 +100,8 @@ reduceMaxTopology emitMode =
     reducePipeline
       :: F.Topology Void (TWKS.WindowedTableHandle Text Double)
     reducePipeline =
-      F.source "in" textSerde doubleSerde
-        >>> F.groupByKey (Grouped.grouped textSerde doubleSerde)
+      F.source @Text @Double "in"
+        >>> F.groupByKey
         >>> F.windowedByTime (Win.tumblingWindows (Time.seconds 5))
         >>> F.reduceWindowed max maxMat
     reducePipelineWithStrategy
@@ -215,13 +215,13 @@ stream_from_windowed_emits_old_window_only_on_value_change =
 --   -> sink
 suppressedReduceMaxTopology :: F.Topology Void ()
 suppressedReduceMaxTopology =
-  F.source "in" textSerde doubleSerde
-    >>> F.groupByKey (Grouped.grouped textSerde doubleSerde)
+  F.source @Text @Double "in"
+    >>> F.groupByKey
     >>> F.windowedByTime (Win.tumblingWindows (Time.seconds 5))
     >>> F.reduceWindowed max maxMat
     >>> F.streamFromWindowed
     >>> F.suppressWindowed (Time.millis 0) (Time.durationMillis (Time.seconds 5))
-    >>> F.sink "sup-out" (windowedSerde textSerde) doubleSerde
+    >>> F.sink "sup-out"
   where
     maxMat :: Materialized Text Double
     maxMat =
@@ -333,9 +333,9 @@ suppress_until_time_limit_flushes_on_stream_time_advance =
   testCase "suppressUntilTimeLimit: stream-time advance flushes silent debounce buffers" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.suppressUntilTimeLimit (Time.millis 1000)
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
     (_h, topo) <- F.compile topology
     driver <- newDriver topo "wd-tl-flush"
     pipeInput driver (topicName "in") (Just (bytes "k"))
@@ -375,14 +375,14 @@ suppress_windowed_shed_flushes_on_stream_time_advance =
           }
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde doubleSerde
-            >>> F.groupByKey (Grouped.grouped textSerde doubleSerde)
+          F.source @Text @Double "in"
+            >>> F.groupByKey
             >>> F.windowedByTime (Win.tumblingWindows (Time.seconds 5))
             >>> F.reduceWindowed max maxMat
             >>> F.streamFromWindowed
             >>> F.suppressWindowedShed (Time.millis 0)
                   (Time.durationMillis (Time.seconds 5)) shelf
-            >>> F.sink "shed-out" (windowedSerde textSerde) doubleSerde
+            >>> F.sink "shed-out"
         maxMat :: Materialized Text Double
         maxMat =
           Mat.withValueSerde doubleSerde

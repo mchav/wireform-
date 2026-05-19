@@ -65,18 +65,16 @@ cogroupTopology =
         pure cog)
     >>> F.aggregateCogrouped (pure (0 :: Int64)) balancesMat
     >>> F.toStream
-    >>> F.sink "balances-out" textSerde int64Serde
+    >>> F.sink "balances-out"
   where
     deposits :: F.Topology Void (KGroupedStream Text Int64)
     deposits =
-      F.source "deposits" textSerde int64Serde
-        >>> F.groupByKey (grouped textSerde int64Serde)
-
+      F.source @Text @Int64 "deposits"
+        >>> F.groupByKey
     withdrawals :: F.Topology Void (KGroupedStream Text Int64)
     withdrawals =
-      F.source "withdrawals" textSerde int64Serde
-        >>> F.groupByKey (grouped textSerde int64Serde)
-
+      F.source @Text @Int64 "withdrawals"
+        >>> F.groupByKey
     balancesMat :: Materialized Text Int64
     balancesMat =
       Mat.withValueSerde int64Serde

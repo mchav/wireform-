@@ -48,10 +48,10 @@ globalTableTopology =
   F.joinStreamGlobalTable orders rates
     (\_orderId v -> T.takeWhile (/= '|') v)
     (\order rate -> order <> "|rate=" <> rate)
-    >>> F.sink "orders-with-rate" textSerde textSerde
+    >>> F.sink "orders-with-rate"
   where
     orders :: F.Topology Void (KStream Text Text)
-    orders = F.source "orders" textSerde textSerde
+    orders = F.source "orders"
 
     rates :: F.Topology Void (GlobalKTable Text Text)
     rates = F.globalTableSource "rates" textSerde textSerde

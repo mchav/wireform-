@@ -210,8 +210,8 @@ test_source_sink_passthrough =
   testCase "source >>> sink passes records through unchanged" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
-            >>> F.sink "out" textSerde textSerde
+          F.source @Text @Text "in"
+            >>> F.sink "out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-passthrough"
@@ -233,12 +233,12 @@ test_chain_of_stateless_transforms =
   testCase "chain of mapValues / filter / concatMapValues works" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.strip
             >>> F.filter (\r -> recordValue r /= "")
             >>> F.concatMapValues T.words
             >>> F.mapValues T.toUpper
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-stateless-chain"
@@ -260,15 +260,15 @@ test_fanout_two_sinks =
   testCase "Fanout (&&&) routes the same stream to two sinks" $ do
     let upper :: F.Topology (KStream Text Text) ()
         upper = F.mapValues T.toUpper
-            >>> F.sink "upper" textSerde textSerde
+            >>> F.sink "upper"
 
         lower :: F.Topology (KStream Text Text) ()
         lower = F.mapValues T.toLower
-            >>> F.sink "lower" textSerde textSerde
+            >>> F.sink "lower"
 
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> (upper &&& lower)
             >>> F.liftIO_ "drop-pair" (\_b _ -> pure ())
 
@@ -293,15 +293,15 @@ test_parallel_two_independent_pipelines =
   testCase "two void-input pipelines combine via Fanout (&&&)" $ do
     let leftHalf :: F.Topology Void ()
         leftHalf =
-          F.source "left-in" textSerde textSerde
+          F.source @Text @Text "left-in"
             >>> F.mapValues (T.append "L:")
-            >>> F.sink "left-out" textSerde textSerde
+            >>> F.sink "left-out"
 
         rightHalf :: F.Topology Void ()
         rightHalf =
-          F.source "right-in" textSerde textSerde
+          F.source @Text @Text "right-in"
             >>> F.mapValues (T.append "R:")
-            >>> F.sink "right-out" textSerde textSerde
+            >>> F.sink "right-out"
 
         topology :: F.Topology Void ()
         topology =
@@ -329,10 +329,10 @@ test_stream_table_join :: TestTree
 test_stream_table_join =
   testCase "StreamTableJoin pairs records with the latest table value" $ do
     let streamSide :: F.Topology Void (KStream Text Text)
-        streamSide = F.source "stream-in" textSerde textSerde
+        streamSide = F.source @Text @Text "stream-in"
 
         tableSide :: F.Topology Void (KTable Text Text)
-        tableSide = F.tableSource "table-in" textSerde textSerde
+        tableSide = F.tableSource "table-in"
 
         topology :: F.Topology Void ()
         topology =
@@ -340,7 +340,7 @@ test_stream_table_join =
             >>> F.streamTableJoin
                   (\v vt -> v <> "|" <> vt)
                   (joined textSerde textSerde textSerde)
-            >>> F.sink "joined-out" textSerde textSerde
+            >>> F.sink "joined-out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-streamtable-join"
@@ -370,8 +370,8 @@ test_groupby_count =
 
         topology :: F.Topology Void (KTable Text Int64)
         topology =
-          F.source "in" textSerde textSerde
-            >>> F.groupByKey (grouped textSerde textSerde)
+          F.source @Text @Text "in"
+            >>> F.groupByKey
             >>> F.count countMat
 
     (kt, topo) <- F.compile topology
@@ -399,10 +399,10 @@ test_inspect_records_constructors =
   testCase "inspect produces a constructor listing for static analysis" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         ops = F.inspect topology
 
@@ -424,9 +424,9 @@ test_category_id_left_right_identity =
   testCase "'Cat.id . t' and 't . Cat.id' both build identical topologies" $ do
     let base :: F.Topology Void ()
         base =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.toUpper
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         leftId  = Cat.id Cat.. base
         rightId = base Cat.. Cat.id
@@ -448,14 +448,14 @@ test_tap_passes_wire_through =
     let auditSink :: F.Topology (KStream Text Text) ()
         auditSink =
           F.filter (\r -> "audit:" `T.isPrefixOf` recordValue r)
-            >>> F.sink "audit" textSerde textSerde
+            >>> F.sink "audit"
 
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.tap auditSink
             >>> F.mapValues T.toUpper
-            >>> F.sink "main" textSerde textSerde
+            >>> F.sink "main"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-tap"
@@ -483,7 +483,7 @@ test_forkn_three_branches =
   testCase "ForkN applies three sub-pipelines to the same upstream" $ do
     let mkSink :: Text -> (Text -> Text) -> F.Topology (KStream Text Text) ()
         mkSink topic f =
-          F.mapValues f >>> F.sink topic textSerde textSerde
+          F.mapValues f >>> F.sink topic
 
         threeWays :: F.Topology (KStream Text Text) (NE.NonEmpty ())
         threeWays = F.forkN
@@ -495,7 +495,7 @@ test_forkn_three_branches =
 
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> threeWays
             >>> F.liftIO_ "drop" (\_b _ -> pure ())
 
@@ -522,7 +522,7 @@ test_split_named_branches =
   testCase "Split routes records to named branches" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.split
                   [ F.splitBranch "short" (\r -> T.length (recordValue r) < 4)
                   , F.splitBranch "long"  (\r -> T.length (recordValue r) >= 4)
@@ -572,11 +572,11 @@ test_fork_explicit_duplicator =
     --          >>> drop-pair
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.fork
             >>> (F.mapValues T.toUpper *** F.mapValues T.toLower)
-            >>> (F.sink "upper" textSerde textSerde
-                   *** F.sink "lower" textSerde textSerde)
+            >>> (F.sink "upper"
+                   *** F.sink "lower")
             >>> F.liftIO_ "drop" (\_b _ -> pure ())
 
     (_, topo) <- F.compile topology
@@ -604,9 +604,9 @@ test_sources_multi_topic =
   testCase "sources fans multiple topics into one KStream" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.sources (NE.fromList ["in-a", "in-b"]) textSerde textSerde
+          F.sources @Text @Text (NE.fromList ["in-a", "in-b"])
             >>> F.mapValues (T.append "*")
-            >>> F.sink "merged" textSerde textSerde
+            >>> F.sink "merged"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-multi-source"
@@ -627,8 +627,8 @@ test_table_table_left_join :: TestTree
 test_table_table_left_join =
   testCase "TableTableLeftJoin emits even when right side is absent" $ do
     let leftTable, rightTable :: F.Topology Void (KTable Text Text)
-        leftTable  = F.tableSource "left"  textSerde textSerde
-        rightTable = F.tableSource "right" textSerde textSerde
+        leftTable  = F.tableSource "left"
+        rightTable = F.tableSource "right"
 
         outMat :: Materialized Text Text
         outMat =
@@ -669,7 +669,7 @@ test_filter_not_table :: TestTree
 test_filter_not_table =
   testCase "filterNotTable drops matching records" $ do
     let baseTable :: F.Topology Void (KTable Text Text)
-        baseTable = F.tableSource "in" textSerde textSerde
+        baseTable = F.tableSource "in"
 
         filteredMat :: Materialized Text Text
         filteredMat =
@@ -717,8 +717,8 @@ test_windowed_by_time_count =
 
         topology :: F.Topology Void (WindowedTableHandle Text Int64)
         topology =
-          F.source "in" textSerde textSerde
-            >>> F.groupByKey (grouped textSerde textSerde)
+          F.source @Text @Text "in"
+            >>> F.groupByKey
             >>> F.windowedByTime ws
             >>> F.countWindowed countMat
 
@@ -800,13 +800,13 @@ test_cogroup_two_streams =
 
         leftGrouped :: F.Topology Void (KGroupedStream Text Text)
         leftGrouped =
-          F.source "left-in" textSerde textSerde
-            >>> F.groupByKey g
+          F.source @Text @Text "left-in"
+            >>> F.groupByKeyWith g
 
         rightGrouped :: F.Topology Void (KGroupedStream Text Text)
         rightGrouped =
-          F.source "right-in" textSerde textSerde
-            >>> F.groupByKey g
+          F.source @Text @Text "right-in"
+            >>> F.groupByKeyWith g
 
         outMat :: Materialized Text Text
         outMat =
@@ -879,9 +879,9 @@ test_suppress_until_time_limit =
     -- within the limit overwrite without emitting.
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.suppressUntilTimeLimit (millis 100)
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-suppress"
@@ -960,7 +960,7 @@ test_process_stream_with_state_store =
 
         topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.processWithStateStoreKV
                   "FREE-PROCAPI-COUNTER"
                   storeBuilder
@@ -996,12 +996,12 @@ test_optimize_fuses_map_chains =
     -- functions).
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues (T.append "a")
             >>> F.mapValues (T.append "b")
             >>> F.mapValues (T.append "c")
             >>> F.mapValues (T.append "d")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         stats = F.optimizationStats topology
 
@@ -1030,11 +1030,11 @@ test_optimize_fuses_filter_chains =
   testCase "optimize fuses 3× Filter into a single conjunction" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.filter (\r -> T.length (recordValue r) >= 2)
             >>> F.filter (\r -> T.length (recordValue r) <= 5)
             >>> F.filter (\r -> T.head (recordValue r) /= '_')
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         stats = F.optimizationStats topology
 
@@ -1066,13 +1066,13 @@ test_optimize_collapses_identity_combinators =
     -- optimiser runs.
     let redundant :: F.Topology Void ()
         redundant =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> Cat.id                        -- redundant identity
             >>> Cat.id Cat.. F.mapValues T.toUpper Cat.. Cat.id
                                               -- Id . op . Id ==> op
             >>> Cat.id                        -- another
             >>> F.mapValues T.reverse
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         before = F.countNodes redundant
         after  = F.countNodes (F.optimize redundant)
@@ -1102,14 +1102,14 @@ test_optimize_preserves_observable_behaviour =
     -- and compare outputs.
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.strip
             >>> F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
             >>> F.filter (\r -> T.length (recordValue r) > 1)
             >>> F.concatMapValues T.words
             >>> F.mapValues (<> "!")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         inputs =
           [ (Just (bytes "k1"), bytes "  hello world  ")
@@ -1143,10 +1143,10 @@ test_optimize_noOptimization_is_a_no_op =
   testCase "compileWithOptimization noOptimization preserves node count" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.toUpper
             >>> F.mapValues T.reverse
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         original = F.countNodes topology
         viaNoOpt = F.countNodes (F.optimizeWith F.noOptimization topology)
@@ -1202,12 +1202,12 @@ test_compile_default_runs_optimizer =
     -- record-forwarding hops on the data path.
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues T.strip
             >>> F.mapValues T.toUpper
             >>> F.mapValues T.reverse
             >>> F.mapValues (T.append "x")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
     (_, topoOpt)   <- F.compile topology
     (_, topoNoOpt) <- F.compileNoOptimize topology
@@ -1238,9 +1238,9 @@ test_optimize_selectKey_then_groupByKey_becomes_groupBy =
 
         topology :: F.Topology Void (KTable Text Int64)
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.selectKey (\r -> T.take 1 (recordValue r))
-            >>> F.groupByKey (grouped textSerde textSerde)
+            >>> F.groupByKey
             >>> F.count countMat
 
         opsBefore = F.inspect topology
@@ -1287,11 +1287,11 @@ test_optimize_collapses_repartition_chains =
     -- one; the outer's topic prefix wins.
     let redundant :: F.Topology Void ()
         redundant =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.repartition "first-shuffle"
             >>> F.repartition "second-shuffle"
             >>> F.repartition "third-shuffle"
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         ops = F.inspect (F.optimize redundant)
 
@@ -1325,7 +1325,7 @@ test_optimize_foreach_after_peek_fuses =
     seen <- newIORef ([] :: [(Text, Text)])
     let topology :: F.Topology Void ()
         topology =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.peek    (\r -> modifyIORef' seen (\xs -> xs ++ [("peek",    recordValue r)]))
             >>> F.foreach (\r -> modifyIORef' seen (\xs -> xs ++ [("foreach", recordValue r)]))
 
@@ -1374,8 +1374,8 @@ test_optimize_combines_adjacent_taps =
   testCase "two adjacent Taps combine via Fanout" $ do
     let topology :: F.Topology (KStream Text Text) (KStream Text Text)
         topology =
-          F.tap (F.sink "audit-a" textSerde textSerde)
-            >>> F.tap (F.sink "audit-b" textSerde textSerde)
+          F.tap (F.sink "audit-a")
+            >>> F.tap (F.sink "audit-b")
 
         opsBefore = F.inspect topology
         opsAfter  = F.inspect (F.optimize topology)
@@ -1426,8 +1426,8 @@ test_missing_serde_throws_typed_exception =
 
         topology :: F.Topology Void (KTable Text Int64)
         topology =
-          F.source "in" textSerde textSerde
-            >>> F.groupByKey (grouped textSerde textSerde)
+          F.source @Text @Text "in"
+            >>> F.groupByKey
             >>> F.count unset
 
     (kt, _topo) <- F.compile topology
@@ -1489,13 +1489,13 @@ test_fork_topology_is_eos_atomic =
     -- 'Fork' duplicates the wire; we sink each half to a different
     -- topic. The compiled graph has one source feeding both sinks.
     let upper :: F.Topology (KStream Text Text) ()
-        upper = F.mapValues T.toUpper >>> F.sink "fork-upper" textSerde textSerde
+        upper = F.mapValues T.toUpper >>> F.sink "fork-upper"
         lower :: F.Topology (KStream Text Text) ()
-        lower = F.mapValues T.toLower >>> F.sink "fork-lower" textSerde textSerde
+        lower = F.mapValues T.toLower >>> F.sink "fork-lower"
 
         topology :: F.Topology Void ()
         topology =
-          F.source "fork-in" textSerde textSerde
+          F.source @Text @Text "fork-in"
             >>> F.fork
             >>> (upper *** lower)
             >>> Control.Arrow.arr (const ())
@@ -1537,11 +1537,11 @@ test_forkN_topology_is_eos_atomic =
     -- A three-way ForkN; each branch writes to its own topic.
     let mkSink :: Text -> (Text -> Text) -> F.Topology (KStream Text Text) ()
         mkSink topic f =
-          F.mapValues f >>> F.sink topic textSerde textSerde
+          F.mapValues f >>> F.sink topic
 
         topology :: F.Topology Void ()
         topology =
-          F.source "forkn-in" textSerde textSerde
+          F.source @Text @Text "forkn-in"
             >>> F.forkN
                   ( NE.fromList
                       [ mkSink "fn-upper" T.toUpper
@@ -1581,14 +1581,14 @@ test_tap_topology_is_eos_atomic =
     -- be reached within the same EOS transaction so the audit log
     -- and the main output never disagree.
     let auditSink :: F.Topology (KStream Text Text) ()
-        auditSink = F.sink "tap-audit" textSerde textSerde
+        auditSink = F.sink "tap-audit"
 
         topology :: F.Topology Void ()
         topology =
-          F.source "tap-in" textSerde textSerde
+          F.source @Text @Text "tap-in"
             >>> F.tap auditSink
             >>> F.mapValues T.toUpper
-            >>> F.sink "tap-main" textSerde textSerde
+            >>> F.sink "tap-main"
 
     (_, topo) <- F.compile topology
     let !nSources = length (topologySources topo)
@@ -1636,12 +1636,12 @@ test_applicative_liftA2_combines_two_topologies =
     -- topology produces a tuple of wire handles for downstream use.
     let topology :: F.Topology Void (KStream Text Text)
         topology =
-          ( (,) <$> F.source "ap-in1" textSerde textSerde
-                <*> F.source "ap-in2" textSerde textSerde )
+          ( (,) <$> F.source @Text @Text "ap-in1"
+                <*> F.source @Text @Text "ap-in2" )
             >>= \(s1, s2) -> F.merge `F.applyT` (s1, s2)
 
         topologyWithSink :: F.Topology Void ()
-        topologyWithSink = topology >>= F.applyT (F.sink "ap-out" textSerde textSerde)
+        topologyWithSink = topology >>= F.applyT (F.sink "ap-out")
 
     (_, topo) <- F.compile topologyWithSink
     driver <- newDriver topo "free-applicative"
@@ -1663,15 +1663,15 @@ test_monad_do_notation_for_multi_source =
   testCase "do-notation threads source handles through a pipeline" $ do
     let topology :: F.Topology Void ()
         topology = do
-          s1 <- F.source "do-in1" textSerde textSerde
-          s2 <- F.source "do-in2" textSerde textSerde
+          s1 <- F.source @Text @Text "do-in1"
+          s2 <- F.source @Text @Text "do-in2"
           -- Map each side, then merge, then sink. Each step uses
           -- 'applyT' to feed the bound Haskell value into the next
           -- fragment.
           u1 <- F.mapValues T.toUpper       `F.applyT` s1
           u2 <- F.mapValues (T.append "B:") `F.applyT` s2
           m  <- F.merge                     `F.applyT` (u1, u2)
-          F.sink "do-out" textSerde textSerde `F.applyT` m
+          F.sink "do-out" `F.applyT` m
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-monad-multi-source"
@@ -1699,12 +1699,12 @@ test_semigroup_runs_both_pipelines_on_one_input =
     -- atomicity is by construction (verified separately by the
     -- Fanout EOS test above).
     let left, right :: F.Topology (KStream Text Text) ()
-        left  = F.mapValues T.toUpper >>> F.sink "sg-upper" textSerde textSerde
-        right = F.mapValues T.toLower >>> F.sink "sg-lower" textSerde textSerde
+        left  = F.mapValues T.toUpper >>> F.sink "sg-upper"
+        right = F.mapValues T.toLower >>> F.sink "sg-lower"
 
         topology :: F.Topology Void ()
         topology =
-          F.source "sg-in" textSerde textSerde
+          F.source @Text @Text "sg-in"
             >>> (left <> right)
 
     (_, topo) <- F.compile topology
@@ -1728,7 +1728,7 @@ test_monoid_unit_output_is_no_op =
   testCase "mempty :: Topology (KStream k v) () drops records silently" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "monoid-in" textSerde textSerde
+          F.source @Text @Text "monoid-in"
             >>> mempty   -- Drop everything; no sink, no foreach
     -- Just checking that compilation + driver setup don't crash;
     -- there's nothing observable to assert.
@@ -1802,10 +1802,10 @@ test_mergeSourced_two_sources_share_one_task_under_eos =
     let topology :: F.Topology Void ()
         topology =
           F.mergeSourced
-            (F.source "ms-a" textSerde textSerde)
-            (F.source "ms-b" textSerde textSerde)
+            (F.source @Text @Text "ms-a")
+            (F.source @Text @Text "ms-b")
             >>> F.mapValues T.toUpper
-            >>> F.sink "ms-out" textSerde textSerde
+            >>> F.sink "ms-out"
 
     (_, topo) <- F.compile topology
 
@@ -1856,10 +1856,10 @@ test_cogroup_via_do_notation =
 
         topology :: F.Topology Void (KTable Text Text)
         topology = do
-          s1   <- F.source "cogdo-in1" textSerde textSerde
-          s2   <- F.source "cogdo-in2" textSerde textSerde
-          g1   <- F.groupByKey g `F.applyT` s1
-          g2   <- F.groupByKey g `F.applyT` s2
+          s1   <- F.source @Text @Text "cogdo-in1"
+          s2   <- F.source @Text @Text "cogdo-in2"
+          g1   <- F.groupByKeyWith g `F.applyT` s1
+          g2   <- F.groupByKeyWith g `F.applyT` s2
           cgs0 <- F.cogroup leftStep `F.applyT` g1
           cgs1 <- F.addCogrouped rightStep `F.applyT` (cgs0, g2)
           F.aggregateCogrouped (pure "") outMat `F.applyT` cgs1
@@ -1895,14 +1895,14 @@ test_graphviz_topologyDot_emits_valid_dot =
 
         topology :: F.Topology Void ()
         topology =
-          F.source "dot-in" textSerde textSerde
+          F.source @Text @Text "dot-in"
             >>> F.tap (F.foreach (\_ -> pure ()))
             >>> F.mapValues T.toUpper
-            >>> F.groupByKey (grouped textSerde textSerde)
+            >>> F.groupByKey
             >>> F.count countMat
             >>> F.toStream
             >>> F.mapValues (T.pack . show)
-            >>> F.sink "dot-out" textSerde textSerde
+            >>> F.sink "dot-out"
 
     (_, topo) <- F.compile topology
     let dot = DOT.topologyDot topo
@@ -1944,11 +1944,11 @@ test_graphviz_astDot_emits_valid_dot =
   testCase "astDot renders the AST as DOT" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "ast-in" textSerde textSerde
+          F.source @Text @Text "ast-in"
             >>> F.mapValues T.toUpper
-            >>> F.tap (F.sink "audit" textSerde textSerde)
+            >>> F.tap (F.sink "audit")
             >>> F.filter (\r -> recordValue r /= "")
-            >>> F.sink "ast-out" textSerde textSerde
+            >>> F.sink "ast-out"
 
         dot = DOT.astDot topology
 
@@ -1994,12 +1994,12 @@ test_inspectDeep_walks_through_bind_continuations =
     -- to the continuation, and walks the result.
     let topology :: F.Topology Void ()
         topology = do
-          s1 <- F.source "deep-in1" textSerde textSerde
-          s2 <- F.source "deep-in2" textSerde textSerde
+          s1 <- F.source @Text @Text "deep-in1"
+          s2 <- F.source @Text @Text "deep-in2"
           u1 <- F.mapValues T.toUpper       `F.applyT` s1
           u2 <- F.mapValues (T.append "B:") `F.applyT` s2
           m  <- F.merge                     `F.applyT` (u1, u2)
-          F.sink "deep-out" textSerde textSerde `F.applyT` m
+          F.sink "deep-out" `F.applyT` m
 
         shallowToks = F.inspect topology
         deepToks    = F.inspectDeep topology
@@ -2041,10 +2041,10 @@ test_inspect_vs_inspectDeep =
     -- nothing for inspectDeep to do beyond what inspect does.
     let topology :: F.Topology Void ()
         topology =
-          F.source "ivd-in" textSerde textSerde
+          F.source @Text @Text "ivd-in"
             >>> F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
-            >>> F.sink "ivd-out" textSerde textSerde
+            >>> F.sink "ivd-out"
 
         shallow = F.inspect topology
         deep    = F.inspectDeep topology
@@ -2062,21 +2062,21 @@ test_noFuse_blocks_mapValues_fusion =
   testCase "noFuse keeps adjacent mapValues from collapsing" $ do
     let baseline :: F.Topology Void ()
         baseline =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues (T.append "a")
             >>> F.mapValues (T.append "b")
             >>> F.mapValues (T.append "c")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         barriered :: F.Topology Void ()
         barriered =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.mapValues (T.append "a")
             >>> F.noFuse
             >>> F.mapValues (T.append "b")
             >>> F.noFuse
             >>> F.mapValues (T.append "c")
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         baselineStats   = F.optimizationStats baseline
         baselineTokens  = F.inspect (F.optimize baseline)
@@ -2103,11 +2103,11 @@ test_noFuse_is_runtime_identity =
   testCase "noFuse forwards every record unchanged at runtime" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "nf-in" textSerde textSerde
+          F.source @Text @Text "nf-in"
             >>> F.mapValues T.toUpper
             >>> F.noFuse
             >>> F.mapValues (<> "!")
-            >>> F.sink "nf-out" textSerde textSerde
+            >>> F.sink "nf-out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-nofuse-identity"
@@ -2126,11 +2126,11 @@ test_noFuse_blocks_filter_fusion =
   testCase "noFuse keeps adjacent filters from fusing into a conjunction" $ do
     let withBarrier :: F.Topology Void ()
         withBarrier =
-          F.source "in" textSerde textSerde
+          F.source @Text @Text "in"
             >>> F.filter (\r -> T.length (recordValue r) >= 2)
             >>> F.noFuse
             >>> F.filter (\r -> T.length (recordValue r) <= 5)
-            >>> F.sink "out" textSerde textSerde
+            >>> F.sink "out"
 
         toks = F.inspect (F.optimize withBarrier)
 
@@ -2148,9 +2148,9 @@ test_noFuse_left_alone_in_isolation =
   testCase "noFuse outside any fusion candidate survives optimisation" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "lone-in" textSerde textSerde
+          F.source @Text @Text "lone-in"
             >>> F.noFuse
-            >>> F.sink "lone-out" textSerde textSerde
+            >>> F.sink "lone-out"
         toks = F.inspect (F.optimize topology)
 
     length (Prelude.filter (== "NoFuse") toks) @?= 1
@@ -2175,7 +2175,7 @@ test_mapRecord_full_record_transform =
     -- so this exercises the new record-level smart constructor.
     let topology :: F.Topology Void ()
         topology =
-          F.source "mr-in" textSerde textSerde
+          F.source @Text @Text "mr-in"
             >>> F.mapRecord
                   (\r -> Record
                     { recordKey       = recordKey r
@@ -2183,7 +2183,7 @@ test_mapRecord_full_record_transform =
                     , recordTimestamp = recordTimestamp r
                     , recordHeaders   = recordHeaders r
                     })
-            >>> F.sink "mr-out" textSerde textSerde
+            >>> F.sink "mr-out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-mapRecord"
@@ -2204,13 +2204,13 @@ test_mapRecordM_io_full_record_transform =
     counter <- newIORef (0 :: Int)
     let topology :: F.Topology Void ()
         topology =
-          F.source "mrm-in" textSerde textSerde
+          F.source @Text @Text "mrm-in"
             >>> F.mapRecordM
                   (\r -> do
                      n <- atomicModifyIORef' counter (\c -> (c + 1, c + 1))
                      pure r { recordValue =
                                 recordValue r <> "#" <> T.pack (show n) })
-            >>> F.sink "mrm-out" textSerde textSerde
+            >>> F.sink "mrm-out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-mapRecordM"
@@ -2230,11 +2230,11 @@ test_mapRecord_chains_fuse =
   testCase "chained mapRecord (and mapRecordM) collapse to a single node" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "mrf-in" textSerde textSerde
+          F.source @Text @Text "mrf-in"
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "1" })
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "2" })
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "3" })
-            >>> F.sink "mrf-out" textSerde textSerde
+            >>> F.sink "mrf-out"
 
         stats = F.optimizationStats topology
         toks  = F.inspect (F.optimize topology)
@@ -2260,13 +2260,13 @@ test_mapRecord_chain_blocked_by_noFuse =
   testCase "noFuse between mapRecord calls keeps them as separate nodes" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "mrnf-in" textSerde textSerde
+          F.source @Text @Text "mrnf-in"
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "1" })
             >>> F.noFuse
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "2" })
             >>> F.noFuse
             >>> F.mapRecord (\r -> r { recordValue = recordValue r <> "3" })
-            >>> F.sink "mrnf-out" textSerde textSerde
+            >>> F.sink "mrnf-out"
 
         toks = F.inspect (F.optimize topology)
 
@@ -2472,12 +2472,12 @@ test_repartition_rewrites_preserve_semantics =
     -- mapValues between two repartitions.
     let topology :: F.Topology Void ()
         topology =
-          F.source "rp-in" textSerde textSerde
+          F.source @Text @Text "rp-in"
             >>> F.repartition "first"
             >>> F.mapValues T.toUpper
             >>> F.repartition "second"
             >>> F.selectKey (\r -> recordValue r)
-            >>> F.sink "rp-out" textSerde textSerde
+            >>> F.sink "rp-out"
 
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-repart-rewrites"
@@ -2497,7 +2497,7 @@ test_auto_insert_before_groupByKey =
     let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
         topology =
           F.mapKeyValue (\_ v -> (T.toUpper v, v))
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         cfgOn  = F.defaultOptimizeConfig
         cfgOff = F.defaultOptimizeConfig
                    { F.optAutoInsertRepartition = False }
@@ -2539,7 +2539,7 @@ test_auto_insert_through_mapValues_chain =
             >>> F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
             >>> F.peek (\_ -> pure ())
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         toks = F.inspect (F.optimize topology)
     -- Despite the chain of stateless ops between the key change
     -- and the groupByKey, the auto-insert still fires.
@@ -2556,7 +2556,7 @@ test_auto_insert_off_keeps_nothing =
     let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
         topology =
           F.selectKey (\r -> recordValue r)
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         cfgOff = F.defaultOptimizeConfig
                    { F.optAutoInsertRepartition  = False
                    , F.optFuseSelectKeyIntoGroupBy = False
@@ -2581,7 +2581,7 @@ test_auto_insert_no_op_when_no_key_change =
         topology =
           F.mapValues T.toUpper
             >>> F.filter (\r -> recordValue r /= "")
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         toks = F.inspect (F.optimize topology)
     assertBool "no Repartition for a pure value chain" $
       not (any (T.isPrefixOf "Repartition") toks)
@@ -2599,7 +2599,7 @@ test_auto_insert_with_explicit_repartition_no_dup =
           F.selectKey (\r -> recordValue r)
             >>> F.repartition "user-explicit"
             >>> F.mapValues T.toUpper
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         toks = F.inspect (F.optimize topology)
     -- Exactly one Repartition node — the user's. No auto-insert.
     length (Prelude.filter (T.isPrefixOf "Repartition") toks) @?= 1
@@ -2617,17 +2617,17 @@ test_auto_insert_stream_table_join_fanout =
     -- Repartition; the right (table) side stays untouched.
     let streamSide :: F.Topology Void (KStream Text Text)
         streamSide =
-          F.source "stj-stream-in" textSerde textSerde
+          F.source @Text @Text "stj-stream-in"
             >>> F.selectKey (\r -> recordValue r)
         tableSide :: F.Topology Void (KTable Text Text)
         tableSide =
-          F.tableSource "stj-table-in" textSerde textSerde
+          F.tableSource "stj-table-in"
         topology :: F.Topology Void ()
         topology =
           (streamSide &&& tableSide)
             >>> F.streamTableJoin (\v vt -> v <> "+" <> vt)
                                   (Joined.joined textSerde textSerde textSerde)
-            >>> F.sink "stj-out" textSerde textSerde
+            >>> F.sink "stj-out"
         toks = F.inspect (F.optimize topology)
     -- Repartition appears.
     assertBool ("expected Repartition for stream-table join; " <> show toks) $
@@ -2642,11 +2642,11 @@ test_auto_insert_stream_stream_join_fanout =
   testCase "stream-stream join via Fanout: insert Repartition on each dirty side" $ do
     let leftSide :: F.Topology Void (KStream Text Text)
         leftSide =
-          F.source "ssj-l-in" textSerde textSerde
+          F.source @Text @Text "ssj-l-in"
             >>> F.selectKey (\r -> recordValue r)
         rightSide :: F.Topology Void (KStream Text Text)
         rightSide =
-          F.source "ssj-r-in" textSerde textSerde
+          F.source @Text @Text "ssj-r-in"
             >>> F.selectKey (\r -> recordValue r)
         topology :: F.Topology Void ()
         topology =
@@ -2655,7 +2655,7 @@ test_auto_insert_stream_stream_join_fanout =
                   (\v1 v2 -> v1 <> "+" <> v2)
                   (Joined.joinWindowsBefore (Duration 1000))
                   (Joined.joined textSerde textSerde textSerde)
-            >>> F.sink "ssj-out" textSerde textSerde
+            >>> F.sink "ssj-out"
         toks = F.inspect (F.optimize topology)
     -- Two Repartition nodes — one per side.
     length (Prelude.filter (T.isPrefixOf "Repartition") toks) @?= 2
@@ -2671,7 +2671,7 @@ test_auto_insert_selectKey_groupByKey_collapses_to_groupBy =
     let topology :: F.Topology (KStream Text Text) (KGroupedStream Text Text)
         topology =
           F.selectKey (\r -> recordValue r)
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            >>> F.groupByKey
         toks = F.inspect (F.optimize topology)
     -- The fusion still wins over the auto-insert: result is
     -- 'GroupBy', not 'SelectKey >>> Repartition >>> GroupByKey'.
@@ -2692,10 +2692,10 @@ test_filterNamed_pins_node_name =
   testCase "filterNamed sets the topology node name explicitly" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "fn-in" textSerde textSerde
+          F.source @Text @Text "fn-in"
             >>> F.filterNamed (Named.named "MY-FILTER")
                   (\r -> recordValue r /= "")
-            >>> F.sink "fn-out" textSerde textSerde
+            >>> F.sink "fn-out"
     (_, topo) <- F.compile topology
     let procNames = Map.keys (Topo.topoProcessors topo)
     assertBool ("expected MY-FILTER processor; got " <> show procNames) $
@@ -2706,9 +2706,9 @@ test_mapValuesNamed_pins_node_name =
   testCase "mapValuesNamed sets the topology node name explicitly" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "mvn-in" textSerde textSerde
+          F.source @Text @Text "mvn-in"
             >>> F.mapValuesNamed (Named.named "MY-UPPER") T.toUpper
-            >>> F.sink "mvn-out" textSerde textSerde
+            >>> F.sink "mvn-out"
     (_, topo) <- F.compile topology
     assertBool "expected MY-UPPER processor" $
       Topo.NodeName "MY-UPPER" `elem` Map.keys (Topo.topoProcessors topo)
@@ -2718,10 +2718,10 @@ test_selectKeyNamed_pins_node_name =
   testCase "selectKeyNamed sets the topology node name explicitly" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "skn-in" textSerde textSerde
+          F.source @Text @Text "skn-in"
             >>> F.selectKeyNamed (Named.named "MY-REKEY")
                   (\r -> recordValue r)
-            >>> F.sink "skn-out" textSerde textSerde
+            >>> F.sink "skn-out"
     (_, topo) <- F.compile topology
     assertBool "expected MY-REKEY processor" $
       Topo.NodeName "MY-REKEY" `elem` Map.keys (Topo.topoProcessors topo)
@@ -2731,9 +2731,9 @@ test_peekNamed_pins_node_name =
   testCase "peekNamed sets the topology node name explicitly" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "pkn-in" textSerde textSerde
+          F.source @Text @Text "pkn-in"
             >>> F.peekNamed (Named.named "MY-PEEK") (\_ -> pure ())
-            >>> F.sink "pkn-out" textSerde textSerde
+            >>> F.sink "pkn-out"
     (_, topo) <- F.compile topology
     assertBool "expected MY-PEEK processor" $
       Topo.NodeName "MY-PEEK" `elem` Map.keys (Topo.topoProcessors topo)
@@ -2745,8 +2745,8 @@ test_withEmitStrategy_switches_to_emit_on_close =
                    -> F.Topology Void (TWKS.WindowedTableHandle Text Int64)
         mkTopology e =
           F.withEmitStrategy e $
-            F.source "es-in" textSerde textSerde
-              >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+            F.source @Text @Text "es-in"
+              >>> F.groupByKey
               >>> F.windowedByTime (Win.tumblingWindows (millis 1000))
               >>> F.countWindowed (Mat.materializedAs (storeName "es-store"))
     (hClose, _) <- F.compile (mkTopology TWKS.OnWindowClose)
@@ -2759,8 +2759,8 @@ test_withEmitStrategy_default_emit_on_update =
   testCase "default windowed aggregation emits on update" $ do
     let topology :: F.Topology Void (TWKS.WindowedTableHandle Text Int64)
         topology =
-          F.source "esd-in" textSerde textSerde
-            >>> F.groupByKey (Grouped.grouped textSerde textSerde)
+          F.source @Text @Text "esd-in"
+            >>> F.groupByKey
             >>> F.windowedByTime (Win.tumblingWindows (millis 1000))
             >>> F.countWindowed (Mat.materializedAs (storeName "esd-store"))
     (h, _) <- F.compile topology
@@ -2796,7 +2796,7 @@ test_sourceWith_offset_reset_propagated_to_spec =
         topology :: F.Topology Void ()
         topology =
           F.sourceWith (topicName "ofs-in") cfg
-            >>> F.sink "ofs-out" textSerde textSerde
+            >>> F.sink "ofs-out"
     (_, topo) <- F.compile topology
     case Map.elems (Topo.topoSources topo) of
       [src] -> Topo.sourceOffsetReset src @?= Consumed.OffsetLatest
@@ -2807,8 +2807,8 @@ test_default_offset_reset_is_earliest =
   testCase "default source uses OffsetEarliest" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.source "ofd-in" textSerde textSerde
-            >>> F.sink "ofd-out" textSerde textSerde
+          F.source @Text @Text "ofd-in"
+            >>> F.sink "ofd-out"
     (_, topo) <- F.compile topology
     case Map.elems (Topo.topoSources topo) of
       [src] -> Topo.sourceOffsetReset src @?= Consumed.OffsetEarliest
@@ -2825,7 +2825,7 @@ test_sourcesWith_uses_supplied_consumed =
           F.sourcesWith
             (topicName "swi-1" NE.:| [topicName "swi-2"])
             cfg
-            >>> F.sink "swi-out" textSerde textSerde
+            >>> F.sink "swi-out"
     (_, topo) <- F.compile topology
     case Map.elems (Topo.topoSources topo) of
       [src] -> do
@@ -2837,9 +2837,9 @@ test_fk_join_with_tableJoined_compiles :: TestTree
 test_fk_join_with_tableJoined_compiles =
   testCase "foreignKeyJoinWith accepts a TableJoined override and compiles" $ do
     let leftTable  :: F.Topology Void (KTable Text Text)
-        leftTable  = F.tableSource "fkw-l-in" textSerde textSerde
+        leftTable  = F.tableSource "fkw-l-in"
         rightTable :: F.Topology Void (KTable Text Text)
-        rightTable = F.tableSource "fkw-r-in" textSerde textSerde
+        rightTable = F.tableSource "fkw-r-in"
         tj :: Joined.TableJoined Text Text
         tj = Joined.withTableJoinedName "MY-FK-JOIN" Joined.tableJoined
         mat :: Materialized Text Text
@@ -2849,7 +2849,7 @@ test_fk_join_with_tableJoined_compiles =
           (leftTable &&& rightTable)
             >>> F.foreignKeyJoinWith tj id (\v vr -> v <> "+" <> vr) mat
             >>> F.toStream
-            >>> F.sink "fkw-out" textSerde textSerde
+            >>> F.sink "fkw-out"
     (_, topo) <- F.compile topology
     assertBool "materialised FK-join output store present" $
       storeName "fkw-out-store" `elem` Map.keys (Topo.topoStores topo)
@@ -2861,14 +2861,14 @@ test_addGlobalStore_registers_global_store =
         builder = inMemoryKeyValueStoreBuilder (storeName "GLOBAL-STORE")
         topology :: F.Topology Void ()
         topology =
-          F.source "gs-in" textSerde textSerde
+          F.source @Text @Text "gs-in"
             >>> F.addGlobalStore builder
                   "GLOBAL-SRC" "GLOBAL-PROC"
                   (topicName "gs-global-topic")
                   textSerde textSerde
                   recordTimestampExtractor
                   (pure noopGlobalProc)
-            >>> F.sink "gs-out" textSerde textSerde
+            >>> F.sink "gs-out"
     (_, topo) <- F.compile topology
     assertBool "store registered as global" $
       storeName "GLOBAL-STORE" `Set.member` Topo.topoGlobalStores topo
@@ -2896,7 +2896,7 @@ test_connectProcessorAndStateStores_attaches_late =
         builder = inMemoryKeyValueStoreBuilder (storeName "LATE-STORE")
         topology :: F.Topology Void ()
         topology =
-          F.source "cps-in" textSerde textSerde
+          F.source @Text @Text "cps-in"
             >>> F.processStream "LATE-PROC" [] (pure noopGlobalProc)
             >>> F.withStateStoreKV builder []
             >>> F.connectProcessorAndStateStores
@@ -2922,7 +2922,7 @@ test_sinkSpec_compiles_with_custom_spec =
           }
         topology :: F.Topology Void ()
         topology =
-          F.source "ss-in" textSerde textSerde
+          F.source @Text @Text "ss-in"
             >>> F.sinkSpec customSink
     (_, topo) <- F.compile topology
     assertBool "MY-SINK present in topoSinks" $
@@ -2951,9 +2951,9 @@ test_transformStream_can_change_key_and_value =
             }
         topology :: F.Topology Void ()
         topology =
-          F.source "tx-in" textSerde textSerde
+          F.source @Text @Text "tx-in"
             >>> F.transformStream "FLIP" [] mkTransformer textSerde textSerde
-            >>> F.sink "tx-out" textSerde textSerde
+            >>> F.sink "tx-out"
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-transformStream"
     pipeInput driver (topicName "tx-in") (Just (bytes "k1")) (bytes "abc") t0 0
@@ -2970,8 +2970,8 @@ test_sourcePattern_records_pattern_in_spec =
   testCase "sourcePattern records the regex in SourceSpec.sourcePattern" $ do
     let topology :: F.Topology Void ()
         topology =
-          F.sourcePattern "tenant-.*" textSerde textSerde
-            >>> F.sink "pat-out" textSerde textSerde
+          F.sourcePattern @Text @Text "tenant-.*"
+            >>> F.sink "pat-out"
     (_, topo) <- F.compile topology
     case Map.elems (Topo.topoSources topo) of
       [src] -> do
@@ -2984,12 +2984,12 @@ test_aggregateWindowedCogrouped_per_window_state =
   testCase "aggregateWindowedCogrouped accumulates per (key, window)" $ do
     let leftSide :: F.Topology Void (KGroupedStream Text Int64)
         leftSide =
-          F.source "cgw-l-in" textSerde int64Serde
-            >>> F.groupByKey (Grouped.grouped textSerde int64Serde)
+          F.source @Text @Int64 "cgw-l-in"
+            >>> F.groupByKey
         rightSide :: F.Topology Void (KGroupedStream Text Int64)
         rightSide =
-          F.source "cgw-r-in" textSerde int64Serde
-            >>> F.groupByKey (Grouped.grouped textSerde int64Serde)
+          F.source @Text @Int64 "cgw-r-in"
+            >>> F.groupByKey
         cogrouped :: F.Topology Void (Cog.CogroupedStream Text Int64)
         cogrouped =
           (leftSide >>> F.cogroup (\_k v acc -> acc + v))
@@ -3049,9 +3049,9 @@ test_join_grace_drops_late_records =
         jw = Joined.withJoinWindowsGrace (Duration 50)
                (Joined.joinWindowsBefore (Duration 100))
         leftSide :: F.Topology Void (KStream Text Text)
-        leftSide = F.source "join-grace-l" textSerde textSerde
+        leftSide = F.source @Text @Text "join-grace-l"
         rightSide :: F.Topology Void (KStream Text Text)
-        rightSide = F.source "join-grace-r" textSerde textSerde
+        rightSide = F.source @Text @Text "join-grace-r"
         topology :: F.Topology Void ()
         topology =
           (leftSide &&& rightSide)
@@ -3059,7 +3059,7 @@ test_join_grace_drops_late_records =
                   (\v1 v2 -> v1 <> "+" <> v2)
                   jw
                   (Joined.joined textSerde textSerde textSerde)
-            >>> F.sink "join-grace-out" textSerde textSerde
+            >>> F.sink "join-grace-out"
     (_, topo) <- F.compile topology
     driver <- newDriver topo "free-join-grace"
     -- A pair of well-timed matching records produces a join.

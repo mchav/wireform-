@@ -45,8 +45,8 @@ import qualified Kafka.Streams.Topology.Free as F
 
 iqTopology :: F.Topology Void (KTable Text Int64)
 iqTopology =
-  F.source "words" textSerde textSerde
-    >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
+  F.source @Text @Text "words"
+    >>> F.groupBy (\r -> recordValue r)
     >>> F.count countMat
   where
     countMat :: Materialized Text Int64
