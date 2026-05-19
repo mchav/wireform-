@@ -61,6 +61,16 @@ The ingester:
 
 ## Deploy
 
-`npm run build` produces a static site under `dist/`. The site uses
-`base: '/wireform-'` (matching the GitHub repo name); change that in
-`astro.config.mjs` if you deploy to a different prefix.
+`npm run build` produces a static site under `dist/`.
+
+The canonical deploy is GitHub Pages at
+`https://iand675.github.io/wireform-/`, so `astro.config.mjs` defaults
+`site` + `base` to that prefix. The config auto-detects other targets:
+
+- **Vercel** — when `VERCEL=1` is set (Vercel sets this automatically),
+  `base` collapses to `/` and `site` is filled from
+  `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL`. No `vercel.json` needed;
+  set the project root to `website/`.
+- **Anywhere else / custom domain** — set `SITE_URL` (e.g.
+  `https://docs.example.com`) and `SITE_BASE` (default `/`) before
+  `npm run build`. These always win over the auto-detected defaults.

@@ -22,9 +22,36 @@ if (existsSync(sidebarPath)) {
   }
 }
 
+// Deployment-target detection.
+//
+// The canonical deploy is GitHub Pages at https://iand675.github.io/wireform-/,
+// which forces a non-empty `base`. When the same build is shipped to Vercel,
+// the site is served from the domain root instead, so the GitHub Pages `base`
+// would cause every generated `<link href="/wireform-/_astro/...css">` to 404.
+//
+// Vercel sets `VERCEL=1` in its build environment; we also accept explicit
+// `SITE_URL` / `SITE_BASE` overrides so other hosts (Netlify, Cloudflare Pages,
+// custom previews) can opt into the rootless layout without code changes.
+const explicitSite = process.env.SITE_URL;
+const explicitBase = process.env.SITE_BASE;
+const onVercel = process.env.VERCEL === '1';
+
+const vercelHost =
+  process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+
+const site =
+  explicitSite ??
+  (onVercel
+    ? vercelHost
+      ? `https://${vercelHost}`
+      : undefined
+    : 'https://iand675.github.io');
+
+const base = explicitBase ?? (onVercel ? '/' : '/wireform-');
+
 export default defineConfig({
-  site: 'https://iand675.github.io',
-  base: '/wireform-',
+  site,
+  base,
   trailingSlash: 'ignore',
   vite: {
     plugins: [tailwindcss()],
