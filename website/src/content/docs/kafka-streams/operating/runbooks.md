@@ -309,7 +309,7 @@ matching rate on the `DeserializationException` log channel.
 ### Diagnosis
 
 An upstream producer started writing records that the current
-deserialiser can't parse. Three usual causes:
+deserialiser can't parse. (The [railway-oriented programming](../concepts/railway-oriented-programming/) page explains where this routing decision lives and how a DLQ wired through the `DeserializationHandler` gives you reprocessability.) Three usual causes:
 
 1. **Schema Registry compat policy was bypassed** — a new schema
    was published without compatibility checks, and your

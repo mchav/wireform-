@@ -97,6 +97,7 @@ export default defineConfig({
               items: [
                 { label: 'Topology optimization', slug: 'kafka-streams/concepts/topology-optimization' },
                 { label: 'Dynamic topology changes', slug: 'kafka-streams/concepts/dynamic-topology' },
+                { label: 'Railway-oriented programming', slug: 'kafka-streams/concepts/railway-oriented-programming' },
               ],
             },
             {

@@ -499,6 +499,15 @@ consumed in parallel. Records with the same key always land on the
 same partition (under the default partitioner). The partition is
 the unit of consumer-group assignment.
 
+### Pipeline
+
+A `newtype` in `Kafka.Streams.Pipeline` wrapping `a -> IO b` with
+`Category`, `Arrow`, `ArrowChoice`, `Functor`, and `Applicative`
+instances. Used to build reusable, named topology fragments that
+compose with `(>>>)`. The `ArrowChoice` instance gives you the
+[ROP](#railway-oriented-programming) `(+++)` / `(|||)` combinators
+over `Either`.
+
 ### Pre-commit drain
 
 Riffle hook (`ProcessorContext.ctxRegisterPreCommitDrain`) that
@@ -593,6 +602,20 @@ Re-processing records the runtime already saw, after a fault or
 [offset](#offset). Under [at-least-once](#at-least-once) this is
 the normal recovery path; under EOS it still happens but the
 duplicate output is aborted.
+
+### Railway-oriented programming
+
+A pattern, popularised by Scott Wlaschin's F# write-up, for
+modelling pipelines of fallible operations as two parallel
+tracks: a success track and a failure track. Each stage either
+advances the value on the success track or routes it to the
+failure track; failure short-circuits all downstream success
+stages cleanly. Kafka Streams' `DeserializationHandler` /
+`ProcessingExceptionHandler` / `ProductionHandler` /
+`AsyncFailurePolicy` / `SinkOutcome` are all track-switch
+surfaces; the [`Pipeline`](#pipeline) newtype's `ArrowChoice`
+instance is the explicit ROP combinator set. Full mapping in
+[Railway-oriented programming with streams](../concepts/railway-oriented-programming/).
 
 ### `runCommitCycle`
 

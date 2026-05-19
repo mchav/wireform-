@@ -245,7 +245,7 @@ will silently miss matches.
 
 ### Failure policies
 
-`aioOnFailure` decides what happens after retries are exhausted:
+`aioOnFailure` decides what happens after retries are exhausted. If you've done [railway-oriented programming](../concepts/railway-oriented-programming/) before, each arm is one of the standard ROP track-switches:
 
 - `FailTask` — re-throw on the stream thread; the engine's
   uncaught-exception handler catches it; the task shuts down.

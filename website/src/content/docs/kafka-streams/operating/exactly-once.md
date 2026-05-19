@@ -104,7 +104,7 @@ The five operations map to a Flink-style two-phase-commit sink:
 | `tpsAbort` | Once per commit cycle, on any abort path | Discard the prepared batch |
 | `tpsRecover` | Once at startup | Return every `SinkTxnId` currently in the prepared-but-not-committed state on the external system |
 
-`SinkOutcome` distinguishes three result classes:
+`SinkOutcome` distinguishes three result classes (a [railway-oriented programming](../concepts/railway-oriented-programming/) trichotomy in three constructors):
 
 - `SinkOK` — proceed.
 - `SinkRetryable Text` — transient failure; the runtime aborts the
