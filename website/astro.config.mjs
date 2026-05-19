@@ -109,18 +109,19 @@ export default defineConfig({
             { label: 'Glossary', slug: 'kafka-streams/glossary' },
           ],
         },
-        {
-          label: 'API reference',
-          collapsed: false,
-          items: apiSidebar.length
-            ? apiSidebar
-            : [
-                {
-                  label: 'Not yet ingested',
-                  slug: 'api',
-                },
-              ],
-        },
+        // The Haddock-ingested API reference appears here only once
+        // 'src/content/generated/sidebar.json' has been populated by the
+        // ingester. Until then the section is omitted entirely so the
+        // build doesn't fail on a placeholder slug.
+        ...(apiSidebar.length > 0
+          ? [
+              {
+                label: 'API reference',
+                collapsed: false,
+                items: apiSidebar,
+              },
+            ]
+          : []),
       ],
       expressiveCode: {
         themes: ['github-dark-default', 'github-light'],
