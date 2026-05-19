@@ -33,15 +33,17 @@
 --   * Read a key-value store via the 'ReadOnlyKeyValueStore'
 --     shape exposed by 'queryKVStore' / 'queryEngineStore'.
 --
--- /Caveats./ The public 'Kafka.Client.Producer.sendMessage'
--- doesn't expose explicit record timestamps or partitions today,
--- so demos that rely on those for windowing or routing (the
--- @temperature@ / @top-articles@ / @fraud@ / @processor@ demos)
--- will produce non-deterministic output in broker mode. The
--- intended use of broker mode is for the simple non-time-sensitive
--- demos (@pipe@, @line-split@, @word-count@, @branching@,
--- @global@, @page-views@, @iq@) and as a smoke test that the
--- topology actually links against the real client.
+-- The broker-mode 'ddSend' implementation now routes through
+-- 'Kafka.Client.Producer.sendRecord', so explicit per-record
+-- timestamps and partitions are honoured end-to-end (the wire
+-- batch carries @timestamp@ as its base when the record opens
+-- a fresh batch, or as a signed delta otherwise). Windowed
+-- demos can therefore in principle run against a broker, but
+-- they additionally rely on 'advanceDriverStreamTime' to push
+-- stream time forward with no input record — which has no
+-- direct broker analogue. They stay flagged 'InMemoryOnly' in
+-- 'Main.hs' until each demo is updated to push a real sentinel
+-- record on the broker path instead.
 module Kafka.Streams.Examples.Runner
   ( -- * Mode
     RunMode (..)
@@ -149,9 +151,10 @@ data DemoDriver = DemoDriver
                -> Int32
                -> IO ()
     -- ^ Send a record to an input topic. In broker mode the
-    -- timestamp / partition arguments are best-effort: the public
-    -- 'Kafka.Client.Producer.sendMessage' lets the broker assign
-    -- them.
+    -- timestamp / partition arguments are now honoured by
+    -- routing through 'Kafka.Client.Producer.sendRecord' (the
+    -- producer translates the absolute timestamp to the
+    -- 'recordTimestampDelta' the batch accumulator expects).
   , ddRead     :: TopicName -> IO [CollectedRecord]
     -- ^ Drain records currently available on an output topic.
     -- Block briefly to give the topology time to flush; safe to
@@ -273,10 +276,18 @@ withBrokerDriver brokers mkTopo appId inTopics outTopics action = do
   awaitState ks StreamsRunning
 
   let dd = DemoDriver
-        { ddSend = \topic key val _ts _part -> do
-            r <- KP.sendMessage prod (unTopicName topic) key val
+        { ddSend = \topic key val (Timestamp ts) part -> do
+            let pr = KP.ProducerRecord
+                  { KP.topic     = unTopicName topic
+                  , KP.key       = key
+                  , KP.value     = val
+                  , KP.headers   = []
+                  , KP.partition = Just part
+                  , KP.timestamp = Just ts
+                  }
+            r <- KP.sendRecord prod pr
             case r of
-              Left e  -> fail ("sendMessage: " <> e)
+              Left e  -> fail ("sendRecord: " <> e)
               Right _ -> pure ()
         , ddRead = \topic -> do
             -- Drain all records currently available for this

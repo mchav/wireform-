@@ -180,6 +180,7 @@ module Kafka.Client.Producer
     --   * 'sendBatch' — bypasses the accumulator entirely and
     --     ships an explicit batch. Used by the perf tool.
   , sendMessage_
+  , sendRecord
   , sendMessageUnsafe_
   , sendMessageFastest_
   , sendMessages_
@@ -1242,6 +1243,123 @@ sendMessage p@Producer{..} topic key value = liftIO $ do
           runAckInterceptor producerConfig iceptedRecord (Left err)
           return (Left err)
 
+-- | Send a 'ProducerRecord' honouring its @partition@ and
+-- @timestamp@ fields. Equivalent to 'sendMessage' but takes the
+-- full record shape so callers can override:
+--
+--   * @partition@ — bypasses the partitioner (key-hash / sticky /
+--     custom) and ships to the supplied partition index.
+--   * @timestamp@ — sets the per-record wire timestamp exactly.
+--     The 'Kafka.Client.Internal.BatchAccumulator' computes the
+--     correct delta against the batch's base timestamp, or, when
+--     this record opens a fresh batch, uses @timestamp@ as the
+--     batch base. 'Nothing' falls back to wall-clock at batch
+--     creation, matching 'sendMessage'.
+--
+-- Use 'sendMessage' when you don't need explicit partition /
+-- timestamp control; that path is fractionally cheaper because
+-- the partition is picked by the producer's configured
+-- partitioner instead of being threaded through.
+sendRecord
+  :: MonadIO m
+  => Producer
+  -> ProducerRecord
+  -> m (Either String RecordMetadata)
+sendRecord p@Producer{..} pr0 = liftIO $ do
+  -- 1. Interceptor — the JVM contract lets it rewrite every
+  --    field, including 'partition' and 'timestamp', so we run
+  --    it before we look at any of them.
+  iceptedRecord <- producerInterceptor producerConfig pr0
+  let icTopic = iceptedRecord.topic
+      icKey   = iceptedRecord.key
+      icValue = iceptedRecord.value
+      icHdrs  = iceptedRecord.headers
+      icPart  = iceptedRecord.partition
+      icTs    = iceptedRecord.timestamp
+
+  -- 2. Compute the (partition, stamp) pair. If the caller
+  --    supplied a partition we still need the transactional /
+  --    idempotent stamp, but not the partitioner round-trip.
+  preCheck <- case icPart of
+    Nothing -> producerPreSendCheck p icTopic icKey
+    Just explicit -> do
+      mTxn <- readTVarIO producerTransaction
+      case mTxn of
+        Nothing -> do
+          pid   <- readTVarIO producerIdempotentId
+          epoch <- readTVarIO producerIdempotentEpoch
+          if pid == RB.noProducerId && epoch == RB.noProducerEpoch
+            then pure (Right (explicit, BA.noStamp))
+            else do
+              -- Idempotent/transactional path: ask the full
+              -- pre-send check (it will redo the partition
+              -- selection though; we accept that here because
+              -- transactional callers rarely override partition).
+              r <- fullPreSendCheck p icTopic icKey mTxn
+              case r of
+                Left e -> pure (Left e)
+                Right (_, stamp) -> pure (Right (explicit, stamp))
+        Just _ -> do
+          r <- fullPreSendCheck p icTopic icKey mTxn
+          case r of
+            Left e -> pure (Left e)
+            Right (_, stamp) -> pure (Right (explicit, stamp))
+
+  case preCheck of
+    Left err -> do
+      runAckInterceptor producerConfig iceptedRecord (Left err)
+      pure (Left err)
+    Right (partition, stamp) -> do
+      let record = RB.Record
+            { RB.recordTimestampDelta = 0  -- accumulator overwrites
+            , RB.recordOffsetDelta    = 0
+            , RB.recordKey            = icKey
+            , RB.recordValue          = icValue
+            , RB.recordHeaders =
+                map (\(k, v) -> RB.RecordHeader (TE.encodeUtf8 k) (Just v)) icHdrs
+            }
+          topicPartition = BA.TopicPartition icTopic partition
+
+      resultVar <- newEmptyTMVarIO
+      let callback result =
+            atomically $ putTMVar resultVar $ case result of
+              Left e   -> Left (T.unpack e)
+              Right ack ->
+                Right RecordMetadata
+                  { topic     = BA.ackTopic     ack
+                  , partition = BA.ackPartition ack
+                  , offset    = BA.ackOffset    ack
+                  , timestamp = BA.ackTimestamp ack
+                  }
+
+      success <- BA.appendRecordStampedAt
+                   producerAccumulator
+                   topicPartition
+                   record
+                   (BA.RecordCallback callback)
+                   stamp
+                   icTs
+
+      if success
+        then do
+          let timeoutMicros = producerDeliveryTimeoutMs producerConfig * 1000
+          result <- timeout timeoutMicros $
+                      atomically (readTMVar resultVar)
+          case result of
+            Nothing -> do
+              let err = "Delivery timeout exceeded ("
+                          <> show (producerDeliveryTimeoutMs producerConfig)
+                          <> "ms)"
+              runAckInterceptor producerConfig iceptedRecord (Left err)
+              pure (Left err)
+            Just r -> do
+              runAckInterceptor producerConfig iceptedRecord r
+              pure r
+        else do
+          let err = "Failed to append record (accumulator closed or full)"
+          runAckInterceptor producerConfig iceptedRecord (Left err)
+          pure (Left err)
+
 -- | Typed send. Encodes the key (when present) and value through
 -- the topic's 'Kafka.Topic.Topic' serdes and forwards to
 -- 'sendMessage'. Returns a 'Left' if the serde encoding never
@@ -1975,8 +2093,7 @@ sendBatch producer records = liftIO $ do
         <> show (length errors) <> " errors"
   where
     sendRecordIndividual :: Producer -> ProducerRecord -> IO (Either String RecordMetadata)
-    sendRecordIndividual p ProducerRecord{..} =
-      sendMessage p topic key value
+    sendRecordIndividual = sendRecord
     
     partitionEithers :: [Either a b] -> ([a], [b])
     partitionEithers = foldr (either left right) ([], [])
@@ -2057,6 +2174,8 @@ dispatchEnhanced ec rec_ outcome = do
 {-# SPECIALIZE sendMessageFastest_ :: Producer -> Text -> Maybe ByteString -> ByteString -> IO (Either String ()) #-}
 {-# INLINABLE sendMessages_ #-}
 {-# SPECIALIZE sendMessages_ :: Producer -> Text -> [(Maybe ByteString, ByteString)] -> IO (Either String ()) #-}
+{-# INLINABLE sendRecord #-}
+{-# SPECIALIZE sendRecord :: Producer -> ProducerRecord -> IO (Either String RecordMetadata) #-}
 {-# INLINABLE sendBatch #-}
 {-# SPECIALIZE sendBatch :: Producer -> [ProducerRecord] -> IO (Either String [RecordMetadata]) #-}
 {-# INLINABLE bindTransaction #-}
