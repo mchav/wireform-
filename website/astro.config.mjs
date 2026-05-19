@@ -58,6 +58,36 @@ export default defineConfig({
           autogenerate: { directory: 'concepts' },
         },
         {
+          label: 'Kafka Streams',
+          items: [
+            { label: 'Overview', slug: 'kafka-streams' },
+            {
+              label: 'Operating',
+              items: [
+                { label: 'Topology evolution', slug: 'kafka-streams/operating/topology-evolution' },
+                { label: 'Scaling and rebalancing', slug: 'kafka-streams/operating/scaling' },
+                { label: 'Exactly-once across systems', slug: 'kafka-streams/operating/exactly-once' },
+                { label: 'Observability', slug: 'kafka-streams/operating/observability' },
+                { label: 'Visibility versus ACID', slug: 'kafka-streams/operating/visibility' },
+                { label: 'Runbooks', slug: 'kafka-streams/operating/runbooks' },
+              ],
+            },
+            {
+              label: 'Concepts',
+              items: [
+                { label: 'Topology optimization', slug: 'kafka-streams/concepts/topology-optimization' },
+                { label: 'Dynamic topology changes', slug: 'kafka-streams/concepts/dynamic-topology' },
+              ],
+            },
+            {
+              label: 'Guides',
+              items: [
+                { label: 'Enrichment via external systems', slug: 'kafka-streams/guides/enrichment' },
+              ],
+            },
+          ],
+        },
+        {
           label: 'API reference',
           collapsed: false,
           items: apiSidebar.length
