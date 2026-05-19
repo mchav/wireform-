@@ -298,6 +298,7 @@ by what you'll need them for:
 | ------------ | ---- |
 | Designing a rolling deploy | [Topology evolution](../../operating/topology-evolution/) |
 | Sizing your cluster | [Scaling and rebalancing](../../operating/scaling/) |
+| Deploying to Kubernetes or another container runtime | [Running in containers](../../operating/containers/) |
 | Writing to a non-Kafka sink with EOS | [Exactly-once across systems](../../operating/exactly-once/) |
 | Building your observability | [Observability](../../operating/observability/) |
 | Trying to understand IQ semantics | [Visibility versus ACID](../../operating/visibility/) |

@@ -76,6 +76,7 @@ material organised by the question you have in front of you:
 | -------------- | ---- |
 | "How do I roll out a new version without breaking state?" | [Topology evolution and rolling deploys](./operating/topology-evolution/) |
 | "How do I scale this past my partition count?" | [Scaling and rebalancing](./operating/scaling/) |
+| "How do I deploy this in containers without losing state on restart?" | [Running in containers](./operating/containers/) |
 | "How do I commit Kafka and Postgres atomically?" | [Exactly-once across Kafka and other systems](./operating/exactly-once/) |
 | "What should I be alerting on?" | [Observability](./operating/observability/) |
 | "Why doesn't my IQ read return what I just wrote?" | [Visibility versus ACID databases](./operating/visibility/) |

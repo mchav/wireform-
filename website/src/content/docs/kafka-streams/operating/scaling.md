@@ -327,6 +327,9 @@ EOS) the transactional-producer cycle. Measure rather than guess —
 
 - [Topology evolution](./topology-evolution/) — the deployment side
   of a rolling capacity change.
+- [Running in containers](./containers/) — stable identity,
+  persistent volumes, and off-heap memory when each instance is a
+  pod.
 - [Exactly-once across Kafka and other systems](./exactly-once/) —
   how the transactional producer interacts with rebalance.
 - [Runbooks](./runbooks/) — rebalance storms and how to break the

@@ -86,6 +86,7 @@ export default defineConfig({
               items: [
                 { label: 'Topology evolution', slug: 'kafka-streams/operating/topology-evolution' },
                 { label: 'Scaling and rebalancing', slug: 'kafka-streams/operating/scaling' },
+                { label: 'Running in containers', slug: 'kafka-streams/operating/containers' },
                 { label: 'Exactly-once across systems', slug: 'kafka-streams/operating/exactly-once' },
                 { label: 'Observability', slug: 'kafka-streams/operating/observability' },
                 { label: 'Visibility versus ACID', slug: 'kafka-streams/operating/visibility' },
