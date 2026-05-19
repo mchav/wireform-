@@ -43,6 +43,13 @@ module Kafka.Streams.State.KeyValue.TTL
 import Data.Int (Int64)
 import Data.IORef (IORef, newIORef)
 
+import Kafka.Streams.Processor
+  ( Cancellable (..)
+  , ProcessorContext (..)
+  , PunctuationType (..)
+  , Punctuator (..)
+  , schedule
+  )
 import Kafka.Streams.State.Store
   ( KeyValueIterator (..)
   , KeyValueStore (..)
@@ -52,6 +59,7 @@ import Kafka.Streams.Time
   ( Duration
   , Timestamp (..)
   , addDuration
+  , durationMillis
   )
 import qualified Kafka.Streams.Watermark as Watermark
 
@@ -239,6 +247,48 @@ expireBefore under now = do
                     , expireAt <= now ]
   mapM_ (\k -> () <$ kvsDelete under k) expired
   pure (fromIntegral (length expired))
+
+-- | Schedule a stream-time 'Punctuator' that reaps expired
+-- entries from a TTL-wrapped store at the supplied cadence. This
+-- is the missing piece the 'ttlKeyValueStore' docstring promises
+-- (\"the runtime periodically calls 'expireBefore'\") -- without
+-- a scheduled reaper, expired entries linger in the underlying
+-- store until the next 'kvsPut' that overwrites them, even
+-- though they are correctly /invisible/ on read.
+--
+-- Mirrors the JVM Kafka Streams behaviour where windowed and
+-- session stores auto-evict on a punctuator cadence; the
+-- per-store TTL wrapper here just needs a processor that owns
+-- the store to call this from 'procInit':
+--
+-- @
+-- procInit = \\ctx -> do
+--   ...
+--   _ <- 'scheduleTtlReaper' ctx cfg under (Time.millis 1000)
+--   pure ()
+-- @
+--
+-- The clock used by the punctuator is the same 'ttlClock' the
+-- 'TTLConfig' was constructed with -- typically the watermark
+-- coordinator via 'ttlClockFromCoordinator' for event-time TTL,
+-- or a wall-clock callback for wall-clock TTL.
+--
+-- Returns the 'Cancellable' so the processor can stop the reaper
+-- on close.
+scheduleTtlReaper
+  :: ProcessorContext
+  -> TTLConfig
+  -> KeyValueStore k (v, Timestamp)
+  -> Duration                          -- ^ how often to sweep
+  -> IO Cancellable
+scheduleTtlReaper ctx cfg under interval =
+  schedule ctx
+    (max 1 (fromIntegral (durationMillis interval) :: Int))
+    StreamTimePunctuation
+    (Punctuator $ \_ -> do
+       now <- ttlClock cfg
+       _ <- expireBefore under now
+       pure ())
 
 -- | Returns the count of live (non-expired) entries as of @now@.
 -- This is O(n); the runtime uses it for metrics and tests use it

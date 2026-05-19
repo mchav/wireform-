@@ -39,10 +39,12 @@ module Kafka.Streams.Internal.Engine
   , engineStreamTime
   , engineWallClock
   , attachWatermarkCoordinator
+  , reportPollCycle
   , engineMetrics
   , buildEngine
   , feedSource
   , advanceWallClock
+  , syncWallClockToReal
   , advanceStreamTimeTo
   , triggerStreamTimePunctuators
   , triggerWallClockPunctuators
@@ -679,6 +681,27 @@ advanceWallClock engine deltaMs = do
     (Timestamp (t + deltaMs), ())
   triggerWallClockPunctuators engine
 
+-- | Sync the engine's wall clock to 'nowAsTimestamp' (real
+-- 'Data.Time.Clock' time). The runtime poll loop calls this
+-- once per cycle so 'WallClockTimePunctuation' punctuators and
+-- the watermark coordinator's idle-source detection
+-- ('reportPollCycle') see real time advance instead of staying
+-- frozen at engine-construction time.
+--
+-- Mirrors JVM Kafka Streams' per-task @PunctuationType.WALL_CLOCK_TIME@
+-- contract: a real-clock punctuator scheduled in a processor
+-- fires when @System.currentTimeMillis@ advances past its next
+-- target, /which only happens because the stream thread reads
+-- the clock between record batches/. The mock 'Driver' path
+-- continues to use 'advanceWallClock' for deterministic
+-- timing — call sites that want pinned timing in tests should
+-- avoid 'syncWallClockToReal' and use the delta-bump API.
+syncWallClockToReal :: Engine -> IO ()
+syncWallClockToReal engine = do
+  now <- nowAsTimestamp
+  writeIORef (engineWallClock engine) now
+  triggerWallClockPunctuators engine
+
 -- | Riffle \xc2\xa75: wire a 'WatermarkCoordinator' to this engine. The
 -- runtime calls this once at engine construction time after
 -- building the per-app coordinator and before the first record
@@ -705,6 +728,55 @@ attachWatermarkCoordinator engine wc = do
             grp = fmap Watermark.unAlignmentGroupId
                        (Watermark.wsAlignment strat)
         Watermark.registerSource wc sid strat grp
+
+
+-- | Riffle §5 / KIP-353 idle-source heartbeat. The runtime calls
+-- this once per poll cycle with the set of topic names whose
+-- partitions produced at least one record. The engine then:
+--
+--   * Propagates the engine's wall clock onto any attached
+--     'Kafka.Streams.Watermark.WatermarkCoordinator' so its
+--     'IdlenessConfig.idleTimeout' has fresh timing to compare
+--     against.
+--   * Calls 'markActive' for every source whose topics
+--     intersect the active set, and 'markIdle' for the others.
+--     The coordinator filters "idle enough" sources from the
+--     effective watermark based on each source's own
+--     'IdlenessConfig'.
+--
+-- Idempotent + cheap when no coordinator is attached (early
+-- return). Safe to call on every poll, including empty ones --
+-- that's the point: silence on a partition still has to be
+-- reported so the coordinator can advance the effective
+-- watermark of other sources past the silent one.
+reportPollCycle :: Engine -> HashSet.HashSet TopicName -> IO ()
+reportPollCycle engine activeTopics = do
+  mwc <- readIORef (engineWatermarkCoord engine)
+  case mwc of
+    Nothing -> pure ()
+    Just wc -> do
+      -- 1. Propagate the engine's wall clock to the coordinator.
+      --    The runtime poll loop syncs the engine wall clock
+      --    from 'nowAsTimestamp' once per cycle via
+      --    'syncWallClockToReal', so in production this matches
+      --    real time; the in-process test driver controls it
+      --    via 'Kafka.Streams.Driver.advanceWallClockTime'.
+      now <- readIORef (engineWallClock engine)
+      Watermark.advanceWallClock wc now
+      -- 2. Walk topology sources; classify by whether any of
+      --    their topics fired this cycle.
+      forM_ (Map.toList (Topo.topoSources (engineTopology engine)))
+        $ \(_nm, spec) ->
+          case Topo.sourceWatermarkStrategy spec of
+            Nothing    -> pure ()
+            Just _strat -> do
+              let sid = Watermark.SourceId
+                    (Topo.unNodeName (Topo.sourceName spec))
+                  active = any (`HashSet.member` activeTopics)
+                                (Topo.sourceTopics spec)
+              if active
+                then Watermark.markActive wc sid
+                else Watermark.markIdle wc sid
 
 advanceStreamTimeTo :: Engine -> Timestamp -> IO ()
 advanceStreamTimeTo engine ts = do

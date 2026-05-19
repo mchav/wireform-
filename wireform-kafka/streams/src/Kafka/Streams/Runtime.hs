@@ -193,6 +193,8 @@ import Kafka.Streams.Internal.Engine
   , closeEngine
   , commitEngine
   , feedSource
+  , reportPollCycle
+  , syncWallClockToReal
   )
 import Kafka.Streams.Internal.RecordCollector
   ( CollectedRecord (..)
@@ -558,6 +560,18 @@ eventLoop ks driver engine = go
                     (fromIntegral rec.partition)
                     rec.offset
 
+            -- Sync wall clock to real time so wall-clock
+            -- punctuators fire on the poll cadence and
+            -- 'reportPollCycle' sees fresh timing.
+            syncWallClockToReal engine
+            -- Riffle §5 / KIP-353: report which topics fired
+            -- this poll so the watermark coordinator can advance
+            -- wall-clock and mark silent sources idle. No-op
+            -- when no coordinator is attached.
+            let !activeTopics = HashSet.fromList
+                  [ topicName rec.topic | rec <- recs ]
+            reportPollCycle engine activeTopics
+
             -- Collect the highest (offset + 1) per (topic, partition)
             -- across the records we just fed; that's what the EOS
             -- coordinator wants to commit. Skipping when paused
@@ -649,6 +663,18 @@ multiEventLoop ks driver pool = go
                     (fromIntegral rec.partition)
             -- Wait until every just-submitted record is processed.
             waitForQuiescence pool
+
+            -- Sync each worker engine's wall clock to real time
+            -- + fan out the poll-cycle notification across every
+            -- worker. Each worker has its own coordinator handle
+            -- (attached by user code, if any); the call is a
+            -- no-op when no coordinator is wired.
+            V.forM_ (poolWorkers pool) $ \w -> do
+              syncWallClockToReal (workerEngine w)
+            let !activeTopics = HashSet.fromList
+                  [ topicName rec.topic | rec <- recs ]
+            V.forM_ (poolWorkers pool) $ \w ->
+              reportPollCycle (workerEngine w) activeTopics
 
             let !commitOffsets =
                   if paused
