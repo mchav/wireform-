@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns      #-}
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 -- | Cross-library example: write a Parquet file with @wireform-parquet@,
@@ -40,12 +41,15 @@ import           System.IO.Temp (withSystemTempDirectory)
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
 
--- The dataframe library re-exports its core surface from the
--- @DataFrame@ module; the conventional aliases are @D@ for the
--- table operations and @F@ for the expression DSL.
+-- The dataframe library's typed surface is in @DataFrame.Typed@,
+-- which tracks column names and types in a phantom type. We only
+-- touch the untyped @DataFrame@ module for I/O and the initial
+-- describe; everything past 'TDF.freezeWithError' is schema-checked
+-- at compile time.
 import qualified DataFrame as D
-import qualified DataFrame.Functions as F
-import           DataFrame.Operators ((|>), (.>.))
+import           DataFrame.Operators ((|>))
+import qualified DataFrame.Typed as TDF
+import           DataFrame.Typed ((.==.), (.>.))
 
 -- | The synthetic dataset: a tiny e-commerce order log. Three
 -- columns line up with the three Parquet primitive shapes the
@@ -55,6 +59,12 @@ data Order = Order
   , region  :: !Text
   , amount  :: !Double
   } deriving (Show, Eq)
+
+type OrderSchema =
+  '[ TDF.Column "order_id" Int64
+   , TDF.Column "region"   Text
+   , TDF.Column "amount"   Double
+   ]
 
 orders :: [Order]
 orders =
@@ -84,56 +94,71 @@ main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
   putStrLn $ "wrote " ++ show (BS.length bytes) ++ " bytes to " ++ parquetPath
 
   -- 2. Hand the file off to the dataframe library and explore it.
+  --    The untyped describe step runs first so we can see what the
+  --    reader actually found, then 'TDF.freezeWithError' checks the
+  --    columns against 'OrderSchema' once. Everything past this
+  --    point operates on a 'TypedDataFrame' and is checked at
+  --    compile time.
   putStrLn "\n=== dataframe reader ==="
-  df <- D.readParquet parquetPath
-  putStrLn $ "dimensions: " ++ show (D.dimensions df)
-  print (D.describeColumns df)
+  raw <- D.readParquet parquetPath
+  putStrLn $ "dimensions: " ++ show (D.dimensions raw)
+  print (D.describeColumns raw)
+  df <- case TDF.freezeWithError @OrderSchema raw of
+    Right typed -> pure typed
+    Left  err   -> error $ "schema mismatch: " <> T.unpack err
 
   -- 3. Run a typed aggregation: total + order count + mean per
-  --    region, sorted by total descending.
-  --
-  --    Aggregations that need a typed column reference go through
-  --    @F.col \@<type>@; the @|>@ pipe operator and @\`F.as\`@
-  --    column-naming helper come from DataFrame.Operators /
-  --    DataFrame.Functions respectively.
+  --    region, sorted by total descending. Column references go
+  --    through @TDF.col \@\"name\"@ — name and type are both
+  --    resolved against @OrderSchema@; aggregation outputs are
+  --    named with @TDF.agg \@\"name\"@ and reflected in the
+  --    result's phantom schema.
   putStrLn "=== regional totals (dataframe pipeline) ==="
   let perRegion =
         df
-          |> D.groupBy ["region"]
-          |> D.aggregate
-               [ F.sum   (F.col @Double "amount")   `D.as` "total"
-               , F.count (F.col @Int64  "order_id") `D.as` "orders"
-               , F.mean  (F.col @Double "amount")   `D.as` "avg"
-               ]
-          |> D.sortBy [D.Desc (F.col @Double "total")]
+          |> TDF.groupBy @'["region"]
+          |> TDF.aggregate
+               ( TDF.agg @"total"  (TDF.sum   (TDF.col @"amount"))
+               $ TDF.agg @"orders" (TDF.count (TDF.col @"order_id"))
+               $ TDF.agg @"avg"    (TDF.mean  (TDF.col @"amount"))
+               $ TDF.aggNil
+               )
+          |> TDF.sortBy [TDF.desc (TDF.col @"total")]
   print perRegion
 
-  -- 4. Cross-check against the source-of-truth Haskell computation
-  --    so the example doubles as an interop test.
+  -- 4. Cross-check against the source-of-truth Haskell computation.
+  --    The filter predicate and the column extractions are checked
+  --    against the post-aggregate schema at compile time, so the
+  --    only runtime failure mode is "no row for this region".
   putStrLn "=== ground-truth check ==="
   let groundTruth = expectedTotals orders
   for_ groundTruth $ \(reg, expectedTot, expectedCount) -> do
-    -- Pull dataframe's reported total back into Haskell to compare.
-    let actualTot   = lookupDouble perRegion "region" reg "total"
-        actualCount = lookupInt    perRegion "region" reg "orders"
-    putStrLn $ T.unpack reg
-            ++ ": dataframe total="    ++ showD actualTot
-            ++ "  expected="           ++ showD expectedTot
-            ++ "  dataframe count="    ++ show  actualCount
-            ++ "  expected="           ++ show  expectedCount
-    assertClose ("total for " ++ T.unpack reg) expectedTot actualTot
-    assertEq    ("count for " ++ T.unpack reg) expectedCount actualCount
+    let matched = perRegion |> TDF.filterWhere (TDF.col @"region" .==. TDF.lit reg)
+    case ( TDF.columnAsList @"total"  matched
+         , TDF.columnAsList @"orders" matched
+         ) of
+      (actualTot:_, actualCount:_) -> do
+        putStrLn $ T.unpack reg
+                ++ ": dataframe total="    ++ showD actualTot
+                ++ "  expected="           ++ showD expectedTot
+                ++ "  dataframe count="    ++ show  actualCount
+                ++ "  expected="           ++ show  expectedCount
+        assertClose ("total for " ++ T.unpack reg) expectedTot actualTot
+        assertEq    ("count for " ++ T.unpack reg) expectedCount actualCount
+      _ -> error $ "ground-truth check: no row for region " <> T.unpack reg
 
   -- 5. A richer pipeline: filter to large orders, derive a
   --    synthetic "discounted" column, then take the top three rows.
+  --    'TDF.derive' extends the schema with @"discounted_amount"@;
+  --    the subsequent sort reference is checked against that new
+  --    schema.
   putStrLn "\n=== filter + derive + take (dataframe pipeline) ==="
   let topDiscounted =
         df
-          |> D.filterWhere (F.col @Double "amount" .>. F.lit 15.0)
-          |> D.derive "discounted_amount"
-               (F.col @Double "amount" * F.lit 0.9)
-          |> D.sortBy [D.Desc (F.col @Double "discounted_amount")]
-          |> D.take 3
+          |> TDF.filterWhere (TDF.col @"amount" .>. 15.0)
+          |> TDF.derive @"discounted_amount" (TDF.col @"amount" * 0.9)
+          |> TDF.sortBy [TDF.desc (TDF.col @"discounted_amount")]
+          |> TDF.take 3
   print topDiscounted
 
   -- Tidy up the temp file (withSystemTempDirectory removes the dir,
@@ -202,58 +227,6 @@ expectedTotals rows = map summarise (uniq (map region rows))
 uniq :: Eq a => [a] -> [a]
 uniq []     = []
 uniq (x:xs) = x : uniq (filter (/= x) xs)
-
--- ---------------------------------------------------------------------------
--- Pulling typed values back out of a dataframe row
--- ---------------------------------------------------------------------------
-
--- | Pull the value of @resultCol :: Double@ from the row whose
--- @keyCol@ equals @keyVal@. Used here just to verify dataframe's
--- aggregate output matches our Haskell-side computation; in real
--- code you'd more typically keep the result inside dataframe and
--- use 'D.filterWhere' / 'D.select' to build the comparison.
-lookupDouble :: D.DataFrame -> Text -> Text -> Text -> Double
-lookupDouble df keyCol keyVal resultCol =
-  case findRow keyCol keyVal df of
-    Just r  -> rowDouble resultCol r
-    Nothing -> error $ "lookupDouble: no row with "
-                     <> T.unpack keyCol <> " = " <> T.unpack keyVal
-
-lookupInt :: D.DataFrame -> Text -> Text -> Text -> Int
-lookupInt df keyCol keyVal resultCol =
-  case findRow keyCol keyVal df of
-    Just r  -> rowInt resultCol r
-    Nothing -> error $ "lookupInt: no row with "
-                     <> T.unpack keyCol <> " = " <> T.unpack keyVal
-
--- | First row whose @keyCol@ matches @keyVal@, or 'Nothing'.
-findRow :: Text -> Text -> D.DataFrame -> Maybe [(Text, D.Any)]
-findRow keyCol keyVal df =
-  let matches = filter (\r -> rowText keyCol r == keyVal) (D.toRowList df)
-  in  case matches of
-        (r:_) -> Just r
-        []    -> Nothing
-
-rowText :: Text -> [(Text, D.Any)] -> Text
-rowText col r = case lookup col r of
-  Just a -> case D.fromAny a :: Maybe Text of
-    Just t  -> t
-    Nothing -> error $ "rowText: column " <> T.unpack col <> " is not Text"
-  Nothing -> error $ "rowText: missing column " <> T.unpack col
-
-rowDouble :: Text -> [(Text, D.Any)] -> Double
-rowDouble col r = case lookup col r of
-  Just a -> case D.fromAny a :: Maybe Double of
-    Just d  -> d
-    Nothing -> error $ "rowDouble: column " <> T.unpack col <> " is not Double"
-  Nothing -> error $ "rowDouble: missing column " <> T.unpack col
-
-rowInt :: Text -> [(Text, D.Any)] -> Int
-rowInt col r = case lookup col r of
-  Just a -> case D.fromAny a :: Maybe Int of
-    Just i  -> i
-    Nothing -> error $ "rowInt: column " <> T.unpack col <> " is not Int"
-  Nothing -> error $ "rowInt: missing column " <> T.unpack col
 
 -- ---------------------------------------------------------------------------
 -- Tiny assertion helpers
