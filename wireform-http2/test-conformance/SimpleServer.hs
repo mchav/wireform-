@@ -401,7 +401,9 @@ processFramePayload conn stRef hdr payload = case payload of
 processHeaders :: Connection -> IORef ServerState -> StreamId -> ByteString -> IO Bool
 processHeaders conn stRef sid headerBlock = do
   decoder <- readMVar (connHpackDecoder conn)
-  result <- decodeHeaderBlock decoder headerBlock
+  st <- readIORef stRef
+  let tableSize = fromIntegral (settingsHeaderTableSize (ssLocalSettings st))
+  result <- decodeHeaderBlockWithMaxSize decoder tableSize headerBlock
   case result of
     Left _ -> do
       connError conn stRef CompressionError
@@ -415,8 +417,10 @@ processHeaders conn stRef sid headerBlock = do
             }
           pure True
         Right () -> do
+          st2 <- readIORef stRef
+          let initWin = fromIntegral (settingsInitialWindowSize (ssRemoteSettings st2))
           modifyIORef' stRef $ \s -> s
-            { ssStreams = Map.insert sid (StreamInfo StOpen 65535) (ssStreams s)
+            { ssStreams = Map.insert sid (StreamInfo StOpen initWin) (ssStreams s)
             }
           sendSimpleResponse conn stRef sid
           pure True
@@ -479,7 +483,9 @@ validateRequestHeaders headers = do
 processTrailers :: Connection -> IORef ServerState -> StreamId -> ByteString -> IO Bool
 processTrailers conn stRef sid headerBlock = do
   decoder <- readMVar (connHpackDecoder conn)
-  result <- decodeHeaderBlock decoder headerBlock
+  st <- readIORef stRef
+  let tableSize = fromIntegral (settingsHeaderTableSize (ssLocalSettings st))
+  result <- decodeHeaderBlockWithMaxSize decoder tableSize headerBlock
   case result of
     Left _ -> do
       connError conn stRef CompressionError
@@ -512,25 +518,42 @@ sendSimpleResponse conn stRef sid = do
           flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
   sendFrame conn headersFrame
-  -- Respect flow control: send data in chunks limited by stream/connection window
+  -- Respect flow control: use the remote peer's initial window size for new streams
   st <- readIORef stRef
-  let streamWindow = maybe 65535 siSendWindow (Map.lookup sid (ssStreams st))
+  let initWindow = fromIntegral (settingsInitialWindowSize (ssRemoteSettings st))
+      streamWindow = maybe initWindow siSendWindow (Map.lookup sid (ssStreams st))
       connWindow = ssConnSendWindow st
-      maxSend = min streamWindow connWindow
-      sendLen = min bodyLen maxSend
-  if sendLen <= 0
-    then pure ()
+      maxSend = min streamWindow (min connWindow bodyLen)
+  sendFlowControlled conn stRef sid responseBody maxSend
+
+sendFlowControlled :: Connection -> IORef ServerState -> StreamId -> ByteString -> Int -> IO ()
+sendFlowControlled conn stRef sid body maxSend = do
+  let bodyLen = BS.length body
+  if maxSend <= 0 || bodyLen <= 0
+    then do
+      modifyIORef' stRef $ \s -> s
+        { ssStreams = Map.insert sid (StreamInfo StHalfClosedLocal (max 0 maxSend)) (ssStreams s)
+        }
     else do
-      let chunk = BS.take sendLen responseBody
-          isLast = sendLen >= bodyLen
+      let sendLen = min bodyLen maxSend
+          chunk = BS.take sendLen body
+          remaining = BS.drop sendLen body
+          isLast = BS.null remaining
           flags = if isLast then flagEndStream else 0
           dataFrame = Frame
             (FrameHeader (fromIntegral sendLen) FrameData flags sid)
             (DataFrame chunk)
       sendFrame conn dataFrame
-  modifyIORef' stRef $ \s -> s
-    { ssStreams = Map.insert sid (StreamInfo StClosed 0) (ssStreams s)
-    }
+      if isLast
+        then modifyIORef' stRef $ \s -> s
+          { ssStreams = Map.insert sid (StreamInfo StClosed 0) (ssStreams s)
+          , ssConnSendWindow = ssConnSendWindow s - sendLen
+          }
+        else modifyIORef' stRef $ \s -> s
+          { ssStreams = Map.insert sid
+              (StreamInfo StHalfClosedLocal (maxSend - sendLen)) (ssStreams s)
+          , ssConnSendWindow = ssConnSendWindow s - sendLen
+          }
 
 connError :: Connection -> IORef ServerState -> ErrorCode -> IO ()
 connError conn stRef code = do

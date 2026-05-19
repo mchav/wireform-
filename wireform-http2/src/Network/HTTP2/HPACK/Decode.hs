@@ -1,6 +1,7 @@
 module Network.HTTP2.HPACK.Decode
   ( decodeHeader
   , decodeHeaderBlock
+  , decodeHeaderBlockWithMaxSize
   ) where
 
 import Data.Bits
@@ -15,18 +16,33 @@ import Network.HTTP2.HPACK.Types
 type Header = (ByteString, ByteString)
 
 decodeHeaderBlock :: DynamicTable -> ByteString -> IO (Either DecodeError [Header])
-decodeHeaderBlock dt bs = go 0 []
+decodeHeaderBlock dt bs = decodeHeaderBlockWithMaxSize dt 4096 bs
+
+decodeHeaderBlockWithMaxSize :: DynamicTable -> Int -> ByteString -> IO (Either DecodeError [Header])
+decodeHeaderBlockWithMaxSize dt maxTableSize bs = go 0 [] True
   where
     len = BS.length bs
 
-    go !off !acc
+    go !off !acc !allowTableUpdate
       | off >= len = pure (Right (reverse acc))
       | otherwise = do
-          result <- decodeHeader dt bs off
-          case result of
-            Left err -> pure (Left err)
-            Right (Nothing, off') -> go off' acc
-            Right (Just hdr, off') -> go off' (hdr : acc)
+          let b = BS.index bs off
+          if b .&. 0xE0 == 0x20
+            then
+              if allowTableUpdate
+                then do
+                  result <- decodeDynamicTableUpdate dt maxTableSize bs off
+                  case result of
+                    Left err -> pure (Left err)
+                    Right (Nothing, off') -> go off' acc True
+                    Right (Just _, _) -> pure (Left (InvalidTableSizeUpdate 0))
+                else pure (Left (InvalidTableSizeUpdate 0))
+            else do
+              result <- decodeHeader dt bs off
+              case result of
+                Left err -> pure (Left err)
+                Right (Nothing, off') -> go off' acc False
+                Right (Just hdr, off') -> go off' (hdr : acc) False
 
 decodeHeader :: DynamicTable -> ByteString -> Int
              -> IO (Either DecodeError (Maybe Header, Int))
@@ -42,7 +58,7 @@ decodeHeader dt bs off
             then decodeLiteralNoIndex dt bs off
             else if b .&. 0xF0 == 0x10
               then decodeLiteralNeverIndex dt bs off
-              else decodeDynamicTableUpdate dt bs off
+              else decodeDynamicTableUpdate dt 4096 bs off
 
 decodeIndexed :: DynamicTable -> ByteString -> Int
               -> IO (Either DecodeError (Maybe Header, Int))
@@ -108,14 +124,17 @@ decodeLiteralCommon dt bs off prefix =
             Left err -> pure (Left err)
             Right (value, off''') -> pure (Right (Just (name, value), off'''))
 
-decodeDynamicTableUpdate :: DynamicTable -> ByteString -> Int
+decodeDynamicTableUpdate :: DynamicTable -> Int -> ByteString -> Int
                          -> IO (Either DecodeError (Maybe Header, Int))
-decodeDynamicTableUpdate dt bs off =
+decodeDynamicTableUpdate dt maxSize bs off =
   case decodeInteger bs off 5 of
     Left err -> pure (Left err)
     Right (newSize, off') -> do
-      setMaxSize dt (fromIntegral newSize)
-      pure (Right (Nothing, off'))
+      if fromIntegral newSize > maxSize
+        then pure (Left (InvalidTableSizeUpdate (fromIntegral newSize)))
+        else do
+          setMaxSize dt (fromIntegral newSize)
+          pure (Right (Nothing, off'))
 
 decodeInteger :: ByteString -> Int -> Int -> Either DecodeError (Word64, Int)
 decodeInteger bs off n

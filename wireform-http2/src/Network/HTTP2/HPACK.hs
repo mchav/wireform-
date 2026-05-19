@@ -6,6 +6,7 @@ module Network.HTTP2.HPACK
   , defaultEncodeStrategy
     -- * Decoding
   , decodeHeaderBlock
+  , decodeHeaderBlockWithMaxSize
     -- * Dynamic table
   , DynamicTable
   , newDynamicTable
