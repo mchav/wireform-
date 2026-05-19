@@ -31,6 +31,7 @@ packages:
   wireform-csv/
   wireform-ndjson/
   wireform-fory/
+  wireform-http2/
   wireform-grpc/
   wireform-kafka/
   wireform-stats/
