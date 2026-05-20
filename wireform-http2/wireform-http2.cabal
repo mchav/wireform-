@@ -29,10 +29,22 @@ tested-with: GHC == 9.6.4, GHC == 9.8.4
 extra-source-files:
   cbits/*.c
   cbits/*.h
+  test/data/localhost.crt
+  test/data/localhost.key
 
 source-repository head
   type:     git
   location: https://github.com/iand675/wireform-
+
+flag tls
+  description:
+    Build the @Network.HTTP2.TLS.*@ modules.
+    .
+    Pulls in @tls@ and @crypton-x509@ to provide HTTP/2-over-TLS with
+    ALPN @h2@ negotiation. Default 'True'; turn off if you only need
+    cleartext HTTP/2 and want to avoid the cryptography dep closure.
+  default: True
+  manual: True
 
 common defaults
   default-language: GHC2021
@@ -97,6 +109,14 @@ library
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     wireform-core
+  if flag(tls)
+    exposed-modules:
+      Network.HTTP2.TLS
+      Network.HTTP2.TLS.Client
+      Network.HTTP2.TLS.Server
+    build-depends:
+      crypton-x509      >= 1.7 && < 1.8,
+      tls               >= 2.0 && < 2.2
 
 test-suite wireform-http2-test
   import: defaults
@@ -117,6 +137,15 @@ test-suite wireform-http2-test
     tasty-hunit >= 0.10,
     tasty-quickcheck >= 0.10,
     QuickCheck >= 2.14
+  if flag(tls)
+    other-modules:
+      Test.TLS
+    build-depends:
+      crypton-x509      >= 1.7 && < 1.8,
+      crypton-x509-store >= 1.6 && < 1.7,
+      tls               >= 2.0 && < 2.2
+  else
+    cpp-options: -DWIREFORM_HTTP2_NO_TLS_TESTS
 
 executable wireform-http2-server
   import: defaults
