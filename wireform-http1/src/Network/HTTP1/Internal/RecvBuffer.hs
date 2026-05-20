@@ -10,6 +10,7 @@ When we eventually merge with @wireform-http2@ this module will move to
 -}
 module Network.HTTP1.Internal.RecvBuffer
   ( RecvBuffer (..)
+  , RecvFn
   , newRecvBuffer
   , newRecvBufferSized
     -- * Reads
@@ -33,7 +34,10 @@ import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Foreign.Storable (peekByteOff)
-import Network.Socket (Socket, recvBuf)
+
+-- | A primitive @recv()@-style callback used by 'RecvBuffer' to refill
+-- itself.  Returns the number of bytes read (@0@ on orderly EOF).
+type RecvFn = Ptr Word8 -> Int -> IO Int
 
 foreign import ccall unsafe "hs_http1_find_cr"
   c_find_cr :: Ptr () -> CInt -> CInt -> CInt
@@ -83,7 +87,7 @@ recvBufferCompact rb = do
 
 -- | Read exactly @n@ bytes (blocking). Zero-copy when no wrap-around;
 -- returns 'BS.empty' if the peer closes before @n@ bytes arrive.
-recvBufferRead :: RecvBuffer -> Socket -> Int -> IO ByteString
+recvBufferRead :: RecvBuffer -> RecvFn -> Int -> IO ByteString
 recvBufferRead rb sock n = do
   rp <- readIORef (rbReadPos rb)
   wp <- readIORef (rbWritePos rb)
@@ -103,7 +107,7 @@ sliceBuffer rb rp n = do
 -- | Read at most @n@ bytes; returns the largest available slice up to
 -- @n@. Used for body streaming where we want to forward whatever is in
 -- the buffer rather than waiting for a specific amount.
-recvBufferReadAtMost :: RecvBuffer -> Socket -> Int -> IO ByteString
+recvBufferReadAtMost :: RecvBuffer -> RecvFn -> Int -> IO ByteString
 recvBufferReadAtMost rb sock n = do
   rp <- readIORef (rbReadPos rb)
   wp <- readIORef (rbWritePos rb)
@@ -124,7 +128,7 @@ recvBufferReadAtMost rb sock n = do
           writeIORef (rbReadPos rb) (rp' + take_)
           pure $! BSI.fromForeignPtr (rbBuffer rb) rp' take_
 
-fillUntil :: RecvBuffer -> Socket -> Int -> IO ByteString
+fillUntil :: RecvBuffer -> RecvFn -> Int -> IO ByteString
 fillUntil rb sock n = do
   rp <- readIORef (rbReadPos rb)
   wp <- readIORef (rbWritePos rb)
@@ -147,7 +151,7 @@ fillUntil rb sock n = do
         else do
           let toRecv = max (n - avail) (min space 65536)
           got <- withForeignPtr (rbBuffer rb) $ \base ->
-            recvBuf sock (base `plusPtr` wp) toRecv
+            sock (base `plusPtr` wp) toRecv
           if got <= 0
             then if avail > 0
                    then sliceBuffer rb rp avail
@@ -158,7 +162,7 @@ fillUntil rb sock n = do
 
 -- | One recv into the tail of the buffer; returns bytes received
 -- (0 on EOF). Never blocks beyond a single @recv()@.
-fillOnce :: RecvBuffer -> Socket -> Int -> IO Int
+fillOnce :: RecvBuffer -> RecvFn -> Int -> IO Int
 fillOnce rb sock want = do
   wp <- readIORef (rbWritePos rb)
   let space = rbCapacity rb - wp
@@ -167,7 +171,7 @@ fillOnce rb sock want = do
     then pure 0
     else do
       got <- withForeignPtr (rbBuffer rb) $ \base ->
-        recvBuf sock (base `plusPtr` wp) toRecv
+        sock (base `plusPtr` wp) toRecv
       if got <= 0
         then pure 0
         else do
@@ -185,7 +189,7 @@ fillOnce rb sock want = do
 -- This is essential for chunked TE: we MUST NOT consume any bytes
 -- beyond the CRLF here, because the chunk body sits immediately after
 -- on the wire and is read by a separate exact-length pull.
-recvBufferReadUntilCRLF :: RecvBuffer -> Socket -> Int -> IO (Maybe ByteString)
+recvBufferReadUntilCRLF :: RecvBuffer -> RecvFn -> Int -> IO (Maybe ByteString)
 recvBufferReadUntilCRLF rb sock cap = go
   where
     go = do
@@ -243,7 +247,7 @@ findCRLF rb start end = withForeignPtr (rbBuffer rb) $ \base -> go base start
 --   * @Just (Left ())@ — encountered a bare LF before any CRLF.
 --   * @Nothing@ — EOF before finding either, or oversized line.
 recvBufferReadUntilCRLFStrict
-  :: RecvBuffer -> Socket -> Int -> IO (Maybe (Either () ByteString))
+  :: RecvBuffer -> RecvFn -> Int -> IO (Maybe (Either () ByteString))
 recvBufferReadUntilCRLFStrict rb sock cap = go
   where
     go = do
@@ -319,7 +323,7 @@ foreign import ccall unsafe "hs_http1_find_lf"
 -- The zero-cost SIMD CR scanner does the heavy lifting; the LF\/CR
 -- follow-up is three byte loads per CR-hit, which is amortised across
 -- 16-byte scans.
-recvBufferReadUntilDoubleCRLF :: RecvBuffer -> Socket -> Int -> IO (Maybe ByteString)
+recvBufferReadUntilDoubleCRLF :: RecvBuffer -> RecvFn -> Int -> IO (Maybe ByteString)
 recvBufferReadUntilDoubleCRLF rb sock cap = go
   where
     go = do

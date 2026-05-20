@@ -6,15 +6,19 @@ Two primary modes:
   'Connection'. Pipelining is the caller's responsibility (issue
   N requests, then read N responses; ordered by the server per RFC
   9112 § 9.3.2).
-* 'withClientConnection' — bracket pattern: open a connection, run an
-  action, close it.
+* 'withClientConnection' — bracket pattern: open a TCP connection,
+  run an action, close it.
+
+For TLS (or any non-socket transport) build the 'Connection' via
+'newConnectionFromTransport' and call 'sendRequestOn' yourself; the
+high-level helpers here are TCP-only.
 
 A pooled variant lives in "Network.HTTP1.Client.Pool".
 -}
 module Network.HTTP1.Client
   ( ClientConfig (..)
   , defaultClientConfig
-  , ClientConnection
+  , ClientConnection (..)
   , openClientConnection
   , closeClientConnection
   , withClientConnection
@@ -52,10 +56,14 @@ defaultClientConfig = ClientConfig
   , clientMaxHeaderBytes = 32 * 1024
   }
 
--- | Opaque handle for a client-side HTTP\/1.x connection.
-newtype ClientConnection = ClientConnection Connection
+-- | Opaque handle for a client-side HTTP\/1.x connection.  Construct
+-- via 'openClientConnection' (TCP) or by wrapping a
+-- 'newConnectionFromTransport' yourself (TLS / other).
+newtype ClientConnection = ClientConnection { unClientConnection :: Connection }
 
-clientConnectionSocket :: ClientConnection -> Socket
+-- | The underlying socket, if the connection is socket-backed.  TLS
+-- connections return 'Nothing'.
+clientConnectionSocket :: ClientConnection -> Maybe Socket
 clientConnectionSocket (ClientConnection c) = connectionSocket c
 
 openClientConnection :: ClientConfig -> IO ClientConnection
@@ -88,6 +96,7 @@ sendRequest cfg req = withClientConnection cfg $ \conn -> sendRequestOn conn req
 -- be misframed.
 sendRequestOn :: ClientConnection -> Request -> IO (Either ParseError Response)
 sendRequestOn (ClientConnection conn) req = do
+  let recv = tRecvBuf (connectionTransport conn)
   sendBuilder conn (requestBuilder req)
   case requestBody req of
     BodyEmpty -> pure ()
@@ -101,18 +110,27 @@ sendRequestOn (ClientConnection conn) req = do
     BodyFile _ -> pure ()
     -- ^ Client-side sendfile is a follow-up. For now you can stream
     -- a file with @BodyStream@ + a producer that 'hGet's chunks.
-  -- Read the response head.
-  mHead <- recvBufferReadUntilDoubleCRLF
-             (connectionRecvBuffer conn)
-             (connectionSocket conn)
-             (32 * 1024)
-  case mHead of
-    Nothing -> pure (Left ParseUnexpectedEof)
-    Just headBs -> case parseResponse (requestMethod req) headBs of
-      Left err -> pure (Left err)
-      Right (resp0, framing) -> do
-        body <- readBody conn framing
-        pure $ Right resp0 { responseBody = body }
+  -- Read the response head.  RFC 9110 §15.2 / RFC 9112 §4.1: 1xx
+  -- (informational) responses are interim — keep reading until we
+  -- see the final one.  This is how an @Expect: 100-continue@ on
+  -- the request gets its 100 acknowledgement transparently absorbed.
+  readFinal recv
+  where
+    readFinal recv = do
+      mHead <- recvBufferReadUntilDoubleCRLF
+                 (connectionRecvBuffer conn)
+                 recv
+                 (32 * 1024)
+      case mHead of
+        Nothing -> pure (Left ParseUnexpectedEof)
+        Just headBs -> case parseResponse (requestMethod req) headBs of
+          Left err -> pure (Left err)
+          Right (resp0, framing)
+            | is1xx (responseStatus resp0) -> readFinal recv
+            | otherwise -> do
+                body <- readBody conn framing
+                pure $ Right resp0 { responseBody = body }
+    is1xx (Status code) = code >= 100 && code < 200
 
 streamChunked :: Connection -> IO (Maybe ByteString) -> IO ()
 streamChunked conn producer = loop

@@ -7,7 +7,11 @@ module Network.HTTP2.HPACK.Decode
 import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.Word
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (plusPtr)
+import System.IO.Unsafe (unsafePerformIO)
 
 import Network.HTTP2.HPACK.Huffman
 import Network.HTTP2.HPACK.Table
@@ -177,5 +181,42 @@ decodeString bs off
                        in if huffmanFlag
                             then case huffmanDecode raw of
                                    Left err -> Left err
-                                   Right decoded -> Right (decoded, end)
-                            else Right (raw, end)
+                                   -- 'huffmanDecode' wraps its memcpy
+                                   -- in a lazy 'unsafePerformIO'.  Our
+                                   -- @raw@ is a slice of @bs@ which is
+                                   -- a slice of the recv ring buffer's
+                                   -- per-frame @copied@ block; once the
+                                   -- enclosing case branch ends GC may
+                                   -- reclaim that block, and a deferred
+                                   -- memcpy then reads recycled bytes.
+                                   -- Force the IO now by demanding the
+                                   -- result's WHNF.
+                                   Right decoded -> decoded `seq` Right (decoded, end)
+                            else
+                              -- Same hazard for literal (non-Huffman)
+                              -- strings — they're slices of @bs@.
+                              -- 'forceCopy' produces a strict copy
+                              -- whose backing memory is independent
+                              -- of the source.
+                              Right (forceCopy raw, end)
+
+-- | Strict, eager copy of a ByteString.  Allocates a fresh buffer and
+-- runs memcpy synchronously inside 'unsafePerformIO', so the returned
+-- bytestring's memory is independent of the source.  Used to detach
+-- HPACK literal slices from the recv ring buffer they came from
+-- (otherwise the next 'recvBufferRead' overwrites their bytes).
+-- 'unsafePerformIO' (not 'unsafeDupablePerformIO'): we don't want the
+-- memcpy duplicated under multi-threaded forcing.  Walks every byte
+-- in the destination after memcpy to make sure the IO has actually
+-- run (and therefore read from the source) before we return — a bare
+-- 'pure ps' lets GHC defer evaluation of the result, which would
+-- defer the memcpy itself.
+forceCopy :: ByteString -> ByteString
+forceCopy (BSI.PS srcFp srcOff srcLen) = unsafePerformIO $ do
+  dstFp <- BSI.mallocByteString srcLen
+  withForeignPtr srcFp $ \src ->
+    withForeignPtr dstFp $ \dst ->
+      BSI.memcpy dst (src `plusPtr` srcOff) srcLen
+  let !ps = BSI.PS dstFp 0 srcLen
+  BS.foldr' (\b acc -> b `seq` acc) () ps `seq` pure ps
+

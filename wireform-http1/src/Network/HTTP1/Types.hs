@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {- | HTTP message types.
 
 This module re-exports the per-aspect modules ('Method', 'Status',
@@ -240,7 +241,11 @@ wholeFileBody path = do
 -- @
 wholeFileBodyFd :: FilePath -> IO FileBody
 wholeFileBodyFd path = do
+#if MIN_VERSION_unix(2,8,0)
   fd <- PosixIO.openFd path PosixIO.ReadOnly PosixIO.defaultFileFlags
+#else
+  fd <- PosixIO.openFd path PosixIO.ReadOnly Nothing PosixIO.defaultFileFlags
+#endif
   st <- Posix.getFdStatus fd
   pure FileBody
     { fbSource = FileSourceFd fd
@@ -267,6 +272,15 @@ data Request = Request
     -- ^ For an incoming request this is a 'BodyStream' producer that
     -- reads from the connection's recv buffer. For an outgoing client
     -- request it is whatever the caller supplied.
+  , requestTrailers :: !(IO Headers)
+    -- ^ Trailer block carried after a chunked request body
+    -- (RFC 9112 § 7).  For an incoming request the action blocks
+    -- until the body has been fully drained; returns @[]@ when
+    -- the framing carried no trailers.
+    --
+    -- For an outgoing request the field is currently ignored —
+    -- the HTTP\/1.x encoder doesn't emit trailers yet.  Set it
+    -- to @pure []@ if you don't care.
   }
 
 instance Show Request where
@@ -279,6 +293,8 @@ instance Show Request where
 instance NFData Request where
   rnf Request{requestMethod=m,requestTarget=t,requestVersion=v,requestHeaders=h,requestBody=b} =
     rnf m `seq` rnf t `seq` rnf v `seq` rnf h `seq` rnf b
+    -- 'requestTrailers' is an IO action; we can't normalise it
+    -- without running it, so it's intentionally left out.
 
 data Response = Response
   { responseStatus  :: !Status

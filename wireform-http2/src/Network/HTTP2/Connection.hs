@@ -12,6 +12,7 @@ module Network.HTTP2.Connection
   , sendFrames
   , sendFramesUnlocked
   , sendFramesZeroCopy
+  , sendHeaderBlock
   , recvFrame
   , recvFrameRaw
   , closeConnection
@@ -26,6 +27,7 @@ module Network.HTTP2.Connection
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception (Exception, catch, SomeException)
+import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -190,6 +192,60 @@ sendFrames conn frames = do
   let bss = map encodeFrame frames
   withMVar (connSendLock conn) $ \_ ->
     tSendMany (connTransport conn) bss
+
+-- | Emit an encoded HPACK header block as a HEADERS frame followed
+-- by zero or more CONTINUATION frames, splitting at the peer's
+-- @SETTINGS_MAX_FRAME_SIZE@.  END_HEADERS is set on the final frame;
+-- the @endStream@ flag is set on the initial HEADERS frame only.
+--
+-- A header block that fits within one frame is sent as a single
+-- HEADERS with @END_HEADERS@ set, matching the pre-CONTINUATION
+-- code path bit-for-bit.
+--
+-- The frames are sent atomically (with the connection send lock held)
+-- so concurrent senders on other streams can't interleave a frame
+-- between our HEADERS and its CONTINUATION block, which the wire
+-- protocol forbids (RFC 9113 §6.10).
+sendHeaderBlock
+  :: Connection
+  -> StreamId
+  -> Bool         -- ^ set END_STREAM on the initial HEADERS frame
+  -> FrameFlags   -- ^ extra flags to OR into the initial HEADERS frame
+  -> ByteString   -- ^ encoded HPACK header block
+  -> Int          -- ^ peer SETTINGS_MAX_FRAME_SIZE
+  -> IO ()
+sendHeaderBlock conn sid endStream extraFlags block maxFrame = do
+  let n = BS.length block
+  if n <= maxFrame
+    then do
+      let flags = flagEndHeaders
+                .|. extraFlags
+                .|. (if endStream then flagEndStream else 0)
+          frame = Frame
+            (FrameHeader (fromIntegral n) FrameHeaders flags sid)
+            (HeadersFrame Nothing block)
+      sendFrame conn frame
+    else do
+      let (head1, rest) = BS.splitAt maxFrame block
+          initialFlags  = extraFlags
+                       .|. (if endStream then flagEndStream else 0)
+          frames        = headFrame head1 initialFlags : contFrames rest
+      sendFrames conn frames
+  where
+    headFrame bs flags = Frame
+      (FrameHeader (fromIntegral (BS.length bs)) FrameHeaders flags sid)
+      (HeadersFrame Nothing bs)
+    contFrames bs
+      | BS.length bs <= maxFrame =
+          [Frame
+            (FrameHeader (fromIntegral (BS.length bs)) FrameContinuation flagEndHeaders sid)
+            (ContinuationFrame bs)]
+      | otherwise =
+          let (chunk, rest) = BS.splitAt maxFrame bs
+              f = Frame
+                (FrameHeader (fromIntegral maxFrame) FrameContinuation 0 sid)
+                (ContinuationFrame chunk)
+          in f : contFrames rest
 
 -- | Send multiple frames without the send lock. Combines into one writev.
 {-# INLINE sendFramesUnlocked #-}
