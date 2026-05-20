@@ -41,6 +41,7 @@ import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Types (decodeGoAway, decodeSettings)
 import Network.HTTP2.HPACK
 import Network.HTTP2.Types
+import qualified Network.HTTP2.Types as H2Types
 
 data ClientConfig = ClientConfig
   { clientSettings :: !Settings
@@ -414,7 +415,7 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
               then do
                 _ <- tryPutMVar (siTrailers inbox) []
                 atomically $ writeTBQueue (siBody inbox) BodyEnd
-                removeStream handle sid
+                closeStream handle sid
               else pure ()
             pure True
 
@@ -454,7 +455,7 @@ deliverHeaders handle sid flags block = do
                 -- body terminator, and release the stream.
                 _ <- tryPutMVar (siTrailers inbox) []
                 atomically $ writeTBQueue (siBody inbox) BodyEnd
-                removeStream handle sid
+                closeStream handle sid
             else do
               -- Trailer block: RFC 9113 §8.1 forbids pseudo-headers
               -- here, but a strict reject would conflict with too
@@ -467,7 +468,7 @@ deliverHeaders handle sid flags block = do
               -- peer is malformed).  Either way, push the body
               -- terminator and release the stream.
               atomically $ writeTBQueue (siBody inbox) BodyEnd
-              removeStream handle sid
+              closeStream handle sid
           pure True
 
 splitStatus
@@ -492,7 +493,7 @@ failStream handle sid err = do
       _ <- tryPutMVar (siHeaders inbox) (Left err)
       _ <- tryPutMVar (siTrailers inbox) []
       atomically $ writeTBQueue (siBody inbox) (BodyError err)
-      removeStream handle sid
+      closeStream handle sid
 
 -- | When the connection terminates, mark every outstanding stream as
 -- 'ClientStreamConnectionClosed' so that blocked callers wake up.
@@ -558,7 +559,7 @@ withResponse handle req action = mask $ \restore -> do
   -- Cancel the stream if (a) the action raises an exception, or
   -- (b) the action returns without fully draining the body.  Both
   -- leave the stream in 'chStreams' (the recv loop only removes it
-  -- on END_STREAM / RST_STREAM); 'removeStream' is idempotent.
+  -- on END_STREAM / RST_STREAM); 'closeStream' is idempotent.
   let cancelIfOpen reason = do
         streams <- readIORef (chStreams handle)
         when (Map.member sid streams) $ do
@@ -567,7 +568,7 @@ withResponse handle req action = mask $ \restore -> do
           _ <- tryPutMVar (siHeaders inbox) (Left reason)
           _ <- tryPutMVar (siTrailers inbox) []
           atomically $ writeTBQueue (siBody inbox) (BodyError reason)
-          removeStream handle sid
+          closeStream handle sid
   result <- try @SomeException $ restore $ do
     headersResult <- takeMVar (siHeaders inbox)
     case headersResult of
@@ -593,8 +594,8 @@ sendRstStream handle sid code =
 -- | Remove a stream from the active map and (if it was present)
 -- decrement the active-stream count so the next 'registerAndSend'
 -- can proceed.  Idempotent.
-removeStream :: ClientHandle -> StreamId -> IO ()
-removeStream handle sid = do
+closeStream :: ClientHandle -> StreamId -> IO ()
+closeStream handle sid = do
   wasPresent <- atomicModifyIORef' (chStreams handle) $ \m ->
     if Map.member sid m
       then (Map.delete sid m, True)
@@ -898,7 +899,7 @@ word32ToErrorCodeLocal w = case w of
   0x2 -> InternalError
   0x3 -> FlowControlError
   0x4 -> SettingsTimeout
-  0x5 -> StreamClosed
+  0x5 -> H2Types.StreamClosed
   0x6 -> FrameSizeError
   0x7 -> RefusedStream
   0x8 -> Cancel

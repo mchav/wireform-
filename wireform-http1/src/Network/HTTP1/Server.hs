@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {- | HTTP\/1.x server runtime.
 
 The runtime is intentionally minimal: it implements RFC 9112 framing,
@@ -302,7 +303,11 @@ sendFileBody transport headBs fb = case tSocket transport of
     case fbSource fb of
       FileSourcePath p ->
         bracket
+#if MIN_VERSION_unix(2,8,0)
           (openFd p ReadOnly defaultFileFlags)
+#else
+          (openFd p ReadOnly Nothing defaultFileFlags)
+#endif
           closeFd
           $ \fd -> SF.sendFile sock fd (fbOffset fb) (fbLength fb)
       FileSourceFd fd ->

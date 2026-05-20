@@ -23,6 +23,7 @@ import qualified Network.TLS as TLS
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Network.HTTP2.Client (clientHandleConnection)
 import Network.HTTP2.Connection (connectionSettings)
 import qualified Network.HTTP2.TLS as HTLS
 import qualified Network.HTTP2.TLS.Client as TLSClient
@@ -39,11 +40,11 @@ tests = testGroup "TLS"
         serverTid <- forkIO $
           TLSServer.runTLSServerOnSocket cfg listenSock
             `catch` (\(_ :: SomeException) -> pure ())
-        result <- TLSClient.withTLSConnection (clientCfg port) $ \conn -> do
+        result <- TLSClient.withTLSConnection (clientCfg port) $ \handle -> do
           -- A successful handshake implies ALPN agreed on h2 (the
           -- client checks this in 'verifyALPN'). Touch the connection
           -- to make sure it's fully constructed.
-          (local, _) <- connectionSettings conn
+          (local, _) <- connectionSettings (clientHandleConnection handle)
           pure (local `seq` ())
         killThread serverTid
         result @?= ()

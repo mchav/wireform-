@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {- | HTTP message types.
 
 This module re-exports the per-aspect modules ('Method', 'Status',
@@ -240,7 +241,11 @@ wholeFileBody path = do
 -- @
 wholeFileBodyFd :: FilePath -> IO FileBody
 wholeFileBodyFd path = do
+#if MIN_VERSION_unix(2,8,0)
   fd <- PosixIO.openFd path PosixIO.ReadOnly PosixIO.defaultFileFlags
+#else
+  fd <- PosixIO.openFd path PosixIO.ReadOnly Nothing PosixIO.defaultFileFlags
+#endif
   st <- Posix.getFdStatus fd
   pure FileBody
     { fbSource = FileSourceFd fd
