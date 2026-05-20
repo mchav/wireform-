@@ -6,8 +6,10 @@ module Network.HTTP2.Connection
   , newConnection
   , sendFrame
   , sendFrameUnlocked
+  , sendFrameZeroCopy
   , sendFrames
   , sendFramesUnlocked
+  , sendFramesZeroCopy
   , recvFrame
   , closeConnection
   , connectionSettings
@@ -22,8 +24,11 @@ import Control.Concurrent.STM
 import Control.Exception (Exception, throwIO, catch, SomeException)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.IORef
 import Data.Word
+import Foreign.ForeignPtr
+import Foreign.Ptr
 import Network.Socket (Socket)
 import qualified Network.Socket.ByteString as NBS
 
@@ -31,6 +36,7 @@ import Network.HTTP2.Connection.FlowControl
 import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Connection.StreamTable
 import Network.HTTP2.Frame
+import Network.HTTP2.Frame.Encode (encodeFrameInto)
 import Network.HTTP2.HPACK
 import Network.HTTP2.Types
 
@@ -53,6 +59,21 @@ data ConnectionError = ConnectionError
 
 instance Exception ConnectionError
 
+-- | Pre-allocated pinned buffer for zero-copy frame sends.
+-- Frames are encoded directly into this buffer, then sent with a single write.
+data SendBuffer = SendBuffer
+  { sbBuffer :: !(ForeignPtr Word8)
+  , sbCapacity :: !Int
+  }
+
+sendBufferSize :: Int
+sendBufferSize = 65536
+
+newSendBuffer :: IO SendBuffer
+newSendBuffer = do
+  fp <- BSI.mallocByteString sendBufferSize
+  pure SendBuffer { sbBuffer = fp, sbCapacity = sendBufferSize }
+
 data Connection = Connection
   { connRole :: !ConnectionRole
   , connSocket :: !Socket
@@ -68,6 +89,7 @@ data Connection = Connection
   , connLastStreamId :: !(IORef StreamId)
   , connClosed :: !(IORef Bool)
   , connOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
+  , connSendBuffer :: !SendBuffer
   }
 
 newConnection :: ConnectionConfig -> IO Connection
@@ -83,6 +105,7 @@ newConnection cfg = do
   recvBuf <- newIORef BS.empty
   lastStreamId <- newIORef 0
   closed <- newIORef False
+  sendBuf <- newSendBuffer
   pure Connection
     { connRole = ccRole cfg
     , connSocket = ccSocket cfg
@@ -98,6 +121,7 @@ newConnection cfg = do
     , connLastStreamId = lastStreamId
     , connClosed = closed
     , connOnGoAway = ccOnGoAway cfg
+    , connSendBuffer = sendBuf
     }
 
 -- | Send a frame. Encodes and sends in one operation.
@@ -126,6 +150,34 @@ sendFrames conn frames = do
 sendFramesUnlocked :: Connection -> [Frame] -> IO ()
 sendFramesUnlocked conn frames =
   NBS.sendMany (connSocket conn) (map encodeFrame frames)
+
+-- | Zero-copy send: encode frames directly into the connection's pinned
+-- send buffer, then send from that buffer. Avoids per-frame allocation.
+-- Only safe for single-threaded connection loops.
+{-# INLINE sendFrameZeroCopy #-}
+sendFrameZeroCopy :: Connection -> Frame -> IO ()
+sendFrameZeroCopy conn frame = do
+  let SendBuffer fp cap = connSendBuffer conn
+  withForeignPtr fp $ \ptr -> do
+    written <- encodeFrameInto frame ptr
+    let bs = BSI.fromForeignPtr fp 0 written
+    NBS.sendAll (connSocket conn) bs
+
+-- | Zero-copy batch send: encode multiple frames into the send buffer
+-- contiguously, then send the whole buffer in one syscall.
+{-# INLINE sendFramesZeroCopy #-}
+sendFramesZeroCopy :: Connection -> [Frame] -> IO ()
+sendFramesZeroCopy conn frames = do
+  let SendBuffer fp cap = connSendBuffer conn
+  withForeignPtr fp $ \basePtr -> do
+    totalWritten <- writeFrames basePtr 0 frames
+    let bs = BSI.fromForeignPtr fp 0 totalWritten
+    NBS.sendAll (connSocket conn) bs
+  where
+    writeFrames _ offset [] = pure offset
+    writeFrames ptr offset (f:fs) = do
+      written <- encodeFrameInto f (ptr `plusPtr` offset)
+      writeFrames ptr (offset + written) fs
 
 recvFrame :: Connection -> IO (Either FrameDecodeError Frame)
 recvFrame conn = do

@@ -105,12 +105,12 @@ handleFrame conn hdr payload = case payload of
   SettingsFrame _
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrameUnlocked conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+        sendFrameZeroCopy conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
 
   PingFrame opaqueData
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrameUnlocked conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
+        sendFrameZeroCopy conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
 
   WindowUpdateFrame _ -> pure ()
 
@@ -126,7 +126,7 @@ handleFrame conn hdr payload = case payload of
   DataFrame _ -> do
     let len = fhLength hdr
     if len > 0
-      then sendFrameUnlocked conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
+      then sendFrameZeroCopy conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
       else pure ()
 
   GoAwayFrame _ _ _ -> pure ()
@@ -139,8 +139,8 @@ sendResponse conn sid = do
   -- Real HPACK encode with dynamic table
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder
     [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
-  -- Batch both frames into one writev syscall, no lock needed (single-threaded loop)
-  sendFramesUnlocked conn
+  -- Zero-copy: encode both frames into the connection's pinned send buffer
+  sendFramesZeroCopy conn
     [ Frame (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
     , Frame (FrameHeader 13 FrameData flagEndStream sid)
