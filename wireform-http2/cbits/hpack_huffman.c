@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <pthread.h>
 
 /* RFC 7541 Appendix B Huffman code table.
  * Each entry: [code, bit_length]
@@ -137,7 +138,7 @@ struct trie_node {
 
 static struct trie_node decode_trie[MAX_NODES];
 static int trie_node_count = 0;
-static int trie_initialized = 0;
+static pthread_once_t trie_init_once = PTHREAD_ONCE_INIT;
 
 static int16_t alloc_node(void) {
     int16_t idx = (int16_t)trie_node_count++;
@@ -147,9 +148,7 @@ static int16_t alloc_node(void) {
     return idx;
 }
 
-static void init_trie(void) {
-    if (trie_initialized) return;
-
+static void init_trie_impl(void) {
     trie_node_count = 0;
     alloc_node(); /* root = 0 */
 
@@ -167,8 +166,10 @@ static void init_trie(void) {
         }
         decode_trie[node].symbol = (int16_t)sym;
     }
+}
 
-    trie_initialized = 1;
+static void init_trie(void) {
+    pthread_once(&trie_init_once, init_trie_impl);
 }
 
 /* Trie-based Huffman decoder. Returns 0 on success, -1 on error. */
@@ -261,7 +262,7 @@ struct nibble_entry {
 #define MAX_NIBBLE_STATES 256
 static struct nibble_entry nibble_table[MAX_NIBBLE_STATES][16];
 static int nibble_state_count = 0;
-static int nibble_initialized = 0;
+static pthread_once_t nibble_init_once = PTHREAD_ONCE_INIT;
 
 /* Map trie node -> nibble state. -1 = not assigned. */
 static int16_t trie_to_nibble[MAX_NODES];
@@ -331,8 +332,7 @@ static int16_t walk_trie(int16_t start, uint8_t nibble, int nbits,
     return node;
 }
 
-static void init_nibble_table(void) {
-    if (nibble_initialized) return;
+static void init_nibble_table_impl(void) {
     init_trie(); /* Ensure trie is built */
 
     memset(trie_to_nibble, -1, sizeof(trie_to_nibble));
@@ -371,8 +371,10 @@ static void init_nibble_table(void) {
             }
         }
     }
+}
 
-    nibble_initialized = 1;
+static void init_nibble_table(void) {
+    pthread_once(&nibble_init_once, init_nibble_table_impl);
 }
 
 /* Fast nibble-based decoder. Returns 0 on success, -1 on error. */
