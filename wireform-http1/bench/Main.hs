@@ -33,6 +33,14 @@ main = defaultMain
       , bench "encodeResponseHead (200 small)" $
           nf encodeResponseHead okResp
       ]
+  , bgroup "date"
+      [ -- The Date header is auto-injected per response.  We exercise
+        -- it via 'encodeResponseHead' above; this group measures the
+        -- raw lookup cost so a regression on the tick-thread cache
+        -- shows up as a discrete benchmark instead of a barely-visible
+        -- shift in the encode benchmark.
+        bench "cachedHttpDate" $ nf cachedHttpDate ()
+      ]
   ]
   where
     smallGet :: BS.ByteString

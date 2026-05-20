@@ -39,21 +39,27 @@ module Network.HTTP1.Encode
     -- * Direct decimal encoder (also useful from handlers)
   , wordDecBS
 
+    -- * Cached Date header (refreshed every second by a tick thread)
+  , cachedHttpDate
+
     -- * Misc
   , spaceB
   , crlfB
   ) where
 
+import Control.Concurrent (forkIO, myThreadId, threadCapability, threadDelay)
+import Control.Monad (forM_, forever)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Internal as BSI
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import qualified Data.Vector.Mutable as MV
 import Data.Word (Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (pokeByteOff)
+import GHC.Conc (getNumCapabilities)
 import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Wireform.Builder as B
@@ -286,31 +292,59 @@ augmentResponseHeaders st ver hdrs body = withDate (framingAugmented)
 ------------------------------------------------------------------------
 
 -- | RFC 9110 § 6.6.1: origin servers SHOULD send a Date header in
--- every response /unless/ the server can't produce a reliable clock
--- value. We have a clock, so we always emit it.
+-- every response unless the server can't produce a reliable clock.
+-- We have a clock, so we always emit one.
 --
--- Reformatting the current time per request is expensive (UTC →
--- IMF-fixdate is roughly a microsecond's worth of locale + 'show').
--- We cache the formatted value and rebuild it at most once per
--- second; under load that drops Date amortised cost essentially to
--- zero (one 'getCurrentTime' + one IORef CAS per request, no
--- formatting on the hot path).
-{-# NOINLINE dateCacheRef #-}
-dateCacheRef :: IORef (UTCTime, BS.ByteString)
-dateCacheRef = unsafePerformIO $ do
+-- == Cache strategy: per-capability tick
+--
+-- This is the same shape h2o uses ('h2o_now' + the loop's
+-- per-thread timestamp): one cached IMF-fixdate per capability, with
+-- a background tick thread refreshing them all once per second. The
+-- hot path is one 'IOVector' index + one 'readIORef' — no syscall,
+-- no formatting.
+--
+-- A single shared 'IORef' would be simpler but would bounce its
+-- cache line on every tick (writer on one capability, readers on
+-- the others). Per-capability slots cost us N writes per second
+-- (where N = 'getNumCapabilities') but each write is contained to
+-- one core's L1 — readers on the same capability hit the fresh
+-- value with no cross-core fetch.
+--
+-- The thread starts lazily the first time 'cachedHttpDate' is
+-- called. If a server never emits a Date header (unusual), the
+-- thread never starts and nothing is wasted.
+--
+-- 'threadDelay' is not a real-time timer; the cached Date can be
+-- stale by a few hundred ms under GC pressure. RFC 9110 § 6.6.1
+-- only requires \"approximately the current time\"; nginx and h2o
+-- have the same property.
+{-# NOINLINE dateSlots #-}
+dateSlots :: MV.IOVector BS.ByteString
+dateSlots = unsafePerformIO $ do
+  n <- getNumCapabilities
   now <- getCurrentTime
-  newIORef (now, formatHttpDate now)
+  let !initial = formatHttpDate now
+  v <- MV.replicate (max 1 n) initial
+  _tid <- forkIO (dateTickLoop v)
+  pure v
 
+dateTickLoop :: MV.IOVector BS.ByteString -> IO ()
+dateTickLoop v = forever $ do
+  threadDelay 1_000_000
+  now <- getCurrentTime
+  let !bs = formatHttpDate now
+  let n = MV.length v
+  forM_ [0 .. n - 1] $ \i -> MV.write v i bs
+
+-- | Read the cached Date for the calling capability. One unboxed-int
+-- modulo, one vector index, one pointer load. The () argument forces
+-- a fresh call so GHC doesn't memoise this as a CAF.
 cachedHttpDate :: () -> BS.ByteString
 cachedHttpDate _ = unsafePerformIO $ do
-  now <- getCurrentTime
-  (cachedAt, cachedBs) <- readIORef dateCacheRef
-  if abs (diffUTCTime now cachedAt) < 1
-    then pure cachedBs
-    else do
-      let !bs = formatHttpDate now
-      atomicModifyIORef' dateCacheRef (\_ -> ((now, bs), ()))
-      pure bs
+  tid <- myThreadId
+  (cap, _) <- threadCapability tid
+  let !i = cap `mod` MV.length dateSlots
+  MV.unsafeRead dateSlots i
 {-# NOINLINE cachedHttpDate #-}
 
 -- | IMF-fixdate per RFC 9110 § 5.6.7, e.g.
