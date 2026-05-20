@@ -142,6 +142,7 @@ test-suite wireform-http2-test
     Test.HPACK
     Test.Frame
     Test.Connection
+    Test.Defensive
   build-depends:
     base,
     bytestring,
