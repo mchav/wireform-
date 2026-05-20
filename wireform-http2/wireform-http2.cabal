@@ -152,4 +152,17 @@ benchmark wireform-http2-bench
     base,
     bytestring,
     criterion >= 1.5,
+    deepseq,
+    wireform-http2
+
+benchmark wireform-http2-compare
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Compare.hs
+  build-depends:
+    base,
+    bytestring,
+    criterion >= 1.5,
+    deepseq,
     wireform-http2
