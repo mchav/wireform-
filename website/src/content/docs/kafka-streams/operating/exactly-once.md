@@ -5,20 +5,20 @@ sidebar:
   order: 5
 ---
 
-Exactly-once-semantics on Kafka itself is a known story: transactional producer, `TxnOffsetCommit`, KIP-892 transactional state stores. The library wires all of that for you behind `processingGuarantee = ExactlyOnceP`.
+Exactly-once semantics (EOS) on Kafka itself is well understood. The library uses a transactional producer, `TxnOffsetCommit`, and KIP-892 transactional state stores. You enable this with `processingGuarantee = ExactlyOnceP`.
 
-What that doesn't cover is any side effect that leaves Kafka — a write to Postgres, S3, Iceberg, or an HTTP endpoint. The Riffle [two-phase commit sink](../../glossary/#two-phase-commit-sink) contract closes that gap. This page covers both halves.
+However, this only covers writes to Kafka topics. What about writes to Postgres, S3, Iceberg, or HTTP endpoints? These require the two-phase commit sink contract to maintain exactly-once guarantees across systems. This page explains how both work.
 
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
 :::note[TL;DR]
-- The commit cycle is six ordered steps: `beginTxn → flush → commitOffsets → preCommit2PC → commitTxn → commit2PC → storeCommit`.
-- A `TwoPhaseSink r` has five operations: `tpsStage`, `tpsPrepare`, `tpsCommit`, `tpsAbort`, `tpsRecover`. Every one must be idempotent.
-- Failure at `commit2PC` (after the producer txn already committed) is the only `CommitFatal` case; the in-flight `SinkTxnId` is resolved by `tpsRecover` on next boot.
-- Four reference sinks ship in core (in-memory, filesystem rename, HTTP echo); real adapters for JDBC / Iceberg / S3 live in separate packages.
-- If you just need EOS for the output stream of an async-I/O operator, that comes for free — the pre-commit drain hook handles it.
+- The commit cycle has six ordered steps: `beginTxn → flush → commitOffsets → preCommit2PC → commitTxn → commit2PC → storeCommit`.
+- A `TwoPhaseSink` has five operations: `tpsStage`, `tpsPrepare`, `tpsCommit`, `tpsAbort`, `tpsRecover`. All must be idempotent.
+- Failure at `commit2PC` (after Kafka already committed) is the only fatal case. The stranded `SinkTxnId` is resolved by `tpsRecover` on next boot.
+- Reference sinks ship in core (in-memory, filesystem, HTTP echo). Production adapters for JDBC, Iceberg, S3 live in separate packages.
+- Async I/O operators get EOS for free. The pre-commit drain hook ensures all in-flight requests complete before commit.
 :::
 
 ## The commit cycle
@@ -106,10 +106,10 @@ The five operations map to a Flink-style two-phase-commit sink:
 
 `SinkOutcome` distinguishes three result classes (a [railway-oriented programming](../concepts/railway-oriented-programming/) trichotomy in three constructors):
 
-- `SinkOK` — proceed.
-- `SinkRetryable Text` — transient failure; the runtime aborts the
+- `SinkOK`: proceed.
+- `SinkRetryable Text`: transient failure; the runtime aborts the
   whole cycle (`CommitAborted`) and retries on the next interval.
-- `SinkFatal Text` — invariant broken; the runtime promotes the
+- `SinkFatal Text`: invariant broken; the runtime promotes the
   cycle to `CommitFatal` and waits for an operator.
 
 Every operation must be **[idempotent](../glossary/#idempotent--idempotency)**: retries on `SinkRetryable`
@@ -267,9 +267,9 @@ The 2PC overhead is one prepare + one commit roundtrip per
 
 | `commitIntervalMs` | Behaviour |
 | ------------------ | --------- |
-| 100 | EOS-V1 fast cadence — high overhead, low end-to-end latency. Each sink sees ~10 commits/sec, so commit cost matters |
-| 30_000 (default) | Standard EOS-V2 cadence — one prepare/commit pair every 30 s. Batch sizes are large, per-record commit overhead is small |
-| 300_000 | Long-tail cadence — useful when the sink's commit operation is expensive (e.g. Iceberg manifest commit). Trade off: a fault discards up to 5 minutes of in-flight work |
+| 100 | EOS-V1 fast cadence: high overhead, low end-to-end latency. Each sink sees ~10 commits/sec, so commit cost matters |
+| 30_000 (default) | Standard EOS-V2 cadence: one prepare/commit pair every 30 s. Batch sizes are large, per-record commit overhead is small |
+| 300_000 | Long-tail cadence: useful when the sink's commit operation is expensive (e.g. Iceberg manifest commit). Trade off: a fault discards up to 5 minutes of in-flight work |
 
 A sink whose `tpsCommit` takes a meaningful fraction of
 `commitIntervalMs` is a sign that the cadence is too tight. Raise
@@ -329,7 +329,7 @@ whole topology.
 ### `CommitFatal` after `commit2PC`
 
 This is the "wire committed, sink failed to finalise" case. The
-runtime does not retry — the in-flight `SinkTxnId` is stranded on
+runtime does not retry: the in-flight `SinkTxnId` is stranded on
 the external system, and the next startup is where it gets
 resolved. If the sink's `tpsRecover` and recovery decision logic
 are correct, the only operator action needed is to confirm the
@@ -361,10 +361,10 @@ Use it as a template for your own sink's chaos tests.
 
 ## Related reading
 
-- [Enrichment via external systems](../guides/enrichment/) —
+- [Enrichment via external systems](../guides/enrichment/) -
   if the external system is read-only and you just want to look up
   data, async I/O is usually simpler than 2PC.
-- [Visibility versus ACID databases](./visibility/) — how
+- [Visibility versus ACID databases](./visibility/): how
   "exactly once into Kafka" differs from "atomic commit in
   Postgres".
-- [Runbooks](./runbooks/) — what to do when `commit2PC` fails.
+- [Runbooks](./runbooks/): what to do when `commit2PC` fails.

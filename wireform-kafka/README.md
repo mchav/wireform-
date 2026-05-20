@@ -3,93 +3,26 @@
 > [!CAUTION]
 > wireform is in heavy development and has not been published to Hackage yet. APIs may change.
 
-A pure-Haskell client for Apache Kafka. It lets your Haskell
-program publish records to a Kafka cluster and read records back
-out, with full support for everything the Kafka protocol does:
-consumer groups, transactions, TLS, SASL, idempotent producers,
-record compression, and a stream-processing DSL on top.
+A pure-Haskell Kafka client. Send messages, process streams, manage transactions, all from Haskell. No JVM, no native bindings, just the Kafka protocol implemented directly.
 
-> **Never used Kafka before?** See [`CONCEPTS.md`](./CONCEPTS.md)
-> for a plain-language primer (topics, partitions, offsets,
-> consumer groups, transactions). It's a five-minute read.
+New to Kafka? Read [`CONCEPTS.md`](./CONCEPTS.md) for a quick primer on topics, partitions, and consumer groups. Then try [`TUTORIAL.md`](./TUTORIAL.md) for hands-on examples.
 
-## What's in the box
+## What you can do
 
-The package is split into three layers. You pick the one that
-fits your job:
-
-| You want to… | Use this | Notes |
+| Task | Module | Notes |
 |---|---|---|
-| Send records to a topic | `Kafka.Client.Producer` (or `Kafka` umbrella) | A long-lived `Producer` handle. Use `withProducer` for the bracket. |
-| Receive records, one handler per record | `Kafka.Client.Group.runConsumer` | Wraps the poll loop, the group join, and offset commits. Recommended starting point. |
-| Receive records and drive the poll loop yourself | `Kafka.Client.Consumer` | Lower level than `Group`. Use `withConsumer` for the bracket. |
-| Run a stream-processing topology | `Kafka.Streams` | KStream / KTable / joins / windowed aggregations. |
-| Manage topics, groups, ACLs, configs | `Kafka.Client.AdminClient` | The cluster's control plane. |
-| Drive a raw wire request | `Kafka.Protocol.Generated.*` | One module per Kafka API; for custom tooling. |
+| Send messages | `Kafka.Client.Producer` | `withProducer` handles setup and cleanup |
+| Receive messages (managed) | `Kafka.Client.Group.runConsumer` | Automatic commits, error handling, rebalancing |
+| Receive messages (manual) | `Kafka.Client.Consumer` | You control polling and commits |
+| Stream processing | `Kafka.Streams` | Aggregations, joins, windowing, exactly-once |
+| Admin operations | `Kafka.Client.AdminClient` | Topics, groups, ACLs |
+| Raw protocol | `Kafka.Protocol.Generated.*` | One module per Kafka API |
 
-The `Kafka` umbrella module re-exports the high-level producer,
-consumer, group runner, and transaction APIs in one place — for
-most apps you only need `import qualified Kafka`.
+Import `qualified Kafka` for common functions.
 
-### Typed sends and reads
+## Quick start
 
-For applications that already model their domain in Haskell
-types, `Kafka.Topic.Topic k v` bundles the topic name with the
-key and value serdes so the producer / consumer don't have to
-shuttle `ByteString` around:
-
-```haskell
-{-# LANGUAGE OverloadedStrings #-}
-
-import           Data.Text      (Text)
-import qualified Kafka
-import qualified Kafka.Topic   as Topic
-import qualified Kafka.Serde   as Serde
-
-events :: Topic.Topic Text Text
-events = Topic.textTopic "events"
-
-main =
-  Kafka.withProducer ["localhost:9092"] Kafka.defaultProducerConfig $ \p ->
-    Kafka.publish p events (Just "k1") "hello"
-```
-
-`Kafka.Serde` ships the JVM-equivalent built-ins —
-`textSerde`, `int32Serde`, `int64Serde`, `doubleSerde`,
-`uuidSerde`, `jsonSerde`, … — and `Topic.topic`, `topicAny`,
-`bytesTopic`, `textTopic` smart constructors cover the common
-key/value combinations.
-
-### Error handling
-
-Every public Kafka operation throws `Kafka.Errors.KafkaException`
-on failure. The exception carries a structured `KafkaErrorKind`
-so you can pattern-match on the failure category
-(`ConnectError`, `AuthenticationError`, `TimeoutError`,
-`ProducerFencedError`, `ConfigurationError [Text]`, …) instead
-of grepping error strings, plus an `isRetriable` /
-`isFatal` classifier for retry-loop bookkeeping.
-
-### Runnable examples
-
-Five end-to-end demos live under
-[`examples/`](./examples/README.md):
-
-```bash
-cabal run wireform-kafka-client-examples produce
-cabal run wireform-kafka-client-examples produce-typed
-cabal run wireform-kafka-client-examples consume
-cabal run wireform-kafka-client-examples group
-cabal run wireform-kafka-client-examples transaction
-```
-
-## Hello world
-
-Publish a record and read it back. Requires a Kafka broker
-reachable at `localhost:9092` (the integration `docker-compose`
-in `test-integration/docker-compose.yml` spins one up).
-
-### Produce
+### Send a message
 
 ```haskell
 import qualified Kafka
@@ -101,11 +34,9 @@ main =
     print md
 ```
 
-`withProducer` opens the connection, runs your body, and on the
-way out flushes anything buffered and closes connections — even
-if you throw.
+`withProducer` opens a connection, runs your code, then flushes and closes cleanly, even on exceptions.
 
-### Consume (high-level)
+### Receive messages
 
 ```haskell
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -121,28 +52,14 @@ main =
       , Kafka.groupId          = "my-service"
       , Kafka.topics           = ["events"]
       }
-    $ \rec ->
-        BS.putStrLn rec.value
+    $ \rec -> BS.putStrLn rec.value
 ```
 
-The `ConsumerRecord` fields use bare names — read them via
-`OverloadedRecordDot` (`rec.key`, `rec.value`, `rec.topic`,
-`rec.partition`, `rec.offset`, `rec.timestamp`, `rec.headers`).
-The same field names are shared with `ProducerRecord` /
-`RecordMetadata` / `TopicPartition` via `DuplicateRecordFields`,
-so the dot syntax is the recommended style.
+Access fields with `rec.key`, `rec.value`, `rec.topic`, `rec.partition`, `rec.offset`, `rec.timestamp`, `rec.headers`.
 
-`runConsumer` joins the consumer group, hands you records one at
-a time, commits offsets after each one, and leaves the group on a
-normal exit or an exception.
+For batch processing, use `runBatchedConsumer`. Your handler receives a batch and one commit covers all.
 
-For higher throughput, use `runBatchedConsumer` — same idea, but
-the handler receives a whole batch per call and one commit covers
-the whole batch.
-
-### Consume (custom poll loop)
-
-If you want to control when you poll and commit:
+### Manual control
 
 ```haskell
 import qualified Kafka.Client.Consumer as Consumer
@@ -154,62 +71,46 @@ main =
     Consumer.defaultConsumerConfig
     ["events"]
     $ \c -> do
-        Right recs <- Consumer.poll c 1000
-        mapM_ print recs
+        result <- Consumer.poll c 1000
+        case result of
+          Right recs -> mapM_ print recs
+          Left err   -> putStrLn ("poll failed: " <> err)
         _ <- Consumer.commitSync c
         pure ()
 ```
 
-### Streams
+### Type-safe topics
 
 ```haskell
-import qualified Kafka.Streams as S
+{-# LANGUAGE OverloadedStrings #-}
 
-main :: IO ()
-main = do
-  builder <- S.newStreamsBuilder
-  src <- S.streamFromTopic builder (S.topicName "in")
-           (S.consumed S.textSerde S.textSerde)
-  _ <- S.mapValues (\v -> v <> "!") src
-       >>= S.toTopic (S.topicName "out") (S.produced S.textSerde S.textSerde)
-  topo <- S.buildTopology builder
-  print topo
+import Data.Text (Text)
+import qualified Kafka
+import qualified Kafka.Topic as Topic
+
+events :: Topic.Topic Text Text
+events = Topic.textTopic "events"
+
+main =
+  Kafka.withProducer ["localhost:9092"] Kafka.defaultProducerConfig $ \p -> do
+    Kafka.publish p events (Just "k1") "hello"
 ```
 
-See [`streams/README.md`](./streams/README.md) for the full DSL
-reference and [`TUTORIAL.md`](./TUTORIAL.md) for a guided
-walkthrough from "hello world" to a transactional Streams
-pipeline.
+## Error handling
 
-## Status
+Operations throw `KafkaException` on failure with structured `KafkaErrorKind`:
 
-Wire-compatible with Apache Kafka 4.0. Tested against the
-docker-compose fixture in `test-integration/docker-compose.yml`
-across Kafka 3.7 + 4.0 and GHC 9.6 / 9.8 / 9.10 / 9.12.
+- `ConnectError` - broker unreachable
+- `AuthenticationError` - SASL or TLS failure
+- `TimeoutError` - deadline exceeded
+- `ProducerFencedError` - transactional ID conflict
+- `ConfigurationError` - invalid settings
 
-## Install
-
-Add `wireform-kafka` to your cabal file:
-
-```cabal
-build-depends:
-  base,
-  wireform-kafka,
-  wireform-kafka-streams,    -- if you want the Streams DSL
-```
-
-The package is part of the
-[wireform monorepo](https://github.com/iand675/wireform).
-Clone the repo and `cabal build wireform-kafka` to compile
-locally. Compiling with the LLVM backend (`-fllvm`) adds compile
-time but measurably improves runtime performance.
+Each error has `isRetriable` and `isFatal` for retry decisions.
 
 ## Configuration
 
-`ProducerConfig`, `ConsumerConfig`, and `GroupConfig` are plain
-Haskell records — every knob has a field. Start from
-`defaultProducerConfig` / `defaultConsumerConfig` /
-`defaultGroupConfig` and override only the fields you care about:
+Start from defaults, override as needed:
 
 ```haskell
 producerConfig = Kafka.defaultProducerConfig
@@ -220,126 +121,89 @@ producerConfig = Kafka.defaultProducerConfig
   }
 
 groupConfig = Kafka.defaultGroupConfig
-  { Kafka.bootstrapBrokers   = ["broker-1:9092"]
-  , Kafka.groupId            = "my-service"
-  , Kafka.topics             = ["events"]
+  { Kafka.bootstrapBrokers = ["broker-1:9092"]
+  , Kafka.groupId          = "my-service"
+  , Kafka.topics           = ["events"]
   , Kafka.commitMode         = Kafka.CommitSync
-  , Kafka.autoOffsetReset    = Kafka.Earliest
-  }
-
-connectionConfig = Conn.defaultConnectionConfig
-  { Conn.connUseTls = True
-  , Conn.connTlsSettings = Just (Conn.defaultTlsSettings "broker.example.com")
   }
 ```
 
-The field haddocks list the librdkafka name every knob mirrors;
-the full mapping lives in [`CONFIG_PARITY.md`](./CONFIG_PARITY.md).
-Setting any `KAFKA_*` environment variable layers an override on
-top of the supplied config automatically.
+See [`CONFIG_PARITY.md`](./CONFIG_PARITY.md) for the librdkafka mapping. Use `KAFKA_*` environment variables for overrides.
 
-### TLS offload (sidecar / kTLS / NLB)
+### TLS offload
 
-When a sidecar process (Envoy, linkerd2-proxy, stunnel,
-`kafka-proxy`), a Layer-4 TLS-terminating load balancer, or
-kernel TLS (`CONFIG_TLS`) is responsible for the cipher work, the
-client can skip its own TLS handshake and route every broker
-connection through that endpoint:
+For sidecars, load balancers, or kernel TLS:
 
 ```haskell
-import qualified Data.Map.Strict as Map
-import Kafka.Network.Connection
-import Kafka.Network.TlsOffload
-
--- One Unix-domain socket sidecar terminating mTLS upstream.
-viaSidecarUds :: ConnectionConfig
-viaSidecarUds = defaultConnectionConfig
-  { connTlsOffload = Just $
-      staticTlsOffload (TlsOffloadUnix "/var/run/kafka-proxy.sock")
-  }
-
--- Per-broker stunnel listeners on different localhost ports.
-viaPerBrokerStunnel :: ConnectionConfig
-viaPerBrokerStunnel = defaultConnectionConfig
-  { connTlsOffload = Just $ perBrokerTlsOffload $ Map.fromList
-      [ (OffloadBrokerKey "b-1.kafka.example.com" 9094,
-         TlsOffloadTcp "127.0.0.1" 19094)
-      , (OffloadBrokerKey "b-2.kafka.example.com" 9094,
-         TlsOffloadTcp "127.0.0.1" 19095)
-      ]
-  }
-
--- Kernel TLS / Layer-4 LB: routing is unchanged, just disable
--- the in-process handshake.
-viaKtls :: ConnectionConfig
-viaKtls = defaultConnectionConfig
-  { connTlsOffload = Just transparentTlsOffload }
+viaSidecar :: ConnectionConfig
+viaSidecar = defaultConnectionConfig
+  { connTlsOffload = Just $ staticTlsOffload (TlsOffloadUnix "/var/run/kafka-proxy.sock") }
 ```
-
-The connection pool is still keyed by the logical broker address —
-per-broker SASL state and request pipelining work normally when
-several brokers fan in to the same sidecar socket. See
-"Kafka.Network.TlsOffload" for the full configuration surface.
 
 ## Security
 
-- **SASL** — PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER. Mid-session
-  re-authentication is supported via
-  `Kafka.Client.Pipeline.attachReauthDriver`.
-- **TLS 1.2 + 1.3** via `tls-1.x`.
+- **SASL**: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER (with re-authentication)
+- **TLS**: 1.2 and 1.3
 
 ## Observability
 
-- OpenTelemetry instrumentation via `Kafka.Telemetry.OpenTelemetry`,
-  built on top of
-  [`hs-opentelemetry-api`](https://hackage.haskell.org/package/hs-opentelemetry-api).
-  Real producer / consumer / transaction spans with the
-  messaging semantic-convention attributes set, plus trace-context
-  propagation across producer → consumer hops over Kafka
-  record headers.
-- librdkafka-compatible JSON stats via `Kafka.Telemetry.StatsJson`.
-- Producer / consumer interceptors for per-record telemetry.
+- **OpenTelemetry**: spans for producer/consumer/transaction operations
+- **Stats JSON**: librdkafka-compatible format
+- **Interceptors**: per-record hooks
 
 ## Testing
 
 ```bash
-# In-process mock broker — no Docker, no network.
+# In-process, no external dependencies
 cabal test wireform-kafka:wireform-kafka-test
-cabal test wireform-kafka:wireform-kafka-streams-test
 
-# Against a real broker (Docker required):
+# Against a live broker
 docker compose -f test-integration/docker-compose.yml up -d
-WIREFORM_KAFKA_BROKER=localhost:9092 cabal test \
-  wireform-kafka:wireform-kafka-integration \
-  wireform-kafka:wireform-kafka-streams-integration
+WIREFORM_KAFKA_BROKER=localhost:9092 cabal test wireform-kafka:wireform-kafka-integration
 ```
 
-The in-process suites run on every CI commit; the
-docker-compose suite runs on every PR (see
-[`INTEGRATION_TESTING.md`](./INTEGRATION_TESTING.md) for the
-full guide).
+## Stream processing
 
-## Where to look next
+```haskell
+import qualified Kafka.Streams as S
 
-- [`CONCEPTS.md`](./CONCEPTS.md) — Kafka primer in plain language.
-- [`TUTORIAL.md`](./TUTORIAL.md) — guided walkthrough from
-  `runConsumer` to a transactional Streams pipeline.
-- [`streams/README.md`](./streams/README.md) — full Streams DSL
-  reference.
-- [`CONFIG_PARITY.md`](./CONFIG_PARITY.md) — librdkafka
-  knob-by-knob configuration mapping.
-- [`INTEGRATION_TESTING.md`](./INTEGRATION_TESTING.md) —
-  docker-compose + integration suite walkthrough.
-- [`PERFORMANCE.md`](./PERFORMANCE.md) — performance numbers and
-  tuning guide.
+main :: IO ()
+main = do
+  builder <- S.newStreamsBuilder
+  -- HasSerde typeclass provides automatic serde resolution for common types
+  src <- S.streamFromTopic builder (S.topicName "in") (S.consumed S.textSerde S.textSerde)
+  _ <- S.mapValues (\v -> v <> "!") src
+       >>= S.toTopic (S.topicName "out") (S.produced S.textSerde S.textSerde)
+  topo <- S.buildTopology builder
+  print topo
+```
+
+The `HasSerde` typeclass automatically resolves serdes for types like `Text`, `Int64`, `Double`, `UUID`. Use `*With` variants or explicit `Serde` values for custom encodings. See [`streams/README.md`](./streams/README.md) for the full DSL.
+
+## Documentation
+
+| Doc | Purpose |
+|---|---|
+| [`CONCEPTS.md`](./CONCEPTS.md) | Kafka fundamentals |
+| [`TUTORIAL.md`](./TUTORIAL.md) | Walkthrough from basics to streams |
+| [`streams/README.md`](./streams/README.md) | Streams DSL reference |
+| [`CONFIG_PARITY.md`](./CONFIG_PARITY.md) | Configuration mapping |
+| [`INTEGRATION_TESTING.md`](./INTEGRATION_TESTING.md) | Testing guide |
+| [`PERFORMANCE.md`](./PERFORMANCE.md) | Tuning and benchmarks |
+
+## Install
+
+```cabal
+build-depends:
+  base,
+  wireform-kafka,
+  wireform-kafka-streams,
+```
+
+From the [wireform monorepo](https://github.com/iand675/wireform). `cabal build wireform-kafka` to compile. Use `-fllvm` for better performance.
+
+Wire-compatible with Apache Kafka 4.0. Tested with GHC 9.6, 9.8, 9.10, 9.12.
 
 ## License
 
-BSD-3-Clause.
-
-## References
-
-- [Apache Kafka protocol guide](https://kafka.apache.org/protocol.html)
-- [OpenTelemetry messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/kafka/)
-- [SASL SCRAM (RFC 5802)](https://tools.ietf.org/html/rfc5802)
-- [SASL PLAIN (RFC 4616)](https://tools.ietf.org/html/rfc4616)
+BSD-3-Clause

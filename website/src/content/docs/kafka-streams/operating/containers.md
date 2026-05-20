@@ -1,6 +1,6 @@
 ---
 title: Running in containers
-description: How a wireform-kafka-streams instance behaves when the process is a container — RocksDB state on ephemeral filesystems, stable identity under restarts, off-heap memory accounting, and a reference Kubernetes shape.
+description: "How a wireform-kafka-streams instance behaves when the process is a container: RocksDB state on ephemeral filesystems, stable identity under restarts, off-heap memory accounting, and a reference Kubernetes shape."
 sidebar:
   order: 4
 ---
@@ -13,12 +13,11 @@ disk. The RocksDB backend
 `Kafka.Streams.State.KeyValue.Persistent` backend does the same.
 Either way, "the database lives in the container" is the model.
 
-Containers break four assumptions that model relies on:
+Containers break four assumptions that model relies on.
 
-1. The filesystem outlives the process.
-2. The hostname is stable across restarts.
-3. Memory consumption is the JVM-style "heap plus a small constant".
-4. There is time to flush state on shutdown.
+First, the filesystem is expected to outlive the process. Second, the hostname should be stable across restarts. Third, memory consumption should be predictable. Fourth, there should be time to flush state on shutdown.
+
+In containers, none of these hold by default.
 
 This page covers how to put each one back.
 
@@ -40,7 +39,7 @@ A streams instance owns RocksDB directories under
 `stateDir`. On unclean shutdown, RocksDB's WAL replay on next open
 handles partial-write recovery (this is why
 `Kafka.Streams.State.KeyValue.RocksDB.rocksDBKeyValueStore`
-sets `storeFlush = pure ()` — the WAL is the flush). The Kafka
+sets `storeFlush = pure ()`: the WAL is the flush). The Kafka
 **changelog topic** behind every store is independent durability;
 the local copy is an optimisation.
 
@@ -71,7 +70,7 @@ under `stateDir`. For a `StatefulSet` pod `app-0` with
 
 The volume must be writable by the process user, and the filesystem
 must support `fsync` semantics RocksDB expects (ext4, xfs are fine;
-NFS is **not** — RocksDB's WAL atomicity assumptions don't hold and
+NFS is **not**: RocksDB's WAL atomicity assumptions don't hold and
 compaction throughput collapses).
 
 ### Cold-boot decision tree
@@ -140,7 +139,7 @@ restart. Use a `StatefulSet` whenever the topology has state.
 The cooperative-sticky assignor in `Kafka.Streams.Runtime.RebalanceProtocol`
 tries to keep tasks where they were. If the restarted member shows
 up under a brand-new `clientId`, the assignor has no record of its
-prior ownership and reassigns from scratch — which means task
+prior ownership and reassigns from scratch: which means task
 reshuffles even though the underlying pod is "the same". Stable
 identity makes the rebalance a metadata flip instead of a data
 movement.
@@ -162,7 +161,7 @@ A streams pod with `N` stores and `T` tasks holds `N × T`
 RocksDB directories, each with its own buffers unless you've wired
 a shared `Cache` and `WriteBufferManager` through a
 `RocksDBConfig` customisation. Without that sharing, total RocksDB
-memory grows linearly with the number of tasks the pod owns — and
+memory grows linearly with the number of tasks the pod owns: and
 the *peak* is hit during a rebalance, when tasks are being opened
 on the gaining instance before the losing instance has fully
 released them.
@@ -222,7 +221,7 @@ A rule of thumb: provision **2× expected steady-state state size**
 on fast local SSD. The Riffle [tiered KV
 store](../riffle/#cold-state-spilling) (`Kafka.Streams.State.KeyValue.Tiered`)
 can move cold keys to object storage, which is the right escape
-hatch when state size grows past what's affordable on local SSD —
+hatch when state size grows past what's affordable on local SSD -
 but it doesn't change the hot-tier sizing on the pod.
 
 Watch the runbook for [unbounded state-dir
@@ -237,15 +236,15 @@ that completes:
 
 - Records in the transactional buffer are dropped (under EOS the
   next owner will reprocess from the last committed offset, so no
-  data loss — just extra work).
+  data loss: just extra work).
 - The pod leaves the group via session timeout instead of a clean
   `Leave`, so the rebalance starts later than it could.
-- RocksDB recovers from its WAL on next open — but it's another
+- RocksDB recovers from its WAL on next open: but it's another
   full WAL replay cycle, which adds to startup time.
 
 Kubernetes default is `terminationGracePeriodSeconds: 30`. For a
 production stateful topology with `commitIntervalMs = 30_000`, that
-is **not enough** — the in-flight cycle alone can take up to that
+is **not enough**: the in-flight cycle alone can take up to that
 long. Set the grace period to at least `commitIntervalMs + 30 s`,
 or to whatever bound your slowest `commit2PC` sink advertises plus
 a safety margin.
@@ -261,7 +260,7 @@ RocksDB opens many files. Per column family:
 
 - The current memtable file.
 - The WAL log file.
-- Every live `.sst` at every level — count is determined by your
+- Every live `.sst` at every level: count is determined by your
   compaction settings (`level0_file_num_compaction_trigger`,
   `max_bytes_for_level_base`, etc.).
 - Iterators pin additional file descriptors for their lifetime.
@@ -310,17 +309,17 @@ don't want that to count as ready.
 
 ## Related reading
 
-- [Tutorial 5: Going to production](../get-started/going-to-production/) — the
+- [Tutorial 5: Going to production](../get-started/going-to-production/): the
   config-level checklist that this page expands on for the deploy
   target.
-- [Scaling and rebalancing](./scaling/) — what happens at the group
+- [Scaling and rebalancing](./scaling/): what happens at the group
   level when a pod restarts or scales out.
-- [Topology evolution](./topology-evolution/) — how a rolling
+- [Topology evolution](./topology-evolution/): how a rolling
   deploy interacts with the state on the volume.
-- [Runbooks → local state directory grows without bound](./runbooks/#local-state-directory-grows-without-bound) —
+- [Runbooks → local state directory grows without bound](./runbooks/#local-state-directory-grows-without-bound) -
   the incident form of the disk-sizing discussion above.
-- [Runbooks → rebalance storm](./runbooks/#rebalance-storm) —
+- [Runbooks → rebalance storm](./runbooks/#rebalance-storm) -
   RocksDB compaction stalls as a cause of liveness flaps.
-- [Riffle: state durability decoupled from the changelog](../riffle/#state-durability-decoupled-from-the-changelog) —
+- [Riffle: state durability decoupled from the changelog](../riffle/#state-durability-decoupled-from-the-changelog) -
   the snapshot-aware store and pointer-mode standby that make
   ephemeral-disk deployments viable for large state.

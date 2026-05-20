@@ -1,239 +1,82 @@
-cabal-version: 3.0
-name: wireform-http2
-version: 0.1.0.0
-synopsis: High-performance HTTP/2 client and server (RFC 9113)
+cabal-version:      3.0
+name:               wireform-http2
+version:            0.1.0
+synopsis:           HTTP/2 implementation with redesigned concurrency primitives
 description:
-  From-scratch HTTP\/2 implementation following wireform's performance
-  philosophy: zero-copy builders, SWAR\/SIMD-accelerated HPACK, exact-size
-  allocation, unboxed state threading, and allocation-free hot loops.
+  A from-scratch HTTP/2 server and client implementing the architectural
+  improvements identified during wireform-grpc optimisation work:
   .
-  Targets 100% h2spec conformance and competitive throughput with nghttp2.
-  .
-  Modules:
-  .
-  * HPACK (RFC 7541) — Huffman coding, dynamic table, header compression
-  * Frame layer — all HTTP\/2 frame types, zero-copy parse\/serialize
-  * Connection management — settings negotiation, flow control, stream lifecycle
-  * Client\/Server APIs — multiplexed request\/response handling
+  * @OUnary@ output: HEADERS + DATA + trailers in one sender pass, no
+    re-enqueue round-trip.
+  * @TxWindow@ (IORef + MVar): connection-level flow control without STM.
+  * SPSC body channel: @IORef (Maybe ByteString)@ for unary, @TBQueue@
+    for streaming.
+  * Per-connection HPACK scratch array: avoids @IOArray@ allocation on
+    every decode call.
+  * No helper threads for non-streaming responses.
+license:            MIT
+author:             wireform
+maintainer:         wireform
 
-homepage: https://github.com/iand675/wireform-
-bug-reports: https://github.com/iand675/wireform-/issues
-license: BSD-3-Clause
-license-file: LICENSE
-author: Ian Duncan
-maintainer: ian@iankduncan.com
-copyright: 2026 Ian Duncan
-category: Network, Web
-build-type: Simple
-tested-with: GHC == 9.6.4, GHC == 9.8.4
-extra-source-files:
-  cbits/*.c
-  cbits/*.h
-  test/data/localhost.crt
-  test/data/localhost.key
-
-source-repository head
-  type:     git
-  location: https://github.com/iand675/wireform-
-
-flag tls
-  description:
-    Build the @Network.HTTP2.TLS.*@ modules.
-    .
-    Pulls in @tls@ and @crypton-x509@ to provide HTTP/2-over-TLS with
-    ALPN @h2@ negotiation. Default 'True'; turn off if you only need
-    cleartext HTTP/2 and want to avoid the cryptography dep closure.
-  default: True
-  manual: True
-
-common defaults
-  default-language: GHC2021
-  ghc-options:
-    -Wall
-    -Wcompat
-    -Widentities
-    -Wincomplete-record-updates
-    -Wincomplete-uni-patterns
-    -Wpartial-fields
-    -Wredundant-constraints
-    -O2
-  default-extensions:
-    StrictData
-    DerivingStrategies
-    DeriveGeneric
-    DeriveAnyClass
-    OverloadedStrings
-    LambdaCase
-    BangPatterns
-    MagicHash
-    UnboxedTuples
+common warnings
+    ghc-options: -Wall -Wno-orphans
 
 library
-  import: defaults
-  hs-source-dirs: src
-  exposed-modules:
-    Network.HTTP2.Frame
-    Network.HTTP2.Frame.Types
-    Network.HTTP2.Frame.Encode
-    Network.HTTP2.Frame.Decode
-    Network.HTTP2.HPACK
-    Network.HTTP2.HPACK.Table
-    Network.HTTP2.HPACK.Huffman
-    Network.HTTP2.HPACK.Encode
-    Network.HTTP2.HPACK.Decode
-    Network.HTTP2.HPACK.Types
-    Network.HTTP2.Connection
-    Network.HTTP2.Connection.Settings
-    Network.HTTP2.Connection.FlowControl
-    Network.HTTP2.Connection.StreamTable
-    Network.HTTP2.Client
-    Network.HTTP2.Engine.Client
-    Network.HTTP2.Engine.Run.Client
-    Network.HTTP2.Engine.Run.Server
-    Network.HTTP2.Engine.Server
-    Network.HTTP2.Engine.Settings
-    Network.HTTP2.Engine.Types
-    Network.HTTP2.RateLimit
-    Network.HTTP2.Server
-    Network.HTTP2.Transport
-    Network.HTTP2.Types
-  other-modules:
-    Network.HTTP2.Internal.BitOps
-    Network.HTTP2.Internal.RecvBuffer
-  c-sources:
-    cbits/hpack_huffman.c
-  cc-options: -O3
-  build-depends:
-    base >= 4.16 && < 5,
-    bytestring >= 0.11 && < 0.13,
-    case-insensitive >= 1.2 && < 1.3,
-    containers >= 0.6 && < 0.8,
-    deepseq >= 1.4 && < 1.6,
-    ghc-prim,
-    hashable >= 1.4 && < 1.6,
-    http-types >= 0.12 && < 0.13,
-    network >= 3.1 && < 3.3,
-    primitive >= 0.8 && < 0.10,
-    stm >= 2.5 && < 2.7,
-    text >= 2.0 && < 2.2,
-    time-manager >= 0.2 && < 0.3,
-    utf8-string >= 1.0 && < 1.1,
-    vector >= 0.13 && < 0.14,
-    wireform-core
-  if flag(tls)
+    import:           warnings
+    ghc-options:      -threaded -rtsopts
     exposed-modules:
-      Network.HTTP2.Engine.TLS.Client
-      Network.HTTP2.Engine.TLS.Server
-      Network.HTTP2.TLS
-      Network.HTTP2.TLS.Client
-      Network.HTTP2.TLS.Server
+      Network.HTTP2.New
+      Network.HTTP2.New.Types
+      Network.HTTP2.New.Flow
+      Network.HTTP2.New.Stream
+      Network.HTTP2.New.Output
+      Network.HTTP2.New.HPACK
+      Network.HTTP2.New.Frame
+      Network.HTTP2.New.Sender
+      Network.HTTP2.New.Receiver
+      Network.HTTP2.New.Server
+      Network.HTTP2.New.Client
+    hs-source-dirs:   src
+    default-language: GHC2021
+    ghc-options:
+      -O2
+      -funfolding-use-threshold=200
     build-depends:
-      crypton-x509       >= 1.7 && < 1.8,
-      crypton-x509-store >= 1.6 && < 1.7,
-      data-default       >= 0.7 && < 0.9,
-      tls                >= 2.0 && < 2.2
-
-test-suite wireform-http2-test
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Main.hs
-  other-modules:
-    Test.HPACK
-    Test.Frame
-    Test.Connection
-    Test.Defensive
-  build-depends:
-    base,
-    bytestring,
-    network,
-    stm,
-    wireform-http2,
-    tasty >= 1.4,
-    tasty-hunit >= 0.10,
-    tasty-quickcheck >= 0.10,
-    QuickCheck >= 2.14
-  if flag(tls)
-    other-modules:
-      Test.TLS
-    build-depends:
-      crypton-x509      >= 1.7 && < 1.8,
-      crypton-x509-store >= 1.6 && < 1.7,
-      tls               >= 2.0 && < 2.2
-  else
-    cpp-options: -DWIREFORM_HTTP2_NO_TLS_TESTS
+        base                >= 4.17 && < 5
+      , bytestring
+      , containers
+      , network
+      , network-byte-order
+      , network-run
+      , stm
+      , http2
+      , hpack
+      , http-semantics
+      , http-types
+      , case-insensitive
+      , time-manager
 
 executable wireform-http2-server
-  import: defaults
-  hs-source-dirs: test-conformance
-  main-is: SimpleServer.hs
-  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
-  build-depends:
-    base,
-    bytestring,
-    containers,
-    network,
-    stm,
-    wireform-http2
+    import:           warnings
+    main-is:          Main.hs
+    hs-source-dirs:   server-exe
+    default-language: GHC2021
+    build-depends:
+        base
+      , wireform-http2
+      , bytestring
+      , network
 
-test-suite wireform-http2-conformance
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test-conformance
-  main-is: Main.hs
-  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
-  build-depends:
-    base,
-    bytestring,
-    network,
-    process >= 1.6,
-    wireform-http2
-  -- Requires h2spec binary on PATH
-
-benchmark wireform-http2-bench
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: bench
-  main-is: Main.hs
-  build-depends:
-    base,
-    bytestring,
-    criterion >= 1.5,
-    deepseq,
-    wireform-http2
-
-benchmark wireform-http2-compare
-  import: defaults
-  type: exitcode-stdio-1.0
-  hs-source-dirs: bench
-  main-is: Compare.hs
-  build-depends:
-    base,
-    bytestring,
-    criterion >= 1.5,
-    deepseq,
-    wireform-http2
-
-executable wireform-http2-bench-server
-  import: defaults
-  hs-source-dirs: bench-server
-  main-is: WireformServer.hs
-  ghc-options: -threaded -rtsopts "-with-rtsopts=-N -A64m -qg"
-  build-depends:
-    base,
-    bytestring,
-    network,
-    wireform-http2
-
-executable http2-bench-server
-  import: defaults
-  hs-source-dirs: bench-server
-  main-is: Http2Server.hs
-  ghc-options: -threaded -rtsopts "-with-rtsopts=-N -A64m -qg"
-  build-depends:
-    base,
-    bytestring,
-    http-types >= 0.12,
-    http2 >= 5.0,
-    network,
-    network-run >= 0.3
+test-suite h2spec
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test
+    default-language: GHC2021
+    ghc-options:      -threaded -rtsopts
+    build-depends:
+        base
+      , wireform-http2
+      , process
+      , bytestring
+      , network

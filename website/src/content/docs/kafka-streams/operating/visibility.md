@@ -1,70 +1,54 @@
 ---
 title: Visibility versus ACID databases
-description: How read-after-write, isolation, atomicity, and durability look in Kafka Streams compared with a SQL database — and how to reason about queries against materialised state.
+description: "How read-after-write, isolation, atomicity, and durability look in Kafka Streams compared with a SQL database, and how to reason about queries against materialised state."
 sidebar:
   order: 7
 ---
 
-A Postgres `SELECT` after an `INSERT ... COMMIT` always returns the inserted row. A streams app's view of its state is more nuanced — and the differences are not bugs. They follow from using an append-only log as the source of truth and rebuilding derived state asynchronously.
+A Postgres `SELECT` after `INSERT ... COMMIT` always returns the inserted row. A streams app's view of its state is more nuanced. These differences are not bugs. They follow from using an append-only log as the source of truth and rebuilding derived state asynchronously.
 
-This page maps each ACID property onto wireform-kafka-streams so you know which guarantees you get for free and which require explicit work.
+This page maps ACID properties onto wireform-kafka-streams so you know which guarantees you get for free and which require explicit work.
 
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
 :::note[TL;DR]
-- The commit boundary is `commitIntervalMs` (default 30 s), not a `COMMIT` statement. Read-committed downstream consumers see records with up to that much staleness.
-- IQ reads see the live in-memory store; they don't necessarily see writes atomically with the EOS commit cycle.
-- State is partitioned across instances. A query must route to the instance that owns the partition; `StreamsMetadata` + `KeyQueryMetadata` tell you which one.
-- Event time and processing time are different clocks. Windowed aggregations are event-time; processing-rate metrics are wall-clock.
-- Side effects in `peek` / `foreach` / `mapValuesM` replay on rewind. Use a two-phase commit sink or an idempotency token for exactly-once external effects.
+- Commit boundary is `commitIntervalMs` (default 30 s), not a `COMMIT` statement. Downstream consumers see up to that much staleness.
+- IQ reads see the live in-memory store, not necessarily atomically with the EOS commit cycle.
+- State partitions across instances. Query routing uses `StreamsMetadata` + `KeyQueryMetadata`.
+- Event time and processing time differ. Windowed aggregations use event-time; rate metrics use wall-clock.
+- Side effects in `peek` / `foreach` / `mapValuesM` replay on rewind. Use two-phase commit sinks or idempotency tokens for exactly-once external effects.
 :::
 
 ## A vs. ACID
 
 | ACID property | Kafka Streams analogue |
 | ------------- | ---------------------- |
-| Atomicity | Per-record processing is atomic on a single task; per-commit-cycle atomicity is the unit of EOS |
-| Consistency | "Consistency" in the streaming sense is **eventual** — derived state catches up to the log |
-| Isolation | Read-uncommitted by default; read-committed with `isolation.level = read_committed` on consumers; transactional state stores buffer writes until commit |
-| Durability | The Kafka log is durable; derived state is durable only after the changelog flush |
+| Atomicity | Per-record processing is atomic on a single task; per-commit-cycle atomicity is EOS |
+| Consistency | **Eventual**: derived state catches up to the log |
+| Isolation | Read-uncommitted by default; read-committed with `isolation.level = read_committed`; transactional stores buffer writes until commit |
+| Durability | Kafka log is durable; derived state is durable after changelog flush |
 
-The five operationally-interesting differences are: the **commit
-boundary**, the **read path freshness**, the **multi-instance
-distribution**, the **event-time vs processing-time distinction**,
-and the **replay-on-failure** model.
+Five operationally-interesting differences: **commit boundary**, **read path freshness**, **multi-instance distribution**, **event-time vs processing-time**, and **replay-on-failure**.
 
 ## 1. The commit boundary
 
-In a SQL database, the commit boundary is the `COMMIT` statement.
-Reads after that point see the write.
+In SQL, the commit boundary is `COMMIT`. Reads after see the write.
 
-In Kafka Streams the commit boundary is **`commitIntervalMs`** (or
-sooner if the cache fills). Between commits:
+In Kafka Streams, the commit boundary is **`commitIntervalMs`** (or sooner if cache fills). Between commits:
 
-- The producer has accumulated records in its transactional batch.
-- The state store has buffered writes in its in-memory cache and
-  (under EOS) in its transactional buffer.
-- The consumer's position has moved forward but the offset commit
-  hasn't fired.
+- Producer accumulates records in its transactional batch
+- State store buffers writes in memory and (under EOS) in its transactional buffer
+- Consumer position moves forward but offset commit hasn't fired
 
-A downstream consumer with `isolation.level = read_committed` sees
-nothing from this batch until the commit. A downstream consumer
-with `read_uncommitted` sees records as the producer writes them,
-including records that may be aborted later — exactly the semantics
-of a database `READ UNCOMMITTED`.
+A downstream consumer with `isolation.level = read_committed` sees nothing until commit. A consumer with `read_uncommitted` sees records as written, including potential aborts: `READ UNCOMMITTED` semantics.
 
-Within the stream thread itself, a processor that writes to a
-state store then reads from it does see its own write
-immediately. This is read-your-writes-within-task. It does **not**
-extend to cross-task reads even within the same process.
+Within a stream thread, a processor that writes then reads sees its own write immediately (read-your-writes-within-task). This does **not** extend to cross-task reads.
 
 ### Why this matters operationally
 
-- A 30 s `commitIntervalMs` (default) means downstream
-  `read_committed` consumers see records with up to 30 s of
-  staleness.
+- 30 s `commitIntervalMs` (default) means downstream `read_committed` consumers see up to 30 s staleness.
 
 ```mermaid
 sequenceDiagram
@@ -76,7 +60,7 @@ sequenceDiagram
   Up->>Eng: record at t=0
   Eng->>Store: put (buffered in txn store)
   IQ->>Store: get
-  Store-->>IQ: pre-commit value (your call:\nread overlay or underlying?)
+  Store-->>IQ: pre-commit value
   Note over Eng: ...more records...
   Eng->>Eng: commit cycle at t=30s
   Eng->>Down: records become visible
@@ -84,55 +68,32 @@ sequenceDiagram
   IQ->>Store: get
   Store-->>IQ: committed value
 ```
- If your downstream service has tight SLAs, shorten
-  the interval or accept the staleness budget.
-- Interactive queries (`Kafka.Streams.InteractiveQueries`) read
-  from the **uncommitted** view of the state store by default —
-  see "Read path freshness" below for why.
+
+If downstream SLAs are tight, shorten the interval or accept the staleness budget.
+
+- Interactive queries read from the **uncommitted** store view by default. See "Read path freshness" below.
 
 ## 2. Read path freshness
 
-Interactive queries hit `Data.IORef.IORef`-backed maps for the
-in-memory stores and the persistent shadow map for RocksDB.
-Writes go through `atomicModifyIORef'`; reads through `readIORef`.
-The semantics:
+Interactive queries hit `IORef`-backed maps for in-memory stores and the persistent shadow map for RocksDB. Writes use `atomicModifyIORef'`; reads use `readIORef`.
 
-- **Linearisable** reads at the moment the `readIORef` runs. A
-  query thread sees a consistent snapshot of the map.
-- **Eager** iterators (`queryRange` / `queryAll`): the iterator is
-  materialised at iterator-creation time. Writes that arrive
-  during iteration are not visible.
+Semantics:
+
+- **Linearisable** reads at `readIORef` time. A query thread sees a consistent snapshot.
+- **Eager** iterators (`queryRange` / `queryAll`): materialized at creation time; concurrent writes are not visible.
 
 What you don't get:
 
-- **Read-after-write across stream thread and query thread.**
-  A processor's `put` is in the store immediately, but a query
-  thread observing it depends on the IORef's atomic-update
-  ordering. In practice the visibility is microseconds, but it's
-  not a contract.
-- **Read-committed semantics under EOS.** The transactional store
-  buffers writes until `storeCommit` fires (after the producer
-  txn commits). An IQ that reads through the underlying store
-  during the cycle sees the pre-commit value; an IQ that reads
-  through the transactional overlay sees the buffered value. The
-  default `queryKVStore` exposes the underlying store — i.e.
-  committed-only reads.
+- **Read-after-write across threads.** A processor's `put` is immediate, but query thread visibility depends on IORef ordering. In practice this is microseconds, but not a contract.
+- **Read-committed semantics under EOS.** Transactional stores buffer writes until `storeCommit`. IQ through the underlying store sees pre-commit values; through the overlay sees buffered values. Default `queryKVStore` exposes the underlying store (committed-only).
 
-If you need **strict** committed-only semantics for IQ, query
-through the transactional overlay's `getCommitted` only after
-confirming `commitTotal` has advanced since your last commit
-observation.
+For **strict** committed-only semantics, query through the transactional overlay's `getCommitted` after confirming `commitTotal` advanced.
 
-If you need **fresh** reads including in-flight writes, accept the
-EOS abort risk: the value you read might be rolled back on the
-next cycle abort. Most external query consumers can tolerate this
-because their freshness budget is wider than the commit cadence.
+For **fresh** reads including in-flight writes, accept the EOS abort risk: the value might roll back on next cycle abort. Most consumers tolerate this.
 
 ## 3. Multi-instance distribution
 
-A SQL database is a logical singleton — you connect to it, you
-read whatever the latest committed value is, regardless of which
-backend was the writer.
+A SQL database is a logical singleton. You connect to it, and you read whatever the latest committed value is, regardless of which backend was the writer.
 
 A Kafka Streams state store is **partitioned and replicated**. A
 key lives on exactly one instance's active task; standbys hold a
@@ -150,7 +111,7 @@ The routing primitives:
   advertises via `application.server`.
 
 A query against the wrong instance returns `StoreNotFound`. There
-is no automatic redirect within the library — the query proxy is
+is no automatic redirect within the library: the query proxy is
 your code.
 
 ### Standby reads
@@ -165,7 +126,7 @@ Whether that trade-off is worth it depends on the use case. Read
 queries that are part of a user-visible request flow usually go to
 the active; bulk analytical scans usually go to standbys.
 
-The library doesn't enforce a routing policy — you decide.
+The library doesn't enforce a routing policy: you decide.
 `KeyQueryMetadata.standbyHosts` returns every standby for a key;
 pick by your own policy (round-robin, latency-aware, freshness-
 preferring).
@@ -211,7 +172,7 @@ The pieces:
 | Concept | Where it lives |
 | ------- | -------------- |
 | Record timestamp extraction | `TimestampExtractor` family in `Kafka.Streams.Time` |
-| Per-task event-time clock | `engineStreamTime` — running max of extracted timestamps on this task |
+| Per-task event-time clock | `engineStreamTime`: running max of extracted timestamps on this task |
 | Cross-source coordination | `Kafka.Streams.Watermark.WatermarkCoordinator` |
 | Window grace period | `withGracePeriod` / `withSessionGracePeriod` on window builders |
 | Out-of-order handling | `BoundedOutOfOrderness` watermark generator |
@@ -238,7 +199,6 @@ laggard. Three failure modes:
 The Riffle `WatermarkCoordinator` fixes all three by computing the
 **effective watermark = min of live, non-idle sources**, and by
 optionally backpressuring fast sources via alignment groups. See
-the [Watermark concept page](../concepts/watermarks/) (TODO) and
 `Kafka.Streams.Watermark` for the API.
 
 ### Operational reading: don't conflate the two clocks
@@ -271,8 +231,7 @@ Kafka Streams **may [replay](../glossary/#replay) records on failure**:
   producer commit. **External side effects that aren't inside a
   two-phase-commit sink replay on abort.**
 
-This is the right model for a streaming pipeline — the alternative
-is dropping records on partial failure — but it has consequences
+This is the right model for a streaming pipeline. The alternative is dropping records on partial failure, but this approach has consequences
 for code that thinks in database terms:
 
 - **No "commit-then-act" pattern.** You cannot "commit, then call
@@ -329,12 +288,12 @@ For "did the transfer go through?" semantics you typically:
 
 1. Process the transfer atomically in Streams.
 2. Sink the final state to a downstream system the user reads
-   from — Postgres, a key-value store, or a separate IQ-fronted
+   from: Postgres, a key-value store, or a separate IQ-fronted
    service.
 3. The downstream system is the source of truth for the user's
    read; it just lags Kafka by a bounded amount.
 
-This is the same architectural pattern as CQRS — and the same
+This is the same architectural pattern as CQRS: and the same
 trade-off. You give up read-your-writes in exchange for unlimited
 horizontal write throughput, replayability, and the ability to
 materialise the same source data into many downstream views.
@@ -355,9 +314,9 @@ materialise the same source data into many downstream views.
 
 ## Related reading
 
-- [Exactly-once across Kafka and other systems](./exactly-once/) —
+- [Exactly-once across Kafka and other systems](./exactly-once/) -
   the commit cycle in detail.
-- [Enrichment via external systems](../guides/enrichment/) —
+- [Enrichment via external systems](../guides/enrichment/) -
   the idempotency-token pattern for external writes.
-- [Observability](./observability/) — IQ as a debugging surface
+- [Observability](./observability/): IQ as a debugging surface
   and what its iterators actually show you.

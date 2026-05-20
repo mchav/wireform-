@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-The single most-cited reason teams leave Kafka Streams for Flink is "we needed to enrich records from an external API and couldn't do it cleanly." The parity DSL gives you `mapValuesM`, which runs synchronously on the [stream thread](../../glossary/#stream-thread) — throughput collapses when the external call takes 50 ms. The Riffle [async-I/O operator](../../glossary/#async-io-operator) family in `Kafka.Streams.AsyncIO` fixes this.
+The single most-cited reason teams leave Kafka Streams for Flink is "we needed to enrich records from an external API and couldn't do it cleanly." The parity DSL gives you `mapValuesM`, which runs synchronously on the [stream thread](../../glossary/#stream-thread): throughput collapses when the external call takes 50 ms. The Riffle [async-I/O operator](../../glossary/#async-io-operator) family in `Kafka.Streams.AsyncIO` fixes this.
 
 This page walks through every enrichment pattern, when to use each, and how to size async I/O for your latency budget.
 
@@ -17,7 +17,7 @@ Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/
 - Decision tree across six patterns: GlobalKTable (small reference data), KTable join, foreign-key join, sync `mapValuesM`, async I/O, idempotency-token state-store dedup.
 - Async I/O gives you bounded backpressure, EOS-correct offsets, ordered or unordered output, per-request timeout + retry, explicit failure policy.
 - Capacity sizing: `aioWorkers ≈ throughput × medianLatency` (Little's law); `aioBufferCapacity ≈ 4 × aioWorkers` so brief stalls don't immediately propagate.
-- EOS-correct via the pre-commit drain hook — offsets only advance once every in-flight request has deposited a result.
+- EOS-correct via the pre-commit drain hook: offsets only advance once every in-flight request has deposited a result.
 - For external *writes* with strong consistency, use a [two-phase commit sink](../../operating/exactly-once/) instead.
 :::
 
@@ -42,16 +42,16 @@ flowchart TD
 
 The decision is throughput- and consistency-driven:
 
-- **Small, slow-changing, fits in memory** — [GlobalKTable](../glossary/#globalktable). Every
+- **Small, slow-changing, fits in memory**: [GlobalKTable](../glossary/#globalktable). Every
   instance keeps a full local replica; the lookup is a hash-table
   read. Zero per-record I/O.
-- **Keyed, partitionable, published as a Kafka topic** — KTable +
+- **Keyed, partitionable, published as a Kafka topic**: KTable +
   stream-table join. Per-instance only the keys for the local
   partitions are materialised. Lookups are still local.
-- **Synchronous, fast, infrequent failures** — `mapValuesM` with a
+- **Synchronous, fast, infrequent failures**: `mapValuesM` with a
   bounded connection pool. Easiest pattern; backpressure works via
   the synchronous stream thread.
-- **Synchronous, slow, or high p99** — `asyncMapValues`. Bounded
+- **Synchronous, slow, or high p99**: `asyncMapValues`. Bounded
   in-flight, backpressure, EOS-correct, ordered or unordered
   output.
 
@@ -95,7 +95,7 @@ Each instance gets the keys for the partitions it owns. Use when:
 - The dataset is too large for a GlobalKTable.
 - The stream and the table share the same key. (If they don't,
   use the foreign-key join in pattern 3.)
-- You're already publishing the lookup table to Kafka — typically
+- You're already publishing the lookup table to Kafka: typically
   via Debezium CDC from the source database.
 
 ```haskell
@@ -150,10 +150,10 @@ out <- mapValuesM (\v -> lookupExternal pool v) src
 Properties:
 
 - Runs on the stream thread; blocks downstream.
-- [Backpressure](../glossary/#backpressure) is automatic — the consumer poll loop is naturally
+- [Backpressure](../glossary/#backpressure) is automatic: the consumer poll loop is naturally
   paced by the slowest processor.
 - Per-key ordering is preserved.
-- **Not** EOS-correct as a side effect — the external call replays
+- **Not** EOS-correct as a side effect: the external call replays
   on rewind. (The output record is in the producer transaction,
   but the external call that produced it is not.)
 
@@ -229,7 +229,7 @@ Per [Little's law](../glossary/#littles-law): `workers ≈ desiredThroughput × 
 For 10 000 records/sec at 50 ms median latency, you want roughly
 500 workers. `aioBufferCapacity` should be a small multiple of
 `aioWorkers` so a brief bottleneck doesn't immediately backpressure
-the consumer — `4 × aioWorkers` is a starting point.
+the consumer: `4 × aioWorkers` is a starting point.
 
 ### Ordered vs unordered output
 
@@ -247,22 +247,22 @@ will silently miss matches.
 
 `aioOnFailure` decides what happens after retries are exhausted. If you've done [railway-oriented programming](../concepts/railway-oriented-programming/) before, each arm is one of the standard ROP track-switches:
 
-- `FailTask` — re-throw on the stream thread; the engine's
+- `FailTask`: re-throw on the stream thread; the engine's
   uncaught-exception handler catches it; the task shuts down.
   **Default; matches JVM "strict" mode.**
-- `DropAndContinue` — silently drop. Use only when the downstream
+- `DropAndContinue`: silently drop. Use only when the downstream
   semantics tolerate lossy enrichment.
-- `LogAndContinue` — log + drop. Recommended for best-effort
+- `LogAndContinue`: log + drop. Recommended for best-effort
   enrichment.
-- `CustomFailure (SomeException -> IO ())` — your callback, on a
+- `CustomFailure (SomeException -> IO ())`: your callback, on a
   worker thread. Wire to a custom dead-letter topic, a metric, or
   an out-of-band alert.
 
 ### Retry strategy
 
-- `NoRetry` — first failure goes straight to `aioOnFailure`.
-- `RetryFixed n d` — up to `n` retries, each separated by `d`.
-- `RetryBackoff attempts initial multiplier` — exponential. The
+- `NoRetry`: first failure goes straight to `aioOnFailure`.
+- `RetryFixed n d`: up to `n` retries, each separated by `d`.
+- `RetryBackoff attempts initial multiplier`: exponential. The
   multiplier is an `Int` (integer-only math on the hot path);
   typical values are `2` (doubling) or `10` (decade).
 
@@ -294,7 +294,7 @@ results haven't been forwarded yet.
 ### When NOT to use async I/O
 
 - The external call is read-only and the data is already on
-  Kafka. Use a GlobalKTable or KTable join instead — zero per-
+  Kafka. Use a GlobalKTable or KTable join instead: zero per-
   record network cost.
 - The external call writes data. Async I/O is for read-side
   enrichment. For writes, use a two-phase commit sink
@@ -303,7 +303,7 @@ results haven't been forwarded yet.
 - You need per-record EOS for the side effect itself. Async I/O
   preserves EOS for the **output stream**, not for the external
   effect. The external call still replays on rewind in a fault
-  scenario — the bounded drain just ensures the downstream view
+  scenario: the bounded drain just ensures the downstream view
   is consistent.
 
 ## Pattern 6: Idempotency tokens in a state store
@@ -314,7 +314,7 @@ too heavy:
 1. Compute a stable token per record (typically the upstream
    `(topic, partition, offset)` tuple).
 2. Inside a processor, check a state store for the token.
-3. If present, skip — already done.
+3. If present, skip: already done.
 4. If absent, fire the side effect, then write the token to the
    store.
 
@@ -403,10 +403,10 @@ The combination:
 ## Related reading
 
 - [Exactly-once across Kafka and other systems](../operating/exactly-once/)
-  — for write-side enrichment with strong consistency.
-- [Visibility versus ACID databases](../operating/visibility/) —
+ : for write-side enrichment with strong consistency.
+- [Visibility versus ACID databases](../operating/visibility/) -
   why "enrich from Postgres" has corner cases you wouldn't see in
   a SQL `JOIN`.
-- [Scaling and rebalancing](../operating/scaling/) — async I/O
+- [Scaling and rebalancing](../operating/scaling/): async I/O
   capacity is per-worker, so it scales with `numStreamThreads` and
   instances.
