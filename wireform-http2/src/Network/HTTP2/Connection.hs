@@ -1,5 +1,6 @@
 module Network.HTTP2.Connection
   ( Connection (..)
+  , SendBuffer (..)
   , ConnectionConfig (..)
   , ConnectionRole (..)
   , ConnectionError (..)

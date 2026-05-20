@@ -140,7 +140,7 @@ sendResponse conn sid = do
   -- Real HPACK encode with dynamic table
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder
     [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
-  -- Zero-copy: encode both frames into the connection's pinned send buffer
+  -- Zero-copy batch send
   sendFramesZeroCopy conn
     [ Frame (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
