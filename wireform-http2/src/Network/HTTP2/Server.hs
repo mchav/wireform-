@@ -411,6 +411,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
                 streamsRef
                 (settingsInitialWindowSize old)
                 (settingsInitialWindowSize newSettings)
+              -- Peer's SETTINGS_HEADER_TABLE_SIZE caps our HPACK
+              -- encoder's dynamic table size.  See note in
+              -- Network.HTTP2.Client; we shrink the table but don't
+              -- yet emit the spec-required "Dynamic Table Size
+              -- Update" instruction on the next header block.
+              when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
+                enc <- readMVar (connHpackEncoder conn)
+                setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
               let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
               sendFrame conn ack
               pure True

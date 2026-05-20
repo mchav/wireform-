@@ -144,6 +144,10 @@ data ClientStreamError
     -- ^ The peer violated the HTTP\/2 wire protocol on this stream.
   | ClientStreamConnectionClosed
     -- ^ The connection went away before the stream completed.
+  | ClientStreamRefusedAfterGoAway !StreamId
+    -- ^ The peer sent @GOAWAY@ with the carried @lastStreamId@
+    -- before we opened this stream.  Per RFC 9113 § 6.8 the peer
+    -- will refuse it; we don't bother sending the request.
   deriving stock (Eq, Show)
 
 instance Exception ClientStreamError
@@ -163,6 +167,11 @@ data ClientHandle = ClientHandle
     -- yet reached @END_STREAM@ \/ @RST_STREAM@ \/ connection close.
     -- 'registerAndSend' blocks here when the count is at the peer's
     -- @SETTINGS_MAX_CONCURRENT_STREAMS@.
+  , chGoAway :: !(TVar (Maybe StreamId))
+    -- ^ @Just lastId@ once the peer has sent a @GOAWAY@ frame with
+    -- that @lastStreamId@.  'registerAndSend' refuses to open
+    -- streams whose ID would exceed it; in-flight streams below the
+    -- threshold complete normally.
   }
 
 -- | When per-stream or connection-level unacked bytes cross this
@@ -223,7 +232,8 @@ withConnectionOnTransport cfg transport mSock action = do
   pendingRef <- newIORef Nothing
   recvUnackedRef <- newIORef 0
   activeStreamsTv <- atomically (newTVar 0)
-  let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef activeStreamsTv
+  goAwayTv <- atomically (newTVar Nothing)
+  let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef activeStreamsTv goAwayTv
   _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
   action handle `finally` closeConnection conn NoError ""
 
@@ -281,6 +291,17 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
                 handle
                 (settingsInitialWindowSize old)
                 (settingsInitialWindowSize newSettings)
+              -- Peer's SETTINGS_HEADER_TABLE_SIZE caps the dynamic
+              -- table we may use when encoding HEADERS for them.
+              -- Shrink our encoder's table to match; the eviction
+              -- inside 'setMaxSize' guarantees we won't reference
+              -- entries the peer no longer has.  RFC 7541 § 6.3
+              -- also wants us to emit a "Dynamic Table Size Update"
+              -- on the next header block; we don't yet (TODO), so
+              -- this is best-effort against lenient peers.
+              when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
+                enc <- readMVar (connHpackEncoder (chConnection handle))
+                setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
               let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
               sendFrame (chConnection handle) ack
               pure True
@@ -313,7 +334,12 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
 
   FrameGoAway -> do
     case decodeGoAway body of
-      Just (lastId, code, debug) ->
+      Just (lastId, code, debug) -> do
+        -- Record the cutoff so 'registerAndSend' refuses future
+        -- streams beyond it; keep the lower of any prior GOAWAY's
+        -- lastId, because the peer may walk it down (RFC 9113 § 6.8).
+        atomically $ modifyTVar' (chGoAway handle) $ \prev ->
+          Just $ maybe lastId (\p -> min p lastId) prev
         connOnGoAway (chConnection handle) lastId code debug
       Nothing -> pure ()
     pure True
@@ -669,18 +695,29 @@ registerAndSend handle req = do
   -- limit.  Snapshot the limit out of the IORef first because we
   -- can't do IO inside STM.
   remoteMax <- settingsMaxConcurrentStreams <$> readIORef (connRemoteSettings conn)
-  sid <- atomically $ do
-    case remoteMax of
-      Just m -> do
-        active <- readTVar (chActiveStreams handle)
-        if active >= fromIntegral m
-          then retry
-          else pure ()
-      Nothing -> pure ()
-    modifyTVar' (chActiveStreams handle) (+ 1)
-    streams <- readTVar (stNextStreamId (connStreamTable conn))
-    writeTVar (stNextStreamId (connStreamTable conn)) (streams + 2)
-    pure streams
+  outcome <- atomically $ do
+    -- A prior GOAWAY caps the IDs we may use.  We compute the next
+    -- ID inside the same transaction so the cap check is consistent
+    -- with what we'd allocate.
+    nextSid <- readTVar (stNextStreamId (connStreamTable conn))
+    goAway <- readTVar (chGoAway handle)
+    case goAway of
+      Just lastId | nextSid > lastId ->
+        pure (Left (ClientStreamRefusedAfterGoAway lastId))
+      _ -> do
+        case remoteMax of
+          Just m -> do
+            active <- readTVar (chActiveStreams handle)
+            if active >= fromIntegral m
+              then retry
+              else pure ()
+          Nothing -> pure ()
+        modifyTVar' (chActiveStreams handle) (+ 1)
+        writeTVar (stNextStreamId (connStreamTable conn)) (nextSid + 2)
+        pure (Right nextSid)
+  sid <- case outcome of
+    Left err -> throwIO err
+    Right s  -> pure s
   remoteInitial <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
   inbox <- do
     h <- newEmptyMVar
