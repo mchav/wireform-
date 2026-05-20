@@ -16,23 +16,23 @@ module Network.HTTP2.HPACK.Table
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Word
 import qualified Data.Vector as V
 
 type Header = (ByteString, ByteString)
 
--- Pre-built hash index for O(1) static table lookups.
+-- Pre-built index for O(log n) static table lookups.
 {-# NOINLINE staticNameValueIndex #-}
-staticNameValueIndex :: HashMap (ByteString, ByteString) Int
-staticNameValueIndex = HM.fromList
+staticNameValueIndex :: Map (ByteString, ByteString) Int
+staticNameValueIndex = Map.fromList
   [(V.unsafeIndex staticTable i, i + 1) | i <- [0 .. V.length staticTable - 1]]
 
 {-# NOINLINE staticNameIndex #-}
-staticNameIndex :: HashMap ByteString Int
-staticNameIndex = HM.fromList
+staticNameIndex :: Map ByteString Int
+staticNameIndex = Map.fromList
   [(fst (V.unsafeIndex staticTable i), i + 1) | i <- [0 .. V.length staticTable - 1]]
 
 staticTable :: V.Vector Header
@@ -264,11 +264,11 @@ lookupNameValue dt (name, value) =
 
 {-# INLINE findStaticName #-}
 findStaticName :: ByteString -> Maybe Int
-findStaticName name = HM.lookup name staticNameIndex
+findStaticName name = Map.lookup name staticNameIndex
 
 {-# INLINE findStaticNameValue #-}
 findStaticNameValue :: Header -> Maybe Int
-findStaticNameValue hdr = HM.lookup hdr staticNameValueIndex
+findStaticNameValue hdr = Map.lookup hdr staticNameValueIndex
 
 tableSize :: DynamicTable -> IO Int
 tableSize dt = readIORef (dtSize dt)
@@ -286,6 +286,6 @@ setMaxSize dt newMax = do
 -- This allows the recv buffer memory to be reused/GC'd sooner.
 {-# INLINE internName #-}
 internName :: ByteString -> ByteString
-internName name = case HM.lookup name staticNameIndex of
+internName name = case Map.lookup name staticNameIndex of
   Just idx -> fst (V.unsafeIndex staticTable (idx - 1))
   Nothing -> name

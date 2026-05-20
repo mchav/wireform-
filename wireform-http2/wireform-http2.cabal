@@ -94,7 +94,6 @@ library
     primitive >= 0.8 && < 0.10,
     stm >= 2.5 && < 2.7,
     text >= 2.0 && < 2.2,
-    unordered-containers >= 0.2.16 && < 0.3,
     vector >= 0.13 && < 0.14,
     wireform-core
 
