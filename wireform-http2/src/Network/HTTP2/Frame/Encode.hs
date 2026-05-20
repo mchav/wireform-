@@ -2,13 +2,16 @@ module Network.HTTP2.Frame.Encode
   ( encodeFrame
   , encodeFrameHeader
   , encodeFramePayload
+  , encodeFrameInto
   ) where
 
 import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
+import qualified Data.ByteString.Unsafe as BSU
 import Data.Word
+import Foreign.ForeignPtr
 import Foreign.Ptr
 import Foreign.Storable
 
@@ -16,12 +19,70 @@ import Network.HTTP2.Frame.Types
 import Network.HTTP2.Internal.BitOps
 import Network.HTTP2.Types
 
+-- | Encode a frame into a single contiguous ByteString.
+-- Optimized: for DATA and HEADERS frames with a ByteString payload,
+-- writes header + body in a single allocation.
 encodeFrame :: Frame -> ByteString
-encodeFrame (Frame hdr payload) =
-  let body = encodeFramePayload (fhFlags hdr) payload
-      len = fromIntegral (BS.length body)
-      header = encodeFrameHeader hdr { fhLength = len }
-  in header <> body
+encodeFrame (Frame hdr payload) = case payload of
+  -- Fast path: DATA frame — single alloc for header + body
+  DataFrame body ->
+    let bodyLen = BS.length body
+    in BSI.unsafeCreate (frameHeaderLength + bodyLen) $ \p -> do
+      writeWord24BE p (fromIntegral bodyLen)
+      pokeByteOff p 3 (0x0 :: Word8)  -- DATA type
+      pokeByteOff p 4 (fhFlags hdr)
+      writeWord32BE (p `plusPtr` 5) (fhStreamId hdr .&. 0x7FFFFFFF)
+      BSU.unsafeUseAsCStringLen body $ \(src, len) ->
+        BSI.memcpy (p `plusPtr` frameHeaderLength) (castPtr src) len
+  -- Fast path: HEADERS frame with no priority — single alloc
+  HeadersFrame Nothing headerBlock ->
+    let blockLen = BS.length headerBlock
+    in BSI.unsafeCreate (frameHeaderLength + blockLen) $ \p -> do
+      writeWord24BE p (fromIntegral blockLen)
+      pokeByteOff p 3 (0x1 :: Word8)  -- HEADERS type
+      pokeByteOff p 4 (fhFlags hdr)
+      writeWord32BE (p `plusPtr` 5) (fhStreamId hdr .&. 0x7FFFFFFF)
+      BSU.unsafeUseAsCStringLen headerBlock $ \(src, len) ->
+        BSI.memcpy (p `plusPtr` frameHeaderLength) (castPtr src) len
+  -- General path
+  _ ->
+    let body = encodeFramePayload (fhFlags hdr) payload
+        len = fromIntegral (BS.length body)
+        header = encodeFrameHeader hdr { fhLength = len }
+    in header <> body
+
+-- | Encode frame header + body into a pre-allocated buffer at the given offset.
+-- Returns the number of bytes written.
+encodeFrameInto :: Frame -> Ptr Word8 -> IO Int
+encodeFrameInto (Frame hdr payload) p = case payload of
+  DataFrame body -> do
+    let bodyLen = BS.length body
+    writeWord24BE p (fromIntegral bodyLen)
+    pokeByteOff p 3 (0x0 :: Word8)
+    pokeByteOff p 4 (fhFlags hdr)
+    writeWord32BE (p `plusPtr` 5) (fhStreamId hdr .&. 0x7FFFFFFF)
+    BSU.unsafeUseAsCStringLen body $ \(src, len) ->
+      BSI.memcpy (p `plusPtr` frameHeaderLength) (castPtr src) len
+    pure (frameHeaderLength + bodyLen)
+  HeadersFrame Nothing headerBlock -> do
+    let blockLen = BS.length headerBlock
+    writeWord24BE p (fromIntegral blockLen)
+    pokeByteOff p 3 (0x1 :: Word8)
+    pokeByteOff p 4 (fhFlags hdr)
+    writeWord32BE (p `plusPtr` 5) (fhStreamId hdr .&. 0x7FFFFFFF)
+    BSU.unsafeUseAsCStringLen headerBlock $ \(src, len) ->
+      BSI.memcpy (p `plusPtr` frameHeaderLength) (castPtr src) len
+    pure (frameHeaderLength + blockLen)
+  _ -> do
+    let body = encodeFramePayload (fhFlags hdr) payload
+        bodyLen = BS.length body
+    writeWord24BE p (fromIntegral bodyLen)
+    pokeByteOff p 3 (frameTypeToWord8 (fhType hdr))
+    pokeByteOff p 4 (fhFlags hdr)
+    writeWord32BE (p `plusPtr` 5) (fhStreamId hdr .&. 0x7FFFFFFF)
+    BSU.unsafeUseAsCStringLen body $ \(src, len) ->
+      BSI.memcpy (p `plusPtr` frameHeaderLength) (castPtr src) len
+    pure (frameHeaderLength + bodyLen)
 
 encodeFrameHeader :: FrameHeader -> ByteString
 encodeFrameHeader (FrameHeader len typ flags sid) =

@@ -5,6 +5,7 @@ module Network.HTTP2.Connection
   , ConnectionError (..)
   , newConnection
   , sendFrame
+  , sendFrames
   , recvFrame
   , closeConnection
   , connectionSettings
@@ -97,55 +98,87 @@ newConnection cfg = do
     , connOnGoAway = ccOnGoAway cfg
     }
 
+-- | Send a frame. Encodes and sends in one operation.
+-- Uses a send lock to ensure frames aren't interleaved between connections.
 sendFrame :: Connection -> Frame -> IO ()
 sendFrame conn frame = do
   let bs = encodeFrame frame
   withMVar (connSendLock conn) $ \_ ->
-    sendAll (connSocket conn) bs
+    NBS.sendAll (connSocket conn) bs
 
-sendAll :: Socket -> ByteString -> IO ()
-sendAll sock bs
-  | BS.null bs = pure ()
-  | otherwise = do
-      sent <- NBS.send sock bs
-      if sent >= BS.length bs
-        then pure ()
-        else sendAll sock (BS.drop sent bs)
+-- | Send multiple frames in a single write (reduces syscall overhead).
+sendFrames :: Connection -> [Frame] -> IO ()
+sendFrames conn frames = do
+  let bss = map encodeFrame frames
+  withMVar (connSendLock conn) $ \_ ->
+    NBS.sendMany (connSocket conn) bss
 
 recvFrame :: Connection -> IO (Either FrameDecodeError Frame)
 recvFrame conn = do
   headerBytes <- recvExact conn frameHeaderLength
-  case decodeFrameHeader headerBytes of
-    Left err -> pure (Left err)
-    Right hdr -> do
-      payload <- recvExact conn (fromIntegral (fhLength hdr))
-      case decodeFramePayload hdr payload of
-        Left err -> pure (Left err)
-        Right fp -> pure (Right (Frame hdr fp))
+  if BS.length headerBytes < frameHeaderLength
+    then pure (Left FrameTooShort)
+    else case decodeFrameHeader headerBytes of
+      Left err -> pure (Left err)
+      Right hdr -> do
+        let payloadLen = fromIntegral (fhLength hdr)
+        if payloadLen == 0
+          then case decodeFramePayload hdr BS.empty of
+            Left err -> pure (Left err)
+            Right fp -> pure (Right (Frame hdr fp))
+          else do
+            payload <- recvExact conn payloadLen
+            if BS.length payload < payloadLen
+              then pure (Left FrameTooShort)
+              else case decodeFramePayload hdr payload of
+                Left err -> pure (Left err)
+                Right fp -> pure (Right (Frame hdr fp))
 
+-- | Buffered receive. Reads large chunks from the socket and serves
+-- smaller requests from the buffer to minimize syscall overhead.
 recvExact :: Connection -> Int -> IO ByteString
 recvExact conn n = do
   buf <- readIORef (connRecvBuffer conn)
-  if BS.length buf >= n
+  let bufLen = BS.length buf
+  if bufLen >= n
     then do
       let (result, rest) = BS.splitAt n buf
       writeIORef (connRecvBuffer conn) rest
       pure result
     else do
-      more <- recvLoop (connSocket conn) (n - BS.length buf) [buf]
-      let full = BS.concat (reverse more)
-      let (result, rest) = BS.splitAt n full
-      writeIORef (connRecvBuffer conn) rest
-      pure result
-
-recvLoop :: Socket -> Int -> [ByteString] -> IO [ByteString]
-recvLoop sock needed acc
-  | needed <= 0 = pure acc
-  | otherwise = do
-      chunk <- NBS.recv sock (max needed 4096)
+      -- Read a large chunk to amortize syscall cost
+      let toRead = max (n - bufLen) 65536
+      chunk <- NBS.recv (connSocket conn) toRead
       if BS.null chunk
-        then pure acc
-        else recvLoop sock (needed - BS.length chunk) (chunk : acc)
+        then do
+          writeIORef (connRecvBuffer conn) BS.empty
+          pure buf  -- Return whatever we had (likely short)
+        else do
+          let combined = if BS.null buf then chunk else buf <> chunk
+          if BS.length combined >= n
+            then do
+              let (result, rest) = BS.splitAt n combined
+              writeIORef (connRecvBuffer conn) rest
+              pure result
+            else recvExactSlow conn n combined
+
+-- Slow path: need multiple recv calls to satisfy the request
+recvExactSlow :: Connection -> Int -> ByteString -> IO ByteString
+recvExactSlow conn n partial = do
+  let needed = n - BS.length partial
+  chunk <- NBS.recv (connSocket conn) (max needed 65536)
+  if BS.null chunk
+    then do
+      writeIORef (connRecvBuffer conn) BS.empty
+      pure partial
+    else do
+      let combined = partial <> chunk
+      if BS.length combined >= n
+        then do
+          let (result, rest) = BS.splitAt n combined
+          writeIORef (connRecvBuffer conn) rest
+          pure result
+        else recvExactSlow conn n combined
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do
