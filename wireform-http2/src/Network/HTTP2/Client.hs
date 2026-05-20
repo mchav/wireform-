@@ -130,6 +130,11 @@ data StreamInbox = StreamInbox
     -- ^ Bytes received on this stream that the user has consumed but
     -- the recv loop hasn't yet acknowledged via a @WINDOW_UPDATE@.
     -- Refunded to the peer when it crosses 'recvWindowAckThreshold'.
+  , siRecvWindow :: !(IORef Int)
+    -- ^ Per-stream recv window remaining (RFC 9113 §6.9.1).
+    -- Decremented by DATA bytes the peer sends; replenished when we
+    -- emit a @WINDOW_UPDATE@.  Goes negative ⇒ peer overflowed our
+    -- advertised window ⇒ stream-level @FLOW_CONTROL_ERROR@.
   }
 
 data ResponseHead = ResponseHead
@@ -186,6 +191,17 @@ data ClientHandle = ClientHandle
     -- ^ RST_STREAM frames received this window.
   , chEmptyDataRate :: !RateCounter
     -- ^ Empty DATA frames received this window (CPU-soak vector).
+  , chMaxHeaderListSize :: !(Maybe Word32)
+    -- ^ Our advertised @SETTINGS_MAX_HEADER_LIST_SIZE@.  We refuse
+    -- ('ClientStreamError' on the inbox) any incoming HEADERS \/
+    -- trailer block whose RFC 7541 §4.1 size exceeds this.  'Nothing'
+    -- means unbounded (the spec default).
+  , chRecvWindow :: !(IORef Int)
+    -- ^ Connection-level recv window remaining.  Decremented by every
+    -- incoming DATA frame's full payload (incl. padding) and
+    -- replenished when we emit a connection-level @WINDOW_UPDATE@.
+    -- Goes negative ⇒ peer overflowed our advertised window ⇒
+    -- connection-level @FLOW_CONTROL_ERROR@.
   }
 
 -- | Per-second caps for the control-plane rate counters.  These
@@ -263,8 +279,11 @@ withConnectionOnTransport cfg transport mSock action = do
   settingsRate <- newRateCounter
   rstRate <- newRateCounter
   emptyDataRate <- newRateCounter
+  recvWindowRef <- newIORef (65535 :: Int)
   let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef activeStreamsTv goAwayTv
                             pingRate settingsRate rstRate emptyDataRate
+                            (settingsMaxHeaderListSize (clientSettings cfg))
+                            recvWindowRef
   _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
   action handle `finally` closeConnection conn NoError ""
 
@@ -474,24 +493,40 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
           case Map.lookup sid inboxes of
             Nothing -> pure True
             Just inbox -> do
-              -- The recv loop just enqueues here; WINDOW_UPDATE
-              -- frames are emitted lazily by 'nextBodyChunk' once
-              -- the user has actually consumed the bytes -- so a
-              -- slow reader throttles the peer naturally.
-              --
-              -- 'forceCopyBS' (not 'BS.copy'): the payload is a
-              -- zero-copy slice of the recv ring buffer, and
-              -- 'BS.copy' is too lazy under inlining to make the
-              -- memcpy happen before the buffer is overwritten.
-              copied <- forceCopyBS payload
-              atomically $ writeTBQueue (siBody inbox) (BodyChunk copied)
-              if endStream
+              -- Recv-window accounting (RFC 9113 §6.9.1): the
+              -- whole frame payload (including padding) is
+              -- charged, not the post-padding bytes.
+              let frameBytes = BS.length body
+              streamWin <- atomicModifyIORef' (siRecvWindow inbox) $ \w ->
+                let w' = w - frameBytes in (w', w')
+              connWin <- atomicModifyIORef' (chRecvWindow handle) $ \w ->
+                let w' = w - frameBytes in (w', w')
+              if streamWin < 0
                 then do
-                  _ <- tryPutMVar (siTrailers inbox) []
-                  atomically $ writeTBQueue (siBody inbox) BodyEnd
-                  closeStream handle sid
-                else pure ()
-              pure True
+                  sendRstStream handle sid FlowControlError
+                  failStream handle sid (ClientStreamReset FlowControlError)
+                  pure True
+                else if connWin < 0
+                  then do
+                    closeConnection (chConnection handle) FlowControlError
+                      "connection recv window underflow"
+                    pure False
+                  else do
+                    -- The recv loop just enqueues here; WINDOW_UPDATE
+                    -- frames are emitted lazily by 'nextBodyChunk' once
+                    -- the user has actually consumed the bytes -- so a
+                    -- slow reader throttles the peer naturally.
+                    -- 'forceCopyBS' (not 'BS.copy'): the payload is a
+                    -- zero-copy slice of the recv ring buffer, and
+                    -- 'BS.copy' is too lazy under inlining to make the
+                    -- memcpy happen before the buffer is overwritten.
+                    copied <- forceCopyBS payload
+                    atomically $ writeTBQueue (siBody inbox) (BodyChunk copied)
+                    when endStream $ do
+                      _ <- tryPutMVar (siTrailers inbox) []
+                      atomically $ writeTBQueue (siBody inbox) BodyEnd
+                      closeStream handle sid
+                    pure True
 
   _ -> pure True
 
@@ -507,6 +542,12 @@ deliverHeaders handle sid flags block = do
     Left _ -> do
       closeConnection (chConnection handle) CompressionError "HPACK decode failed"
       pure False
+    Right headers | overClientHeaderLimit handle headers -> do
+      -- Server sent us more headers than we said we'd accept.
+      -- Cancel just this stream rather than tearing the connection.
+      sendRstStream handle sid EnhanceYourCalm
+      failStream handle sid (ClientStreamReset EnhanceYourCalm)
+      pure True
     Right headers -> do
       inboxes <- readIORef (chStreams handle)
       case Map.lookup sid inboxes of
@@ -544,6 +585,17 @@ deliverHeaders handle sid flags block = do
               atomically $ writeTBQueue (siBody inbox) BodyEnd
               closeStream handle sid
           pure True
+
+-- | RFC 7541 §4.1 sizing: 32 + name + value per header.  Used to
+-- enforce our advertised @SETTINGS_MAX_HEADER_LIST_SIZE@ on response
+-- header / trailer blocks the peer sends.
+overClientHeaderLimit
+  :: ClientHandle -> [(ByteString, ByteString)] -> Bool
+overClientHeaderLimit handle hs = case chMaxHeaderListSize handle of
+  Nothing  -> False
+  Just lim ->
+    let total = foldr (\(n, v) acc -> acc + 32 + BS.length n + BS.length v) 0 hs
+    in total > fromIntegral lim
 
 splitStatus
   :: [(ByteString, ByteString)] -> (Int, [(ByteString, ByteString)])
@@ -744,7 +796,8 @@ ackConnectionRecv handle n = do
     in if u' >= recvWindowAckThreshold
          then (0, u')
          else (u', 0)
-  when (unacked > 0) $
+  when (unacked > 0) $ do
+    atomicModifyIORef' (chRecvWindow handle) (\w -> (w + unacked, ()))
     sendFrame (chConnection handle) $ Frame
       (FrameHeader 4 FrameWindowUpdate 0 0)
       (WindowUpdateFrame (fromIntegral unacked))
@@ -763,7 +816,8 @@ ackStreamRecv handle sid inbox n = do
   when (unacked > 0) $ do
     -- Only emit if the stream is still open at our end.
     streams <- readIORef (chStreams handle)
-    when (Map.member sid streams) $
+    when (Map.member sid streams) $ do
+      atomicModifyIORef' (siRecvWindow inbox) (\w -> (w + unacked, ()))
       sendFrame (chConnection handle) $ Frame
         (FrameHeader 4 FrameWindowUpdate 0 sid)
         (WindowUpdateFrame (fromIntegral unacked))
@@ -822,13 +876,15 @@ registerAndSend handle req = do
     Left err -> throwIO err
     Right s  -> pure s
   remoteInitial <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
+  ourInitial <- settingsInitialWindowSize <$> readIORef (connLocalSettings conn)
   inbox <- do
     h <- newEmptyMVar
     q <- atomically (newTBQueue 64)
     t <- newEmptyMVar
     sw <- atomically $ newFlowControl (fromIntegral remoteInitial)
     ru <- newIORef 0
-    pure $ StreamInbox h q t sw ru
+    rw <- newIORef (fromIntegral ourInitial)
+    pure $ StreamInbox h q t sw ru rw
   modifyIORef' (chStreams handle) (Map.insert sid inbox)
   encoder <- readMVar (connHpackEncoder conn)
   let pseudoHeaders =

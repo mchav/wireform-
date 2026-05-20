@@ -171,10 +171,18 @@ handleTransport cfg transport = do
       lastPeerStreamRef <- newIORef 0
       continuationRef <- newIORef Nothing
       connRecvUnackedRef <- newIORef 0
+      -- Our advertised connection-level recv window starts at the
+      -- RFC default of 65535 (the connection window is never affected
+      -- by SETTINGS_INITIAL_WINDOW_SIZE, RFC 9113 §6.9.2).  We
+      -- decrement it as DATA arrives and replenish when we send
+      -- connection-level @WINDOW_UPDATE@; a negative value means the
+      -- peer has overflowed what we advertised.
+      connRecvWindowRef <- newIORef (65535 :: Int)
       rl <- ServerRateLimiters
         <$> newRateCounter <*> newRateCounter
         <*> newRateCounter <*> newRateCounter
-      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef connRecvUnackedRef rl
+      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef
+                     connRecvUnackedRef connRecvWindowRef rl
 
 -- | Pending header-block continuation state: which stream we're
 -- continuing, what flags the initial HEADERS frame had (so we know
@@ -207,6 +215,13 @@ data StreamRec = StreamRec
   , srRecvUnacked :: !(IORef Int)
     -- ^ Bytes received on this stream that the handler has consumed
     -- but the server hasn't yet acknowledged via a @WINDOW_UPDATE@.
+  , srRecvWindow :: !(IORef Int)
+    -- ^ Per-stream recv window remaining (RFC 9113 §6.9.1).
+    -- Initialised from our own @SETTINGS_INITIAL_WINDOW_SIZE@,
+    -- decremented on every DATA frame, replenished on every
+    -- @WINDOW_UPDATE@ we emit.  When this goes negative the peer
+    -- has overflowed our advertised window: stream-level
+    -- @FLOW_CONTROL_ERROR@ via @RST_STREAM@.
   , srTrailers :: !(MVar [(ByteString, ByteString)])
     -- ^ Filled exactly once when END_STREAM has been observed:
     -- with the decoded trailer block from a final HEADERS frame, or
@@ -226,15 +241,17 @@ data ServerStreamState
 
 freshStream
   :: Word32          -- ^ peer's @SETTINGS_INITIAL_WINDOW_SIZE@
+  -> Word32          -- ^ our @SETTINGS_INITIAL_WINDOW_SIZE@
   -> Maybe Int
   -> ServerStreamState
   -> IO StreamRec
-freshStream initWin el st = do
+freshStream peerInit ourInit el st = do
   q <- atomically $ newTBQueue 64
-  sw <- atomically $ newFlowControl (fromIntegral initWin)
+  sw <- atomically $ newFlowControl (fromIntegral peerInit)
   ru <- newIORef 0
+  rw <- newIORef (fromIntegral ourInit)
   trailers <- newEmptyMVar
-  pure $ StreamRec st el 0 q sw ru trailers
+  pure $ StreamRec st el 0 q sw ru rw trailers
 
 -- | Threshold for coalesced @WINDOW_UPDATE@ frames.  Half the
 -- default @SETTINGS_INITIAL_WINDOW_SIZE@ — large enough that we
@@ -255,43 +272,49 @@ recvWindowAckThreshold = 32768
 makeRequestBody
   :: Connection
   -> IORef Int       -- ^ connection-level recv-unacked counter
+  -> IORef Int       -- ^ connection-level recv-window mirror
   -> StreamId
   -> StreamRec
   -> IO ByteString
-makeRequestBody conn connUnackedRef sid sr = do
+makeRequestBody conn connUnackedRef connWindowRef sid sr = do
   item <- atomically $ readTBQueue (srBodyQueue sr)
   case item of
     BodyChunkBytes bs -> do
       let n = BS.length bs
-      ackConnRecv conn connUnackedRef n
-      ackStreamRecv conn sid (srRecvUnacked sr) n
+      ackConnRecv conn connUnackedRef connWindowRef n
+      ackStreamRecv conn sid (srRecvUnacked sr) (srRecvWindow sr) n
       pure bs
     BodyChunkEnd -> do
       atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
       pure BS.empty
 
--- | Connection-level recv-window ack (stream 0).
-ackConnRecv :: Connection -> IORef Int -> Int -> IO ()
-ackConnRecv conn ref n = do
+-- | Connection-level recv-window ack (stream 0).  When the unacked
+-- counter crosses 'recvWindowAckThreshold', emit a @WINDOW_UPDATE@
+-- and replenish the recv-window mirror so we can detect overflow on
+-- the next DATA frame.
+ackConnRecv :: Connection -> IORef Int -> IORef Int -> Int -> IO ()
+ackConnRecv conn ref windowRef n = do
   unacked <- atomicModifyIORef' ref $ \u ->
     let u' = u + n
     in if u' >= recvWindowAckThreshold
          then (0, u')
          else (u', 0)
-  when (unacked > 0) $
+  when (unacked > 0) $ do
+    atomicModifyIORef' windowRef (\w -> (w + unacked, ()))
     sendFrame conn $ Frame
       (FrameHeader 4 FrameWindowUpdate 0 0)
       (WindowUpdateFrame (fromIntegral unacked))
 
 -- | Per-stream recv-window ack.
-ackStreamRecv :: Connection -> StreamId -> IORef Int -> Int -> IO ()
-ackStreamRecv conn sid ref n = do
+ackStreamRecv :: Connection -> StreamId -> IORef Int -> IORef Int -> Int -> IO ()
+ackStreamRecv conn sid ref windowRef n = do
   unacked <- atomicModifyIORef' ref $ \u ->
     let u' = u + n
     in if u' >= recvWindowAckThreshold
          then (0, u')
          else (u', 0)
-  when (unacked > 0) $
+  when (unacked > 0) $ do
+    atomicModifyIORef' windowRef (\w -> (w + unacked, ()))
     sendFrame conn $ Frame
       (FrameHeader 4 FrameWindowUpdate 0 sid)
       (WindowUpdateFrame (fromIntegral unacked))
@@ -344,9 +367,11 @@ connectionLoop
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> IORef Int    -- ^ connection-level recv-unacked counter
+  -> IORef Int    -- ^ connection-level recv-window remaining
   -> ServerRateLimiters
   -> IO ()
-connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl = loop
+connectionLoop cfg conn streamsRef lastPeerStreamRef contRef
+               connRecvUnackedRef connRecvWindowRef rl = loop
   where
     maxFrame = settingsMaxFrameSize (serverSettings cfg)
     loop = do
@@ -367,7 +392,8 @@ connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef 
                        || fhStreamId hdr /= contStreamId c -> do
                   closeConnection conn ProtocolError "expected CONTINUATION frame"
                 _ -> do
-                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl frame
+                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
+                                     connRecvUnackedRef connRecvWindowRef rl frame
                   if ok then loop else pure ()
 
 -- | Map a 'FrameDecodeError' to the HTTP\/2 error code dictated by
@@ -400,10 +426,12 @@ handleFrame'
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> IORef Int      -- ^ connection-level recv-unacked counter
+  -> IORef Int      -- ^ connection-level recv-window remaining
   -> ServerRateLimiters
   -> Frame
   -> IO Bool
-handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
+             connRecvUnackedRef connRecvWindowRef rl (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck ->
         if BS.null body
@@ -586,6 +614,11 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                         closeConnection conn CompressionError "HPACK decode failed in trailers"
                         pure False
                       Right trailers
+                        | overHeaderListLimit' (serverSettings cfg) trailers -> do
+                            sendRstStream conn sid EnhanceYourCalm
+                            modifyIORef' streamsRef
+                              (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
+                            pure True
                         | any (\(n, _) -> not (BS.null n) && BS.head n == 0x3A) trailers -> do
                             closeConnection conn ProtocolError "pseudo-header in trailers"
                             pure False
@@ -630,7 +663,19 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                     Left _ -> do
                       closeConnection conn CompressionError "HPACK decode failed"
                       pure False
-                    Right headers -> case validateRequestHeaders headers of
+                    Right headers
+                      | overHeaderListLimit' (serverSettings cfg) headers -> do
+                          -- Refuse the stream but keep the connection
+                          -- open; an over-limit block is a single-stream
+                          -- problem, not a connection-fatal one.
+                          sendRstStream conn sid' RefusedStream
+                          writeIORef lastPeerStreamRef sid'
+                          peerInit <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
+                          let ourInit = settingsInitialWindowSize (serverSettings cfg)
+                          refused <- freshStream peerInit ourInit Nothing StClosedSrv
+                          modifyIORef' streamsRef (Map.insert sid' refused)
+                          pure True
+                      | otherwise -> case validateRequestHeaders headers of
                       Just _err -> do
                         closeConnection conn ProtocolError "malformed request headers"
                         pure False
@@ -639,13 +684,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                         streamsNow <- readIORef streamsRef
                         let active = Map.size (Map.filter ((/= StClosedSrv) . srState) streamsNow)
                         peerInit <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
+                        let ourInit = settingsInitialWindowSize (serverSettings cfg)
                         case maxConcurrent of
                           Just n | active >= fromIntegral n -> do
                             sendRstStream conn sid' RefusedStream
                             -- We still count this stream as seen so
                             -- the lastPeerStream marker advances.
                             writeIORef lastPeerStreamRef sid'
-                            refused <- freshStream peerInit Nothing StClosedSrv
+                            refused <- freshStream peerInit ourInit Nothing StClosedSrv
                             modifyIORef' streamsRef (Map.insert sid' refused)
                             pure True
                           _ -> do
@@ -654,7 +700,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                             let endStream = testFlag flags flagEndStream
                                 newState = if endStream then StHalfClosedRemote else StOpen
                                 clHdr = lookupContentLength headers
-                            rec0 <- freshStream peerInit clHdr newState
+                            rec0 <- freshStream peerInit ourInit clHdr newState
                             -- If the body is already closed (no DATA
                             -- frames to come), push the End marker
                             -- now so the handler's 'requestBody'
@@ -671,11 +717,11 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                             if endStream && maybe False (/= 0) clHdr
                               then do
                                 sendRstStream conn sid' ProtocolError
-                                rec1 <- freshStream peerInit Nothing StClosedSrv
+                                rec1 <- freshStream peerInit ourInit Nothing StClosedSrv
                                 modifyIORef' streamsRef (Map.insert sid' rec1)
                                 pure True
                               else do
-                                let req = buildRequest conn connRecvUnackedRef sid' headers rec0
+                                let req = buildRequest conn connRecvUnackedRef connRecvWindowRef sid' headers rec0
                                 _ <- serverForkStream cfg $ do
                                   serverHandler cfg req $ \resp ->
                                     sendResponse conn sid' (srSendWindow rec0) resp
@@ -724,49 +770,64 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                   closeConnection conn ProtocolError "malformed DATA frame"
                   pure False
                 Just payload -> do
-                  let bytes = BS.length payload
-                      endStream = testFlag (fhFlags hdr) flagEndStream
-                      newReceived = srReceivedBytes sr + bytes
-                      newState = if endStream then StHalfClosedRemote else StOpen
-                  modifyIORef' streamsRef
-                    (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
-                  -- Hand the payload to the handler's request-body
-                  -- consumer.  Empty DATA frames are common terminators;
-                  -- only push non-empty chunks.  The recv windows are
-                  -- replenished lazily in 'makeRequestBody' when the
-                  -- handler actually consumes a chunk, so a slow handler
-                  -- back-pressures the peer naturally.
-                  -- The payload is a zero-copy slice of the recv ring
-                  -- buffer; the buffer reuses its memory on subsequent
-                  -- 'recvBufferRead' calls, so we copy before stashing
-                  -- in the long-lived per-stream queue.  Without the
-                  -- copy, the slice silently becomes the next frame's
-                  -- bytes once the buffer is compacted / overwritten.
-                  -- 'BS.copy' alone isn't enough -- it wraps an
-                  -- 'unsafeDupablePerformIO' that can defer the memcpy
-                  -- past the buffer overwrite.  'forceCopyBS' walks the
-                  -- bytes synchronously.
-                  when (not (BS.null payload)) $ do
-                    copied <- forceCopyBS payload
-                    atomically $
-                      writeTBQueue (srBodyQueue sr) (BodyChunkBytes copied)
-                  when endStream $ do
-                    -- No trailer block follows -- resolve the trailers
-                    -- MVar with [] and push the body terminator.
-                    _ <- tryPutMVar (srTrailers sr) []
-                    atomically $
-                      writeTBQueue (srBodyQueue sr) BodyChunkEnd
-                  -- On END_STREAM, validate the declared content-length.
-                  if endStream
-                    then case srExpectedLength sr of
-                      Just expected
-                        | expected /= newReceived -> do
-                            sendRstStream conn sid ProtocolError
-                            modifyIORef' streamsRef
-                              (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
-                            pure True
-                      _ -> pure True
-                    else pure True
+                  -- Flow control counts the full DATA frame payload
+                  -- (including padding) against the recv window
+                  -- (RFC 9113 §6.9.1).  Decrement both windows; if
+                  -- either goes negative the peer has overflowed
+                  -- what we advertised.  Stream-level overflow is
+                  -- recoverable via RST_STREAM; connection-level
+                  -- overflow tears the connection.
+                  let frameBytes = BS.length body
+                  streamWin <- atomicModifyIORef' (srRecvWindow sr) $ \w ->
+                    let w' = w - frameBytes in (w', w')
+                  connWin <- atomicModifyIORef' connRecvWindowRef $ \w ->
+                    let w' = w - frameBytes in (w', w')
+                  if streamWin < 0
+                    then do
+                      sendRstStream conn sid FlowControlError
+                      modifyIORef' streamsRef
+                        (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                      pure True
+                    else if connWin < 0
+                      then do
+                        closeConnection conn FlowControlError "connection recv window underflow"
+                        pure False
+                      else do
+                        let bytes = BS.length payload
+                            endStream = testFlag (fhFlags hdr) flagEndStream
+                            newReceived = srReceivedBytes sr + bytes
+                            newState = if endStream then StHalfClosedRemote else StOpen
+                        modifyIORef' streamsRef
+                          (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
+                        -- Hand the payload to the handler's request-body
+                        -- consumer.  Empty DATA frames are common terminators;
+                        -- only push non-empty chunks.  The recv windows are
+                        -- replenished lazily in 'makeRequestBody' when the
+                        -- handler actually consumes a chunk, so a slow handler
+                        -- back-pressures the peer naturally.
+                        -- The payload is a zero-copy slice of the recv ring
+                        -- buffer; the buffer reuses its memory on subsequent
+                        -- 'recvBufferRead' calls, so we copy before stashing
+                        -- in the long-lived per-stream queue.
+                        when (not (BS.null payload)) $ do
+                          copied <- forceCopyBS payload
+                          atomically $
+                            writeTBQueue (srBodyQueue sr) (BodyChunkBytes copied)
+                        when endStream $ do
+                          _ <- tryPutMVar (srTrailers sr) []
+                          atomically $
+                            writeTBQueue (srBodyQueue sr) BodyChunkEnd
+                        -- On END_STREAM, validate the declared content-length.
+                        if endStream
+                          then case srExpectedLength sr of
+                            Just expected
+                              | expected /= newReceived -> do
+                                  sendRstStream conn sid ProtocolError
+                                  modifyIORef' streamsRef
+                                    (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                                  pure True
+                            _ -> pure True
+                          else pure True
 
   FrameRSTStream
     | fhStreamId hdr == 0 -> do
@@ -839,7 +900,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
                   , fhType   = FrameHeaders
                   , fhLength = fromIntegral (BS.length assembled)
                   }
-            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
+            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
+                         connRecvUnackedRef connRecvWindowRef rl
               (Frame synthHdr (FramePayloadRaw assembled))
         | otherwise -> do
             copiedBody <- forceCopyBS body
@@ -942,6 +1004,22 @@ checkContentLength sid streamsRef = do
 --   * No unknown pseudo-headers
 --   * No pseudo-headers in trailers (we don't yet distinguish trailers
 --     here; the validation runs on the initial HEADERS).
+-- | RFC 7541 §4.1 sizing: 32 octets overhead per field, plus the
+-- byte lengths of name and value.  Used to enforce the peer's
+-- advertised SETTINGS_MAX_HEADER_LIST_SIZE — exceeding it lets the
+-- peer wedge us with absurdly large header blocks even though HPACK
+-- decoded them fine.
+headerListSize :: [(ByteString, ByteString)] -> Int
+headerListSize = foldr (\(n, v) acc -> acc + 32 + BS.length n + BS.length v) 0
+
+-- | True when @hs@ exceeds the server's advertised
+-- @SETTINGS_MAX_HEADER_LIST_SIZE@.  Returns False when no limit was
+-- advertised.
+overHeaderListLimit' :: Settings -> [(ByteString, ByteString)] -> Bool
+overHeaderListLimit' s hs = case settingsMaxHeaderListSize s of
+  Nothing  -> False
+  Just lim -> headerListSize hs > fromIntegral lim
+
 validateRequestHeaders :: [(ByteString, ByteString)] -> Maybe ByteString
 validateRequestHeaders hs = case walk True hs of
   Just err -> Just err
@@ -1020,11 +1098,12 @@ stripPaddingAndPriority ft flags bs0 = do
 buildRequest
   :: Connection
   -> IORef Int      -- ^ connection-level recv-unacked counter
+  -> IORef Int      -- ^ connection-level recv-window mirror
   -> StreamId
   -> [(ByteString, ByteString)]
   -> StreamRec
   -> Request
-buildRequest conn connUnackedRef sid headers sr =
+buildRequest conn connUnackedRef connWindowRef sid headers sr =
   let findHeader name = maybe "" id (lookup name headers)
   in Request
     { requestMethod = findHeader ":method"
@@ -1032,7 +1111,7 @@ buildRequest conn connUnackedRef sid headers sr =
     , requestScheme = findHeader ":scheme"
     , requestAuthority = findHeader ":authority"
     , requestHeaders = filter (\(k, _) -> not (BS.isPrefixOf ":" k)) headers
-    , requestBody = makeRequestBody conn connUnackedRef sid sr
+    , requestBody = makeRequestBody conn connUnackedRef connWindowRef sid sr
     , requestStreamId = sid
     , requestTrailers = readMVar (srTrailers sr)
     }
