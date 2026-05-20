@@ -71,6 +71,7 @@ import qualified Network.HTTP.Types as HTTP
 import Network.Socket (SockAddr)
 import qualified System.TimeManager as TM
 
+import qualified Network.HTTP2.Engine.Run.Server as RunServer
 import Network.HTTP2.Engine.Settings
 import Network.HTTP2.Engine.Types
 
@@ -182,13 +183,40 @@ data Config = Config
 
 -- | Run an HTTP\/2 server over the supplied I\/O plumbing.
 --
--- TODO This is a placeholder; the full runtime (frame loop, stream
--- state machine, per-stream worker dispatch, half-close, trailers,
--- WINDOW_UPDATE, RST_STREAM cancellation, PING / SETTINGS bookkeeping)
--- is not implemented in this commit. The skeleton is here so
--- wireform-grpc can link against it and the dependency on the
--- @http2@ package can be dropped; a follow-up commit replaces this
--- stub with the working runtime.
+-- Reads frames from @confReadN@, dispatches HEADERS to fresh
+-- per-stream worker threads that invoke @server@, multiplexes
+-- response frames out via @confSendAll@, and runs until the
+-- connection drops or the peer sends GOAWAY.
+--
+-- The implementation handles the subset of RFC 9113 gRPC relies on:
+-- HEADERS + DATA + trailing HEADERS, half-close in both directions,
+-- per-stream input/output queues, RST_STREAM cancellation, SETTINGS
+-- and PING bookkeeping. Things like server push (PUSH_PROMISE),
+-- responseFile, and the deprecated 'numberOfWorkers' thread pool are
+-- intentionally absent.
 run :: ServerConfig -> Config -> Server -> IO ()
-run _sc _cfg _server =
-  error "Network.HTTP2.Engine.Server.run: runtime not yet implemented"
+run sc cfg server =
+  RunServer.runServer
+    RunServer.RunEnv
+      { RunServer.envSettings = settings sc
+      , RunServer.envConnectionWindow = connectionWindowSize sc
+      , RunServer.envSendAll = confSendAll cfg
+      , RunServer.envReadN = confReadN cfg
+      , RunServer.envTimeoutManager = confTimeoutManager cfg
+      , RunServer.envMySockAddr = confMySockAddr cfg
+      , RunServer.envPeerSockAddr = confPeerSockAddr cfg
+      }
+    (\envReq aux respond ->
+       server (Request envReq) (engineAuxToAux aux) (\(Response oo) ps ->
+         respond oo (map promiseToEngine ps)))
+  where
+    engineAuxToAux :: RunServer.EngineAux -> Aux
+    engineAuxToAux a = Aux
+      { auxTimeHandle = RunServer.envAuxTimeHandle a
+      , auxMySockAddr = RunServer.envAuxMySockAddr a
+      , auxPeerSockAddr = RunServer.envAuxPeerSockAddr a
+      }
+
+    promiseToEngine :: PushPromise -> RunServer.EnginePushPromise
+    promiseToEngine (PushPromise p (Response oo)) =
+      RunServer.EnginePushPromise p oo

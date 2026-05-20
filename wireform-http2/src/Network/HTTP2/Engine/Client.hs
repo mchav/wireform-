@@ -68,6 +68,7 @@ import Network.Socket (Socket)
 import qualified Network.Socket.ByteString as NBS
 import qualified System.TimeManager as TM
 
+import qualified Network.HTTP2.Engine.Run.Client as RunClient
 import Network.HTTP2.Engine.Types
 
 -- | Per-call send hook. The continuation is invoked with the received
@@ -241,11 +242,20 @@ freeSimpleConfig cfg = do
 
 -- | Run an HTTP\/2 client over the supplied I\/O plumbing.
 --
--- TODO This is a placeholder; the full runtime (stream multiplexing,
--- HEADERS\/DATA\/trailer dispatch, flow control, PING\/SETTINGS
--- bookkeeping) is not implemented in this commit. The skeleton is
--- here so wireform-grpc can link against it; a follow-up replaces
--- this stub with the working runtime.
+-- Handles the gRPC happy path: HEADERS + DATA + trailer dispatch,
+-- per-stream send/recv queues, half-close in both directions.
 run :: ClientConfig -> Config -> Client a -> IO a
-run _cc _cfg _client =
-  error "Network.HTTP2.Engine.Client.run: runtime not yet implemented"
+run cc cfg client =
+  RunClient.runClient
+    RunClient.RunEnv
+      { RunClient.envAuthority = authority cc
+      , RunClient.envSendAll = confSendAll cfg
+      , RunClient.envReadN = confReadN cfg
+      , RunClient.envConnectionWindow = connectionWindowSize cc
+      , RunClient.envInitialWindowSize = initialWindowSize (settings cc)
+      , RunClient.envMaxConcurrentStreams = maxConcurrentStreams (settings cc)
+      , RunClient.envScheme = "http"
+      }
+    (\sendRequest engineAux ->
+       client (\(Request oo) k -> sendRequest oo (\inp -> k (Response inp)))
+              (Aux { auxPossibleClientStreams = RunClient.engineAuxPossibleStreams engineAux }))

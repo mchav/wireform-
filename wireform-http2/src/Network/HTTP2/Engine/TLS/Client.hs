@@ -18,13 +18,23 @@ module Network.HTTP2.Engine.TLS.Client
   , ClientConfig
   ) where
 
+import qualified Control.Exception as E
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.IORef as IORef
 import Data.X509.CertificateStore (CertificateStore, makeCertificateStore)
+import Foreign.Marshal.Alloc (mallocBytes)
+import qualified Network.Socket as NS
+import qualified Network.TLS.Extra.Cipher as TLS
+import qualified System.TimeManager as TM
 import Network.Socket (AddrInfo, AddrInfoFlag, PortNumber, Socket, HostName)
 import qualified Network.TLS as TLS
 
 import Network.HTTP2.Engine.Client (ClientConfig)
 import qualified Network.HTTP2.Engine.Client as H2C
-import Network.HTTP2.Engine.Types (Authority)
+import Network.HTTP2.Engine.Types (Authority, defaultPositionReadMaker)
 
 -- | TLS client settings (matches the @http2-tls@ shape).
 data Settings = Settings
@@ -101,8 +111,12 @@ defaultClientConfig Settings{..} auth =
         }
     }
 
--- | Run a TLS-protected HTTP\/2 client. TODO: stubbed; needs the
--- engine 'Network.HTTP2.Engine.Client.run' to come online first.
+-- | Run a TLS-protected HTTP\/2 client.
+--
+-- Opens a TCP connection to @serverName:port@ (using the
+-- caller-supplied 'settingsOpenClientSocket'), does a TLS handshake
+-- with ALPN @h2@, allocates an 'H2C.Config' over the resulting
+-- 'TLS.Context', and drives 'H2C.run'.
 runWithConfig
   :: ClientConfig
   -> Settings
@@ -110,5 +124,87 @@ runWithConfig
   -> PortNumber
   -> H2C.Client a
   -> IO a
-runWithConfig _ _ _ _ _ =
-  error "Network.HTTP2.Engine.TLS.Client.runWithConfig: runtime not yet implemented"
+runWithConfig cliCfg Settings{..} serverName port client = do
+  -- Resolve and connect.
+  let hints = NS.defaultHints
+        { NS.addrSocketType = NS.Stream
+        , NS.addrFlags = settingsAddrInfoFlags
+        }
+  addrs <- NS.getAddrInfo (Just hints) (Just serverName) (Just (show port))
+  case addrs of
+    [] -> error "runWithConfig: no addresses"
+    (addr:_) -> E.bracket (settingsOpenClientSocket addr) NS.close $ \sock -> do
+      NS.connect sock (NS.addrAddress addr)
+      ctx <- TLS.contextNew sock (mkClientParams Settings{..} serverName port)
+      TLS.handshake ctx
+      recvN <- mkTlsRecvN ctx
+      let sendAll bs = TLS.sendData ctx (LBS.fromStrict bs)
+      cfg <- buildClientConfig sendAll recvN 4096
+      r <- H2C.run cliCfg cfg client
+      (TLS.bye ctx) `E.catch` (\(_ :: E.SomeException) -> pure ())
+      pure r
+
+-- | Build a recvN over the TLS context with a small leftover buffer
+-- (TLS returns chunks of indeterminate size; the engine asks for
+-- exact byte counts).
+mkTlsRecvN :: TLS.Context -> IO (Int -> IO ByteString)
+mkTlsRecvN ctx = do
+  leftoverRef <- IORef.newIORef BS.empty
+  pure $ \n -> recvLoop leftoverRef n []
+  where
+    recvLoop leftoverRef remaining acc
+      | remaining <= 0 = pure (BS.concat (reverse acc))
+      | otherwise = do
+          leftover <- IORef.readIORef leftoverRef
+          if not (BS.null leftover)
+            then do
+              let take' = min remaining (BS.length leftover)
+                  (consume, rest) = BS.splitAt take' leftover
+              IORef.writeIORef leftoverRef rest
+              recvLoop leftoverRef (remaining - take') (consume : acc)
+            else do
+              chunk <- TLS.recvData ctx
+              if BS.null chunk
+                then pure (BS.concat (reverse acc))
+                else do
+                  IORef.writeIORef leftoverRef chunk
+                  recvLoop leftoverRef remaining acc
+
+buildClientConfig
+  :: (ByteString -> IO ())
+  -> (Int -> IO ByteString)
+  -> Int
+  -> IO H2C.Config
+buildClientConfig sendAll readN bufSize = do
+  buf <- mallocBytes bufSize
+  mgr <- TM.initialize (30 * 1000 * 1000)
+  pure H2C.Config
+    { H2C.confWriteBuffer = buf
+    , H2C.confBufferSize = bufSize
+    , H2C.confSendAll = sendAll
+    , H2C.confReadN = readN
+    , H2C.confPositionReadMaker = defaultPositionReadMaker
+    , H2C.confTimeoutManager = mgr
+    }
+
+mkClientParams :: Settings -> HostName -> PortNumber -> TLS.ClientParams
+mkClientParams Settings{..} serverName port =
+  let base = TLS.defaultParamsClient serverName (BSI.packChars (show port))
+  in base
+      { TLS.clientHooks = (TLS.clientHooks base)
+          { TLS.onSuggestALPN = pure (Just ["h2"])
+          , TLS.onServerCertificate = settingsOnServerCertificate
+          }
+      , TLS.clientSupported = (TLS.clientSupported base)
+          { TLS.supportedCiphers = TLS.ciphersuite_default
+          }
+      , TLS.clientShared = (TLS.clientShared base)
+          { TLS.sharedValidationCache =
+              if settingsValidateCert
+                then TLS.sharedValidationCache (TLS.clientShared base)
+                else TLS.ValidationCache
+                       (\_ _ _ -> pure TLS.ValidationCachePass)
+                       (\_ _ _ -> pure ())
+          }
+      , TLS.clientUseServerNameIndication = settingsUseServerNameIndication
+      }
