@@ -20,10 +20,10 @@ Transport matrix:
   implemented: RFC 9113 deprecated it.  For mixed-protocol clients
   use TLS-ALPN.
 * __TLS__ — handshake done with ALPN advertising the protocols in
-  'clientVersionRange'.  HTTP\/2 over TLS works end-to-end;
-  HTTP\/1.x over TLS isn't wired up (no TLS layer in
-  @wireform-http1@) and a negotiated @http\/1.1@ raises
-  'Network.HTTP.TLS.TlsHttp1NotImplemented'.
+  'clientVersionRange'; the negotiated protocol drives the
+  per-version runtime.  Both HTTP\/2 and HTTP\/1.x over TLS work
+  end-to-end.  If ALPN ends up picking a version that isn't in the
+  range, 'VersionOutOfRange' is raised.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -129,7 +129,9 @@ withTlsClient cfg tlsCfg action =
     (tlsClientServerName tlsCfg)
     (tlsClientValidateCert tlsCfg)
     (clientVersionRange cfg)
-    (\handle -> action (Http2Client handle U.HTTP2))
+    $ \case
+        TLS.TlsClientHttp2 handle -> action (Http2Client handle U.HTTP2)
+        TLS.TlsClientHttp1 conn   -> action (Http1Client conn U.HTTP1_1)
 
 withPlaintextHttp1 :: ClientConfig -> (Client -> IO a) -> IO a
 withPlaintextHttp1 cfg action = do

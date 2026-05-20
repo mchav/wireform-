@@ -31,6 +31,7 @@ module Network.HTTP1.Server
   , defaultServerConfig
   , runServer
   , runServerOnSocket
+  , runServerOnTransport
   , Handler
   ) where
 
@@ -39,10 +40,13 @@ import Control.Exception (bracket, catch, fromException, SomeException, finally,
 import qualified Data.ByteString as BS
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NBS
 
 import qualified Wireform.Builder as B
 import qualified Network.HTTP1.SendFile as SF
+import Data.Word (Word64)
+import System.IO
+  (Handle, IOMode (..), SeekMode (..), hSeek, withBinaryFile)
+import qualified System.Posix.IO as PosixIO
 import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
 
 
@@ -147,22 +151,30 @@ acceptLoop cfg listenSock = do
   (clientSock, _) <- NS.accept listenSock
   NS.setSocketOption clientSock NS.NoDelay 1
   _ <- serverForkConnection cfg $
-    handleClient cfg clientSock
+    runServerOnSocket cfg clientSock
       `catch` (\(_ :: SomeException) -> NS.close clientSock)
   acceptLoop cfg listenSock
 
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
-runServerOnSocket = handleClient
-
-handleClient :: ServerConfig -> Socket -> IO ()
-handleClient cfg sock = do
+runServerOnSocket cfg sock = do
   conn <- newConnection sock
-  loop conn `finally` closeConnection conn
+  handleConnection cfg conn
+
+-- | Drive the server over an arbitrary 'Transport' (e.g. a TLS context).
+-- The transport must already be live; the caller is responsible for the
+-- TLS handshake \/ ALPN negotiation.
+runServerOnTransport :: ServerConfig -> Transport -> IO ()
+runServerOnTransport cfg transport = do
+  conn <- newConnectionFromTransport transport
+  handleConnection cfg conn
+
+handleConnection :: ServerConfig -> Connection -> IO ()
+handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
   where
     loop conn = do
       mHead <- recvBufferReadUntilDoubleCRLF
                  (connectionRecvBuffer conn)
-                 (connectionSocket conn)
+                 (tRecvBuf (connectionTransport conn))
                  (serverMaxHeaderBytes cfg)
       case mHead of
         Nothing -> pure ()  -- EOF or oversized head
@@ -217,60 +229,99 @@ handleClient cfg sock = do
 -- Three fast paths:
 --
 --   1. 'BodyPreEncoded' — emit the precomputed wire bytes with a
---      single 'NBS.sendAll'. For HEAD we slice to 'peHeadLen' so the
---      body is dropped while the metadata survives (RFC 9110 § 9.3.2).
---   2. 'BodyBytes' — combine head + body in one builder, one send.
---   3. Everything else falls back to the head-first send + body stream.
+--      single send. For HEAD we slice to 'peHeadLen' so the body is
+--      dropped while the metadata survives (RFC 9110 § 9.3.2).
+--   2. 'BodyBytes' — combine head + body in one vectored send (raw
+--      socket) or two sequential sends (TLS / other non-socket
+--      transports).
+--   3. Everything else falls back to the head-first send + body
+--      stream.
+--
+-- The @sendfile(2)@ fast path requires a raw socket fd, so it only
+-- fires on socket-backed transports. Over TLS we fall back to a
+-- userspace read \/ write loop.
 sendResponse :: Connection -> Method -> Response -> IO ()
 sendResponse conn reqMethod resp = do
   let mustOmitBody =
         reqMethod == HEAD
           || let sc = case responseStatus resp of Status w -> w
              in (sc >= 100 && sc < 200) || sc == 204 || sc == 304
-  let sock = connectionSocket conn
+      transport = connectionTransport conn
+      sendAll = tSendAll transport
+      sendMany = tSendMany transport
   case responseBody resp of
     BodyPreEncoded pe ->
       let bs = if mustOmitBody then preEncodedHead pe else peBytes pe
-      in NBS.sendAll sock bs
+      in sendAll bs
     body -> do
       let headBs = B.toStrictByteStringWith 1024 (responseBuilder resp)
       if mustOmitBody
-        then NBS.sendAll sock headBs
+        then sendAll headBs
         else case body of
-          BodyEmpty -> NBS.sendAll sock headBs
+          BodyEmpty -> sendAll headBs
           BodyBytes bs
-            | BS.null bs -> NBS.sendAll sock headBs
+            | BS.null bs -> sendAll headBs
             | otherwise  ->
                 -- Vectored I/O: head + body land in one writev() with
-                -- no body copy. The kernel takes both buffers from
-                -- their native locations (head from our scratch pinned
-                -- buffer, body from the caller-supplied ByteString).
-                NBS.sendMany sock [headBs, bs]
+                -- no body copy on socket transports.  TLS falls back
+                -- to concat + a single send.
+                sendMany [headBs, bs]
           BodyStream producer -> do
             -- Streaming bodies need the head out first (handler-driven
             -- back-pressure) so we don't accumulate the whole body in
             -- RAM.
-            NBS.sendAll sock headBs
+            sendAll headBs
             case responseVersion resp of
               HTTP_1_1 -> streamChunked conn producer
               HTTP_1_0 -> streamRaw conn producer
-          BodyFile fb -> do
-            -- Sendfile path: emit the encoded head with @MSG_MORE@
-            -- (tells the kernel "more data coming, please buffer"),
-            -- then push the file bytes via 'sendfile(2)'. The kernel
-            -- coalesces the two into one TCP segment for small files
-            -- — the same shape @nginx tcp_nopush on@ / @h2o file.dir@
-            -- emit, without the per-request setsockopt(TCP_CORK)
-            -- pair.
-            SF.sendMore sock headBs
-            case fbSource fb of
-              FileSourcePath p ->
-                bracket
-                  (openFd p ReadOnly defaultFileFlags)
-                  closeFd
-                  $ \fd -> SF.sendFile sock fd (fbOffset fb) (fbLength fb)
-              FileSourceFd fd ->
-                SF.sendFile sock fd (fbOffset fb) (fbLength fb)
+          BodyFile fb -> sendFileBody transport headBs fb
+
+-- | Push a file-backed response body.  On socket transports we use
+-- the @sendfile(2)@ fast path with @MSG_MORE@ on the head; on
+-- non-socket transports (TLS) we fall back to a userspace
+-- @read()@\/@write()@ loop.
+sendFileBody :: Transport -> BS.ByteString -> FileBody -> IO ()
+sendFileBody transport headBs fb = case tSocket transport of
+  Just sock -> do
+    SF.sendMore sock headBs
+    case fbSource fb of
+      FileSourcePath p ->
+        bracket
+          (openFd p ReadOnly defaultFileFlags)
+          closeFd
+          $ \fd -> SF.sendFile sock fd (fbOffset fb) (fbLength fb)
+      FileSourceFd fd ->
+        SF.sendFile sock fd (fbOffset fb) (fbLength fb)
+  Nothing -> do
+    tSendAll transport headBs
+    case fbSource fb of
+      FileSourcePath p ->
+        withBinaryFile p ReadMode $ \h ->
+          userspaceCopyHandle transport h (fbOffset fb) (fbLength fb)
+      FileSourceFd fd -> do
+        h <- PosixIO.fdToHandle fd
+        userspaceCopyHandle transport h (fbOffset fb) (fbLength fb)
+
+-- | Userspace read + sendAll loop, used when the transport doesn't
+-- support @sendfile(2)@ (TLS, in-memory).  64 KiB chunks match the
+-- @sendfile(2)@ default and are large enough to amortise per-call
+-- overhead.
+userspaceCopyHandle :: Transport -> Handle -> Word64 -> Word64 -> IO ()
+userspaceCopyHandle transport h off0 len0 = do
+  hSeek h AbsoluteSeek (fromIntegral off0)
+  loop len0
+  where
+    chunkSize = 65536 :: Int
+    loop 0 = pure ()
+    loop rem' = do
+      let want = fromIntegral (min rem' (fromIntegral chunkSize)) :: Int
+      bs <- BS.hGet h want
+      let got = BS.length bs
+      if got <= 0
+        then pure ()
+        else do
+          tSendAll transport bs
+          loop (rem' - fromIntegral got)
 
 streamChunked :: Connection -> IO (Maybe BS.ByteString) -> IO ()
 streamChunked conn producer = loop

@@ -2,9 +2,10 @@
 
 A 'Connection' wraps:
 
-  * the underlying socket,
+  * the underlying byte 'Transport' (a raw socket by default; can also
+    be a TLS context, an in-memory test sink, …),
   * a pinned recv 'RecvBuffer' (zero-allocation @recv()@),
-  * a pinned send 'SendBuffer' (zero-allocation encode + @send()@),
+  * a pinned send 'SendBuffer' (zero-allocation encode + send),
   * a closed-flag so finalizers don't double-close.
 
 The body-reading helpers ('readBody', 'drainBody') run the framing
@@ -16,6 +17,8 @@ pipelining).
 module Network.HTTP1.Connection
   ( Connection
   , newConnection
+  , newConnectionFromTransport
+  , connectionTransport
   , connectionSocket
   , connectionRecvBuffer
   , connectionSendBuffer
@@ -29,6 +32,7 @@ module Network.HTTP1.Connection
     -- * Re-exports
   , module Network.HTTP1.Internal.RecvBuffer
   , module Network.HTTP1.Internal.SendBuffer
+  , module Network.HTTP1.Transport
   ) where
 
 import Control.Exception (Exception, SomeException, throwIO, try)
@@ -38,13 +42,13 @@ import Data.IORef
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Network.Socket (Socket)
-import qualified Network.Socket as NS
 
 import qualified Wireform.Builder as B
 
 import Network.HTTP1.Internal.RecvBuffer
 import Network.HTTP1.Internal.SendBuffer
 import Network.HTTP1.Parser (Framing (..), ParseError (..), parseChunkSize)
+import Network.HTTP1.Transport
 import Network.HTTP1.Types (Body (..))
 
 -- | Thrown by a streaming-body producer when the wire bytes violate
@@ -58,17 +62,31 @@ newtype ProtocolException = ProtocolException ParseError
 instance Exception ProtocolException
 
 data Connection = Connection
-  { connSocket :: !Socket
-  , connRecv   :: !RecvBuffer
-  , connSend   :: !SendBuffer
-  , connClosed :: !(IORef Bool)
+  { connTransport :: !Transport
+  , connRecv      :: !RecvBuffer
+  , connSend      :: !SendBuffer
+  , connClosed    :: !(IORef Bool)
   }
 
+-- | Build a 'Connection' from a raw 'Socket'.  The socket is wrapped
+-- with 'socketTransport'.
 newConnection :: Socket -> IO Connection
-newConnection sock = Connection sock <$> newRecvBuffer <*> newSendBuffer <*> newIORef False
+newConnection sock = newConnectionFromTransport (socketTransport sock)
 
-connectionSocket :: Connection -> Socket
-connectionSocket = connSocket
+-- | Build a 'Connection' from an arbitrary 'Transport'.  This is the
+-- entry point used by the TLS bridge and any other non-socket transport.
+newConnectionFromTransport :: Transport -> IO Connection
+newConnectionFromTransport t =
+  Connection t <$> newRecvBuffer <*> newSendBuffer <*> newIORef False
+
+connectionTransport :: Connection -> Transport
+connectionTransport = connTransport
+
+-- | The underlying socket, if this connection is socket-backed.  TLS
+-- and other non-socket transports return 'Nothing'; callers using the
+-- @sendfile(2)@ fast path branch on this.
+connectionSocket :: Connection -> Maybe Socket
+connectionSocket = tSocket . connTransport
 
 connectionRecvBuffer :: Connection -> RecvBuffer
 connectionRecvBuffer = connRecv
@@ -82,7 +100,7 @@ closeConnection conn = do
   if wasClosed
     then pure ()
     else do
-      _ <- try @SomeException (NS.close (connSocket conn))
+      _ <- try @SomeException (tClose (connTransport conn))
       pure ()
 
 -- | Build a streaming-body producer for the framing the parser told us.
@@ -100,7 +118,7 @@ readBody conn (ContentLength n) = do
       then pure Nothing
       else do
         let want = min rem' 16384
-        chunk <- recvBufferReadAtMost (connRecv conn) (connSocket conn) (fromIntegral want)
+        chunk <- recvBufferReadAtMost (connRecv conn) (tRecvBuf (connTransport conn)) (fromIntegral want)
         if BS.null chunk
           then pure Nothing  -- premature EOF; caller decides if that's an error
           else do
@@ -110,7 +128,7 @@ readBody conn Chunked = do
   stateRef <- newIORef (ChunkPending 0)
   pure $ BodyStream (readChunkedStep conn stateRef)
 readBody conn CloseDelimited = pure $ BodyStream $ do
-  chunk <- recvBufferReadAtMost (connRecv conn) (connSocket conn) 16384
+  chunk <- recvBufferReadAtMost (connRecv conn) (tRecvBuf (connTransport conn)) 16384
   if BS.null chunk
     then pure Nothing
     else pure (Just chunk)
@@ -135,7 +153,7 @@ readChunkedStep conn ref = do
   case st of
     ChunkDone -> pure Nothing
     ChunkPending 0 -> do
-      mLine <- recvBufferReadUntilCRLF (connRecv conn) (connSocket conn) 4096
+      mLine <- recvBufferReadUntilCRLF (connRecv conn) recv 4096
       case mLine of
         Nothing -> throwIO (ProtocolException ParseUnexpectedEof)
         Just lineBs ->
@@ -153,7 +171,7 @@ readChunkedStep conn ref = do
               readChunkedStep conn ref
     ChunkPending n -> do
       let want = min n 16384
-      slice <- recvBufferReadAtMost (connRecv conn) (connSocket conn) (fromIntegral want)
+      slice <- recvBufferReadAtMost (connRecv conn) recv (fromIntegral want)
       if BS.null slice
         then throwIO (ProtocolException ParseUnexpectedEof)
         else do
@@ -163,12 +181,14 @@ readChunkedStep conn ref = do
             then do
               -- After the chunk data the wire MUST carry a CRLF before
               -- the next size line. Read it and verify; reject if not.
-              term <- recvBufferRead (connRecv conn) (connSocket conn) 2
+              term <- recvBufferRead (connRecv conn) recv 2
               if BS.length term < 2 || BS.index term 0 /= 0x0d || BS.index term 1 /= 0x0a
                 then throwIO (ProtocolException ParseBadChunkHeader)
                 else writeIORef ref (ChunkPending 0)
             else writeIORef ref (ChunkPending n')
           pure (Just slice)
+  where
+    recv = tRecvBuf (connTransport conn)
 
 -- | After a 0-size chunk we have a (possibly empty) trailer section
 -- terminated by a blank line. Each trailer is just a header field; we
@@ -181,9 +201,10 @@ readChunkedStep conn ref = do
 drainTrailers :: Connection -> IO ()
 drainTrailers conn = loop
   where
+    recv = tRecvBuf (connTransport conn)
     loop = do
       mLine <- recvBufferReadUntilCRLFStrict
-                 (connRecv conn) (connSocket conn) 8192
+                 (connRecv conn) recv 8192
       case mLine of
         Nothing -> throwIO (ProtocolException ParseInvalidHeaderValue)
         Just (Left ()) ->
@@ -215,8 +236,7 @@ drainBody = \case
         Nothing -> pure ()
         Just _ -> loop producer
 
--- | Send a 'B.Builder' on the connection's socket. Goes through the
--- pinned send buffer when the encoded size fits; falls back to
--- @NBS.sendAll@ otherwise.
+-- | Send a 'B.Builder' on the connection's transport. Goes through
+-- the connection's @sendAll@ callback (raw socket or TLS write).
 sendBuilder :: Connection -> B.Builder -> IO ()
-sendBuilder conn = sendBuilderAll (connSocket conn)
+sendBuilder conn = sendBuilderAll (tSendAll (connTransport conn))

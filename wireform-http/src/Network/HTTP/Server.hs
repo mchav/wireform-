@@ -15,9 +15,10 @@ Negotiation:
   prior-knowledge h2c).  An h2c @Upgrade:@ handshake (RFC 7540 § 3.2)
   is still TODO.
 * __TLS__ — handshake done with ALPN advertising the 'VersionRange'
-  protocols.  Currently only the @h2@ protocol is implemented (no
-  HTTP\/1.x TLS support yet); connections that negotiate
-  @http\/1.1@ are dropped.
+  protocols; the server picks the highest-preference overlap.  Both
+  HTTP\/2 and HTTP\/1.x ride on the same listener.  Connections
+  whose negotiated protocol isn't in range are dropped after the
+  handshake.
 
 The handler is a plain @'Request' -> IO 'Response'@: the HTTP\/2
 server's continuation shape is adapted internally.
@@ -107,22 +108,28 @@ runTlsServer cfg tlsCfg =
     (tlsServerCertPath tlsCfg)
     (tlsServerKeyPath tlsCfg)
     (serverVersionRange cfg)
-    (\_v base -> base { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) })
-    (H2.defaultServerConfig
-       { H2.serverHost = serverHost cfg
-       , H2.serverPort = serverPort cfg
-       , H2.serverForkConnection = serverForkConnection cfg
-       })
+    -- HTTP/1.x dispatch over the TLS transport.
+    (\_v transport -> H1.runServerOnTransport (mkH1Config cfg) transport)
+    -- HTTP/2 ServerConfig factory.
+    (\_v -> (mkH2Config cfg) { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) })
+
+mkH1Config :: ServerConfig -> H1.ServerConfig
+mkH1Config cfg = H1.defaultServerConfig
+  { H1.serverHost = serverHost cfg
+  , H1.serverPort = serverPort cfg
+  , H1.serverForkConnection = serverForkConnection cfg
+  , H1.serverHandler = wrapHttp1Handler (serverHandler cfg)
+  }
+
+mkH2Config :: ServerConfig -> H2.ServerConfig
+mkH2Config cfg = H2.defaultServerConfig
+  { H2.serverHost = serverHost cfg
+  , H2.serverPort = serverPort cfg
+  , H2.serverForkConnection = serverForkConnection cfg
+  }
 
 runHttp1 :: ServerConfig -> IO ()
-runHttp1 cfg = H1.runServer h1cfg
-  where
-    h1cfg = H1.defaultServerConfig
-      { H1.serverHost = serverHost cfg
-      , H1.serverPort = serverPort cfg
-      , H1.serverForkConnection = serverForkConnection cfg
-      , H1.serverHandler = wrapHttp1Handler (serverHandler cfg)
-      }
+runHttp1 cfg = H1.runServer (mkH1Config cfg)
 
 wrapHttp1Handler :: Handler -> H1.Request -> IO H1.Response
 wrapHttp1Handler handler h1req = do
@@ -136,11 +143,8 @@ wrapHttp1Handler handler h1req = do
 runHttp2 :: ServerConfig -> IO ()
 runHttp2 cfg = H2.runServer h2cfg
   where
-    h2cfg = H2.defaultServerConfig
-      { H2.serverHost = serverHost cfg
-      , H2.serverPort = serverPort cfg
-      , H2.serverForkConnection = serverForkConnection cfg
-      , H2.serverHandler = wrapHttp2Handler (serverHandler cfg)
+    h2cfg = (mkH2Config cfg)
+      { H2.serverHandler = wrapHttp2Handler (serverHandler cfg)
       }
 
 wrapHttp2Handler :: Handler -> H2.Request -> (H2.Response -> IO ()) -> IO ()
