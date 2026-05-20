@@ -38,6 +38,7 @@ import Network.HTTP2.Connection.StreamTable
 import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Encode (encodeFrameInto)
 import Network.HTTP2.HPACK
+import Network.HTTP2.Internal.RecvBuffer
 import Network.HTTP2.Types
 
 data ConnectionRole = RoleClient | RoleServer
@@ -85,7 +86,7 @@ data Connection = Connection
   , connHpackEncoder :: !(MVar DynamicTable)
   , connHpackDecoder :: !(MVar DynamicTable)
   , connSendLock :: !(MVar ())
-  , connRecvBuffer :: !(IORef ByteString)
+  , connRecvBuffer :: !RecvBuffer
   , connLastStreamId :: !(IORef StreamId)
   , connClosed :: !(IORef Bool)
   , connOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
@@ -102,7 +103,7 @@ newConnection cfg = do
   encoder <- newDynamicTable 4096 >>= newMVar
   decoder <- newDynamicTable 4096 >>= newMVar
   sendLock <- newMVar ()
-  recvBuf <- newIORef BS.empty
+  recvBuf <- newRecvBuffer
   lastStreamId <- newIORef 0
   closed <- newIORef False
   sendBuf <- newSendBuffer
@@ -200,51 +201,12 @@ recvFrame conn = do
                 Left err -> pure (Left err)
                 Right fp -> pure (Right (Frame hdr fp))
 
--- | Buffered receive. Reads large chunks from the socket and serves
--- smaller requests from the buffer to minimize syscall overhead.
+-- | Receive exactly n bytes using the connection's pinned ring buffer.
+-- Returns a zero-copy slice when data doesn't wrap around the ring,
+-- or a fresh copy on wrap-around (rare in practice).
+{-# INLINE recvExact #-}
 recvExact :: Connection -> Int -> IO ByteString
-recvExact conn n = do
-  buf <- readIORef (connRecvBuffer conn)
-  let bufLen = BS.length buf
-  if bufLen >= n
-    then do
-      let (result, rest) = BS.splitAt n buf
-      writeIORef (connRecvBuffer conn) rest
-      pure result
-    else do
-      -- Read a large chunk to amortize syscall cost
-      let toRead = max (n - bufLen) 65536
-      chunk <- NBS.recv (connSocket conn) toRead
-      if BS.null chunk
-        then do
-          writeIORef (connRecvBuffer conn) BS.empty
-          pure buf  -- Return whatever we had (likely short)
-        else do
-          let combined = if BS.null buf then chunk else buf <> chunk
-          if BS.length combined >= n
-            then do
-              let (result, rest) = BS.splitAt n combined
-              writeIORef (connRecvBuffer conn) rest
-              pure result
-            else recvExactSlow conn n combined
-
--- Slow path: need multiple recv calls to satisfy the request
-recvExactSlow :: Connection -> Int -> ByteString -> IO ByteString
-recvExactSlow conn n partial = do
-  let needed = n - BS.length partial
-  chunk <- NBS.recv (connSocket conn) (max needed 65536)
-  if BS.null chunk
-    then do
-      writeIORef (connRecvBuffer conn) BS.empty
-      pure partial
-    else do
-      let combined = partial <> chunk
-      if BS.length combined >= n
-        then do
-          let (result, rest) = BS.splitAt n combined
-          writeIORef (connRecvBuffer conn) rest
-          pure result
-        else recvExactSlow conn n combined
+recvExact conn n = recvBufferRead (connRecvBuffer conn) (connSocket conn) n
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do

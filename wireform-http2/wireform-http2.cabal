@@ -79,6 +79,7 @@ library
     Network.HTTP2.Types
   other-modules:
     Network.HTTP2.Internal.BitOps
+    Network.HTTP2.Internal.RecvBuffer
   c-sources:
     cbits/hpack_huffman.c
   cc-options: -O3
