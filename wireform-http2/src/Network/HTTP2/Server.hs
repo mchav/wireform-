@@ -23,7 +23,7 @@ import qualified Network.Socket as NS
 
 import qualified Data.ByteString.Internal as BSI
 
-import Data.Bits ((.&.), shiftL)
+import Data.Bits ((.|.), (.&.), shiftL)
 import qualified Data.Map.Strict as Map
 import Data.Word (Word32)
 
@@ -161,7 +161,18 @@ handleTransport cfg transport = do
       sendServerPreface conn (serverSettings cfg)
       streamsRef <- newIORef Map.empty
       lastPeerStreamRef <- newIORef 0
-      connectionLoop cfg conn streamsRef lastPeerStreamRef
+      continuationRef <- newIORef Nothing
+      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef
+
+-- | Pending header-block continuation state: which stream we're
+-- continuing, what flags the initial HEADERS frame had (so we know
+-- whether to mark END_STREAM when END_HEADERS finally arrives),
+-- and the accumulated payload bytes.
+data Continuation = Continuation
+  { contStreamId :: !StreamId
+  , contInitialFlags :: !FrameFlags
+  , contBuffer :: !ByteString
+  }
 
 -- | Per-stream state we track at the server boundary. We don't need
 -- a full RFC 9113 §5.1 state diagram for the gRPC subset, only the
@@ -207,8 +218,9 @@ connectionLoop
   -> Connection
   -> IORef (Map.Map StreamId ServerStreamState)
   -> IORef StreamId
+  -> IORef (Maybe Continuation)
   -> IO ()
-connectionLoop cfg conn streamsRef lastPeerStreamRef = loop
+connectionLoop cfg conn streamsRef lastPeerStreamRef contRef = loop
   where
     maxFrame = settingsMaxFrameSize (serverSettings cfg)
     loop = do
@@ -218,14 +230,19 @@ connectionLoop cfg conn streamsRef lastPeerStreamRef = loop
           closeConnection conn (decodeErrorToCode err) (decodeErrorMessage err)
         Right frame@(Frame hdr _)
           | fhLength hdr > maxFrame -> do
-              -- RFC 9113 §4.2: a frame larger than SETTINGS_MAX_FRAME_SIZE
-              -- is FRAME_SIZE_ERROR. HEADERS / CONTINUATION /
-              -- PUSH_PROMISE / SETTINGS / WINDOW_UPDATE are
-              -- connection errors; others are stream errors.
               closeConnection conn FrameSizeError "frame exceeds SETTINGS_MAX_FRAME_SIZE"
           | otherwise -> do
-              ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef frame
-              if ok then loop else pure ()
+              -- If a header-block continuation is in flight, the
+              -- ONLY frame the peer is allowed to send is a
+              -- CONTINUATION on the same stream (RFC 9113 §6.10).
+              pending <- readIORef contRef
+              case pending of
+                Just c | fhType hdr /= FrameContinuation
+                       || fhStreamId hdr /= contStreamId c -> do
+                  closeConnection conn ProtocolError "expected CONTINUATION frame"
+                _ -> do
+                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef frame
+                  if ok then loop else pure ()
 
 -- | Map a 'FrameDecodeError' to the HTTP\/2 error code dictated by
 -- RFC 9113. Most malformed-payload conditions are
@@ -255,9 +272,10 @@ handleFrame'
   -> Connection
   -> IORef (Map.Map StreamId ServerStreamState)
   -> IORef StreamId
+  -> IORef (Maybe Continuation)
   -> Frame
   -> IO Bool
-handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck ->
         if BS.null body
@@ -319,14 +337,16 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
                       pure True
              else if sid == 0
                     then do
-                      atomically $ do
-                        _ <- releaseWindow (connSendFlowControl conn) (fromIntegral inc)
-                        pure ()
-                      pure True
+                      r <- atomically $
+                        releaseWindow (connSendFlowControl conn) (fromIntegral inc)
+                      case r of
+                        Left _ -> do
+                          -- Window overflow > 2^31-1 → FLOW_CONTROL_ERROR
+                          -- connection error.
+                          closeConnection conn FlowControlError "connection flow control overflow"
+                          pure False
+                        Right () -> pure True
                     else do
-                      -- WINDOW_UPDATE on idle stream is a PROTOCOL_ERROR
-                      -- (RFC 9113 §5.1: idle state allows only HEADERS
-                      -- and PRIORITY).
                       streams <- readIORef streamsRef
                       lastPeer <- readIORef lastPeerStreamRef
                       case Map.lookup sid streams of
@@ -334,6 +354,9 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
                           closeConnection conn ProtocolError "WINDOW_UPDATE on idle stream"
                           pure False
                         _ -> pure True
+                          -- TODO: per-stream window overflow → RST_STREAM
+                          -- FLOW_CONTROL_ERROR. We don't yet track per-stream
+                          -- send windows here.
 
   FrameGoAway
     | fhStreamId hdr /= 0 -> do
@@ -352,8 +375,15 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
         closeConnection conn ProtocolError "HEADERS on stream 0"
         pure False
     | not (testFlag (fhFlags hdr) flagEndHeaders) -> do
-        closeConnection conn ProtocolError "fragmented HEADERS unsupported"
-        pure False
+        -- Start a CONTINUATION sequence: buffer this frame's
+        -- payload, expect zero or more CONTINUATION frames on the
+        -- same stream, terminated by one with END_HEADERS.
+        writeIORef contRef (Just (Continuation
+          { contStreamId = fhStreamId hdr
+          , contInitialFlags = fhFlags hdr
+          , contBuffer = body
+          }))
+        pure True
     | otherwise -> do
         let sid = fhStreamId hdr
         streams <- readIORef streamsRef
@@ -370,12 +400,31 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
           Just StHalfClosedRemote -> do
             closeConnection conn Types.StreamClosed "HEADERS on half-closed (remote) stream"
             pure False
-          Just StOpen -> do
-            -- Trailers: client just sent the final HEADERS. Mark
-            -- the stream half-closed.
-            when (testFlag (fhFlags hdr) flagEndStream) $
-              modifyIORef' streamsRef (Map.insert sid StHalfClosedRemote)
-            pure True
+          Just StOpen
+            -- Trailers must have END_STREAM (RFC 9113 §8.1).
+            | not (testFlag (fhFlags hdr) flagEndStream) -> do
+                closeConnection conn ProtocolError "trailers without END_STREAM"
+                pure False
+            | otherwise -> do
+                -- Validate that trailers contain no pseudo-headers.
+                case stripPaddingAndPriority FrameHeaders (fhFlags hdr) body of
+                  Nothing -> do
+                    closeConnection conn ProtocolError "malformed trailers"
+                    pure False
+                  Just block -> do
+                    decoder <- readMVar (connHpackDecoder conn)
+                    case_result <- decodeHeaderBlock decoder block
+                    case case_result of
+                      Left _ -> do
+                        closeConnection conn CompressionError "HPACK decode failed in trailers"
+                        pure False
+                      Right trailers
+                        | any (\(n, _) -> not (BS.null n) && BS.head n == 0x3A) trailers -> do
+                            closeConnection conn ProtocolError "pseudo-header in trailers"
+                            pure False
+                        | otherwise -> do
+                            modifyIORef' streamsRef (Map.insert sid StHalfClosedRemote)
+                            pure True
           Nothing -> handleFreshStream lastPeer sid (fhFlags hdr) body
         where
           connLastSid = connLastStreamId conn
@@ -497,10 +546,31 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
           else pure True
 
   FrameContinuation -> do
-    -- We don't support CONTINUATION (we reject any HEADERS that
-    -- lacks END_HEADERS), so a bare CONTINUATION is always wrong.
-    closeConnection conn ProtocolError "unexpected CONTINUATION"
-    pure False
+    pending <- readIORef contRef
+    case pending of
+      Nothing -> do
+        closeConnection conn ProtocolError "unexpected CONTINUATION"
+        pure False
+      Just c
+        | contStreamId c /= fhStreamId hdr -> do
+            closeConnection conn ProtocolError "CONTINUATION on wrong stream"
+            pure False
+        | testFlag (fhFlags hdr) flagEndHeaders -> do
+            -- Final fragment: assemble and process as if it were
+            -- the original HEADERS frame.
+            writeIORef contRef Nothing
+            let assembled = contBuffer c <> body
+                origFlags = contInitialFlags c
+                synthHdr  = hdr
+                  { fhFlags  = origFlags .|. flagEndHeaders
+                  , fhType   = FrameHeaders
+                  , fhLength = fromIntegral (BS.length assembled)
+                  }
+            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
+              (Frame synthHdr (FramePayloadRaw assembled))
+        | otherwise -> do
+            writeIORef contRef (Just c { contBuffer = contBuffer c <> body })
+            pure True
 
   FramePushPromise -> do
     -- Clients are not supposed to send PUSH_PROMISE.
