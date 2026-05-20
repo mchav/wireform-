@@ -23,10 +23,8 @@ import qualified Network.Socket as NS
 import qualified Data.ByteString.Internal as BSI
 
 import Network.HTTP2.Connection
-import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Frame
 import Network.HTTP2.HPACK
-import Network.HTTP2.Transport
 import Network.HTTP2.Types
 
 data ServerConfig = ServerConfig
@@ -68,6 +66,14 @@ data Response = Response
   { responseStatus :: !Int
   , responseHeaders :: ![(ByteString, ByteString)]
   , responseBody :: !ResponseBody
+  , responseTrailers :: ![(ByteString, ByteString)]
+    -- ^ Optional HTTP/2 trailer block (RFC 9113 §8.1). When non-empty,
+    -- the server sends the body without END_STREAM and then a final
+    -- HEADERS frame carrying these fields with END_STREAM set.
+    --
+    -- Trailers are how gRPC delivers @grpc-status@ + @grpc-message@
+    -- at the tail of a response; anything outside gRPC almost never
+    -- uses them, so this defaults to @[]@.
   }
 
 data ResponseBody
@@ -80,6 +86,7 @@ defaultResponse = Response
   { responseStatus = 200
   , responseHeaders = []
   , responseBody = ResponseBodyEmpty
+  , responseTrailers = []
   }
 
 runServer :: ServerConfig -> IO ()
@@ -251,39 +258,64 @@ sendResponse conn sid resp = do
   let statusBS = BS.pack (map (fromIntegral . fromEnum) (show (responseStatus resp)))
       statusHdr = (":status", statusBS)
       allHeaders = statusHdr : responseHeaders resp
+      trailers = responseTrailers resp
+      hasTrailers = not (null trailers)
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
   case responseBody resp of
-    ResponseBodyEmpty -> do
-      let frame = Frame
-            (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders
-              (flagEndHeaders .|. flagEndStream) sid)
-            (HeadersFrame Nothing headerBlock)
-      sendFrame conn frame
+    ResponseBodyEmpty
+      | hasTrailers -> do
+          -- HEADERS (status, !END_STREAM) → HEADERS (trailers, END_STREAM)
+          sendHeadersFrame conn sid headerBlock False
+          sendTrailers conn sid trailers
+      | otherwise ->
+          sendHeadersFrame conn sid headerBlock True
     ResponseBodyBS body -> do
-      let headersFrame = Frame
-            (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders
-              flagEndHeaders sid)
-            (HeadersFrame Nothing headerBlock)
-      sendFrame conn headersFrame
-      let dataFrame = Frame
-            (FrameHeader (fromIntegral (BS.length body)) FrameData flagEndStream sid)
+      sendHeadersFrame conn sid headerBlock False
+      let dataEndStream = not hasTrailers
+          dataFlags = if dataEndStream then flagEndStream else 0
+          dataFrame = Frame
+            (FrameHeader (fromIntegral (BS.length body)) FrameData dataFlags sid)
             (DataFrame body)
       sendFrame conn dataFrame
+      if hasTrailers
+        then sendTrailers conn sid trailers
+        else pure ()
     ResponseBodyStream producer -> do
-      let headersFrame = Frame
-            (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders
-              flagEndHeaders sid)
-            (HeadersFrame Nothing headerBlock)
-      sendFrame conn headersFrame
-      streamBody conn sid producer
+      sendHeadersFrame conn sid headerBlock False
+      streamBody conn sid producer hasTrailers
+      if hasTrailers
+        then sendTrailers conn sid trailers
+        else pure ()
 
-streamBody :: Connection -> StreamId -> IO (Maybe ByteString) -> IO ()
-streamBody conn sid producer = do
+-- | Send a HEADERS frame with END_HEADERS set (and optionally
+-- END_STREAM). Used for both the response head and the trailer block.
+sendHeadersFrame :: Connection -> StreamId -> ByteString -> Bool -> IO ()
+sendHeadersFrame conn sid headerBlock endStream = do
+  let flags = flagEndHeaders .|. (if endStream then flagEndStream else 0)
+      frame = Frame
+        (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flags sid)
+        (HeadersFrame Nothing headerBlock)
+  sendFrame conn frame
+
+-- | Emit the trailer block as a final HEADERS frame with END_STREAM.
+sendTrailers :: Connection -> StreamId -> [(ByteString, ByteString)] -> IO ()
+sendTrailers conn sid trailers = do
+  encoder <- readMVar (connHpackEncoder conn)
+  block <- encodeHeaderBlock defaultEncodeStrategy encoder trailers
+  sendHeadersFrame conn sid block True
+
+streamBody :: Connection -> StreamId -> IO (Maybe ByteString) -> Bool -> IO ()
+streamBody conn sid producer hasTrailers = do
   mChunk <- producer
   case mChunk of
     Nothing -> do
-      let emptyData = Frame
-            (FrameHeader 0 FrameData flagEndStream sid)
+      -- End of body. If trailers follow, send an empty DATA *without*
+      -- END_STREAM and let the caller's trailer HEADERS carry it;
+      -- otherwise close the stream with an empty DATA + END_STREAM.
+      let endStreamHere = not hasTrailers
+          flags = if endStreamHere then flagEndStream else 0
+          emptyData = Frame
+            (FrameHeader 0 FrameData flags sid)
             (DataFrame "")
       sendFrame conn emptyData
     Just chunk -> do
@@ -291,5 +323,5 @@ streamBody conn sid producer = do
             (FrameHeader (fromIntegral (BS.length chunk)) FrameData 0 sid)
             (DataFrame chunk)
       sendFrame conn dataFrame
-      streamBody conn sid producer
+      streamBody conn sid producer hasTrailers
 

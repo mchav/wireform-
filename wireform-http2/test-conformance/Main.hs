@@ -75,4 +75,5 @@ conformanceHandler _req respond = respond Response
   { responseStatus = 200
   , responseHeaders = [("content-type", "text/plain")]
   , responseBody = ResponseBodyBS "ok"
+  , responseTrailers = []
   }
