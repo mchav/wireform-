@@ -7,26 +7,23 @@ connection that honours the range and exposes a single
 HTTP\/1.x or HTTP\/2.  If the peer forces the client out of range a
 'Network.HTTP.VersionRange.VersionOutOfRange' is thrown.
 
-Transport matrix (this commit):
+Transport matrix:
 
-* __Plaintext, HTTP\/1.x only__ ('http1Only', 'preferHttp1' on plaintext)
-  — fully functional, request and response both work.
-* __Plaintext, HTTP\/2 only__ ('http2Only' on plaintext, \"h2c prior
-  knowledge\") — the request is sent on a freshly opened HTTP\/2
-  connection; response collection is currently a stub awaiting the
-  matching @recvResponse@ helper in @wireform-http2@.  Use this path
-  for gRPC bring-up and override 'sendRequest' with a direct
-  'Network.HTTP2.Client' call if you need the response now.
-* __Plaintext, mixed range__ — falls back to HTTP\/1.1.  The h2c
-  upgrade dance (RFC 7540 § 3.2) requires recv-buffer-leftover access
-  in @wireform-http1@; the hook will be added in a follow-up.
-* __TLS__ — not wired in this commit.  Route through
-  "Network.HTTP2.TLS.Client" for now; a TLS adapter that picks the
-  ALPN list from the 'VersionRange' will land alongside the
-  receive-side HTTP\/2 client.
-
-The shape of this API is deliberately stable across those gaps; only
-the implementation matures.
+* __Plaintext, HTTP\/1.x only__ ('http1Only' or 'preferHttp1' on
+  plaintext) — request and response both end-to-end.
+* __Plaintext, HTTP\/2 only__ ('http2Only' on plaintext; h2c prior
+  knowledge) — request, response headers, and a buffered response
+  body all work, with the connection multiplexing concurrent
+  requests on separate streams.
+* __Plaintext, mixed range__ — falls back to the preferred version.
+  The h2c @Upgrade:@ dance (RFC 7540 § 3.2) is intentionally not
+  implemented: RFC 9113 deprecated it.  For mixed-protocol clients
+  use TLS-ALPN.
+* __TLS__ — handshake done with ALPN advertising the protocols in
+  'clientVersionRange'.  HTTP\/2 over TLS works end-to-end;
+  HTTP\/1.x over TLS isn't wired up (no TLS layer in
+  @wireform-http1@) and a negotiated @http\/1.1@ raises
+  'Network.HTTP.TLS.TlsHttp1NotImplemented'.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -48,17 +45,19 @@ module Network.HTTP.Client
   ) where
 
 import Control.Exception (Exception, throwIO)
+import qualified Data.ByteString as BS
 import qualified Network.HTTP1.Client as H1
 import qualified Network.HTTP1.Parser as H1
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Client as H2
-import qualified Network.HTTP2.Connection as H2C
 
 import Network.HTTP.Message
+import qualified Network.HTTP.TLS as TLS
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Internal.Convert as Conv
 import qualified Network.HTTP.Types.Body as U
 import qualified Network.HTTP.Types.Method as U
+import qualified Network.HTTP.Types.Status as U
 import qualified Network.HTTP.Types.Version as U
 
 data ClientConfig = ClientConfig
@@ -92,8 +91,6 @@ defaultTlsClientConfig serverName = TlsClientConfig
 
 data ClientError
   = ClientUnsupportedRange !VersionRange
-  | ClientHttp2ResponseUnavailable
-    -- ^ HTTP\/2 response collection isn't yet wired through this API.
   | ClientParseError !H1.ParseError
   deriving stock (Show)
 
@@ -102,7 +99,7 @@ instance Exception ClientError
 -- | An opaque connection handle.  Inspect with 'clientNegotiatedVersion'.
 data Client
   = Http1Client !H1.ClientConnection !U.Version
-  | Http2Client !H2C.Connection !U.Version
+  | Http2Client !H2.ClientHandle !U.Version
 
 clientNegotiatedVersion :: Client -> U.Version
 clientNegotiatedVersion = \case
@@ -116,14 +113,23 @@ clientNegotiatedVersion = \case
 -- with 'VersionOutOfRange'); plaintext picks the preferred version
 -- in the range.
 withClient :: ClientConfig -> (Client -> IO a) -> IO a
-withClient cfg action
-  | Just _ <- clientTls cfg =
-      throwIO (ClientUnsupportedRange (clientVersionRange cfg))
-  | otherwise =
-      let preferred = preferredVersion (clientVersionRange cfg)
-      in if preferred == U.HTTP2
-           then withPlaintextHttp2 cfg action
-           else withPlaintextHttp1 cfg action
+withClient cfg action = case clientTls cfg of
+  Just tlsCfg -> withTlsClient cfg tlsCfg action
+  Nothing ->
+    let preferred = preferredVersion (clientVersionRange cfg)
+    in if preferred == U.HTTP2
+         then withPlaintextHttp2 cfg action
+         else withPlaintextHttp1 cfg action
+
+withTlsClient :: ClientConfig -> TlsClientConfig -> (Client -> IO a) -> IO a
+withTlsClient cfg tlsCfg action =
+  TLS.withTlsClient
+    (clientHost cfg)
+    (clientPort cfg)
+    (tlsClientServerName tlsCfg)
+    (tlsClientValidateCert tlsCfg)
+    (clientVersionRange cfg)
+    (\handle -> action (Http2Client handle U.HTTP2))
 
 withPlaintextHttp1 :: ClientConfig -> (Client -> IO a) -> IO a
 withPlaintextHttp1 cfg action = do
@@ -143,8 +149,8 @@ withPlaintextHttp2 cfg action = do
         { H2.clientHost = clientHost cfg
         , H2.clientPort = clientPort cfg
         }
-  H2.withConnection h2cfg $ \conn ->
-    action (Http2Client conn U.HTTP2)
+  H2.withConnection h2cfg $ \handle ->
+    action (Http2Client handle U.HTTP2)
 
 -- | Send a request on the connection. The 'requestVersion' field on
 -- the input is ignored; the on-wire version is whatever 'withClient'
@@ -157,7 +163,7 @@ sendRequest (Http1Client conn ver) req = do
     Left err   -> throwIO (ClientParseError err)
     Right resp -> pure (Conv.fromHttp1Response resp)
 
-sendRequest (Http2Client conn _) req = do
+sendRequest (Http2Client handle _) req = do
   let h2req = H2.ClientRequest
         { H2.crMethod    = U.fromMethod (requestMethod req)
         , H2.crPath      = requestTarget req
@@ -170,13 +176,15 @@ sendRequest (Http2Client conn _) req = do
             U.BodyEmpty    -> Nothing
             U.BodyBytes bs -> Just bs
             U.BodyStream _ -> Nothing
-              -- TODO: streaming request bodies on HTTP/2 (needs DATA
-              -- frame pump in Network.HTTP2.Client).
+              -- TODO: streaming request bodies on HTTP/2 still need
+              -- the per-stream DATA frame pump.
         }
-  _sid <- H2.sendRequest conn h2req
-  -- TODO: wire response collection. The HTTP/2 client recv loop
-  -- in @wireform-http2@ doesn't yet make per-stream response
-  -- headers/body available to user code. Drop to
-  -- 'Network.HTTP2.Engine.Client.run' if you need the response
-  -- today.
-  throwIO ClientHttp2ResponseUnavailable
+  h2resp <- H2.sendRequest handle h2req
+  pure Response
+    { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
+    , responseVersion = U.HTTP2
+    , responseHeaders = Conv.fromHttp2Headers (H2.crResponseHeaders h2resp)
+    , responseBody    = case H2.crResponseBody h2resp of
+        bs | BS.null bs -> U.BodyEmpty
+           | otherwise  -> U.BodyBytes bs
+    }

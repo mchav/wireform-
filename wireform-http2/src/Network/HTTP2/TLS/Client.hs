@@ -13,6 +13,7 @@ module Network.HTTP2.TLS.Client
   , defaultClientConfig
   , ClientRequest (..)
   , ClientResponse (..)
+  , ClientHandle
   , sendRequest
   ) where
 
@@ -24,13 +25,13 @@ import qualified Network.TLS.Extra.Cipher as TLS
 
 import Network.HTTP2.Client
   ( ClientConfig (..)
+  , ClientHandle
   , ClientRequest (..)
   , ClientResponse (..)
   , defaultClientConfig
   , sendRequest
   , withConnectionOnTransport
   )
-import Network.HTTP2.Connection (Connection)
 import Network.HTTP2.TLS
 
 -- | TLS-specific client configuration. The non-TLS HTTP/2 knobs come
@@ -61,9 +62,9 @@ defaultTLSClientConfig serverName = TLSClientConfig
 --
 -- Connects to @clientHost cfg : clientPort cfg@, performs the TLS
 -- handshake (ALPN @h2@), and runs the supplied action with the live
--- 'Connection'. Throws 'ALPNFailed' if the server refused to speak
+-- 'ClientHandle'. Throws 'ALPNFailed' if the server refused to speak
 -- @h2@; throws 'TLS.TLSException' if the handshake itself fails.
-withTLSConnection :: TLSClientConfig -> (Connection -> IO a) -> IO a
+withTLSConnection :: TLSClientConfig -> (ClientHandle -> IO a) -> IO a
 withTLSConnection cfg action = do
   let httpCfg = tlsClientConfig cfg
       hints   = NS.defaultHints { NS.addrSocketType = NS.Stream }

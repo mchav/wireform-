@@ -63,6 +63,7 @@ library
     Network.HTTP
     Network.HTTP.Client
     Network.HTTP.Server
+    Network.HTTP.TLS
     Network.HTTP.Message
     Network.HTTP.VersionRange
     Network.HTTP.Types.Body
@@ -76,8 +77,11 @@ library
     base                 >= 4.16 && < 5,
     bytestring           >= 0.11 && < 0.13,
     case-insensitive     >= 1.2  && < 1.3,
+    containers           >= 0.6  && < 0.8,
     deepseq              >= 1.4  && < 1.6,
     hashable             >= 1.4  && < 1.6,
     network              >= 3.1  && < 3.3,
+    stm                  >= 2.5  && < 2.7,
+    tls                  >= 2.0  && < 2.2,
     wireform-http1,
     wireform-http2

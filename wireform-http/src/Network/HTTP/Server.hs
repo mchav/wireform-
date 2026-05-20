@@ -6,19 +6,18 @@ TCP listener and dispatches each accepted connection to the
 appropriate per-version runtime; connections that don't match the
 range are dropped during negotiation.
 
-Negotiation (this commit):
+Negotiation:
 
 * __Plaintext__ — dispatched on the preferred version of the range:
   'http1Only' \/ 'preferHttp1' runs the HTTP\/1.x server; 'http2Only'
   \/ 'preferHttp2' runs the HTTP\/2 server (and requires the client
   to send the @PRI * HTTP\/2.0@ preface up front, i.e.
   prior-knowledge h2c).  An h2c @Upgrade:@ handshake (RFC 7540 § 3.2)
-  is not yet implemented; clients that want both protocols against
-  the same plaintext listener should advertise their support over
-  TLS-ALPN instead.
-* __TLS__ — not wired in this commit.  Use
-  "Network.HTTP2.TLS.Server" directly for HTTP\/2 + ALPN; a TLS
-  adapter that drives the 'VersionRange' will land in a follow-up.
+  is still TODO.
+* __TLS__ — handshake done with ALPN advertising the 'VersionRange'
+  protocols.  Currently only the @h2@ protocol is implemented (no
+  HTTP\/1.x TLS support yet); connections that negotiate
+  @http\/1.1@ are dropped.
 
 The handler is a plain @'Request' -> IO 'Response'@: the HTTP\/2
 server's continuation shape is adapted internally.
@@ -34,18 +33,16 @@ module Network.HTTP.Server
   , runServer
     -- * Handler
   , Handler
-    -- * Errors
-  , ServerError (..)
   ) where
 
 import Control.Concurrent (ThreadId, forkIO)
-import Control.Exception (Exception, throwIO)
 
 import qualified Network.HTTP1.Server as H1
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2
 
 import Network.HTTP.Message
+import qualified Network.HTTP.TLS as TLS
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Internal.Convert as Conv
 import qualified Network.HTTP.Types.Body as U
@@ -92,24 +89,30 @@ defaultServerConfig = ServerConfig
       , responseBody    = U.BodyEmpty
       }
 
-data ServerError
-  = ServerUnsupportedRange !VersionRange
-  deriving stock (Show)
-
-instance Exception ServerError
-
 -- | Bind a TCP listener and serve until killed.
---
--- Currently TLS-bound 'ServerConfig's throw 'ServerUnsupportedRange'.
 runServer :: ServerConfig -> IO ()
-runServer cfg
-  | Just _ <- serverTls cfg =
-      throwIO (ServerUnsupportedRange (serverVersionRange cfg))
-  | otherwise =
-      let preferred = preferredVersion (serverVersionRange cfg)
-      in if preferred == U.HTTP2
-           then runHttp2 cfg
-           else runHttp1 cfg
+runServer cfg = case serverTls cfg of
+  Just tlsCfg -> runTlsServer cfg tlsCfg
+  Nothing ->
+    let preferred = preferredVersion (serverVersionRange cfg)
+    in if preferred == U.HTTP2
+         then runHttp2 cfg
+         else runHttp1 cfg
+
+runTlsServer :: ServerConfig -> TlsServerConfig -> IO ()
+runTlsServer cfg tlsCfg =
+  TLS.runTlsServer
+    (serverHost cfg)
+    (serverPort cfg)
+    (tlsServerCertPath tlsCfg)
+    (tlsServerKeyPath tlsCfg)
+    (serverVersionRange cfg)
+    (\_v base -> base { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) })
+    (H2.defaultServerConfig
+       { H2.serverHost = serverHost cfg
+       , H2.serverPort = serverPort cfg
+       , H2.serverForkConnection = serverForkConnection cfg
+       })
 
 runHttp1 :: ServerConfig -> IO ()
 runHttp1 cfg = H1.runServer h1cfg
