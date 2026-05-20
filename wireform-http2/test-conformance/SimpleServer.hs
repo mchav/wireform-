@@ -1,7 +1,7 @@
 module Main (main) where
 
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (readMVar, newMVar, modifyMVar_)
+import Control.Concurrent (forkIO, threadDelay, yield)
+import Control.Concurrent.MVar (readMVar, newMVar, modifyMVar_, MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, catch, bracket, finally)
 import Data.Bits ((.|.), (.&.), testBit)
@@ -25,6 +25,8 @@ import Network.HTTP2.Types (StreamId, FrameType(..), ErrorCode(..), Settings(..)
 data StreamInfo = StreamInfo
   { siState :: !StreamSt
   , siSendWindow :: !Int
+  , siContentLength :: !(Maybe Int)  -- expected content-length, Nothing = not set
+  , siReceivedBytes :: !Int          -- actual bytes received
   } deriving stock (Eq, Show)
 
 data StreamSt
@@ -35,6 +37,13 @@ data StreamSt
   | StClosed
   deriving stock (Eq, Show)
 
+-- Pending DATA to send, respecting flow control
+data PendingData = PendingData
+  { pdStreamId :: !StreamId
+  , pdData :: !ByteString
+  , pdEndStream :: !Bool
+  }
+
 data ServerState = ServerState
   { ssStreams :: !(Map StreamId StreamInfo)
   , ssLastStreamId :: !StreamId
@@ -44,6 +53,7 @@ data ServerState = ServerState
   , ssContinuationBuffer :: !ByteString
   , ssGoAwaySent :: !Bool
   , ssConnSendWindow :: !Int
+  , ssPendingSends :: ![PendingData]
   }
 
 main :: IO ()
@@ -111,6 +121,7 @@ handleClient sock = do
         , ssContinuationBuffer = BS.empty
         , ssGoAwaySent = False
         , ssConnSendWindow = 65535
+        , ssPendingSends = []
         }
       serverLoop conn stRef `finally` NS.close sock
 
@@ -126,12 +137,59 @@ serverLoop :: Connection -> IORef ServerState -> IO ()
 serverLoop conn stRef = do
   result <- recvFrame conn
   case result of
-    Left _ -> pure ()
+    Left _ -> do
+      flushPendingSends conn stRef
     Right frame -> do
       shouldContinue <- processFrame conn stRef frame
       if shouldContinue
-        then serverLoop conn stRef
+        then do
+          -- Always try to flush after processing a frame
+          flushPendingSends conn stRef
+          serverLoop conn stRef
         else pure ()
+
+-- Flush any pending DATA frames that now fit in the flow control window
+flushPendingSends :: Connection -> IORef ServerState -> IO ()
+flushPendingSends conn stRef = do
+  st <- readIORef stRef
+  case ssPendingSends st of
+    [] -> pure ()
+    (pd:rest) -> do
+      let sid = pdStreamId pd
+          body = pdData pd
+          bodyLen = BS.length body
+          streamWindow = maybe 65535 siSendWindow (Map.lookup sid (ssStreams st))
+          connWindow = ssConnSendWindow st
+          maxSend = min streamWindow connWindow
+      if maxSend <= 0
+        then pure ()
+        else do
+          let sendLen = min bodyLen maxSend
+              chunk = BS.take sendLen body
+              remaining = BS.drop sendLen body
+              isLast = BS.null remaining && pdEndStream pd
+              flags = if isLast then flagEndStream else 0
+              dataFrame = Frame
+                (FrameHeader (fromIntegral sendLen) FrameData flags sid)
+                (DataFrame chunk)
+          sendFrame conn dataFrame
+          let newConnWindow = connWindow - sendLen
+              newStreamWindow = streamWindow - sendLen
+          if isLast
+            then writeIORef stRef st
+              { ssPendingSends = rest
+              , ssConnSendWindow = newConnWindow
+              , ssStreams = Map.insert sid (StreamInfo StClosed 0 Nothing 0) (ssStreams st)
+              }
+            else do
+              let newPd = pd { pdData = remaining }
+              writeIORef stRef st
+                { ssPendingSends = newPd : rest
+                , ssConnSendWindow = newConnWindow
+                , ssStreams = Map.adjust (\si -> si { siSendWindow = newStreamWindow }) sid (ssStreams st)
+                }
+              -- Try to flush more
+              flushPendingSends conn stRef
 
 processFrame :: Connection -> IORef ServerState -> Frame -> IO Bool
 processFrame conn stRef (Frame hdr payload) = do
@@ -186,8 +244,15 @@ processFramePayload conn stRef hdr payload = case payload of
             connError conn stRef code
             pure False
           Right newSettings -> do
-            -- Update window sizes for existing streams if initial window changed
-            writeIORef stRef st { ssRemoteSettings = newSettings }
+            let oldInitWindow = fromIntegral (settingsInitialWindowSize (ssRemoteSettings st))
+                newInitWindow = fromIntegral (settingsInitialWindowSize newSettings)
+                diff = newInitWindow - oldInitWindow
+            -- Adjust all existing stream windows
+            let adjustedStreams = Map.map (\si -> si { siSendWindow = siSendWindow si + diff }) (ssStreams st)
+            writeIORef stRef st
+              { ssRemoteSettings = newSettings
+              , ssStreams = adjustedStreams
+              }
             let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
             sendFrame conn ack
             pure True
@@ -245,7 +310,17 @@ processFramePayload conn stRef hdr payload = case payload of
                 pure True
               else do
                 checkStreamWindowOverflow conn stRef (fhStreamId hdr) increment
-          StClosed -> pure True
+          StHalfClosedLocal ->
+            if increment == 0
+              then do
+                streamError conn (fhStreamId hdr) ProtocolError
+                pure True
+              else do
+                checkStreamWindowOverflow conn stRef (fhStreamId hdr) increment
+          StClosed ->
+            if increment == 0
+              then pure True
+              else checkStreamWindowOverflow conn stRef (fhStreamId hdr) increment
           _ ->
             if increment == 0
               then do
@@ -254,7 +329,9 @@ processFramePayload conn stRef hdr payload = case payload of
               else do
                 checkStreamWindowOverflow conn stRef (fhStreamId hdr) increment
 
-  GoAwayFrame _ _ _ -> pure False
+  GoAwayFrame _ _ _ -> do
+    closeConnection conn NoError ""
+    pure False
 
   HeadersFrame mpri headerBlock
     | fhStreamId hdr == 0 -> do
@@ -271,23 +348,24 @@ processFramePayload conn stRef hdr payload = case payload of
             streamError conn (fhStreamId hdr) ProtocolError
             pure True
           _ -> do
-            -- Stream ID must be greater than last
-            if fhStreamId hdr <= ssLastStreamId st && ssLastStreamId st /= 0
+            -- Stream ID must be greater than last (unless it's an existing stream)
+            let streamSt = getStreamState st (fhStreamId hdr)
+            if fhStreamId hdr <= ssLastStreamId st && ssLastStreamId st /= 0 && streamSt == StIdle
               then do
                 connError conn stRef ProtocolError
                 pure False
               else do
                 -- Check concurrent stream limit
                 let maxConcurrent = maybe 100 id (settingsMaxConcurrentStreams (ssLocalSettings st))
-                    openCount = Map.size (Map.filter (\si -> siState si == StOpen || siState si == StHalfClosedRemote) (ssStreams st))
+                    openCount = Map.size (Map.filter (\si -> siState si == StOpen || siState si == StHalfClosedRemote || siState si == StHalfClosedLocal) (ssStreams st))
                 if fromIntegral openCount >= maxConcurrent
                   then do
                     streamError conn (fhStreamId hdr) RefusedStream
                     modifyIORef' stRef $ \s -> s
                       { ssLastStreamId = fhStreamId hdr
-                      , ssStreams = Map.insert (fhStreamId hdr) (StreamInfo StClosed 0) (ssStreams s)
+                      , ssStreams = Map.insert (fhStreamId hdr) (StreamInfo StClosed 0 Nothing 0) (ssStreams s)
                       }
-                    pure True  -- RST_STREAM is valid per RFC; h2spec also accepts this
+                    pure True
                   else do
                     let streamSt = getStreamState st (fhStreamId hdr)
                     case streamSt of
@@ -300,8 +378,8 @@ processFramePayload conn stRef hdr payload = case payload of
                       StOpen ->
                         if not (testFlag (fhFlags hdr) flagEndStream)
                           then do
-                            streamError conn (fhStreamId hdr) ProtocolError
-                            pure True
+                            connError conn stRef ProtocolError
+                            pure False
                           else do
                             if testFlag (fhFlags hdr) flagEndHeaders
                               then processTrailers conn stRef (fhStreamId hdr) headerBlock
@@ -313,8 +391,11 @@ processFramePayload conn stRef hdr payload = case payload of
                                 pure True
                       _ -> do
                         writeIORef stRef st { ssLastStreamId = fhStreamId hdr }
+                        let hasEndStream = testFlag (fhFlags hdr) flagEndStream
                         if testFlag (fhFlags hdr) flagEndHeaders
-                          then processHeaders conn stRef (fhStreamId hdr) headerBlock
+                          then if hasEndStream
+                            then processHeaders conn stRef (fhStreamId hdr) headerBlock
+                            else processHeadersNoEnd conn stRef (fhStreamId hdr) headerBlock
                           else do
                             modifyIORef' stRef $ \s -> s
                               { ssExpectingContinuation = Just (fhStreamId hdr)
@@ -340,8 +421,8 @@ processFramePayload conn stRef hdr payload = case payload of
             connError conn stRef StreamClosed
             pure False
           _ -> do
-            -- Send WINDOW_UPDATE for connection and stream
             let len = fhLength hdr
+                dataLen = fromIntegral len
             if len > 0
               then do
                 let windowUpdate = Frame
@@ -353,13 +434,27 @@ processFramePayload conn stRef hdr payload = case payload of
                       (WindowUpdateFrame len)
                 sendFrame conn streamWU
               else pure ()
-            -- Update stream state on END_STREAM
+            -- Update received byte count
+            modifyIORef' stRef $ \s -> s
+              { ssStreams = Map.adjust (\si -> si { siReceivedBytes = siReceivedBytes si + dataLen }) (fhStreamId hdr) (ssStreams s)
+              }
             if testFlag (fhFlags hdr) flagEndStream
-              then modifyIORef' stRef $ \s -> s
-                { ssStreams = Map.insert (fhStreamId hdr)
-                    (StreamInfo StHalfClosedRemote 65535)
-                    (ssStreams s)
-                }
+              then do
+                st2 <- readIORef stRef
+                let mInfo = Map.lookup (fhStreamId hdr) (ssStreams st2)
+                    received = maybe 0 siReceivedBytes mInfo
+                    mExpected = mInfo >>= siContentLength
+                case mExpected of
+                  Just expected | expected /= received -> do
+                    streamError conn (fhStreamId hdr) ProtocolError
+                    modifyIORef' stRef $ \s -> s
+                      { ssStreams = Map.insert (fhStreamId hdr) (StreamInfo StClosed 0 Nothing 0) (ssStreams s)
+                      }
+                  _ -> do
+                    modifyIORef' stRef $ \s -> s
+                      { ssStreams = Map.adjust (\si -> si { siState = StHalfClosedRemote }) (fhStreamId hdr) (ssStreams s)
+                      }
+                    queueResponse conn stRef (fhStreamId hdr)
               else pure ()
             pure True
 
@@ -377,7 +472,8 @@ processFramePayload conn stRef hdr payload = case payload of
           _ -> do
             modifyIORef' stRef $ \s -> s
               { ssStreams = Map.insert (fhStreamId hdr)
-                  (StreamInfo StClosed 0) (ssStreams s)
+                  (StreamInfo StClosed 0 Nothing 0) (ssStreams s)
+              , ssPendingSends = filter (\pd -> pdStreamId pd /= fhStreamId hdr) (ssPendingSends s)
               }
             pure True
 
@@ -399,7 +495,13 @@ processFramePayload conn stRef hdr payload = case payload of
   _ -> pure True
 
 processHeaders :: Connection -> IORef ServerState -> StreamId -> ByteString -> IO Bool
-processHeaders conn stRef sid headerBlock = do
+processHeaders conn stRef sid headerBlock = processHeadersEndStream conn stRef sid headerBlock True
+
+processHeadersNoEnd :: Connection -> IORef ServerState -> StreamId -> ByteString -> IO Bool
+processHeadersNoEnd conn stRef sid headerBlock = processHeadersEndStream conn stRef sid headerBlock False
+
+processHeadersEndStream :: Connection -> IORef ServerState -> StreamId -> ByteString -> Bool -> IO Bool
+processHeadersEndStream conn stRef sid headerBlock endStream = do
   decoder <- readMVar (connHpackDecoder conn)
   st <- readIORef stRef
   let tableSize = fromIntegral (settingsHeaderTableSize (ssLocalSettings st))
@@ -413,72 +515,33 @@ processHeaders conn stRef sid headerBlock = do
         Left _ -> do
           streamError conn sid ProtocolError
           modifyIORef' stRef $ \s -> s
-            { ssStreams = Map.insert sid (StreamInfo StClosed 0) (ssStreams s)
+            { ssStreams = Map.insert sid (StreamInfo StClosed 0 Nothing 0) (ssStreams s)
             }
           pure True
         Right () -> do
           st2 <- readIORef stRef
           let initWin = fromIntegral (settingsInitialWindowSize (ssRemoteSettings st2))
+              streamState = if endStream then StHalfClosedRemote else StOpen
+              contentLen = case lookup "content-length" headers of
+                Just v -> case parseDecimal v of
+                  Just n -> Just n
+                  Nothing -> Nothing
+                Nothing -> Nothing
           modifyIORef' stRef $ \s -> s
-            { ssStreams = Map.insert sid (StreamInfo StOpen initWin) (ssStreams s)
+            { ssStreams = Map.insert sid (StreamInfo streamState initWin contentLen 0) (ssStreams s)
             }
-          sendSimpleResponse conn stRef sid
+          if endStream
+            then do
+              -- Check content-length against 0 bytes received (no body)
+              case contentLen of
+                Just n | n /= 0 -> do
+                  streamError conn sid ProtocolError
+                  modifyIORef' stRef $ \s2 -> s2
+                    { ssStreams = Map.insert sid (StreamInfo StClosed 0 Nothing 0) (ssStreams s2)
+                    }
+                _ -> queueResponse conn stRef sid
+            else pure ()
           pure True
-
-validateRequestHeaders :: [(ByteString, ByteString)] -> Either ByteString ()
-validateRequestHeaders headers = do
-  let (pseudos, regulars) = span (\(k, _) -> BS.isPrefixOf ":" k) headers
-  -- Pseudo-headers must come before regular headers
-  let remainingPseudos = filter (\(k, _) -> BS.isPrefixOf ":" k) regulars
-  if not (null remainingPseudos)
-    then Left "pseudo-header after regular header"
-    else pure ()
-  -- Check for required pseudo-headers
-  let pseudoNames = map fst pseudos
-  let hasMethod = ":method" `elem` pseudoNames
-      hasScheme = ":scheme" `elem` pseudoNames
-      hasPath = ":path" `elem` pseudoNames
-  if not hasMethod then Left "missing :method"
-  else if not hasScheme then Left "missing :scheme"
-  else if not hasPath then Left "missing :path"
-  else pure ()
-  -- Check for duplicated pseudo-headers
-  let checkDuplicates [] = Right ()
-      checkDuplicates (x:xs)
-        | x `elem` xs = Left "duplicated pseudo-header"
-        | otherwise = checkDuplicates xs
-  checkDuplicates pseudoNames
-  -- Check :path is not empty
-  case lookup ":path" pseudos of
-    Just p | BS.null p -> Left "empty :path"
-    _ -> pure ()
-  -- Check for unknown pseudo-headers
-  let validPseudos = [":method", ":scheme", ":path", ":authority"]
-  let unknownPseudos = filter (\n -> n `notElem` validPseudos) pseudoNames
-  if not (null unknownPseudos)
-    then Left "unknown pseudo-header"
-    else pure ()
-  -- Check for response pseudo-headers
-  if ":status" `elem` pseudoNames
-    then Left "response pseudo-header in request"
-    else pure ()
-  -- Check for uppercase header names
-  let hasUppercase bs = BS.any (\w -> w >= 0x41 && w <= 0x5A) bs
-  let uppercaseHeaders = filter (\(k, _) -> hasUppercase k) (pseudos <> regulars)
-  if not (null uppercaseHeaders)
-    then Left "uppercase header name"
-    else pure ()
-  -- Check for connection-specific headers
-  let connectionHeaders = ["connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade"]
-  let hasConnectionHeader = any (\(k, _) -> k `elem` connectionHeaders) regulars
-  if hasConnectionHeader
-    then Left "connection-specific header"
-    else pure ()
-  -- TE header must only have "trailers" value
-  case lookup "te" regulars of
-    Just v | v /= "trailers" -> Left "TE with value other than trailers"
-    _ -> pure ()
-  pure ()
 
 processTrailers :: Connection -> IORef ServerState -> StreamId -> ByteString -> IO Bool
 processTrailers conn stRef sid headerBlock = do
@@ -496,64 +559,35 @@ processTrailers conn stRef sid headerBlock = do
         then do
           streamError conn sid ProtocolError
           modifyIORef' stRef $ \s -> s
-            { ssStreams = Map.insert sid (StreamInfo StClosed 0) (ssStreams s)
+            { ssStreams = Map.insert sid (StreamInfo StClosed 0 Nothing 0) (ssStreams s)
             }
           pure True
         else do
           modifyIORef' stRef $ \s -> s
-            { ssStreams = Map.insert sid (StreamInfo StHalfClosedRemote 65535) (ssStreams s)
+            { ssStreams = Map.adjust (\si -> si { siState = StHalfClosedRemote }) sid (ssStreams s)
             }
+          queueResponse conn stRef sid
           pure True
 
-sendSimpleResponse :: Connection -> IORef ServerState -> StreamId -> IO ()
-sendSimpleResponse conn stRef sid = do
+queueResponse :: Connection -> IORef ServerState -> StreamId -> IO ()
+queueResponse conn stRef sid = do
   encoder <- readMVar (connHpackEncoder conn)
   let responseBody = "ok"
       bodyLen = BS.length responseBody
       headers = [(":status", "200"), ("content-type", "text/plain"),
                  ("content-length", BS.pack (map (fromIntegral . fromEnum) (show bodyLen)))]
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder headers
+  -- Send HEADERS immediately (not flow-controlled)
   let headersFrame = Frame
         (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders
           flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
   sendFrame conn headersFrame
-  -- Respect flow control: use the remote peer's initial window size for new streams
-  st <- readIORef stRef
-  let initWindow = fromIntegral (settingsInitialWindowSize (ssRemoteSettings st))
-      streamWindow = maybe initWindow siSendWindow (Map.lookup sid (ssStreams st))
-      connWindow = ssConnSendWindow st
-      maxSend = min streamWindow (min connWindow bodyLen)
-  sendFlowControlled conn stRef sid responseBody maxSend
-
-sendFlowControlled :: Connection -> IORef ServerState -> StreamId -> ByteString -> Int -> IO ()
-sendFlowControlled conn stRef sid body maxSend = do
-  let bodyLen = BS.length body
-  if maxSend <= 0 || bodyLen <= 0
-    then do
-      modifyIORef' stRef $ \s -> s
-        { ssStreams = Map.insert sid (StreamInfo StHalfClosedLocal (max 0 maxSend)) (ssStreams s)
-        }
-    else do
-      let sendLen = min bodyLen maxSend
-          chunk = BS.take sendLen body
-          remaining = BS.drop sendLen body
-          isLast = BS.null remaining
-          flags = if isLast then flagEndStream else 0
-          dataFrame = Frame
-            (FrameHeader (fromIntegral sendLen) FrameData flags sid)
-            (DataFrame chunk)
-      sendFrame conn dataFrame
-      if isLast
-        then modifyIORef' stRef $ \s -> s
-          { ssStreams = Map.insert sid (StreamInfo StClosed 0) (ssStreams s)
-          , ssConnSendWindow = ssConnSendWindow s - sendLen
-          }
-        else modifyIORef' stRef $ \s -> s
-          { ssStreams = Map.insert sid
-              (StreamInfo StHalfClosedLocal (maxSend - sendLen)) (ssStreams s)
-          , ssConnSendWindow = ssConnSendWindow s - sendLen
-          }
+  -- Queue DATA for flow-controlled sending
+  modifyIORef' stRef $ \s -> s
+    { ssPendingSends = ssPendingSends s <> [PendingData sid responseBody True]
+    , ssStreams = Map.adjust (\si -> si { siState = StHalfClosedLocal }) sid (ssStreams s)
+    }
 
 connError :: Connection -> IORef ServerState -> ErrorCode -> IO ()
 connError conn stRef code = do
@@ -575,7 +609,7 @@ checkStreamWindowOverflow :: Connection -> IORef ServerState -> StreamId -> Word
 checkStreamWindowOverflow conn stRef sid increment = do
   st <- readIORef stRef
   let mInfo = Map.lookup sid (ssStreams st)
-      currentWindow = maybe 65535 siSendWindow mInfo
+      currentWindow = maybe (fromIntegral (settingsInitialWindowSize (ssRemoteSettings st))) siSendWindow mInfo
       newWindow = currentWindow + fromIntegral increment
   if newWindow > 2147483647
     then do
@@ -583,7 +617,7 @@ checkStreamWindowOverflow conn stRef sid increment = do
       pure True
     else do
       modifyIORef' stRef $ \s -> s
-        { ssStreams = Map.alter (Just . maybe (StreamInfo StOpen newWindow)
+        { ssStreams = Map.alter (Just . maybe (StreamInfo StOpen newWindow Nothing 0)
             (\i -> i { siSendWindow = newWindow })) sid (ssStreams s)
         }
       pure True
@@ -594,6 +628,52 @@ getStreamState st sid = case Map.lookup sid (ssStreams st) of
   Nothing
     | sid <= ssLastStreamId st -> StClosed
     | otherwise -> StIdle
+
+validateRequestHeaders :: [(ByteString, ByteString)] -> Either ByteString ()
+validateRequestHeaders headers = do
+  let (pseudos, regulars) = span (\(k, _) -> BS.isPrefixOf ":" k) headers
+  let remainingPseudos = filter (\(k, _) -> BS.isPrefixOf ":" k) regulars
+  if not (null remainingPseudos)
+    then Left "pseudo-header after regular header"
+    else pure ()
+  let pseudoNames = map fst pseudos
+  let hasMethod = ":method" `elem` pseudoNames
+      hasScheme = ":scheme" `elem` pseudoNames
+      hasPath = ":path" `elem` pseudoNames
+  if not hasMethod then Left "missing :method"
+  else if not hasScheme then Left "missing :scheme"
+  else if not hasPath then Left "missing :path"
+  else pure ()
+  let checkDuplicates [] = Right ()
+      checkDuplicates (x:xs)
+        | x `elem` xs = Left "duplicated pseudo-header"
+        | otherwise = checkDuplicates xs
+  checkDuplicates pseudoNames
+  case lookup ":path" pseudos of
+    Just p | BS.null p -> Left "empty :path"
+    _ -> pure ()
+  let validPseudos = [":method", ":scheme", ":path", ":authority"]
+  let unknownPseudos = filter (\n -> n `notElem` validPseudos) pseudoNames
+  if not (null unknownPseudos)
+    then Left "unknown pseudo-header"
+    else pure ()
+  if ":status" `elem` pseudoNames
+    then Left "response pseudo-header in request"
+    else pure ()
+  let hasUppercase bs = BS.any (\w -> w >= 0x41 && w <= 0x5A) bs
+  let uppercaseHeaders = filter (\(k, _) -> hasUppercase k) (pseudos <> regulars)
+  if not (null uppercaseHeaders)
+    then Left "uppercase header name"
+    else pure ()
+  let connectionHeaders = ["connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade"]
+  let hasConnectionHeader = any (\(k, _) -> k `elem` connectionHeaders) regulars
+  if hasConnectionHeader
+    then Left "connection-specific header"
+    else pure ()
+  case lookup "te" regulars of
+    Just v | v /= "trailers" -> Left "TE with value other than trailers"
+    _ -> pure ()
+  pure ()
 
 validateAndApplySettings :: Settings -> [(Word16, Word32)] -> Either ErrorCode Settings
 validateAndApplySettings = go
@@ -613,6 +693,20 @@ validateAndApplySettings = go
                else go s { settingsMaxFrameSize = val } rest
       0x6 -> go s { settingsMaxHeaderListSize = Just val } rest
       _   -> go s rest
+
+parseDecimal :: ByteString -> Maybe Int
+parseDecimal bs
+  | BS.null bs = Nothing
+  | otherwise = go 0 0
+  where
+    len = BS.length bs
+    go !acc !i
+      | i >= len = Just acc
+      | otherwise =
+          let b = BS.index bs i
+          in if b >= 0x30 && b <= 0x39
+               then go (acc * 10 + fromIntegral (b - 0x30)) (i + 1)
+               else Nothing
 
 recvExact :: Socket -> Int -> IO ByteString
 recvExact sock n = go n []
