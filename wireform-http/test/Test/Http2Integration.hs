@@ -150,8 +150,10 @@ concurrentStreams = testCase "multiple streams on one connection are independent
     runClient http2Only port $ \c -> do
       r1 <- sendRequest c (mkRequest "GET" "/one" port BodyEmpty [])
       r2 <- sendRequest c (mkRequest "GET" "/two" port BodyEmpty [])
-      drainBody (responseBody r1) >>= (@?= "one")
-      drainBody (responseBody r2) >>= (@?= "two")
+      b1 <- drainBody (responseBody r1)
+      b2 <- drainBody (responseBody r2)
+      b1 @?= "one"
+      b2 @?= "two"
   where
     handler req = case requestTarget req of
       "/one" -> pure (resp200 "one")

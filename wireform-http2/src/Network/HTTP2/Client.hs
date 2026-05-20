@@ -25,13 +25,16 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception
-  (Exception, SomeException, bracket, catch, finally, mask, throwIO, try)
+  (Exception, SomeException, bracket, catch, evaluate, finally, mask, throwIO, try)
 import Control.Monad (when)
 import Data.Bits ((.|.), (.&.), shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Internal as BSI
 import Data.IORef
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (plusPtr)
 import qualified Data.Map.Strict as Map
 import Data.Word (Word32)
 import qualified Network.Socket as NS
@@ -42,6 +45,7 @@ import Network.HTTP2.Frame.Types (decodeGoAway, decodeSettings)
 import Network.HTTP2.HPACK
 import Network.HTTP2.Types
 import qualified Network.HTTP2.Types as H2Types
+import qualified Debug.Trace
 
 data ClientConfig = ClientConfig
   { clientSettings :: !Settings
@@ -358,10 +362,15 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
         flags = fhFlags hdr
     if not (testFlag flags flagEndHeaders)
       then do
+        -- 'body' is a slice of the recv ring buffer; force-copy
+        -- before buffering across frames so the CONTINUATION
+        -- assembly doesn't see overwritten bytes.  See note on
+        -- 'forceCopyBS' below.
+        copiedBody <- forceCopyBS body
         writeIORef (chPending handle) (Just Continuation
           { contStreamId = sid
           , contInitialFlags = flags
-          , contBuffer = body
+          , contBuffer = copiedBody
           })
         pure True
       else case stripHeaderPadding flags body of
@@ -388,8 +397,11 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
               Just block ->
                 deliverHeaders handle (fhStreamId hdr) origFlags block
         | otherwise -> do
+            -- See note on CONTINUATION above: copy 'body' before
+            -- splicing into the cross-frame buffer.
+            copiedBody <- forceCopyBS body
             writeIORef (chPending handle)
-              (Just c { contBuffer = contBuffer c <> body })
+              (Just c { contBuffer = contBuffer c <> copiedBody })
             pure True
 
   FrameData -> do
@@ -410,7 +422,41 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
             -- right back-pressure: a slow reader naturally throttles
             -- the peer via the recv window, instead of the peer
             -- happily filling our memory.
-            atomically $ writeTBQueue (siBody inbox) (BodyChunk payload)
+            -- The payload comes from the recv ring buffer as a
+            -- zero-copy slice; the buffer reuses its memory on the
+            -- next 'recvBufferRead' (compaction + overwrite), so
+            -- any slice we hand off to a long-lived queue silently
+            -- becomes the next frame's bytes.
+            --
+            -- Beware: 'BS.copy' wraps 'unsafeDupablePerformIO' and
+            -- a plain @let copied = BS.copy x@ leaves the memcpy
+            -- thunked behind a 'PS' wrapper — the actual byte copy
+            -- doesn't happen until the bytes are inspected, which
+            -- is after the buffer has been overwritten.  Round-
+            -- tripping through 'BS.pack' \/ 'BS.unpack' forces a
+            -- strict element-by-element copy.
+            -- Force a deep, eager copy.  'BS.copy' wraps
+            -- 'unsafeDupablePerformIO' and a plain @BodyChunk
+            -- (BS.copy payload)@ defers the memcpy until the
+            -- bytes are first inspected, at which point the recv
+            -- ring buffer has already been compacted and the
+            -- copy reads the next frame's bytes by accident.
+            -- @evaluate@ forces the IO action to run *now*.
+            -- The payload is a zero-copy slice of the recv ring
+            -- buffer; the buffer is reused on the next
+            -- 'recvBufferRead' (compaction overwrites the bytes),
+            -- so any slice we hand off to a long-lived queue
+            -- silently becomes the next frame's bytes.
+            --
+            -- 'BS.copy' would seem to be the fix, but it wraps
+            -- 'unsafeDupablePerformIO': a plain @BS.copy payload@
+            -- forces only the 'PS' wrapper, and the memcpy itself
+            -- stays thunked until the bytes are inspected -- which
+            -- is *after* the recv buffer has been overwritten.  We
+            -- need an eager byte-walking copy to materialise the
+            -- bytes now.
+            copied <- forceCopyBS payload
+            atomically $ writeTBQueue (siBody inbox) (BodyChunk copied)
             if endStream
               then do
                 _ <- tryPutMVar (siTrailers inbox) []
@@ -531,7 +577,13 @@ failOutstanding handle = do
 sendRequest :: ClientHandle -> ClientRequest -> IO ClientResponse
 sendRequest handle req = do
   (sid, inbox) <- registerAndSend handle req
-  headersResult <- takeMVar (siHeaders inbox)
+  -- 'readMVar' rather than 'takeMVar': leaving the headers in the
+  -- MVar is how 'deliverHeaders' distinguishes the initial HEADERS
+  -- block from the trailer block (via @tryPutMVar siHeaders@,
+  -- which only succeeds while the MVar is empty).  'takeMVar'
+  -- would empty the slot and the next HEADERS frame on the
+  -- stream would be silently re-classified as initial.
+  headersResult <- readMVar (siHeaders inbox)
   case headersResult of
     Left err -> throwIO err
     Right rh -> pure ClientResponse
@@ -570,7 +622,9 @@ withResponse handle req action = mask $ \restore -> do
           atomically $ writeTBQueue (siBody inbox) (BodyError reason)
           closeStream handle sid
   result <- try @SomeException $ restore $ do
-    headersResult <- takeMVar (siHeaders inbox)
+    -- See note on 'readMVar' in 'sendRequest': 'takeMVar' would
+    -- empty the slot and break trailer-block detection.
+    headersResult <- readMVar (siHeaders inbox)
     case headersResult of
       Left err -> throwIO err
       Right rh -> action ClientResponse
@@ -583,6 +637,26 @@ withResponse handle req action = mask $ \restore -> do
   case result of
     Left e -> throwIO e
     Right r -> pure r
+
+-- | Eager byte-for-byte copy of a 'ByteString'.  Used to defang
+-- zero-copy slices that share memory with the recv ring buffer
+-- before they're stashed in long-lived per-stream queues.
+--
+-- This explicitly walks every byte so the underlying memcpy
+-- happens /now/ rather than being deferred behind a lazy
+-- 'unsafeDupablePerformIO' wrapper.  Bytestring's 'BS.copy' is
+-- not safe here: under inlining the byte fetch can be hoisted
+-- past the buffer-overwrite that motivated the copy in the
+-- first place.
+forceCopyBS :: ByteString -> IO ByteString
+forceCopyBS (BSI.PS srcFp srcOff srcLen) = do
+  dstFp <- BSI.mallocByteString srcLen
+  withForeignPtr srcFp $ \src ->
+    withForeignPtr dstFp $ \dst ->
+      BSI.memcpy dst (src `plusPtr` srcOff) srcLen
+  let !result = BSI.PS dstFp 0 srcLen
+  -- Walk every byte once to materialise the memcpy synchronously.
+  BS.foldr' (\b acc -> b `seq` acc) () result `seq` pure result
 
 -- | Send an @RST_STREAM@ frame for the given stream ID.
 sendRstStream :: ClientHandle -> StreamId -> ErrorCode -> IO ()

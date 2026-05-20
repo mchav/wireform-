@@ -22,6 +22,8 @@ import Network.Socket (Socket)
 import qualified Network.Socket as NS
 
 import qualified Data.ByteString.Internal as BSI
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (plusPtr)
 
 import Data.Bits ((.|.), (.&.), shiftL)
 import qualified Data.Map.Strict as Map
@@ -510,10 +512,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
         -- Start a CONTINUATION sequence: buffer this frame's
         -- payload, expect zero or more CONTINUATION frames on the
         -- same stream, terminated by one with END_HEADERS.
+        -- See note on 'forceCopyBS' -- the recv buffer reuses
+        -- memory across frames so we must materialise a copy
+        -- eagerly.
+        copiedBody <- forceCopyBS body
         writeIORef contRef (Just (Continuation
           { contStreamId = fhStreamId hdr
           , contInitialFlags = fhFlags hdr
-          , contBuffer = body
+          , contBuffer = copiedBody
           }))
         pure True
     | otherwise -> do
@@ -679,9 +685,20 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
               -- replenished lazily in 'makeRequestBody' when the
               -- handler actually consumes a chunk, so a slow handler
               -- back-pressures the peer naturally.
-              when (not (BS.null payload)) $
+              -- The payload is a zero-copy slice of the recv ring
+              -- buffer; the buffer reuses its memory on subsequent
+              -- 'recvBufferRead' calls, so we copy before stashing
+              -- in the long-lived per-stream queue.  Without the
+              -- copy, the slice silently becomes the next frame's
+              -- bytes once the buffer is compacted / overwritten.
+              -- 'BS.copy' alone isn't enough -- it wraps an
+              -- 'unsafeDupablePerformIO' that can defer the memcpy
+              -- past the buffer overwrite.  'forceCopyBS' walks the
+              -- bytes synchronously.
+              when (not (BS.null payload)) $ do
+                copied <- forceCopyBS payload
                 atomically $
-                  writeTBQueue (srBodyQueue sr) (BodyChunkBytes payload)
+                  writeTBQueue (srBodyQueue sr) (BodyChunkBytes copied)
               when endStream $ do
                 -- No trailer block follows -- resolve the trailers
                 -- MVar with [] and push the body terminator.
@@ -767,7 +784,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
             handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef
               (Frame synthHdr (FramePayloadRaw assembled))
         | otherwise -> do
-            writeIORef contRef (Just c { contBuffer = contBuffer c <> body })
+            copiedBody <- forceCopyBS body
+            writeIORef contRef (Just c { contBuffer = contBuffer c <> copiedBody })
             pure True
 
   FramePushPromise -> do
@@ -778,6 +796,22 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
   FrameUnknown _ -> pure True  -- RFC 9113 §4.1: unknown frame types MUST be ignored
 
 -- | Send a stream-scoped RST_STREAM with the given error code.
+-- | Eager byte-for-byte copy of a 'ByteString' — see the matching
+-- helper in "Network.HTTP2.Client" for the long explanation.  In
+-- short: 'BS.copy' is too lazy under inlining; the memcpy can be
+-- deferred past the recv-buffer overwrite, and any slice we hand
+-- off to a long-lived structure silently becomes the next frame's
+-- bytes.  This walks every byte to make the materialisation
+-- synchronous.
+forceCopyBS :: ByteString -> IO ByteString
+forceCopyBS (BSI.PS srcFp srcOff srcLen) = do
+  dstFp <- BSI.mallocByteString srcLen
+  withForeignPtr srcFp $ \src ->
+    withForeignPtr dstFp $ \dst ->
+      BSI.memcpy dst (src `plusPtr` srcOff) srcLen
+  let !result = BSI.PS dstFp 0 srcLen
+  BS.foldr' (\b acc -> b `seq` acc) () result `seq` pure result
+
 sendRstStream :: Connection -> StreamId -> ErrorCode -> IO ()
 sendRstStream conn sid code =
   sendFrame conn $ Frame
