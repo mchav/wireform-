@@ -189,6 +189,18 @@ handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
             -- 'serverAllowConnect' if you really want this.
             sendErrorResponse conn MethodNotAllowed
           Right (req0, framing) -> do
+            -- RFC 9110 §10.1.1: if the client said
+            -- @Expect: 100-continue@, the server MUST either send
+            -- 100 Continue or a final response *before* the client
+            -- starts streaming the body.  Auto-acknowledge here so
+            -- handlers don't have to worry about the dance.  We
+            -- only honour the directive for HTTP/1.1 (RFC 9112
+            -- §9.1); 1.0 has no 100-continue concept.
+            case findExpect (requestHeaders req0) of
+              Just v
+                | requestVersion req0 == HTTP_1_1
+                , isContinueExpect v -> sendInterim conn
+              _ -> pure ()
             body <- readBody conn framing
             let req = req0 { requestBody = body }
             r <- try @SomeException $ do
@@ -349,6 +361,29 @@ streamRaw conn producer = loop
 ------------------------------------------------------------------------
 -- Errors / framing decisions
 ------------------------------------------------------------------------
+
+-- | Case-insensitive @"100-continue"@ check for an @Expect:@ value.
+-- Trims a single trailing OWS character; the parser already strips
+-- enclosing whitespace so we only need to be tolerant about the
+-- common @"100-continue "@ variant.
+isContinueExpect :: BS.ByteString -> Bool
+isContinueExpect bs = BS.map asciiLower (trim bs) == "100-continue"
+  where
+    trim s = case BS.unsnoc s of
+      Just (rest, w) | w == 0x20 || w == 0x09 -> trim rest
+      _ -> s
+    asciiLower w
+      | w >= 0x41 && w <= 0x5A = w + 0x20
+      | otherwise              = w
+
+-- | Emit a bare @HTTP/1.1 100 Continue\\r\\n\\r\\n@.  We bypass the
+-- full response encoder because the interim response carries no
+-- headers and no body and must not affect the surrounding
+-- request \/ response framing.
+sendInterim :: Connection -> IO ()
+sendInterim conn =
+  (tSendAll (connectionTransport conn) "HTTP/1.1 100 Continue\r\n\r\n")
+    `catch` (\(_ :: SomeException) -> pure ())
 
 -- | Send a static error response after a parse failure. Always closes
 -- the connection because at that point our reader is desynced from the

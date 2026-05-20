@@ -40,6 +40,7 @@ module Network.HTTP.Client
   , withClient
     -- * Sending requests
   , sendRequest
+  , withResponse
     -- * Errors
   , ClientError (..)
   ) where
@@ -165,26 +166,53 @@ sendRequest (Http1Client conn ver) req = do
     Right resp -> pure (Conv.fromHttp1Response resp)
 
 sendRequest (Http2Client handle _) req = do
-  let h2req = H2.ClientRequest
-        { H2.crMethod    = U.fromMethod (requestMethod req)
-        , H2.crPath      = requestTarget req
-        , H2.crScheme    = case requestScheme req of
-            SchemeHttp  -> "http"
-            SchemeHttps -> "https"
-        , H2.crAuthority = maybe "" id (requestAuthority req)
-        , H2.crHeaders   = Conv.toHttp2Headers (requestHeaders req)
-        , H2.crBody      = case requestBody req of
-            U.BodyEmpty    -> H2.ReqBodyNone
-            U.BodyBytes bs -> H2.ReqBodyBytes bs
-            U.BodyStream p -> H2.ReqBodyStream p
-        }
-  h2resp <- H2.sendRequest handle h2req
-  pure Response
-    { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
-    , responseVersion = U.HTTP2
-    , responseHeaders = Conv.fromHttp2Headers (H2.crResponseHeaders h2resp)
-    , responseBody    = U.BodyStream (H2.crResponseBody h2resp)
-    , responseTrailers = Conv.fromHttp2Headers <$> H2.crResponseTrailers h2resp
+  h2resp <- H2.sendRequest handle (clientRequestToH2 req)
+  pure (h2ResponseToUnified h2resp)
+
+-- | Bracket-style request that cancels the underlying stream if the
+-- action throws (HTTP\/2) or closes the connection if the action
+-- throws on HTTP\/1.x.  Use this whenever the caller might bail
+-- mid-request (timeouts, racing requests, cooperative cancellation).
+--
+-- For HTTP\/2 we emit @RST_STREAM(CANCEL)@ to the peer on abnormal
+-- exit, so a cancelled download stops costing bandwidth.  For
+-- HTTP\/1.x there's no per-stream cancellation; if the action
+-- throws we let the exception propagate and the surrounding
+-- 'withClient' bracket closes the connection.
+withResponse :: Client -> Request -> (Response -> IO a) -> IO a
+withResponse (Http1Client conn ver) req action = do
+  let req1 = (Conv.toHttp1Request req) { H1.requestVersion = Conv.toHttp1Version ver }
+  result <- H1.sendRequestOn conn req1
+  case result of
+    Left err   -> throwIO (ClientParseError err)
+    Right resp -> action (Conv.fromHttp1Response resp)
+withResponse (Http2Client handle _) req action = do
+  let h2req = clientRequestToH2 req
+  H2.withResponse handle h2req $ \h2resp ->
+    action (h2ResponseToUnified h2resp)
+
+clientRequestToH2 :: Request -> H2.ClientRequest
+clientRequestToH2 req = H2.ClientRequest
+  { H2.crMethod    = U.fromMethod (requestMethod req)
+  , H2.crPath      = requestTarget req
+  , H2.crScheme    = case requestScheme req of
+      SchemeHttp  -> "http"
+      SchemeHttps -> "https"
+  , H2.crAuthority = maybe "" id (requestAuthority req)
+  , H2.crHeaders   = Conv.toHttp2Headers (requestHeaders req)
+  , H2.crBody      = case requestBody req of
+      U.BodyEmpty    -> H2.ReqBodyNone
+      U.BodyBytes bs -> H2.ReqBodyBytes bs
+      U.BodyStream p -> H2.ReqBodyStream p
+  }
+
+h2ResponseToUnified :: H2.ClientResponse -> Response
+h2ResponseToUnified h2resp = Response
+  { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
+  , responseVersion = U.HTTP2
+  , responseHeaders = Conv.fromHttp2Headers (H2.crResponseHeaders h2resp)
+  , responseBody    = U.BodyStream (H2.crResponseBody h2resp)
+  , responseTrailers = Conv.fromHttp2Headers <$> H2.crResponseTrailers h2resp
       -- Body + trailers are both pull-shaped; both are only valid
       -- for the lifetime of the surrounding 'withClient' bracket --
       -- consume them before exiting.

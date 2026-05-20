@@ -12,6 +12,7 @@ module Network.HTTP2.Client
     -- * Requests
   , sendRequest
   , sendRequestStreamId
+  , withResponse
   , drainResponseBody
     -- * Errors
   , ClientStreamError (..)
@@ -23,7 +24,9 @@ module Network.HTTP2.Client
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Exception (Exception, bracket, finally, throwIO)
+import Control.Exception
+  (Exception, SomeException, bracket, catch, finally, mask, throwIO, try)
+import Control.Monad (when)
 import Data.Bits ((.|.), (.&.), shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -155,6 +158,11 @@ data ClientHandle = ClientHandle
   , chRecvUnacked :: !(IORef Int)
     -- ^ Connection-level recv-window debt (bytes received and
     -- consumed since the last connection-level @WINDOW_UPDATE@).
+  , chActiveStreams :: !(TVar Int)
+    -- ^ Count of streams the application has opened that haven't
+    -- yet reached @END_STREAM@ \/ @RST_STREAM@ \/ connection close.
+    -- 'registerAndSend' blocks here when the count is at the peer's
+    -- @SETTINGS_MAX_CONCURRENT_STREAMS@.
   }
 
 -- | When per-stream or connection-level unacked bytes cross this
@@ -214,7 +222,8 @@ withConnectionOnTransport cfg transport mSock action = do
   streamsRef <- newIORef Map.empty
   pendingRef <- newIORef Nothing
   recvUnackedRef <- newIORef 0
-  let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef
+  activeStreamsTv <- atomically (newTVar 0)
+  let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef activeStreamsTv
   _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
   action handle `finally` closeConnection conn NoError ""
 
@@ -379,7 +388,7 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
               then do
                 _ <- tryPutMVar (siTrailers inbox) []
                 atomically $ writeTBQueue (siBody inbox) BodyEnd
-                modifyIORef' (chStreams handle) (Map.delete sid)
+                removeStream handle sid
               else pure ()
             pure True
 
@@ -419,7 +428,7 @@ deliverHeaders handle sid flags block = do
                 -- body terminator, and release the stream.
                 _ <- tryPutMVar (siTrailers inbox) []
                 atomically $ writeTBQueue (siBody inbox) BodyEnd
-                modifyIORef' (chStreams handle) (Map.delete sid)
+                removeStream handle sid
             else do
               -- Trailer block: RFC 9113 §8.1 forbids pseudo-headers
               -- here, but a strict reject would conflict with too
@@ -432,7 +441,7 @@ deliverHeaders handle sid flags block = do
               -- peer is malformed).  Either way, push the body
               -- terminator and release the stream.
               atomically $ writeTBQueue (siBody inbox) BodyEnd
-              modifyIORef' (chStreams handle) (Map.delete sid)
+              removeStream handle sid
           pure True
 
 splitStatus
@@ -457,15 +466,19 @@ failStream handle sid err = do
       _ <- tryPutMVar (siHeaders inbox) (Left err)
       _ <- tryPutMVar (siTrailers inbox) []
       atomically $ writeTBQueue (siBody inbox) (BodyError err)
-      modifyIORef' (chStreams handle) (Map.delete sid)
+      removeStream handle sid
 
 -- | When the connection terminates, mark every outstanding stream as
 -- 'ClientStreamConnectionClosed' so that blocked callers wake up.
+-- The active-stream counter is reset to zero so any 'registerAndSend'
+-- waiters wake (they will then observe the closed connection and
+-- fail on their own).
 failOutstanding :: ClientHandle -> IO ()
 failOutstanding handle = do
   inboxes <- readIORef (chStreams handle)
   mapM_ failOne (Map.toList inboxes)
   writeIORef (chStreams handle) Map.empty
+  atomically $ writeTVar (chActiveStreams handle) 0
   where
     failOne (_, inbox) = do
       _ <- tryPutMVar (siHeaders inbox) (Left ClientStreamConnectionClosed)
@@ -482,9 +495,15 @@ failOutstanding handle = do
 -- decoded; the response body streams in lazily via
 -- @'crResponseBody'@.  Throws 'ClientStreamError' if the stream is
 -- reset (or the connection drops) before the headers arrive.
+--
+-- 'sendRequest' is fire-and-forget on the request side: if the
+-- caller is interrupted before the response is fully consumed, the
+-- stream is left half-open and the peer keeps streaming until the
+-- connection closes.  Use 'withResponse' to get RST_STREAM-on-abort
+-- cancellation semantics.
 sendRequest :: ClientHandle -> ClientRequest -> IO ClientResponse
 sendRequest handle req = do
-  (_sid, inbox) <- registerAndSend handle req
+  (sid, inbox) <- registerAndSend handle req
   headersResult <- takeMVar (siHeaders inbox)
   case headersResult of
     Left err -> throwIO err
@@ -494,6 +513,68 @@ sendRequest handle req = do
       , crResponseBody = nextBodyChunk handle sid inbox
       , crResponseTrailers = readMVar (siTrailers inbox)
       }
+
+-- | Bracket-style request that cancels the stream if the action is
+-- interrupted by an async (or sync) exception.
+--
+-- On exception we emit @RST_STREAM(CANCEL)@ to the peer and remove
+-- the stream's inbox.  Use this whenever the caller might bail
+-- mid-request (timeouts, racing several requests, cooperative
+-- cancellation) — the unified 'sendRequest' will leave streams
+-- dangling if interrupted.
+withResponse
+  :: ClientHandle
+  -> ClientRequest
+  -> (ClientResponse -> IO a)
+  -> IO a
+withResponse handle req action = mask $ \restore -> do
+  (sid, inbox) <- registerAndSend handle req
+  -- Cancel the stream if (a) the action raises an exception, or
+  -- (b) the action returns without fully draining the body.  Both
+  -- leave the stream in 'chStreams' (the recv loop only removes it
+  -- on END_STREAM / RST_STREAM); 'removeStream' is idempotent.
+  let cancelIfOpen reason = do
+        streams <- readIORef (chStreams handle)
+        when (Map.member sid streams) $ do
+          sendRstStream handle sid Cancel
+            `catch` (\(_ :: SomeException) -> pure ())
+          _ <- tryPutMVar (siHeaders inbox) (Left reason)
+          _ <- tryPutMVar (siTrailers inbox) []
+          atomically $ writeTBQueue (siBody inbox) (BodyError reason)
+          removeStream handle sid
+  result <- try @SomeException $ restore $ do
+    headersResult <- takeMVar (siHeaders inbox)
+    case headersResult of
+      Left err -> throwIO err
+      Right rh -> action ClientResponse
+        { crStatus = rhStatus rh
+        , crResponseHeaders = rhHeaders rh
+        , crResponseBody = nextBodyChunk handle sid inbox
+        , crResponseTrailers = readMVar (siTrailers inbox)
+        }
+  cancelIfOpen ClientStreamConnectionClosed
+  case result of
+    Left e -> throwIO e
+    Right r -> pure r
+
+-- | Send an @RST_STREAM@ frame for the given stream ID.
+sendRstStream :: ClientHandle -> StreamId -> ErrorCode -> IO ()
+sendRstStream handle sid code =
+  sendFrame (chConnection handle) $ Frame
+    (FrameHeader 4 FrameRSTStream 0 sid)
+    (RSTStreamFrame code)
+
+-- | Remove a stream from the active map and (if it was present)
+-- decrement the active-stream count so the next 'registerAndSend'
+-- can proceed.  Idempotent.
+removeStream :: ClientHandle -> StreamId -> IO ()
+removeStream handle sid = do
+  wasPresent <- atomicModifyIORef' (chStreams handle) $ \m ->
+    if Map.member sid m
+      then (Map.delete sid m, True)
+      else (m, False)
+  when wasPresent $
+    atomically $ modifyTVar' (chActiveStreams handle) (\n -> n - 1)
 
 -- | Pull one chunk of the response body and replenish the recv
 -- windows that the chunk consumed.
@@ -583,7 +664,20 @@ registerAndSend
   :: ClientHandle -> ClientRequest -> IO (StreamId, StreamInbox)
 registerAndSend handle req = do
   let conn = chConnection handle
+  -- Honour the peer's SETTINGS_MAX_CONCURRENT_STREAMS by waiting
+  -- (via STM retry) until the active-stream count drops below the
+  -- limit.  Snapshot the limit out of the IORef first because we
+  -- can't do IO inside STM.
+  remoteMax <- settingsMaxConcurrentStreams <$> readIORef (connRemoteSettings conn)
   sid <- atomically $ do
+    case remoteMax of
+      Just m -> do
+        active <- readTVar (chActiveStreams handle)
+        if active >= fromIntegral m
+          then retry
+          else pure ()
+      Nothing -> pure ()
+    modifyTVar' (chActiveStreams handle) (+ 1)
     streams <- readTVar (stNextStreamId (connStreamTable conn))
     writeTVar (stNextStreamId (connStreamTable conn)) (streams + 2)
     pure streams
