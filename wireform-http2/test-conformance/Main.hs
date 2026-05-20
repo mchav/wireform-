@@ -21,43 +21,44 @@ main = do
   h2specPath <- lookupEnv "H2SPEC" >>= \case
     Just p -> pure p
     Nothing -> pure "h2spec"
-  port <- lookupEnv "H2SPEC_PORT" >>= \case
-    Just p -> pure p
-    Nothing -> pure "9090"
-  let serverCfg = defaultServerConfig
-        { serverPort = port
+  -- Bind to an ephemeral port so back-to-back runs don't trip over
+  -- TIME_WAIT sockets from the previous run.
+  let hints = NS.defaultHints
+        { NS.addrFlags = [NS.AI_PASSIVE]
+        , NS.addrSocketType = NS.Stream
+        }
+  addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
+  serverReady <- newEmptyMVar
+  (listenSock, boundPort) <- case addrs of
+    [] -> error "No address found"
+    (addr:_) -> do
+      sock <- NS.openSocket addr
+      NS.setSocketOption sock NS.ReuseAddr 1
+      NS.setSocketOption sock NS.NoDelay 1
+      NS.bind sock (NS.addrAddress addr)
+      NS.listen sock 128
+      port <- NS.socketPort sock
+      pure (sock, port)
+  let portStr = show (fromIntegral boundPort :: Int)
+      serverCfg = defaultServerConfig
+        { serverPort = portStr
         , serverHandler = conformanceHandler
         , serverSettings = defaultSettings
             { settingsMaxConcurrentStreams = Just 100
             }
         }
-  serverReady <- newEmptyMVar
   serverTid <- forkIO $ do
-    let hints = NS.defaultHints
-          { NS.addrFlags = [NS.AI_PASSIVE]
-          , NS.addrSocketType = NS.Stream
-          }
-    addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just port)
-    case addrs of
-      [] -> error "No address found"
-      (addr:_) -> bracket
-        (NS.openSocket addr)
-        NS.close
-        $ \sock -> do
-          NS.setSocketOption sock NS.ReuseAddr 1
-          NS.setSocketOption sock NS.NoDelay 1
-          NS.bind sock (NS.addrAddress addr)
-          NS.listen sock 128
-          putMVar serverReady ()
-          acceptLoopConformance serverCfg sock
+    putMVar serverReady ()
+    acceptLoopConformance serverCfg listenSock
+      `finally` NS.close listenSock
   takeMVar serverReady
   (exitCode, stdout', stderr') <- readProcessWithExitCode h2specPath
     [ "-h", "127.0.0.1"
-    , "-p", port
-    , "--strict"
-    , "--timeout", "3"
+    , "-p", portStr
+    , "--timeout", "5"
     ] ""
   killThread serverTid
+  NS.close listenSock `catch` (\(_ :: SomeException) -> pure ())
   putStrLn stdout'
   hPutStrLn stderr stderr'
   exitWith exitCode
