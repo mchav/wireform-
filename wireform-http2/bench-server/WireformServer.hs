@@ -38,8 +38,10 @@ main = do
       $ \sock -> do
         NS.setSocketOption sock NS.ReuseAddr 1
         NS.setSocketOption sock NS.NoDelay 1
+        NS.setSocketOption sock NS.RecvBuffer 262144
+        NS.setSocketOption sock NS.SendBuffer 262144
         NS.bind sock (NS.addrAddress addr)
-        NS.listen sock 1024
+        NS.listen sock 4096
         putStrLn $ "wireform-http2 server listening on port " <> port
         acceptLoop sock
 
@@ -47,6 +49,8 @@ acceptLoop :: Socket -> IO ()
 acceptLoop listenSock = do
   (clientSock, _) <- NS.accept listenSock
   NS.setSocketOption clientSock NS.NoDelay 1
+  NS.setSocketOption clientSock NS.RecvBuffer 262144
+  NS.setSocketOption clientSock NS.SendBuffer 262144
   _ <- forkIO $ handleClient clientSock
     `catch` (\(_ :: SomeException) -> NS.close clientSock)
   acceptLoop listenSock
@@ -94,12 +98,12 @@ handleFrame conn hdr payload = case payload of
   SettingsFrame _
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrame conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+        sendFrameUnlocked conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
 
   PingFrame opaqueData
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrame conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
+        sendFrameUnlocked conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
 
   WindowUpdateFrame _ -> pure ()
 
@@ -115,7 +119,7 @@ handleFrame conn hdr payload = case payload of
   DataFrame _ -> do
     let len = fhLength hdr
     if len > 0
-      then sendFrame conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
+      then sendFrameUnlocked conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
       else pure ()
 
   GoAwayFrame _ _ _ -> pure ()
@@ -128,8 +132,8 @@ sendResponse conn sid = do
   -- Real HPACK encode with dynamic table
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder
     [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
-  -- Batch both frames into one syscall
-  sendFrames conn
+  -- Batch both frames into one writev syscall, no lock needed (single-threaded loop)
+  sendFramesUnlocked conn
     [ Frame (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
     , Frame (FrameHeader 13 FrameData flagEndStream sid)

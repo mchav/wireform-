@@ -5,7 +5,9 @@ module Network.HTTP2.Connection
   , ConnectionError (..)
   , newConnection
   , sendFrame
+  , sendFrameUnlocked
   , sendFrames
+  , sendFramesUnlocked
   , recvFrame
   , closeConnection
   , connectionSettings
@@ -106,12 +108,24 @@ sendFrame conn frame = do
   withMVar (connSendLock conn) $ \_ ->
     NBS.sendAll (connSocket conn) bs
 
+-- | Send a frame without acquiring the send lock.
+-- Only safe when the caller is the sole writer (e.g. single-threaded connection loop).
+{-# INLINE sendFrameUnlocked #-}
+sendFrameUnlocked :: Connection -> Frame -> IO ()
+sendFrameUnlocked conn frame = NBS.sendAll (connSocket conn) (encodeFrame frame)
+
 -- | Send multiple frames in a single write (reduces syscall overhead).
 sendFrames :: Connection -> [Frame] -> IO ()
 sendFrames conn frames = do
   let bss = map encodeFrame frames
   withMVar (connSendLock conn) $ \_ ->
     NBS.sendMany (connSocket conn) bss
+
+-- | Send multiple frames without the send lock. Combines into one writev.
+{-# INLINE sendFramesUnlocked #-}
+sendFramesUnlocked :: Connection -> [Frame] -> IO ()
+sendFramesUnlocked conn frames =
+  NBS.sendMany (connSocket conn) (map encodeFrame frames)
 
 recvFrame :: Connection -> IO (Either FrameDecodeError Frame)
 recvFrame conn = do
