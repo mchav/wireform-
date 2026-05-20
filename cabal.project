@@ -33,6 +33,7 @@ packages:
   wireform-fory/
   wireform-http1/
   wireform-http2/
+  wireform-http/
   wireform-grpc/
   wireform-kafka/
   wireform-stats/
