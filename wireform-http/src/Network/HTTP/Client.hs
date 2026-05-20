@@ -175,11 +175,9 @@ sendRequest (Http2Client handle _) req = do
         , H2.crAuthority = maybe "" id (requestAuthority req)
         , H2.crHeaders   = Conv.toHttp2Headers (requestHeaders req)
         , H2.crBody      = case requestBody req of
-            U.BodyEmpty    -> Nothing
-            U.BodyBytes bs -> Just bs
-            U.BodyStream _ -> Nothing
-              -- TODO: streaming request bodies on HTTP/2 still need
-              -- the per-stream DATA frame pump.
+            U.BodyEmpty    -> H2.ReqBodyNone
+            U.BodyBytes bs -> H2.ReqBodyBytes bs
+            U.BodyStream p -> H2.ReqBodyStream p
         }
   h2resp <- H2.sendRequest handle h2req
   pure Response

@@ -3,6 +3,7 @@ module Network.HTTP2.Client
   , defaultClientConfig
   , ClientRequest (..)
   , ClientResponse (..)
+  , RequestBody (..)
     -- * Connection
   , ClientHandle
   , clientHandleConnection
@@ -56,8 +57,21 @@ data ClientRequest = ClientRequest
   , crScheme :: !ByteString
   , crAuthority :: !ByteString
   , crHeaders :: ![(ByteString, ByteString)]
-  , crBody :: !(Maybe ByteString)
+  , crBody :: !RequestBody
   }
+
+-- | Outbound request body.
+--
+-- @ReqBodyStream@ is a pull producer that yields chunks until it
+-- returns 'Nothing'. The client splits each chunk to the peer's
+-- @SETTINGS_MAX_FRAME_SIZE@ and blocks on the connection-level
+-- send flow-control window (HTTP\/2 §6.9) before pushing each
+-- DATA frame; back-pressure on the peer back-propagates to the
+-- producer naturally.
+data RequestBody
+  = ReqBodyNone
+  | ReqBodyBytes !ByteString
+  | ReqBodyStream !(IO (Maybe ByteString))
 
 data ClientResponse = ClientResponse
   { crStatus :: !Int
@@ -417,22 +431,93 @@ registerAndSend handle req = do
         ]
       allHeaders = pseudoHeaders <> crHeaders req
   headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
-  let endStream = case crBody req of
-        Nothing -> True
-        Just _ -> False
-      flags = flagEndHeaders .|. if endStream then flagEndStream else 0
+  let bodyKind = crBody req
+      endStreamOnHeaders = case bodyKind of
+        ReqBodyNone -> True
+        ReqBodyBytes bs -> BS.null bs
+        ReqBodyStream _ -> False
+      flags = flagEndHeaders .|. (if endStreamOnHeaders then flagEndStream else 0)
       headersFrame = Frame
         (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flags sid)
         (HeadersFrame Nothing headerBlock)
   sendFrame conn headersFrame
-  case crBody req of
-    Nothing -> pure ()
-    Just b -> do
-      let dataFrame = Frame
-            (FrameHeader (fromIntegral (BS.length b)) FrameData flagEndStream sid)
-            (DataFrame b)
-      sendFrame conn dataFrame
+  case bodyKind of
+    ReqBodyNone -> pure ()
+    ReqBodyBytes b
+      | BS.null b -> pure ()
+      | otherwise -> sendBodyOneShot conn sid b
+    ReqBodyStream producer -> sendBodyStream conn sid producer
   pure (sid, inbox)
+
+-- | Send a known-length body in a single DATA frame (chunked to the
+-- peer's MAX_FRAME_SIZE), terminating with END_STREAM.  The
+-- connection-level flow window is respected.
+sendBodyOneShot :: Connection -> StreamId -> ByteString -> IO ()
+sendBodyOneShot conn sid b = do
+  maxFrame <- peerMaxFrameSize conn
+  loop b maxFrame
+  where
+    loop bs maxFrame
+      | BS.length bs <= maxFrame = sendDataFrame conn sid True bs
+      | otherwise = do
+          let (chunk, rest) = BS.splitAt maxFrame bs
+          sendDataFrame conn sid False chunk
+          loop rest maxFrame
+
+-- | Pump a streaming-body producer onto the wire as a sequence of DATA
+-- frames, terminated by an empty DATA + END_STREAM.  Each chunk is
+-- split to the peer's MAX_FRAME_SIZE and gated on the connection-level
+-- send flow window.
+sendBodyStream
+  :: Connection -> StreamId -> IO (Maybe ByteString) -> IO ()
+sendBodyStream conn sid producer = loop
+  where
+    loop = do
+      mChunk <- producer
+      case mChunk of
+        Nothing -> sendDataFrame conn sid True BS.empty
+        Just bs
+          | BS.null bs -> loop
+          | otherwise -> do
+              maxFrame <- peerMaxFrameSize conn
+              sendChunkChopped conn sid bs maxFrame
+              loop
+
+sendChunkChopped :: Connection -> StreamId -> ByteString -> Int -> IO ()
+sendChunkChopped conn sid bs maxFrame
+  | BS.null bs = pure ()
+  | BS.length bs <= maxFrame = sendDataFrame conn sid False bs
+  | otherwise = do
+      let (chunk, rest) = BS.splitAt maxFrame bs
+      sendDataFrame conn sid False chunk
+      sendChunkChopped conn sid rest maxFrame
+
+-- | Send one DATA frame, blocking until the connection-level send
+-- flow window has room (HTTP\/2 §6.9).  Splits oversized frames
+-- with the caller; we just sit on the wire window here.
+sendDataFrame :: Connection -> StreamId -> Bool -> ByteString -> IO ()
+sendDataFrame conn sid endStream bs = do
+  let n = BS.length bs
+  -- An empty terminator DATA frame doesn't consume flow window.
+  if n == 0
+    then sendIt
+    else do
+      atomically $ do
+        ok <- consumeWindow (connSendFlowControl conn) (fromIntegral n)
+        if ok then pure () else retry
+      sendIt
+  where
+    sendIt = sendFrame conn $ Frame
+      (FrameHeader (fromIntegral (BS.length bs)) FrameData
+        (if endStream then flagEndStream else 0) sid)
+      (DataFrame bs)
+
+peerMaxFrameSize :: Connection -> IO Int
+peerMaxFrameSize conn = do
+  s <- readIORef (connRemoteSettings conn)
+  -- The peer-advertised value is a Word32; we clamp to Int range
+  -- (the protocol minimum / maximum are both well below 2^31).
+  pure (fromIntegral (settingsMaxFrameSize s))
 
 drainBody :: TBQueue BodyItem -> IO ByteString
 drainBody q = go []

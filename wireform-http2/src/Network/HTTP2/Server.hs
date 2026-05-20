@@ -181,8 +181,16 @@ data StreamRec = StreamRec
     -- ^ Declared @content-length@ for the request body, if any.
   , srReceivedBytes :: !Int
     -- ^ DATA bytes received so far (excluding padding).
+  , srBodyQueue :: !(TBQueue BodyChunkItem)
+    -- ^ Per-stream inbox for the request body.  Each DATA frame's
+    -- payload becomes a 'BodyChunkBytes'; 'BodyChunkEnd' marks the
+    -- final END_STREAM and is re-queued by the reader so subsequent
+    -- 'requestBody' calls keep returning the empty 'ByteString'.
   }
-  deriving stock (Show)
+
+data BodyChunkItem
+  = BodyChunkBytes !ByteString
+  | BodyChunkEnd
 
 data ServerStreamState
   = StOpen
@@ -190,8 +198,23 @@ data ServerStreamState
   | StClosedSrv
   deriving stock (Eq, Show)
 
-freshStream :: Maybe Int -> ServerStreamState -> StreamRec
-freshStream el st = StreamRec st el 0
+freshStream :: Maybe Int -> ServerStreamState -> IO StreamRec
+freshStream el st = do
+  q <- atomically $ newTBQueue 64
+  pure $ StreamRec st el 0 q
+
+-- | Pull the next request-body chunk from a stream's body queue.
+-- Returns 'BS.empty' once END_STREAM has been delivered; subsequent
+-- calls keep returning empty (we re-queue the end marker so
+-- defensive readers don't deadlock).
+makeRequestBody :: TBQueue BodyChunkItem -> IO ByteString
+makeRequestBody q = do
+  item <- atomically $ readTBQueue q
+  case item of
+    BodyChunkBytes bs -> pure bs
+    BodyChunkEnd -> do
+      atomically $ writeTBQueue q BodyChunkEnd
+      pure BS.empty
 
 -- | Receive exactly @n@ bytes from a 'Transport'. Used only to read the
 -- connection preface; the per-connection 'RecvBuffer' takes over after.
@@ -420,6 +443,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             closeConnection conn ProtocolError "pseudo-header in trailers"
                             pure False
                         | otherwise -> do
+                            -- Trailer block: deliver END_STREAM to the
+                            -- request-body queue regardless of the
+                            -- content-length check outcome.
+                            streamsNow <- readIORef streamsRef
+                            case Map.lookup sid streamsNow of
+                              Just sr -> atomically $
+                                writeTBQueue (srBodyQueue sr) BodyChunkEnd
+                              Nothing -> pure ()
                             checkContentLength sid streamsRef >>= \case
                               Just _ -> do
                                 sendRstStream conn sid ProtocolError
@@ -463,8 +494,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             -- We still count this stream as seen so
                             -- the lastPeerStream marker advances.
                             writeIORef lastPeerStreamRef sid'
-                            modifyIORef' streamsRef
-                              (Map.insert sid' (freshStream Nothing StClosedSrv))
+                            refused <- freshStream Nothing StClosedSrv
+                            modifyIORef' streamsRef (Map.insert sid' refused)
                             pure True
                           _ -> do
                             writeIORef connLastSid sid'
@@ -472,18 +503,25 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             let endStream = testFlag flags flagEndStream
                                 newState = if endStream then StHalfClosedRemote else StOpen
                                 clHdr = lookupContentLength headers
-                            modifyIORef' streamsRef (Map.insert sid' (freshStream clHdr newState))
+                            rec0 <- freshStream clHdr newState
+                            -- If the body is already closed (no DATA
+                            -- frames to come), push the End marker
+                            -- now so the handler's 'requestBody'
+                            -- returns "" immediately.
+                            when endStream $
+                              atomically $ writeTBQueue (srBodyQueue rec0) BodyChunkEnd
+                            modifyIORef' streamsRef (Map.insert sid' rec0)
                             -- If the request has a content-length header
                             -- and END_STREAM on HEADERS, validate that
                             -- the declared length is 0.
                             if endStream && maybe False (/= 0) clHdr
                               then do
                                 sendRstStream conn sid' ProtocolError
-                                modifyIORef' streamsRef
-                                  (Map.insert sid' (freshStream Nothing StClosedSrv))
+                                rec1 <- freshStream Nothing StClosedSrv
+                                modifyIORef' streamsRef (Map.insert sid' rec1)
                                 pure True
                               else do
-                                let req = buildRequest sid' headers endStream
+                                let req = buildRequest sid' headers (srBodyQueue rec0)
                                 _ <- serverForkStream cfg $ do
                                   serverHandler cfg req $ \resp ->
                                     sendResponse conn sid' resp
@@ -523,6 +561,15 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                   newState = if endStream then StHalfClosedRemote else StOpen
               modifyIORef' streamsRef
                 (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
+              -- Hand the payload to the handler's request-body
+              -- consumer.  Empty DATA frames are common terminators;
+              -- only push non-empty chunks.
+              when (not (BS.null payload)) $
+                atomically $
+                  writeTBQueue (srBodyQueue sr) (BodyChunkBytes payload)
+              when endStream $
+                atomically $
+                  writeTBQueue (srBodyQueue sr) BodyChunkEnd
               let len = fhLength hdr
               when (len > 0) $ do
                 sendFrame conn $ Frame
@@ -555,9 +602,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
           Nothing -> do
             closeConnection conn ProtocolError "RST_STREAM on idle stream"
             pure False
-          Just _ -> do
+          Just sr -> do
+            -- Wake any blocked body reader so the handler unblocks
+            -- (the wireform unified Body sees this as end-of-stream;
+            -- callers that need to distinguish abort vs clean end
+            -- can poll the connection state).
+            atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
             modifyIORef' streamsRef
-              (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
+              (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
             pure True
 
   FramePriority
@@ -760,8 +812,12 @@ stripPaddingAndPriority ft flags bs0 = do
       | BS.length bs >= 5 = Just (BS.drop 5 bs)
       | otherwise = Nothing
 
-buildRequest :: StreamId -> [(ByteString, ByteString)] -> Bool -> Request
-buildRequest sid headers _endStream =
+buildRequest
+  :: StreamId
+  -> [(ByteString, ByteString)]
+  -> TBQueue BodyChunkItem
+  -> Request
+buildRequest sid headers bodyQ =
   let findHeader name = maybe "" id (lookup name headers)
   in Request
     { requestMethod = findHeader ":method"
@@ -769,7 +825,7 @@ buildRequest sid headers _endStream =
     , requestScheme = findHeader ":scheme"
     , requestAuthority = findHeader ":authority"
     , requestHeaders = filter (\(k, _) -> not (BS.isPrefixOf ":" k)) headers
-    , requestBody = pure ""
+    , requestBody = makeRequestBody bodyQ
     , requestStreamId = sid
     }
 
