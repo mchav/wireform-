@@ -32,6 +32,10 @@ module Network.HTTP1.Encode
   , encodeRequestHead
   , encodeResponseHead
 
+    -- * Pre-encoding
+  , precomputeResponse
+  , precomputeResponseEither
+
     -- * Direct decimal encoder (also useful from handlers)
   , wordDecBS
 
@@ -131,6 +135,67 @@ encodeResponseHead :: Response -> BS.ByteString
 encodeResponseHead = B.toStrictByteString . responseBuilder
 
 ------------------------------------------------------------------------
+-- Pre-encoding
+------------------------------------------------------------------------
+
+-- | Encode a 'Response' down to wire bytes once and wrap them in a
+-- 'BodyPreEncoded' marker, so the server's send path emits the bytes
+-- with a single @send()@ on every request and never touches the
+-- encoder again.
+--
+-- This is the canonical idiom for static \/ semi-static responses
+-- (health checks, OPTIONS preflights, hello-world fixtures): build
+-- the 'Response' you would have returned, hand it to
+-- 'precomputeResponse' /once/ at module init, and return the result
+-- from your 'Network.HTTP1.Server.Handler'. The
+-- 'Network.HTTP1.Server.runServer' machinery still does the
+-- 'Connection: close' \/ HEAD \/ keep-alive bookkeeping by inspecting
+-- the surrounding record's 'responseHeaders' and 'responseVersion'.
+--
+-- @
+-- staticOk :: Response
+-- staticOk = precomputeResponse $ Response
+--   { responseStatus  = OK
+--   , responseVersion = HTTP_1_1
+--   , responseHeaders =
+--       [ (\"Content-Type\", \"text\/plain\")
+--       , (\"Server\", \"my-app\")
+--       ]
+--   , responseBody = BodyBytes \"Hello, world!\\n\"
+--   }
+--
+-- handler :: Handler
+-- handler _ = pure staticOk
+-- @
+--
+-- 'BodyStream' bodies are not precomputable (their size is unknown
+-- ahead of time) — passing one throws. Use 'precomputeResponseEither'
+-- if you want the error as a 'Left'.
+precomputeResponse :: Response -> Response
+precomputeResponse r = case precomputeResponseEither r of
+  Right r' -> r'
+  Left msg -> error ("precomputeResponse: " <> msg)
+
+-- | Pure-error variant of 'precomputeResponse'. Returns
+-- @Left \"streaming body cannot be precomputed\"@ for a 'BodyStream'
+-- input.
+precomputeResponseEither :: Response -> Either String Response
+precomputeResponseEither r = case responseBody r of
+  BodyStream _ ->
+    Left "streaming body cannot be precomputed"
+  BodyPreEncoded _ ->
+    Right r  -- idempotent
+  body ->
+    let !headBs = encodeResponseHead r
+        !bodyBs = case body of
+          BodyEmpty -> BS.empty
+          BodyBytes bs -> bs
+          _ -> BS.empty  -- exhaustive: stream + preencoded handled above
+        !combined = headBs <> bodyBs
+        !pe = PreEncoded combined (BS.length headBs)
+    in Right r { responseBody = BodyPreEncoded pe }
+
+------------------------------------------------------------------------
 -- Header rendering
 ------------------------------------------------------------------------
 
@@ -170,6 +235,10 @@ augmentRequestHeaders meth ver hdrs body =
         BodyStream _
           | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
           | otherwise -> hdrs <> [("Connection", "close")]
+        BodyPreEncoded _ -> hdrs
+        -- ^ Doesn't really make sense for a request, but @Body@ is
+        -- shared between request and response. Treat as no-op: the
+        -- caller already knew what they were doing.
   where
     shouldAddZeroCL POST = True
     shouldAddZeroCL PUT  = True
@@ -188,6 +257,10 @@ augmentResponseHeaders st ver hdrs body
       BodyStream _
         | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
         | otherwise -> hdrs <> [("Connection", "close")]
+      BodyPreEncoded _ -> hdrs
+      -- ^ The precomputed bytes already carry whatever framing they
+      -- need; do not auto-inject anything if the caller round-trips
+      -- through 'responseBuilder' again (unusual but defensible).
   where
     hasCL = hHas "content-length" hdrs
     hasTE = hHas "transfer-encoding" hdrs

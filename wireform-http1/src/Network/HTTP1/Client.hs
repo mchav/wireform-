@@ -93,6 +93,11 @@ sendRequestOn (ClientConnection conn) req = do
     BodyEmpty -> pure ()
     BodyBytes bs -> if BS.null bs then pure () else sendBuilder conn (B.byteString bs)
     BodyStream producer -> streamChunked conn producer
+    BodyPreEncoded _ -> pure ()
+    -- ^ Pre-encoded request bodies are unusual but not nonsensical
+    -- (e.g. a pre-built JSON payload). The Body has already been
+    -- baked into the request bytes the user constructed; if they
+    -- wanted it sent here they should have used BodyBytes.
   -- Read the response head.
   mHead <- recvBufferReadUntilDoubleCRLF
              (connectionRecvBuffer conn)

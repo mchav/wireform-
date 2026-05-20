@@ -173,15 +173,17 @@ drainTrailers conn = loop
 -- Required when a handler returns early on a keep-alive connection —
 -- we have to consume the body so the next request lines up.
 drainBody :: Body -> IO ()
-drainBody BodyEmpty = pure ()
-drainBody (BodyBytes _) = pure ()
-drainBody (BodyStream producer) = loop
+drainBody = \case
+  BodyEmpty -> pure ()
+  BodyBytes _ -> pure ()
+  BodyPreEncoded _ -> pure ()
+  BodyStream producer -> loop producer
   where
-    loop = do
+    loop producer = do
       mc <- producer
       case mc of
         Nothing -> pure ()
-        Just _ -> loop
+        Just _ -> loop producer
 
 -- | Send a 'B.Builder' on the connection's socket. Goes through the
 -- pinned send buffer when the encoded size fits; falls back to

@@ -39,6 +39,7 @@ import Control.Exception (bracket, catch, SomeException, finally)
 import qualified Data.ByteString as BS
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
+import qualified Network.Socket.ByteString as NBS
 
 import qualified Wireform.Builder as B
 
@@ -65,7 +66,7 @@ data ServerConfig = ServerConfig
   , serverForkConnection :: IO () -> IO ThreadId
     -- ^ How to fork a new thread for each accepted connection. Default:
     -- 'forkIO'. Use 'Control.Concurrent.forkOn' for pinned-core
-    -- scheduling.
+    -- scheduling, which the bench-server demonstrates.
   , serverMaxHeaderBytes :: !Int
     -- ^ Cap on request head size (request line + headers + CRLFCRLF).
     -- h2o's default is 16 KiB; we use 32 KiB. Oversized heads get a
@@ -74,6 +75,15 @@ data ServerConfig = ServerConfig
     -- ^ If 'False', the server emits @Connection: close@ on every
     -- response and tears down after each request. Useful for tests
     -- and for unusual deployments.
+  , serverListenBacklog :: !Int
+    -- ^ TCP @listen()@ backlog. Default 1024. Raise to 4096+ for very
+    -- high accept rates.
+  , serverTcpDeferAcceptSecs :: !(Maybe Int)
+    -- ^ If 'Just n', set Linux's @TCP_DEFER_ACCEPT@ to @n@ seconds on
+    -- the listening socket. With this enabled, @accept()@ won't
+    -- return a connection until at least one byte of data has arrived
+    -- on it — skipping a syscall round-trip per connection. On
+    -- non-Linux kernels the call silently no-ops. Default 'Nothing'.
   }
 
 defaultServerConfig :: ServerConfig
@@ -84,6 +94,8 @@ defaultServerConfig = ServerConfig
   , serverForkConnection = forkIO
   , serverMaxHeaderBytes = 32 * 1024
   , serverKeepAlive = True
+  , serverListenBacklog = 1024
+  , serverTcpDeferAcceptSecs = Nothing
   }
 
 runServer :: ServerConfig -> IO ()
@@ -102,8 +114,18 @@ runServer cfg = do
         NS.setSocketOption sock NS.ReuseAddr 1
         NS.setSocketOption sock NS.NoDelay 1
         NS.bind sock (NS.addrAddress addr)
-        NS.listen sock 1024
+        applyTcpDeferAccept (serverTcpDeferAcceptSecs cfg) sock
+        NS.listen sock (serverListenBacklog cfg)
         acceptLoop cfg sock
+
+-- | Apply Linux's @TCP_DEFER_ACCEPT@ if requested. Swallows errors
+-- (the option doesn't exist on non-Linux kernels; that's fine).
+applyTcpDeferAccept :: Maybe Int -> Socket -> IO ()
+applyTcpDeferAccept Nothing _ = pure ()
+applyTcpDeferAccept (Just secs) sock = do
+  let optName = NS.SockOpt 6 {- IPPROTO_TCP -} 9 {- TCP_DEFER_ACCEPT -}
+  NS.setSocketOption sock optName secs
+    `catch` (\(_ :: SomeException) -> pure ())
 
 acceptLoop :: ServerConfig -> Socket -> IO ()
 acceptLoop cfg listenSock = do
@@ -153,30 +175,41 @@ handleClient cfg sock = do
 ------------------------------------------------------------------------
 
 -- | Send a complete response (head + body) over the connection.
--- For 'BodyBytes' we combine head + body into a /single/ builder so
--- the whole response goes out in one @send()@ — this is the hot path
--- and halves the syscall rate for small responses.
+--
+-- Three fast paths:
+--
+--   1. 'BodyPreEncoded' — emit the precomputed wire bytes with a
+--      single 'NBS.sendAll'. For HEAD we slice to 'peHeadLen' so the
+--      body is dropped while the metadata survives (RFC 9110 § 9.3.2).
+--   2. 'BodyBytes' — combine head + body in one builder, one send.
+--   3. Everything else falls back to the head-first send + body stream.
 sendResponse :: Connection -> Method -> Response -> IO ()
 sendResponse conn reqMethod resp = do
   let mustOmitBody =
         reqMethod == HEAD
           || let sc = case responseStatus resp of Status w -> w
              in (sc >= 100 && sc < 200) || sc == 204 || sc == 304
-      headB = responseBuilder resp
-  if mustOmitBody
-    then sendBuilder conn headB
-    else case responseBody resp of
-      BodyEmpty -> sendBuilder conn headB
-      BodyBytes bs
-        | BS.null bs -> sendBuilder conn headB
-        | otherwise  -> sendBuilder conn (headB <> B.byteString bs)
-      BodyStream producer -> do
-        -- Streaming bodies need the head out first (handler-driven
-        -- back-pressure) so we don't accumulate the whole body in RAM.
-        sendBuilder conn headB
-        case responseVersion resp of
-          HTTP_1_1 -> streamChunked conn producer
-          HTTP_1_0 -> streamRaw conn producer
+  case responseBody resp of
+    BodyPreEncoded pe ->
+      let bs = if mustOmitBody then preEncodedHead pe else peBytes pe
+      in NBS.sendAll (connectionSocket conn) bs
+    body -> do
+      let headB = responseBuilder resp
+      if mustOmitBody
+        then sendBuilder conn headB
+        else case body of
+          BodyEmpty -> sendBuilder conn headB
+          BodyBytes bs
+            | BS.null bs -> sendBuilder conn headB
+            | otherwise  -> sendBuilder conn (headB <> B.byteString bs)
+          BodyStream producer -> do
+            -- Streaming bodies need the head out first (handler-driven
+            -- back-pressure) so we don't accumulate the whole body in
+            -- RAM.
+            sendBuilder conn headB
+            case responseVersion resp of
+              HTTP_1_1 -> streamChunked conn producer
+              HTTP_1_0 -> streamRaw conn producer
 
 streamChunked :: Connection -> IO (Maybe BS.ByteString) -> IO ()
 streamChunked conn producer = loop

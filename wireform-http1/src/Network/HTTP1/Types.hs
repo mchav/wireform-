@@ -17,6 +17,10 @@ module Network.HTTP1.Types
   , byteStringBody
   , streamBody
 
+    -- * Pre-encoded responses
+  , PreEncoded (..)
+  , preEncodedHead
+
     -- * Request \/ Response
   , Request (..)
   , Response (..)
@@ -25,6 +29,8 @@ module Network.HTTP1.Types
 
 import Control.DeepSeq (NFData (..))
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Unsafe as BSU
+import GHC.Generics (Generic)
 
 import Network.HTTP1.Headers
 import Network.HTTP1.Method
@@ -44,33 +50,43 @@ type RawTarget = ByteString
 
 -- | A request \/ response body.
 --
--- Three variants:
+-- Four variants:
 --
---   ['BodyEmpty']   No body. Encoded as @Content-Length: 0@ when an
---                   explicit length is required (POST, PUT, etc.); no
---                   framing header otherwise.
---   ['BodyBytes']   A single contiguous strict 'ByteString'. The
---                   encoder knows its length and emits
---                   @Content-Length: n@.
---   ['BodyStream']  A producer @IO (Maybe ByteString)@ that yields
---                   chunks until it returns 'Nothing'. The encoder
---                   emits @Transfer-Encoding: chunked@ on HTTP\/1.1 and
---                   closes the connection on HTTP\/1.0 (the only legal
---                   way to delimit an unknown-length body there).
+--   ['BodyEmpty']        No body. Encoded as @Content-Length: 0@ when
+--                        an explicit length is required (POST, PUT,
+--                        etc.); no framing header otherwise.
+--   ['BodyBytes']        A single contiguous strict 'ByteString'. The
+--                        encoder knows its length and emits
+--                        @Content-Length: n@.
+--   ['BodyStream']       A producer @IO (Maybe ByteString)@ that
+--                        yields chunks until it returns 'Nothing'.
+--                        The encoder emits @Transfer-Encoding: chunked@
+--                        on HTTP\/1.1 and closes the connection on
+--                        HTTP\/1.0 (the only legal way to delimit an
+--                        unknown-length body there).
+--   ['BodyPreEncoded']   Marker that the /whole/ response (head + body)
+--                        already exists as wire-ready bytes in the
+--                        wrapped 'PreEncoded'. The server's send path
+--                        skips the encoder entirely and emits the bytes
+--                        verbatim in one @send()@. Construct via
+--                        'Network.HTTP1.Encode.precomputeResponse'.
 data Body
   = BodyEmpty
   | BodyBytes !ByteString
   | BodyStream !(IO (Maybe ByteString))
+  | BodyPreEncoded !PreEncoded
 
 instance Show Body where
   show BodyEmpty = "BodyEmpty"
   show (BodyBytes bs) = "BodyBytes " <> show bs
   show (BodyStream _) = "BodyStream <IO>"
+  show (BodyPreEncoded pe) = "BodyPreEncoded " <> show pe
 
 instance NFData Body where
   rnf BodyEmpty = ()
   rnf (BodyBytes bs) = rnf bs
   rnf (BodyStream _) = ()
+  rnf (BodyPreEncoded pe) = rnf pe
 
 noBody :: Body
 noBody = BodyEmpty
@@ -80,6 +96,41 @@ byteStringBody = BodyBytes
 
 streamBody :: IO (Maybe ByteString) -> Body
 streamBody = BodyStream
+
+------------------------------------------------------------------------
+-- PreEncoded
+------------------------------------------------------------------------
+
+-- | Wire-ready bytes of a fully-encoded HTTP\/1.x response.
+--
+-- 'peBytes' holds the head (status line + headers + CRLFCRLF)
+-- concatenated with the body. 'peHeadLen' is the byte offset of the
+-- first body byte — the server slices to that length to honour HEAD
+-- (which MUST emit the same metadata as GET, sans body, per RFC 9110
+-- § 9.3.2).
+--
+-- Construct via 'Network.HTTP1.Encode.precomputeResponse'. The slice
+-- for HEAD is zero-copy (it shares 'peBytes'\' 'ForeignPtr').
+--
+-- The @PreEncoded@ is /not/ checked for keep-alive headers — the
+-- 'Connection: close' decision is still derived from the surrounding
+-- 'Response' record's 'responseHeaders'. If you want to force the
+-- connection to close after the response, set the header on the
+-- 'Response' you pass to 'precomputeResponse' so it ends up in the
+-- baked-in bytes.
+data PreEncoded = PreEncoded
+  { peBytes :: !ByteString
+  , peHeadLen :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance NFData PreEncoded
+
+-- | Zero-copy slice that holds only the head (no body). Used by the
+-- server to serve HEAD from a GET-shaped precomputed response.
+{-# INLINE preEncodedHead #-}
+preEncodedHead :: PreEncoded -> ByteString
+preEncodedHead (PreEncoded bs n) = BSU.unsafeTake n bs
 
 ------------------------------------------------------------------------
 -- Request / Response

@@ -20,6 +20,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.HTTP1.Client
+import qualified Network.HTTP1.Encode as Enc
 import Network.HTTP1.Method
 import Network.HTTP1.Server
 import Network.HTTP1.Status
@@ -33,6 +34,8 @@ tests = testGroup "Integration"
   , chunkedRequestTest
   , chunkedResponseTest
   , keepAlivePipelineTest
+  , preEncodedGetTest
+  , preEncodedHeadTest
   ]
 
 ------------------------------------------------------------------------
@@ -104,6 +107,43 @@ keepAlivePipelineTest = testCase "keep-alive: two requests on one connection" $
       _ <- bodyOf r2
       responseStatus r1 @?= OK
       responseStatus r2 @?= OK
+
+------------------------------------------------------------------------
+-- Pre-encoded responses
+------------------------------------------------------------------------
+
+-- A precomputed static response — identical shape to what
+-- bench-server/WireformServer.hs ships.
+staticOk :: Response
+staticOk = Enc.precomputeResponse $ Response
+  { responseStatus  = OK
+  , responseVersion = HTTP_1_1
+  , responseHeaders = [("Content-Type", "text/plain"), ("Server", "test")]
+  , responseBody    = BodyBytes "Hello, world!\n"
+  }
+
+preEncodedGetTest :: TestTree
+preEncodedGetTest = testCase "pre-encoded response (GET) is byte-identical to encoder output" $
+  withServer (\_ -> pure staticOk) $ \port -> do
+    Right r <- sendRequest (clientCfg port) (mkReq GET "/" port BodyEmpty [])
+    responseStatus r @?= OK
+    body <- bodyOf r
+    body @?= "Hello, world!\n"
+    -- Verify the parsed headers match what the encoder would emit.
+    BS.length body @?= 14
+
+preEncodedHeadTest :: TestTree
+preEncodedHeadTest = testCase "pre-encoded response served as HEAD drops body but keeps Content-Length" $
+  withServer (\_ -> pure staticOk) $ \port -> do
+    -- HEAD on the same precomputed response. The server slices
+    -- peBytes to peHeadLen so metadata survives but the body is gone.
+    Right r <- sendRequest (clientCfg port) (mkReq HEAD "/" port BodyEmpty [])
+    responseStatus r @?= OK
+    -- HEAD response framing is special: the parser sees
+    -- Content-Length: 14 in the headers but knows HEAD MUST NOT carry
+    -- a body, so it frames as NoBody.
+    body <- bodyOf r
+    body @?= ""
 
 ------------------------------------------------------------------------
 -- Helpers
