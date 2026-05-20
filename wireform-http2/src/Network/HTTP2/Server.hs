@@ -773,11 +773,19 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                                 pure True
                               else do
                                 let req = buildRequest conn connRecvUnackedRef connRecvWindowRef sid' headers rec0
-                                _ <- serverForkStream cfg $ do
-                                  serverHandler cfg req $ \resp ->
-                                    sendResponse conn sid' (srSendWindow rec0) resp
-                                  modifyIORef' streamsRef
-                                    (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid')
+                                _ <- serverForkStream cfg $
+                                  ( do
+                                      serverHandler cfg req $ \resp ->
+                                        sendResponse conn sid' (srSendWindow rec0) resp
+                                      modifyIORef' streamsRef
+                                        (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid')
+                                  )
+                                  -- Stream workers may still be sending bytes when
+                                  -- the connection is torn down (socket closed in
+                                  -- another thread).  Swallow IO failures so the
+                                  -- thread exits silently instead of printing
+                                  -- "threadWait: Bad file descriptor" to stderr.
+                                  `catch` (\(_ :: SomeException) -> pure ())
                                 pure True
                 where
                   maxConcurrent = maxConcurrentStreams' cfg

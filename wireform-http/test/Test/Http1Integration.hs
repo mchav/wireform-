@@ -39,20 +39,23 @@ tests = testGroup "HTTP/1.x integration"
 helloWorld :: TestTree
 helloWorld = testCase "GET hello world (HTTP/1.1)" $
   withTestServer http1Only (\_ -> pure (resp200 "hi")) $ \port -> do
-    r <- runClient http1Only port $ \c ->
-      sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
-    responseStatus r @?= S.status200
-    body <- drainBody (responseBody r)
-    body @?= "hi"
-    responseVersion r @?= V.HTTP1_1
+    (status, ver, body) <- runClient http1Only port $ \c -> do
+      r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+      b <- drainBody (responseBody r)
+      pure (responseStatus r, responseVersion r, b)
+    status @?= S.status200
+    body   @?= "hi"
+    ver    @?= V.HTTP1_1
 
 echoBody :: TestTree
 echoBody = testCase "POST echoes Content-Length body" $
   withTestServer http1Only echo $ \port -> do
-    r <- runClient http1Only port $ \c ->
-      sendRequest c (mkRequest "POST" "/" port (BodyBytes "rountrip") [])
-    responseStatus r @?= S.status200
-    drainBody (responseBody r) >>= (@?= "rountrip")
+    (status, body) <- runClient http1Only port $ \c -> do
+      r <- sendRequest c (mkRequest "POST" "/" port (BodyBytes "rountrip") [])
+      b <- drainBody (responseBody r)
+      pure (responseStatus r, b)
+    status @?= S.status200
+    body   @?= "rountrip"
   where
     echo req = do
       body <- drainBody (requestBody req)
@@ -61,9 +64,10 @@ echoBody = testCase "POST echoes Content-Length body" $
 streamingResponse :: TestTree
 streamingResponse = testCase "streaming response body arrives chunk-wise" $
   withTestServer http1Only stream $ \port -> do
-    r <- runClient http1Only port $ \c ->
-      sendRequest c (mkRequest "GET" "/stream" port BodyEmpty [])
-    drainBody (responseBody r) >>= (@?= "alphabetagamma")
+    body <- runClient http1Only port $ \c -> do
+      r <- sendRequest c (mkRequest "GET" "/stream" port BodyEmpty [])
+      drainBody (responseBody r)
+    body @?= "alphabetagamma"
   where
     stream _ = do
       ref <- newIORef ["alpha", "beta", "gamma"]
@@ -89,10 +93,12 @@ chunkedRequestWithEmptyTrailers =
             case xs of
               [] -> pure Nothing
               (h:t) -> writeIORef chunkRef t >> pure (Just h)
-      r <- runClient http1Only port $ \c ->
-        sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
-      responseStatus r @?= S.status200
-      drainBody (responseBody r) >>= (@?= "one two three!")
+      (status, body) <- runClient http1Only port $ \c -> do
+        r <- sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
+        b <- drainBody (responseBody r)
+        pure (responseStatus r, b)
+      status @?= S.status200
+      body   @?= "one two three!"
   where
     handler req = do
       body <- drainBody (requestBody req)
@@ -104,15 +110,17 @@ expectContinue :: TestTree
 expectContinue =
   testCase "Expect: 100-continue: server emits 100, client absorbs it" $
     withTestServer http1Only echo $ \port -> do
-      r <- runClient http1Only port $ \c ->
-        sendRequest c
+      (status, body) <- runClient http1Only port $ \c -> do
+        r <- sendRequest c
           (mkRequest "POST" "/" port (BodyBytes "payload")
              [(CI.mk "Expect", "100-continue")])
+        b <- drainBody (responseBody r)
+        pure (responseStatus r, b)
       -- The final response we observe is the handler's 200, not the
       -- interim 100; the underlying HTTP/1 client transparently
       -- skips informational responses.
-      responseStatus r @?= S.status200
-      drainBody (responseBody r) >>= (@?= "payload")
+      status @?= S.status200
+      body   @?= "payload"
   where
     echo req = do
       body <- drainBody (requestBody req)

@@ -21,7 +21,7 @@ module Network.HTTP2.Client
   , clientRecvLoop
   ) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception
@@ -284,8 +284,15 @@ withConnectionOnTransport cfg transport mSock action = do
                             pingRate settingsRate rstRate emptyDataRate
                             (settingsMaxHeaderListSize (clientSettings cfg))
                             recvWindowRef
-  _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
-  action handle `finally` closeConnection conn NoError ""
+  recvTid <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
+  -- Tear-down order matters: stop the recv loop *before* the
+  -- outer bracket closes the socket, otherwise the recv loop's
+  -- in-flight @threadWaitRead@ sees the fd disappear and prints
+  -- "threadWait: invalid argument (Bad file descriptor)" to
+  -- stderr.
+  action handle
+    `finally` closeConnection conn NoError ""
+    `finally` killThread recvTid
 
 sendClientPreface :: Connection -> Settings -> IO ()
 sendClientPreface conn settings = do

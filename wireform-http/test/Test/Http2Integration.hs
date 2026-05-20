@@ -41,19 +41,23 @@ tests = testGroup "HTTP/2 integration"
 helloWorld :: TestTree
 helloWorld = testCase "HTTP/2 plaintext (h2c prior knowledge): hello world" $
   withTestServer http2Only (\_ -> pure (resp200 "hi")) $ \port -> do
-    r <- runClient http2Only port $ \c ->
-      sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
-    responseStatus r @?= S.status200
-    drainBody (responseBody r) >>= (@?= "hi")
-    responseVersion r @?= V.HTTP2
+    (status, ver, body) <- runClient http2Only port $ \c -> do
+      r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+      b <- drainBody (responseBody r)
+      pure (responseStatus r, responseVersion r, b)
+    status @?= S.status200
+    body   @?= "hi"
+    ver    @?= V.HTTP2
 
 echoBody :: TestTree
 echoBody = testCase "POST echoes a bounded request body" $
   withTestServer http2Only echo $ \port -> do
-    r <- runClient http2Only port $ \c ->
-      sendRequest c (mkRequest "POST" "/" port (BodyBytes "payload") [])
-    responseStatus r @?= S.status200
-    drainBody (responseBody r) >>= (@?= "payload")
+    (status, body) <- runClient http2Only port $ \c -> do
+      r <- sendRequest c (mkRequest "POST" "/" port (BodyBytes "payload") [])
+      b <- drainBody (responseBody r)
+      pure (responseStatus r, b)
+    status @?= S.status200
+    body   @?= "payload"
   where
     echo req = do
       body <- drainBody (requestBody req)
@@ -63,12 +67,14 @@ streamingResponseBody :: TestTree
 streamingResponseBody =
   testCase "streaming response body arrives chunk-wise" $
     withTestServer http2Only handler $ \port -> do
-      r <- runClient http2Only port $ \c ->
-        sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
-      responseStatus r @?= S.status200
+      (status, body) <- runClient http2Only port $ \c -> do
+        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+        b <- drainBody (responseBody r)
+        pure (responseStatus r, b)
+      status @?= S.status200
       -- We don't assert chunk boundaries — HTTP/2 may re-frame DATA
       -- frames freely — only the assembled body.
-      drainBody (responseBody r) >>= (@?= "alphabetagamma")
+      body   @?= "alphabetagamma"
   where
     handler _ = do
       ref <- newIORef ["alpha", "beta", "gamma"]
@@ -94,10 +100,12 @@ streamingRequestBody =
             case xs of
               [] -> pure Nothing
               (h:t) -> writeIORef chunkRef t >> pure (Just h)
-      r <- runClient http2Only port $ \c ->
-        sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
-      responseStatus r @?= S.status200
-      drainBody (responseBody r) >>= (@?= "one two three")
+      (status, body) <- runClient http2Only port $ \c -> do
+        r <- sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
+        b <- drainBody (responseBody r)
+        pure (responseStatus r, b)
+      status @?= S.status200
+      body   @?= "one two three"
   where
     echo req = do
       body <- drainBody (requestBody req)
@@ -107,11 +115,12 @@ serverEmitsTrailers :: TestTree
 serverEmitsTrailers =
   testCase "server-set responseTrailers reach the client's crResponseTrailers" $
     withTestServer http2Only handler $ \port -> do
-      r <- runClient http2Only port $ \c ->
-        sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
-      responseStatus r @?= S.status200
-      _ <- drainBody (responseBody r)
-      trs <- responseTrailers r
+      (status, trs) <- runClient http2Only port $ \c -> do
+        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+        _ <- drainBody (responseBody r)
+        t <- responseTrailers r
+        pure (responseStatus r, t)
+      status @?= S.status200
       lookup (CI.mk "grpc-status") trs @?= Just "0"
       lookup (CI.mk "grpc-message") trs @?= Just "OK"
   where
@@ -137,10 +146,12 @@ largeHeaderBlockTriggersContinuation =
             [ (CI.mk (BS8.pack ("X-Test-" <> show n)), bigVal)
             | n <- [1 :: Int .. 64]
             ]
-      r <- runClient http2Only port $ \c ->
-        sendRequest c (mkRequest "GET" "/" port BodyEmpty manyHeaders)
-      responseStatus r @?= S.status200
-      drainBody (responseBody r) >>= (@?= "got-it")
+      (status, body) <- runClient http2Only port $ \c -> do
+        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty manyHeaders)
+        b <- drainBody (responseBody r)
+        pure (responseStatus r, b)
+      status @?= S.status200
+      body   @?= "got-it"
   where
     handler _ = pure (resp200 "got-it")
 
