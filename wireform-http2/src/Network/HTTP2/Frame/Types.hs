@@ -28,6 +28,9 @@ module Network.HTTP2.Frame.Types
   , setFlag
   , frameHeaderLength
   , connectionPreface
+    -- * Payload decode helpers (used by the server engine)
+  , decodeGoAway
+  , decodeSettings
   ) where
 
 import Control.DeepSeq (NFData(..))

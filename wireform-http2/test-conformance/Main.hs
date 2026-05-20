@@ -72,9 +72,12 @@ acceptLoopConformance cfg listenSock = do
   acceptLoopConformance cfg listenSock
 
 conformanceHandler :: Request -> (Response -> IO ()) -> IO ()
-conformanceHandler _req respond = respond Response
-  { responseStatus = 200
-  , responseHeaders = [("content-type", "text/plain")]
-  , responseBody = ResponseBodyBS "ok"
-  , responseTrailers = []
-  }
+conformanceHandler req respond = do
+  hPutStrLn stderr $ "conformance handler invoked stream=" <> show (requestStreamId req)
+  respond Response
+    { responseStatus = 200
+    , responseHeaders = [("content-type", "text/plain")]
+    , responseBody = ResponseBodyBS "ok"
+    , responseTrailers = []
+    }
+  hPutStrLn stderr $ "conformance handler done stream=" <> show (requestStreamId req)

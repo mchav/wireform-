@@ -23,13 +23,17 @@ import qualified Network.Socket as NS
 
 import qualified Data.ByteString.Internal as BSI
 
+import Data.Bits ((.&.), shiftL)
+import Data.Word (Word32)
+
 import Network.HTTP2.Connection
 import Network.HTTP2.Frame
+import Network.HTTP2.Frame.Decode (FrameDecodeError (..))
+import Network.HTTP2.Frame.Types
+  ( FramePayload (..), decodeGoAway, decodeSettings
+  )
 import Network.HTTP2.HPACK
 import Network.HTTP2.Types
-
-import Network.HTTP2.Frame.Decode (FrameDecodeError (..))
-import Network.HTTP2.Frame.Types (flagPadded, flagPriority)
 
 data ServerConfig = ServerConfig
   { serverSettings :: !Settings
@@ -184,7 +188,6 @@ connectionLoop cfg conn = do
   result <- recvFrame conn
   case result of
     Left err ->
-      -- Map decoder errors to the RFC 9113 error code the peer expects.
       closeConnection conn (decodeErrorToCode err) (decodeErrorMessage err)
     Right frame -> do
       ok <- handleFrame' cfg conn frame
@@ -206,15 +209,33 @@ decodeErrorMessage = BS.pack . map (fromIntegral . fromEnum) . show
 
 -- | Process a single frame. Returns 'True' to keep reading,
 -- 'False' to tear the connection down (a GOAWAY was already sent).
+--
+-- We dispatch on 'fhType' rather than on the 'FramePayload' pattern
+-- synonyms because the latter all match @FramePayloadRaw bs@
+-- regardless of frame type — they're decode helpers, not a type-
+-- tagged sum. Dispatching on the header's actual type avoids the
+-- crossover where (e.g.) a HEADERS body coincidentally matches the
+-- @PingFrame@ view pattern.
 handleFrame' :: ServerConfig -> Connection -> Frame -> IO Bool
-handleFrame' cfg conn (Frame hdr payload) = case payload of
-  SettingsFrame params
-    | testFlag (fhFlags hdr) flagAck -> pure True
+handleFrame' cfg conn (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+  FrameSettings
+    | testFlag (fhFlags hdr) flagAck ->
+        if BS.null body
+          then pure True
+          else do
+            closeConnection conn FrameSizeError "SETTINGS ACK with non-empty payload"
+            pure False
     | fhStreamId hdr /= 0 -> do
         closeConnection conn ProtocolError "SETTINGS on non-zero stream"
         pure False
-    | otherwise -> do
-        case applySettingsParams defaultSettings params of
+    | BS.length body `mod` 6 /= 0 -> do
+        closeConnection conn FrameSizeError "SETTINGS payload not multiple of 6"
+        pure False
+    | otherwise -> case decodeSettings body of
+        Nothing -> do
+          closeConnection conn FrameSizeError "malformed SETTINGS payload"
+          pure False
+        Just params -> case applySettingsParams defaultSettings params of
           Left _ -> do
             closeConnection conn ProtocolError "invalid settings"
             pure False
@@ -224,53 +245,61 @@ handleFrame' cfg conn (Frame hdr payload) = case payload of
             sendFrame conn ack
             pure True
 
-  PingFrame opaqueData
+  FramePing
     | fhStreamId hdr /= 0 -> do
         closeConnection conn ProtocolError "PING on non-zero stream"
         pure False
-    | fhLength hdr /= 8 -> do
+    | BS.length body /= 8 -> do
         closeConnection conn FrameSizeError "PING payload length must be 8"
         pure False
     | testFlag (fhFlags hdr) flagAck -> pure True
     | otherwise -> do
-        let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
+        let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame body)
         sendFrame conn pong
         pure True
 
-  WindowUpdateFrame increment
-    | fhLength hdr /= 4 -> do
+  FrameWindowUpdate
+    | BS.length body /= 4 -> do
         closeConnection conn FrameSizeError "WINDOW_UPDATE length must be 4"
         pure False
-    | increment == 0 -> do
-        -- Connection error if 0 on stream 0; stream error otherwise.
-        -- We always treat as connection error here for simplicity.
-        if fhStreamId hdr == 0
-          then do
-            closeConnection conn ProtocolError "WINDOW_UPDATE with zero increment"
-            pure False
-          else do
-            sendRstStream conn (fhStreamId hdr) ProtocolError
-            pure True
-    | fhStreamId hdr == 0 -> do
-        atomically $ do
-          _ <- releaseWindow (connSendFlowControl conn) (fromIntegral increment)
-          pure ()
-        pure True
-    | otherwise -> pure True  -- per-stream window update, ignored at this layer
+    | otherwise ->
+        let increment = (fromIntegral (BS.index body 0) `shiftL` 24)
+                    .|. (fromIntegral (BS.index body 1) `shiftL` 16)
+                    .|. (fromIntegral (BS.index body 2) `shiftL` 8)
+                    .|. fromIntegral (BS.index body 3) :: Word32
+            inc = increment .&. 0x7FFFFFFF
+        in if inc == 0
+             then if fhStreamId hdr == 0
+                    then do
+                      closeConnection conn ProtocolError "WINDOW_UPDATE with zero increment on stream 0"
+                      pure False
+                    else do
+                      sendRstStream conn (fhStreamId hdr) ProtocolError
+                      pure True
+             else if fhStreamId hdr == 0
+                    then do
+                      atomically $ do
+                        _ <- releaseWindow (connSendFlowControl conn) (fromIntegral inc)
+                        pure ()
+                      pure True
+                    else pure True
 
-  GoAwayFrame lastId code debug -> do
-    connOnGoAway conn lastId code debug
-    pure True
+  FrameGoAway -> case decodeGoAway body of
+    Just (lastId, code, debug) -> do
+      connOnGoAway conn lastId code debug
+      pure True
+    Nothing -> do
+      closeConnection conn FrameSizeError "malformed GOAWAY"
+      pure False
 
-  HeadersFrame _mpri rawBlock
+  FrameHeaders
     | fhStreamId hdr == 0 -> do
         closeConnection conn ProtocolError "HEADERS on stream 0"
         pure False
     | not (testFlag (fhFlags hdr) flagEndHeaders) -> do
-        -- CONTINUATION-fragmented HEADERS not supported.
         closeConnection conn ProtocolError "fragmented HEADERS unsupported"
         pure False
-    | otherwise -> case stripPaddingAndPriority FrameHeaders (fhFlags hdr) rawBlock of
+    | otherwise -> case stripPaddingAndPriority FrameHeaders (fhFlags hdr) body of
         Nothing -> do
           closeConnection conn ProtocolError "malformed HEADERS frame"
           pure False
@@ -289,7 +318,7 @@ handleFrame' cfg conn (Frame hdr payload) = case payload of
                   sendResponse conn (fhStreamId hdr) resp
               pure True
 
-  DataFrame body
+  FrameData
     | fhStreamId hdr == 0 -> do
         closeConnection conn ProtocolError "DATA on stream 0"
         pure False
@@ -306,16 +335,36 @@ handleFrame' cfg conn (Frame hdr payload) = case payload of
               (FrameHeader 4 FrameWindowUpdate 0 (fhStreamId hdr)) (WindowUpdateFrame len)
           pure True
 
-  RSTStreamFrame _
+  FrameRSTStream
     | fhStreamId hdr == 0 -> do
         closeConnection conn ProtocolError "RST_STREAM on stream 0"
         pure False
-    | fhLength hdr /= 4 -> do
+    | BS.length body /= 4 -> do
         closeConnection conn FrameSizeError "RST_STREAM length must be 4"
         pure False
     | otherwise -> pure True
 
-  _ -> pure True
+  FramePriority
+    | fhStreamId hdr == 0 -> do
+        closeConnection conn ProtocolError "PRIORITY on stream 0"
+        pure False
+    | BS.length body /= 5 -> do
+        sendRstStream conn (fhStreamId hdr) FrameSizeError
+        pure True
+    | otherwise -> pure True
+
+  FrameContinuation -> do
+    -- We don't support CONTINUATION (we reject any HEADERS that
+    -- lacks END_HEADERS), so a bare CONTINUATION is always wrong.
+    closeConnection conn ProtocolError "unexpected CONTINUATION"
+    pure False
+
+  FramePushPromise -> do
+    -- Clients are not supposed to send PUSH_PROMISE.
+    closeConnection conn ProtocolError "client sent PUSH_PROMISE"
+    pure False
+
+  FrameUnknown _ -> pure True  -- RFC 9113 §4.1: unknown frame types MUST be ignored
 
 -- | Send a stream-scoped RST_STREAM with the given error code.
 sendRstStream :: Connection -> StreamId -> ErrorCode -> IO ()
