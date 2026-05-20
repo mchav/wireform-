@@ -70,6 +70,11 @@ data Request = Request
   , requestHeaders :: ![(ByteString, ByteString)]
   , requestBody :: !(IO ByteString)
   , requestStreamId :: !StreamId
+  , requestTrailers :: !(IO [(ByteString, ByteString)])
+    -- ^ Block on the peer's trailer block.  Returns @[]@ when the
+    -- request had no trailers (the END_STREAM came in on DATA or on
+    -- the initial HEADERS frame).  Must be called after the body
+    -- has been fully drained.
   }
 
 data Response = Response
@@ -196,6 +201,11 @@ data StreamRec = StreamRec
   , srRecvUnacked :: !(IORef Int)
     -- ^ Bytes received on this stream that the handler has consumed
     -- but the server hasn't yet acknowledged via a @WINDOW_UPDATE@.
+  , srTrailers :: !(MVar [(ByteString, ByteString)])
+    -- ^ Filled exactly once when END_STREAM has been observed:
+    -- with the decoded trailer block from a final HEADERS frame, or
+    -- with @[]@ when END_STREAM came in on DATA \/ on the initial
+    -- HEADERS frame.  Stream resets also fill this with @[]@.
   }
 
 data BodyChunkItem
@@ -217,7 +227,8 @@ freshStream initWin el st = do
   q <- atomically $ newTBQueue 64
   sw <- atomically $ newFlowControl (fromIntegral initWin)
   ru <- newIORef 0
-  pure $ StreamRec st el 0 q sw ru
+  trailers <- newEmptyMVar
+  pure $ StreamRec st el 0 q sw ru trailers
 
 -- | Threshold for coalesced @WINDOW_UPDATE@ frames.  Half the
 -- default @SETTINGS_INITIAL_WINDOW_SIZE@ — large enough that we
@@ -462,6 +473,9 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
                               -- Per-stream window overflow → RST_STREAM
                               -- with FLOW_CONTROL_ERROR (RFC 9113 §6.9.1).
                               sendRstStream conn sid FlowControlError
+                              _ <- tryPutMVar (srTrailers sr) []
+                              atomically $
+                                writeTBQueue (srBodyQueue sr) BodyChunkEnd
                               modifyIORef' streamsRef
                                 (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
                               pure True
@@ -526,13 +540,16 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
                             closeConnection conn ProtocolError "pseudo-header in trailers"
                             pure False
                         | otherwise -> do
-                            -- Trailer block: deliver END_STREAM to the
+                            -- Trailer block: stash for the handler,
+                            -- then deliver END_STREAM to the
                             -- request-body queue regardless of the
                             -- content-length check outcome.
                             streamsNow <- readIORef streamsRef
                             case Map.lookup sid streamsNow of
-                              Just sr -> atomically $
-                                writeTBQueue (srBodyQueue sr) BodyChunkEnd
+                              Just sr -> do
+                                _ <- tryPutMVar (srTrailers sr) trailers
+                                atomically $
+                                  writeTBQueue (srBodyQueue sr) BodyChunkEnd
                               Nothing -> pure ()
                             checkContentLength sid streamsRef >>= \case
                               Just _ -> do
@@ -591,8 +608,11 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
                             -- If the body is already closed (no DATA
                             -- frames to come), push the End marker
                             -- now so the handler's 'requestBody'
-                            -- returns "" immediately.
-                            when endStream $
+                            -- returns "" immediately, and resolve
+                            -- the trailers MVar with [] so a reader
+                            -- doesn't block.
+                            when endStream $ do
+                              _ <- tryPutMVar (srTrailers rec0) []
                               atomically $ writeTBQueue (srBodyQueue rec0) BodyChunkEnd
                             modifyIORef' streamsRef (Map.insert sid' rec0)
                             -- If the request has a content-length header
@@ -654,7 +674,10 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
               when (not (BS.null payload)) $
                 atomically $
                   writeTBQueue (srBodyQueue sr) (BodyChunkBytes payload)
-              when endStream $
+              when endStream $ do
+                -- No trailer block follows -- resolve the trailers
+                -- MVar with [] and push the body terminator.
+                _ <- tryPutMVar (srTrailers sr) []
                 atomically $
                   writeTBQueue (srBodyQueue sr) BodyChunkEnd
               -- On END_STREAM, validate the declared content-length.
@@ -684,10 +707,11 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
             closeConnection conn ProtocolError "RST_STREAM on idle stream"
             pure False
           Just sr -> do
-            -- Wake any blocked body reader so the handler unblocks
-            -- (the wireform unified Body sees this as end-of-stream;
-            -- callers that need to distinguish abort vs clean end
-            -- can poll the connection state).
+            -- Wake any blocked body / trailer readers so the handler
+            -- unblocks (the wireform unified Body sees this as
+            -- end-of-stream; callers that need to distinguish abort
+            -- vs clean end can poll the connection state).
+            _ <- tryPutMVar (srTrailers sr) []
             atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
             modifyIORef' streamsRef
               (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
@@ -910,6 +934,7 @@ buildRequest conn connUnackedRef sid headers sr =
     , requestHeaders = filter (\(k, _) -> not (BS.isPrefixOf ":" k)) headers
     , requestBody = makeRequestBody conn connUnackedRef sid sr
     , requestStreamId = sid
+    , requestTrailers = readMVar (srTrailers sr)
     }
 
 sendResponse :: Connection -> StreamId -> FlowControl -> Response -> IO ()

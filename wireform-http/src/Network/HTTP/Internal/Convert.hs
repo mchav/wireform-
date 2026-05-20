@@ -99,11 +99,12 @@ fromHttp1Body = \case
 
 toHttp1Request :: Request -> H1.Request
 toHttp1Request r = H1.Request
-  { H1.requestMethod  = toHttp1Method (requestMethod r)
-  , H1.requestTarget  = requestTarget r
-  , H1.requestVersion = toHttp1Version (requestVersion r)
-  , H1.requestHeaders = withHost (requestAuthority r) (toHttp1Headers (requestHeaders r))
-  , H1.requestBody    = toHttp1Body (requestBody r)
+  { H1.requestMethod   = toHttp1Method (requestMethod r)
+  , H1.requestTarget   = requestTarget r
+  , H1.requestVersion  = toHttp1Version (requestVersion r)
+  , H1.requestHeaders  = withHost (requestAuthority r) (toHttp1Headers (requestHeaders r))
+  , H1.requestBody     = toHttp1Body (requestBody r)
+  , H1.requestTrailers = toHttp1Headers <$> requestTrailers r
   }
   where
     withHost Nothing hs    = hs
@@ -123,6 +124,7 @@ fromHttp1Request scheme r = Request
   , requestHeaders   = fromHttp1Headers (H1.requestHeaders r)
   , requestBody      = fromHttp1Body (H1.requestBody r)
   , requestVersion   = fromHttp1Version (H1.requestVersion r)
+  , requestTrailers  = fromHttp1Headers <$> H1.requestTrailers r
   }
 
 toHttp1Response :: Response -> H1.Response
@@ -170,6 +172,7 @@ toHttp2Request r = H2S.Request
   , H2S.requestHeaders   = toHttp2Headers (requestHeaders r)
   , H2S.requestBody      = pure ""
   , H2S.requestStreamId  = 0
+  , H2S.requestTrailers  = pure []
   }
 
 -- | HTTP\/2 request → unified.  The request body is delivered as a
@@ -189,6 +192,7 @@ fromHttp2Request r = Request
       bs <- H2S.requestBody r
       if BS.null bs then pure Nothing else pure (Just bs)
   , requestVersion   = U.HTTP2
+  , requestTrailers  = fromHttp2Headers <$> H2S.requestTrailers r
   }
 
 -- | Materialise the unified 'Response' into the @http2@ shape.  Runs

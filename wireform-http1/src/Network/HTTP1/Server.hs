@@ -201,8 +201,11 @@ handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
                 | requestVersion req0 == HTTP_1_1
                 , isContinueExpect v -> sendInterim conn
               _ -> pure ()
-            body <- readBody conn framing
-            let req = req0 { requestBody = body }
+            (body, trailersIO) <- readBodyAndTrailers conn framing
+            let req = req0
+                  { requestBody = body
+                  , requestTrailers = trailersIO
+                  }
             r <- try @SomeException $ do
               resp0 <- serverHandler cfg req
               let willClose = decideClose cfg req resp0

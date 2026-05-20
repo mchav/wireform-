@@ -25,6 +25,7 @@ module Network.HTTP1.Connection
   , closeConnection
     -- * Framing-aware body
   , readBody
+  , readBodyAndTrailers
   , drainBody
   , ProtocolException (..)
     -- * Send helpers
@@ -35,6 +36,8 @@ module Network.HTTP1.Connection
   , module Network.HTTP1.Transport
   ) where
 
+import Control.Concurrent.MVar
+  (MVar, newEmptyMVar, newMVar, readMVar, tryPutMVar)
 import Control.Exception (Exception, SomeException, throwIO, try)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -42,6 +45,7 @@ import Data.IORef
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Network.Socket (Socket)
+import Network.HTTP1.Headers (Header)
 
 import qualified Wireform.Builder as B
 
@@ -103,35 +107,73 @@ closeConnection conn = do
       _ <- try @SomeException (tClose (connTransport conn))
       pure ()
 
--- | Build a streaming-body producer for the framing the parser told us.
---
--- The producer is a closure over a mutable @remaining@ ref so it can
--- be handed to user code as a @Body@. End of stream returns @Nothing@.
+-- | Build a streaming-body producer for the framing the parser told
+-- us about.  Discards any trailer block that comes with a chunked
+-- body; use 'readBodyAndTrailers' if you want to keep them.
 readBody :: Connection -> Framing -> IO Body
-readBody _ NoBody = pure BodyEmpty
-readBody _ (ContentLength 0) = pure BodyEmpty
-readBody conn (ContentLength n) = do
+readBody conn framing = fst <$> readBodyAndTrailers conn framing
+
+-- | Build a streaming-body producer plus a blocking action that
+-- returns the trailer block (or @[]@ when the framing carries no
+-- trailers / they were empty).  The trailers action blocks until
+-- the body has been fully drained; @drainBody@ also pulls them
+-- through.
+readBodyAndTrailers
+  :: Connection -> Framing -> IO (Body, IO [Header])
+readBodyAndTrailers _ NoBody = do
+  -- No body, no trailers; pre-fill so a reader doesn't block.
+  mv <- newMVar []
+  pure (BodyEmpty, readMVar mv)
+readBodyAndTrailers _ (ContentLength 0) = do
+  mv <- newMVar []
+  pure (BodyEmpty, readMVar mv)
+readBodyAndTrailers conn (ContentLength n) = do
   remRef <- newIORef n
-  pure $ BodyStream $ do
-    rem' <- readIORef remRef
-    if rem' == 0
-      then pure Nothing
-      else do
-        let want = min rem' 16384
-        chunk <- recvBufferReadAtMost (connRecv conn) (tRecvBuf (connTransport conn)) (fromIntegral want)
-        if BS.null chunk
-          then pure Nothing  -- premature EOF; caller decides if that's an error
+  trailersMV <- newEmptyMVar
+  let producer = do
+        rem' <- readIORef remRef
+        if rem' == 0
+          then do
+            _ <- tryPutMVar trailersMV []
+            pure Nothing
           else do
-            writeIORef remRef (rem' - fromIntegral (BS.length chunk))
-            pure (Just chunk)
-readBody conn Chunked = do
+            let want = min rem' 16384
+            chunk <- recvBufferReadAtMost
+                       (connRecv conn) (tRecvBuf (connTransport conn))
+                       (fromIntegral want)
+            if BS.null chunk
+              then do
+                _ <- tryPutMVar trailersMV []
+                pure Nothing  -- premature EOF
+              else do
+                let newRem = rem' - fromIntegral (BS.length chunk)
+                writeIORef remRef newRem
+                when' (newRem == 0) $ do
+                  _ <- tryPutMVar trailersMV []
+                  pure ()
+                pure (Just chunk)
+  pure (BodyStream producer, readMVar trailersMV)
+readBodyAndTrailers conn Chunked = do
   stateRef <- newIORef (ChunkPending 0)
-  pure $ BodyStream (readChunkedStep conn stateRef)
-readBody conn CloseDelimited = pure $ BodyStream $ do
-  chunk <- recvBufferReadAtMost (connRecv conn) (tRecvBuf (connTransport conn)) 16384
-  if BS.null chunk
-    then pure Nothing
-    else pure (Just chunk)
+  trailersMV <- newEmptyMVar
+  let producer = readChunkedStep conn stateRef trailersMV
+  pure (BodyStream producer, readMVar trailersMV)
+readBodyAndTrailers conn CloseDelimited = do
+  trailersMV <- newEmptyMVar
+  let producer = do
+        chunk <- recvBufferReadAtMost
+                   (connRecv conn) (tRecvBuf (connTransport conn)) 16384
+        if BS.null chunk
+          then do
+            _ <- tryPutMVar trailersMV []
+            pure Nothing
+          else pure (Just chunk)
+  pure (BodyStream producer, readMVar trailersMV)
+
+-- | Local 'when' helper that doesn't pull in Control.Monad.
+when' :: Bool -> IO () -> IO ()
+when' True m = m
+when' False _ = pure ()
 
 -- | State of an in-flight chunked body read.
 data ChunkState
@@ -147,8 +189,12 @@ data ChunkState
 -- 'recvBufferRead' / 'recvBufferReadAtMost', which only consume from
 -- the ring buffer what they actually return — there's no over-read,
 -- so chunk bodies arrive cleanly after their size lines.
-readChunkedStep :: Connection -> IORef ChunkState -> IO (Maybe ByteString)
-readChunkedStep conn ref = do
+readChunkedStep
+  :: Connection
+  -> IORef ChunkState
+  -> MVar [Header]
+  -> IO (Maybe ByteString)
+readChunkedStep conn ref trailersMV = do
   st <- readIORef ref
   case st of
     ChunkDone -> pure Nothing
@@ -160,15 +206,16 @@ readChunkedStep conn ref = do
           case parseChunkSize lineBs of
             Left e -> throwIO (ProtocolException e)
             Right 0 -> do
-              -- After the 0-size chunk we must consume the trailer
-              -- section, terminated by a blank line. The size-line
-              -- CRLF has already been consumed.
-              drainTrailers conn
+              -- After the 0-size chunk we read the (possibly empty)
+              -- trailer section, terminated by a blank line, and
+              -- park the parsed fields on the trailers MVar.
+              trs <- readTrailers conn
+              _ <- tryPutMVar trailersMV trs
               writeIORef ref ChunkDone
               pure Nothing
             Right sz -> do
               writeIORef ref (ChunkPending sz)
-              readChunkedStep conn ref
+              readChunkedStep conn ref trailersMV
     ChunkPending n -> do
       let want = min n 16384
       slice <- recvBufferReadAtMost (connRecv conn) recv (fromIntegral want)
@@ -191,33 +238,48 @@ readChunkedStep conn ref = do
     recv = tRecvBuf (connTransport conn)
 
 -- | After a 0-size chunk we have a (possibly empty) trailer section
--- terminated by a blank line. Each trailer is just a header field; we
--- read lines until we hit one of length zero (the blank line).
+-- terminated by a blank line.  Each trailer is just a header field;
+-- we read lines until one of length zero (the blank line) and parse
+-- each into a (name, value) pair.
 --
 -- Bare-LF line terminators inside the trailer section are forbidden
--- (RFC 9112 § 2.2; a smuggling vector); 'recvBufferReadUntilCRLF'
--- returns 'Nothing' on EOF without seeing CRLF, which we turn into a
+-- (RFC 9112 § 2.2; a smuggling vector); they are turned into a
 -- protocol error so the caller can respond 400 + close.
-drainTrailers :: Connection -> IO ()
-drainTrailers conn = loop
+readTrailers :: Connection -> IO [Header]
+readTrailers conn = go []
   where
     recv = tRecvBuf (connTransport conn)
-    loop = do
+    go acc = do
       mLine <- recvBufferReadUntilCRLFStrict
                  (connRecv conn) recv 8192
       case mLine of
         Nothing -> throwIO (ProtocolException ParseInvalidHeaderValue)
         Just (Left ()) ->
-          -- Bare LF in the trailer section. RFC 9112 § 2.2 lets us
-          -- accept it; we choose to reject because the same bytes
-          -- desync proxies that don't (HAProxy CVE-2023-25725 style).
           throwIO (ProtocolException ParseInvalidHeaderValue)
         Just (Right bs)
-          | BS.null bs -> pure ()
+          | BS.null bs -> pure (reverse acc)
           | BS.any badByte bs ->
               throwIO (ProtocolException ParseInvalidHeaderValue)
-          | otherwise -> loop
+          | otherwise -> case parseTrailerLine bs of
+              Nothing  -> throwIO (ProtocolException ParseInvalidHeaderValue)
+              Just hdr -> go (hdr : acc)
     badByte b = b == 0x0a || b == 0x00 || b == 0x0d
+
+-- | Parse a single @name: value@ trailer line.  The same syntax
+-- the request parser uses for header fields, minus
+-- whitespace-folded continuations (RFC 9112 § 5.2 forbids those
+-- here anyway).  Returns 'Nothing' on a malformed line.
+parseTrailerLine :: ByteString -> Maybe Header
+parseTrailerLine bs = do
+  let (rawName, rest0) = BS.break (== 0x3A {- ':' -}) bs
+  case BS.uncons rest0 of
+    Just (0x3A, rest1) ->
+      let value = stripOWS rest1
+      in if BS.null rawName then Nothing else Just (rawName, value)
+    _ -> Nothing
+  where
+    stripOWS = BS.dropWhile isOWS . BS.reverse . BS.dropWhile isOWS . BS.reverse
+    isOWS b = b == 0x20 || b == 0x09
 
 -- | Discard the current body without delivering it to the application.
 -- Required when a handler returns early on a keep-alive connection —

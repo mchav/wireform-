@@ -50,6 +50,15 @@ data Request = Request
     -- (the actual on-wire version comes out of negotiation). For an
     -- incoming server request it is the version that the peer
     -- actually spoke.
+  , requestTrailers  :: !(IO Headers)
+    -- ^ Block on the trailer block carried after the request body.
+    --
+    -- HTTP\/2 trailers arrive as a final HEADERS frame with
+    -- @END_STREAM@; HTTP\/1.x trailers arrive in the field block
+    -- after the chunked terminator (currently dropped by the
+    -- connection-level body reader — see the @Trailer@ docs).
+    -- Returns @[]@ when the request had no trailers.  Must be called
+    -- after 'requestBody' has been fully drained.
   }
 
 instance Show Request where
@@ -64,7 +73,7 @@ instance Show Request where
       <> show (requestHeaders r)
 
 instance NFData Request where
-  rnf (Request m t a s h b v) =
+  rnf (Request m t a s h b v _) =
     rnf m `seq` rnf t `seq` rnf a `seq` rnf s `seq` rnf h `seq` rnf b `seq` rnf v
 
 data Response = Response

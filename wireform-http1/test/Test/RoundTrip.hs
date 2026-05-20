@@ -27,7 +27,7 @@ tests = testGroup "RoundTrip"
 
 prop_requestHead :: GenRequest -> Property
 prop_requestHead (GenRequest meth tgt hdrs) =
-  let req = Request meth tgt HTTP_1_1 hdrs BodyEmpty
+  let req = Request meth tgt HTTP_1_1 hdrs BodyEmpty (pure [])
       bs  = encodeRequestHead req
       stripped = stripBlankLine bs
   in case parseRequest stripped of

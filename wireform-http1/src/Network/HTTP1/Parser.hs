@@ -400,7 +400,7 @@ parseRequest block = do
   hdrs <- parseHeaderBlock rest
   validateHost ver hdrs
   framing <- requestFraming meth ver hdrs
-  Right (Request meth tgt ver hdrs BodyEmpty, framing)
+  Right (Request meth tgt ver hdrs BodyEmpty (pure []), framing)
 
 -- | RFC 9112 § 3.2: HTTP\/1.1 requests MUST contain exactly one Host
 -- header. We also validate the value: no userinfo (@user\@host@), no
