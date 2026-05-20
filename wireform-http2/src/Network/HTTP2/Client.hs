@@ -43,6 +43,7 @@ import Network.HTTP2.Connection
 import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Types (decodeGoAway, decodeSettings)
 import Network.HTTP2.HPACK
+import Network.HTTP2.RateLimit (RateCounter, newRateCounter, tickRate)
 import Network.HTTP2.Types
 import qualified Network.HTTP2.Types as H2Types
 import qualified Debug.Trace
@@ -177,7 +178,27 @@ data ClientHandle = ClientHandle
     -- that @lastStreamId@.  'registerAndSend' refuses to open
     -- streams whose ID would exceed it; in-flight streams below the
     -- threshold complete normally.
+  , chPingRate :: !RateCounter
+    -- ^ PING frames received this window (RFC 9113 § 6.7 abuse).
+  , chSettingsRate :: !RateCounter
+    -- ^ SETTINGS frames received this window.
+  , chRstRate :: !RateCounter
+    -- ^ RST_STREAM frames received this window.
+  , chEmptyDataRate :: !RateCounter
+    -- ^ Empty DATA frames received this window (CPU-soak vector).
   }
+
+-- | Per-second caps for the control-plane rate counters.  These
+-- numbers are deliberately generous for legitimate peers (a
+-- well-behaved gRPC client sends one keep-alive PING every
+-- 30s; even an aggressive one is well under 10\/s) and are
+-- only intended to bound the damage a hostile peer can inflict
+-- before we tear the connection down.
+defaultPingPerSec, defaultSettingsPerSec, defaultRstPerSec, defaultEmptyPerSec :: Int
+defaultPingPerSec     = 10
+defaultSettingsPerSec = 5
+defaultRstPerSec      = 100
+defaultEmptyPerSec    = 50
 
 -- | When per-stream or connection-level unacked bytes cross this
 -- threshold the recv path emits a @WINDOW_UPDATE@ to replenish.
@@ -238,7 +259,12 @@ withConnectionOnTransport cfg transport mSock action = do
   recvUnackedRef <- newIORef 0
   activeStreamsTv <- atomically (newTVar 0)
   goAwayTv <- atomically (newTVar Nothing)
+  pingRate <- newRateCounter
+  settingsRate <- newRateCounter
+  rstRate <- newRateCounter
+  emptyDataRate <- newRateCounter
   let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef activeStreamsTv goAwayTv
+                            pingRate settingsRate rstRate emptyDataRate
   _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
   action handle `finally` closeConnection conn NoError ""
 
@@ -276,47 +302,60 @@ handleClientFrame :: ClientHandle -> Frame -> IO Bool
 handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck -> pure True
-    | otherwise -> case decodeSettings body of
-        Nothing -> do
-          closeConnection (chConnection handle) FrameSizeError "malformed SETTINGS payload"
-          pure False
-        Just params -> do
-          old <- readIORef (connRemoteSettings (chConnection handle))
-          case applySettingsParams old params of
-            Left _ -> do
-              closeConnection (chConnection handle) ProtocolError "invalid settings"
+    | otherwise -> do
+        n <- tickRate (chSettingsRate handle)
+        if n > defaultSettingsPerSec
+          then do
+            closeConnection (chConnection handle) EnhanceYourCalm "SETTINGS flood"
+            pure False
+          else case decodeSettings body of
+            Nothing -> do
+              closeConnection (chConnection handle) FrameSizeError "malformed SETTINGS payload"
               pure False
-            Right newSettings -> do
-              writeIORef (connRemoteSettings (chConnection handle)) newSettings
-              -- Per-stream send windows need to follow
-              -- SETTINGS_INITIAL_WINDOW_SIZE changes (RFC 9113
-              -- § 6.9.2): each open stream's send window is shifted
-              -- by the delta of old vs new initial size.
-              adjustStreamWindowsForInitialChange
-                handle
-                (settingsInitialWindowSize old)
-                (settingsInitialWindowSize newSettings)
-              -- Peer's SETTINGS_HEADER_TABLE_SIZE caps the dynamic
-              -- table we may use when encoding HEADERS for them.
-              -- Shrink our encoder's table to match; the eviction
-              -- inside 'setMaxSize' guarantees we won't reference
-              -- entries the peer no longer has.  RFC 7541 § 6.3
-              -- also wants us to emit a "Dynamic Table Size Update"
-              -- on the next header block; we don't yet (TODO), so
-              -- this is best-effort against lenient peers.
-              when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
-                enc <- readMVar (connHpackEncoder (chConnection handle))
-                setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
-              let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
-              sendFrame (chConnection handle) ack
-              pure True
+            Just params -> do
+              old <- readIORef (connRemoteSettings (chConnection handle))
+              case applySettingsParams old params of
+                Left _ -> do
+                  closeConnection (chConnection handle) ProtocolError "invalid settings"
+                  pure False
+                Right newSettings -> do
+                  writeIORef (connRemoteSettings (chConnection handle)) newSettings
+                  -- Per-stream send windows follow
+                  -- SETTINGS_INITIAL_WINDOW_SIZE changes (RFC 9113
+                  -- § 6.9.2): each open stream's send window is
+                  -- shifted by the delta of old vs new initial size.
+                  adjustStreamWindowsForInitialChange
+                    handle
+                    (settingsInitialWindowSize old)
+                    (settingsInitialWindowSize newSettings)
+                  -- Peer's SETTINGS_HEADER_TABLE_SIZE caps the
+                  -- dynamic table we may use when encoding HEADERS
+                  -- for them.  Shrink our encoder's table to match;
+                  -- the eviction inside 'setMaxSize' guarantees we
+                  -- won't reference entries the peer no longer has.
+                  -- RFC 7541 § 6.3 also wants us to emit a "Dynamic
+                  -- Table Size Update" on the next header block; we
+                  -- don't yet (TODO), so this is best-effort against
+                  -- lenient peers.
+                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
+                    enc <- readMVar (connHpackEncoder (chConnection handle))
+                    setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
+                  let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+                  sendFrame (chConnection handle) ack
+                  pure True
 
   FramePing
     | testFlag (fhFlags hdr) flagAck -> pure True
     | otherwise -> do
-        let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame body)
-        sendFrame (chConnection handle) pong
-        pure True
+        n <- tickRate (chPingRate handle)
+        if n > defaultPingPerSec
+          then do
+            closeConnection (chConnection handle) EnhanceYourCalm "PING flood"
+            pure False
+          else do
+            let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame body)
+            sendFrame (chConnection handle) pong
+            pure True
 
   FrameWindowUpdate
     | BS.length body /= 4 -> pure True
@@ -352,10 +391,16 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameRSTStream
     | BS.length body /= 4 -> pure True
     | otherwise -> do
-        let sid = fhStreamId hdr
-            code = word32ToErrorCodeLocal (readWord32 body)
-        failStream handle sid (ClientStreamReset code)
-        pure True
+        n <- tickRate (chRstRate handle)
+        if n > defaultRstPerSec
+          then do
+            closeConnection (chConnection handle) EnhanceYourCalm "RST_STREAM flood"
+            pure False
+          else do
+            let sid = fhStreamId hdr
+                code = word32ToErrorCodeLocal (readWord32 body)
+            failStream handle sid (ClientStreamReset code)
+            pure True
 
   FrameHeaders -> do
     let sid = fhStreamId hdr
@@ -407,63 +452,46 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameData -> do
     let sid = fhStreamId hdr
         endStream = testFlag (fhFlags hdr) flagEndStream
-    case stripDataPadding (fhFlags hdr) body of
-      Nothing -> do
-        failStream handle sid (ClientStreamProtocolError "malformed DATA frame")
-        pure True
-      Just payload -> do
-        inboxes <- readIORef (chStreams handle)
-        case Map.lookup sid inboxes of
-          Nothing -> pure True
-          Just inbox -> do
-            -- The recv loop only enqueues here; @WINDOW_UPDATE@
-            -- frames are emitted lazily by 'nextBodyChunk' once the
-            -- user has actually consumed the bytes.  This is the
-            -- right back-pressure: a slow reader naturally throttles
-            -- the peer via the recv window, instead of the peer
-            -- happily filling our memory.
-            -- The payload comes from the recv ring buffer as a
-            -- zero-copy slice; the buffer reuses its memory on the
-            -- next 'recvBufferRead' (compaction + overwrite), so
-            -- any slice we hand off to a long-lived queue silently
-            -- becomes the next frame's bytes.
-            --
-            -- Beware: 'BS.copy' wraps 'unsafeDupablePerformIO' and
-            -- a plain @let copied = BS.copy x@ leaves the memcpy
-            -- thunked behind a 'PS' wrapper — the actual byte copy
-            -- doesn't happen until the bytes are inspected, which
-            -- is after the buffer has been overwritten.  Round-
-            -- tripping through 'BS.pack' \/ 'BS.unpack' forces a
-            -- strict element-by-element copy.
-            -- Force a deep, eager copy.  'BS.copy' wraps
-            -- 'unsafeDupablePerformIO' and a plain @BodyChunk
-            -- (BS.copy payload)@ defers the memcpy until the
-            -- bytes are first inspected, at which point the recv
-            -- ring buffer has already been compacted and the
-            -- copy reads the next frame's bytes by accident.
-            -- @evaluate@ forces the IO action to run *now*.
-            -- The payload is a zero-copy slice of the recv ring
-            -- buffer; the buffer is reused on the next
-            -- 'recvBufferRead' (compaction overwrites the bytes),
-            -- so any slice we hand off to a long-lived queue
-            -- silently becomes the next frame's bytes.
-            --
-            -- 'BS.copy' would seem to be the fix, but it wraps
-            -- 'unsafeDupablePerformIO': a plain @BS.copy payload@
-            -- forces only the 'PS' wrapper, and the memcpy itself
-            -- stays thunked until the bytes are inspected -- which
-            -- is *after* the recv buffer has been overwritten.  We
-            -- need an eager byte-walking copy to materialise the
-            -- bytes now.
-            copied <- forceCopyBS payload
-            atomically $ writeTBQueue (siBody inbox) (BodyChunk copied)
-            if endStream
-              then do
-                _ <- tryPutMVar (siTrailers inbox) []
-                atomically $ writeTBQueue (siBody inbox) BodyEnd
-                closeStream handle sid
-              else pure ()
-            pure True
+    -- Empty-DATA flood guard: each empty DATA frame is a "free"
+    -- frame from the peer's POV (no flow-control debit) but still
+    -- forces us through the recv loop's per-frame work.  Cap.
+    overFlood <-
+      if BS.null body || (BS.length body == 1 && testFlag (fhFlags hdr) flagPadded)
+        then do
+          n <- tickRate (chEmptyDataRate handle)
+          pure (n > defaultEmptyPerSec)
+        else pure False
+    if overFlood
+      then do
+        closeConnection (chConnection handle) EnhanceYourCalm "empty-DATA flood"
+        pure False
+      else case stripDataPadding (fhFlags hdr) body of
+        Nothing -> do
+          failStream handle sid (ClientStreamProtocolError "malformed DATA frame")
+          pure True
+        Just payload -> do
+          inboxes <- readIORef (chStreams handle)
+          case Map.lookup sid inboxes of
+            Nothing -> pure True
+            Just inbox -> do
+              -- The recv loop just enqueues here; WINDOW_UPDATE
+              -- frames are emitted lazily by 'nextBodyChunk' once
+              -- the user has actually consumed the bytes -- so a
+              -- slow reader throttles the peer naturally.
+              --
+              -- 'forceCopyBS' (not 'BS.copy'): the payload is a
+              -- zero-copy slice of the recv ring buffer, and
+              -- 'BS.copy' is too lazy under inlining to make the
+              -- memcpy happen before the buffer is overwritten.
+              copied <- forceCopyBS payload
+              atomically $ writeTBQueue (siBody inbox) (BodyChunk copied)
+              if endStream
+                then do
+                  _ <- tryPutMVar (siTrailers inbox) []
+                  atomically $ writeTBQueue (siBody inbox) BodyEnd
+                  closeStream handle sid
+                else pure ()
+              pure True
 
   _ -> pure True
 

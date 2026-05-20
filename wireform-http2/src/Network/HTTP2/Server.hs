@@ -36,6 +36,7 @@ import Network.HTTP2.Frame.Types
   ( FramePayload (..), decodeGoAway, decodeSettings
   )
 import Network.HTTP2.HPACK
+import Network.HTTP2.RateLimit (RateCounter, newRateCounter, tickRate)
 import Network.HTTP2.Types hiding (StreamClosed)
 import qualified Network.HTTP2.Types as Types
 
@@ -170,7 +171,10 @@ handleTransport cfg transport = do
       lastPeerStreamRef <- newIORef 0
       continuationRef <- newIORef Nothing
       connRecvUnackedRef <- newIORef 0
-      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef connRecvUnackedRef
+      rl <- ServerRateLimiters
+        <$> newRateCounter <*> newRateCounter
+        <*> newRateCounter <*> newRateCounter
+      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef connRecvUnackedRef rl
 
 -- | Pending header-block continuation state: which stream we're
 -- continuing, what flags the initial HEADERS frame had (so we know
@@ -316,6 +320,23 @@ sendServerPreface conn settings = do
         (SettingsFrame params)
   sendFrame conn frame
 
+-- | Per-connection rate limiters that protect the server's
+-- recv loop from hostile control-plane floods.
+data ServerRateLimiters = ServerRateLimiters
+  { srlPing     :: !RateCounter
+  , srlSettings :: !RateCounter
+  , srlRst      :: !RateCounter
+  , srlEmpty    :: !RateCounter
+  }
+
+-- Per-second caps; see Network.HTTP2.Client for the
+-- corresponding constants on the client side.
+srlPingCap, srlSettingsCap, srlRstCap, srlEmptyCap :: Int
+srlPingCap     = 10
+srlSettingsCap = 5
+srlRstCap      = 100
+srlEmptyCap    = 50
+
 connectionLoop
   :: ServerConfig
   -> Connection
@@ -323,8 +344,9 @@ connectionLoop
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> IORef Int    -- ^ connection-level recv-unacked counter
+  -> ServerRateLimiters
   -> IO ()
-connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef = loop
+connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl = loop
   where
     maxFrame = settingsMaxFrameSize (serverSettings cfg)
     loop = do
@@ -345,7 +367,7 @@ connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef 
                        || fhStreamId hdr /= contStreamId c -> do
                   closeConnection conn ProtocolError "expected CONTINUATION frame"
                 _ -> do
-                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef frame
+                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl frame
                   if ok then loop else pure ()
 
 -- | Map a 'FrameDecodeError' to the HTTP\/2 error code dictated by
@@ -378,9 +400,10 @@ handleFrame'
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> IORef Int      -- ^ connection-level recv-unacked counter
+  -> ServerRateLimiters
   -> Frame
   -> IO Bool
-handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck ->
         if BS.null body
@@ -394,36 +417,43 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
     | BS.length body `mod` 6 /= 0 -> do
         closeConnection conn FrameSizeError "SETTINGS payload not multiple of 6"
         pure False
-    | otherwise -> case decodeSettings body of
-        Nothing -> do
-          closeConnection conn FrameSizeError "malformed SETTINGS payload"
-          pure False
-        Just params -> do
-          old <- readIORef (connRemoteSettings conn)
-          case applySettingsParams old params of
-            Left _ -> do
-              closeConnection conn ProtocolError "invalid settings"
+    | otherwise -> do
+        n <- tickRate (srlSettings rl)
+        if n > srlSettingsCap
+          then do
+            closeConnection conn EnhanceYourCalm "SETTINGS flood"
+            pure False
+          else case decodeSettings body of
+            Nothing -> do
+              closeConnection conn FrameSizeError "malformed SETTINGS payload"
               pure False
-            Right newSettings -> do
-              writeIORef (connRemoteSettings conn) newSettings
-              -- Adjust every open stream's send window by the delta
-              -- of the peer's SETTINGS_INITIAL_WINDOW_SIZE
-              -- (RFC 9113 §6.9.2).
-              adjustServerStreamWindows
-                streamsRef
-                (settingsInitialWindowSize old)
-                (settingsInitialWindowSize newSettings)
-              -- Peer's SETTINGS_HEADER_TABLE_SIZE caps our HPACK
-              -- encoder's dynamic table size.  See note in
-              -- Network.HTTP2.Client; we shrink the table but don't
-              -- yet emit the spec-required "Dynamic Table Size
-              -- Update" instruction on the next header block.
-              when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
-                enc <- readMVar (connHpackEncoder conn)
-                setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
-              let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
-              sendFrame conn ack
-              pure True
+            Just params -> do
+              old <- readIORef (connRemoteSettings conn)
+              case applySettingsParams old params of
+                Left _ -> do
+                  closeConnection conn ProtocolError "invalid settings"
+                  pure False
+                Right newSettings -> do
+                  writeIORef (connRemoteSettings conn) newSettings
+                  -- Adjust every open stream's send window by the
+                  -- delta of the peer's
+                  -- SETTINGS_INITIAL_WINDOW_SIZE (RFC 9113 §6.9.2).
+                  adjustServerStreamWindows
+                    streamsRef
+                    (settingsInitialWindowSize old)
+                    (settingsInitialWindowSize newSettings)
+                  -- Peer's SETTINGS_HEADER_TABLE_SIZE caps our HPACK
+                  -- encoder's dynamic table size.  See note in
+                  -- Network.HTTP2.Client; we shrink the table but
+                  -- don't yet emit the spec-required "Dynamic Table
+                  -- Size Update" instruction on the next header
+                  -- block.
+                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
+                    enc <- readMVar (connHpackEncoder conn)
+                    setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
+                  let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+                  sendFrame conn ack
+                  pure True
 
   FramePing
     | fhStreamId hdr /= 0 -> do
@@ -434,9 +464,15 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
         pure False
     | testFlag (fhFlags hdr) flagAck -> pure True
     | otherwise -> do
-        let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame body)
-        sendFrame conn pong
-        pure True
+        n <- tickRate (srlPing rl)
+        if n > srlPingCap
+          then do
+            closeConnection conn EnhanceYourCalm "PING flood"
+            pure False
+          else do
+            let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame body)
+            sendFrame conn pong
+            pure True
 
   FrameWindowUpdate
     | BS.length body /= 4 -> do
@@ -656,66 +692,81 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
         closeConnection conn ProtocolError "DATA on stream 0"
         pure False
     | otherwise -> do
-        let sid = fhStreamId hdr
-        streams <- readIORef streamsRef
-        case Map.lookup sid streams of
-          Nothing -> do
-            closeConnection conn Types.StreamClosed "DATA on idle stream"
+        -- Empty-DATA frames cost the peer nothing flow-control-wise
+        -- but force us through the full per-frame work.  Cap.
+        let isEmpty = BS.null body
+                   || (BS.length body == 1 && testFlag (fhFlags hdr) flagPadded)
+        overEmpty <-
+          if isEmpty
+            then do
+              n <- tickRate (srlEmpty rl)
+              pure (n > srlEmptyCap)
+            else pure False
+        if overEmpty
+          then do
+            closeConnection conn EnhanceYourCalm "empty-DATA flood"
             pure False
-          Just sr | srState sr == StClosedSrv -> do
-            closeConnection conn Types.StreamClosed "DATA on closed stream"
-            pure False
-          Just sr | srState sr == StHalfClosedRemote -> do
-            closeConnection conn Types.StreamClosed "DATA on half-closed (remote) stream"
-            pure False
-          Just sr -> case stripPaddingAndPriority FrameData (fhFlags hdr) body of
-            Nothing -> do
-              closeConnection conn ProtocolError "malformed DATA frame"
-              pure False
-            Just payload -> do
-              let bytes = BS.length payload
-                  endStream = testFlag (fhFlags hdr) flagEndStream
-                  newReceived = srReceivedBytes sr + bytes
-                  newState = if endStream then StHalfClosedRemote else StOpen
-              modifyIORef' streamsRef
-                (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
-              -- Hand the payload to the handler's request-body
-              -- consumer.  Empty DATA frames are common terminators;
-              -- only push non-empty chunks.  The recv windows are
-              -- replenished lazily in 'makeRequestBody' when the
-              -- handler actually consumes a chunk, so a slow handler
-              -- back-pressures the peer naturally.
-              -- The payload is a zero-copy slice of the recv ring
-              -- buffer; the buffer reuses its memory on subsequent
-              -- 'recvBufferRead' calls, so we copy before stashing
-              -- in the long-lived per-stream queue.  Without the
-              -- copy, the slice silently becomes the next frame's
-              -- bytes once the buffer is compacted / overwritten.
-              -- 'BS.copy' alone isn't enough -- it wraps an
-              -- 'unsafeDupablePerformIO' that can defer the memcpy
-              -- past the buffer overwrite.  'forceCopyBS' walks the
-              -- bytes synchronously.
-              when (not (BS.null payload)) $ do
-                copied <- forceCopyBS payload
-                atomically $
-                  writeTBQueue (srBodyQueue sr) (BodyChunkBytes copied)
-              when endStream $ do
-                -- No trailer block follows -- resolve the trailers
-                -- MVar with [] and push the body terminator.
-                _ <- tryPutMVar (srTrailers sr) []
-                atomically $
-                  writeTBQueue (srBodyQueue sr) BodyChunkEnd
-              -- On END_STREAM, validate the declared content-length.
-              if endStream
-                then case srExpectedLength sr of
-                  Just expected
-                    | expected /= newReceived -> do
-                        sendRstStream conn sid ProtocolError
-                        modifyIORef' streamsRef
-                          (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
-                        pure True
-                  _ -> pure True
-                else pure True
+          else do
+            let sid = fhStreamId hdr
+            streams <- readIORef streamsRef
+            case Map.lookup sid streams of
+              Nothing -> do
+                closeConnection conn Types.StreamClosed "DATA on idle stream"
+                pure False
+              Just sr | srState sr == StClosedSrv -> do
+                closeConnection conn Types.StreamClosed "DATA on closed stream"
+                pure False
+              Just sr | srState sr == StHalfClosedRemote -> do
+                closeConnection conn Types.StreamClosed "DATA on half-closed (remote) stream"
+                pure False
+              Just sr -> case stripPaddingAndPriority FrameData (fhFlags hdr) body of
+                Nothing -> do
+                  closeConnection conn ProtocolError "malformed DATA frame"
+                  pure False
+                Just payload -> do
+                  let bytes = BS.length payload
+                      endStream = testFlag (fhFlags hdr) flagEndStream
+                      newReceived = srReceivedBytes sr + bytes
+                      newState = if endStream then StHalfClosedRemote else StOpen
+                  modifyIORef' streamsRef
+                    (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
+                  -- Hand the payload to the handler's request-body
+                  -- consumer.  Empty DATA frames are common terminators;
+                  -- only push non-empty chunks.  The recv windows are
+                  -- replenished lazily in 'makeRequestBody' when the
+                  -- handler actually consumes a chunk, so a slow handler
+                  -- back-pressures the peer naturally.
+                  -- The payload is a zero-copy slice of the recv ring
+                  -- buffer; the buffer reuses its memory on subsequent
+                  -- 'recvBufferRead' calls, so we copy before stashing
+                  -- in the long-lived per-stream queue.  Without the
+                  -- copy, the slice silently becomes the next frame's
+                  -- bytes once the buffer is compacted / overwritten.
+                  -- 'BS.copy' alone isn't enough -- it wraps an
+                  -- 'unsafeDupablePerformIO' that can defer the memcpy
+                  -- past the buffer overwrite.  'forceCopyBS' walks the
+                  -- bytes synchronously.
+                  when (not (BS.null payload)) $ do
+                    copied <- forceCopyBS payload
+                    atomically $
+                      writeTBQueue (srBodyQueue sr) (BodyChunkBytes copied)
+                  when endStream $ do
+                    -- No trailer block follows -- resolve the trailers
+                    -- MVar with [] and push the body terminator.
+                    _ <- tryPutMVar (srTrailers sr) []
+                    atomically $
+                      writeTBQueue (srBodyQueue sr) BodyChunkEnd
+                  -- On END_STREAM, validate the declared content-length.
+                  if endStream
+                    then case srExpectedLength sr of
+                      Just expected
+                        | expected /= newReceived -> do
+                            sendRstStream conn sid ProtocolError
+                            modifyIORef' streamsRef
+                              (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                            pure True
+                      _ -> pure True
+                    else pure True
 
   FrameRSTStream
     | fhStreamId hdr == 0 -> do
@@ -725,22 +776,29 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
         closeConnection conn FrameSizeError "RST_STREAM length must be 4"
         pure False
     | otherwise -> do
-        let sid = fhStreamId hdr
-        streams <- readIORef streamsRef
-        case Map.lookup sid streams of
-          Nothing -> do
-            closeConnection conn ProtocolError "RST_STREAM on idle stream"
+        n <- tickRate (srlRst rl)
+        if n > srlRstCap
+          then do
+            closeConnection conn EnhanceYourCalm "RST_STREAM flood"
             pure False
-          Just sr -> do
-            -- Wake any blocked body / trailer readers so the handler
-            -- unblocks (the wireform unified Body sees this as
-            -- end-of-stream; callers that need to distinguish abort
-            -- vs clean end can poll the connection state).
-            _ <- tryPutMVar (srTrailers sr) []
-            atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
-            modifyIORef' streamsRef
-              (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
-            pure True
+          else do
+            let sid = fhStreamId hdr
+            streams <- readIORef streamsRef
+            case Map.lookup sid streams of
+              Nothing -> do
+                closeConnection conn ProtocolError "RST_STREAM on idle stream"
+                pure False
+              Just sr -> do
+                -- Wake any blocked body / trailer readers so the
+                -- handler unblocks (the wireform unified Body sees
+                -- this as end-of-stream; callers that need to
+                -- distinguish abort vs clean end can poll the
+                -- connection state).
+                _ <- tryPutMVar (srTrailers sr) []
+                atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
+                modifyIORef' streamsRef
+                  (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                pure True
 
   FramePriority
     | fhStreamId hdr == 0 -> do
@@ -781,7 +839,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (F
                   , fhType   = FrameHeaders
                   , fhLength = fromIntegral (BS.length assembled)
                   }
-            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef
+            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef rl
               (Frame synthHdr (FramePayloadRaw assembled))
         | otherwise -> do
             copiedBody <- forceCopyBS body

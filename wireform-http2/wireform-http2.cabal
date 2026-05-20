@@ -93,6 +93,7 @@ library
     Network.HTTP2.Engine.Server
     Network.HTTP2.Engine.Settings
     Network.HTTP2.Engine.Types
+    Network.HTTP2.RateLimit
     Network.HTTP2.Server
     Network.HTTP2.Transport
     Network.HTTP2.Types
