@@ -88,13 +88,15 @@ cabal run -v0 wireform-http1:wireform-http1-bench-server -- 18080 +RTS -N2 &
 PIDS+=($!)
 cabal run -v0 wireform-http1:wireform-http1-runserver-bench -- 18081 +RTS -N2 &
 PIDS+=($!)
+cabal run -v0 wireform-http1:wireform-http1-static-bench-server -- 18084 "$H2O_WWW/index.html" text/html +RTS -N2 &
+PIDS+=($!)
 h2o -c "$H2O_CONF" &
 PIDS+=($!)
 nginx -c "$NGINX_CONF" -p /tmp -g "" &
 PIDS+=($!)
 
 # Wait for them to come up
-for p in 18080 18081 18082 18083; do
+for p in 18080 18081 18082 18083 18084; do
   for i in 1 2 3 4 5 6 7 8 9 10; do
     if curl -sf --max-time 1 "http://127.0.0.1:$p/" >/dev/null; then break; fi
     sleep 1
@@ -102,19 +104,25 @@ for p in 18080 18081 18082 18083; do
 done
 
 echo "=== wireform-http1 vs h2o vs nginx | $(uname -m) $(nproc) cores ==="
+echo "  18080 wireform precomputed     (in-memory, runServer + BodyPreEncoded)"
+echo "  18081 wireform runServer       (in-memory, runServer + BodyBytes)"
+echo "  18084 wireform sendfile        (disk, runServer + BodyFile -> sendfile(2))"
+echo "  18082 h2o      file.dir        (disk, sendfile internally)"
+echo "  18083 nginx    return 200      (in-memory)"
 echo
 
 for workload in "-t2 -c50" "-t4 -c200" "-t2 -c50 -s $PIPELINE_LUA"; do
   echo "### $workload ###"
-  echo "                pre        run        h2o        nginx     pre/h2o run/h2o"
+  printf "  %-9s %-9s %-9s %-9s %-9s %-9s\n" pre run sf h2o nginx
   for run in 1 2 3 4 5; do
     PRE=$(wrk $workload -d10s http://127.0.0.1:18080/ 2>&1 | grep 'Requests/sec' | awk '{print int($2)}')
     RUN=$(wrk $workload -d10s http://127.0.0.1:18081/ 2>&1 | grep 'Requests/sec' | awk '{print int($2)}')
+    SF=$(wrk $workload -d10s http://127.0.0.1:18084/ 2>&1 | grep 'Requests/sec' | awk '{print int($2)}')
     H2O=$(wrk $workload -d10s http://127.0.0.1:18082/ 2>&1 | grep 'Requests/sec' | awk '{print int($2)}')
     NG=$(wrk $workload -d10s http://127.0.0.1:18083/ 2>&1 | grep 'Requests/sec' | awk '{print int($2)}')
-    printf "  run %d:    %8d   %8d   %8d   %8d   %5d%%   %5d%%\n" \
-      "$run" "$PRE" "$RUN" "$H2O" "$NG" \
-      "$((PRE * 100 / H2O))" "$((RUN * 100 / H2O))"
+    printf "  %-9d %-9d %-9d %-9d %-9d   (sf/h2o=%d%%)\n" \
+      "$PRE" "$RUN" "$SF" "$H2O" "$NG" \
+      "$((SF * 100 / H2O))"
   done
   echo
 done

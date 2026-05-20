@@ -9,12 +9,13 @@ tests would miss.
 -}
 module Test.Integration (tests) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
 import qualified Data.ByteString as BS
 import Data.IORef
 import qualified Network.Socket as NS
+import System.Directory (removeFile)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -36,6 +37,9 @@ tests = testGroup "Integration"
   , keepAlivePipelineTest
   , preEncodedGetTest
   , preEncodedHeadTest
+  , sendFileGetTest
+  , sendFileHeadTest
+  , sendFileCachedFdTest
   ]
 
 ------------------------------------------------------------------------
@@ -144,6 +148,76 @@ preEncodedHeadTest = testCase "pre-encoded response served as HEAD drops body bu
     -- a body, so it frames as NoBody.
     body <- bodyOf r
     body @?= ""
+
+------------------------------------------------------------------------
+-- sendfile(2)
+------------------------------------------------------------------------
+
+-- | Bracket-style helper that writes a temp file with given contents,
+-- runs an action against it, then removes the file.
+withTempFile :: FilePath -> BS.ByteString -> (FilePath -> IO a) -> IO a
+withTempFile path contents action = do
+  BS.writeFile path contents
+  action path `finally` (removeFile path)
+
+-- | Sendfile bodies can be larger than the client's recv buffer, so
+-- we drain inside 'withClientConnection' to keep the connection live
+-- while we read.
+sendFileGetTest :: TestTree
+sendFileGetTest = testCase "sendfile body: GET delivers file bytes verbatim" $
+  withTempFile "/tmp/wireform-http1-sendfile-test.txt" payload $ \path -> do
+    let handler _ = do
+          fb <- wholeFileBody path
+          pure $ Response OK HTTP_1_1
+                   [("Content-Type", "text/plain"), ("Server", "test")]
+                   (BodyFile fb)
+    withServer handler $ \port -> do
+      withClientConnection (clientCfg port) $ \conn -> do
+        Right r <- sendRequestOn conn (mkReq GET "/" port BodyEmpty [])
+        responseStatus r @?= OK
+        body <- bodyOf r
+        body @?= payload
+  where
+    payload = BS.replicate 4096 0x61  -- 4 KiB of 'a'
+
+sendFileHeadTest :: TestTree
+sendFileHeadTest = testCase "sendfile body: HEAD emits headers, no body" $
+  withTempFile "/tmp/wireform-http1-sendfile-head-test.txt" payload $ \path -> do
+    let handler _ = do
+          fb <- wholeFileBody path
+          pure $ Response OK HTTP_1_1
+                   [("Content-Type", "text/plain"), ("Server", "test")]
+                   (BodyFile fb)
+    withServer handler $ \port -> do
+      withClientConnection (clientCfg port) $ \conn -> do
+        Right r <- sendRequestOn conn (mkReq HEAD "/" port BodyEmpty [])
+        responseStatus r @?= OK
+        body <- bodyOf r
+        body @?= ""
+  where
+    payload = BS.replicate 256 0x62
+
+sendFileCachedFdTest :: TestTree
+sendFileCachedFdTest = testCase "sendfile body: cached fd path (no per-request open/close)" $
+  withTempFile "/tmp/wireform-http1-sendfile-cached-test.txt" payload $ \path -> do
+    -- Open the fd once and reuse it for multiple requests on the
+    -- same keep-alive connection. This is the static-file fast path.
+    fb <- wholeFileBodyFd path
+    let handler _ = pure $ Response OK HTTP_1_1
+                             [("Content-Type", "text/plain")]
+                             (BodyFile fb)
+    withServer handler $ \port -> do
+      withClientConnection (clientCfg port) $ \conn -> do
+        -- Two requests on the same connection — exercises the fd
+        -- being reused without an intervening close.
+        Right r1 <- sendRequestOn conn (mkReq GET "/a" port BodyEmpty [])
+        body1 <- bodyOf r1
+        body1 @?= payload
+        Right r2 <- sendRequestOn conn (mkReq GET "/b" port BodyEmpty [])
+        body2 <- bodyOf r2
+        body2 @?= payload
+  where
+    payload = BS.replicate 1024 0x63  -- 1 KiB of 'c'
 
 ------------------------------------------------------------------------
 -- Helpers

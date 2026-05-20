@@ -240,9 +240,12 @@ augmentRequestHeaders meth ver hdrs body =
           | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
           | otherwise -> hdrs <> [("Connection", "close")]
         BodyPreEncoded _ -> hdrs
-        -- ^ Doesn't really make sense for a request, but @Body@ is
-        -- shared between request and response. Treat as no-op: the
-        -- caller already knew what they were doing.
+        BodyFile fb ->
+          hdrs <> [("Content-Length", decimalBS (toInteger (fbLength fb)))]
+        -- ^ Both 'BodyPreEncoded' and 'BodyFile' on a *request* are
+        -- unusual but legal — @Body@ is shared between request and
+        -- response. The client'd then need to open / send the file
+        -- itself (we don't sendfile on the client path).
   where
     shouldAddZeroCL POST = True
     shouldAddZeroCL PUT  = True
@@ -264,6 +267,8 @@ augmentResponseHeaders st ver hdrs body = withDate (framingAugmented)
             | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
             | otherwise -> hdrs <> [("Connection", "close")]
           BodyPreEncoded _ -> hdrs
+          BodyFile fb ->
+            hdrs <> [("Content-Length", decimalBS (toInteger (fbLength fb)))]
     hasCL = hHas "content-length" hdrs
     hasTE = hHas "transfer-encoding" hdrs
     hasDate = hHas "date" hdrs

@@ -98,6 +98,9 @@ sendRequestOn (ClientConnection conn) req = do
     -- (e.g. a pre-built JSON payload). The Body has already been
     -- baked into the request bytes the user constructed; if they
     -- wanted it sent here they should have used BodyBytes.
+    BodyFile _ -> pure ()
+    -- ^ Client-side sendfile is a follow-up. For now you can stream
+    -- a file with @BodyStream@ + a producer that 'hGet's chunks.
   -- Read the response head.
   mHead <- recvBufferReadUntilDoubleCRLF
              (connectionRecvBuffer conn)

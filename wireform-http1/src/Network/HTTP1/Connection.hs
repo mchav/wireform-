@@ -206,6 +206,7 @@ drainBody = \case
   BodyEmpty -> pure ()
   BodyBytes _ -> pure ()
   BodyPreEncoded _ -> pure ()
+  BodyFile _ -> pure ()
   BodyStream producer -> loop producer
   where
     loop producer = do

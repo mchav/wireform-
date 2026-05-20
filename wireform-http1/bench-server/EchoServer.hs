@@ -66,6 +66,7 @@ drainAll :: Body -> IO BS.ByteString
 drainAll BodyEmpty = pure BS.empty
 drainAll (BodyBytes bs) = pure bs
 drainAll (BodyPreEncoded _) = pure BS.empty
+drainAll (BodyFile _) = pure BS.empty
 drainAll (BodyStream producer) = go []
   where
     go acc = do

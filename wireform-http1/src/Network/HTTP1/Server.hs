@@ -42,6 +42,9 @@ import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NBS
 
 import qualified Wireform.Builder as B
+import qualified Network.HTTP1.SendFile as SF
+import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
+
 
 import Network.HTTP1.Chunked (encodeChunk, encodeLastChunk)
 import Network.HTTP1.Connection
@@ -137,6 +140,7 @@ applyTcpDeferAccept (Just secs) sock = do
   let optName = NS.SockOpt 6 {- IPPROTO_TCP -} 9 {- TCP_DEFER_ACCEPT -}
   NS.setSocketOption sock optName secs
     `catch` (\(_ :: SomeException) -> pure ())
+
 
 acceptLoop :: ServerConfig -> Socket -> IO ()
 acceptLoop cfg listenSock = do
@@ -250,6 +254,23 @@ sendResponse conn reqMethod resp = do
             case responseVersion resp of
               HTTP_1_1 -> streamChunked conn producer
               HTTP_1_0 -> streamRaw conn producer
+          BodyFile fb -> do
+            -- Sendfile path: emit the encoded head with @MSG_MORE@
+            -- (tells the kernel "more data coming, please buffer"),
+            -- then push the file bytes via 'sendfile(2)'. The kernel
+            -- coalesces the two into one TCP segment for small files
+            -- — the same shape @nginx tcp_nopush on@ / @h2o file.dir@
+            -- emit, without the per-request setsockopt(TCP_CORK)
+            -- pair.
+            SF.sendMore sock headBs
+            case fbSource fb of
+              FileSourcePath p ->
+                bracket
+                  (openFd p ReadOnly defaultFileFlags)
+                  closeFd
+                  $ \fd -> SF.sendFile sock fd (fbOffset fb) (fbLength fb)
+              FileSourceFd fd ->
+                SF.sendFile sock fd (fbOffset fb) (fbLength fb)
 
 streamChunked :: Connection -> IO (Maybe BS.ByteString) -> IO ()
 streamChunked conn producer = loop
