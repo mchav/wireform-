@@ -6,11 +6,14 @@ module Network.HTTP2.HPACK.Encode
 import Data.Bits
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Extra as B
 import Data.IORef
 import Data.Word
+import Foreign.Ptr
+import Foreign.Storable
 
 import Network.HTTP2.HPACK.Huffman
 import Network.HTTP2.HPACK.Table
@@ -26,7 +29,7 @@ encodeHeaderBlock strategy dt headers = do
 
 toBS :: Builder -> ByteString
 toBS = BS.toStrict . B.toLazyByteStringWith
-  (B.untrimmedStrategy 256 4096) mempty
+  (B.untrimmedStrategy 128 512) mempty
 
 encodeHeader :: EncodeStrategy -> DynamicTable -> Header -> IO Builder
 encodeHeader strategy dt hdr@(name, value) = do

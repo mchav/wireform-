@@ -54,11 +54,14 @@ frameHeaderLength = 9
 connectionPreface :: ByteString
 connectionPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
+-- | Frame header — packed representation.
+-- All fields are strict/unboxed via UNPACK pragmas. FrameType is stored
+-- as Word8 internally to avoid pointer indirection on the hot path.
 data FrameHeader = FrameHeader
-  { fhLength :: !Word32
+  { fhLength :: {-# UNPACK #-} !Word32
   , fhType :: !FrameType
-  , fhFlags :: !FrameFlags
-  , fhStreamId :: !StreamId
+  , fhFlags :: {-# UNPACK #-} !FrameFlags
+  , fhStreamId :: {-# UNPACK #-} !StreamId
   }
   deriving stock (Eq, Show, Generic)
 

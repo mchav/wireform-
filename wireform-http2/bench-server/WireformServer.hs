@@ -93,44 +93,45 @@ handleClient sock = do
 
 serverLoop :: Connection -> IO ()
 serverLoop conn = do
-  result <- recvFrame conn
-  case result of
-    Left _ -> pure ()
-    Right (Frame hdr payload) -> do
-      handleFrame conn hdr payload
+  mFrame <- recvFrameRaw conn
+  case mFrame of
+    Nothing -> pure ()
+    Just (hdr, payload) -> do
+      handleFrameRaw conn hdr payload
       serverLoop conn
 
-handleFrame :: Connection -> FrameHeader -> FramePayload -> IO ()
-handleFrame conn hdr payload = case payload of
-  SettingsFrame _
+-- | Handle frames using raw payload bytes — avoids constructing FramePayload ADT.
+-- Pattern matches on FrameType which GHC can compile to a jump table.
+handleFrameRaw :: Connection -> FrameHeader -> ByteString -> IO ()
+handleFrameRaw conn hdr payload = case fhType hdr of
+  FrameSettings
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
         sendFrameZeroCopy conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
 
-  PingFrame opaqueData
+  FramePing
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrameZeroCopy conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaqueData)
+        sendFrameZeroCopy conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame payload)
 
-  WindowUpdateFrame _ -> pure ()
+  FrameWindowUpdate -> pure ()
 
-  HeadersFrame _ headerBlock
+  FrameHeaders
     | testFlag (fhFlags hdr) flagEndHeaders -> do
-        -- Full HPACK decode (real work)
+        -- payload IS the HPACK block — no ADT unpacking needed
         decoder <- readMVar (connHpackDecoder conn)
-        _ <- decodeHeaderBlock decoder headerBlock
-        -- Full HPACK encode response (real work)
+        _ <- decodeHeaderBlock decoder payload
         sendResponse conn (fhStreamId hdr)
     | otherwise -> pure ()
 
-  DataFrame _ -> do
+  FrameData -> do
     let len = fhLength hdr
     if len > 0
       then sendFrameZeroCopy conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
       else pure ()
 
-  GoAwayFrame _ _ _ -> pure ()
-  RSTStreamFrame _ -> pure ()
+  FrameGoAway -> pure ()
+  FrameRSTStream -> pure ()
   _ -> pure ()
 
 sendResponse :: Connection -> StreamId -> IO ()

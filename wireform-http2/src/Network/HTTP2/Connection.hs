@@ -11,6 +11,7 @@ module Network.HTTP2.Connection
   , sendFramesUnlocked
   , sendFramesZeroCopy
   , recvFrame
+  , recvFrameRaw
   , closeConnection
   , connectionSettings
     -- * Re-exports
@@ -200,6 +201,28 @@ recvFrame conn = do
               else case decodeFramePayload hdr payload of
                 Left err -> pure (Left err)
                 Right fp -> pure (Right (Frame hdr fp))
+
+-- | Receive a frame header + raw payload without constructing FramePayload.
+-- Avoids the ADT allocation for frames where the caller only needs the raw bytes
+-- (e.g. HEADERS where the payload IS the HPACK block, DATA where it IS the body).
+-- Returns Nothing on connection close.
+{-# INLINE recvFrameRaw #-}
+recvFrameRaw :: Connection -> IO (Maybe (FrameHeader, ByteString))
+recvFrameRaw conn = do
+  headerBytes <- recvExact conn frameHeaderLength
+  if BS.length headerBytes < frameHeaderLength
+    then pure Nothing
+    else case decodeFrameHeader headerBytes of
+      Left _ -> pure Nothing
+      Right hdr -> do
+        let payloadLen = fromIntegral (fhLength hdr)
+        if payloadLen == 0
+          then pure (Just (hdr, BS.empty))
+          else do
+            payload <- recvExact conn payloadLen
+            if BS.length payload < payloadLen
+              then pure Nothing
+              else pure (Just (hdr, payload))
 
 -- | Receive exactly n bytes using the connection's pinned ring buffer.
 -- Returns a zero-copy slice when data doesn't wrap around the ring,
