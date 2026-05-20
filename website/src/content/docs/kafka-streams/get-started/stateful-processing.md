@@ -1,33 +1,56 @@
 ---
 title: "Tutorial 3: Stateful processing"
-description: Count words across a stream, keep the count in a state store, and read the store from outside the topology.
+description: Count words across a stream and query the running totals. Learn how state stores work and why they matter.
 sidebar:
   order: 4
   label: 3. Stateful processing
 ---
 
-A pipe is fine, but the interesting thing about streams is what
-you can compute *across* records. In this part you'll build a
-running word count: every time a word arrives, the count for
-that word goes up. The total per word lives in a **state store**
-that survives restarts and rebalances.
+So far we've just moved data around. Now we'll compute *across* records: specifically, counting how many times each word appears in a stream of text.
 
-## What you'll learn
+This introduces **state**: the running totals must be remembered between records. Kafka Streams handles this automatically with **state stores**.
 
-- What a state store actually is.
-- What a `KTable` is and how it relates to a `KStream`.
-- Why you need to `groupBy` before you can count.
-- How to look at the store from outside the topology.
+## The problem
 
-## Build it
+Imagine you're processing a stream of log lines and want to count error occurrences:
 
-Drop this into a new file or paste it into the same one from
-[Tutorial 2](../your-first-topology/):
+```
+Input:  [ERROR] Connection timeout
+        [WARN] Retrying...
+        [ERROR] Connection timeout
+        [ERROR] Database unavailable
+```
+
+You need to track: "connection timeout" → 2, "database unavailable" → 1.
+
+The naive approach in a plain consumer:
+
+```haskell
+-- DON'T DO THIS
+errorCounts :: IORef (Map Text Int)  -- shared mutable state
+
+process record = do
+  counts <- readIORef errorCounts
+  let word = extractError record
+  let newCounts = adjust (+1) word counts
+  writeIORef errorCounts newCounts
+```
+
+This fails in production because:
+- If your process restarts, the map is empty (data lost)
+- If you scale to multiple instances, each has its own map (counts diverge)
+- If an instance dies mid-batch, some increments are lost
+
+Kafka Streams solves all three problems.
+
+## The solution
+
+Here's the complete word-count topology:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
-module Kafka.Streams.Examples.MyWordCount (runDemo) where
+module Kafka.Streams.Examples.WordCount (runDemo) where
 
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
@@ -38,17 +61,19 @@ import Data.Void (Void)
 
 import Kafka.Streams
 import qualified Kafka.Streams.Materialized as Mat
-import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
+-- Topology Void (): reads from sources (not upstream code), writes to sinks (not downstream code).
+-- Void = pulls from Kafka. () = pushes to Kafka. See tutorial 2 for why two type parameters.
 wordCountTopology :: F.Topology Void ()
 wordCountTopology =
-  F.source "lines" textSerde textSerde
-    >>> F.concatMapValues (T.words . T.toLower)
-    >>> F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
-    >>> F.count countMat
-    >>> F.toStream
-    >>> F.sink "counts" textSerde int64Serde
+  F.source "lines" textSerde textSerde           -- 1. Read text lines
+    >>> F.concatMapValues (T.words . T.toLower)  -- 2. Split into words
+    >>> F.groupBy (\r -> recordValue r)          -- 3. Group by word
+          (grouped textSerde textSerde)
+    >>> F.count countMat                         -- 4. Count per word
+    >>> F.toStream                               -- 5. Convert back to stream
+    >>> F.sink "counts" textSerde int64Serde    -- 6. Write counts
   where
     countMat :: Materialized Text Int64
     countMat =
@@ -61,6 +86,7 @@ runDemo = do
   topo   <- F.buildTopologyFrom wordCountTopology
   driver <- newDriver topo "word-count-app"
 
+  -- Send three lines
   mapM_ (\line ->
     pipeInput driver (topicName "lines")
       Nothing
@@ -71,6 +97,7 @@ runDemo = do
     , "kafka summit kafka"
     ]
 
+  -- Read the changelog output
   out <- readOutput driver (topicName "counts")
   mapM_ (\cr ->
     let word = maybe "?" BSC.unpack (crKey cr)
@@ -78,6 +105,7 @@ runDemo = do
                  (deserialize int64Serde (crValue cr) :: Either Text Int64)
     in putStrLn (word <> " = " <> show n)
     ) out
+
   closeDriver driver
 ```
 
@@ -95,241 +123,153 @@ summit = 1
 kafka = 3
 ```
 
-The output is a **changelog**: every time a word's count changes,
-the new value is emitted. `hello` shows up as `1` then `2` because
-it appeared in two lines. `kafka` ends at `3` because it appeared
-three times.
+## What just happened?
 
-## Walk through the new operators
+Let's trace through:
 
-You've already seen `source` and `sink`. Three new ones do the
-work:
+1. **Input**: Three lines arrive
+2. **Split**: Each line becomes multiple words
+3. **Group**: Same words routed to same processing unit
+4. **Count**: Running totals maintained
+5. **Output**: Every count change emitted
 
-### `concatMapValues`
+The output is a **changelog**: "hello" appears as `1` then `2` because the count updated. "kafka" ends at `3` because it appeared three times total.
+
+## The operators explained
+
+### `concatMapValues`: One input, many outputs
 
 ```haskell
 F.concatMapValues (T.words . T.toLower)
 ```
 
-Turn each input value into a list, and emit each element as its
-own record. The key is preserved (in this case, there isn't one).
-A line "hello world" becomes two records: `hello` and `world`.
+Most operators produce one output per input. `concatMapValues` produces *multiple*.
 
-### `groupBy`
+Input: `"hello world"`
+Output: `["hello", "world"]` (two separate records)
+
+Think of it like `concatMap` on lists: `concatMap words ["a b", "c d"] = ["a", "b", "c", "d"]`
+
+### `groupBy`: Routing by key
 
 ```haskell
 F.groupBy (\r -> recordValue r) (grouped textSerde textSerde)
 ```
 
-Re-key the stream so records with the same word land on the same
-**task**. This is required before any aggregation: `count` needs
-all "hello"s to be processed by the same worker so it can keep one
-counter.
+This is crucial. Before we can count, all records with the same word must go to the same processing unit. Why?
 
-Behind the scenes, `groupBy` writes the re-keyed records to an
-internal **repartition topic** and re-consumes them. That's why
-group operations are more expensive than stateless ones.
+Imagine two workers:
+- Worker A sees "hello" (count: 1)
+- Worker B sees "hello" (count: 1)
 
-### `count`
+Each thinks the count is 1. They're both wrong: the real count is 2.
+
+`groupBy` solves this by re-keying the stream. Behind the scenes:
+1. Records are written to an internal **repartition topic**
+2. They're re-consumed, partitioned by the new key
+3. Now all "hello" records go to the same worker
+
+The cost: network round-trip to Kafka. The benefit: correct counts.
+
+### `count`: Stateful aggregation
 
 ```haskell
 F.count countMat
 ```
 
-Maintain a count per key. The result is a `KTable Text Int64` —
-a table keyed by word, valued by count.
+This maintains a running count per key. It needs a **state store** to remember counts between records.
 
-The `Materialized` argument tells the library *how* to store the
-table:
+The `Materialized` configuration tells it:
+- Store keys as `Text` (the words)
+- Store values as `Int64` (the counts)
+- Name the store "counts-store" (for querying later)
 
-```haskell
-countMat :: Materialized Text Int64
-countMat =
-  Mat.withValueSerde int64Serde
-    $ Mat.withKeySerde textSerde
-    $ Mat.materializedAs (storeName "counts-store")
+### `toStream`: KTable to KStream
+
+`count` produces a **KTable**: a changelog stream where later values replace earlier ones for the same key. `toStream` converts it back to a regular **KStream** for output.
+
+## KStream vs KTable: the crucial distinction
+
+This is the most important concept in Kafka Streams.
+
+|  | KStream | KTable |
+|--|---------|--------|
+| **Analogy** | Event log | Database table |
+| **Same key twice** | Both kept (two events) | Second replaces first |
+| **Deletion** | Tombstone record | Value set to null |
+| **Use for** | Time-series, raw events | Current state, aggregates |
+
+Example with the same input:
+
+```
+Input: (alice, 100), (bob, 50), (alice, 150)
+
+KStream view: Three independent events
+  → (alice, 100), (bob, 50), (alice, 150)
+
+KTable view: Latest value per key
+  → alice = 150, bob = 50
 ```
 
-The `storeName "counts-store"` is what you'll use to query the
-store from outside the topology (next section).
+Our word count uses both:
+- **KStream** of words going in (each word is an event)
+- **KTable** of counts (latest count per word)
+- **KStream** of count updates going out
 
-### `toStream`
+## How state stores work
 
-```haskell
-F.toStream
-```
+The state store is a local key-value structure (in-memory or RocksDB). It's **per-task**: each processing unit has its own store for the keys it owns.
 
-Convert the `KTable` back into a `KStream` of updates so you can
-sink it to a topic. Every change to the table becomes one record.
+But what about durability? Three mechanisms:
 
-## KStream vs KTable
+1. **Changelog topic**: Every state change is written to a hidden Kafka topic
+2. **Recovery**: On restart, replay the changelog to rebuild state
+3. **Standby replicas**: Other instances keep copies for fast failover
 
-This is the single most important distinction in Kafka Streams.
+This means:
+- Your process can restart without losing counts
+- You can scale out and counts stay correct
+- If an instance dies, another takes over quickly
 
-| | KStream | KTable |
-| --- | ------- | ------ |
-| **Model** | A log of events | The current state of a key-value map |
-| **Two records with same key** | Independent | The newer overwrites the older |
-| **Delete** | Append a "delete" event | Send a record with value `null` (tombstone) |
-| **Example** | Sensor readings, page views, orders | Current user profile, current account balance, current count |
+## Querying state from outside
 
-A KTable is **derived state**. The truth lives in the Kafka topic
-(or the changelog topic backing the store); the KTable is a
-materialised view.
-
-Same input stream, two interpretations:
-
-```mermaid
-flowchart LR
-  subgraph in[Input records]
-    R1["(alice, 100, t=1)"]
-    R2["(bob,   50, t=2)"]
-    R3["(alice, 150, t=3)"]
-    R4["(alice, 200, t=4)"]
-  end
-  in --> KS["KStream view\n4 independent events"]
-  in --> KT["KTable view\nalice = 200\nbob = 50\n(newer overwrites older)"]
-```
-
-The relationship in your topology:
-
-```mermaid
-flowchart LR
-  Src["KStream\nof events"] --> Group["groupBy"]
-  Group --> Agg["count / aggregate / reduce"]
-  Agg --> Tbl["KTable\nof running result"]
-  Tbl --> ToStr["toStream"]
-  ToStr --> Sink["sink to topic\n(or stream-table join)"]
-  Tbl -. backed by .-> Store[("State store\n+ changelog topic")]
-```
-
-Pattern: `KStream of events → groupBy → aggregate → KTable of
-running result → toStream → sink to a topic`.
-
-## What a state store actually is
-
-A state store is a per-task local key-value structure. Two backends
-ship in core:
-
-| Backend | Where | When to use |
-| ------- | ----- | ----------- |
-| In-memory | Heap | Small state (≤ 10⁶ keys), tests, low-RAM-pressure pipelines |
-| RocksDB | Local disk | Anything bigger; production default for stateful topologies |
-
-(The Riffle layer adds snapshot, tiered, and remote backends. See
-[Riffle](../riffle/#state-durability-decoupled-from-the-changelog).)
-
-The store is **local to the task**. Each Kafka partition gets
-its own copy. A topology consuming a 12-partition topic has 12
-independent stores, each holding the counts for the keys hashed to
-that partition.
-
-Three things the library does for you to make stores durable:
-
-1. **Writes go to a changelog topic** on Kafka, in addition to the
-   local store.
-2. **On restart**, the local store is rebuilt by replaying the
-   changelog.
-3. **Standby tasks** (opt-in via `numStandbyReplicas`) keep warm
-   replicas on other instances so failover is fast.
-
-You'll see all three in [Tutorial 5](../going-to-production/).
-
-## Read the store from outside
-
-The whole point of a state store is that you can ask it questions.
-Add this to the demo, right before `closeDriver`:
+The state store isn't just for the topology: you can read it directly:
 
 ```haskell
 import qualified Kafka.Streams.InteractiveQueries as IQ
 
--- ...
-
+-- After feeding records, before closeDriver:
 ro <- IQ.queryEngineStore @Text @Int64
         (driverEngine driver)
         (storeName "counts-store")
+
 case ro of
-  Nothing  -> putStrLn "store missing"
+  Nothing  -> putStrLn "Store not found"
   Just kvs -> do
-    h <- IQ.roKvGet kvs "hello"
-    k <- IQ.roKvGet kvs "kafka"
-    putStrLn ("hello -> " <> show h)
-    putStrLn ("kafka -> " <> show k)
+    hello <- IQ.roKvGet kvs "hello"
+    kafka <- IQ.roKvGet kvs "kafka"
+    putStrLn ("hello count: " <> show hello)  -- Just 2
+    putStrLn ("kafka count: " <> show kafka)  -- Just 3
 ```
 
-Output:
+This is **Interactive Queries** (IQ). Use it to:
+- Build HTTP endpoints that return current counts
+- Debug your topology in production
+- Monitor processing health
 
-```
-hello -> Just 2
-kafka -> Just 3
-```
-
-That's **Interactive Queries** (IQ): a read-only view of the live
-state store from anywhere in your code (typically an HTTP handler).
-
-The `Maybe` is the API being honest with you: a get against a key
-that hasn't been seen returns `Nothing`. Tombstones (deletes) also
-return `Nothing`.
-
-In a real deployment, the store is partitioned across instances.
-A query for key `hello` must route to whichever instance owns the
-partition that `hello` hashes to. The library exposes
-`StreamsMetadata` / `KeyQueryMetadata` to do that lookup; the
-proxy layer is your code. See
-[Observability — IQ](../../operating/observability/#interactive-queries)
-for the routing details when you're ready.
-
-## A note on visibility
-
-IQ reads see the in-memory store the topology is writing to. They
-see writes the topology has done; they don't necessarily see them
-*atomically with the EOS commit cycle*.
-
-That's a real difference from a SQL database. In Postgres, a read
-after `COMMIT` always sees the write. In streams, a read after a
-processor's `put` might see the new value before the commit cycle
-makes it durable.
-
-This is **fine** for most queries. It's a thing to know about for
-queries where read-after-write atomicity matters; the full story
-is in [Visibility versus ACID databases](../../operating/visibility/).
-
-## Why this is harder than it looks
-
-Stateful processing on a distributed log is a hard problem the
-library is solving for you. To appreciate the magnitude, here's
-what would go wrong if you tried to roll your own with a plain
-consumer:
-
-| Problem | What the library does |
-| ------- | --------------------- |
-| State lives in one process; it dies, state dies with it | Writes go to a changelog topic; replay rebuilds on restart |
-| Two consumers in the same group could update the same key concurrently | The partitioner pins each key to one partition; only that partition's owner writes |
-| A rebalance moves a partition mid-batch; new owner has stale state | Standby tasks keep warm replicas; under EOS, the in-flight batch aborts cleanly |
-| Schema evolution breaks the changelog reader | Riffle's `SchemaVersioned` store migrates reads forward |
-| Local disk grows without bound | TTL wrappers expire entries on a clock you pick |
-
-You inherit all of this for free as long as you stay inside the
-DSL.
+**Important**: IQ reads the local store, which may be slightly ahead of what's committed to Kafka. For strongly consistent reads, query after a commit cycle completes.
 
 ## What you learned
 
-- A state store is a per-task local KV structure backed by a
-  changelog topic.
-- `groupBy` re-keys via a repartition topic so aggregations land
-  on the right task.
-- `count`, `aggregate`, `reduce` build a KTable from a
-  KGroupedStream.
-- A KTable is derived state; the truth lives in the log.
-- IQ is the read-only view of the store from outside the
-  topology.
-- The library handles durability, replay, and standby; you just
-  declare the store.
+- **Stateful processing** requires remembering data between records
+- **State stores** provide this, backed by changelog topics for durability
+- **`groupBy`** ensures related records go to the same processing unit
+- **KStream** = event log (append-only); **KTable** = table (latest wins)
+- **Interactive Queries** let you read state stores from outside the topology
+- The library handles recovery, replication, and failover automatically
 
 ## Next up
 
-Stateful processing on one stream is half the job. The other half
-is **combining** streams — joining a stream of events against a
-table of context.
+Stateful processing on one stream is half the job. The other half is **combining** streams: joining events with reference data.
 
 [Continue to Tutorial 4: Joins and tables →](../joins-and-tables/)

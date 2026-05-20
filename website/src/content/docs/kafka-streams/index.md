@@ -1,108 +1,71 @@
 ---
 title: Kafka Streams
-description: A library for building stateful, fault-tolerant streaming pipelines in Haskell — Apache Kafka Streams parity plus the Riffle extensions tier.
+description: Build stateful, fault-tolerant streaming pipelines in Haskell. Run them inside your service. No separate cluster required.
 sidebar:
   order: 1
   label: Overview
 ---
 
-`wireform-kafka-streams` is a Haskell library for building
-streaming applications on top of Apache Kafka. It mirrors the
-Apache Kafka Streams DSL one-to-one and layers an additive
-extension tier — **Riffle** — on top, closing the operational
-gaps that historically pushed teams toward Flink.
+`wireform-kafka-streams` is a Haskell library for building streaming applications on Apache Kafka. You write topologies as ordinary Haskell values and run them inside your service. Kafka handles durability and ordering; the library handles state stores, joins, windowing, exactly-once semantics, and rebalancing.
 
-You'll write topologies as ordinary Haskell values, run them
-inside your service (no separate cluster), and lean on Kafka for
-durability and ordering. The library handles the rest: state
-stores, joins, windowing, exactly-once, rebalancing.
+## Start here
 
-## Where to start
+**New to Kafka Streams?** [Quickstart](./get-started/quickstart/) → [What is Kafka Streams?](./get-started/what-is-kafka-streams/) → [Your first topology](./get-started/your-first-topology/)
 
-| If you... | Go to |
-| --------- | ----- |
-| Want it running in 5 minutes | [Quickstart](./get-started/quickstart/) |
-| Are new to Kafka Streams | [Tutorial part 1: What is Kafka Streams?](./get-started/what-is-kafka-streams/) |
-| Have used JVM Kafka Streams before | Skim [Riffle: Flink-class extensions](./riffle/), then jump to [Operations](#operations) |
-| Need to ship to production | [Tutorial part 5: Going to production](./get-started/going-to-production/) |
-| Are reading an alert | [Runbooks](./operating/runbooks/) |
-| Hit a term you don't know | [Glossary](./glossary/) |
+**Have a specific problem?**
+- Calling external APIs from my topology → [Enrichment guide](./guides/enrichment/)
+- Deploying to production → [Going to production](./get-started/going-to-production/)
+- Exactly-once to Postgres/S3/etc → [Exactly-once guide](./operating/exactly-once/)
+- Something's on fire → [Runbooks](./operating/runbooks/)
 
-## The tutorial
+**Coming from Java Kafka Streams?** The API mirrors the Java client. Check the [Riffle extensions](./riffle/) for features the Java client doesn't have.
 
-Five parts, about 30 minutes end-to-end. Each part is
-self-contained code you can run against an in-process test
-driver — no Kafka broker required.
+## The tutorial (30 minutes)
 
-1. **[What is Kafka Streams?](./get-started/what-is-kafka-streams/)** —
-   the mental model, vocabulary, and where this library fits next
-   to Flink and a plain consumer.
-2. **[Your first topology](./get-started/your-first-topology/)** —
-   read from one topic, write to another. The minimum viable
-   pipeline.
-3. **[Stateful processing](./get-started/stateful-processing/)** —
-   count words across a stream and look up the counts via
-   interactive queries.
-4. **[Joins and tables](./get-started/joins-and-tables/)** —
-   enrich a stream of page views against a table of user
-   profiles.
-5. **[Going to production](./get-started/going-to-production/)** —
-   the eight things to set up before deploying for real.
+Five self-contained parts. Run against an in-process test driver. No external Kafka broker needed.
 
-## Riffle: the extensions tier
+1. **[What is Kafka Streams?](./get-started/what-is-kafka-streams/)**: The mental model and vocabulary
+2. **[Your first topology](./get-started/your-first-topology/)**: Read from one topic, write to another
+3. **[Stateful processing](./get-started/stateful-processing/)**: Count words and query the results
+4. **[Joins and tables](./get-started/joins-and-tables/)**: Enrich a stream with reference data
+5. **[Going to production](./get-started/going-to-production/)**: Eight things to set up before deploying
 
-The library has two layers. You can ignore the second until you
-need it.
+## Common tasks
 
-| Layer | What |
-| ----- | ---- |
-| **Parity** | Operator-for-operator port of Apache Kafka Streams 4.0 |
-| **Riffle** | Additive Flink-class extensions: async I/O with backpressure, snapshot-based state recovery, two-phase commit to non-Kafka sinks, cross-source watermarks, key-group rescaling |
+| When you need to… | Read this |
+| ----------------- | --------- |
+| Call external HTTP/SQL/GRPC APIs | [Enrichment guide](./guides/enrichment/) |
+| Scale past your partition count | [Scaling and rebalancing](./operating/scaling/) |
+| Deploy in Kubernetes without losing state | [Running in containers](./operating/containers/) |
+| Write to Postgres/S3 with exactly-once semantics | [Exactly-once across systems](./operating/exactly-once/) |
+| Roll out a new topology version | [Topology evolution](./operating/topology-evolution/) |
+| Understand why IQ reads don't match writes | [Visibility versus ACID databases](./operating/visibility/) |
+| Set up monitoring and alerts | [Observability](./operating/observability/) |
+| Handle an incident | [Runbooks](./operating/runbooks/) |
 
-Riffle features are strictly additive. A topology using nothing
-from Riffle compiles to byte-for-byte the same graph as the
-parity-only compiler. Each feature is a new module or a new
-smart constructor; opting in for one doesn't change anything
-else.
+## Extended features (Riffle)
 
-Tour: [Riffle: Flink-class extensions](./riffle/).
+Optional extensions for advanced use cases. These solve problems that standard Kafka Streams doesn't address.
 
-## Operations
+- **Async I/O**: Call slow external APIs without blocking processing. The operator handles concurrency, timeouts, retries, and exactly-once semantics automatically.
 
-The operations section is the bulk of the docs. It's reference
-material organised by the question you have in front of you:
+- **Snapshot stores**: Recover large state stores quickly. Instead of replaying hours of changelog to rebuild state, restore from a recent checkpoint.
 
-| You're asking… | Read |
-| -------------- | ---- |
-| "How do I roll out a new version without breaking state?" | [Topology evolution and rolling deploys](./operating/topology-evolution/) |
-| "How do I scale this past my partition count?" | [Scaling and rebalancing](./operating/scaling/) |
-| "How do I deploy this in containers without losing state on restart?" | [Running in containers](./operating/containers/) |
-| "How do I commit Kafka and Postgres atomically?" | [Exactly-once across Kafka and other systems](./operating/exactly-once/) |
-| "What should I be alerting on?" | [Observability](./operating/observability/) |
-| "Why doesn't my IQ read return what I just wrote?" | [Visibility versus ACID databases](./operating/visibility/) |
-| "It's on fire; what now?" | [Runbooks](./operating/runbooks/) |
+- **2PC sinks**: Write to Postgres, S3, or HTTP endpoints with exactly-once semantics. Uses two-phase commit to keep Kafka and external systems in sync.
 
-## Concepts and guides
+- **Watermark coordinator**: Handle streams with very different data rates. Prevents windows from stalling when one source goes idle.
 
-| Page | When |
-| ---- | ---- |
-| [Topology optimization](./concepts/topology-optimization/) | You want to know which rewrites the compiler does automatically and which it doesn't |
-| [Dynamic topology changes](./concepts/dynamic-topology/) | You want to know what can change at runtime versus what requires a redeploy |
-| [Enrichment via external systems](./guides/enrichment/) | Your topology needs to call out to an HTTP API, a database, or another service |
-| [Glossary](./glossary/) | Anything unfamiliar |
+- **Key-group routing**: Scale your application past your topic's partition count. Useful when you need more parallelism than your input topics provide.
 
-## Quick context
+See [Extended features](./riffle/) for details.
 
-Three sentences for orientation:
+## Reference
 
-- A **topology** is a typed Haskell value of type `Topology i o`,
-  composed with `Control.Category.(>>>)`. The library compiles it
-  to an imperative runtime graph at the boundary.
-- The runtime is a **library**, not a cluster. Your service binary
-  contains the topology; scaling out means running more processes
-  in the same consumer group.
-- State stores live **next to** your service (local disk or
-  memory), backed by Kafka **changelog topics** for durability and
-  by **standby tasks** for fast failover.
+- [Glossary](./glossary/): Definitions for all terminology
+- [Dynamic topology changes](./concepts/dynamic-topology/): What you can change at runtime versus what requires a restart
 
-That's enough to start the [tutorial](./get-started/what-is-kafka-streams/).
+## Three key facts
+
+- A **topology** is a typed Haskell value (`Topology input output`) composed with `Control.Category.(>>>)`. Like a function `input -> output`, it transforms streams. Common pattern: `Topology Void ()` for topologies that read from and write to Kafka topics.
+- The runtime is a **library**, not a cluster. Your service contains the topology; scaling means running more processes in the same consumer group.
+- State stores live **next to** your service (local disk or memory), backed by Kafka **changelog topics** for durability and **standby tasks** for fast failover.

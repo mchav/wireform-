@@ -1,350 +1,299 @@
 ---
-title: Railway-oriented programming with streams
-description: How Kafka Streams maps onto the two-track ROP pattern — and why thinking in ROP terms makes the library's error-handling surfaces fall into place.
+title: Railway-oriented programming
+description: Handle errors in stream processing by splitting your logic into success and failure tracks, then reconciling at commit boundaries.
 sidebar:
   order: 4
-  label: Railway-oriented programming
 ---
 
-If you've done functional programming you've probably hit
-**railway-oriented programming** (ROP) — Scott Wlaschin's
-[two-track metaphor](https://fsharpforfunandprofit.com/rop/) for
-pipelines of fallible operations. A function takes a value, does
-its work, and routes the result onto either the **success track**
-or the **failure track**. Adjacent functions compose so the
-failure track flows around them; only success values reach the
-next operation.
+**Why this pattern matters:** Stream processing involves continuous data flow where individual records can fail for many reasons (bad format, missing lookup key, validation errors). Without a systematic approach to handling these failures, you either silently drop data (bad) or crash your entire pipeline on every error (also bad). Railway-oriented programming gives you a structured way to handle failures without losing either records or your sanity.
 
-Kafka Streams isn't *labelled* ROP, but it's structurally a
-near-perfect fit. This page maps the metaphor onto the library
-and shows where every failure-handling surface in the API is a
-"track switch" you can think of as a ROP combinator.
+## The core idea
 
-:::tip[Unfamiliar terms?]
-Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
-:::
-
-:::note[TL;DR]
-- A streams topology *is* a two-track pipeline: success records flow downstream; failed records flow into the dead-letter or fail-task track.
-- Track switches sit at four surfaces: source deserialisation, processor exceptions, sink production, and async-I/O / 2PC outcomes.
-- The `Kafka.Streams.Pipeline` newtype has an `ArrowChoice` instance — the `(|||)` and `(+++)` operators are textbook ROP combinators over `Either`.
-- The Riffle async-I/O `AsyncFailurePolicy` and `TwoPhaseSink` `SinkOutcome` types are both ROP-shaped: explicit `OK / Retryable / Fatal` results.
-- The DLQ pattern (KIP-1033) is the "failure track materialised as a Kafka topic" — a second stream you can process independently.
-:::
-
-## The metaphor in 30 seconds
+Imagine a railway track that splits into two parallel lines: one for successfully processed records, one for failures. Your topology can switch records between these tracks based on validation results, then handle each track appropriately at the end.
 
 ```mermaid
 flowchart LR
-  In["Record arrives"] --> S1["Stage 1\n(success path)"]
-  S1 --> S2["Stage 2"]
-  S2 --> S3["Stage 3"]
-  S3 --> Out["Downstream"]
-  In -. fails .-> F["Failure track"]
-  S1 -. fails .-> F
-  S2 -. fails .-> F
-  S3 -. fails .-> F
-  F --> Sink["DLQ /\ndrop /\nfail task"]
+    Input["Input Records"] --> Process["Process / Validate"]
+    Process -->|Success| OK["Success Track\n(valid records)"]
+    Process -->|Failure| Err["Failure Track\n(errors + context)"]
+    OK --> SinkOK["Sink to output topic"]
+    Err --> SinkErr["Sink to DLQ / retry topic"]
 ```
 
-ROP's rules:
+**The key insight:** Don't handle errors where they occur. Route them to a separate track and decide what to do with them at a well-defined boundary (typically the commit cycle or the sink).
 
-- **Two tracks.** Every operation either advances the value on the
-  success track or routes it to the failure track.
-- **Failure is sticky.** Once a value is on the failure track, no
-  subsequent operation runs on it; it flows straight to the end.
-- **Composition is free.** You write each stage as
-  `a -> Either e b`. The framework wires up the bypass.
+## When you need this pattern
 
-The mathematical version is `Either e a` (or any monad with a
-short-circuiting bind). The Kafka Streams version is the same
-shape, with one wrinkle: the framework owns the dispatcher, so
-your *operators* stay focused on the success path.
+**Use railway-oriented programming when:**
+- Individual records can fail validation but the stream must continue
+- You need to route failures to a dead-letter queue for later inspection
+- You want to track failure rates separately from success rates
+- Some failures are retryable (transient) while others are permanent (poison pills)
+- You need to preserve the original record context for debugging failures
 
-## Where the track switches live
+**Don't use it when:**
+- Any failure is truly catastrophic (use fail-fast instead)
+- You can fix errors inline without losing semantics
+- The processing is inherently all-or-nothing
 
-A streams topology has four explicit switch points where a value
-can be diverted off the success track. The first three are
-classic JVM-Kafka-Streams surfaces; the fourth is Riffle.
+## The three components
 
-| Switch | Type | When it fires |
-| ------ | ---- | ------------- |
-| **Deserialisation handler** | `DeserializationHandler` | Source-side serde fails to parse a record |
-| **Processing exception handler** | `ProcessingExceptionHandler` (KIP-1033) | A `Processor` throws |
-| **Production handler** | `ProductionHandler` | The producer fails to publish a sink record |
-| **Async-I/O failure policy** | `AsyncFailurePolicy` | An async-I/O user `IO` action throws or times out |
-| **2PC sink outcome** | `SinkOutcome` | A two-phase-commit sink reports prepare/commit/abort status |
+A railway-oriented pipeline has three parts: splitting, routing, and reconciling.
 
-Every one of these is a *user-supplied callback* that decides
-what to do: continue (skip the bad record), fail-fast (kill the
-task), or route somewhere (DLQ, custom callback). Each is one of
-ROP's "junction switches" lifted from the type level to the
-config level.
+### 1. Splitting: Create the two-track structure
 
-### The 30-second handler vocabulary
+Use `Either` or a custom result type to represent success/failure:
 
 ```haskell
--- Deserialisation (source side)
-data DeserializationResponse = DeserContinueProcessing | DeserFailFast
-newtype DeserializationHandler =
-  DeserializationHandler (DeserializationException -> IO DeserializationResponse)
+-- A validation result that carries success or error details
+data ValidationResult a = Valid a | Invalid Text RecordContext
 
--- Processing (per-record processor exceptions, KIP-1033)
-data ProcessingResponse = ProcessingContinue | ProcessingFail
-newtype ProcessingExceptionHandler =
-  ProcessingExceptionHandler (ProcessingException -> IO ProcessingResponse)
-
--- Production (sink side)
-data ProductionResponse = ProdContinueProcessing | ProdFailFast
-newtype ProductionHandler =
-  ProductionHandler (ProductionException -> IO ProductionResponse)
+-- RecordContext preserves the original record for debugging
+data RecordContext = RecordContext
+  { rcKey       :: Maybe ByteString
+  , rcValue     :: ByteString
+  , rcTopic     :: TopicName
+  , rcPartition :: Partition
+  , rcOffset    :: Offset
+  }
 ```
 
-Three handlers, three trichotomies (`Exception, Continue, Fail`),
-all identical in shape. That's the ROP signature.
+**Why preserve context:** When a record fails processing six months from now, you need to know exactly what input caused the failure. The original key, value, and position are essential for debugging.
 
-The shipped helpers are `logAndContinue` / `logAndFail` /
-`logAndContinueProduction` / `logAndFailProduction` /
-`logAndContinueProcessing` / `logAndFailProcessing`. Each one
-just picks an arm; for anything fancier (e.g., DLQ routing) you
-write your own that uses the input exception to decide.
+### 2. Routing: Process each track separately
 
-## The Riffle additions are explicit two-track types
-
-Where parity Streams gives you two-arm continuations, Riffle adds
-**three-arm** result types that mirror ROP literature more
-directly.
-
-### Async I/O
+Transform your topology to handle both tracks:
 
 ```haskell
-data AsyncFailurePolicy
-  = FailTask                              -- failure track → fail task
-  | DropAndContinue                       -- failure track → drop
-  | LogAndContinue                        -- failure track → log + drop
-  | CustomFailure (SomeException -> IO ()) -- failure track → your handler
+-- Start with a KStream of raw records
+rawStream :: KStream k ByteString
+
+-- Parse and validate, creating the split
+validated :: KStream k (ValidationResult ParsedRecord)
+validated = rawStream |>> mapValues parseAndValidate
+
+-- Split into two streams using flatMap
+okRecords :: KStream k ParsedRecord
+okRecords = validated |>> flatMap (\case
+  Valid r -> [r]
+  Invalid _ _ -> []
+  )
+
+errorRecords :: KStream k (Text, RecordContext)
+errorRecords = validated |>> flatMap (\case
+  Valid _ -> []
+  Invalid err ctx -> [(err, ctx)]
+  )
 ```
 
-Each enum arm is a route off the success track. `FailTask`
-propagates the exception to the engine's uncaught handler;
-`DropAndContinue` quietly absorbs it; `LogAndContinue` logs it
-first; `CustomFailure` lets you do anything — typically write to
-a DLQ topic via a side `produce` call.
+**Why flatMap for splitting:** Kafka Streams doesn't have a native "split" operation. `flatMap` with pattern matching lets you route records to zero or one output tracks based on your result type.
 
-### Two-phase commit sinks
+### 3. Reconciling: Handle each track at sinks
+
+Send success records to your main output and failures to a dead-letter queue:
 
 ```haskell
-data SinkOutcome
-  = SinkOK                          -- success track
-  | SinkRetryable Text              -- transient: failure track, but
-                                    -- the commit cycle aborts and retries
-  | SinkFatal Text                  -- permanent: failure track,
-                                    -- promoted to CommitFatal
+-- Success track: process normally and sink
+okPipeline :: KStream k ProcessedRecord
+okPipeline = okRecords |>> mapValues process |>> sink "output" serde serde
+
+-- Failure track: enrich with metadata and sink to DLQ
+errorPipeline :: KStream k (Text, RecordContext)
+errorPipeline = errorRecords
+  |>> mapValues enrichWithProcessingMetadata
+  |>> sink "errors-dlq" errorSerde errorSerde
 ```
 
-This is ROP done right. The sink reports its outcome on every
-operation (`tpsPrepare`, `tpsCommit`, `tpsAbort`); the runtime
-walks the appropriate path based on the variant. `SinkRetryable`
-is the railway switch that loops the train back; `SinkFatal` is
-the one that derails it.
+**Why separate DLQ topics:** Errors need different handling than success records. They may need manual review, automated retry, or special retention policies. A separate topic lets you apply different processing logic without complicating your main pipeline.
 
-## The DLQ pattern: failure track as a topic
+## Practical example: Enrichment with validation
 
-The classic ROP picture stops at "route to failure handler." In
-Kafka Streams the failure track can itself be a **Kafka topic**
-you write to, materialising the failure stream as first-class data.
-
-```mermaid
-flowchart LR
-  In[("Input topic")] --> Parse[Source serde]
-  Parse -- ok --> Proc[Processor]
-  Proc -- ok --> Out[("Output topic")]
-  Parse -. parse fails .-> DLQ[("Dead-letter topic")]
-  Proc -. throws .-> DLQ
-  DLQ --> Reproc["Reprocessing topology\n(separate stream)"]
-  DLQ --> Inspect["Operator inspection\n(IQ / cat / search)"]
-```
-
-Once you treat the DLQ as just another Kafka topic, the failure
-track gets all the same superpowers as the success track:
-
-- **Persistence and replay.** Bad records aren't dropped on the
-  floor; they wait until you fix the bug and reprocess them.
-- **Independent throughput.** A flood of bad records does not
-  block the success topology.
-- **Inspection.** You can `kafka-console-consumer` the DLQ to
-  see exactly what failed and why.
-- **Reprocessing topology.** Another streams app can consume the
-  DLQ, apply a fix, and re-publish to the original input.
-
-The KIP-1033 `ProcessingExceptionHandler` is the canonical hook
-for this: build a handler that wraps a producer and writes the
-failing record + the exception to a DLQ topic, then returns
-`ProcessingContinue`. Same shape for `DeserializationHandler` and
-`ProductionHandler`.
-
-## The Pipeline newtype is a textbook ROP arrow
-
-`Kafka.Streams.Pipeline` exposes a `Pipeline a b` newtype with
-`Category`, `Arrow`, and — critically — **`ArrowChoice`**
-instances:
+A common use case: enriching records from an external API, where some lookups fail:
 
 ```haskell
-newtype Pipeline a b = Pipeline { runPipeline :: a -> IO b }
+-- Input: user events with IDs to enrich
+events :: KStream UserId Event
+events = source "user-events" userIdSerde eventSerde
 
-instance ArrowChoice Pipeline where
-  -- Apply on the left branch only
-  left  :: Pipeline a b -> Pipeline (Either a c) (Either b c)
+-- Enrich, tracking failures
+enriched :: KStream UserId (Either EnrichmentError EnrichedEvent)
+enriched = events |>> mapValuesM (\event -> do
+  result <- lookupUserProfile (eventUserId event)
+  case result of
+    Just profile -> Right (mergeEventWithProfile event profile)
+    Nothing -> Left (UserNotFound (eventUserId event) event)
+  )
 
-  -- Apply on the right branch only
-  right :: Pipeline a b -> Pipeline (Either c a) (Either c b)
+-- Split the results
+okEvents :: KStream UserId EnrichedEvent
+okEvents = enriched |>> flatMap (\case
+  Right e -> [e]
+  Left _ -> []
+  )
 
-  -- Parallel: two pipelines on the two arms
-  (+++) :: Pipeline a b -> Pipeline c d -> Pipeline (Either a c) (Either b d)
+errorEvents :: KStream UserId EnrichmentError
+errorEvents = enriched |>> flatMap (\case
+  Right _ -> []
+  Left err -> [err]
+  )
 
-  -- Merge: two pipelines whose outputs land on the same track
-  (|||) :: Pipeline a c -> Pipeline b c -> Pipeline (Either a b) c
+-- Route each track
+okPipeline :: Topology Void ()
+okPipeline = okEvents |>> sink "enriched-events" serde serde
+
+errorPipeline :: Topology Void ()
+errorPipeline = errorEvents
+  |>> mapValues serializeError
+  |>> sink "enrichment-failures" serde serde
 ```
 
-The last two are *literally* the ROP `>>` (apply-on-success) and
-"merge tracks back together" combinators. If you've written F#
-ROP, the equivalence is exact.
+**What this buys you:** Your main pipeline continues processing even when enrichment fails for some records. Failed enrichments go to a separate topic where you can retry them later, investigate the missing data, or adjust your processing logic.
 
-A pipeline that does ROP in the shape Scott Wlaschin would
-recognise:
+## Error classification: Retryable vs permanent
+
+Not all errors are equal. Classify them to handle each type appropriately:
 
 ```haskell
-import Control.Arrow (arr, (>>>), (|||))
-import Kafka.Streams.Pipeline
+data ProcessingError
+  = RetryableError Text RecordContext  -- Transient: network blip, timeout
+  | PermanentError Text RecordContext  -- Poison pill: bad format, invariant violation
+  deriving (Eq, Show)
 
--- A stage that may fail. Either Text a is the two-track value.
-parseOrder :: Pipeline RawRecord (Either Text Order)
-parseOrder = arr parseRaw   -- pure function lifted into Pipeline
+-- Check if an error is retryable
+isRetryable :: ProcessingError -> Bool
+isRetryable (RetryableError _ _) = True
+isRetryable (PermanentError _ _) = False
 
--- Two downstream branches: one for valid orders, one for errors.
-processValid :: Pipeline Order EnrichedOrder
-processValid = pmapValues enrich >>> pmapValues authorise
-
-handleError :: Pipeline Text EnrichedOrder
-handleError = pmapValues toDLQRecord
-
--- Wire them together with ArrowChoice.
-fullPipeline :: Pipeline RawRecord EnrichedOrder
-fullPipeline =
-  parseOrder
-    >>> (handleError ||| processValid)
+-- Route based on error type
+routeByErrorType :: KStream k ProcessingError -> (KStream k ProcessingError, KStream k ProcessingError)
+routeByErrorType errors =
+  let retryable = errors |>> filter isRetryable
+      permanent = errors |>> filter (not . isRetryable)
+  in (retryable, permanent)
 ```
 
-The `(|||)` merges the two tracks back into a single output
-stream. Replace `handleError` with `psink "dlq" ...` and you have
-the DLQ pattern in three lines.
+**Why classify:** Retryable errors might succeed on a second attempt. Permanent errors will fail forever and need manual intervention or schema fixes. Treating them differently prevents infinite retry loops and alert fatigue.
 
-## Stage-level ROP inside a single processor
+## Integration with exactly-once semantics
 
-Sometimes you want ROP *inside* a single operator — multiple
-validation steps that can each fail, with the failure short-
-circuiting cleanly. `Either` (or `Validation` for accumulating
-errors) inside a `mapValues` is the idiomatic way:
+Under EOS, both tracks must participate in the same transaction:
 
 ```haskell
-import qualified Data.Text as T
+-- Both sinks use the same transactional producer
+-- If either fails, the entire commit aborts
+-- This prevents partial writes (some to output, some to DLQ missing)
 
-validateOrder :: Order -> Either Text Order
-validateOrder o = do
-  o1 <- checkCustomer o
-  o2 <- checkInventory o1
-  o3 <- checkPaymentMethod o2
-  pure o3
-  where
-    checkCustomer  o = if customerId o == "" then Left "missing customer" else Right o
-    checkInventory o = if quantity o <= 0     then Left "bad quantity"     else Right o
-    checkPaymentMethod o = case payment o of
-      Just _  -> Right o
-      Nothing -> Left "no payment method"
-
--- And then in the topology:
-F.source "orders" textSerde orderSerde
-  >>> F.mapValues validateOrder         -- KStream k (Either Text Order)
-  >>> F.split                            -- branch: lefts to DLQ, rights downstream
-        [ \r -> isLeft  (recordValue r)
-        , \r -> isRight (recordValue r)
-        ]
+combinedPipeline :: Topology Void ()
+combinedPipeline =
+  mergeStreams
+    (okEvents |>> sink "output" serde serde)
+    (errorEvents |>> sink "dlq" serde serde)
 ```
 
-`Data.Either` short-circuits inside `do`-notation — that's the
-"failure track is sticky" rule from the metaphor.
+**Why atomicity matters:** Without transactional guarantees, a failure between the two sinks could send a record to the output topic without its corresponding error going to the DLQ (or vice versa). You'd have inconsistent state that's hard to reconcile.
 
-For **accumulating** errors (a record might fail multiple
-validations and you want all the reasons, not just the first),
-swap `Either` for `Validation` from `validation` /
-`validation-selective`. The wire shape stays the same.
+## Metrics and monitoring
 
-## Compose your handlers, don't pick the default
-
-The shipped `logAndContinue` and friends are fine for quick
-prototypes. For production, write a handler that does the ROP
-*explicitly*:
+Track the health of both tracks:
 
 ```haskell
-import qualified Kafka.Client.Producer as P
-import Kafka.Streams.Errors
-
-dlqProcessingHandler
-  :: P.Producer            -- a producer wired to your DLQ topic
-  -> Text                  -- DLQ topic name
-  -> ProcessingExceptionHandler
-dlqProcessingHandler producer dlq = ProcessingExceptionHandler $ \pe -> do
-  -- Track switch: route this record to the failure track.
-  let envelope = encodeDLQEnvelope pe   -- topic, partition, offset, reason
-  P.send producer (P.record (topicName dlq) Nothing envelope)
-  -- Continue running on the success track.
-  pure ProcessingContinue
+-- Instrument your split operation
+validated |>> mapValues (\result ->
+  case result of
+    Valid _ -> recordMetric "validation.ok"
+    Invalid err _ -> recordMetric ("validation.error." <> errorType err)
+  result  -- Pass through unchanged
+  )
 ```
 
-That's the **entire** ROP implementation, in a Streams app: one
-handler per surface, each one a single `if/else` that decides
-where the value goes next. The library's job is to call the
-handlers at the right point.
+**Key metrics to watch:**
+- **Error rate:** What percentage of records fail? Sudden spikes indicate upstream changes or downstream outages.
+- **Error type distribution:** Are errors mostly transient (network) or permanent (validation)? This drives whether you need retry logic or schema fixes.
+- **DLQ depth:** How many errors are pending? Growing DLQ without draining suggests a systematic problem.
 
-## Why this lens helps
+## Common patterns and variations
 
-Three concrete payoffs of thinking in ROP terms while you write
-Kafka Streams code:
+### Pattern: Retry with backoff
 
-1. **You stop conflating "exception thrown" with "task dies."**
-   In parity Streams, an unhandled exception in a processor
-   *does* kill the task. Once you set up a `ProcessingExceptionHandler`
-   that routes to a DLQ, you're explicitly declaring "this is a
-   data-quality error, not a code error — keep going." That
-   distinction is much harder to make if you're thinking
-   imperatively about try/catch.
-2. **You stop using `mapValues` for fallible work.** A pure
-   `mapValues` has no failure track. The moment you have
-   `mapValues f` where `f` might throw, you've smuggled the
-   failure into the engine's exception path. Make it
-   `mapValues (toEither . f)` and route the `Either` explicitly,
-   or use `mapValuesM` if you genuinely need `IO` (and then
-   accept that the handler will fire).
-3. **You design your DLQ envelope up front.** ROP says "a value
-   on the failure track is just as much a value as one on the
-   success track." That means your DLQ records deserve schema,
-   keys, and timestamps the same as your output topic. Plan for
-   the reprocessing topology when you design the DLQ envelope.
+```haskell
+-- Route retryable errors to a retry topic with delay
+retryableErrors :: KStream k ProcessingError
+retryableErrors = errors |>> filter isRetryable
 
-## Related reading
+-- Use a punctuator or separate consumer to reprocess with exponential backoff
+retryPipeline :: Topology Void ()
+retryPipeline =
+  source "retry-topic" serde serde
+  |>> flatMapValues attemptRetry  -- Returns [] if max retries exceeded
+  |>> sink "output" serde serde
+```
 
-- [Enrichment via external systems](../guides/enrichment/) — async
-  I/O's failure policies in operator-facing terms; the
-  `idempotency-token` pattern from the
-  [enrichment](../guides/enrichment/#pattern-6-idempotency-tokens-in-a-state-store)
-  page is itself a railway-style retry safeguard.
-- [Exactly-once across Kafka and other systems](../operating/exactly-once/) —
-  the `TwoPhaseSink` `SinkOutcome` trichotomy and the commit-cycle
-  failure flowchart are the most explicit ROP surface in the
-  library.
-- [Visibility versus ACID databases](../operating/visibility/) —
-  the replay-on-failure section explains why idempotency
-  matters: replay is the failure-track "loop back" arrow in the
-  ROP picture.
-- The original [F# ROP article by Scott Wlaschin](https://fsharpforfunandprofit.com/rop/)
-  if you want the canonical write-up of the pattern.
+### Pattern: Circuit breaker
+
+When error rates spike, fail fast to protect downstream systems:
+
+```haskell
+-- Track recent error rate in a state store
+circuitBreaker :: KStream k (ValidationResult a) -> KStream k (ValidationResult a)
+circuitBreaker input =
+  input |>> transform (\result -> do
+    currentRate <- getErrorRate
+    if currentRate > 0.5  -- 50% error threshold
+    then return (Invalid "Circuit breaker open" (extractContext result))
+    else do
+      updateErrorRate result
+      return result
+    )
+```
+
+### Pattern: Enrichment with fallback
+
+Try primary enrichment, fall back to secondary if it fails:
+
+```haskell
+enrichWithFallback :: Event -> IO (Either Error EnrichedEvent)
+enrichWithFallback event = do
+  primary <- lookupPrimary (eventId event)
+  case primary of
+    Right enriched -> return (Right enriched)
+    Left _ -> lookupSecondary (eventId event)  -- Fallback source
+```
+
+## Testing railway-oriented pipelines
+
+Test both tracks explicitly:
+
+```haskell
+-- Test success track
+prop_okRecordsFlow :: Property
+prop_okRecordsFlow = property $ do
+  validInput <- forAll genValidRecord
+  let result = runTopology okPipeline [validInput]
+  assert (length result == 1)
+  assert (isInOutputTopic (head result))
+
+-- Test failure track
+prop_errorRecordsRouted :: Property
+prop_errorRecordsRouted = property $ do
+  invalidInput <- forAll genInvalidRecord
+  let result = runTopology combinedPipeline [invalidInput]
+  assert (null outputTopic)  -- Nothing in main output
+  assert (length dlq == 1)   -- Error in DLQ
+  assert (errorContext (head dlq) == originalContext invalidInput)
+```
+
+**Why test both tracks:** It's easy to accidentally drop records on the error track (by returning `[]` in the wrong place). Explicit tests verify the routing logic works correctly.
+
+## When to stop using this pattern
+
+Railway-oriented programming adds complexity. Consider simplifying when:
+
+- Error rates drop below 0.1% and are all permanent (fix the data source instead)
+- The DLQ grows faster than you can drain it (the pattern isn't solving the underlying problem)
+- You find yourself building a full retry framework (consider a dedicated stream processing library for complex retry logic)
+
+## Related concepts
+
+- [Exactly-once semantics](../operating/exactly-once/): How the commit cycle keeps both tracks atomic
+- [Observability](../operating/observability/): Metrics for tracking both tracks
+- [Enrichment via external systems](../guides/enrichment/): A common use case for railway-oriented error handling

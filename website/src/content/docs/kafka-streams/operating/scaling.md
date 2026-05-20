@@ -5,17 +5,19 @@ sidebar:
   order: 3
 ---
 
-There are three axes to scale a streams app on: more **threads** in a process, more **processes** in the consumer group, or more **key-groups** to shard logical work past the partition count. Each one has its own trade-offs.
+As your data volume grows, you need more processing power. Kafka Streams gives you three ways to scale, each with different trade-offs.
 
-This page walks through all three, plus the rebalance protocol and the standby-task machinery that ties them together.
+**Vertical scaling** (more threads) is easiest but hits CPU/memory limits. **Horizontal scaling** (more processes) works well but is capped by your topic's partition count. **Key-group scaling** (an optional extension) removes that partition limit entirely.
+
+This page explains all three approaches, when to use each, and how the rebalance protocol keeps things running smoothly as you scale.
 
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
 :::
 
 :::note[TL;DR]
-- Parity Streams parallelism is capped at `numStreamThreads × instances × partition_count`. The Riffle key-group model decouples it from partition count entirely.
-- Three dispatch modes — `DispatchPartition` (default, parity), `DispatchHashed`, `DispatchKeyGroup` (Riffle).
+- Standard parallelism is capped at `numStreamThreads × instances × partition_count`. Key-group routing (optional) decouples it from partition count entirely.
+- Three dispatch modes: `DispatchPartition` (default), `DispatchHashed`, `DispatchKeyGroup` (for scaling past partitions).
 - `numStandbyReplicas >= 1` is the difference between metadata-only failover and a full changelog replay.
 - KIP-848 incremental rebalance: tasks are never double-owned during a transfer.
 - `addStreamThread` / `removeStreamThread` reshape in-process workers without triggering a broker-side rebalance.
@@ -25,12 +27,11 @@ Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/
 
 | Axis | Knob | Bound |
 | ---- | ---- | ----- |
-| Threads per process | `numStreamThreads` in `StreamsConfig` | None (in practice, CPU cores × the cost of cross-thread coordination) |
-| Processes per group | More OS processes joining the same `applicationId` | Number of source-topic partitions × number of `numStreamThreads` per process |
-| Logical shards per task | `dispatchMode = DispatchKeyGroup` + `KeyGroupConfig` | The configured `kgcTotal` (typically 128 or a small power of two) |
+| Threads per process | `numStreamThreads` in `StreamsConfig` | None (in practice, limited by CPU cores) |
+| Processes per group | More OS processes joining the same `applicationId` | Number of source-topic partitions × `numStreamThreads` per process |
+| Logical shards per task | `dispatchMode = DispatchKeyGroup` + `KeyGroupConfig` | The configured `kgcTotal` (typically 128) |
 
-The first two are JVM-Streams parity. The third is Riffle-only and
-opt-in.
+The first two work with standard Kafka Streams. The third requires the key-group routing extension.
 
 ## Threads inside a process
 
@@ -185,7 +186,7 @@ key-groups, not partitions.
 `StreamsConfig.dispatchMode` is picked once at startup and the
 worker pool is built around it. Switching modes between deploys is
 safe **only** if both versions agree on the routing function for
-state — which means it's not safe to do casually, because
+state. This means it's not safe to change without planning, because
 `DispatchHashed` and `DispatchPartition` route partitions
 deterministically while `DispatchKeyGroup` routes by key, so an
 existing local store assembled under one mode is not necessarily
@@ -217,9 +218,9 @@ factor for warm state. The mechanism:
 
 Riffle introduces `StandbyMode = ReplayBytes | SnapshotPointer`:
 
-- `ReplayBytes` — the classic mode: maintain a full local replica.
+- `ReplayBytes`: the classic mode. Maintain a full local replica.
   Costs 2× storage and 2× write amplification per replica.
-- `SnapshotPointer` — pointer-mode: the standby holds only
+- `SnapshotPointer`: pointer-mode. The standby holds only
   `(snapshotId, advancedTo)`, not a full local copy. Promotion
   fetches the snapshot blob from the object store + replays the
   changelog tail. Costs near-zero storage; promotion time is
@@ -320,17 +321,17 @@ Then:
 
 Per-worker throughput is the slowest of: record deserialisation,
 the user-supplied processor function, state-store write, and (for
-EOS) the transactional-producer cycle. Measure rather than guess —
+EOS) the transactional-producer cycle. Measure rather than guess -
 `Kafka.Streams.Metrics` tracks each one.
 
 ## Related reading
 
-- [Topology evolution](./topology-evolution/) — the deployment side
+- [Topology evolution](./topology-evolution/): the deployment side
   of a rolling capacity change.
-- [Running in containers](./containers/) — stable identity,
+- [Running in containers](./containers/): stable identity,
   persistent volumes, and off-heap memory when each instance is a
   pod.
-- [Exactly-once across Kafka and other systems](./exactly-once/) —
+- [Exactly-once across Kafka and other systems](./exactly-once/) -
   how the transactional producer interacts with rebalance.
-- [Runbooks](./runbooks/) — rebalance storms and how to break the
+- [Runbooks](./runbooks/): rebalance storms and how to break the
   loop.

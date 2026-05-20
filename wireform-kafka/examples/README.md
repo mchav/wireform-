@@ -1,39 +1,45 @@
-# wireform-kafka client examples
+# Client Examples
 
-Five self-contained runnable demos that cover the everyday
-producer / consumer / transactional paths. Each demo is a
-complete Haskell module that you can read end-to-end and adapt
-to your own app; the README's hello-world snippets all come
-from here.
+Five runnable demos covering the common paths.
 
-| name | module | what it shows |
-|---|---|---|
-| `produce` | `Kafka.Client.Examples.Produce` | the smallest possible producer: `withProducer` + `sendMessage` |
-| `produce-typed` | `Kafka.Client.Examples.ProduceTyped` | `publish` against a typed `Topic k v` |
-| `consume` | `Kafka.Client.Examples.Consume` | low-level `withConsumer` + `poll` + `commitSync` |
-| `group` | `Kafka.Client.Examples.Group` | the high-level `runConsumer` — one handler per record |
-| `transaction` | `Kafka.Client.Examples.Transaction` | the five-step transactional-producer recipe |
-
-## Run
+## Run them
 
 ```bash
 cabal run wireform-kafka-client-examples produce
+cabal run wireform-kafka-client-examples produce-typed
 cabal run wireform-kafka-client-examples consume
-# etc.
+cabal run wireform-kafka-client-examples group
+cabal run wireform-kafka-client-examples transaction
 ```
 
-With no arguments the executable prints the index.
+All expect a broker at `localhost:9092`.
 
-Every demo assumes a broker reachable at `localhost:9092` (the
-docker-compose fixture in `test-integration/docker-compose.yml`
-provides one).
+## The examples
 
-## Picking the right layer
+| Name | What it shows |
+|---|---|
+| `produce` | Simplest producer. `withProducer` and `sendMessage` |
+| `produce-typed` | Using typed topics with bundled serializers |
+| `consume` | Low-level consumer with manual poll/commit |
+| `group` | High-level consumer with automatic group management |
+| `transaction` | Atomic sends across partitions |
 
-The five demos correspond to the four layers documented in the
-top-level README's "pick the layer you need" table:
+## Which to start with
 
-  - For send: `Produce` / `ProduceTyped`.
-  - For receive: `Group` (recommended) or `Consume` (custom
-    loop).
-  - For atomic produce + offset commit: `Transaction`.
+**Sending:** `produce` first, then `produce-typed` to see type-safe topics.
+
+**Receiving:** `group` for automatic management. Use `consume` only if you need control over polling.
+
+**Exactly-once:** `transaction` shows the full lifecycle.
+
+## From example to production
+
+All examples use brackets (`withProducer`, `withConsumer`) for resource cleanup. Use this pattern in production too.
+
+Typed topics (`Topic.Topic k v`) catch serialization mismatches at compile time.
+
+## See also
+
+- [Tutorial](../TUTORIAL.md) - Walkthrough with more context
+- [Concepts](../CONCEPTS.md) - Kafka fundamentals
+- [README](../README.md) - Full API reference

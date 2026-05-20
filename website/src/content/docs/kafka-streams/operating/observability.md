@@ -1,392 +1,250 @@
 ---
 title: Observability
-description: Metrics, topology JSON, orphan-topic detection, lag tracking, and interactive queries — the surfaces you need wired up before the first production incident.
+description: How to monitor your Kafka Streams application. What to measure, what to alert on, and how to debug when things go wrong.
 sidebar:
   order: 6
 ---
 
-A Kafka Streams app fails in ways that a stateless HTTP service does not, and many of those failures are invisible to standard request-latency dashboards. This page enumerates every observability surface the library exposes and what each one tells you.
+A Kafka Streams application can fail in ways that traditional HTTP services do not. The failures are often invisible to standard metrics like request latency or error rates. This guide explains how to observe your application effectively.
 
-:::tip[Unfamiliar terms?]
-Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
-:::
+## Why streaming observability is different
 
-:::note[TL;DR]
-- Four surfaces: metrics registry, topology JSON, orphan-topic detector, lag tracking.
-- The metrics registry is plain in-memory; you wire it to your push gateway via a periodic `dumpMetrics` poll.
-- Topology JSON (`topologyDescription` / `liveTopologyDescription`) is a versioned document suitable for CI golden-file diffing and live UI overlays.
-- Always alert on `droppedRecordsTotal` (silent data loss), `commit-cycle-fatal` (operator-required), and per-task warmup lag above `acceptableRecoveryLag`.
-- Interactive queries (IQ) are a debugging surface, not a replacement for a query layer.
-:::
+Stateless HTTP services are straightforward to monitor: if requests succeed quickly and return 200s, the service is healthy. Streaming applications have more failure modes:
 
-## The four surfaces
+- **Silent data loss**: Bad records get dropped without anyone noticing
+- **Stalled processing**: The app is running but not making progress
+- **State corruption**: Local state diverges from the Kafka log
+- **Rebalance storms**: Constant reassignments prevent any work from happening
+- **Slow commits**: Transaction timeouts cause repeated retries
 
-| Surface | Module | What it answers |
-| ------- | ------ | --------------- |
-| Metrics registry | `Kafka.Streams.Metrics` | Throughput, latency, error counts per operator |
-| Topology JSON | `Kafka.Streams.Observability.Topology` | The shape of the running graph; live overlay with metrics |
-| Orphan-topic detection | `Kafka.Streams.Observability.OrphanTopics` | Internal topics on the broker that don't belong to the current topology |
-| Lag tracking | `Kafka.Streams.Runtime.LagInfo` + `LagListener` | Per-task warmup lag for standby promotion decisions |
+These problems do not show up in CPU or memory graphs. You need streaming-specific metrics.
 
-Plus [interactive queries (IQ)](../glossary/#interactive-query-iq) (`Kafka.Streams.InteractiveQueries`) as a
-debugging tool — not strictly observability, but the closest thing
-to a "look at the current state" view.
+## What to monitor: the four key surfaces
 
-```mermaid
-flowchart LR
-  subgraph rt[Running streams runtime]
-    Eng[Engine]
-    Stores[(State stores)]
-    Standby[(Standby tasks)]
-    Mr["MetricsRegistry\n(counters / gauges / timers)"]
-    Topo[Compiled Topology]
-  end
-  Eng -->|recordCounter| Mr
-  Standby -->|warmup lag| LagL[LagListener callback]
-  Eng -->|state transitions| StateL[StateListener callback]
-  Mr -->|dumpMetrics poll| Push[Push gateway / OTel / Prometheus]
-  Topo -->|topologyDescription| GoldenFile[CI golden file]
-  Topo -->|liveTopologyDescription| UIOverlay[Web UI overlay]
-  Topo -->|detectOrphans + AdminClient.listTopics| Orphan[Orphan-topic log]
-  Stores -->|queryEngineStore / queryKVStore| IQ[Interactive Queries\n(your HTTP handler)]
-```
+The library exposes four main observability surfaces:
 
+| Surface | What it tells you | Why it matters |
+| ------- | ----------------- | -------------- |
+| **Metrics registry** | Throughput, latency, errors per operator | Detects stalls, data loss, and performance degradation |
+| **Topology JSON** | The shape of your processing graph | Catches accidental topology changes before deploy |
+| **Orphan-topic detection** | Internal topics that should not exist | Prevents storage leaks and state confusion |
+| **Lag tracking** | How far standbys are behind the active | Ensures fast failover is actually possible |
 
-## Metrics
+Plus **interactive queries** for debugging: looking directly at your state stores when something seems wrong.
 
-`Kafka.Streams.Metrics` is an in-process registry of counters,
-gauges, and duration stats. It does not push to Prometheus or
-OpenTelemetry; you wire it to whatever observability stack you use
-via a periodic `dumpMetrics` poll. The naming scheme mirrors the
-Java client:
+## The metrics registry
 
-```
-stream-processor-node-metrics:process-total
-stream-task-metrics:commit-total
-stream-state-metrics:put-rate
-```
+**Why this matters:** Unlike HTTP services where you can see failures in request
+logs, streaming applications process records continuously in the background.
+Without metrics, you have no visibility into whether records are being processed,
+dropped, or stalled. The registry is the foundation of all observability.
 
-The runtime pokes counters and gauges at well-known points:
+`Kafka.Streams.Metrics` maintains counters, gauges, and duration stats in memory. Unlike some clients, it does not automatically push to Prometheus or Datadog. You poll it and forward to your own system.
 
-| Metric | Where the runtime records it | What it means |
-| ------ | ---------------------------- | ------------- |
-| `processTotal` | Per-record entry into a processor node | Throughput per operator |
-| `forwardTotal` | Per-record exit from a processor node | Discrepancies vs `processTotal` indicate filtering / branching |
-| `commitTotal` | Per commit-cycle completion | Cadence and rate of EOS commits |
-| `punctuateTotal` | Per `Punctuator` firing | Confirms scheduled effects run |
-| `storePutTotal` / `storeGetTotal` / `storeDeleteTotal` | Per state-store operation | State-access patterns |
-| `droppedRecordsTotal` | Per dropped record (filter, async failure with `DropAndContinue`, etc.) | Silent-data-loss signal |
+### Key metrics to watch
 
-Reading:
+The most important metrics for operational health:
+
+| Metric | What it measures | Alert when |
+| -------- | ---------------- | ---------- |
+| `processTotal` | Records processed per operator | Sudden drop indicates stall |
+| `forwardTotal` | Records emitted per operator | Gap from `processTotal` shows filtering rate |
+| `droppedRecordsTotal` | Records dropped (deserialization failures, etc.) | Any sustained non-zero value |
+| `commitTotal` | Commit cycles completed | Drop indicates transaction problems |
+| `commit-cycle-fatal` | Unrecoverable commit failures | Any value above zero |
+| `warmup-lag` | How far standbys trail the active | Above threshold for extended period |
+
+### Reading metrics in code
 
 ```haskell
 import qualified Kafka.Streams.Metrics as Met
 
-m <- Met.dumpMetrics registry            -- :: IO (Map Text MetricValue)
+-- Poll all metrics
+m <- Met.dumpMetrics registry
+
+-- Read specific counters
 counter <- Met.readCounter registry "stream-task-metrics:commit-total"
 gauge   <- Met.readGauge   registry "stream-state-metrics:cache-hit-ratio"
-hist    <- Met.readDurationStats registry "stream-processor-node-metrics:process-latency"
 ```
 
-A typical wiring writes a thread that polls `dumpMetrics` every 10 s
-and republishes everything to your push gateway with the right tags
-(`applicationId`, instance id, host).
+A typical setup runs a background thread:
 
-### Metric labels you usually want
+```haskell
+metricsLoop :: Met.MetricsRegistry -> IO ()
+metricsLoop registry = forever $ do
+  metrics <- Met.dumpMetrics registry
+  -- Forward to Prometheus, Datadog, etc.
+  pushToGateway metrics
+  threadDelay (10 * 1000000)  -- 10 seconds
+```
 
-- `applicationId` — multi-tenant clusters share metric backends.
-- `instance` — per-process metrics need a per-instance dimension.
-- `taskId` — partition × subtopology, the natural grouping for
-  state-store metrics.
-- `nodeName` — operator-level metrics group by it.
+### Essential metric labels
 
-The registry stores names as bare `Text`. Add your dimensions at
-the push-time wrapping layer.
+When forwarding metrics, include these dimensions:
 
-### Metrics that always need an alert
+- **`applicationId`**: Distinguishes multiple apps in the same cluster
+- **`instance`**: Identifies which process emitted the metric
+- **`taskId`**: Groups by partition and subtopology
+- **`nodeName`**: Identifies specific operators in the topology
 
-| Metric | Alert when |
-| ------ | ---------- |
-| `droppedRecordsTotal` | Non-zero rate sustained over the window |
-| `commit-failures` | Any value > 0 |
-| `commit2PC-fatal` (custom; see [Exactly-once](./exactly-once/)) | Any value > 0 |
-| `task-restart-total` | Sustained rate, especially per-task |
-| `warmup-lag` for a task that's been promoted candidate | Above `acceptableRecoveryLag` for longer than `probingRebalanceIntervalMs` |
-
-Sustained `droppedRecordsTotal` is the silent killer. The
-`logAndContinue` deserialisation handler increments it on every
-unparseable record; an upstream schema change can quietly turn
-half your input into the bin without affecting any latency
-indicator.
+Without these, you cannot tell which part of your pipeline is having problems.
 
 ## Topology JSON
 
-`Kafka.Streams.Observability.Topology.topologyDescription` emits the
-validated `Topology` graph as a versioned JSON document. Use it for
-three things:
+The `topologyDescription` function exports your topology as JSON. This serves two purposes: CI validation and runtime debugging.
 
-1. **CI golden-file diff.** Snapshot the JSON; any PR that changes
-   the topology shape surfaces the diff.
-2. **Web UI overlay.** Pair the JSON with a live metrics snapshot
-   via `liveTopologyDescription` to render a Flink-style topology
-   view with per-node throughput, lag, and error overlays.
-3. **Operator interrogation.** During an incident, dump the JSON
-   from a running instance to confirm the topology shape matches
-   what you think you deployed.
+### CI golden-file testing
 
-The schema:
-
-```json
-{
-  "version": 1,
-  "applicationId": "...",       // optional
-  "insertionOrder": ["..."],
-  "sources":    [{ "id": "...", "topics": [...], "outputs": [...] }],
-  "processors": [{ "id": "...", "inputs": [...], "outputs": [...], "stores": [...] }],
-  "sinks":      [{ "id": "...", "inputs": [...], "topic": "..." }],
-  "stores":     [{ "name": "...", "kind": "keyValue|window|session|raw",
-                   "loggingEnabled": true, "changelogTopic": "...",
-                   "owners": [...], "global": false }],
-  "edges":      [{ "from": "...", "to": "..." }]
-}
-```
-
-The `version` field exists so callers can gate parsing on a known
-shape. The current value is `1`; any backwards-incompatible change
-bumps it.
-
-### Live overlay
-
-```haskell
-import qualified Kafka.Streams.Observability.Topology as Obs
-
-snapshot <- Obs.liveTopologyDescription topo metricsRegistry cfg
--- snapshot :: Value with a "metrics" object overlaid on the DAG
-```
-
-The metrics object is the full `MetricsRegistry` dump; the UI is
-responsible for cross-referencing each node's `id` against the
-metric keys. The library doesn't impose a scoping convention
-because different teams want different per-node aggregation.
-
-### Golden-file test pattern
+Snapshot your topology JSON in version control:
 
 ```haskell
 import qualified Data.Aeson.Encode.Pretty as P
 import qualified Kafka.Streams.Observability.Topology as Obs
 
+writeGolden :: IO ()
+writeGolden = do
+  topo <- buildTopologyFrom myTopology
+  BL.writeFile "test/golden/topology.json"
+    (P.encodePretty (Obs.topologyDescription topo))
+```
+
+Add a test that fails if the topology changes:
+
+```haskell
 testTopologyShape :: IO ()
 testTopologyShape = do
   topo <- buildTopologyFrom myTopology
   let actual = P.encodePretty (Obs.topologyDescription topo)
   expected <- BL.readFile "test/golden/topology.json"
   unless (actual == expected) $
-    error "Topology shape changed — review and update the golden file."
+    error "Topology changed! Review before deploying."
 ```
 
-A diff that touches `sources`, `stores`, or `edges` is a deploy you
-have to think about. A diff that touches only `processors`
-(renumbered unnamed nodes) is harmless unless any of the
-renumbered nodes own state. See
-[Topology evolution](./topology-evolution/) for the full story.
+This catches accidental changes that would create new internal topics or rename state stores.
 
-## Orphan internal topics
+### Runtime topology inspection
 
-`Kafka.Streams.Observability.OrphanTopics.detectOrphans` is a pure
-function:
+During incidents, dump the live topology:
 
 ```haskell
-detectOrphans
-  :: Topology
-  -> Text                -- applicationId
-  -> [TopicName]         -- broker's full topic list
-  -> [OrphanInternalTopic]
+live <- Obs.liveTopologyDescription topo metricsRegistry cfg
+-- live includes current metric values overlaid on the graph
 ```
 
-Wire it at startup:
+This shows which operators are processing records and which are stalled.
+
+## Orphan-topic detection
+
+When you rename a stateful operator or change window configuration, the framework creates new internal topics. The old topics remain on the broker, silently consuming storage.
+
+### Detecting orphans
+
+Run this on startup:
 
 ```haskell
 import qualified Kafka.Streams.Observability.OrphanTopics as Orphan
 
 topics <- AdminClient.listTopics admin
 forM_ (Orphan.detectOrphans topo appId topics) $ \o ->
-  warn ( "orphan internal topic: "
-       <> unTopicName (Orphan.orphanTopic o)
-       <> " ("
-       <> T.pack (show (Orphan.orphanReason o))
-       <> ")"
-       )
+  warn ("Orphan internal topic: " <> unTopicName (Orphan.orphanTopic o))
 ```
 
-The detector excludes:
+The detector compares your current topology against actual topics on the broker. It flags anything that looks like an internal topic but is not referenced by your current topology.
 
-- Stores with `loggingEnabled = False`.
-- Stores with an explicit `loggingSourceTopic` (KIP-295 reuse).
-- Stores covered by `topoChangelogPlan` (optimiser-derived
-  external-topic reuse).
+### Why this matters
 
-Anything left over with the framework's `-changelog` or
-`-repartition` suffix that isn't in the expected set is reported
-as an orphan. The detector does not delete; auto-deletion is a
-foot-gun (a misconfigured rollout would happily delete live
-state). Make manual deletion a documented operator action.
+Orphan topics cause two problems:
+1. **Storage cost**: Unbounded growth of unused data
+2. **Confusion**: During incidents, operators cannot tell which topics are live
 
-### What to do with orphans
-
-Three options, in order of preference:
-
-1. **Leave them.** Disk usage is the only cost, and `log.retention`
-   on the changelog topic will cap it at the configured retention
-   bytes. The downside is they show up in tooling forever and
-   confuse operators.
-2. **Delete via the AdminClient after a settlement period.** Wait
-   a deploy cycle or two to be confident no instance still expects
-   the topic. Then `AdminClient.deleteTopics`.
-3. **Archive the messages first** (e.g. consume into S3 with an
-   archival consumer), then delete. Belt-and-braces approach for
-   teams that consider any audit-trail loss unacceptable.
+The detector only warns. It never deletes. Make deletion a manual, audited operation.
 
 ## Lag tracking
 
-`Kafka.Streams.Runtime.LagInfo` is one row of per-task warmup-lag
-information; `publishLag` is the runtime's internal hook for
-emitting fresh snapshots; `LagListener` is the user-installed
-callback that consumes them.
+Standby replicas maintain copies of state for fast failover. But they only help if they are reasonably current.
+
+### What lag tells you
+
+`LagListener` receives snapshots of how far each standby trails its active:
 
 ```haskell
-data LagInfo = LagInfo
-  { liTaskId       :: !TaskId
-  , liStore        :: !StoreName
-  , liCurrentOffset :: !Int64
-  , liEndOffset     :: !Int64
-  } -- (paraphrased; see source)
+R.setLagListener streams $ \lags ->
+  forM_ lags $ \lag -> do
+    -- lag contains taskId, store name, current offset, end offset
+    publishMetric (makeLagGauge lag)
 ```
 
-The lag is the difference between the current restored offset and
-the end-of-changelog. The runtime publishes it on every standby
-catch-up tick, so the listener fires at the consumer poll
-cadence.
+Key insight: if a standby's lag exceeds `acceptableRecoveryLag`, it will not be promoted during failover. The new active will replay from the changelog instead, which takes time.
 
-Two operational uses:
+### Alert thresholds
 
-1. **Promotion readiness.** A standby with lag within
-   `acceptableRecoveryLag` is a probing-rebalance candidate. If
-   lag is consistently high, the standby will never get promoted
-   — investigate why replay is slow (network, disk, EOS commit
-   overhead).
-2. **Rolling-deploy gating.** Don't drain an instance until every
-   one of its tasks' standbys is caught up. Otherwise the
-   replacement will replay from changelog rather than promote
-   metadata-only.
+- **Warning**: Lag above 50% of `acceptableRecoveryLag` for 5 minutes
+- **Critical**: Lag above `acceptableRecoveryLag` for any duration
+- **Page**: Standby promoted but lag above zero (means degraded failover)
 
-The simplest dashboard is "per-task warmup lag over time" with an
-alert when any task is above `acceptableRecoveryLag` for longer
-than `probingRebalanceIntervalMs`.
+## Interactive queries for debugging
 
-## Interactive queries
-
-`Kafka.Streams.InteractiveQueries` exposes typed read-only handles
-to live state stores from outside the stream thread. The use case
-is exposing a key-value lookup on top of the materialised state,
-e.g. "GET /users/42 hits the local state store directly".
+When metrics show a problem but the cause is unclear, query the state stores directly:
 
 ```haskell
-ro <- queryKVStore streams "user-store" :: IO (ReadOnlyKeyValueStore Text User)
-user <- roKvGet ro "42"
+ro <- IQ.queryKVStore streams "user-store"
+count <- IQ.roKvGet ro "user-123"
+putStrLn ("User 123 has " <> show count <> " events")
 ```
 
-For multi-instance deployments, use
-`StreamsMetadata` / `KeyQueryMetadata` from `Kafka.Streams.Discovery`
-to figure out **which** instance owns the key:
+### When to use IQ
+
+| Situation | How to use IQ |
+|-----------|---------------|
+| Records seem missing | Query the relevant store to see if state exists |
+| Counts look wrong | Read current totals and compare to expectations |
+| Test failures | Inspect store contents to understand test behavior |
+| Incident response | Verify state is what you expect before taking action |
+
+### Important caveats
+
+IQ reads local state, which may be slightly ahead of committed state:
+
+```
+Timeline:
+  t=0: Record processed, state updated
+  t=1: IQ query returns new value
+  t=2: Commit cycle runs
+  t=3: State is durable in Kafka
+```
+
+Between t=1 and t=2, a crash would lose that state update. IQ is for debugging and approximate reads, not financial transactions.
+
+## The minimum viable observability setup
+
+Before going to production, set up:
+
+1. **Metrics polling**: Every 10 seconds to your time-series database
+2. **Three alerts**:
+   - `droppedRecordsTotal` > 0 for 1 minute
+   - `commit-cycle-fatal` > 0
+   - `warmup-lag` > `acceptableRecoveryLag` for 5 minutes
+3. **Golden-file test**: CI fails if topology shape changes unexpectedly
+4. **Orphan detection**: Startup warning for drift detection
+5. **State listener**: Log all state transitions for incident debugging
 
 ```haskell
-peers <- pollGroupMetadata streams
-case makeKeyQueryMetadata peers "user-store" partitionForKey of
-  Just kq | activeHost kq == myHost -> queryLocal
-          | otherwise                -> proxyToHost (activeHost kq)
-  Nothing                            -> retryAfterRebalance
+main = do
+  streams <- newKafkaStreams topo cfg
+
+  -- Alert-critical listeners
+  setStateListener streams $ \old new ->
+    when (new == ERROR) $ sendPage "Streams entered ERROR state"
+
+  -- Observability setup
+  forkIO metricsLoop
+  checkForOrphans streams
+
+  startKafkaStreams streams
 ```
-
-The proxy step is on you — the library doesn't ship a discovery
-HTTP server, only the metadata. Common shape: each instance
-exposes an HTTP endpoint that takes `(store, key)`, looks up
-locally if it owns the partition, and 307-redirects otherwise.
-
-### IQ as a debugging tool
-
-During an incident, IQ is the closest thing to `SELECT * FROM
-state_store WHERE key = ?`. The store iterators are
-**eager snapshots** taken at iterator-creation time: they don't
-see writes that arrive during iteration. That's the right
-behaviour for a debugger; it's also why IQ doesn't substitute for
-a proper query layer.
-
-See [Visibility versus ACID databases](./visibility/) for the
-semantics of IQ reads under EOS.
-
-## Logs that matter
-
-The runtime emits structured log events at the following points;
-forward them to your log aggregator with `taskId` and `nodeName`
-tags:
-
-| Event | When |
-| ----- | ---- |
-| `state-transition: REBALANCING -> RUNNING` | Per state change |
-| `task-assigned` / `task-revoked` | Per rebalance step |
-| `commit-cycle-aborted` | Per commit-cycle abort with reason |
-| `commit-cycle-fatal` | Per commit-cycle fatal — needs an alert |
-| `standby-promoted` | Per standby promotion |
-| `orphan-topic` | Per orphan detected on startup |
-| `processing-exception` | Per record that fell to the exception handler |
-
-`StreamsStatus` (`Kafka.Streams.Runtime.streamsStatus`) reports the
-current state. The `setStateListener` hook fires on every
-transition so you can mirror state changes into your logs without
-polling.
-
-## Tracing
-
-The library does not bundle an OpenTelemetry exporter; the
-metrics registry is plain in-memory data. For trace propagation
-across topology boundaries:
-
-1. Carry the trace context in record headers (`Record.headers`).
-2. Read it in your processor; start a span before doing user
-   work; close it when forwarding downstream.
-3. For async I/O, the span lives across worker threads — handle
-   the context handoff inside the worker function.
-
-Trace context is also useful for cross-topic correlation:
-upstream topic → enrichment → downstream topic, all under a single
-trace id. The header survives `repartition`, `through`, and `sink
-.. to`.
-
-## The minimum viable observability bundle
-
-If you're standing up a new Kafka Streams service, wire these
-five things before going to production:
-
-1. **Periodic `dumpMetrics` poll → your push gateway.** With at
-   least the four metrics in the "always alert" table.
-2. **Topology JSON golden-file in CI.** Catches accidental
-   topology drift before deploy.
-3. **Orphan-topic detector on startup.** Logged as a warning,
-   counted as a metric.
-4. **`LagListener` publishing per-task warmup lag.** Plot it; gate
-   rollouts on it.
-5. **`setStateListener` mirroring the state machine.** So you can
-   see the rebalance churn during an incident.
-
-Once those are in, layer on IQ for debugging, the live topology
-overlay for ops dashboards, and tracing for cross-topic
-correlation.
 
 ## Related reading
 
-- [Visibility versus ACID databases](./visibility/) — what a
-  metric "snapshot" of state actually means.
-- [Runbooks](./runbooks/) — the alerts above paired with
-  response procedures.
-- [Topology evolution](./topology-evolution/) — how the topology
-  JSON and orphan detector together give you safe deploys.
+- [Visibility versus ACID databases](./visibility/): Understanding what IQ actually shows you
+- [Runbooks](./runbooks/): Specific procedures for the alerts described here
+- [Topology evolution](./topology-evolution/): How the orphan detector and golden files interact with deploys

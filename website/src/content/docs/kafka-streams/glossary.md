@@ -5,14 +5,9 @@ sidebar:
   order: 99
 ---
 
-Plain-English definitions of every term that shows up across the
-Kafka Streams docs, plus the KIP numbers that come up by name.
-Skim if you're new to streams; cross-reference if you hit a term
-you don't recognise.
+This glossary defines every term used across the Kafka Streams documentation. Use it when you encounter unfamiliar terminology.
 
-Pages elsewhere in this section link into the entries below by
-anchor — e.g. the [Visibility page](./operating/visibility/) links
-to [event time](#event-time) on first use.
+Terms are organized alphabetically. Each definition includes the module where the concept lives and links to deeper explanations. Other pages in this documentation link directly to specific glossary entries. For example, the [Visibility page](./operating/visibility/) links to [event time](#event-time) when first introducing the concept.
 
 ---
 
@@ -20,7 +15,7 @@ to [event time](#event-time) on first use.
 
 ### ACID
 
-**A**tomicity, **C**onsistency, **I**solation, **D**urability —
+**A**tomicity, **C**onsistency, **I**solation, **D**urability -
 the four classical guarantees of a SQL database transaction.
 Streaming systems give you a different bundle of guarantees, and
 the [Visibility versus ACID databases](./operating/visibility/)
@@ -31,7 +26,7 @@ page works through the mismatch.
 A Riffle concept: a set of [watermark](#watermark) sources whose
 watermarks should not diverge by more than a configured bound. A
 fast source whose watermark out-paces the group's slowest member
-by more than `agBound` is **backpressured** — the runtime pauses
+by more than `agBound` is **backpressured**: the runtime pauses
 fetching from it until the slowest member catches up. Lives in
 `Kafka.Streams.Watermark.AlignmentGroup`.
 
@@ -62,7 +57,7 @@ Full walkthrough in [Enrichment via external systems](./guides/enrichment/).
 ### At-least-once
 
 The default [processing guarantee](#processing-guarantee). Every
-record is processed *at least once* — and therefore *possibly more
+record is processed *at least once*: and therefore *possibly more
 than once* on a [rebalance](#rebalance) or fault. External side
 effects should be idempotent.
 
@@ -80,7 +75,7 @@ blocks the [stream thread](#stream-thread) on enqueue.
 
 ### Broker
 
-A node in a Kafka cluster — the server-side process that stores
+A node in a Kafka cluster: the server-side process that stores
 topic logs and serves produce / fetch requests. Multiple brokers
 form a cluster; one is the controller (under KRaft mode) that
 coordinates metadata.
@@ -165,7 +160,7 @@ a DLQ disposition for records that throw.
 
 The Riffle `StreamsConfig` knob that picks which
 `Kafka.Streams.Runtime.WorkerPool` constructor the runtime uses.
-Three values: `DispatchPartition` (parity default — explicit
+Three values: `DispatchPartition` (parity default: explicit
 per-worker partition ownership), `DispatchHashed` (parity hashing
 by `(topic, partition)`), `DispatchKeyGroup` (Riffle key-group
 routing). See [Scaling](./operating/scaling/).
@@ -203,7 +198,7 @@ user predicate. Lives in `Kafka.Streams.EmitPolicy`.
 
 ### Event time
 
-The timestamp associated with a record by its producer — when the
+The timestamp associated with a record by its producer: when the
 underlying business event happened. Contrast with [processing
 time](#processing-time): the timestamp the runtime saw the record.
 The pair drives all of [windowing](#window), [watermarks](#watermark),
@@ -285,7 +280,7 @@ and receive [reconciliation](#reconciliation) deltas.
 ### Hopping window
 
 A fixed-size [window](#window) that advances by a step smaller
-than its size — adjacent windows overlap. A 5-minute hopping
+than its size: adjacent windows overlap. A 5-minute hopping
 window with a 1-minute advance produces a new window every minute,
 each containing the last 5 minutes' worth of records.
 
@@ -370,7 +365,7 @@ stream / table. They're the input to aggregation operators
 
 ### KIP
 
-**K**afka **I**mprovement **P**roposal — the Apache Kafka design-
+**K**afka **I**mprovement **P**roposal: the Apache Kafka design-
 review process. Specific KIPs that come up by name across these
 docs:
 
@@ -384,7 +379,7 @@ docs:
 | **KIP-535** | Cross-instance IQ discovery (`StreamsMetadata`, `KeyQueryMetadata`) |
 | **KIP-591** | `default.dsl.store` config |
 | **KIP-825** | First-class `EmitStrategy` |
-| **KIP-848** | Next-gen consumer-group protocol — broker-side incremental reconciliation |
+| **KIP-848** | Next-gen consumer-group protocol: broker-side incremental reconciliation |
 | **KIP-892** | EOS-V3 transactional state stores |
 | **KIP-924** | In-process `TaskAssignor` plug-in |
 | **KIP-925** | Rack-aware assignment strategy |
@@ -423,7 +418,7 @@ linearisable across mutations.
 
 ### Little's law
 
-The relation `L = λW` — the average number of items in a system
+The relation `L = λW`: the average number of items in a system
 equals the arrival rate times the average time in the system.
 Used in [Enrichment](./guides/enrichment/#picking-aiobuffercapacity-and-aioworkers)
 to size async-I/O worker pools: `workers ≈ throughput × latency`.
@@ -578,7 +573,7 @@ Defined in `Kafka.Streams.Runtime.RebalanceProtocol`.
 
 ### Remote KV
 
-A Riffle KV-store backend with no local state — every get / put
+A Riffle KV-store backend with no local state: every get / put
 is a network call against a remote store (FoundationDB / TiKV /
 DynamoDB shape). Node restart is a metadata operation. Lives in
 `Kafka.Streams.State.KeyValue.Remote`.
@@ -698,7 +693,7 @@ to the right host.
 
 ### `StreamTime`
 
-The per-task event-time clock — running max of extracted
+The per-task event-time clock: running max of extracted
 timestamps on records this task has seen. Replaced by the
 [coordinated watermark](#watermark-coordinator) where Riffle
 opts in.
@@ -707,7 +702,7 @@ opts in.
 
 The OS thread that drives one consumer + N workers in this
 runtime. (Different from the JVM Streams "one stream thread per
-consumer" model — see the README for the comparison.) The thread
+consumer" model: see the README for the comparison.) The thread
 that runs user-supplied processor code; nothing in user code
 should block it for long.
 
@@ -721,7 +716,7 @@ and the assignor's per-member state.
 ### Suppress
 
 The DSL operator that holds emissions back until a condition is
-met — typically "until window closes" or "until time limit
+met: typically "until window closes" or "until time limit
 expires". Riffle adds a bounded variant with explicit
 `BufferOverflowPolicy` (`DropOldestSilently`, `ShutdownWhenFull`,
 `suppressWindowedShed` to DLQ).
@@ -753,10 +748,12 @@ the hot tier exceeds its budget. Lives in
 
 ### `Topology`
 
-The compiled, validated graph the runtime executes. Built from the
-DSL value of type `Topology Void o` (or directly via the
-imperative `Kafka.Streams.Topology` builder). Validated by
-`validateTopology` before the runtime starts.
+The compiled, validated graph the runtime executes. `Topology i o` is a type with two parameters, like a function `i -> o`.
+
+- **Input type `i`**: What stream type enters the topology. `Void` means the topology pulls from sources (Kafka topics), not from other code.
+- **Output type `o`**: What stream type exits the topology. `()` means the topology pushes to sinks (Kafka topics), not to other code.
+
+Built from the DSL value of type `Topology Void ()` (or other combinations), or directly via the imperative `Kafka.Streams.Topology` builder. Validated by `validateTopology` before the runtime starts.
 
 ### `TopicNameExtractor`
 
@@ -797,7 +794,7 @@ committed txns on restart). Lives in
 A durable log of intended changes written before the changes are
 applied to the underlying store. Under Riffle [snapshot
 stores](#snapshot-store) the [changelog topic](#changelog-topic) is
-the WAL between snapshots — not the sole source of truth.
+the WAL between snapshots: not the sole source of truth.
 
 ### Watermark
 

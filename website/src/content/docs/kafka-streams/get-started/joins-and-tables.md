@@ -37,6 +37,8 @@ import Kafka.Streams
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
+-- Topology Void (): reads from sources, writes to sinks. Self-contained pipeline.
+-- Note: views and users below have different output types (not Void/()), showing intermediate topologies.
 enrichedViewsTopology :: F.Topology Void ()
 enrichedViewsTopology =
   F.joinStreamTable
@@ -46,9 +48,13 @@ enrichedViewsTopology =
       (joined textSerde textSerde textSerde)
     >>> F.sink "EnrichedPageViews" textSerde textSerde
   where
+    -- Topology Void (KStream Text Text): reads from source, produces a KStream.
+    -- The KStream becomes input to joinStreamTable.
     views :: F.Topology Void (KStream Text Text)
     views = F.source "PageViews" textSerde textSerde
 
+    -- Topology Void (KTable Text Text): reads from source, produces a KTable.
+    -- The KTable becomes the lookup table for the join.
     users :: F.Topology Void (KTable Text Text)
     users = F.tableSource "UserProfiles" textSerde textSerde
 
@@ -127,7 +133,7 @@ three most often:
 | ----- | ---- |
 | **Stream-Table** | "Enrich each event with current context." Your most common case. |
 | **Stream-Stream** (windowed) | "Match an event on one stream to an event on another stream within X minutes." Trading, fraud, sessionisation. |
-| **Table-Table** | "Two tables — for each pair of keys present in both, produce a derived value." Slowly-changing data combined into a denormalised view. |
+| **Table-Table** | "Two tables: for each pair of keys present in both, produce a derived value." Slowly-changing data combined into a denormalised view. |
 | **Stream-GlobalKTable** | Same as stream-table but the table is replicated to every instance. Use for small reference data (currency rates, country lookups). |
 | **Foreign-key Table-Table** | Join two tables by a key derived from the left's value, not the left's key. The library handles the subscription-token bookkeeping. |
 

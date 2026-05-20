@@ -5,7 +5,27 @@ sidebar:
   order: 8
 ---
 
-Each runbook starts with the **alert** the on-call sees, then walks through diagnosis and resolution. The intent is to keep this page open during an incident and follow the steps; the explanatory pages it links to have the deeper story.
+This page contains procedures for common incidents. Each runbook is designed to be followed during an active incident. Start with the alert you are seeing, work through diagnosis, then follow the resolution steps.
+
+Keep this page bookmarked. When an alert fires, open it and follow the relevant procedure.
+
+## What a runbook is (and isn't)
+
+A runbook is a **checklist for your brain during an outage**. When production
+is down, you don't want to be figuring out which metrics matter or what the
+recovery command is. You want a procedure you can follow that leads to a known
+good state.
+
+Each runbook in this page follows the same structure:
+- **Alert:** What you see in your monitoring (the trigger)
+- **Diagnosis:** How to confirm the root cause (the investigation)
+- **Resolve:** The steps to fix it (the action)
+- **Prevent:** How to stop it happening again (the learning)
+
+A runbook is not a troubleshooting guide for development. If you're debugging
+why your topology behaves unexpectedly in the test driver, that's a different
+process. Runbooks are for when the service is already deployed and something
+has gone wrong in production.
 
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
@@ -94,7 +114,7 @@ external system. The runtime is killed on this outcome.
    configured sink. The sink returns a list of `SinkTxnId`s
    currently in the prepared state.
 3. **For each token, the runtime calls the sink's recovery logic**
-   — `CommitFromToken` (finish the half-committed txn),
+  : `CommitFromToken` (finish the half-committed txn),
    `AbortFromToken` (roll it back), or `UnknownLeaveAsIs` (log
    and leave).
 4. **Verify the recovery decision is correct.** Cross-reference
@@ -109,7 +129,7 @@ external system. The runtime is killed on this outcome.
 ### Prevent
 
 - Ensure `tpsRecover` is implemented correctly for every
-  production sink — not just returning `[]`.
+  production sink: not just returning `[]`.
 - Make `tpsCommit` and `tpsAbort` strictly idempotent so a
   duplicate call after a partial recovery is a no-op.
 - Alert on `commit-cycle-fatal` separately from
@@ -270,7 +290,7 @@ down or is failing. The in-flight queue
 (`aioBufferCapacity`) fills, the stream thread blocks on
 enqueue, and the entire downstream pipeline stalls.
 
-This is **working as intended** — it's the backpressure signal —
+This is **working as intended**: it's the backpressure signal -
 but it should not last long.
 
 ### Resolve
@@ -289,7 +309,7 @@ but it should not last long.
    `aioOnFailure` from `FailTask` to `LogAndContinue` so a
    minority of failures don't shed the whole pipeline.
 5. **If the external system is overwhelmed:** the async
-   operator is doing what you asked — flooding it. Drop
+   operator is doing what you asked: flooding it. Drop
    `aioWorkers` (restart required) to reduce concurrent calls.
 
 ### Prevent
@@ -313,7 +333,7 @@ matching rate on the `DeserializationException` log channel.
 An upstream producer started writing records that the current
 deserialiser can't parse. (The [railway-oriented programming](../concepts/railway-oriented-programming/) page explains where this routing decision lives and how a DLQ wired through the `DeserializationHandler` gives you reprocessability.) Three usual causes:
 
-1. **Schema Registry compat policy was bypassed** — a new schema
+1. **Schema Registry compat policy was bypassed**: a new schema
    was published without compatibility checks, and your
    `registrySerdeChecked` wrapper rejects every record. (This
    means the wrapper is doing its job; the producer is the
@@ -349,7 +369,7 @@ deserialiser can't parse. (The [railway-oriented programming](../concepts/railwa
   fast at construction.
 - Alert on `droppedRecordsTotal` rate, not just absolute count.
 - Enforce Schema Registry compatibility at the producer side
-  too — don't rely on the consumer being the only check.
+  too: don't rely on the consumer being the only check.
 
 ---
 
@@ -469,7 +489,7 @@ slow without).
    the rebalance. `KeyQueryMetadata.standbyHosts` returns every
    live standby; a stale read is usually better than a 404.
 3. **If the rebalance is taking minutes**, see "Standby never
-   promotes; lag stays high" above — that's actually the
+   promotes; lag stays high" above: that's actually the
    underlying issue.
 
 ### Prevent
@@ -483,6 +503,12 @@ slow without).
 ---
 
 ## Reading the metrics during an incident
+
+**When you don't know where to start:** Every incident produces symptoms, but
+the same symptom ("things are slow") can have different root causes (CPU
+saturation, disk I/O, network latency, or a poison-pill record). This table
+gives you a diagnostic path. Start with the symptom you're seeing, check the
+"First metric" column, and use that reading to decide what to check next.
 
 Quick reference for which metric to look at first:
 
@@ -499,9 +525,9 @@ Quick reference for which metric to look at first:
 
 ## Related reading
 
-- [Observability](./observability/) — the metric surface this
+- [Observability](./observability/): the metric surface this
   page leans on.
-- [Topology evolution](./topology-evolution/) — the deployment
+- [Topology evolution](./topology-evolution/): the deployment
   procedures these runbooks reference.
-- [Exactly-once across Kafka and other systems](./exactly-once/) —
+- [Exactly-once across Kafka and other systems](./exactly-once/) -
   the EOS internals behind the commit-cycle runbooks.

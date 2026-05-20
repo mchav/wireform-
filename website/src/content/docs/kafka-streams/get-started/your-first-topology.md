@@ -1,33 +1,29 @@
 ---
 title: "Tutorial 2: Your first topology"
-description: Write a topology that copies records from one Kafka topic to another. Run it without a broker.
+description: Write a topology that copies records from one Kafka topic to another. Run it without setting up a real Kafka cluster.
 sidebar:
   order: 3
   label: 2. Your first topology
 ---
 
-You'll write a topology that reads from one topic and writes to
-another. Five lines of meaningful code. We'll run it against the
-in-process test driver, which means no broker, no Docker.
+You'll write the simplest possible streaming topology: read from one topic, write to another. This is the "hello world" of streaming: it shows you how data flows without any complex processing.
 
-## What you'll learn
+## The goal
 
-- How to declare sources and sinks.
-- What `Topology Void ()` actually means.
-- How to run a topology against the test driver.
-- How to feed it records and read what comes out.
+We want to build this:
 
-## Set up the file
-
-Create a new Haskell file. Anywhere works; the examples directory
-in the repo is the easiest starting point:
-
-```bash
-cd wireform-/wireform-kafka/streams/examples/Kafka/Streams/Examples
-touch MyPipe.hs
+```mermaid
+flowchart LR
+  Input[("Topic: input")] --> Process[Process] --> Output[("Topic: output")]
 ```
 
-Paste this in:
+Every record that arrives on "input" gets copied to "output".
+
+In the test driver, there's no real Kafka cluster. The "topics" are in-memory queues that behave like Kafka topics.
+
+## The complete code
+
+Create a file at `wireform-kafka/streams/examples/Kafka/Streams/Examples/MyPipe.hs`:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -35,15 +31,12 @@ module Kafka.Streams.Examples.MyPipe (runDemo) where
 
 import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Text as T
-import Data.Text (Text)
 import Data.Void (Void)
 
 import Kafka.Streams
-import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
--- The whole topology: read from one topic, write to another.
+-- Our topology: read from "input", write to "output"
 pipeTopology :: F.Topology Void ()
 pipeTopology =
   F.source "input"  textSerde textSerde
@@ -51,201 +44,206 @@ pipeTopology =
 
 runDemo :: IO ()
 runDemo = do
+  -- Build and start the topology
   topo   <- F.buildTopologyFrom pipeTopology
   driver <- newDriver topo "my-pipe-app"
 
-  -- feed a record
+  -- Send a test record
   pipeInput driver (topicName "input")
-    (Just (BSC.pack "k1"))    -- key
-    (BSC.pack "hello world")  -- value
-    (Timestamp 0)             -- record timestamp
-    0                         -- partition
+    (Just (BSC.pack "user-123"))  -- key
+    (BSC.pack "Hello, world!")    -- value
+    (Timestamp 0)                  -- timestamp
+    0                               -- partition
 
-  -- see what came out
+  -- See what came out
   out <- readOutput driver (topicName "output")
   mapM_ (\cr ->
-    putStrLn ("got: " <> show (crKey cr) <> " -> " <> BSC.unpack (crValue cr))
+    putStrLn ("Output: " <> show (crKey cr) <> " -> " <> BSC.unpack (crValue cr))
     ) out
+
   closeDriver driver
 ```
 
-That's the whole thing. Run it from `ghci`:
+Run it:
 
 ```
 cabal repl wireform-kafka-streams-examples
 ghci> :load Kafka.Streams.Examples.MyPipe
 ghci> runDemo
-got: Just "k1" -> hello world
+Output: Just "user-123" -> Hello, world!
 ```
 
-If you got that output, your topology ran end-to-end. Now let's
-look at what each piece is doing.
+The record went in one side and came out the other. Let's understand each piece.
 
-## Read the topology
+## Breaking down the topology
 
-The relevant five lines:
+### 1. The type: `Topology Void ()`
 
 ```haskell
 pipeTopology :: F.Topology Void ()
-pipeTopology =
-  F.source "input"  textSerde textSerde
-    >>> F.sink   "output" textSerde textSerde
 ```
 
-### `Topology Void ()`
+This type signature has two type parameters: `Topology input output`. Think of a topology as a function that transforms a stream of `input` values into a stream of `output` values.
 
-A `Topology i o` is a typed value representing a pipeline that
-takes input `i` and produces output `o`.
+**Why two parameters?**
 
-- `Void` as the input means **there is no upstream operator** —
-  the topology is self-contained; sources are inside it.
-- `()` as the output means **there is no downstream value** to
-  hand to the rest of your program. (A topology that ends in a
-  state store would have output `KTable k v`, for example.)
-
-Most topologies are `Topology Void ()` — they read from Kafka and
-write to Kafka.
-
-### `source` and `sink`
-
-Sources and sinks are bound to topic names and serde pairs (one
-for the key, one for the value):
+Just like a Haskell function `a -> b` takes type `a` and returns type `b`, a topology transforms one stream type into another. You can compose topologies where the output of one matches the input of the next:
 
 ```haskell
-F.source "input"  textSerde textSerde   --     KStream Text Text
-F.sink   "output" textSerde textSerde   --     consumes a KStream Text Text
+firstTopo  :: Topology Void Text      -- reads from Kafka, produces Text
+secondTopo :: Topology Text Int64    -- takes Text, produces Int64
+combined   :: Topology Void Int64     -- composed: reads from Kafka, produces Int64
+combined = firstTopo >>> secondTopo
 ```
 
-A serde (`textSerde`, `int64Serde`, etc.) is a serialiser /
-deserialiser pair. The library ships the basics; for richer
-formats see [Avro / JSON-Schema / Protobuf serdes](../../../guides/formats/).
+**What is `Void`?**
 
-### `>>>`
+`Void` is the type with no values. We use it for the **input** because this topology does not receive data from another topology or from Haskell code. Instead, it pulls data from a **source** (a Kafka topic). The topology is self-contained at its entry point.
 
-The composition operator. It's plain `Control.Category.(>>>)` —
-the same one you'd use to compose two functions in `Control.Arrow`.
-Read it as "and then".
+**What is `()`?**
+
+`()` (unit) is the type with exactly one value (also written `()`). We use it for the **output** because this topology does not send data back to Haskell code or to another topology. Instead, it pushes data to a **sink** (another Kafka topic).
+
+**Why `Topology Void ()` is common:**
+
+Most topologies read from Kafka and write to Kafka, so they follow this pattern. But other shapes are possible:
 
 ```haskell
-source "input" ... >>> sink "output" ...
--- "read from input, then write to output"
+-- A topology that ends in a queryable state store
+Topology Void (KTable Key Value)  -- reads from Kafka, produces a table you can query
+
+-- A topology that takes a stream from another topology
+Topology (KStream k v) ()          -- takes a stream, writes to Kafka
 ```
 
-You can chain as many stages as you want. A longer pipeline:
+The two type parameters let you compose topologies like functions, ensuring the types match at each connection point.
+
+### 2. Source and sink
+
+```haskell
+F.source "input" textSerde textSerde   -- read from topic "input"
+  >>> F.sink "output" textSerde textSerde  -- write to topic "output"
+```
+
+**Source** pulls records from a Kafka topic. It needs:
+- Topic name ("input")
+- Key serde (how to deserialize the key)
+- Value serde (how to deserialize the value)
+
+**Serde** = Serializer/Deserializer. It knows how to turn bytes into Haskell values (when reading) and back (when writing). `textSerde` handles UTF-8 text.
+
+**Sink** writes records to a topic. It needs the same three things.
+
+### 3. Composition with `>>>`
+
+The `>>>` operator (from `Control.Category`) means "and then".
+
+```haskell
+source >>> sink
+-- "read from source, then write to sink"
+```
+
+This is how you chain operators. A longer pipeline:
 
 ```haskell
 F.source "input" textSerde textSerde
+  >>> F.filter (\r -> recordValue r /= "")
   >>> F.mapValues T.toUpper
-  >>> F.filter   (\r -> recordValue r /= "")
-  >>> F.sink   "output" textSerde textSerde
+  >>> F.sink "output" textSerde textSerde
 ```
 
-This is the entire DSL idiom: compose stages with `>>>`.
+This reads, filters out empty values, uppercases them, and writes.
 
-## Drive it without a broker
+## The test driver explained
 
-The interesting part for newcomers: you don't need a real Kafka
-broker to develop, test, or learn this library. The
-`TopologyTestDriver` runs your topology in-process.
+You don't need a real Kafka cluster to develop or test. The `TopologyTestDriver` runs your topology in-process, using in-memory "topics" that behave like Kafka topics.
 
-```haskell
-topo   <- F.buildTopologyFrom pipeTopology
-driver <- newDriver topo "my-pipe-app"
-```
+### Why this matters
 
-`buildTopologyFrom` compiles the typed AST into the runtime
-graph. `newDriver` wraps it in a test harness that exposes:
+Testing streaming code is usually hard because you need:
+- A running Kafka cluster
+- Test data setup
+- Cleanup between tests
 
-| Function | What it does |
-| -------- | ------------ |
-| `pipeInput` | Feed one record into a source topic |
-| `readOutput` | Drain everything currently in a sink topic |
-| `advanceWallClockTime` | Move the test driver's clock forward |
-| `closeDriver` | Tear down |
+With the test driver:
+- Tests run in milliseconds
+- No external dependencies
+- Each test starts fresh
 
-You'll use these in every tutorial part. They're also how the
-library's own test suite is structured.
+### Key functions
 
-### Feed a record
+| Function | Purpose |
+| ---------- | ------- |
+| `buildTopologyFrom` | Compile your topology to a runnable graph |
+| `newDriver` | Create a test driver instance |
+| `pipeInput` | Inject a record into a source topic |
+| `readOutput` | Read records from a sink topic |
+| `advanceWallClockTime` | Advance timestamps (for windowed processing) |
+| `closeDriver` | Clean up |
+
+### The record we sent
 
 ```haskell
 pipeInput driver (topicName "input")
-  (Just (BSC.pack "k1"))     -- key (Maybe ByteString)
-  (BSC.pack "hello world")   -- value (ByteString)
-  (Timestamp 0)              -- event-time timestamp
-  0                          -- partition
+  (Just (BSC.pack "user-123"))  -- key: who sent this
+  (BSC.pack "Hello, world!")    -- value: the payload
+  (Timestamp 0)                  -- when this happened
+  0                               -- which partition
 ```
 
-The key, value, timestamp, and partition are exactly what a real
-Kafka record carries. The driver behaves as if a producer wrote
-this to the broker and the runtime polled it.
+Every Kafka record has these fields:
+- **Key**: Optional identifier (used for partitioning)
+- **Value**: The actual data
+- **Timestamp**: When the event occurred (or when Kafka received it)
+- **Partition**: Which shard of the topic (0 to N-1)
 
-### Read what came out
+Keys matter because:
+- Records with the same key go to the same partition
+- This ensures order for related events
+- Stateful operators use keys to group related records
 
-```haskell
-out <- readOutput driver (topicName "output")
-```
+## Writing tests
 
-`readOutput` drains every record the topology has written to that
-topic since the last call. The result is a list of
-`CollectedRecord`, with `crKey` / `crValue` / `crTimestamp` /
-`crPartition` accessors.
-
-## Why this matters
-
-The "library + in-process driver" combination is one of the
-biggest practical advantages of Kafka Streams over cluster-based
-streaming. You can:
-
-- **Unit-test** a topology like any other Haskell function.
-- **Iterate locally** without standing up infrastructure.
-- **Reproduce production bugs** by writing a small driver script
-  that feeds the offending records.
-
-Every example in the repo runs through this driver. You can mix
-it freely with `Hspec` or `tasty`:
+The real power is testing. Here's a full test with Hspec:
 
 ```haskell
+import Test.Hspec
+
 spec :: Spec
-spec = describe "myPipe" $ do
-  it "uppercases values" $ do
-    topo   <- F.buildTopologyFrom myUppercasePipe
+spec = describe "Pipe topology" $ do
+  it "copies records unchanged" $ do
+    topo   <- F.buildTopologyFrom pipeTopology
     driver <- newDriver topo "test"
-    pipeInput driver (topicName "input") Nothing "hello" (Timestamp 0) 0
-    out    <- readOutput driver (topicName "output")
+
+    -- Send input
+    pipeInput driver (topicName "input")
+      (Just "key1") "value1" (Timestamp 0) 0
+
+    -- Read output
+    out <- readOutput driver (topicName "output")
+
     closeDriver driver
-    map crValue out `shouldBe` ["HELLO"]
+
+    -- Assert
+    length out `shouldBe` 1
+    crKey (head out) `shouldBe` Just "key1"
+    crValue (head out) `shouldBe` "value1"
 ```
 
-## What's happening under the hood
-
-Even without a broker, the test driver runs the **same engine**
-the production runtime uses. Specifically:
-
-- Records go through the same `WorkerPool` dispatcher.
-- State stores are the same in-memory or RocksDB backends.
-- The commit cycle fires on the same cadence (you can step it
-  manually with `advanceWallClockTime` for tests that care).
-
-That means a topology that passes its test-driver suite is much
-more likely to work against a real broker than one tested only
-through mock objects. The driver is a thin wrapper around the
-real runtime, not a separate implementation.
+This is a **unit test** for a streaming topology. It runs in milliseconds and needs no external services.
 
 ## What you learned
 
-- Topologies are typed Haskell values.
-- `Topology Void ()` is the common shape: self-contained,
-  no upstream / downstream.
-- You compose stages with `>>>`.
-- The in-process test driver runs the real engine — no broker
-  needed.
-- `pipeInput` + `readOutput` is enough to drive a topology
-  end-to-end.
+- A **topology** is a typed value describing a processing pipeline
+- `Topology Void ()` means "reads from sources, writes to sinks"
+- **Source** reads from a topic; **sink** writes to a topic
+- **Serde** converts between bytes and Haskell values
+- `>>>` composes operators: "do this, then that"
+- **Test driver** runs topologies in-process for fast testing
+- Every record has a key, value, timestamp, and partition
 
 ## Next up
 
-You've built a pipe. The next part adds the thing that makes
-Kafka Streams actually interesting: **state**.
+A pipe is useful, but Kafka Streams shines with **stateful** processing: counting, aggregating, joining. The next part introduces state stores.
 
 [Continue to Tutorial 3: Stateful processing →](../stateful-processing/)

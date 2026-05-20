@@ -1,302 +1,177 @@
 ---
-title: "Riffle: Flink-class extensions to Streams"
-description: Overview of the Riffle extension tier — what it is, what's landed, and when to reach for each piece.
+title: "Riffle: Extended features"
+description: "Optional extensions that add Flink-class capabilities: async I/O, snapshot recovery, two-phase commit sinks, and more."
 sidebar:
   order: 1
-  label: Riffle overview
+  label: Extended features
 ---
 
-> **Riffle** *(n.)* — a stretch of fast-flowing water in a stream; here,
-> the codename for the additive extension tier of
-> `wireform-kafka-streams` that sits beyond Apache Kafka Streams parity.
+Riffle adds optional capabilities to the base Kafka Streams implementation. Everything here is opt-in: your existing topologies continue working unchanged, and you can adopt features one at a time.
 
-Riffle is **not** an Apache Kafka project. It is a wireform-flavour
-roadmap layered on top of the parity port. The pitch is short:
-keep the Kafka-Streams shape (you write a `Topology` value, you
-deploy as a library inside your service, you join a consumer group,
-your state lives next to your service), but close the operational
-gaps that historically forced teams off Streams onto Flink.
+**When to use Riffle:**
+- External enrichment calls that would block the stream thread (use async I/O)
+- Large state stores where changelog replay slows deploys (use snapshot recovery)
+- Writing to external systems that need exactly-once semantics (use 2PC sinks)
+- Scaling past your partition count (use key-group routing)
+- Joining streams with very different data rates (use watermark coordination)
 
-The single overriding constraint is **additivity**. Every Riffle
-feature is opt-in, ships as a new module or a new constructor, and
-does not break the operator-for-operator parity claim. Existing
-topologies keep compiling unchanged; existing runtime backends keep
-working. Selecting Riffle is a config toggle, a different smart
-constructor, or a different builder shape — never a forced
-migration.
-
-:::tip[Unfamiliar terms?]
-Acronyms and jargon used below are defined in the [Glossary](./glossary/).
+:::tip[Need definitions?]
+Kafka and Streams terminology is in the [Glossary](./glossary/).
 :::
 
-:::note[TL;DR]
-- Riffle is an *additive* extension tier on top of the parity Kafka Streams port. Opt in per feature; nothing changes for topologies that don't.
-- Closes the Flink-class gaps without leaving the library-deployment model: async I/O with backpressure + EOS, snapshot-based state recovery, two-phase commit to non-Kafka sinks, cross-source watermarks, key-group rescaling.
-- Six landed areas, listed below with the module to import for each.
-- Recommended adoption order at the bottom of this page if you're picking pieces incrementally.
+:::note[Quick reference]
+- **Async I/O**: For calling external APIs without blocking the stream thread
+- **Snapshot stores**: For fast recovery from large state stores
+- **2PC sinks**: For exactly-once writes to databases, object stores, or HTTP endpoints
+- **Watermark coordinator**: For handling idle partitions and mixed-rate joins
+- **Key-groups**: For scaling past partition count
 :::
 
-Read the design contract in
-[`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md)
-for the full design rationale and roadmap. This page is the
-operator-facing tour: what's landed, what each piece buys you, and
-where to dig in.
+For design details, see [`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md).
 
-## What it gets you, stacked
+## What Riffle adds
 
-Compared to Kafka Streams classic, with everything below stacked on
-top:
+| Feature | Solves this problem |
+| ------- | ------------------- |
+| **Async I/O** | Calling slow external APIs (HTTP, gRPC, SQL) without blocking the stream thread |
+| **Snapshot stores** | Multi-hour changelog replay when restarting with large state |
+| **2PC sinks** | Exactly-once writes to Postgres, Iceberg, S3, or HTTP endpoints |
+| **Watermark coordinator** | Windows that stall on idle partitions or mixed-rate joins |
+| **Key-group routing** | Needing more parallelism than your topic has partitions |
 
-- **Flink-class state durability and recovery** — recovery is
-  bounded by `time-since-last-snapshot`, not by state size.
-- **Flink-class async I/O** with bounded backpressure, EOS-correct
-  offset semantics, and ordered or unordered output.
-- **Flink-class cross-source watermarks** with idleness handling
-  and alignment groups.
-- **Flink-class two-phase commit to external sinks** (JDBC,
-  Iceberg, S3, HTTP) via a single user-extensible interface.
-- **Parallelism decoupled from partition count** via key-groups.
-- **Typed, composable topology surface** that the JVM Kafka
-  Streams Java API cannot express.
+Riffle keeps Kafka Streams' library model (no separate cluster, no JAR submission) while adding these capabilities.
 
-Compared to running an actual Flink cluster, what Riffle keeps is:
 
-- The **library deployment model.** Your service contains the
-  topology — no separate JobManager / TaskManager fleet, no JAR
-  submission.
-- The **typed integration with application code.** The `Prim`
-  GADT is a first-class Haskell value, not a serialised JobGraph.
+## What's available now
 
-## Where Riffle plugs in
+Riffle features ship in production-ready modules. Import the module listed to use each feature.
 
-The current code has two layers, and Riffle respects both:
+### State durability beyond the changelog
 
-| Layer | Module | Riffle changes integrate as… |
-| ----- | ------ | ---------------------------- |
-| Typed AST | `Kafka.Streams.Topology.Free` (`FreeArrow Prim`) | New `Prim` constructors, new smart constructors, new fusion rules |
-| Imperative graph | `Kafka.Streams.Topology` (`Topology` / `AnyStoreBuilder` / `SourceSpec` / `ProcessorSpec`) | New `AnyStoreBuilder` shapes, new `SourceSpec` / `ProcessorSpec` fields (`Maybe`-optional for backwards compatibility), new `topo*` indices |
-| Runtime | `Kafka.Streams.Runtime.*` | New modules — `Snapshot`, `KeyGroup`, `RebalanceProtocol`, `RebalanceBridge`. Existing `WorkerPool` / `EOS` / `StandbyTask` keep their current entry points |
+Standard Kafka Streams recovers by replaying the changelog from offset 0. Riffle adds snapshot-based recovery: state becomes a first-class durable artifact, and the changelog acts as a write-ahead log between snapshots.
 
-The single `compile :: Topology Void o -> IO (o, Topo.Topology)`
-remains the bridge.
+| Feature | Import this module | Use when |
+| ------- | ------------------ | -------- |
+| Snapshot-aware KV store | `Kafka.Streams.State.KeyValue.Snapshot` | You need recovery time bounded by snapshot frequency, not state size |
+| Snapshot lifecycle | `Kafka.Streams.Runtime.Snapshot` | You want the runtime to decide when to snapshot and recover at boot time |
+| Object-store contract | `Kafka.Streams.Runtime.ObjectStore` | You need S3/GCS/Azure backends (core ships in-memory and filesystem backends; cloud adapters live in separate packages) |
+| Hot + cold tiered KV | `Kafka.Streams.State.KeyValue.Tiered` | Your state is too large for local disk; reads probe hot tier, fall through to cold, and promote |
+| Remote KV (FoundationDB, TiKV, DynamoDB shape) | `Kafka.Streams.State.KeyValue.Remote` | You want no local state; node restart becomes a metadata operation |
+| Pointer-mode standby | `Kafka.Streams.Runtime.StandbyTask` | Your standby state is too large to replicate; the standby tracks `(snapshotId, offset)` and fetches the snapshot at promotion |
 
-```mermaid
-flowchart TB
-  subgraph dsl["Typed AST — Kafka.Streams.Topology.Free"]
-    Prim["Prim GADT\n(parity + Riffle constructors)"]
-    Opt["Optimizer\n(fusion, repartition, sync→async)"]
-  end
-  subgraph imp["Imperative graph — Kafka.Streams.Topology"]
-    Sources["SourceSpec\n+ optional WatermarkStrategy"]
-    Procs["ProcessorSpec"]
-    Stores["AnyStoreBuilder\n(KV / Window / Session / Snapshot / Tiered / Remote)"]
-  end
-  subgraph rt["Runtime — Kafka.Streams.Runtime.*"]
-    WP["WorkerPool\n(Partition / Hashed / KeyGroup)"]
-    EOS["EOSCoordinator\n(+ 2PC sink hooks)"]
-    Snap["Snapshot manager"]
-    Reb["RebalanceProtocol\n(KIP-848)"]
-    Async["AsyncIO processor"]
-    WC["WatermarkCoordinator"]
-  end
-  dsl --> imp
-  imp --> rt
-```
-
-Riffle features either compile to *existing* `ProcessorSpec`
-shapes (async I/O lives inside one task) or to *new* spec
-shapes added alongside (snapshot-aware stores get their own
-`AnyStoreBuilder` constructor). New `Prim` constructors compile either to
-existing `ProcessorSpec` shapes (for Riffle features that reuse the
-single-task model — e.g. async I/O lives inside one task) or to
-new spec shapes added alongside (for features that need a new
-runtime concept — e.g. snapshot-aware stores).
-
-## Landed surface, by area
-
-Every item below is **landed.** The right column is the
-operator-facing module you import.
-
-### State durability decoupled from the changelog
-
-Today's parity recovery walks the changelog from offset 0 (or from
-the standby's caught-up offset). Riffle adds snapshot-based
-recovery: state is a first-class durable artifact; the changelog is
-a write-ahead log between snapshots.
-
-| Piece | Module | Use when |
-| ----- | ------ | -------- |
-| Snapshot-aware KV store | `Kafka.Streams.State.KeyValue.Snapshot` | You want recovery time bounded by snapshot cadence, not state size |
-| Snapshot lifecycle | `Kafka.Streams.Runtime.Snapshot` | The runtime's `publishIfDue` decides when to snapshot; `recoverStore` is the boot-time helper |
-| Object-store contract | `Kafka.Streams.Runtime.ObjectStore` | In-process backends: `inMemoryObjectStore` (tests) and `filesystemObjectStore` (local). S3 / GCS / Azure adapters live in their respective packages |
-| Hot + cold tiered KV | `Kafka.Streams.State.KeyValue.Tiered` | State is large enough that you don't want to keep all of it on local disk; reads probe hot, fall through to cold and promote |
-| Remote KV (FoundationDB, TiKV, DynamoDB shape) | `Kafka.Streams.State.KeyValue.Remote` | You want no local state at all — node restart is a metadata operation. Real adapters live in separate packages |
-| Pointer-mode standby | `Kafka.Streams.Runtime.StandbyTask` (`StandbyMode = ReplayBytes \| SnapshotPointer`) | Standby state is too big to keep in lockstep with the active; the standby instead holds `(snapshotId, advancedTo)` and fetches the snapshot at promotion time |
-
-Recovery contract once a snapshot backend is in place:
-`O(time-since-last-snapshot)` for boot, instead of `O(state-size)`.
-See [Topology evolution](./operating/topology-evolution/) for
-how this changes rollout windows.
+With a snapshot backend, boot time becomes `O(time-since-last-snapshot)` instead of `O(state-size)`. See [Topology evolution](./operating/topology-evolution/) for how this affects rolling deploys.
 
 ### Async I/O as a first-class operator
 
-The single highest-leverage Phase-1 change. Closes the most-cited
-gap with Flink for I/O-bound enrichment workloads — the operator
-provides bounded backpressure, EOS-correct offset semantics,
-ordered or unordered output, per-request timeout + retry, and
-explicit failure policies.
+The most important Riffle feature for I/O-bound workloads. The async operator provides bounded backpressure, EOS-correct offset semantics, ordered or unordered output, per-request timeout and retry, and explicit failure policies.
 
-| Piece | Module |
-| ----- | ------ |
-| `Prim` constructors `AsyncMapValues` / `AsyncMapKeyValue` / `AsyncConcatMapValues` | `Kafka.Streams.Topology.Free` |
-| Config (`AsyncIOConfig`, `AsyncOutputMode`, `AsyncFailurePolicy`, `AsyncRetryStrategy`, `AsyncDrainTrigger`) | `Kafka.Streams.AsyncIO.Config` |
-| Runtime processor | `Kafka.Streams.Runtime.AsyncIO` (compiled into the engine via the pre-commit drain hook) |
-| Sync-into-async fusion | `optFuseSyncIntoAsync` in `Kafka.Streams.Topology.Free.Optimize` |
+| Feature | Import this module |
+| ------- | ------------------ |
+| `AsyncMapValues` / `AsyncMapKeyValue` / `AsyncConcatMapValues` | `Kafka.Streams.Topology.Free` |
+| Configuration (`AsyncIOConfig`, `AsyncOutputMode`, `AsyncFailurePolicy`, etc.) | `Kafka.Streams.AsyncIO.Config` |
+| Runtime processor | `Kafka.Streams.Runtime.AsyncIO` |
+| Sync-to-async fusion optimizer | `Kafka.Streams.Topology.Free.Optimize` |
 
-EOS correctness is guaranteed by registering each async operator
-with `ProcessorContext.ctxRegisterPreCommitDrain`. The drain blocks
-the stream thread until every in-flight request has deposited a
-result; only then are offsets safe to commit. Async output and
-source offsets land in the same EOS transaction.
+EOS correctness works via `ProcessorContext.ctxRegisterPreCommitDrain`. The drain blocks the stream thread until every in-flight request completes; only then are offsets safe to commit. This keeps async output and source offsets in the same transaction.
 
-The full operator-side walk-through, including capacity sizing
-and the `AsyncIOConfig` knobs, lives in
-[Enrichment via external systems](./guides/enrichment/).
+Full walkthrough with capacity sizing: [Enrichment via external systems](./guides/enrichment/).
 
 ### Two-phase commit sinks
 
-EOS in parity Streams is internal to the Kafka transaction:
-transactional producer + `TxnOffsetCommit` in one go. Once the
-sink is anything other than a Kafka topic — JDBC, Iceberg,
-Postgres, S3, an HTTP endpoint — EOS evaporates. The Riffle 2PC
-sink interface closes that gap.
+Standard EOS only works for Kafka-to-Kafka pipelines. Once you write to JDBC, Iceberg, Postgres, S3, or HTTP, you need two-phase commit to maintain exactly-once semantics. Riffle provides a 2PC sink interface.
 
-| Piece | Module |
-| ----- | ------ |
+| Feature | Import this module |
+| ------- | ------------------ |
 | Contract (`TwoPhaseSink`, `SinkTxnId`, `SinkOutcome`, `RecoveryDecision`) | `Kafka.Streams.Sinks.TwoPhase` |
-| Reference sinks (in-memory, filesystem atomic-rename, HTTP echo) | Same module |
-| Coordinator wiring | `withTwoPhaseSinks` extends an existing `EOSCoordinator` |
-| Six-step commit cycle | `runCommitCycle` in `Kafka.Streams.Runtime.EOS`: `beginTxn → flush → commitOffsets → preCommit2PC → commitTxn → commit2PC → storeCommit` |
-| `Prim` constructor | `SinkTwoPhase` in `Kafka.Streams.Topology.Free`; smart constructor `sinkTwoPhase`; compile path `compileSinkTwoPhase` |
+| Reference sinks (in-memory, filesystem, HTTP echo) | `Kafka.Streams.Sinks.TwoPhase` |
+| Coordinator wiring | `withTwoPhaseSinks` extends `EOSCoordinator` |
+| Commit cycle implementation | `Kafka.Streams.Runtime.EOS` |
+| Topology constructor | `Kafka.Streams.Topology.Free` (smart constructor `sinkTwoPhase`) |
 
-The producer transaction now **straddles** the sink's 2PC: a
-failure at `preCommit2PC` or `commitTxn` aborts both sides; a
-failure at `commit2PC` (after the producer txn already committed)
-leaves the sink's `SinkTxnId` in the prepared state and the next
-boot's `tpsRecover` resolves it.
+The producer transaction straddles the sink's 2PC. A failure at `preCommit2PC` or `commitTxn` aborts both sides. A failure at `commit2PC` (after Kafka commits) leaves the sink transaction in prepared state; `tpsRecover` resolves it on next boot.
 
-The real JDBC, Iceberg, S3, and HTTP adapters live in separate
-packages because each pulls in its own driver. The contract +
-three in-process reference sinks ship in core.
+Real adapters (JDBC, Iceberg, S3, HTTP) live in separate packages. The contract and reference sinks ship in core.
 
-Operator walk-through:
-[Exactly-once across Kafka and other systems](./operating/exactly-once/).
+Operator walkthrough: [Exactly-once across Kafka and other systems](./operating/exactly-once/).
 
 ### Cross-source watermark coordinator
 
-Phase-1 `engineStreamTime` is per-task and per-source. Cross-source
-joins, mixed-rate sources, and idle partitions all break in
-characteristic ways. Riffle adds a per-`StreamsApp` coordinator
-that tracks the min of every live source's watermark, excludes
-idle sources after a timeout, and (optionally) backpressures fast
-sources via alignment groups.
+Standard `engineStreamTime` is per-task and per-source. This breaks for cross-source joins, mixed-rate sources, and idle partitions. Riffle adds a per-application coordinator that tracks the minimum watermark across all live sources, excludes idle sources after timeout, and optionally backpressures fast sources via alignment groups.
 
-| Piece | Module |
-| ----- | ------ |
-| Strategy (`WatermarkStrategy`, `WatermarkGenerator`, `IdlenessConfig`, `AlignmentGroupId`) | `Kafka.Streams.Watermark` |
-| Smart constructors (`monotonicAscending`, `boundedOutOfOrderness`, `noWatermark`, `withIdleness`, `withAlignment`) | Same module |
-| Per-source registration | `Consumed.withWatermarkStrategy` → `SourceSpec.sourceWatermarkStrategy` → `Engine.attachWatermarkCoordinator` |
-| Coordinator (`reportRecord`, `markIdle`, `markActive`, `currentEffectiveWatermark`, `alignmentBacklog`, `shouldPauseSource`) | `WatermarkCoordinator` in `Kafka.Streams.Watermark` |
-| Per-operator consumption | `ProcessorContext.ctxCoordinatedWatermark`; helper `effectiveTime` falls back to per-task `ctxStreamTime` when no coordinator is wired |
-| Event-time TTL on stores | `ttlClockFromCoordinator` builds an event-time `IO Timestamp` for `Kafka.Streams.State.KeyValue.TTL` |
+| Feature | Import this module |
+| ------- | ------------------ |
+| Strategy types (`WatermarkStrategy`, `WatermarkGenerator`, `IdlenessConfig`, etc.) | `Kafka.Streams.Watermark` |
+| Smart constructors (`monotonicAscending`, `boundedOutOfOrderness`, `withIdleness`, etc.) | `Kafka.Streams.Watermark` |
+| Source registration | `Consumed.withWatermarkStrategy` |
+| Coordinator operations | `Kafka.Streams.Watermark` (module contains `WatermarkCoordinator`) |
+| Event-time TTL | `Kafka.Streams.State.KeyValue.TTL` with `ttlClockFromCoordinator` |
 
-Suppress already consumes the coordinated watermark; the
-time-windowed aggregator and stream-stream join wiring is the
-remaining mechanical change.
+The `suppress` operator already uses coordinated watermarks. Time-windowed aggregators and stream-stream joins need wiring updates (in progress).
 
-Sources without a `WatermarkStrategy` keep the legacy per-task
-model. There is no runtime cost for unused functionality.
+Sources without a `WatermarkStrategy` keep the legacy per-task model. No runtime cost for unused functionality.
 
 ### Key-group routing
 
-Decouples parallelism from partition count. The runtime hashes
-each record onto one of a fixed-size key-group space (default 128)
-and the assignor moves key-groups, not partitions.
+Standard Kafka Streams parallelism is capped at your partition count. Key-groups decouple parallelism from partitions. The runtime hashes each record onto one of 128 key-groups (configurable), and the assignor moves key-groups between workers.
 
-| Piece | Module |
-| ----- | ------ |
-| Identity + config (`KeyGroupId`, `KeyGroupCount`, `KeyGroupConfig`, `defaultKeyGroupConfig`) | `Kafka.Streams.Runtime.KeyGroup` |
-| Assignment (`KeyGroupAssignment`, `WarmupProgress`, `assignedToKeyGroupRange`) | Same module |
-| Routing helpers (`keyGroupOf`, `keyGroupOfHash`, `keyGroupOfBytes`, `keyGroupRangeOf`, `inKeyGroupRange`) | Same module |
-| Worker-pool entry point | `newWorkerPoolKeyGrouped` / `submitRecordKeyGrouped` / `updateKeyGroupAssignment` in `Kafka.Streams.Runtime.WorkerPool` |
-| Startup selector | `StreamsConfig.dispatchMode = DispatchKeyGroup` |
-| Sticky balanced key-group assigner | `Kafka.Streams.Runtime.Assignor.assignKeyGroups` |
+| Feature | Import this module |
+| ------- | ------------------ |
+| Types and config (`KeyGroupId`, `KeyGroupCount`, `KeyGroupConfig`) | `Kafka.Streams.Runtime.KeyGroup` |
+| Assignment logic | `Kafka.Streams.Runtime.KeyGroup` |
+| Routing helpers | `Kafka.Streams.Runtime.KeyGroup` |
+| Worker-pool integration | `Kafka.Streams.Runtime.WorkerPool` |
+| Startup selector | Set `StreamsConfig.dispatchMode = DispatchKeyGroup` |
+| Assignor implementation | `Kafka.Streams.Runtime.Assignor` |
 
-Parity dispatch modes (`DispatchPartition`, `DispatchHashed`) are
-unchanged and remain the default.
+Standard dispatch modes (`DispatchPartition`, `DispatchHashed`) remain available and stay the default.
 
 See [Scaling and rebalancing](./operating/scaling/).
 
 ### KIP-848 rebalance protocol
 
-Moves assignment off the client and onto the broker-side group
-coordinator. Members exchange subscriptions + member epochs;
-reconciliation is incremental, so a task being moved from member
-A to member B first surfaces in A's `rRemove` and only appears in
-B's `rAdd` after A has acknowledged release.
+The new broker-side rebalance protocol moves assignment to the group coordinator. Members exchange subscriptions and member epochs. Reconciliation is incremental: a task moving from member A to B first appears in A's removal set, and only appears in B's addition set after A acknowledges release.
 
-| Piece | Module |
-| ----- | ------ |
-| Wire types (`Subscription`, `Assignment`, `MemberEpoch`, `RebalanceEpoch`, `TargetAssignment`, `OwnedAssignment`) | `Kafka.Streams.Runtime.RebalanceProtocol` |
-| Pure reconciler (`Reconciliation`, `reconcile`, `applyReconciliation`) | Same module |
-| Group-state state machine (`GroupState`, `addMember`, `removeMember`, `updateTarget`) | Same module |
-| Broker-protocol bridge | `Kafka.Streams.Runtime.RebalanceBridge.applyAssignmentDelta` translates `Kafka.Client.ConsumerGroupV2.AssignmentDelta` into the streams runtime's `Reconciliation` shape so both real-broker and in-process topologies use the same reconciler |
+| Feature | Import this module |
+| ------- | ------------------ |
+| Wire types (`Subscription`, `Assignment`, `MemberEpoch`, etc.) | `Kafka.Streams.Runtime.RebalanceProtocol` |
+| Reconciler | `Kafka.Streams.Runtime.RebalanceProtocol` |
+| Group-state machine | `Kafka.Streams.Runtime.RebalanceProtocol` |
+| Broker-protocol bridge | `Kafka.Streams.Runtime.RebalanceBridge` |
 
-The classic-protocol code path stays; KIP-848 is selected via
-`StreamsConfig`.
+The classic protocol remains available. Select KIP-848 via `StreamsConfig`.
 
 ### Operator-level upgrades
 
-Smaller-scope additions. Each is additive; each lists the existing
-behaviour that survives unchanged.
+Smaller features that solve specific pain points. All are additive-standard APIs continue working unchanged.
 
-| Pain | Riffle fix | Module |
-| ---- | ---------- | ------ |
-| `getStateStore "name"` is stringly-typed and returns `AnyStateStore` you cast | Typed `StoreRef k v` with phantom types; `getKVStoreRef` / `getWindowStoreRef` / `getSessionStoreRef` type-check the kind at compile time. The stringly-typed calls remain | `Kafka.Streams.State.Ref` |
-| `suppress(untilWindowCloses)` has unbounded-buffer pathologies | Mandatory explicit memory budget on `suppressUntilWindowCloses` Riffle variant: `DropOldestSilently`, `ShutdownWhenFull`, `suppressWindowedShed` for shed-to-DLQ, spill-to-snapshot-store deferred | `Kafka.Streams.Suppress` |
-| State-store schema evolution is on the user | `SchemaVersioned` wraps any KV store with `SchemaVersion` + `SchemaMigration` chains; `burnInMigrate` rewrites older entries with resumable `BurnInProgress` | `Kafka.Streams.State.KeyValue.SchemaVersioned` |
-| State TTL is wall-clock only | `Kafka.Streams.State.KeyValue.TTL` takes any `IO Timestamp` as its clock; pair with `ttlClockFromCoordinator` for event-time TTL | `Kafka.Streams.State.KeyValue.TTL` |
-| Trigger / emit policy is hard-coded per operator | `EmitPolicy` ADT promotes the KIP-825 `EmitStrategy` enum to a first-class policy any windowed / stateful operator can consume; adds `EmitOnCount n` and a user-supplied `EmitCustom` arm | `Kafka.Streams.EmitPolicy` |
-| CDC integration is "Kafka topic, hope you read it right" | `cdcSource` knows about snapshot vs streaming phases, surfaces `SchemaChange` side records, and applies key-aware compaction. `cdcToKTableStep` is the canonical CDC-to-KTable mapping | `Kafka.Streams.Sources.CDC` |
-| Internal topics (repartition / changelog) leak across deploys | Pure `detectOrphans :: Topology -> Text -> [TopicName] -> [OrphanInternalTopic]` flags drift; runtime surfaces it as a startup diagnostic | `Kafka.Streams.Observability.OrphanTopics` |
-| Observability is metrics-soup | Per-operator structured lag, queue depths, time-spent. `topologyDescription` / `liveTopologyDescription` emit a versioned JSON document suitable for a Flink-style web-UI overlay | `Kafka.Streams.Observability.Topology` |
+| Problem | Solution | Import this module |
+| ------- | -------- | ------------------ |
+| Stringly-typed `getStateStore` returns `AnyStateStore` | Typed `StoreRef k v` with phantom types; `getKVStoreRef`, `getWindowStoreRef`, etc. type-check at compile time | `Kafka.Streams.State.Ref` |
+| `suppress(untilWindowCloses)` has unbounded buffers | Bounded variant with explicit `BufferOverflowPolicy`: drop oldest, shutdown when full, or shed to DLQ | `Kafka.Streams.Suppress` |
+| Schema evolution is manual | `SchemaVersioned` wraps stores with `SchemaVersion` + `SchemaMigration` chains; `burnInMigrate` rewrites entries with resumable progress | `Kafka.Streams.State.KeyValue.SchemaVersioned` |
+| TTL only supports wall-clock | `Kafka.Streams.State.KeyValue.TTL` accepts any `IO Timestamp` clock; pair with `ttlClockFromCoordinator` for event-time TTL | `Kafka.Streams.State.KeyValue.TTL` |
+| Emit policy is hard-coded per operator | `EmitPolicy` type gives windowed operators configurable triggers: on update, on window close, on count, or custom predicate | `Kafka.Streams.EmitPolicy` |
+| CDC requires manual topic handling | `cdcSource` understands snapshot vs streaming phases, surfaces `SchemaChange` records, applies key-aware compaction | `Kafka.Streams.Sources.CDC` |
+| Internal topics leak across deploys | `detectOrphans` flags drift between expected and actual topics; runtime surfaces it as startup diagnostic | `Kafka.Streams.Observability.OrphanTopics` |
+| Observability is unstructured | Per-operator lag, queue depths, time-spent. `topologyDescription` emits versioned JSON for UI overlays | `Kafka.Streams.Observability.Topology` |
 
-### Property + chaos test surface
+### Test coverage
 
-Not a runtime feature, but the reason every item above can be
-relied on. `Streams.Properties.*` covers the cross-cutting
-correctness invariants the unit tests cannot:
+Riffle ships property-based and chaos tests that validate correctness invariants unit tests cannot cover:
 
-| Spec | What it tests |
-| ---- | ------------- |
-| `KVStoreSMSpec` | State-machine vs `Data.Map` model (in-memory + KIP-892 transactional store) |
-| `OptimizerEqSpec` | Optimised vs unoptimised topology output |
-| `WindowMathSpec` | 17 properties on tumbling / hopping / sliding / unlimited / session windows |
-| `EOSChaosSpec` | `runCommitCycle` schedule against a pure model, plus `getOffsets` throwing, `abortTxn` returning `Left`, `storeAbort` returning `Left` |
+| Test spec | What it validates |
+| ---------- | ----------------- |
+| `KVStoreSMSpec` | State-machine equivalence against `Data.Map` model |
+| `OptimizerEqSpec` | Optimized and unoptimized topologies produce identical output |
+| `WindowMathSpec` | 17 properties covering all window types |
+| `EOSChaosSpec` | Commit cycle correctness under fault injection (exceptions, aborts, partial failures) |
 | `WorkerPoolSMSpec` | Sequential pool dynamics |
-| `WorkerPoolConcurrentSpec` | Concurrent submit + add / remove conservation; sticky routing under concurrency |
-| `ObservabilityTopologySpec` | DAG JSON renderer round-trips |
-| `OrphanTopicsSpec` | Internal-topic detector edge cases |
-| `ChangelogReplaySpec` | Active/standby replication: interleaved replay equivalence, multi-replica convergence, promote-on-failover via 2nd-gen standby replay, per-store isolation on shared changelog |
-| `WatermarkSpec` | Stream-time = running-max under out-of-order input; backwards `advanceDriverStreamTime` is a no-op |
-| `AtLeastOnceRedeliverySpec` | Induced redelivery via `seekMC`; output multiset is a superset of the input multiset; per-value redelivery is bounded by rewind distance |
-
-Bugs the suite found during landing — `TransactionalStore`
-iterator bypassing buffered writes, `hoppingWindows` mis-alignment
-when `size < advance`, `WorkerPool.removePoolWorker` deadlock when
-the inbox wasn't fully drained, an unwrapped `getOffsets`
-exception in `runCommitCycle` that bypassed the abort path — were
-all fixed in the same PR as their tests.
+| `WorkerPoolConcurrentSpec` | Concurrent operations preserve invariants; sticky routing under load |
+| `ObservabilityTopologySpec` | Topology JSON round-trips correctly |
+| `OrphanTopicsSpec` | Internal-topic detector handles edge cases |
+| `ChangelogReplaySpec` | Active/standby replication correctness, failover behavior, per-store isolation |
+| `WatermarkSpec` | Stream-time semantics under out-of-order input |
+| `AtLeastOnceRedeliverySpec` | Redelivery invariants and bounds |
 
 ## Mapping problems to Riffle pieces
 
@@ -324,10 +199,14 @@ answer?":
 
 ## Compatibility contract
 
-A topology that selects no Riffle features compiles to the same
-imperative graph today's parity-only compiler would emit, modulo
-diagnostics. Riffle features only kick in when the topology
-explicitly opts in.
+**Why this matters:** Riffle is designed for incremental adoption. You don't need
+to rewrite your topology or risk breaking existing behavior to use one feature.
+This section explains exactly what stability guarantees you get when mixing
+standard and Riffle features.
+
+A topology that uses no Riffle features compiles to the same
+imperative graph as standard Kafka Streams, modulo diagnostics.
+Riffle features only activate when explicitly imported.
 
 Specifically:
 
@@ -355,33 +234,27 @@ Specifically:
 
 This matters operationally because adopting Riffle is incremental.
 A team that runs a working parity-port topology can pick one
-feature at a time — for example, swap a problematic
-`mapValuesM`-on-HTTP for `asyncMapValues` — without touching the
+feature at a time: for example, swap a problematic
+`mapValuesM`-on-HTTP for `asyncMapValues`: without touching the
 rest of the topology, and without committing to the entire
 extension tier.
 
 ## What's deferred
 
-The pieces that are designed but not yet landed (see the
-**Phase 2** items in `RIFFLE_SPEC.md`):
+**Why this section exists:** Riffle development is transparent. Features are
+designed and specified before implementation. This list shows what's coming
+so you can plan around it. If you need one of these features now, it signals
+where to contribute or where to expect it soon.
+
+Features designed but not yet shipped (see `RIFFLE_SPEC.md` for design details):
 
 - Spill-to-snapshot-store as a fourth bounded-suppress policy
-  (the other three are landed).
-- Time-windowed aggregator and stream-stream join wiring to
-  consume the coordinated watermark instead of per-task
-  `engineStreamTime` (suppress already does).
-- Real JDBC / Iceberg / S3 / HTTP 2PC sink adapters — the
-  contract + three reference sinks ship in core, the real
-  adapters live in their own packages.
-- Real S3 / GCS / Azure `ObjectStoreClient` adapters — the
-  contract + in-memory / filesystem references ship in core.
-- Real FoundationDB / TiKV / DynamoDB `RemoteKVClient`
-  adapters — the contract + in-process mock with per-call fault
-  policy ship in core.
+- Time-windowed aggregator and stream-stream join wiring for the coordinated watermark (suppress already uses it)
+- Production JDBC / Iceberg / S3 / HTTP 2PC sink adapters: contract and reference sinks ship in core, production adapters need separate packages
+- Production S3 / GCS / Azure `ObjectStoreClient` adapters: contract and filesystem backends ship in core, cloud adapters need separate packages
+- Production FoundationDB / TiKV / DynamoDB `RemoteKVClient` adapters: contract and test mocks ship in core, production adapters need separate packages
 
-These all live in adapter packages because each pulls in a
-non-trivial external dependency; the core `wireform-kafka-streams`
-package stays driver-free.
+Adapters live in separate packages because each pulls in non-trivial external dependencies. The core `wireform-kafka-streams` package stays driver-free.
 
 ## Recommended adoption path
 
@@ -414,19 +287,19 @@ You can stop at any step. Every step is an additive deploy.
 ## Related reading
 
 - [`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md)
-  — the canonical design contract with rationale per section.
-- [Topology evolution](./operating/topology-evolution/) — how
+ : the canonical design contract with rationale per section.
+- [Topology evolution](./operating/topology-evolution/): how
   Riffle snapshot stores change rolling-deploy windows.
-- [Scaling and rebalancing](./operating/scaling/) — how key-groups
+- [Scaling and rebalancing](./operating/scaling/): how key-groups
   and KIP-848 change the rebalance story.
 - [Exactly-once across Kafka and other systems](./operating/exactly-once/)
-  — the 2PC sink contract in operator terms.
-- [Enrichment via external systems](./guides/enrichment/) — the
+ : the 2PC sink contract in operator terms.
+- [Enrichment via external systems](./guides/enrichment/): the
   async I/O walkthrough.
-- [Observability](./operating/observability/) — topology JSON,
+- [Observability](./operating/observability/): topology JSON,
   orphan detection, and the live overlay.
-- [Visibility versus ACID databases](./operating/visibility/) —
+- [Visibility versus ACID databases](./operating/visibility/) -
   where the watermark coordinator and event-time TTL fit in the
   visibility story.
-- [Topology optimization](./concepts/topology-optimization/) —
+- [Topology optimization](./concepts/topology-optimization/) -
   including the `optFuseSyncIntoAsync` Riffle fusion rule.

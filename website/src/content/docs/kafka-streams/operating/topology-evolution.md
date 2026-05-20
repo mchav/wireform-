@@ -5,9 +5,9 @@ sidebar:
   order: 2
 ---
 
-Your topology is part of the deployment contract. The internal Kafka topics the framework creates for you depend on operator names — and those names depend on the shape of your code. Get the rolling-deploy story wrong and you'll leak topics on the broker, lose state on rebalance, or strand running tasks.
+Deploying a new version of your Kafka Streams application requires care. Unlike stateless services where you can simply restart with new code, streaming applications have persistent state and internal topics that must be managed across versions.
 
-This page is the operating manual for a binary rollout where the topology might change between versions.
+This guide explains how to deploy safely when your topology changes. You will learn to classify different types of changes, understand their impact, and follow procedures that prevent data loss and service disruption.
 
 :::tip[Unfamiliar terms?]
 Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/).
@@ -15,10 +15,10 @@ Kafka, Streams, and Riffle terminology is defined in the [Glossary](../glossary/
 
 :::note[TL;DR]
 - Five kinds of topology diff each have a different operational story; the table below classifies them.
-- Name every stateful operator explicitly (`Named` + `materializedAs`) — auto-generated names shift when you reshuffle the topology, which renames their changelog topics.
+- Name every stateful operator explicitly (`Named` + `materializedAs`): auto-generated names shift when you reshuffle the topology, which renames their changelog topics.
 - Run the [topology-JSON golden-file diff](../observability/#topology-json) in CI and the [orphan-topic detector](../observability/#orphan-internal-topics) on startup.
 - Set `numStandbyReplicas` to at least 1 for any non-trivial state, otherwise rebalance means a full changelog replay.
-- KIP-848 makes the rebalance itself incremental — no double-ownership at any point during a transfer.
+- KIP-848 makes the rebalance itself incremental: no double-ownership at any point during a transfer.
 :::
 
 ## What a "topology change" actually means
@@ -132,8 +132,8 @@ own state.
 ### 1. Inserting a pure stateless operator
 
 Adding `peek`, `foreach`, `mapValues`, `filter`, etc. in the middle of
-a chain — provided neither the operator nor anything downstream of it
-owns state — is the easiest case. The framework will renumber the
+a chain: provided neither the operator nor anything downstream of it
+owns state: is the easiest case. The framework will renumber the
 following auto-generated names, but no internal topic depends on them.
 Roll out normally.
 
@@ -177,7 +177,7 @@ warmup completes.
 
 The store's local files are removable; `cleanUp` (the Haskell port of
 `KafkaStreams.cleanUp()`) wipes them on next start. The changelog
-topic on the broker is **not** removable by the runtime — it lives
+topic on the broker is **not** removable by the runtime: it lives
 on. Treat it as an orphan and resolve via the procedure in
 [Observability](./observability/#orphan-internal-topics).
 
@@ -217,7 +217,7 @@ incrementally under the **[KIP-848](../glossary/#kip) next-gen protocol** (see
   of every active task's state. During a rolling deploy, the standby
   catches up to within `acceptableRecoveryLag` records of the active,
   and at promotion time the rebalance is **metadata-only** for any
-  standby that's caught up — no changelog replay needed.
+  standby that's caught up: no changelog replay needed.
 - **Probing rebalances** (`Kafka.Streams.Runtime.ProbingRebalance`)
   fire every `probingRebalanceIntervalMs` (default 10 minutes) when
   warmups are within `acceptableRecoveryLag`. That's the cadence at
@@ -325,7 +325,7 @@ the same consumer group. Three things to be aware of:
 2. **Operator shape drift.** If v1 expects record value `{a, b}` and
    v2 produces `{a, b, c}`, every v1-owned task that consumes those
    records must tolerate the extra field. This is the standard
-   schema-evolution discipline — backwards-and-forwards compatibility
+   schema-evolution discipline: backwards-and-forwards compatibility
    on the wire serdes, especially when you're using Schema Registry.
 3. **[Processing-guarantee](../glossary/#processing-guarantee) mismatch.** Switching `processingGuarantee`
    between `AtLeastOnceP` and `ExactlyOnceP` mid-rollout is **not**
@@ -352,9 +352,9 @@ the same consumer group. Three things to be aware of:
 
 ## Related reading
 
-- [Scaling and rebalancing](./scaling/) — what changes when you also
+- [Scaling and rebalancing](./scaling/): what changes when you also
   change instance count.
-- [Observability](./observability/) — how to see what the rolling
+- [Observability](./observability/): how to see what the rolling
   deploy is doing in real time.
-- [Runbooks](./runbooks/) — the failure modes this page describes,
+- [Runbooks](./runbooks/): the failure modes this page describes,
   paired with response procedures.

@@ -1,199 +1,163 @@
 ---
 title: "Tutorial 1: What is Kafka Streams?"
-description: The mental model in plain English. Read this once and the rest of the docs make sense.
+description: The mental model explained from first principles. Read this once and the rest of the docs make sense.
 sidebar:
   order: 2
   label: 1. What is Kafka Streams?
 ---
 
-This is the first part of a five-part tutorial. By the end of all
-five parts, you'll have written a stateful streaming app, queried
-its state directly, joined two streams, and seen the checklist for
-running it in production.
+This is part one of five. By the end, you'll have written a stateful streaming app, queried its state directly, joined two streams, and seen the production checklist.
 
-This part is conceptual. No code yet — just the mental model.
+This part is conceptual. No code yet. Just the mental model.
 
-## In one sentence
+## What problem does Kafka Streams solve?
 
-Kafka Streams is a **library** that turns Kafka topics into a
-**typed, stateful, fault-tolerant** processing pipeline that runs
-**inside your service**.
+Most web services follow a simple pattern: receive a request, do some work, send a response. But what if you need to process data that arrives continuously? Logs, events, sensor readings, user actions: these streams never end. And the processing itself may take time or depend on past data.
 
-Three words in that sentence do a lot of work:
+Streaming systems handle this. Instead of processing one request at a time, they process an unending sequence of records. The challenge is doing this reliably: handling failures without losing data, maintaining state across restarts, and keeping different processing steps coordinated.
 
-| Word | What it means |
-| ---- | ------------- |
-| **Library** | You `import` it. No cluster, no JobManager, no submit step. It runs in the same process as the rest of your service. |
-| **Stateful** | Each step can keep local state (counters, tables, windows). The library handles durability and replication. |
-| **Fault-tolerant** | If your process dies, another picks up where it left off. Kafka is the source of truth. |
+Kafka Streams is a library that makes this manageable. It handles the hard parts (fault tolerance, state management, scaling) so you can focus on the processing logic.
 
-Compare with the alternatives:
+## Core concepts explained
 
-| Tool | Deployment | State | Best for |
-| ---- | ---------- | ----- | -------- |
-| Plain Kafka consumer | Library | DIY | Simple "consume + react" services |
-| Kafka Streams (this) | Library | Built-in (local + replicated) | Stateful pipelines that stay close to your service code |
-| Flink | Separate cluster | Built-in (cluster-managed) | Heavy stateful processing, ML feature stores, large jobs |
+### Topics: the log of events
 
-If you want Flink's correctness story without the cluster, you're
-in the right place. (The Riffle extensions described in
-[Riffle: Flink-class extensions](../riffle/) close most of the gaps
-that historically forced teams off Streams onto Flink.)
+A Kafka **topic** is like a log file that many processes can write to and read from simultaneously. Each entry is a **record** with a key, value, and timestamp. Records are ordered and kept for a configurable time.
 
-## The mental model
+Think of it like a shared journal:
+- Anyone can append a new entry
+- Readers start from a position and read forward
+- Old entries are eventually discarded (by time or size)
+- The log is partitioned (split into independent streams) for parallelism
 
-A **topology** is a graph. Nodes are operators (`map`, `filter`,
-`groupBy`, `count`, `join`); edges are streams of typed records
-flowing between them.
+### Processing pipelines (topologies)
+
+A **topology** is a chain of processing steps. Each step is an **operator** that transforms the stream:
+
+- **Source**: Reads from a topic
+- **map**: Transform each record (like `map` on lists)
+- **filter**: Keep only matching records
+- **groupBy**: Reorganize by a different key
+- **count/aggregate**: Compute running totals
+- **Sink**: Write to a topic
 
 ```mermaid
 flowchart LR
-  In[Kafka topic] --> Filter[filter]
-  Filter --> Group[groupBy + count]
-  Group --> Out[Kafka topic]
-  Group -.->|writes per-key state| Store[(state store)]
-  Store -.->|backed by| Changelog[(Kafka changelog topic)]
+  In[Kafka topic] --> Filter[filter suspicious IPs]
+  Filter --> Group[groupBy user]
+  Group --> Count[count login attempts]
+  Count --> Out[Kafka topic]
+  Group -.->|maintains| Store[(state: attempts per user)]
 ```
 
-Three things the library does for you:
+This example:
+1. Reads login events
+2. Filters to suspicious IPs
+3. Groups by user
+4. Counts attempts per user
+5. Outputs counts to another topic
 
-- **Reads** from the input topics, with the right partitioning.
-- **Runs** your operators, scheduling work across threads.
-- **Writes** outputs back to Kafka — both your sink topics and the
-  hidden "changelog" topics that back local state.
+The **state store** (attempts per user) is maintained automatically. You don't write the storage code.
 
-You write the topology as Haskell. The library compiles it,
-validates it, and runs it.
+### Stateful vs stateless processing
 
-## Why "library, not cluster" matters
+**Stateless** operators see each record in isolation. A `filter` or `map` doesn't need to remember anything between records.
 
-In Flink, you write a job, package it as a JAR, and submit it to a
-cluster. The cluster owns the lifecycle.
+**Stateful** operators need memory. A `count` needs to remember previous counts. A windowed average needs to remember recent values.
 
-In Kafka Streams, the topology is part of *your* service. You
-deploy your service binary like any other:
+The challenge with state: what happens when your process restarts? Kafka Streams solves this by:
+- Writing state changes to a **changelog topic** (a hidden Kafka topic)
+- Replaying the changelog on restart to rebuild state
+- Maintaining **standby replicas** on other instances for fast failover
 
-```mermaid
-flowchart TB
-  subgraph proc["your-service binary (one OS process)"]
-    direction TB
-    HTTP["HTTP / gRPC handlers"]
-    Client["Kafka producer / consumer"]
-    Topo["Streams topology"]
-    Mem["Local state stores"]
-  end
-  Topo -. consumes from .-> Brokers[("Kafka brokers")]
-  Topo -. produces to .-> Brokers
-  Topo -. writes changelog to .-> Brokers
-  Client -. reads / writes .-> Brokers
-  Topo --- Mem
+## How Kafka Streams differs from other approaches
+
+### Plain Kafka consumer
+
+You could write a loop that polls Kafka and processes records:
+
+```haskell
+-- Conceptual code
+forever $ do
+  records <- poll consumer
+  forM_ records process
 ```
 
-Consequences:
+This works for simple cases. But you must handle:
+- **Failures**: If `process` throws, what happens to the batch?
+- **State**: Where do you store intermediate results?
+- **Scaling**: How do you coordinate multiple instances?
+- **Exactly-once**: How do you avoid double-processing on restart?
 
-- **Deploys are normal binary rollouts.** No "job submit" step.
-- **Scale out by running more processes.** Each new process joins
-  the consumer group and gets a share of the partitions.
-- **State lives next to your service.** Local disk, with Kafka as
-  the durable backup.
-- **Your service's own libraries are right there.** Reach into
-  your DB connection pool, your HTTP client, your auth code,
-  whatever — without inter-service hops.
+Kafka Streams handles all of this.
 
-The trade-off: the operational story is different from a standard
-HTTP service. The rest of these docs is mostly about that
-operational story.
+### Flink
 
-## What Kafka gives you that you don't have to build
+Flink is a full streaming platform. You submit jobs to a cluster that manages them. This is powerful for large-scale analytics but adds operational complexity:
+- Separate cluster to maintain
+- Jobs are isolated from your service code
+- Deployment is "submit a JAR to the cluster"
 
-Three guarantees come from Kafka itself; the library leans on
-them:
+Kafka Streams keeps the processing in your service. Same binary, same deployment, same monitoring.
 
-1. **Durability.** Every record you produce is replicated across
-   brokers. If your service dies, the record is still on Kafka.
-2. **Replay.** Consumer offsets are saved per consumer group. A
-   restarted service resumes from where it stopped.
-3. **Ordering, per partition.** Records with the same key always
-   land on the same partition and are consumed in order.
+## What Kafka gives you
 
-The library uses (1) to make state recoverable (each store's
-updates are written to a Kafka topic; on restart, replay
-rebuilds the store). It uses (2) and (3) to make processing
-predictable across restarts.
+Three guarantees from Kafka that the library leverages:
 
-## What the library adds on top
+1. **Durability.** Records are replicated across brokers. If your service dies mid-processing, the records are still there when you restart.
 
-| Capability | What it gives you |
-| ---------- | ----------------- |
-| **State stores** | Per-key data structures (KV, window, session) backed by RocksDB or memory, replicated to Kafka |
-| **Joins** | Stream-stream, stream-table, table-table, foreign-key, GlobalKTable |
-| **Windows** | Time-based bucketing: tumbling, hopping, sliding, session |
-| **Watermarks** | Event-time progress signals so windows know when to close |
-| **Exactly-once** | Atomic commit of input offsets, output records, and state updates |
-| **Standby tasks** | Warm replicas of state for fast failover |
-| **Interactive queries** | Read your state stores from outside the topology |
+2. **Replay.** Each consumer tracks its position. Restart from where you left off, or rewind to reprocess old data.
 
-You'll touch most of these in the tutorial. The rest of the docs
-go deeper on each one.
+3. **Ordering within partitions.** Records with the same key always land on the same partition and are consumed in order. This makes stateful processing predictable.
 
-## Two layers: parity and Riffle
+The library uses (1) for state recovery (state changes go to a changelog topic), and (2) + (3) to make processing consistent across restarts.
 
-The library has two layers. You can opt into the second one
-per-feature, not as a whole.
+## What the library adds
 
-- **Parity layer** — operator-for-operator port of Apache Kafka
-  Streams 4.0. Everything the JVM client does, this does, with the
-  same names and semantics. If you've used Kafka Streams in Java,
-  the API will look familiar.
-- **Riffle layer** — additive extensions that close the gaps
-  people typically hit before they leave Streams for Flink. Things
-  like async I/O with backpressure, snapshot-based state recovery,
-  two-phase commit to external systems, cross-source watermarks,
-  key-group rescaling.
+| Capability | What you get |
+| ---------- | ------------ |
+| **State stores** | Local data structures (key-value, windowed, session) backed by Kafka |
+| **Joins** | Combine streams and tables: stream-stream, stream-table, table-table |
+| **Windows** | Time-based grouping: tumbling (fixed intervals), hopping (overlapping), session (activity gaps) |
+| **Exactly-once** | Atomic processing: input, output, and state update together |
+| **Standby tasks** | Hot replicas for fast failover |
+| **Interactive queries** | Read your state stores directly from your service |
 
-You can ignore Riffle until you need it. Each Riffle feature is a
-new module or a new constructor; selecting it doesn't change
-anything else about your topology. See
-[Riffle: Flink-class extensions](../riffle/) for the full tour.
+## Extended features
+
+For advanced use cases, optional extensions are available:
+
+- **Async I/O**: Call external APIs without blocking processing
+- **Snapshot stores**: Fast recovery from large state
+- **Two-phase commit sinks**: Exactly-once writes to databases, S3, etc.
+
+Start with the base library; add extensions when you need them.
 
 ## Quick vocabulary
 
-You'll see these terms in every page. Skim now; the
-[Glossary](../glossary/) has full definitions.
+Terms you'll see throughout:
 
-| Term | One-line meaning |
-| ---- | ---------------- |
-| **Topology** | The graph of operators you write |
-| **KStream** | An append-only sequence of records |
-| **KTable** | A changelog interpreted as a key-value table |
-| **State store** | A keyed local data structure (in-memory or RocksDB) |
-| **Partition** | One shard of a Kafka topic; the unit of parallelism |
-| **Task** | One instance of one partition's worth of your topology |
-| **Consumer group** | The set of processes sharing the load of one application |
-| **Rebalance** | The act of reassigning tasks when members join or leave |
-| **Changelog topic** | The hidden Kafka topic that backs a state store |
-| **Standby task** | A warm replica of an active task's state |
-| **Commit cycle** | The periodic batch that makes a chunk of work durable |
-
-You don't need to memorise these. They'll show up in context as
-you walk through the rest of the tutorial.
+| Term | Plain English meaning |
+| ---- | --------------------- |
+| **Topology** | Your processing pipeline: a graph of operators that data flows through |
+| **KStream** | A stream of records (append-only, like a log: new events keep getting added) |
+| **KTable** | A table derived from a stream (each key keeps only its latest value) |
+| **State store** | Local storage for stateful operators (in-memory or on disk) |
+| **Partition** | One shard of a topic; the unit of parallelism |
+| **Task** | One instance of your topology processing one partition |
+| **Consumer group** | Multiple instances sharing the work |
+| **Changelog topic** | Hidden Kafka topic that backs a state store |
 
 ## What you'll build
 
-In the next four parts you'll build, in order:
+Next four parts:
 
-1. **A pipe** — copy records from one topic to another. Hello
-   world for streams.
-2. **A word counter** — group by word, count, write the running
-   tally somewhere you can query.
-3. **A page-view enricher** — join a stream of page views against
-   a table of user profiles. Each output record carries both.
-4. **A production checklist** — what changes between "it runs on
-   my laptop" and "it runs in production".
+1. **A pipe**: Copy records from one topic to another (the "hello world" of streaming)
+2. **A word counter**: Count words and query the running totals
+3. **A page-view enricher**: Join events with reference data
+4. **A production checklist**: What changes between "works on my laptop" and "runs in production"
 
-Each part is self-contained code you can copy into a single
-Haskell file and run against the in-process test driver. No
-broker required at any stage.
+Each part is self-contained code you run without a Kafka broker.
 
 ## Ready?
 
