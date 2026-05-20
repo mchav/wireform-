@@ -46,3 +46,4 @@ wireform-yaml-bench.prof
 # bench artefacts: per-run html/json/csv reports stay local.
 benchmark/results/
 wireform-kafka/benchmark/results/
+network-3.2.8.0/
