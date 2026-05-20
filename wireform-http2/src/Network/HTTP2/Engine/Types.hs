@@ -14,6 +14,7 @@ module Network.HTTP2.Engine.Types
   , TokenHeaderTable
   , tokenKey
   , tokenCIKey
+  , tokenFoldedKey
   , tokeniseHeaders
   , detokeniseHeaders
   , lookupToken
@@ -72,9 +73,16 @@ tokenKey :: Token -> ByteString
 tokenKey = unToken
 {-# INLINE tokenKey #-}
 
-tokenCIKey :: Token -> CI ByteString
-tokenCIKey = CI.mk . unToken
+-- | Original-case bytes of the header name. Matches http-semantics
+-- which preserves the case as received.
+tokenCIKey :: Token -> ByteString
+tokenCIKey = unToken
 {-# INLINE tokenCIKey #-}
+
+-- | Folded (lower-case) bytes of the header name.
+tokenFoldedKey :: Token -> ByteString
+tokenFoldedKey = CI.foldedCase . CI.mk . unToken
+{-# INLINE tokenFoldedKey #-}
 
 tokeniseHeaders :: [(ByteString, ByteString)] -> TokenHeaderTable
 tokeniseHeaders hs = (map (\(k, v) -> (Token k, v)) hs, ())

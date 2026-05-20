@@ -160,12 +160,12 @@ library
     , data-default              >= 0.7     && < 0.9
     , deepseq                   >= 1.4     && < 1.6
     , exceptions                >= 0.10    && < 0.11
+    , case-insensitive          >= 1.2     && < 1.3
     , grpc-spec                 >= 1.0     && < 1.1
     , wireform-core
+    , wireform-http2
     , wireform-proto
-    , http-semantics            >= 0.3.0   && < 0.3.1
     , http-types                >= 0.12    && < 0.13
-    , http2-tls                 >= 0.4.9   && < 0.5
     , mtl                       >= 2.2     && < 2.4
     , network                   >= 3.2.4   && < 3.3
     , network-run               >= 0.4.3   && < 0.5
@@ -179,18 +179,6 @@ library
     , unordered-containers      >= 0.2     && < 0.3
     , utf8-string               >= 1.0     && < 1.1
     , vector                    >= 0.13    && < 0.14
-
-      -- We pin very specific versions of http2.
-      --
-      -- The eventual target is to drop both `http2` and `http2-tls` in
-      -- favour of the in-tree `wireform-http2` package, which already
-      -- provides the cleartext + TLS/ALPN transport layer. The blocker
-      -- is the `http-semantics`-shaped server/client surface this
-      -- package consumes (OutBodyIface streaming, trailer makers,
-      -- half-close semantics, Server.Config); see the
-      -- "Relationship with wireform-grpc" section of
-      -- `wireform-http2/README.md` for the migration plan.
-    , http2 == 5.3.9
 
 -- Test suites and benchmarks are disabled while migrating from proto-lens to wireform.
 -- They depend on proto-lens generated code that needs to be regenerated.

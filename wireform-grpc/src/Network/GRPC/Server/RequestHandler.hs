@@ -31,7 +31,7 @@ import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Imports
 import Network.GRPC.Util.Session.Server
 import Network.GRPC.Util.Stream (toBSBuilder)
-import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Engine.Server qualified as Server
 import Network.HTTP.Types qualified as HTTP
 import Wireform.Builder qualified as Builder
 

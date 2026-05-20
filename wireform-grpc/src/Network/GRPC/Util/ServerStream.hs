@@ -6,8 +6,8 @@ module Network.GRPC.Util.ServerStream (
 
 import Network.GRPC.Util.Stream
 
-import Network.HTTP.Semantics.Server qualified as Server
-import Network.HTTP.Semantics (OutBodyIface(..))
+import Network.HTTP2.Engine.Server qualified as Server
+import Network.HTTP2.Engine.Types (OutBodyIface(..))
 
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 

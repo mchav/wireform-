@@ -30,9 +30,9 @@ import Network.GRPC.Util.Imports
 
 import Control.Concurrent.STM (STM, atomically, catchSTM, throwSTM, orElse)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar, readTMVar)
-import Network.HTTP.Semantics.Server qualified as Server
-import Network.HTTP2.Server qualified as HTTP2 (ServerConfig, run)
-import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
+import Network.HTTP2.Engine.Server qualified as Server
+import Network.HTTP2.Engine.Server qualified as HTTP2 (ServerConfig, run)
+import Network.HTTP2.Engine.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
 import Network.Socket qualified as Socket

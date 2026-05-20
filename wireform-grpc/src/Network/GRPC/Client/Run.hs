@@ -35,9 +35,9 @@ import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, writeTVar, readTVar)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar)
-import Network.HPACK qualified as HPACK
-import Network.HTTP2.Client qualified as HTTP2.Client
-import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
+import Network.HTTP2.Engine.Types qualified as HPACK
+import Network.HTTP2.Engine.Client qualified as HTTP2.Client
+import Network.HTTP2.Engine.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, StructLinger (..), SocketOption (..), SockOptValue (..))
 import Network.Socket qualified as Socket

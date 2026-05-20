@@ -54,7 +54,7 @@ module Network.GRPC.Server (
     -- with tracing middleware.
   ) where
 
-import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Engine.Server qualified as Server
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context

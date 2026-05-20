@@ -47,7 +47,7 @@ import Control.Concurrent.STM (atomically, throwSTM)
 import Control.Concurrent.STM.TVar (TVar, writeTVar, readTVar, newTVarIO)
 import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar, newEmptyTMVarIO, readTMVar)
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Engine.Server qualified as Server
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
