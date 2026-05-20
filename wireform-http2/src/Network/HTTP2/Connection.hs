@@ -5,6 +5,7 @@ module Network.HTTP2.Connection
   , ConnectionRole (..)
   , ConnectionError (..)
   , newConnection
+  , newConnectionFromTransport
   , sendFrame
   , sendFrameUnlocked
   , sendFrameZeroCopy
@@ -19,11 +20,12 @@ module Network.HTTP2.Connection
   , module Network.HTTP2.Connection.Settings
   , module Network.HTTP2.Connection.FlowControl
   , module Network.HTTP2.Connection.StreamTable
+  , module Network.HTTP2.Transport
   ) where
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Exception (Exception, throwIO, catch, SomeException)
+import Control.Exception (Exception, catch, SomeException)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -32,7 +34,6 @@ import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Ptr
 import Network.Socket (Socket)
-import qualified Network.Socket.ByteString as NBS
 
 import Network.HTTP2.Connection.FlowControl
 import Network.HTTP2.Connection.Settings
@@ -41,15 +42,23 @@ import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Encode (encodeFrameInto)
 import Network.HTTP2.HPACK
 import Network.HTTP2.Internal.RecvBuffer
+import Network.HTTP2.Transport
 import Network.HTTP2.Types
 
 data ConnectionRole = RoleClient | RoleServer
   deriving stock (Eq, Show)
 
+-- | Static configuration for opening a connection.
+--
+-- A connection can be opened either over a raw socket (the common case;
+-- pass 'ccSocket') or over an arbitrary 'Transport' (e.g. a TLS-wrapped
+-- stream; pass 'ccTransport'). Exactly one of those two fields must be
+-- 'Just'.
 data ConnectionConfig = ConnectionConfig
   { ccRole :: !ConnectionRole
   , ccSettings :: !Settings
-  , ccSocket :: !Socket
+  , ccSocket :: !(Maybe Socket)
+  , ccTransport :: !(Maybe Transport)
   , ccOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
   }
 
@@ -79,7 +88,11 @@ newSendBuffer = do
 
 data Connection = Connection
   { connRole :: !ConnectionRole
-  , connSocket :: !Socket
+  , connTransport :: !Transport
+  , connSocket :: !(Maybe Socket)
+    -- ^ The raw socket, when the transport was built from one. Higher
+    -- layers (e.g. server accept loops that want to know the peer addr)
+    -- can use this; TLS connections may leave it 'Nothing'.
   , connLocalSettings :: !(IORef Settings)
   , connRemoteSettings :: !(IORef Settings)
   , connStreamTable :: !StreamTable
@@ -95,11 +108,40 @@ data Connection = Connection
   , connSendBuffer :: !SendBuffer
   }
 
+-- | Build a 'Connection' from either a 'Socket' (the common case) or an
+-- arbitrary 'Transport'. See 'newConnectionFromTransport' for the
+-- transport-only variant.
 newConnection :: ConnectionConfig -> IO Connection
-newConnection cfg = do
-  localSettings <- newIORef (ccSettings cfg)
+newConnection cfg = case (ccTransport cfg, ccSocket cfg) of
+  (Just t, mSock) -> mkConnection (ccRole cfg) (ccSettings cfg) (ccOnGoAway cfg) t mSock
+  (Nothing, Just sock) ->
+    mkConnection (ccRole cfg) (ccSettings cfg) (ccOnGoAway cfg) (socketTransport sock) (Just sock)
+  (Nothing, Nothing) ->
+    error "Network.HTTP2.Connection.newConnection: ConnectionConfig has neither ccTransport nor ccSocket"
+
+-- | Build a 'Connection' over a generic 'Transport'. Use this when the
+-- connection lives on top of something other than a bare TCP socket
+-- (notably TLS).
+newConnectionFromTransport
+  :: ConnectionRole
+  -> Settings
+  -> (StreamId -> ErrorCode -> ByteString -> IO ())
+  -> Transport
+  -> IO Connection
+newConnectionFromTransport role settings onGoAway t =
+  mkConnection role settings onGoAway t Nothing
+
+mkConnection
+  :: ConnectionRole
+  -> Settings
+  -> (StreamId -> ErrorCode -> ByteString -> IO ())
+  -> Transport
+  -> Maybe Socket
+  -> IO Connection
+mkConnection role settings onGoAway transport mSock = do
+  localSettings <- newIORef settings
   remoteSettings <- newIORef defaultSettings
-  streamTable <- newStreamTable (ccRole cfg == RoleServer)
+  streamTable <- newStreamTable (role == RoleServer)
   sendFC <- atomically $ newFlowControl 65535
   recvFC <- atomically $ newFlowControl 65535
   encoder <- newDynamicTable 4096 >>= newMVar
@@ -110,8 +152,9 @@ newConnection cfg = do
   closed <- newIORef False
   sendBuf <- newSendBuffer
   pure Connection
-    { connRole = ccRole cfg
-    , connSocket = ccSocket cfg
+    { connRole = role
+    , connTransport = transport
+    , connSocket = mSock
     , connLocalSettings = localSettings
     , connRemoteSettings = remoteSettings
     , connStreamTable = streamTable
@@ -123,7 +166,7 @@ newConnection cfg = do
     , connRecvBuffer = recvBuf
     , connLastStreamId = lastStreamId
     , connClosed = closed
-    , connOnGoAway = ccOnGoAway cfg
+    , connOnGoAway = onGoAway
     , connSendBuffer = sendBuf
     }
 
@@ -133,26 +176,26 @@ sendFrame :: Connection -> Frame -> IO ()
 sendFrame conn frame = do
   let bs = encodeFrame frame
   withMVar (connSendLock conn) $ \_ ->
-    NBS.sendAll (connSocket conn) bs
+    tSendAll (connTransport conn) bs
 
 -- | Send a frame without acquiring the send lock.
 -- Only safe when the caller is the sole writer (e.g. single-threaded connection loop).
 {-# INLINE sendFrameUnlocked #-}
 sendFrameUnlocked :: Connection -> Frame -> IO ()
-sendFrameUnlocked conn frame = NBS.sendAll (connSocket conn) (encodeFrame frame)
+sendFrameUnlocked conn frame = tSendAll (connTransport conn) (encodeFrame frame)
 
 -- | Send multiple frames in a single write (reduces syscall overhead).
 sendFrames :: Connection -> [Frame] -> IO ()
 sendFrames conn frames = do
   let bss = map encodeFrame frames
   withMVar (connSendLock conn) $ \_ ->
-    NBS.sendMany (connSocket conn) bss
+    tSendMany (connTransport conn) bss
 
 -- | Send multiple frames without the send lock. Combines into one writev.
 {-# INLINE sendFramesUnlocked #-}
 sendFramesUnlocked :: Connection -> [Frame] -> IO ()
 sendFramesUnlocked conn frames =
-  NBS.sendMany (connSocket conn) (map encodeFrame frames)
+  tSendMany (connTransport conn) (map encodeFrame frames)
 
 -- | Zero-copy send: encode frames directly into the connection's pinned
 -- send buffer, then send from that buffer. Avoids per-frame allocation.
@@ -160,22 +203,22 @@ sendFramesUnlocked conn frames =
 {-# INLINE sendFrameZeroCopy #-}
 sendFrameZeroCopy :: Connection -> Frame -> IO ()
 sendFrameZeroCopy conn frame = do
-  let SendBuffer fp cap = connSendBuffer conn
+  let SendBuffer fp _cap = connSendBuffer conn
   withForeignPtr fp $ \ptr -> do
     written <- encodeFrameInto frame ptr
     let bs = BSI.fromForeignPtr fp 0 written
-    NBS.sendAll (connSocket conn) bs
+    tSendAll (connTransport conn) bs
 
 -- | Zero-copy batch send: encode multiple frames into the send buffer
 -- contiguously, then send the whole buffer in one syscall.
 {-# INLINE sendFramesZeroCopy #-}
 sendFramesZeroCopy :: Connection -> [Frame] -> IO ()
 sendFramesZeroCopy conn frames = do
-  let SendBuffer fp cap = connSendBuffer conn
+  let SendBuffer fp _cap = connSendBuffer conn
   withForeignPtr fp $ \basePtr -> do
     totalWritten <- writeFrames basePtr 0 frames
     let bs = BSI.fromForeignPtr fp 0 totalWritten
-    NBS.sendAll (connSocket conn) bs
+    tSendAll (connTransport conn) bs
   where
     writeFrames _ offset [] = pure offset
     writeFrames ptr offset (f:fs) = do
@@ -230,7 +273,8 @@ recvFrameRaw conn = do
 -- or a fresh copy on wrap-around (rare in practice).
 {-# INLINE recvExact #-}
 recvExact :: Connection -> Int -> IO ByteString
-recvExact conn n = recvBufferRead (connRecvBuffer conn) (connSocket conn) n
+recvExact conn n =
+  recvBufferRead (connRecvBuffer conn) (tRecvBuf (connTransport conn)) n
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do

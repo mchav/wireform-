@@ -36,8 +36,8 @@ import Data.IORef
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text.Encoding
-import Network.HTTP.Semantics qualified as HTTP.Semantics
-import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Engine.Types qualified as HTTP.Semantics
+import Network.HTTP2.Engine.Server qualified as Server
 
 import Network.GRPC.Server.Context (ServerParams(..))
 import Network.GRPC.Server.RequestHandler.API (RequestHandler)

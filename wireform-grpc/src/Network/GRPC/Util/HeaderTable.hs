@@ -4,14 +4,15 @@ module Network.GRPC.Util.HeaderTable (
 ) where
 
 import Network.GRPC.Util.Imports
+import Data.CaseInsensitive qualified as CI
 
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP.Semantics qualified as HTTP.Semantics
+import Network.HTTP2.Engine.Types qualified as Engine
 
 {-------------------------------------------------------------------------------
   General auxiliary
 -------------------------------------------------------------------------------}
 
 
-fromHeaderTable :: HTTP.Semantics.TokenHeaderTable -> [HTTP.Header]
-fromHeaderTable = map (first HTTP.Semantics.tokenKey) . fst
+fromHeaderTable :: Engine.TokenHeaderTable -> [HTTP.Header]
+fromHeaderTable = map (first (CI.mk . Engine.tokenCIKey)) . fst

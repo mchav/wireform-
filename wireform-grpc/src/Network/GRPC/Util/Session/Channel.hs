@@ -53,7 +53,7 @@ import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Stream
 import Network.GRPC.Util.Thread
-import Network.HTTP.Semantics qualified as HTTP.Semantics (
+import Network.HTTP2.Engine.Types qualified as HTTP.Semantics (
   NextTrailersMaker (..),
   TrailersMaker,
  )

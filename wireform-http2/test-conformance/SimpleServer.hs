@@ -96,7 +96,8 @@ handleClient sock = do
       conn <- newConnection ConnectionConfig
         { ccRole = RoleServer
         , ccSettings = defaultSettings
-        , ccSocket = sock
+        , ccSocket = Just sock
+        , ccTransport = Nothing
         , ccOnGoAway = \_ _ _ -> pure ()
         }
       closeConnection conn ProtocolError ""
@@ -107,7 +108,8 @@ handleClient sock = do
         , ccSettings = defaultSettings
             { settingsMaxConcurrentStreams = Just 100
             }
-        , ccSocket = sock
+        , ccSocket = Just sock
+        , ccTransport = Nothing
         , ccOnGoAway = \_ _ _ -> pure ()
         }
       let initSettings = defaultSettings { settingsMaxConcurrentStreams = Just 100 }

@@ -10,7 +10,7 @@ module Network.GRPC.Server.RequestHandler.API (
 
 import Control.Exception
 
-import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Engine.Server qualified as Server
 
 {-------------------------------------------------------------------------------
   Definition

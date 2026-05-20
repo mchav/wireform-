@@ -74,7 +74,8 @@ handleClient sock = do
             { settingsMaxConcurrentStreams = Just 1000
             , settingsInitialWindowSize = 1048576
             }
-        , ccSocket = sock
+        , ccSocket = Just sock
+        , ccTransport = Nothing
         , ccOnGoAway = \_ _ _ -> pure ()
         }
       -- Send server settings

@@ -15,9 +15,10 @@ binding instead of forking against an upstream version.
 The library is a fully compliant native Haskell implementation of
 gRPC: client (`Network.GRPC.Client`), server
 (`Network.GRPC.Server`), the four streaming flavors (unary, server
-streaming, client streaming, bidirectional), HTTP/2 + TLS via
-[`http2`](https://hackage.haskell.org/package/http2) and
-[`http2-tls`](https://hackage.haskell.org/package/http2-tls),
+streaming, client streaming, bidirectional), HTTP/2 + TLS via the
+in-tree [`wireform-http2`](../wireform-http2/) package's
+`Network.HTTP2.Engine.*` modules (we no longer depend on the
+upstream `http2`, `http2-tls`, or `http-semantics` packages),
 compression negotiation, deadline handling, status code semantics,
 metadata, and OpenTelemetry instrumentation. The wire format is
 length-prefixed gRPC over HTTP/2; the message-level protobuf encoding
@@ -41,10 +42,10 @@ build-depends:
 
 The package is part of the [wireform](https://github.com/iand675/wireform-)
 monorepo. Clone the repo and `cabal build wireform-grpc` to compile
-locally. The dep closure pulls in `http2`, `http2-tls`, `tls`,
-`network`, `network-run`, `crypton-x509`, and friends; this is the
-largest dep tree in the monorepo and the reason `wireform-grpc` is
-not part of the default `nix develop` shell.
+locally. The dep closure pulls in `wireform-http2`, `tls`,
+`network`, `network-run`, `crypton-x509`, and friends; this is one of
+the largest dep trees in the monorepo and the reason `wireform-grpc`
+is not part of the default `nix develop` shell.
 
 ## Hello world
 

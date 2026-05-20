@@ -12,9 +12,9 @@ import Network.GRPC.Util.Imports
 
 import Data.ByteString qualified as Strict (ByteString)
 import Foreign (mallocBytes, free)
-import Network.HPACK (BufferSize)
-import Network.HTTP2.Server qualified as Server
-import Network.HTTP2.TLS.Server qualified as Server.TLS
+import Network.HTTP2.Engine.Types (BufferSize)
+import Network.HTTP2.Engine.Server qualified as Server
+import Network.HTTP2.Engine.TLS.Server qualified as Server.TLS
 import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
 import Network.Socket.BufferPool qualified as Recv

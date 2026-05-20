@@ -17,8 +17,8 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP.Semantics (OutBodyIface)
-import Network.HTTP.Semantics.Client qualified as Client
+import Network.HTTP2.Engine.Types (OutBodyIface)
+import Network.HTTP2.Engine.Client qualified as Client
 
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 import Network.GRPC.Util.ClientStream

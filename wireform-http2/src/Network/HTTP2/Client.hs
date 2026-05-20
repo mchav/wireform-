@@ -4,7 +4,11 @@ module Network.HTTP2.Client
   , ClientRequest (..)
   , ClientResponse (..)
   , withConnection
+  , withConnectionOnTransport
   , sendRequest
+    -- * Low-level pieces, re-used by TLS bring-up
+  , sendClientPreface
+  , clientRecvLoop
   ) where
 
 import Control.Concurrent (forkIO)
@@ -15,13 +19,9 @@ import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Word
-import Network.Socket (Socket)
 import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NBS
 
 import Network.HTTP2.Connection
-import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Frame
 import Network.HTTP2.HPACK
 import Network.HTTP2.Types
@@ -67,15 +67,32 @@ withConnection cfg action = do
       $ \sock -> do
         NS.connect sock (NS.addrAddress addr)
         NS.setSocketOption sock NS.NoDelay 1
-        conn <- newConnection ConnectionConfig
-          { ccRole = RoleClient
-          , ccSettings = clientSettings cfg
-          , ccSocket = sock
-          , ccOnGoAway = \_ _ _ -> pure ()
-          }
-        sendClientPreface conn (clientSettings cfg)
-        _ <- forkIO $ clientRecvLoop conn
-        action conn `finally` closeConnection conn NoError ""
+        let transport = socketTransport sock
+        withConnectionOnTransport cfg transport (Just sock) action
+
+-- | Run the client over an already-prepared 'Transport'. Useful for
+-- HTTP/2-over-TLS bring-up where the caller has already done the TLS
+-- handshake / ALPN negotiation.
+--
+-- The optional 'NS.Socket' is the original socket (if any), retained on
+-- the 'Connection' so higher-level code can inspect peer addresses.
+withConnectionOnTransport
+  :: ClientConfig
+  -> Transport
+  -> Maybe NS.Socket
+  -> (Connection -> IO a)
+  -> IO a
+withConnectionOnTransport cfg transport mSock action = do
+  conn <- newConnection ConnectionConfig
+    { ccRole = RoleClient
+    , ccSettings = clientSettings cfg
+    , ccSocket = mSock
+    , ccTransport = Just transport
+    , ccOnGoAway = \_ _ _ -> pure ()
+    }
+  sendClientPreface conn (clientSettings cfg)
+  _ <- forkIO $ clientRecvLoop conn
+  action conn `finally` closeConnection conn NoError ""
 
 sendClientPreface :: Connection -> Settings -> IO ()
 sendClientPreface conn settings = do
@@ -84,7 +101,7 @@ sendClientPreface conn settings = do
       settingsFrame = Frame
         (FrameHeader (fromIntegral (length params * 6)) FrameSettings 0 0)
         (SettingsFrame params)
-  NBS.sendMany (connSocket conn) [preface, encodeFrame settingsFrame]
+  tSendMany (connTransport conn) [preface, encodeFrame settingsFrame]
 
 clientRecvLoop :: Connection -> IO ()
 clientRecvLoop conn = do

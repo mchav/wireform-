@@ -16,7 +16,7 @@ module Network.GRPC.Util.Session.API (
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Network.GRPC.Spec.Util.Parser (Parser)
 import Network.GRPC.Util.Imports
-import Network.HTTP.Semantics qualified as HTTP.Semantics (Path)
+import Network.HTTP2.Engine.Types qualified as HTTP.Semantics (Path)
 import Network.HTTP.Types qualified as HTTP
 import Wireform.Builder (Builder)
 
