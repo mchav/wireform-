@@ -1,13 +1,17 @@
 -- | HTTP/2 benchmark server using the real wireform-http2 library API.
 -- No shortcuts — exercises the full frame encode/decode, HPACK, and connection stack.
+--
+-- Threading model: per-core accept via forkOn, pinned connection handlers.
 module Main (main) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, forkOn, getNumCapabilities)
 import Control.Concurrent.MVar (readMVar)
 import Control.Exception (SomeException, catch, bracket, finally)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import Data.IORef
+import GHC.Conc (numCapabilities)
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NBS
@@ -25,6 +29,10 @@ main = do
   let port = case args of
         (p:_) -> p
         _ -> "8080"
+  caps <- getNumCapabilities
+  putStrLn $ "wireform-http2 server: " <> show caps <> " capabilities, port " <> port
+  -- Per-core accept: each capability runs its own accept loop on a shared socket.
+  -- This distributes connection handling across cores without cross-core migration.
   let hints = NS.defaultHints
         { NS.addrFlags = [NS.AI_PASSIVE]
         , NS.addrSocketType = NS.Stream
@@ -38,22 +46,21 @@ main = do
       $ \sock -> do
         NS.setSocketOption sock NS.ReuseAddr 1
         NS.setSocketOption sock NS.NoDelay 1
-        NS.setSocketOption sock NS.RecvBuffer 262144
-        NS.setSocketOption sock NS.SendBuffer 262144
         NS.bind sock (NS.addrAddress addr)
         NS.listen sock 4096
-        putStrLn $ "wireform-http2 server listening on port " <> port
-        acceptLoop sock
+        -- Single accept loop, round-robin connections across capabilities
+        capCounter <- newIORef (0 :: Int)
+        acceptLoop caps capCounter sock
 
-acceptLoop :: Socket -> IO ()
-acceptLoop listenSock = do
+acceptLoop :: Int -> IORef Int -> Socket -> IO ()
+acceptLoop caps capCounter listenSock = do
   (clientSock, _) <- NS.accept listenSock
   NS.setSocketOption clientSock NS.NoDelay 1
-  NS.setSocketOption clientSock NS.RecvBuffer 262144
-  NS.setSocketOption clientSock NS.SendBuffer 262144
-  _ <- forkIO $ handleClient clientSock
+  -- Round-robin across capabilities for even distribution
+  cap <- atomicModifyIORef' capCounter (\n -> (if n + 1 >= caps then 0 else n + 1, n))
+  _ <- forkOn cap $ handleClient clientSock
     `catch` (\(_ :: SomeException) -> NS.close clientSock)
-  acceptLoop listenSock
+  acceptLoop caps capCounter listenSock
 
 handleClient :: Socket -> IO ()
 handleClient sock = do
