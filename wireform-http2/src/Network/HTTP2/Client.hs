@@ -448,7 +448,16 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
         Nothing -> do
           failStream handle sid (ClientStreamProtocolError "malformed HEADERS frame")
           pure True
-        Just block -> deliverHeaders handle sid flags block
+        Just block -> do
+          -- HPACK's 'decodeString' can hand back literal-string
+          -- slices of its input.  Our input here is itself a slice
+          -- of the recv ring buffer, which the next 'recvBufferRead'
+          -- will overwrite — so the slices' bytes turn to garbage
+          -- by the time the user code looks at them.  Eagerly copy
+          -- once at the boundary so every downstream slice is
+          -- backed by stable memory.
+          copied <- forceCopyBS block
+          deliverHeaders handle sid flags copied
 
   FrameContinuation -> do
     pending <- readIORef (chPending handle)
@@ -465,8 +474,9 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
                 failStream handle (fhStreamId hdr)
                   (ClientStreamProtocolError "malformed HEADERS continuation")
                 pure True
-              Just block ->
-                deliverHeaders handle (fhStreamId hdr) origFlags block
+              Just block -> do
+                copied <- forceCopyBS block
+                deliverHeaders handle (fhStreamId hdr) origFlags copied
         | otherwise -> do
             -- See note on CONTINUATION above: copy 'body' before
             -- splicing into the cross-frame buffer.
@@ -544,7 +554,15 @@ deliverHeaders
   :: ClientHandle -> StreamId -> FrameFlags -> ByteString -> IO Bool
 deliverHeaders handle sid flags block = do
   decoder <- readMVar (connHpackDecoder (chConnection handle))
-  res <- decodeHeaderBlock decoder block
+  res0 <- decodeHeaderBlock decoder block
+  -- 'forceCopyHeaders' rebuilds each name\/value into a fresh
+  -- malloc'd buffer.  HPACK literals + huffman-decoded strings can
+  -- otherwise stay as lazy thunks that read from @block@ (a recv
+  -- ring-buffer slice) when the user finally inspects them — by
+  -- which point the ring buffer has been recycled.
+  res <- case res0 of
+    Right hs -> Right <$> forceCopyHeaders hs
+    Left e   -> pure (Left e)
   case res of
     Left _ -> do
       closeConnection (chConnection handle) CompressionError "HPACK decode failed"
@@ -596,6 +614,17 @@ deliverHeaders handle sid flags block = do
 -- | RFC 7541 §4.1 sizing: 32 + name + value per header.  Used to
 -- enforce our advertised @SETTINGS_MAX_HEADER_LIST_SIZE@ on response
 -- header / trailer blocks the peer sends.
+-- | Walk a decoded header list and replace every name\/value with an
+-- eagerly-copied @ByteString@.  See the long comment in
+-- @Network.HTTP2.Server.forceCopyHeaders@ for the recv-ring-buffer
+-- aliasing hazard this protects against.
+forceCopyHeaders
+  :: [(ByteString, ByteString)] -> IO [(ByteString, ByteString)]
+forceCopyHeaders = mapM $ \(n, v) -> do
+  n' <- forceCopyBS n
+  v' <- forceCopyBS v
+  pure (n', v')
+
 overClientHeaderLimit
   :: ClientHandle -> [(ByteString, ByteString)] -> Bool
 overClientHeaderLimit handle hs = case chMaxHeaderListSize handle of

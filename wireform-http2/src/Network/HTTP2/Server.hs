@@ -658,8 +658,16 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                     closeConnection conn ProtocolError "malformed trailers"
                     pure False
                   Just block -> do
+                    -- See note in Client.hs FrameHeaders: HPACK's
+                    -- literal-string slices reference our input
+                    -- buffer, which is itself a recv ring-buffer
+                    -- slice.  Detach with a forced memcpy now.
+                    copied <- forceCopyBS block
                     decoder <- readMVar (connHpackDecoder conn)
-                    res <- decodeHeaderBlock decoder block
+                    res0 <- decodeHeaderBlock decoder copied
+                    res <- case res0 of
+                      Right hs -> Right <$> forceCopyHeaders hs
+                      Left e   -> pure (Left e)
                     case res of
                       Left _ -> do
                         closeConnection conn CompressionError "HPACK decode failed in trailers"
@@ -708,9 +716,22 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                   closeConnection conn ProtocolError "malformed HEADERS frame"
                   pure False
                 Just headerBlock -> do
+                  -- See note above on detaching from the recv ring buffer.
+                  copied <- forceCopyBS headerBlock
                   decoder <- readMVar (connHpackDecoder conn)
-                  result <- decodeHeaderBlock decoder headerBlock
-                  case result of
+                  result <- decodeHeaderBlock decoder copied
+                  -- 'forceCopyHeaders' rebuilds each name\/value into
+                  -- a fresh malloc'd buffer.  HPACK's literal- and
+                  -- huffman-decode paths produce bytestrings that —
+                  -- even after forceCopyBS on the input block — still
+                  -- can read from the input block at unforced points;
+                  -- this pass guarantees every bytestring downstream
+                  -- is backed by independent memory, so the handler
+                  -- thread can read them without racing the recv loop.
+                  result' <- case result of
+                    Right hs -> Right <$> forceCopyHeaders hs
+                    Left e   -> pure (Left e)
+                  case result' of
                     Left _ -> do
                       closeConnection conn CompressionError "HPACK decode failed"
                       pure False
@@ -1072,6 +1093,20 @@ checkContentLength sid streamsRef = do
 -- decoded them fine.
 headerListSize :: [(ByteString, ByteString)] -> Int
 headerListSize = foldr (\(n, v) acc -> acc + 32 + BS.length n + BS.length v) 0
+
+-- | Walk a decoded header list and replace every name\/value with an
+-- eagerly-copied @ByteString@.  HPACK's literal\/huffman decoders
+-- return bytestrings whose backing memory ultimately came from the
+-- recv ring buffer; once the recv loop advances, that memory is
+-- recycled.  This pass detaches every bytestring with a fresh
+-- @memcpy@ so downstream code (handler threads, HPACK table) holds
+-- only stable memory.
+forceCopyHeaders
+  :: [(ByteString, ByteString)] -> IO [(ByteString, ByteString)]
+forceCopyHeaders = mapM $ \(n, v) -> do
+  n' <- forceCopyBS n
+  v' <- forceCopyBS v
+  pure (n', v')
 
 -- | Run @io@ but abandon it (and return 'Nothing') if it takes longer
 -- than the configured number of seconds.  'Nothing' for the timeout

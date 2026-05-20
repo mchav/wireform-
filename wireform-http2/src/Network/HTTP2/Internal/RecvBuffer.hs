@@ -14,8 +14,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.IORef
 import Data.Word
+import Foreign.C.Types (CSize (..))
 import Foreign.ForeignPtr
 import Foreign.Ptr
+
+foreign import ccall unsafe "string.h memmove"
+  c_memmove :: Ptr Word8 -> Ptr Word8 -> CSize -> IO (Ptr Word8)
 
 data RecvBuffer = RecvBuffer
   { rbBuffer :: !(ForeignPtr Word8)
@@ -70,8 +74,13 @@ ensureSpace rb rp wp = do
   if rp > 0
     then do
       if unread > 0
-        then withForeignPtr (rbBuffer rb) $ \base ->
-          BSI.memcpy base (base `plusPtr` rp) unread
+        -- memmove (not memcpy): the source and destination regions
+        -- overlap whenever @rp < unread@.  memcpy is undefined on
+        -- overlapping ranges and glibc's implementation can corrupt
+        -- bytes depending on alignment / size.
+        then withForeignPtr (rbBuffer rb) $ \base -> do
+          _ <- c_memmove base (base `plusPtr` rp) (fromIntegral unread)
+          pure ()
         else pure ()
       writeIORef (rbReadPos rb) 0
       writeIORef (rbWritePos rb) unread
