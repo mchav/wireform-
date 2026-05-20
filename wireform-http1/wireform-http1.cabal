@@ -136,6 +136,9 @@ benchmark wireform-http1-bench
     deepseq,
     wireform-http1
 
+-- | Fast-path benchmark: bypasses the runtime's per-request
+-- encoder by precomputing the response head and using the raw
+-- @Connection@ accessors. Use this to publish numbers vs h2o.
 executable wireform-http1-bench-server
   import: defaults
   hs-source-dirs: bench-server
@@ -145,4 +148,17 @@ executable wireform-http1-bench-server
     base,
     bytestring,
     network,
+    wireform-http1
+
+-- | Public-API benchmark: runs the same request through
+-- 'Network.HTTP1.Server.runServer' with a normal 'Handler'. Use
+-- this to track the cost of the user-facing path as we optimise.
+executable wireform-http1-runserver-bench
+  import: defaults
+  hs-source-dirs: bench-server
+  main-is: RunServerBench.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N -A64m -qg"
+  build-depends:
+    base,
+    bytestring,
     wireform-http1
