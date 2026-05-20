@@ -9,11 +9,13 @@ module Network.HTTP2.Server
   , runServerOnTransport
   ) where
 
-import Control.Concurrent (forkIO, ThreadId)
+import Control.Concurrent (forkIO, killThread, threadDelay, ThreadId)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception (bracket, catch, SomeException, finally)
 import Control.Monad (when)
+import GHC.Clock (getMonotonicTime)
+import System.Timeout (timeout)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -53,6 +55,19 @@ data ServerConfig = ServerConfig
   , serverForkStream :: IO () -> IO ThreadId
     -- ^ How to fork a new thread for each concurrent stream handler.
     -- Default: 'forkIO'.
+  , serverIdleTimeoutSeconds :: !(Maybe Double)
+    -- ^ Close a connection if no frame has arrived from the peer for
+    -- this many seconds (send GOAWAY first).  'Nothing' disables the
+    -- check.  Default: @Just 120@ — matches @nginx@'s
+    -- @keepalive_timeout@ ballpark.
+  , serverHeaderBlockTimeoutSeconds :: !(Maybe Double)
+    -- ^ Maximum time the peer may take between the initial @HEADERS@
+    -- and the @END_HEADERS@ on the final @CONTINUATION@.  Caps slow
+    -- header-block reads.  'Nothing' disables.  Default: @Just 10@.
+  , serverPrefaceTimeoutSeconds :: !(Maybe Double)
+    -- ^ Maximum time the peer may take to send the connection preface
+    -- after the TCP\/TLS handshake completes.  'Nothing' disables.
+    -- Default: @Just 5@.
   }
 
 defaultServerConfig :: ServerConfig
@@ -63,6 +78,9 @@ defaultServerConfig = ServerConfig
   , serverHandler = \_ respond -> respond defaultResponse
   , serverForkConnection = forkIO
   , serverForkStream = forkIO
+  , serverIdleTimeoutSeconds = Just 120
+  , serverHeaderBlockTimeoutSeconds = Just 10
+  , serverPrefaceTimeoutSeconds = Just 5
   }
 
 data Request = Request
@@ -157,10 +175,15 @@ gracefulClose sock = do
 
 handleTransport :: ServerConfig -> Transport -> IO ()
 handleTransport cfg transport = do
-  preface <- recvExactTransport transport (BS.length connectionPreface)
-  if preface /= connectionPreface
-    then pure ()
-    else do
+  -- Slowloris guard #1: cap how long the peer can sit on the socket
+  -- without sending the connection preface.  A misbehaving peer that
+  -- never sends bytes would otherwise pin a server thread forever.
+  mPreface <- withMaybeTimeout (serverPrefaceTimeoutSeconds cfg) $
+    recvExactTransport transport (BS.length connectionPreface)
+  case mPreface of
+    Nothing -> pure ()
+    Just preface | preface /= connectionPreface -> pure ()
+    Just _ -> do
       conn <- newConnectionFromTransport
                 RoleServer
                 (serverSettings cfg)
@@ -181,8 +204,21 @@ handleTransport cfg transport = do
       rl <- ServerRateLimiters
         <$> newRateCounter <*> newRateCounter
         <*> newRateCounter <*> newRateCounter
+      -- Activity timestamp updated by the recv loop on every frame.
+      -- The idle / continuation watchdog reads it and shuts us down
+      -- if too much time has passed.
+      now0 <- getMonotonicTime
+      lastActivityRef <- newIORef now0
+      -- continuationStart: when the in-flight header block began
+      -- arriving (HEADERS without END_HEADERS).  Reset to Nothing
+      -- whenever END_HEADERS lands.  Slowloris guard #2.
+      continuationStartRef <- newIORef Nothing
+      watchdog <- forkIO $ idleWatchdog cfg conn
+                             lastActivityRef continuationStartRef
       connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef
                      connRecvUnackedRef connRecvWindowRef rl
+                     lastActivityRef continuationStartRef
+        `finally` killThread watchdog
 
 -- | Pending header-block continuation state: which stream we're
 -- continuing, what flags the initial HEADERS frame had (so we know
@@ -369,13 +405,20 @@ connectionLoop
   -> IORef Int    -- ^ connection-level recv-unacked counter
   -> IORef Int    -- ^ connection-level recv-window remaining
   -> ServerRateLimiters
+  -> IORef Double           -- ^ last-activity timestamp
+  -> IORef (Maybe Double)   -- ^ header-block start timestamp
   -> IO ()
 connectionLoop cfg conn streamsRef lastPeerStreamRef contRef
-               connRecvUnackedRef connRecvWindowRef rl = loop
+               connRecvUnackedRef connRecvWindowRef rl
+               lastActivityRef continuationStartRef = loop
   where
     maxFrame = settingsMaxFrameSize (serverSettings cfg)
     loop = do
       result <- recvFrame conn
+      -- Refresh the activity timestamp before doing any work: any
+      -- byte we just pulled off the wire counts as activity.
+      now <- getMonotonicTime
+      writeIORef lastActivityRef now
       case result of
         Left err ->
           closeConnection conn (decodeErrorToCode err) (decodeErrorMessage err)
@@ -393,7 +436,8 @@ connectionLoop cfg conn streamsRef lastPeerStreamRef contRef
                   closeConnection conn ProtocolError "expected CONTINUATION frame"
                 _ -> do
                   ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
-                                     connRecvUnackedRef connRecvWindowRef rl frame
+                                     connRecvUnackedRef connRecvWindowRef rl
+                                     continuationStartRef frame
                   if ok then loop else pure ()
 
 -- | Map a 'FrameDecodeError' to the HTTP\/2 error code dictated by
@@ -428,10 +472,12 @@ handleFrame'
   -> IORef Int      -- ^ connection-level recv-unacked counter
   -> IORef Int      -- ^ connection-level recv-window remaining
   -> ServerRateLimiters
+  -> IORef (Maybe Double)   -- ^ header-block start timestamp (slowloris guard)
   -> Frame
   -> IO Bool
 handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
-             connRecvUnackedRef connRecvWindowRef rl (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+             connRecvUnackedRef connRecvWindowRef rl
+             continuationStartRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck ->
         if BS.null body
@@ -585,6 +631,11 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
           , contInitialFlags = fhFlags hdr
           , contBuffer = copiedBody
           }))
+        -- Slowloris guard #2: mark the start of the header block
+        -- so 'idleWatchdog' can shoot us down if the peer dribbles
+        -- in CONTINUATION frames forever.
+        now <- getMonotonicTime
+        writeIORef continuationStartRef (Just now)
         pure True
     | otherwise -> do
         let sid = fhStreamId hdr
@@ -893,6 +944,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
             pure False
         | testFlag (fhFlags hdr) flagEndHeaders -> do
             writeIORef contRef Nothing
+            writeIORef continuationStartRef Nothing
             let assembled = contBuffer c <> body
                 origFlags = contInitialFlags c
                 synthHdr  = hdr
@@ -902,6 +954,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                   }
             handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                          connRecvUnackedRef connRecvWindowRef rl
+                         continuationStartRef
               (Frame synthHdr (FramePayloadRaw assembled))
         | otherwise -> do
             copiedBody <- forceCopyBS body
@@ -1011,6 +1064,60 @@ checkContentLength sid streamsRef = do
 -- decoded them fine.
 headerListSize :: [(ByteString, ByteString)] -> Int
 headerListSize = foldr (\(n, v) acc -> acc + 32 + BS.length n + BS.length v) 0
+
+-- | Run @io@ but abandon it (and return 'Nothing') if it takes longer
+-- than the configured number of seconds.  'Nothing' for the timeout
+-- means "no cap", so the action runs to completion and is wrapped in
+-- 'Just'.
+withMaybeTimeout :: Maybe Double -> IO a -> IO (Maybe a)
+withMaybeTimeout Nothing io = Just <$> io
+withMaybeTimeout (Just secs) io = timeout (toMicros secs) io
+
+toMicros :: Double -> Int
+toMicros s
+  | s <= 0    = 0
+  | otherwise = round (s * 1e6)
+
+-- | Background watchdog that closes the connection when it's been
+-- idle (no incoming frame) for longer than
+-- 'serverIdleTimeoutSeconds', or when a header block has been
+-- mid-flight (HEADERS without END_HEADERS) longer than
+-- 'serverHeaderBlockTimeoutSeconds'.
+--
+-- We poll once a second rather than wiring a precise timer per
+-- connection — close enough for the use case (DoS mitigation), and
+-- avoids a thread-per-deadline.
+idleWatchdog
+  :: ServerConfig
+  -> Connection
+  -> IORef Double           -- ^ monotonic time of last incoming frame
+  -> IORef (Maybe Double)   -- ^ monotonic time when current header block began
+  -> IO ()
+idleWatchdog cfg conn lastActivityRef continuationStartRef =
+  case (serverIdleTimeoutSeconds cfg, serverHeaderBlockTimeoutSeconds cfg) of
+    (Nothing, Nothing) -> pure ()
+    _ -> loop
+  where
+    loop = do
+      threadDelay 1000000  -- 1s tick
+      now <- getMonotonicTime
+      idleTrip <- case serverIdleTimeoutSeconds cfg of
+        Just secs -> do
+          last' <- readIORef lastActivityRef
+          pure (now - last' > secs)
+        Nothing -> pure False
+      contTrip <- case serverHeaderBlockTimeoutSeconds cfg of
+        Just secs -> do
+          mStart <- readIORef continuationStartRef
+          case mStart of
+            Just s -> pure (now - s > secs)
+            Nothing -> pure False
+        Nothing -> pure False
+      if idleTrip || contTrip
+        then closeConnection conn EnhanceYourCalm
+               (if idleTrip then "idle timeout" else "slow header block")
+               `catch` (\(_ :: SomeException) -> pure ())
+        else loop
 
 -- | True when @hs@ exceeds the server's advertised
 -- @SETTINGS_MAX_HEADER_LIST_SIZE@.  Returns False when no limit was
