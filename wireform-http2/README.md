@@ -110,34 +110,35 @@ push API to `Network.HTTP2.Server` unless a concrete user need turns up.
 
 ## Relationship with `wireform-grpc`
 
-[`wireform-grpc`](../wireform-grpc/) is the vendored gRPC binding (from
-`grapesy`) and currently pins `http2 == 5.3.9` and `http2-tls < 0.5`
-because grapesy upstream is wired into a very specific
-`http-semantics` shape — streaming bodies via `OutBodyIface`, trailer
-makers, half-close semantics, server `Config` with `confWriteBuffer` /
-`confReadN` / `confTimeoutManager` / `confPositionReadMaker`, plus
-ping / empty-frame / settings / rst rate limits.
+[`wireform-grpc`](../wireform-grpc/) drives its HTTP/2 transport through
+the `Network.HTTP2.Engine.*` modules in this package; it no longer
+depends on the upstream `http2`, `http2-tls`, or `http-semantics`
+packages.
 
-This package currently provides everything the **transport** of that
-stack needs (TLS / ALPN, flow control, settings negotiation), but not
-the **`http-semantics`-shaped server / client surface**
-`grapesy` consumes. Fully swapping `wireform-grpc` off `http2` + `http2-tls`
-requires building:
+The engine modules expose an `http-semantics`-shaped API (Request,
+Response, OutBodyIface, TrailersMaker, NextTrailersMaker, InpObj,
+OutObj, Aux) so the wireform-grpc consumer code is essentially
+unchanged from the upstream `grapesy` shape — only the import paths
+move:
 
-- An `OutBodyIface`-equivalent streaming body API on top of
-  `Network.HTTP2.Server.ResponseBody`, including outbound trailers and
-  cancellation hooks.
-- An inbound trailer + half-close path on `Network.HTTP2.Server.Request`
-  (the current `requestBody` callback yields chunks; it does not surface
-  the final HEADERS-with-END_STREAM trailer frame).
-- A `Config`-shaped knob bundle (rate limits, write buffer, time manager)
-  to match what `Network.GRPC.Util.HTTP2.withConfigForInsecure` /
-  `withConfigForSecure` produce today.
+| Old import (`http2` / `http-semantics` / `http2-tls`) | New import (this package)                |
+|------------------------------------------------------|------------------------------------------|
+| `Network.HTTP.Semantics`                              | `Network.HTTP2.Engine.Types`             |
+| `Network.HTTP.Semantics.Server`                       | `Network.HTTP2.Engine.Server`            |
+| `Network.HTTP.Semantics.Client`                       | `Network.HTTP2.Engine.Client`            |
+| `Network.HTTP2.Server`                                | `Network.HTTP2.Engine.Server`            |
+| `Network.HTTP2.Client`                                | `Network.HTTP2.Engine.Client`            |
+| `Network.HTTP2.TLS.Server`                            | `Network.HTTP2.Engine.TLS.Server`        |
+| `Network.HTTP2.TLS.Client`                            | `Network.HTTP2.Engine.TLS.Client`        |
+| `Network.HPACK` (for `BufferSize`)                    | `Network.HTTP2.Engine.Types`             |
 
-These are intentionally additive — they don't change the existing
-zero-copy hot paths — but they're a non-trivial surface. The Transport
-refactor in this PR is the foundation; the gRPC swap will land in a
-follow-up.
+The runtime under those modules
+(`Network.HTTP2.Engine.Run.{Server,Client}`) handles the gRPC happy
+path: HEADERS + DATA + trailing HEADERS, half-close in both
+directions, OutBodyIface push/pushFinal/cancel/flush, automatic
+WINDOW_UPDATE bookkeeping, RST_STREAM cancellation, PING / SETTINGS
+acks. Things gRPC doesn't use (PUSH_PROMISE, responseFile, the
+deprecated `numberOfWorkers` thread pool) are intentionally absent.
 
 ## Tests
 
