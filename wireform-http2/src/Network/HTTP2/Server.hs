@@ -174,20 +174,24 @@ data Continuation = Continuation
   , contBuffer :: !ByteString
   }
 
--- | Per-stream state we track at the server boundary. We don't need
--- a full RFC 9113 §5.1 state diagram for the gRPC subset, only the
--- transitions the conformance suite probes: idle → open →
--- half-closed (remote) → closed, plus the closed-by-RST_STREAM
--- transition.
+-- | Per-stream state we track at the server boundary.
+data StreamRec = StreamRec
+  { srState :: !ServerStreamState
+  , srExpectedLength :: !(Maybe Int)
+    -- ^ Declared @content-length@ for the request body, if any.
+  , srReceivedBytes :: !Int
+    -- ^ DATA bytes received so far (excluding padding).
+  }
+  deriving stock (Show)
+
 data ServerStreamState
   = StOpen
-    -- ^ Inbound and outbound both open.
   | StHalfClosedRemote
-    -- ^ Peer sent END_STREAM; we may still send DATA / HEADERS.
   | StClosedSrv
-    -- ^ Stream is fully closed (RST_STREAM or our own END_STREAM).
-    -- (Suffix avoids the clash with 'Network.HTTP2.Types.StreamClosed'.)
   deriving stock (Eq, Show)
+
+freshStream :: Maybe Int -> ServerStreamState -> StreamRec
+freshStream el st = StreamRec st el 0
 
 -- | Receive exactly @n@ bytes from a 'Transport'. Used only to read the
 -- connection preface; the per-connection 'RecvBuffer' takes over after.
@@ -216,7 +220,7 @@ sendServerPreface conn settings = do
 connectionLoop
   :: ServerConfig
   -> Connection
-  -> IORef (Map.Map StreamId ServerStreamState)
+  -> IORef (Map.Map StreamId StreamRec)
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> IO ()
@@ -270,7 +274,7 @@ decodeErrorMessage = BS.pack . map (fromIntegral . fromEnum) . show
 handleFrame'
   :: ServerConfig
   -> Connection
-  -> IORef (Map.Map StreamId ServerStreamState)
+  -> IORef (Map.Map StreamId StreamRec)
   -> IORef StreamId
   -> IORef (Maybe Continuation)
   -> Frame
@@ -388,33 +392,26 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
         let sid = fhStreamId hdr
         streams <- readIORef streamsRef
         lastPeer <- readIORef lastPeerStreamRef
-        case Map.lookup sid streams of
-          -- Existing stream → trailing HEADERS or HEADERS in wrong
-          -- state.
+        case fmap srState (Map.lookup sid streams) of
           Just StClosedSrv -> do
-            -- RFC 9113 §5.1: receiving HEADERS on closed stream is
-            -- STREAM_CLOSED (connection error if no RST_STREAM in
-            -- flight).
             closeConnection conn Types.StreamClosed "HEADERS on closed stream"
             pure False
           Just StHalfClosedRemote -> do
             closeConnection conn Types.StreamClosed "HEADERS on half-closed (remote) stream"
             pure False
           Just StOpen
-            -- Trailers must have END_STREAM (RFC 9113 §8.1).
             | not (testFlag (fhFlags hdr) flagEndStream) -> do
                 closeConnection conn ProtocolError "trailers without END_STREAM"
                 pure False
-            | otherwise -> do
-                -- Validate that trailers contain no pseudo-headers.
+            | otherwise ->
                 case stripPaddingAndPriority FrameHeaders (fhFlags hdr) body of
                   Nothing -> do
                     closeConnection conn ProtocolError "malformed trailers"
                     pure False
                   Just block -> do
                     decoder <- readMVar (connHpackDecoder conn)
-                    case_result <- decodeHeaderBlock decoder block
-                    case case_result of
+                    res <- decodeHeaderBlock decoder block
+                    case res of
                       Left _ -> do
                         closeConnection conn CompressionError "HPACK decode failed in trailers"
                         pure False
@@ -423,8 +420,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             closeConnection conn ProtocolError "pseudo-header in trailers"
                             pure False
                         | otherwise -> do
-                            modifyIORef' streamsRef (Map.insert sid StHalfClosedRemote)
-                            pure True
+                            checkContentLength sid streamsRef >>= \case
+                              Just _ -> do
+                                sendRstStream conn sid ProtocolError
+                                modifyIORef' streamsRef (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
+                                pure True
+                              Nothing -> do
+                                modifyIORef' streamsRef (Map.adjust (\sr -> sr { srState = StHalfClosedRemote }) sid)
+                                pure True
           Nothing -> handleFreshStream lastPeer sid (fhFlags hdr) body
         where
           connLastSid = connLastStreamId conn
@@ -451,17 +454,46 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                         closeConnection conn ProtocolError "malformed request headers"
                         pure False
                       Nothing -> do
-                        writeIORef connLastSid sid'
-                        writeIORef lastPeerStreamRef sid'
-                        let endStream = testFlag flags flagEndStream
-                            newState = if endStream then StHalfClosedRemote else StOpen
-                        modifyIORef' streamsRef (Map.insert sid' newState)
-                        let req = buildRequest sid' headers endStream
-                        _ <- serverForkStream cfg $ do
-                          serverHandler cfg req $ \resp ->
-                            sendResponse conn sid' resp
-                          modifyIORef' streamsRef (Map.insert sid' StClosedSrv)
-                        pure True
+                        -- Check SETTINGS_MAX_CONCURRENT_STREAMS.
+                        streamsNow <- readIORef streamsRef
+                        let active = Map.size (Map.filter ((/= StClosedSrv) . srState) streamsNow)
+                        case maxConcurrent of
+                          Just n | active >= fromIntegral n -> do
+                            sendRstStream conn sid' RefusedStream
+                            -- We still count this stream as seen so
+                            -- the lastPeerStream marker advances.
+                            writeIORef lastPeerStreamRef sid'
+                            modifyIORef' streamsRef
+                              (Map.insert sid' (freshStream Nothing StClosedSrv))
+                            pure True
+                          _ -> do
+                            writeIORef connLastSid sid'
+                            writeIORef lastPeerStreamRef sid'
+                            let endStream = testFlag flags flagEndStream
+                                newState = if endStream then StHalfClosedRemote else StOpen
+                                clHdr = lookupContentLength headers
+                            modifyIORef' streamsRef (Map.insert sid' (freshStream clHdr newState))
+                            -- If the request has a content-length header
+                            -- and END_STREAM on HEADERS, validate that
+                            -- the declared length is 0.
+                            if endStream && maybe False (/= 0) clHdr
+                              then do
+                                sendRstStream conn sid' ProtocolError
+                                modifyIORef' streamsRef
+                                  (Map.insert sid' (freshStream Nothing StClosedSrv))
+                                pure True
+                              else do
+                                let req = buildRequest sid' headers endStream
+                                _ <- serverForkStream cfg $ do
+                                  serverHandler cfg req $ \resp ->
+                                    sendResponse conn sid' resp
+                                  modifyIORef' streamsRef
+                                    (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid')
+                                pure True
+                where
+                  maxConcurrent = maxConcurrentStreams' cfg
+                  maxConcurrentStreams' c =
+                    settingsMaxConcurrentStreams (serverSettings c)
 
   FrameData
     | fhStreamId hdr == 0 -> do
@@ -472,29 +504,42 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
         streams <- readIORef streamsRef
         case Map.lookup sid streams of
           Nothing -> do
-            -- DATA on idle stream → STREAM_CLOSED per RFC 9113.
             closeConnection conn Types.StreamClosed "DATA on idle stream"
             pure False
-          Just StClosedSrv -> do
+          Just sr | srState sr == StClosedSrv -> do
             closeConnection conn Types.StreamClosed "DATA on closed stream"
             pure False
-          Just StHalfClosedRemote -> do
+          Just sr | srState sr == StHalfClosedRemote -> do
             closeConnection conn Types.StreamClosed "DATA on half-closed (remote) stream"
             pure False
-          Just StOpen -> case stripPaddingAndPriority FrameData (fhFlags hdr) body of
+          Just sr -> case stripPaddingAndPriority FrameData (fhFlags hdr) body of
             Nothing -> do
               closeConnection conn ProtocolError "malformed DATA frame"
               pure False
-            Just _ -> do
-              when (testFlag (fhFlags hdr) flagEndStream) $
-                modifyIORef' streamsRef (Map.insert sid StHalfClosedRemote)
+            Just payload -> do
+              let bytes = BS.length payload
+                  endStream = testFlag (fhFlags hdr) flagEndStream
+                  newReceived = srReceivedBytes sr + bytes
+                  newState = if endStream then StHalfClosedRemote else StOpen
+              modifyIORef' streamsRef
+                (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
               let len = fhLength hdr
               when (len > 0) $ do
                 sendFrame conn $ Frame
                   (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
                 sendFrame conn $ Frame
                   (FrameHeader 4 FrameWindowUpdate 0 sid) (WindowUpdateFrame len)
-              pure True
+              -- On END_STREAM, validate the declared content-length.
+              if endStream
+                then case srExpectedLength sr of
+                  Just expected
+                    | expected /= newReceived -> do
+                        sendRstStream conn sid ProtocolError
+                        modifyIORef' streamsRef
+                          (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                        pure True
+                  _ -> pure True
+                else pure True
 
   FrameRSTStream
     | fhStreamId hdr == 0 -> do
@@ -507,23 +552,13 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
         let sid = fhStreamId hdr
         streams <- readIORef streamsRef
         case Map.lookup sid streams of
-          Nothing ->
-            -- RST_STREAM on idle stream is a connection error.
-            if even sid || sid > readPeerSid_
-              then do
-                closeConnection conn ProtocolError "RST_STREAM on idle stream"
-                pure False
-              else do
-                modifyIORef' streamsRef (Map.insert sid StClosedSrv)
-                pure True
+          Nothing -> do
+            closeConnection conn ProtocolError "RST_STREAM on idle stream"
+            pure False
           Just _ -> do
-            modifyIORef' streamsRef (Map.insert sid StClosedSrv)
+            modifyIORef' streamsRef
+              (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
             pure True
-        where
-          readPeerSid_ = 0  -- conservative: every odd >0 sid we haven't seen is "idle"
-          -- (a tighter check requires reading lastPeerStreamRef; the conservative
-          -- form just classifies as "idle" if we have no record, which is correct
-          -- for STREAM_CLOSED detection purposes.)
 
   FramePriority
     | fhStreamId hdr == 0 -> do
@@ -556,8 +591,6 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
             closeConnection conn ProtocolError "CONTINUATION on wrong stream"
             pure False
         | testFlag (fhFlags hdr) flagEndHeaders -> do
-            -- Final fragment: assemble and process as if it were
-            -- the original HEADERS frame.
             writeIORef contRef Nothing
             let assembled = contBuffer c <> body
                 origFlags = contInitialFlags c
@@ -604,6 +637,39 @@ headersSelfDependency sid flags body0
                   .|. fromIntegral (BS.index body 3) :: Word32
              dep = depRaw .&. 0x7FFFFFFF
          in dep == sid
+
+-- | Pull a non-negative integer from a @content-length@ header.
+-- Returns 'Nothing' when no @content-length@ is present, or when the
+-- value isn't parseable (in which case we don't enforce it).
+lookupContentLength :: [(ByteString, ByteString)] -> Maybe Int
+lookupContentLength = go
+  where
+    go [] = Nothing
+    go ((n, v) : rest)
+      | n == "content-length" =
+          case BS.foldl' step (Just 0) v of
+            Just k -> Just k
+            Nothing -> go rest
+      | otherwise = go rest
+    step (Just acc) c
+      | c >= 0x30 && c <= 0x39 = Just (acc * 10 + fromIntegral (c - 0x30))
+      | otherwise              = Nothing
+    step Nothing _ = Nothing
+
+-- | If a content-length was declared, returns 'Just' iff the
+-- received DATA byte count doesn't match it. Returns 'Nothing'
+-- when the stream is consistent (or when no content-length was
+-- declared).
+checkContentLength
+  :: StreamId -> IORef (Map.Map StreamId StreamRec) -> IO (Maybe ())
+checkContentLength sid streamsRef = do
+  streams <- readIORef streamsRef
+  case Map.lookup sid streams of
+    Just sr -> case srExpectedLength sr of
+      Just expected
+        | expected /= srReceivedBytes sr -> pure (Just ())
+      _ -> pure Nothing
+    Nothing -> pure Nothing
 
 -- | Validate the pseudo-header + regular-header rules from RFC
 -- 9113 §8.3. Returns 'Just msg' on the first violation.
