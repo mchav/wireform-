@@ -27,6 +27,9 @@ foreign import ccall unsafe "wireform_hpack_huffman_encode_len"
 foreign import ccall unsafe "wireform_hpack_huffman_decode"
   c_huffman_decode :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr CSize -> IO CInt
 
+foreign import ccall unsafe "wireform_hpack_huffman_decode_fast"
+  c_huffman_decode_fast :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr CSize -> IO CInt
+
 {-# INLINE huffmanEncodeLength #-}
 huffmanEncodeLength :: ByteString -> Int
 huffmanEncodeLength bs = unsafePerformIO $
@@ -55,12 +58,23 @@ huffmanDecode bs
         dstFp <- BSI.mallocByteString maxOut
         withForeignPtr dstFp $ \dstPtr -> do
           alloca $ \outLenPtr -> do
-            rc <- c_huffman_decode
+            -- Try fast nibble decoder first, fall back to trie decoder
+            rc <- c_huffman_decode_fast
               (castPtr srcPtr) (fromIntegral srcLen)
               dstPtr (fromIntegral maxOut)
               outLenPtr
-            if rc /= 0
-              then pure (Left InvalidHuffmanEncoding)
-              else do
+            if rc == 0
+              then do
                 outLen <- peek outLenPtr
                 pure (Right (BSI.fromForeignPtr dstFp 0 (fromIntegral outLen)))
+              else do
+                -- Fall back to trie decoder
+                rc2 <- c_huffman_decode
+                  (castPtr srcPtr) (fromIntegral srcLen)
+                  dstPtr (fromIntegral maxOut)
+                  outLenPtr
+                if rc2 /= 0
+                  then pure (Left InvalidHuffmanEncoding)
+                  else do
+                    outLen <- peek outLenPtr
+                    pure (Right (BSI.fromForeignPtr dstFp 0 (fromIntegral outLen)))

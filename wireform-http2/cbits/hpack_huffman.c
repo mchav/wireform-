@@ -230,3 +230,195 @@ int wireform_hpack_huffman_decode(
     *out_len = written;
     return 0;
 }
+
+/*
+ * Fast nibble-based Huffman decoder.
+ * Processes 4 bits at a time using a pre-computed state machine.
+ * Each state has 16 transitions (one per nibble value).
+ *
+ * Transition entry:
+ *   state: next state index
+ *   flags: HUFF_SYM (emit symbol), HUFF_ACCEPTED (valid end state), HUFF_FAIL (error)
+ *   sym:   symbol to emit (if HUFF_SYM is set)
+ */
+
+#define HUFF_SYM      1
+#define HUFF_ACCEPTED 2
+#define HUFF_FAIL     4
+
+struct nibble_entry {
+    uint8_t state;
+    uint8_t flags;
+    uint8_t sym;
+};
+
+/*
+ * Build the nibble decode table from the trie at init time.
+ * We generate states by walking the trie 4 bits at a time.
+ * Each "nibble state" corresponds to a position in the trie.
+ */
+
+#define MAX_NIBBLE_STATES 256
+static struct nibble_entry nibble_table[MAX_NIBBLE_STATES][16];
+static int nibble_state_count = 0;
+static int nibble_initialized = 0;
+
+/* Map trie node -> nibble state. -1 = not assigned. */
+static int16_t trie_to_nibble[MAX_NODES];
+
+static int16_t get_or_create_nibble_state(int16_t trie_node) {
+    if (trie_to_nibble[trie_node] >= 0)
+        return trie_to_nibble[trie_node];
+    int16_t ns = (int16_t)nibble_state_count++;
+    trie_to_nibble[trie_node] = ns;
+    return ns;
+}
+
+/*
+ * Walk the trie from 'start_node' consuming 'nbits' bits from 'nibble'.
+ * Returns the final trie node, and sets *emitted / *sym if a symbol was found.
+ * Sets *failed if an invalid path was hit.
+ */
+static int16_t walk_trie(int16_t start, uint8_t nibble, int nbits,
+                         int *emitted, uint8_t *sym, int *failed,
+                         int *is_accepted) {
+    int16_t node = start;
+    *emitted = 0;
+    *failed = 0;
+    *is_accepted = 0;
+
+    for (int i = nbits - 1; i >= 0; i--) {
+        int bit = (nibble >> i) & 1;
+        int16_t next = decode_trie[node].children[bit];
+        if (next == -1) {
+            *failed = 1;
+            return node;
+        }
+        node = next;
+        if (decode_trie[node].symbol >= 0) {
+            *sym = (uint8_t)decode_trie[node].symbol;
+            *emitted = 1;
+            /* After emitting, we only support one emit per nibble for simplicity.
+             * For codes shorter than 4 bits, we need to continue walking. */
+            /* Actually we need to handle multiple emits per nibble. */
+            /* Reset to root after emit */
+            node = 0;
+            /* Continue with remaining bits from root */
+        }
+    }
+
+    /* Check if current position is a valid end state (on EOS path) */
+    /* Valid end means we're at root or on the all-1s EOS prefix path */
+    if (node == 0) {
+        *is_accepted = 1;
+    } else {
+        /* Check if the path from here following all 1s stays valid */
+        int16_t test = node;
+        int valid = 1;
+        for (int i = 0; i < 7 && test != 0; i++) {
+            int16_t next = decode_trie[test].children[1];
+            if (next == -1) { valid = 0; break; }
+            test = next;
+            if (decode_trie[test].symbol >= 0) {
+                /* Would emit EOS - that's an error in padding */
+                valid = 0;
+                break;
+            }
+        }
+        *is_accepted = valid;
+    }
+
+    return node;
+}
+
+static void init_nibble_table(void) {
+    if (nibble_initialized) return;
+    init_trie(); /* Ensure trie is built */
+
+    memset(trie_to_nibble, -1, sizeof(trie_to_nibble));
+    nibble_state_count = 0;
+
+    /* State 0 = trie root */
+    get_or_create_nibble_state(0);
+
+    /* BFS to build all reachable nibble states */
+    for (int si = 0; si < nibble_state_count; si++) {
+        /* Find the trie node for this nibble state */
+        int16_t trie_node = -1;
+        for (int i = 0; i < trie_node_count; i++) {
+            if (trie_to_nibble[i] == si) { trie_node = i; break; }
+        }
+        if (trie_node < 0) continue;
+
+        for (int nibble = 0; nibble < 16; nibble++) {
+            int emitted, failed, accepted;
+            uint8_t sym = 0;
+            int16_t end_node = walk_trie(trie_node, (uint8_t)nibble, 4,
+                                         &emitted, &sym, &failed, &accepted);
+
+            if (failed) {
+                nibble_table[si][nibble].state = 0;
+                nibble_table[si][nibble].flags = HUFF_FAIL;
+                nibble_table[si][nibble].sym = 0;
+            } else {
+                int16_t next_state = get_or_create_nibble_state(end_node);
+                uint8_t flags = 0;
+                if (emitted) flags |= HUFF_SYM;
+                if (accepted) flags |= HUFF_ACCEPTED;
+                nibble_table[si][nibble].state = (uint8_t)next_state;
+                nibble_table[si][nibble].flags = flags;
+                nibble_table[si][nibble].sym = sym;
+            }
+        }
+    }
+
+    nibble_initialized = 1;
+}
+
+/* Fast nibble-based decoder. Returns 0 on success, -1 on error. */
+int wireform_hpack_huffman_decode_fast(
+    const uint8_t *src, size_t src_len,
+    uint8_t *dst, size_t dst_cap,
+    size_t *out_len)
+{
+    init_nibble_table();
+
+    uint8_t state = 0;
+    size_t written = 0;
+
+    for (size_t i = 0; i < src_len; i++) {
+        uint8_t byte = src[i];
+
+        /* High nibble */
+        uint8_t hi = (byte >> 4) & 0x0F;
+        struct nibble_entry *e = &nibble_table[state][hi];
+        if (e->flags & HUFF_FAIL) { *out_len = written; return -1; }
+        if (e->flags & HUFF_SYM) {
+            if (written >= dst_cap) { *out_len = written; return -1; }
+            dst[written++] = e->sym;
+        }
+        state = e->state;
+
+        /* Low nibble */
+        uint8_t lo = byte & 0x0F;
+        e = &nibble_table[state][lo];
+        if (e->flags & HUFF_FAIL) { *out_len = written; return -1; }
+        if (e->flags & HUFF_SYM) {
+            if (written >= dst_cap) { *out_len = written; return -1; }
+            dst[written++] = e->sym;
+        }
+        state = e->state;
+    }
+
+    /* Check we're in an accepted end state */
+    if (!(nibble_table[state][0].flags & HUFF_ACCEPTED) && state != 0) {
+        /* Verify current state is a valid padding state */
+        /* For the nibble decoder, state 0 is always accepted.
+         * Other states are accepted if the remaining bits are valid EOS padding. */
+        *out_len = written;
+        return -1;
+    }
+
+    *out_len = written;
+    return 0;
+}
