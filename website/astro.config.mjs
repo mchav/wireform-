@@ -95,10 +95,69 @@ export default defineConfig({
         {
           label: 'Packages',
           items: [
-            { label: 'Kafka client', slug: 'packages/kafka' },
-            { label: 'Protocol Buffers', slug: 'packages/proto' },
-            { label: 'wireform-derive', slug: 'packages/derive' },
-            { label: 'wireform-core', slug: 'packages/core' },
+            {
+              label: 'Infrastructure',
+              items: [
+                { label: 'wireform-core', slug: 'packages/core' },
+                { label: 'wireform-derive', slug: 'packages/derive' },
+                { label: 'wireform-columnar', slug: 'packages/columnar' },
+              ],
+            },
+            {
+              label: 'Schema & IDL formats',
+              items: [
+                { label: 'Protocol Buffers', slug: 'packages/proto' },
+                { label: 'Avro', slug: 'packages/avro' },
+                { label: 'Thrift', slug: 'packages/thrift' },
+                { label: 'Bond', slug: 'packages/bond' },
+                { label: "Cap'n Proto", slug: 'packages/capnproto' },
+                { label: 'FlatBuffers', slug: 'packages/flatbuffers' },
+                { label: 'ASN.1', slug: 'packages/asn1' },
+              ],
+            },
+            {
+              label: 'Binary value formats',
+              items: [
+                { label: 'CBOR', slug: 'packages/cbor' },
+                { label: 'MessagePack', slug: 'packages/msgpack' },
+                { label: 'BSON', slug: 'packages/bson' },
+                { label: 'Ion', slug: 'packages/ion' },
+                { label: 'EDN', slug: 'packages/edn' },
+                { label: 'Bencode', slug: 'packages/bencode' },
+                { label: 'Fory', slug: 'packages/fory' },
+              ],
+            },
+            {
+              label: 'Text & markup formats',
+              items: [
+                { label: 'XML', slug: 'packages/xml' },
+                { label: 'HTML', slug: 'packages/html' },
+                { label: 'YAML', slug: 'packages/yaml' },
+                { label: 'TOML', slug: 'packages/toml' },
+                { label: 'CSV', slug: 'packages/csv' },
+                { label: 'NDJSON', slug: 'packages/ndjson' },
+              ],
+            },
+            {
+              label: 'Analytics & lake formats',
+              items: [
+                { label: 'Parquet', slug: 'packages/parquet' },
+                { label: 'Arrow', slug: 'packages/arrow' },
+                { label: 'ORC', slug: 'packages/orc' },
+                { label: 'Iceberg', slug: 'packages/iceberg' },
+                { label: 'Delta Lake', slug: 'packages/delta' },
+                { label: 'Hudi', slug: 'packages/hudi' },
+                { label: 'Lance', slug: 'packages/lance' },
+              ],
+            },
+            {
+              label: 'Messaging & networking',
+              items: [
+                { label: 'Kafka client', slug: 'packages/kafka' },
+                { label: 'gRPC', slug: 'packages/grpc' },
+                { label: 'HTTP', slug: 'packages/http' },
+              ],
+            },
           ],
         },
         {

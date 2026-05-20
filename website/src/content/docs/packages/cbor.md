@@ -1,0 +1,116 @@
+---
+title: wireform-cbor
+description: "RFC 8949 CBOR encoding and decoding with Generic deriving, CDDL codegen, diagnostic notation, and deterministic encoding."
+sidebar:
+  order: 10
+---
+
+`wireform-cbor` implements Concise Binary Object Representation (CBOR) per
+RFC 8949. CBOR is a compact, self-describing binary format used in IoT
+protocols, COSE/JOSE, WebAuthn, and many other standards. Use this package
+when you need a schema-flexible binary codec with strong tooling for
+debugging, schema definition, and cross-language interoperability.
+
+## Key features
+
+- **Generic deriving** via `ToCBOR` and `FromCBOR` for records, enums, and
+  sum types
+- **Streaming decode** for framed or concatenated CBOR values without loading
+  the entire input into memory
+- **CDDL schema language** (RFC 8610) with a parser and Haskell code generator
+- **Diagnostic notation** for human-readable debug output (RFC 8949 Section 8)
+- **JSON bridge** for converting between CBOR and Aeson `Value`
+- **Deterministic encoding** per RFC 8949 Section 4.2 for canonical byte
+  sequences suitable for hashing and signing
+- **Tag registry** for application-specific CBOR tags
+
+## Basic usage
+
+Derive instances with `Generic`, then encode and decode in one call:
+
+```haskell
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
+module Config where
+
+import CBOR.Class (ToCBOR, FromCBOR, encodeCBOR, decodeCBOR)
+import GHC.Generics (Generic)
+import Data.Text (Text)
+
+data Config = Config
+  { cfgHost :: !Text
+  , cfgPort :: !Int
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToCBOR, FromCBOR)
+
+save :: Config -> IO ()
+save cfg = do
+  let bytes = encodeCBOR cfg
+  writeFileBinary "config.cbor" bytes
+
+load :: IO (Either String Config)
+load = do
+  bytes <- readFileBinary "config.cbor"
+  pure (decodeCBOR bytes)
+```
+
+For signed payloads or content-addressed storage, use deterministic encoding
+so the same value always produces the same bytes:
+
+```haskell
+import CBOR.Encode (encodeDeterministic)
+import CBOR.Value qualified as CV
+import CBOR.Class (toCBOR)
+
+canonicalBytes :: Config -> ByteString
+canonicalBytes cfg = encodeDeterministic (toCBOR cfg)
+```
+
+When debugging wire format issues, render values as diagnostic notation:
+
+```haskell
+import CBOR.Diagnostic (toDiagnostic)
+import CBOR.Class (toCBOR)
+
+debugConfig :: Config -> Text
+debugConfig cfg = toDiagnostic (toCBOR cfg)
+```
+
+For streams of CBOR items (logs, multiplexed channels), decode one value at
+a time and keep the leftover bytes:
+
+```haskell
+import CBOR.Stream (decodeOneWithLeftover)
+
+decodeStream :: ByteString -> [(Either String CV.Value, ByteString)]
+decodeStream bs = go bs
+  where
+    go rest
+      | BS.null rest = []
+      | otherwise =
+          case decodeOneWithLeftover rest of
+            Left err -> [(Left err, BS.empty)]
+            Right (val, leftover) -> (Right val, leftover) : go leftover
+```
+
+## Notable modules
+
+| Module | Purpose |
+|--------|---------|
+| `CBOR.Class` | `ToCBOR` / `FromCBOR` typeclasses, `encodeCBOR`, `decodeCBOR` |
+| `CBOR.Encode` / `CBOR.Decode` | Low-level wire primitives and `encodeDeterministic` |
+| `CBOR.Value` | Dynamic untyped `Value` ADT for schema-less processing |
+| `CBOR.Diagnostic` | Diagnostic notation rendering and parsing |
+| `CBOR.CDDL` / `CBOR.CDDLCodeGen` | CDDL parser and Haskell stub generator |
+| `CBOR.JSON` | CBOR ↔ JSON conversion |
+| `CBOR.Stream` | Incremental decode for framed input |
+| `CBOR.TagRegistry` | Application tag registration and lookup |
+| `CBOR.Derive` | Template Haskell deriver with `wireform-derive` annotations |
+
+## Conformance
+
+Deterministic encoding follows RFC 8949 Section 4.2: shortest integer forms,
+definite-length containers, and canonical map key ordering. Use
+`encodeDeterministic` when byte-for-byte reproducibility matters for signatures
+or content hashes.
