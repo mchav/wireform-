@@ -184,7 +184,8 @@ sendRequest (Http2Client handle _) req = do
     , responseVersion = U.HTTP2
     , responseHeaders = Conv.fromHttp2Headers (H2.crResponseHeaders h2resp)
     , responseBody    = U.BodyStream (H2.crResponseBody h2resp)
-      -- The HTTP/2 body is a chunk pull-producer; the producer is
-      -- only valid for the lifetime of the surrounding 'withClient'
-      -- bracket -- consume the body before exiting.
+    , responseTrailers = Conv.fromHttp2Headers <$> H2.crResponseTrailers h2resp
+      -- Body + trailers are both pull-shaped; both are only valid
+      -- for the lifetime of the surrounding 'withClient' bracket --
+      -- consume them before exiting.
     }

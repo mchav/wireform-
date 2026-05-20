@@ -72,6 +72,19 @@ data Response = Response
   , responseVersion :: !Version
   , responseHeaders :: !Headers
   , responseBody    :: !Body
+  , responseTrailers :: !(IO Headers)
+    -- ^ Trailing headers carried after the body.
+    --
+    -- HTTP\/1.x trailers arrive as part of the chunked body's
+    -- terminator block; HTTP\/2 trailers arrive as a final HEADERS
+    -- frame with @END_STREAM@.  The unified API exposes them as an
+    -- 'IO' action because, in either case, the trailers aren't
+    -- materialised until the body has finished streaming.  Returns
+    -- the empty list when the response had no trailers.
+    --
+    -- Outbound (sending a response): not yet wired through the
+    -- unified API; build the version-specific response directly if
+    -- you need to emit trailers from a server handler.
   }
 
 instance Show Response where
@@ -84,4 +97,4 @@ instance Show Response where
       <> show (responseHeaders r)
 
 instance NFData Response where
-  rnf (Response s v h b) = rnf s `seq` rnf v `seq` rnf h `seq` rnf b
+  rnf (Response s v h b _) = rnf s `seq` rnf v `seq` rnf h `seq` rnf b

@@ -89,6 +89,12 @@ data ClientResponse = ClientResponse
     -- 'withConnection' bracket exits.  'drainResponseBody' offers a
     -- convenience that materialises the whole body if you don't care
     -- about streaming.
+  , crResponseTrailers :: !(IO [(ByteString, ByteString)])
+    -- ^ Block on the peer's trailer block.  Returns @[]@ when the
+    -- response had no trailers (the END_STREAM came in on DATA or on
+    -- the initial HEADERS frame).  Must be called after the body has
+    -- been fully drained — pulling trailers before observing the end
+    -- of the body will block.
   }
 
 -- | Per-stream inbox the recv loop pushes into.
@@ -99,12 +105,22 @@ data StreamInbox = StreamInbox
   , siBody :: !(TBQueue BodyItem)
     -- ^ Chunks streamed in by DATA frames, terminated by 'BodyEnd' or
     -- 'BodyError'.
+  , siTrailers :: !(MVar [(ByteString, ByteString)])
+    -- ^ Filled exactly once when END_STREAM has been observed: with
+    -- the decoded trailer block (a HEADERS frame /after/ the body),
+    -- or with @[]@ when END_STREAM came in on DATA \/ on the initial
+    -- HEADERS frame.  Stream resets also fill this with @[]@ so that
+    -- waiting readers wake up.
   , siSendWindow :: !FlowControl
     -- ^ Per-stream HTTP\/2 send window (RFC 9113 § 6.9.1).
     -- Initialised from the peer's @SETTINGS_INITIAL_WINDOW_SIZE@ and
     -- adjusted by per-stream @WINDOW_UPDATE@ frames; an outgoing DATA
     -- frame must reserve from both this window and the
     -- connection-level @connSendFlowControl@.
+  , siRecvUnacked :: !(IORef Int)
+    -- ^ Bytes received on this stream that the user has consumed but
+    -- the recv loop hasn't yet acknowledged via a @WINDOW_UPDATE@.
+    -- Refunded to the peer when it crosses 'recvWindowAckThreshold'.
   }
 
 data ResponseHead = ResponseHead
@@ -136,7 +152,18 @@ data ClientHandle = ClientHandle
   { chConnection :: !Connection
   , chStreams :: !(IORef (Map.Map StreamId StreamInbox))
   , chPending :: !(IORef (Maybe Continuation))
+  , chRecvUnacked :: !(IORef Int)
+    -- ^ Connection-level recv-window debt (bytes received and
+    -- consumed since the last connection-level @WINDOW_UPDATE@).
   }
+
+-- | When per-stream or connection-level unacked bytes cross this
+-- threshold the recv path emits a @WINDOW_UPDATE@ to replenish.
+-- Half the default @SETTINGS_INITIAL_WINDOW_SIZE@ — large enough
+-- that we don't spam updates, small enough that we don't stall the
+-- peer.
+recvWindowAckThreshold :: Int
+recvWindowAckThreshold = 32768
 
 clientHandleConnection :: ClientHandle -> Connection
 clientHandleConnection = chConnection
@@ -186,7 +213,8 @@ withConnectionOnTransport cfg transport mSock action = do
   sendClientPreface conn (clientSettings cfg)
   streamsRef <- newIORef Map.empty
   pendingRef <- newIORef Nothing
-  let handle = ClientHandle conn streamsRef pendingRef
+  recvUnackedRef <- newIORef 0
+  let handle = ClientHandle conn streamsRef pendingRef recvUnackedRef
   _ <- forkIO $ clientRecvLoop handle `finally` failOutstanding handle
   action handle `finally` closeConnection conn NoError ""
 
@@ -340,14 +368,16 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
         case Map.lookup sid inboxes of
           Nothing -> pure True
           Just inbox -> do
+            -- The recv loop only enqueues here; @WINDOW_UPDATE@
+            -- frames are emitted lazily by 'nextBodyChunk' once the
+            -- user has actually consumed the bytes.  This is the
+            -- right back-pressure: a slow reader naturally throttles
+            -- the peer via the recv window, instead of the peer
+            -- happily filling our memory.
             atomically $ writeTBQueue (siBody inbox) (BodyChunk payload)
-            let len = fhLength hdr
-            sendFrame (chConnection handle) $
-              Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
-            sendFrame (chConnection handle) $
-              Frame (FrameHeader 4 FrameWindowUpdate 0 sid) (WindowUpdateFrame len)
             if endStream
               then do
+                _ <- tryPutMVar (siTrailers inbox) []
                 atomically $ writeTBQueue (siBody inbox) BodyEnd
                 modifyIORef' (chStreams handle) (Map.delete sid)
               else pure ()
@@ -355,8 +385,9 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
 
   _ -> pure True
 
--- | Decode a HEADERS block, populate the inbox, and (if END_STREAM is
--- set on the original HEADERS frame) close the stream.
+-- | Decode a HEADERS block and route it as either the initial
+-- response headers or a trailer block.  Closes the stream on
+-- END_STREAM.
 deliverHeaders
   :: ClientHandle -> StreamId -> FrameFlags -> ByteString -> IO Bool
 deliverHeaders handle sid flags block = do
@@ -367,20 +398,41 @@ deliverHeaders handle sid flags block = do
       closeConnection (chConnection handle) CompressionError "HPACK decode failed"
       pure False
     Right headers -> do
-      let (status, rest) = splitStatus headers
       inboxes <- readIORef (chStreams handle)
       case Map.lookup sid inboxes of
         Nothing -> pure True
         Just inbox -> do
-          _ <- tryPutMVar (siHeaders inbox) (Right ResponseHead
+          let (status, rest) = splitStatus headers
+              endStream = testFlag flags flagEndStream
+          -- 'tryPutMVar' is the discriminator: if the headers MVar
+          -- was empty, this was the initial HEADERS; otherwise this
+          -- is a trailer block.
+          wasInitial <- tryPutMVar (siHeaders inbox) (Right ResponseHead
             { rhStatus = status
             , rhHeaders = rest
             })
-          if testFlag flags flagEndStream
+          if wasInitial
             then do
+              when endStream $ do
+                -- Bodyless / trailer-less response.  Fill the
+                -- trailers MVar so a reader doesn't block, push the
+                -- body terminator, and release the stream.
+                _ <- tryPutMVar (siTrailers inbox) []
+                atomically $ writeTBQueue (siBody inbox) BodyEnd
+                modifyIORef' (chStreams handle) (Map.delete sid)
+            else do
+              -- Trailer block: RFC 9113 §8.1 forbids pseudo-headers
+              -- here, but a strict reject would conflict with too
+              -- many real peers; we just drop pseudo-headers and
+              -- deliver the rest.
+              let cleaned = filter
+                    (\(n, _) -> BS.null n || BS.head n /= 0x3A) headers
+              _ <- tryPutMVar (siTrailers inbox) cleaned
+              -- Trailer block always carries END_STREAM (else the
+              -- peer is malformed).  Either way, push the body
+              -- terminator and release the stream.
               atomically $ writeTBQueue (siBody inbox) BodyEnd
               modifyIORef' (chStreams handle) (Map.delete sid)
-            else pure ()
           pure True
 
 splitStatus
@@ -403,6 +455,7 @@ failStream handle sid err = do
     Nothing -> pure ()
     Just inbox -> do
       _ <- tryPutMVar (siHeaders inbox) (Left err)
+      _ <- tryPutMVar (siTrailers inbox) []
       atomically $ writeTBQueue (siBody inbox) (BodyError err)
       modifyIORef' (chStreams handle) (Map.delete sid)
 
@@ -416,6 +469,7 @@ failOutstanding handle = do
   where
     failOne (_, inbox) = do
       _ <- tryPutMVar (siHeaders inbox) (Left ClientStreamConnectionClosed)
+      _ <- tryPutMVar (siTrailers inbox) []
       atomically $ writeTBQueue (siBody inbox) (BodyError ClientStreamConnectionClosed)
 
 ------------------------------------------------------------------------
@@ -437,22 +491,72 @@ sendRequest handle req = do
     Right rh -> pure ClientResponse
       { crStatus = rhStatus rh
       , crResponseHeaders = rhHeaders rh
-      , crResponseBody = nextBodyChunk (siBody inbox)
+      , crResponseBody = nextBodyChunk handle sid inbox
+      , crResponseTrailers = readMVar (siTrailers inbox)
       }
 
--- | Pull one chunk of the response body.  Returns 'Nothing' once the
--- stream has been half-closed by the peer; the end marker is
--- re-queued so subsequent calls keep returning 'Nothing' instead of
--- blocking.  Throws on stream reset.
-nextBodyChunk :: TBQueue BodyItem -> IO (Maybe ByteString)
-nextBodyChunk q = do
-  item <- atomically $ readTBQueue q
+-- | Pull one chunk of the response body and replenish the recv
+-- windows that the chunk consumed.
+--
+-- Returns 'Nothing' once the stream has been half-closed by the
+-- peer; the end marker is re-queued so subsequent calls keep
+-- returning 'Nothing' instead of blocking.  Throws on stream reset.
+--
+-- @WINDOW_UPDATE@ frames are coalesced: a per-stream or
+-- connection-level @IORef@ accumulates byte counts and a single
+-- update is sent when the count crosses 'recvWindowAckThreshold'.
+-- Stream-level acks stop once the stream is half-closed (the peer
+-- doesn't care about its window any more), but connection-level
+-- acks keep flowing because the credit is shared across all
+-- streams.
+nextBodyChunk
+  :: ClientHandle -> StreamId -> StreamInbox -> IO (Maybe ByteString)
+nextBodyChunk handle sid inbox = do
+  item <- atomically $ readTBQueue (siBody inbox)
   case item of
-    BodyChunk bs -> pure (Just bs)
+    BodyChunk bs -> do
+      let n = BS.length bs
+      ackConnectionRecv handle n
+      ackStreamRecv handle sid inbox n
+      pure (Just bs)
     BodyEnd -> do
-      atomically $ writeTBQueue q BodyEnd
+      atomically $ writeTBQueue (siBody inbox) BodyEnd
       pure Nothing
     BodyError e -> throwIO e
+
+-- | Tally @n@ bytes against the connection-level recv-window debt
+-- and flush a @WINDOW_UPDATE@ on stream 0 if we've crossed the
+-- threshold.
+ackConnectionRecv :: ClientHandle -> Int -> IO ()
+ackConnectionRecv handle n = do
+  unacked <- atomicModifyIORef' (chRecvUnacked handle) $ \u ->
+    let u' = u + n
+    in if u' >= recvWindowAckThreshold
+         then (0, u')
+         else (u', 0)
+  when (unacked > 0) $
+    sendFrame (chConnection handle) $ Frame
+      (FrameHeader 4 FrameWindowUpdate 0 0)
+      (WindowUpdateFrame (fromIntegral unacked))
+
+-- | Tally @n@ bytes against the per-stream recv-window debt and
+-- flush a per-stream @WINDOW_UPDATE@ if we've crossed the
+-- threshold.  Suppressed once the stream has been removed from
+-- 'chStreams' (so we don't refund a closed stream's window).
+ackStreamRecv :: ClientHandle -> StreamId -> StreamInbox -> Int -> IO ()
+ackStreamRecv handle sid inbox n = do
+  unacked <- atomicModifyIORef' (siRecvUnacked inbox) $ \u ->
+    let u' = u + n
+    in if u' >= recvWindowAckThreshold
+         then (0, u')
+         else (u', 0)
+  when (unacked > 0) $ do
+    -- Only emit if the stream is still open at our end.
+    streams <- readIORef (chStreams handle)
+    when (Map.member sid streams) $
+      sendFrame (chConnection handle) $ Frame
+        (FrameHeader 4 FrameWindowUpdate 0 sid)
+        (WindowUpdateFrame (fromIntegral unacked))
 
 -- | Materialise an entire response body into a single 'ByteString'.
 -- Convenience wrapper for callers that don't care about streaming;
@@ -487,8 +591,10 @@ registerAndSend handle req = do
   inbox <- do
     h <- newEmptyMVar
     q <- atomically (newTBQueue 64)
+    t <- newEmptyMVar
     sw <- atomically $ newFlowControl (fromIntegral remoteInitial)
-    pure $ StreamInbox h q sw
+    ru <- newIORef 0
+    pure $ StreamInbox h q t sw ru
   modifyIORef' (chStreams handle) (Map.insert sid inbox)
   encoder <- readMVar (connHpackEncoder conn)
   let pseudoHeaders =
@@ -504,11 +610,8 @@ registerAndSend handle req = do
         ReqBodyNone -> True
         ReqBodyBytes bs -> BS.null bs
         ReqBodyStream _ -> False
-      flags = flagEndHeaders .|. (if endStreamOnHeaders then flagEndStream else 0)
-      headersFrame = Frame
-        (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flags sid)
-        (HeadersFrame Nothing headerBlock)
-  sendFrame conn headersFrame
+  maxFrame <- peerMaxFrameSize conn
+  sendHeaderBlock conn sid endStreamOnHeaders 0 headerBlock maxFrame
   case bodyKind of
     ReqBodyNone -> pure ()
     ReqBodyBytes b

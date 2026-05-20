@@ -88,6 +88,7 @@ defaultServerConfig = ServerConfig
       , responseVersion = U.HTTP1_1
       , responseHeaders = []
       , responseBody    = U.BodyEmpty
+      , responseTrailers = pure []
       }
 
 -- | Bind a TCP listener and serve until killed.
@@ -151,4 +152,5 @@ wrapHttp2Handler :: Handler -> H2.Request -> (H2.Response -> IO ()) -> IO ()
 wrapHttp2Handler handler h2req respond = do
   let req = Conv.fromHttp2Request h2req
   resp <- handler req
-  respond (Conv.toHttp2Response resp)
+  h2resp <- Conv.toHttp2Response resp
+  respond h2resp

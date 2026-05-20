@@ -133,12 +133,18 @@ toHttp1Response r = H1.Response
   , H1.responseBody    = toHttp1Body (responseBody r)
   }
 
+-- | HTTP\/1.x trailers (the field section after a chunked body's
+-- terminator) are dropped by the current 'Network.HTTP1.Connection'
+-- body reader, so 'responseTrailers' is unconditionally @pure []@.
+-- A future change can surface them through the same pull-producer
+-- shape that HTTP\/2 uses.
 fromHttp1Response :: H1.Response -> Response
 fromHttp1Response r = Response
   { responseStatus  = fromHttp1Status (H1.responseStatus r)
   , responseVersion = fromHttp1Version (H1.responseVersion r)
   , responseHeaders = fromHttp1Headers (H1.responseHeaders r)
   , responseBody    = fromHttp1Body (H1.responseBody r)
+  , responseTrailers = pure []
   }
 
 ------------------------------------------------------------------------
@@ -185,16 +191,22 @@ fromHttp2Request r = Request
   , requestVersion   = U.HTTP2
   }
 
-toHttp2Response :: Response -> H2S.Response
-toHttp2Response r = H2S.Response
-  { H2S.responseStatus   = fromIntegral (U.statusCode (responseStatus r))
-  , H2S.responseHeaders  = toHttp2Headers (responseHeaders r)
-  , H2S.responseBody     = case responseBody r of
-      U.BodyEmpty     -> H2S.ResponseBodyEmpty
-      U.BodyBytes bs  -> H2S.ResponseBodyBS bs
-      U.BodyStream p  -> H2S.ResponseBodyStream p
-  , H2S.responseTrailers = []
-  }
+-- | Materialise the unified 'Response' into the @http2@ shape.  Runs
+-- the trailer-producing IO action because @H2S.Response.responseTrailers@
+-- is a strict list.  Server handlers that don't emit trailers can
+-- still build them via @pure []@ with no extra cost.
+toHttp2Response :: Response -> IO H2S.Response
+toHttp2Response r = do
+  trs <- responseTrailers r
+  pure H2S.Response
+    { H2S.responseStatus   = fromIntegral (U.statusCode (responseStatus r))
+    , H2S.responseHeaders  = toHttp2Headers (responseHeaders r)
+    , H2S.responseBody     = case responseBody r of
+        U.BodyEmpty     -> H2S.ResponseBodyEmpty
+        U.BodyBytes bs  -> H2S.ResponseBodyBS bs
+        U.BodyStream p  -> H2S.ResponseBodyStream p
+    , H2S.responseTrailers = toHttp2Headers trs
+    }
 
 fromHttp2Response :: H2S.Response -> Response
 fromHttp2Response r = Response
@@ -205,5 +217,6 @@ fromHttp2Response r = Response
       H2S.ResponseBodyEmpty    -> U.BodyEmpty
       H2S.ResponseBodyBS bs    -> U.BodyBytes bs
       H2S.ResponseBodyStream p -> U.BodyStream p
+  , responseTrailers = pure (fromHttp2Headers (H2S.responseTrailers r))
   }
 

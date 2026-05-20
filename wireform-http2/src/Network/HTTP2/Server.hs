@@ -162,7 +162,8 @@ handleTransport cfg transport = do
       streamsRef <- newIORef Map.empty
       lastPeerStreamRef <- newIORef 0
       continuationRef <- newIORef Nothing
-      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef
+      connRecvUnackedRef <- newIORef 0
+      connectionLoop cfg conn streamsRef lastPeerStreamRef continuationRef connRecvUnackedRef
 
 -- | Pending header-block continuation state: which stream we're
 -- continuing, what flags the initial HEADERS frame had (so we know
@@ -192,6 +193,9 @@ data StreamRec = StreamRec
     -- replenished by per-stream @WINDOW_UPDATE@ frames; an outgoing
     -- DATA frame must reserve from both this window and
     -- 'connSendFlowControl'.
+  , srRecvUnacked :: !(IORef Int)
+    -- ^ Bytes received on this stream that the handler has consumed
+    -- but the server hasn't yet acknowledged via a @WINDOW_UPDATE@.
   }
 
 data BodyChunkItem
@@ -212,20 +216,68 @@ freshStream
 freshStream initWin el st = do
   q <- atomically $ newTBQueue 64
   sw <- atomically $ newFlowControl (fromIntegral initWin)
-  pure $ StreamRec st el 0 q sw
+  ru <- newIORef 0
+  pure $ StreamRec st el 0 q sw ru
 
--- | Pull the next request-body chunk from a stream's body queue.
+-- | Threshold for coalesced @WINDOW_UPDATE@ frames.  Half the
+-- default @SETTINGS_INITIAL_WINDOW_SIZE@ — large enough that we
+-- don't spam updates, small enough that we don't stall the peer.
+recvWindowAckThreshold :: Int
+recvWindowAckThreshold = 32768
+
+-- | Pull the next request-body chunk from a stream's body queue,
+-- replenishing the recv windows that the chunk consumed.
+--
 -- Returns 'BS.empty' once END_STREAM has been delivered; subsequent
 -- calls keep returning empty (we re-queue the end marker so
 -- defensive readers don't deadlock).
-makeRequestBody :: TBQueue BodyChunkItem -> IO ByteString
-makeRequestBody q = do
-  item <- atomically $ readTBQueue q
+--
+-- @WINDOW_UPDATE@ frames are emitted lazily here rather than eagerly
+-- when DATA arrives, so a slow handler back-pressures the peer via
+-- the recv window.
+makeRequestBody
+  :: Connection
+  -> IORef Int       -- ^ connection-level recv-unacked counter
+  -> StreamId
+  -> StreamRec
+  -> IO ByteString
+makeRequestBody conn connUnackedRef sid sr = do
+  item <- atomically $ readTBQueue (srBodyQueue sr)
   case item of
-    BodyChunkBytes bs -> pure bs
+    BodyChunkBytes bs -> do
+      let n = BS.length bs
+      ackConnRecv conn connUnackedRef n
+      ackStreamRecv conn sid (srRecvUnacked sr) n
+      pure bs
     BodyChunkEnd -> do
-      atomically $ writeTBQueue q BodyChunkEnd
+      atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
       pure BS.empty
+
+-- | Connection-level recv-window ack (stream 0).
+ackConnRecv :: Connection -> IORef Int -> Int -> IO ()
+ackConnRecv conn ref n = do
+  unacked <- atomicModifyIORef' ref $ \u ->
+    let u' = u + n
+    in if u' >= recvWindowAckThreshold
+         then (0, u')
+         else (u', 0)
+  when (unacked > 0) $
+    sendFrame conn $ Frame
+      (FrameHeader 4 FrameWindowUpdate 0 0)
+      (WindowUpdateFrame (fromIntegral unacked))
+
+-- | Per-stream recv-window ack.
+ackStreamRecv :: Connection -> StreamId -> IORef Int -> Int -> IO ()
+ackStreamRecv conn sid ref n = do
+  unacked <- atomicModifyIORef' ref $ \u ->
+    let u' = u + n
+    in if u' >= recvWindowAckThreshold
+         then (0, u')
+         else (u', 0)
+  when (unacked > 0) $
+    sendFrame conn $ Frame
+      (FrameHeader 4 FrameWindowUpdate 0 sid)
+      (WindowUpdateFrame (fromIntegral unacked))
 
 -- | Receive exactly @n@ bytes from a 'Transport'. Used only to read the
 -- connection preface; the per-connection 'RecvBuffer' takes over after.
@@ -257,8 +309,9 @@ connectionLoop
   -> IORef (Map.Map StreamId StreamRec)
   -> IORef StreamId
   -> IORef (Maybe Continuation)
+  -> IORef Int    -- ^ connection-level recv-unacked counter
   -> IO ()
-connectionLoop cfg conn streamsRef lastPeerStreamRef contRef = loop
+connectionLoop cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef = loop
   where
     maxFrame = settingsMaxFrameSize (serverSettings cfg)
     loop = do
@@ -279,7 +332,7 @@ connectionLoop cfg conn streamsRef lastPeerStreamRef contRef = loop
                        || fhStreamId hdr /= contStreamId c -> do
                   closeConnection conn ProtocolError "expected CONTINUATION frame"
                 _ -> do
-                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef frame
+                  ok <- handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef frame
                   if ok then loop else pure ()
 
 -- | Map a 'FrameDecodeError' to the HTTP\/2 error code dictated by
@@ -311,9 +364,10 @@ handleFrame'
   -> IORef (Map.Map StreamId StreamRec)
   -> IORef StreamId
   -> IORef (Maybe Continuation)
+  -> IORef Int      -- ^ connection-level recv-unacked counter
   -> Frame
   -> IO Bool
-handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
+handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck ->
         if BS.null body
@@ -551,7 +605,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                                 modifyIORef' streamsRef (Map.insert sid' rec1)
                                 pure True
                               else do
-                                let req = buildRequest sid' headers (srBodyQueue rec0)
+                                let req = buildRequest conn connRecvUnackedRef sid' headers rec0
                                 _ <- serverForkStream cfg $ do
                                   serverHandler cfg req $ \resp ->
                                     sendResponse conn sid' (srSendWindow rec0) resp
@@ -593,19 +647,16 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                 (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
               -- Hand the payload to the handler's request-body
               -- consumer.  Empty DATA frames are common terminators;
-              -- only push non-empty chunks.
+              -- only push non-empty chunks.  The recv windows are
+              -- replenished lazily in 'makeRequestBody' when the
+              -- handler actually consumes a chunk, so a slow handler
+              -- back-pressures the peer naturally.
               when (not (BS.null payload)) $
                 atomically $
                   writeTBQueue (srBodyQueue sr) (BodyChunkBytes payload)
               when endStream $
                 atomically $
                   writeTBQueue (srBodyQueue sr) BodyChunkEnd
-              let len = fhLength hdr
-              when (len > 0) $ do
-                sendFrame conn $ Frame
-                  (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
-                sendFrame conn $ Frame
-                  (FrameHeader 4 FrameWindowUpdate 0 sid) (WindowUpdateFrame len)
               -- On END_STREAM, validate the declared content-length.
               if endStream
                 then case srExpectedLength sr of
@@ -681,7 +732,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                   , fhType   = FrameHeaders
                   , fhLength = fromIntegral (BS.length assembled)
                   }
-            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
+            handleFrame' cfg conn streamsRef lastPeerStreamRef contRef connRecvUnackedRef
               (Frame synthHdr (FramePayloadRaw assembled))
         | otherwise -> do
             writeIORef contRef (Just c { contBuffer = contBuffer c <> body })
@@ -843,11 +894,13 @@ stripPaddingAndPriority ft flags bs0 = do
       | otherwise = Nothing
 
 buildRequest
-  :: StreamId
+  :: Connection
+  -> IORef Int      -- ^ connection-level recv-unacked counter
+  -> StreamId
   -> [(ByteString, ByteString)]
-  -> TBQueue BodyChunkItem
+  -> StreamRec
   -> Request
-buildRequest sid headers bodyQ =
+buildRequest conn connUnackedRef sid headers sr =
   let findHeader name = maybe "" id (lookup name headers)
   in Request
     { requestMethod = findHeader ":method"
@@ -855,7 +908,7 @@ buildRequest sid headers bodyQ =
     , requestScheme = findHeader ":scheme"
     , requestAuthority = findHeader ":authority"
     , requestHeaders = filter (\(k, _) -> not (BS.isPrefixOf ":" k)) headers
-    , requestBody = makeRequestBody bodyQ
+    , requestBody = makeRequestBody conn connUnackedRef sid sr
     , requestStreamId = sid
     }
 
@@ -959,17 +1012,17 @@ sendDataFrame conn sendWin sid endStream bs = do
         (if endStream then flagEndStream else 0) sid)
       (DataFrame bs)
 
--- | Send a HEADERS frame with END_HEADERS set (and optionally
--- END_STREAM). Used for both the response head and the trailer block.
+-- | Send a HEADERS frame (with optional END_STREAM), splitting the
+-- block across CONTINUATION frames when it exceeds the peer's
+-- SETTINGS_MAX_FRAME_SIZE.  Used for both the response head and the
+-- trailer block.
 sendHeadersFrame :: Connection -> StreamId -> ByteString -> Bool -> IO ()
 sendHeadersFrame conn sid headerBlock endStream = do
-  let flags = flagEndHeaders .|. (if endStream then flagEndStream else 0)
-      frame = Frame
-        (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flags sid)
-        (HeadersFrame Nothing headerBlock)
-  sendFrame conn frame
+  maxFrame <- peerMaxFrameSize conn
+  sendHeaderBlock conn sid endStream 0 headerBlock maxFrame
 
--- | Emit the trailer block as a final HEADERS frame with END_STREAM.
+-- | Emit the trailer block as a final HEADERS frame with END_STREAM
+-- (chunked over CONTINUATION frames if necessary).
 sendTrailers :: Connection -> StreamId -> [(ByteString, ByteString)] -> IO ()
 sendTrailers conn sid trailers = do
   encoder <- readMVar (connHpackEncoder conn)
