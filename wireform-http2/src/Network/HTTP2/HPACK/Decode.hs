@@ -78,7 +78,9 @@ decodeLiteralIncremental dt bs off =
     Left err -> pure (Left err)
     Right (idx, off') -> do
       nameResult <- if idx == 0
-        then pure (decodeString bs off')
+        then pure (case decodeString bs off' of
+          Left err -> Left err
+          Right (name, off'') -> Right (internName name, off''))
         else do
           mEntry <- lookupEntry dt (fromIntegral idx)
           case mEntry of
@@ -111,7 +113,9 @@ decodeLiteralCommon dt bs off prefix =
     Left err -> pure (Left err)
     Right (idx, off') -> do
       nameResult <- if idx == 0
-        then pure (decodeString bs off')
+        then pure (case decodeString bs off' of
+          Left err -> Left err
+          Right (name, off'') -> Right (internName name, off''))
         else do
           mEntry <- lookupEntry dt (fromIntegral idx)
           case mEntry of

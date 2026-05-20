@@ -11,6 +11,7 @@ module Network.HTTP2.HPACK.Table
   , staticTableSize
   , staticTable
   , staticTableEntry
+  , internName
   ) where
 
 import Data.ByteString (ByteString)
@@ -282,6 +283,11 @@ setMaxSize dt newMax = do
   writeIORef (dtMaxSize dt) newMax
   evict dt newMax
 
--- Re-export for internal use
-dtEntries :: DynamicTable -> IORef (V.Vector Header)
-dtEntries = dtBuffer
+-- | Intern a header name: if it matches a static table entry's name,
+-- return the static table's ByteString (shared, not a recv buffer slice).
+-- This allows the recv buffer memory to be reused/GC'd sooner.
+{-# INLINE internName #-}
+internName :: ByteString -> ByteString
+internName name = case Map.lookup name staticNameIndex of
+  Just idx -> fst (V.unsafeIndex staticTable (idx - 1))
+  Nothing -> name
