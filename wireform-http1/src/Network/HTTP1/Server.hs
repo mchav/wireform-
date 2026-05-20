@@ -273,6 +273,8 @@ errorToStatus = \case
   ParseBadChunkHeader -> BadRequest
   ParseChunkTooLarge -> PayloadTooLarge
   ParseUnexpectedEof -> BadRequest
+  ParseMissingHost -> BadRequest
+  ParseMultipleHosts -> BadRequest
 
 ------------------------------------------------------------------------
 -- Keep-alive decision

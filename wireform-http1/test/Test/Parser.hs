@@ -102,6 +102,9 @@ requestFramingTests = testGroup "request framing"
   , testCase "TE with non-chunked-last is rejected" $
       runReq "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n"
         @?= Left ParseChunkedNotFinal
+  , testCase "HTTP/1.1 GET missing Host rejected" $
+      runReq "GET / HTTP/1.1\r\n\r\n"
+        @?= Left ParseMissingHost
   ]
   where
     runReq bs = fmap (\(r, f) -> (requestMethod r, f)) (parseHeadAndFraming bs)
@@ -175,17 +178,29 @@ showHex' n acc
 smugglingGuardTests :: TestTree
 smugglingGuardTests = testGroup "request smuggling guards"
   [ testCase "CL + TE both present" $
-      runFraming "POST / HTTP/1.1\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n"
+      runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n"
         @?= Left ParseLengthAndTransferEncoding
   , testCase "duplicate disagreeing CL" $
-      runFraming "POST / HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n"
+      runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n"
         @?= Left ParseLengthConflict
   , testCase "duplicate agreeing CL is fine" $
-      runFraming "POST / HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n"
+      runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n"
         @?= Right (ContentLength 4)
   , testCase "non-numeric CL rejected" $
-      runFraming "POST / HTTP/1.1\r\nContent-Length: lots\r\n\r\n"
+      runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: lots\r\n\r\n"
         @?= Left ParseInvalidLength
+  , testCase "negative CL rejected" $
+      runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n\r\n"
+        @?= Left ParseInvalidLength
+  , testCase "HTTP/1.1 missing Host rejected" $
+      runFraming "GET / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"
+        @?= Left ParseMissingHost
+  , testCase "HTTP/1.1 multiple Host rejected" $
+      runFraming "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n"
+        @?= Left ParseMultipleHosts
+  , testCase "HTTP/1.0 missing Host is fine" $
+      runFraming "GET / HTTP/1.0\r\n\r\n"
+        @?= Right NoBody
   ]
   where
     runFraming :: ByteString -> Either ParseError Framing

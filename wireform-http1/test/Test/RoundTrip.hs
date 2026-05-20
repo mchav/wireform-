@@ -85,8 +85,10 @@ instance Arbitrary GenRequest where
     meth <- elements [GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH]
     pathLen <- choose (1, 16)
     tgt <- pure (BS.cons 0x2f (BS.pack (replicate pathLen 0x61)))
-    hdrs <- listOf genHeader
-    pure (GenRequest meth tgt hdrs)
+    extras <- listOf genHeader
+    -- RFC 9112 § 3.2 requires HTTP/1.1 requests to carry a Host. The
+    -- parser enforces this, so the generator must always seed one.
+    pure (GenRequest meth tgt (("Host", "example.com") : extras))
 
 instance Arbitrary GenResponse where
   arbitrary = do

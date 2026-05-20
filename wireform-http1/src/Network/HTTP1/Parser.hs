@@ -113,6 +113,11 @@ data ParseError
   | ParseBadChunkHeader
   | ParseChunkTooLarge
   | ParseUnexpectedEof
+  | ParseMissingHost
+    -- ^ HTTP\/1.1 request without a @Host@ header (RFC 9112 § 3.2).
+  | ParseMultipleHosts
+    -- ^ HTTP\/1.1 request with more than one @Host@ header (RFC 9112
+    -- § 3.2).
   deriving stock (Eq, Show, Generic)
 
 instance NFData ParseError
@@ -344,13 +349,27 @@ findByte bs !s !needle = go s
 -- everything up to but not including the @\\r\\n\\r\\n@ terminator).
 -- The returned 'Body' is always 'BodyEmpty' — the connection layer
 -- replaces it with a streaming producer once the framing is known.
+--
+-- Also enforces the RFC 9112 § 3.2 Host requirements on HTTP\/1.1:
+-- requests MUST carry exactly one @Host@ header. Requests with zero or
+-- more than one fail with 'ParseMissingHost' \/ 'ParseMultipleHosts'.
 parseRequest :: ByteString -> Either ParseError (Request, Framing)
 parseRequest block = do
   let (line, rest) = splitFirstLine block
   (meth, tgt, ver) <- parseRequestLine line
   hdrs <- parseHeaderBlock rest
+  validateHost ver hdrs
   framing <- requestFraming meth ver hdrs
   Right (Request meth tgt ver hdrs BodyEmpty, framing)
+
+-- | RFC 9112 § 3.2: HTTP\/1.1 requests MUST contain exactly one Host
+-- header. HTTP\/1.0 has no such requirement.
+validateHost :: Version -> Headers -> Either ParseError ()
+validateHost HTTP_1_0 _ = Right ()
+validateHost HTTP_1_1 hdrs = case hLookupAll "host" hdrs of
+  []  -> Left ParseMissingHost
+  [_] -> Right ()
+  _   -> Left ParseMultipleHosts
 
 -- | Parse a single HTTP\/1.x response out of a header-block slice.
 parseResponse :: Method -> ByteString -> Either ParseError (Response, Framing)

@@ -162,3 +162,36 @@ executable wireform-http1-runserver-bench
     base,
     bytestring,
     wireform-http1
+
+-- | Echo server. Returns the request body verbatim as the response body,
+-- for any HTTP method. This is the shape h1spec / Http11Probe / similar
+-- HTTP/1.x conformance suites expect when probing servers.
+executable wireform-http1-echo-server
+  import: defaults
+  hs-source-dirs: bench-server
+  main-is: EchoServer.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    wireform-http1
+
+test-suite wireform-http1-conformance
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-conformance
+  main-is: Main.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    directory,
+    filepath,
+    network,
+    process >= 1.6,
+    tasty >= 1.4,
+    tasty-hunit >= 0.10,
+    wireform-http1
+  -- Drivers shell out to deno (h1spec) and dotnet (Http11Probe).
+  -- The test silently skips probes whose driver isn't on PATH, so
+  -- a vanilla `cabal test` still runs.
