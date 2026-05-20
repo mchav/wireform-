@@ -1,0 +1,148 @@
+cabal-version: 3.0
+name: wireform-http1
+version: 0.1.0.0
+synopsis: High-performance HTTP/1.x client and server (RFC 9112)
+description:
+  From-scratch HTTP\/1.0 \/ HTTP\/1.1 implementation following
+  wireform's performance philosophy: zero-copy parsing on a pinned
+  ring buffer, SIMD-accelerated header / CRLF / token scanning,
+  exact-size sends via @Wireform.Builder@, allocation-free hot loops.
+  .
+  Targets full conformance with the relevant HTTP\/1.x RFCs:
+  .
+  * RFC 9110 — HTTP semantics (methods, status codes, header fields).
+  * RFC 9112 — HTTP\/1.1 message syntax & routing
+    (request\/status line, header parsing, message body framing,
+    chunked transfer-coding, trailers).
+  * RFC 7230 § 3.3 framing rules
+    (Content-Length \/ Transfer-Encoding precedence, request smuggling
+    guards: reject both, reject duplicate or non-numeric
+    @Content-Length@, reject @Transfer-Encoding: chunked@ that is not
+    the final coding, reject CR \/ LF \/ NUL inside header values).
+  .
+  Designed to be merged with @wireform-http2@ behind a shared
+  @Connection@\/@Recv\/SendBuffer@ surface; the two libraries are
+  parallel implementations of the same shape for now.
+
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Network, Web
+build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-source-files:
+  cbits/*.c
+  cbits/*.h
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
+
+common defaults
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+    BangPatterns
+    MagicHash
+    UnboxedTuples
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    Network.HTTP1.Types
+    Network.HTTP1.Method
+    Network.HTTP1.Status
+    Network.HTTP1.Version
+    Network.HTTP1.Headers
+    Network.HTTP1.Parser
+    Network.HTTP1.Encode
+    Network.HTTP1.Chunked
+    Network.HTTP1.Connection
+    Network.HTTP1.Server
+    Network.HTTP1.Client
+    Network.HTTP1.Client.Pool
+  other-modules:
+    Network.HTTP1.Internal.RecvBuffer
+    Network.HTTP1.Internal.SendBuffer
+    Network.HTTP1.Internal.Ascii
+  c-sources:
+    cbits/http1_scan.c
+  cc-options: -O3
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring >= 0.11 && < 0.13,
+    containers >= 0.6 && < 0.8,
+    deepseq >= 1.4 && < 1.6,
+    ghc-prim,
+    hashable >= 1.4 && < 1.6,
+    network >= 3.1 && < 3.3,
+    primitive >= 0.8 && < 0.10,
+    stm >= 2.5 && < 2.7,
+    text >= 2.0 && < 2.2,
+    wireform-core
+
+test-suite wireform-http1-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Parser
+    Test.Encode
+    Test.Chunked
+    Test.RoundTrip
+    Test.Integration
+  build-depends:
+    base,
+    bytestring,
+    network,
+    network-run >= 0.3,
+    stm,
+    wireform-core,
+    wireform-http1,
+    tasty >= 1.4,
+    tasty-hunit >= 0.10,
+    tasty-quickcheck >= 0.10,
+    QuickCheck >= 2.14
+
+benchmark wireform-http1-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Main.hs
+  build-depends:
+    base,
+    bytestring,
+    criterion >= 1.5,
+    deepseq,
+    wireform-http1
+
+executable wireform-http1-bench-server
+  import: defaults
+  hs-source-dirs: bench-server
+  main-is: WireformServer.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N -A64m -qg"
+  build-depends:
+    base,
+    bytestring,
+    network,
+    wireform-http1
