@@ -376,14 +376,17 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
             when (testFlag (fhFlags hdr) flagEndStream) $
               modifyIORef' streamsRef (Map.insert sid StHalfClosedRemote)
             pure True
-          Nothing -> do
-            -- Fresh stream. Client-initiated stream IDs must be
-            -- odd and strictly greater than every previous one.
-            if even sid || sid <= lastPeer
-              then do
+          Nothing -> handleFreshStream lastPeer sid (fhFlags hdr) body
+        where
+          connLastSid = connLastStreamId conn
+          handleFreshStream lp sid' flags body'
+            | even sid' || sid' <= lp = do
                 closeConnection conn ProtocolError "invalid stream id"
                 pure False
-              else case stripPaddingAndPriority FrameHeaders (fhFlags hdr) body of
+            | headersSelfDependency sid' flags body' = do
+                closeConnection conn ProtocolError "HEADERS depends on itself"
+                pure False
+            | otherwise = case stripPaddingAndPriority FrameHeaders flags body' of
                 Nothing -> do
                   closeConnection conn ProtocolError "malformed HEADERS frame"
                   pure False
@@ -396,23 +399,20 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
                       pure False
                     Right headers -> case validateRequestHeaders headers of
                       Just _err -> do
-                        sendRstStream conn sid ProtocolError
-                        modifyIORef' streamsRef (Map.insert sid StClosedSrv)
-                        writeIORef lastPeerStreamRef sid
-                        pure True
+                        closeConnection conn ProtocolError "malformed request headers"
+                        pure False
                       Nothing -> do
-                        writeIORef connLastSid sid
-                        writeIORef lastPeerStreamRef sid
-                        let endStream = testFlag (fhFlags hdr) flagEndStream
+                        writeIORef connLastSid sid'
+                        writeIORef lastPeerStreamRef sid'
+                        let endStream = testFlag flags flagEndStream
                             newState = if endStream then StHalfClosedRemote else StOpen
-                        modifyIORef' streamsRef (Map.insert sid newState)
-                        let req = buildRequest sid headers endStream
+                        modifyIORef' streamsRef (Map.insert sid' newState)
+                        let req = buildRequest sid' headers endStream
                         _ <- serverForkStream cfg $ do
                           serverHandler cfg req $ \resp ->
-                            sendResponse conn sid resp
-                          modifyIORef' streamsRef (Map.insert sid StClosedSrv)
+                            sendResponse conn sid' resp
+                          modifyIORef' streamsRef (Map.insert sid' StClosedSrv)
                         pure True
-        where connLastSid = connLastStreamId conn
 
   FrameData
     | fhStreamId hdr == 0 -> do
@@ -483,7 +483,18 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef (Frame hdr (FramePayloadRaw b
     | BS.length body /= 5 -> do
         sendRstStream conn (fhStreamId hdr) FrameSizeError
         pure True
-    | otherwise -> pure True
+    | otherwise -> do
+        let depRaw = (fromIntegral (BS.index body 0) `shiftL` 24)
+                 .|. (fromIntegral (BS.index body 1) `shiftL` 16)
+                 .|. (fromIntegral (BS.index body 2) `shiftL` 8)
+                 .|. fromIntegral (BS.index body 3) :: Word32
+            dep = depRaw .&. 0x7FFFFFFF
+        if dep == fhStreamId hdr
+          then do
+            -- RFC 9113 §5.3.1: stream cannot depend on itself.
+            sendRstStream conn (fhStreamId hdr) ProtocolError
+            pure True
+          else pure True
 
   FrameContinuation -> do
     -- We don't support CONTINUATION (we reject any HEADERS that
@@ -505,6 +516,25 @@ sendRstStream conn sid code =
     (FrameHeader 4 FrameRSTStream 0 sid)
     (RSTStreamFrame code)
 
+-- | True if the HEADERS frame carries PRIORITY-flag info that names
+-- the same stream as its dependency (RFC 9113 §5.3.1: a stream
+-- cannot depend on itself).
+headersSelfDependency :: StreamId -> FrameFlags -> ByteString -> Bool
+headersSelfDependency sid flags body0
+  | not (testFlag flags flagPriority) = False
+  | otherwise =
+      -- The PRIORITY block sits after the optional padding byte.
+      let body = if testFlag flags flagPadded
+                   then BS.drop 1 body0
+                   else body0
+      in BS.length body >= 5 &&
+         let depRaw = (fromIntegral (BS.index body 0) `shiftL` 24)
+                  .|. (fromIntegral (BS.index body 1) `shiftL` 16)
+                  .|. (fromIntegral (BS.index body 2) `shiftL` 8)
+                  .|. fromIntegral (BS.index body 3) :: Word32
+             dep = depRaw .&. 0x7FFFFFFF
+         in dep == sid
+
 -- | Validate the pseudo-header + regular-header rules from RFC
 -- 9113 §8.3. Returns 'Just msg' on the first violation.
 --
@@ -520,20 +550,39 @@ sendRstStream conn sid code =
 --   * No pseudo-headers in trailers (we don't yet distinguish trailers
 --     here; the validation runs on the initial HEADERS).
 validateRequestHeaders :: [(ByteString, ByteString)] -> Maybe ByteString
-validateRequestHeaders = go True
+validateRequestHeaders hs = case walk True hs of
+  Just err -> Just err
+  Nothing  -> presenceCheck
   where
-    go _ [] = Nothing
-    go seenRegular ((name, _val) : rest)
+    presenceCheck
+      | methods == 0 = Just "missing :method"
+      | methods > 1 = Just "duplicated :method"
+      | scheme  == 0 = Just "missing :scheme"
+      | scheme  > 1 = Just "duplicated :scheme"
+      | path    == 0 = Just "missing :path"
+      | path    > 1 = Just "duplicated :path"
+      | countPseudo ":authority" > 1 = Just "duplicated :authority"
+      | any (\(n, v) -> n == ":path" && BS.null v) hs = Just "empty :path"
+      | otherwise = Nothing
+    methods = countPseudo ":method"
+    scheme  = countPseudo ":scheme"
+    path    = countPseudo ":path"
+    countPseudo p = length (filter ((== p) . fst) hs)
+
+    walk _ [] = Nothing
+    walk seenRegular ((name, val) : rest)
       | BS.null name = Just "empty header name"
       | BS.head name == 0x3A {- ':' -} =
           if not seenRegular
             then Just "pseudo-header after regular header"
             else if name `elem` allowedPseudos
-                   then go True rest
+                   then walk True rest
                    else Just "unknown pseudo-header"
       | hasUppercase name = Just "uppercase header name"
       | isConnectionSpecific name = Just "connection-specific header"
-      | otherwise = go False rest
+      | name == "te" && val /= "trailers" =
+          Just "TE header field with value other than \"trailers\""
+      | otherwise = walk False rest
 
     allowedPseudos =
       [":method", ":scheme", ":path", ":authority"]
