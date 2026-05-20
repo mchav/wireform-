@@ -16,11 +16,25 @@ module Network.HTTP2.HPACK.Table
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Word
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 
 type Header = (ByteString, ByteString)
+
+-- Pre-built index for O(1) static table lookups.
+-- Maps (name, value) -> index and name -> first index.
+{-# NOINLINE staticNameValueIndex #-}
+staticNameValueIndex :: Map (ByteString, ByteString) Int
+staticNameValueIndex = Map.fromList
+  [(V.unsafeIndex staticTable i, i + 1) | i <- [0 .. V.length staticTable - 1]]
+
+{-# NOINLINE staticNameIndex #-}
+staticNameIndex :: Map ByteString Int
+staticNameIndex = Map.fromList
+  [(fst (V.unsafeIndex staticTable i), i + 1) | i <- [0 .. V.length staticTable - 1]]
 
 staticTable :: V.Vector Header
 staticTable = V.fromList
@@ -95,27 +109,38 @@ staticTableEntry idx
   | idx >= 1 && idx <= staticTableSize = Just (V.unsafeIndex staticTable (idx - 1))
   | otherwise = Nothing
 
+-- | Dynamic table implemented as a ring buffer for O(1) insert/evict.
+-- HPACK inserts at the front (index 0) and evicts from the back.
 data DynamicTable = DynamicTable
-  { dtEntries :: !(IORef (V.Vector Header))
-  , dtSize :: !(IORef Int)
-  , dtMaxSize :: !(IORef Int)
-  , dtAbsoluteMaxSize :: !(IORef Int)
+  { dtBuffer :: !(IORef (V.Vector Header))  -- ring storage
+  , dtHead :: !(IORef Int)                  -- index of newest entry
+  , dtCount :: !(IORef Int)                 -- number of active entries
+  , dtCapacity :: !(IORef Int)              -- buffer capacity (slots)
+  , dtSize :: !(IORef Int)                  -- current HPACK size (bytes)
+  , dtMaxSize :: !(IORef Int)               -- max HPACK size
   }
+
+ringInitialCapacity :: Int
+ringInitialCapacity = 128
 
 entrySize :: Header -> Int
 entrySize (name, value) = BS.length name + BS.length value + 32
 
 newDynamicTable :: Int -> IO DynamicTable
 newDynamicTable maxSz = do
-  entries <- newIORef V.empty
+  buf <- newIORef (V.replicate ringInitialCapacity ("", ""))
+  hd <- newIORef 0
+  cnt <- newIORef 0
+  cap <- newIORef ringInitialCapacity
   size <- newIORef 0
   maxSize <- newIORef maxSz
-  absMax <- newIORef maxSz
   pure DynamicTable
-    { dtEntries = entries
+    { dtBuffer = buf
+    , dtHead = hd
+    , dtCount = cnt
+    , dtCapacity = cap
     , dtSize = size
     , dtMaxSize = maxSize
-    , dtAbsoluteMaxSize = absMax
     }
 
 insertEntry :: DynamicTable -> Header -> IO ()
@@ -124,93 +149,127 @@ insertEntry dt entry = do
   maxSz <- readIORef (dtMaxSize dt)
   if sz > maxSz
     then do
-      writeIORef (dtEntries dt) V.empty
+      writeIORef (dtCount dt) 0
       writeIORef (dtSize dt) 0
     else do
       evict dt (maxSz - sz)
-      entries <- readIORef (dtEntries dt)
-      writeIORef (dtEntries dt) (V.cons entry entries)
+      capacity <- readIORef (dtCapacity dt)
+      count <- readIORef (dtCount dt)
+      -- Grow buffer if full
+      if count >= capacity
+        then growBuffer dt
+        else pure ()
+      capacity' <- readIORef (dtCapacity dt)
+      hd <- readIORef (dtHead dt)
+      -- Insert at position before current head (ring wraps)
+      let newHead = (hd - 1 + capacity') `mod` capacity'
+      buf <- readIORef (dtBuffer dt)
+      let buf' = buf V.// [(newHead, entry)]
+      writeIORef (dtBuffer dt) buf'
+      writeIORef (dtHead dt) newHead
+      modifyIORef' (dtCount dt) (+ 1)
       modifyIORef' (dtSize dt) (+ sz)
+
+growBuffer :: DynamicTable -> IO ()
+growBuffer dt = do
+  buf <- readIORef (dtBuffer dt)
+  hd <- readIORef (dtHead dt)
+  cnt <- readIORef (dtCount dt)
+  cap <- readIORef (dtCapacity dt)
+  let newCap = cap * 2
+      -- Linearize existing entries into new buffer
+      newBuf = V.generate newCap $ \i ->
+        if i < cnt
+          then V.unsafeIndex buf ((hd + i) `mod` cap)
+          else ("", "")
+  writeIORef (dtBuffer dt) newBuf
+  writeIORef (dtHead dt) 0
+  writeIORef (dtCapacity dt) newCap
 
 evict :: DynamicTable -> Int -> IO ()
 evict dt targetSize = do
-  entries <- readIORef (dtEntries dt)
   curSize <- readIORef (dtSize dt)
-  go entries curSize
-  where
-    go entries curSize
-      | curSize <= targetSize || V.null entries = do
-          writeIORef (dtEntries dt) entries
-          writeIORef (dtSize dt) curSize
-      | otherwise =
-          let lastEntry = V.unsafeLast entries
-              entries' = V.unsafeInit entries
-              curSize' = curSize - entrySize lastEntry
-          in go entries' curSize'
+  if curSize <= targetSize
+    then pure ()
+    else do
+      count <- readIORef (dtCount dt)
+      if count == 0
+        then pure ()
+        else do
+          -- Evict from the tail (oldest entry)
+          buf <- readIORef (dtBuffer dt)
+          hd <- readIORef (dtHead dt)
+          capacity <- readIORef (dtCapacity dt)
+          let tailIdx = (hd + count - 1) `mod` capacity
+              lastEntry = V.unsafeIndex buf tailIdx
+          modifyIORef' (dtCount dt) (subtract 1)
+          modifyIORef' (dtSize dt) (subtract (entrySize lastEntry))
+          evict dt targetSize
+
+{-# INLINE ringIndex #-}
+ringIndex :: DynamicTable -> Int -> IO Header
+ringIndex dt i = do
+  buf <- readIORef (dtBuffer dt)
+  hd <- readIORef (dtHead dt)
+  capacity <- readIORef (dtCapacity dt)
+  pure (V.unsafeIndex buf ((hd + i) `mod` capacity))
 
 lookupEntry :: DynamicTable -> Int -> IO (Maybe Header)
-lookupEntry dt idx = do
-  if idx >= 1 && idx <= staticTableSize
-    then pure (staticTableEntry idx)
-    else do
+lookupEntry dt idx
+  | idx >= 1 && idx <= staticTableSize = pure (staticTableEntry idx)
+  | otherwise = do
       let dynIdx = idx - staticTableSize - 1
-      entries <- readIORef (dtEntries dt)
-      if dynIdx >= 0 && dynIdx < V.length entries
-        then pure (Just (V.unsafeIndex entries dynIdx))
+      count <- readIORef (dtCount dt)
+      if dynIdx >= 0 && dynIdx < count
+        then Just <$> ringIndex dt dynIdx
         else pure Nothing
 
 lookupName :: DynamicTable -> ByteString -> IO (Maybe Int)
-lookupName dt name = do
+lookupName dt name =
   case findStaticName name of
     Just idx -> pure (Just idx)
     Nothing -> do
-      entries <- readIORef (dtEntries dt)
+      count <- readIORef (dtCount dt)
       let go i
-            | i >= V.length entries = pure Nothing
-            | fst (V.unsafeIndex entries i) == name =
-                pure (Just (staticTableSize + i + 1))
-            | otherwise = go (i + 1)
+            | i >= count = pure Nothing
+            | otherwise = do
+                entry <- ringIndex dt i
+                if fst entry == name
+                  then pure (Just (staticTableSize + i + 1))
+                  else go (i + 1)
       go 0
 
 lookupNameValue :: DynamicTable -> Header -> IO (Maybe (Int, Bool))
-lookupNameValue dt (name, value) = do
+lookupNameValue dt (name, value) =
   case findStaticNameValue (name, value) of
     Just idx -> pure (Just (idx, True))
     Nothing -> do
-      case findStaticName name of
-        nameHit -> do
-          entries <- readIORef (dtEntries dt)
-          let go i nameIdx
-                | i >= V.length entries =
-                    case nameIdx of
-                      Just ni -> pure (Just (ni, False))
-                      Nothing -> pure Nothing
-                | V.unsafeIndex entries i == (name, value) =
-                    pure (Just (staticTableSize + i + 1, True))
-                | fst (V.unsafeIndex entries i) == name =
-                    go (i + 1) (nameIdx <|> Just (staticTableSize + i + 1))
-                | otherwise = go (i + 1) nameIdx
-          go 0 nameHit
+      let nameHit = findStaticName name
+      count <- readIORef (dtCount dt)
+      let go i nameIdx
+            | i >= count =
+                case nameIdx of
+                  Just ni -> pure (Just (ni, False))
+                  Nothing -> pure Nothing
+            | otherwise = do
+                entry <- ringIndex dt i
+                if entry == (name, value)
+                  then pure (Just (staticTableSize + i + 1, True))
+                  else if fst entry == name
+                    then go (i + 1) (firstJust nameIdx (Just (staticTableSize + i + 1)))
+                    else go (i + 1) nameIdx
+      go 0 nameHit
   where
-    (<|>) :: Maybe a -> Maybe a -> Maybe a
-    (<|>) (Just x) _ = Just x
-    (<|>) Nothing y = y
+    firstJust (Just x) _ = Just x
+    firstJust Nothing y = y
 
+{-# INLINE findStaticName #-}
 findStaticName :: ByteString -> Maybe Int
-findStaticName name = go 0
-  where
-    go i
-      | i >= staticTableSize = Nothing
-      | fst (V.unsafeIndex staticTable i) == name = Just (i + 1)
-      | otherwise = go (i + 1)
+findStaticName name = Map.lookup name staticNameIndex
 
+{-# INLINE findStaticNameValue #-}
 findStaticNameValue :: Header -> Maybe Int
-findStaticNameValue (name, value) = go 0
-  where
-    go i
-      | i >= staticTableSize = Nothing
-      | V.unsafeIndex staticTable i == (name, value) = Just (i + 1)
-      | otherwise = go (i + 1)
+findStaticNameValue hdr = Map.lookup hdr staticNameValueIndex
 
 tableSize :: DynamicTable -> IO Int
 tableSize dt = readIORef (dtSize dt)
@@ -222,3 +281,7 @@ setMaxSize :: DynamicTable -> Int -> IO ()
 setMaxSize dt newMax = do
   writeIORef (dtMaxSize dt) newMax
   evict dt newMax
+
+-- Re-export for internal use
+dtEntries :: DynamicTable -> IORef (V.Vector Header)
+dtEntries = dtBuffer
