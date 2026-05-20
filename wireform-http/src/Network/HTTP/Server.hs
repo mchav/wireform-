@@ -32,11 +32,15 @@ module Network.HTTP.Server
   , TlsServerConfig (..)
     -- * Running
   , runServer
+  , runServerOnListener
+  , handleAcceptedSocket
     -- * Handler
   , Handler
   ) where
 
 import Control.Concurrent (ThreadId, forkIO)
+import Control.Exception (SomeException, catch)
+import qualified Network.Socket as NS
 
 import qualified Network.HTTP1.Server as H1
 import qualified Network.HTTP1.Types as H1
@@ -131,6 +135,41 @@ mkH2Config cfg = H2.defaultServerConfig
 
 runHttp1 :: ServerConfig -> IO ()
 runHttp1 cfg = H1.runServer (mkH1Config cfg)
+
+-- | Drive the server over an already-bound listening 'NS.Socket'.
+-- Useful for tests that want to pick an ephemeral port via
+-- @bind 0@ and inspect what port the kernel handed out before any
+-- client connects.
+--
+-- The version-dispatch mirrors 'runServer': we look at the
+-- 'serverVersionRange'\'s preferred version and run the matching
+-- per-connection runtime.  TLS isn't wired through this entry point
+-- — use the plain 'runServer' with a 'TlsServerConfig' for TLS, or
+-- bind the listener and call 'Network.HTTP.TLS.runTlsServer'-style
+-- helpers directly.
+runServerOnListener :: ServerConfig -> NS.Socket -> IO ()
+runServerOnListener cfg listenSock = acceptLoop
+  where
+    acceptLoop = do
+      (clientSock, _) <- NS.accept listenSock
+      NS.setSocketOption clientSock NS.NoDelay 1
+      _ <- serverForkConnection cfg $
+        handleAcceptedSocket cfg clientSock
+          `catch` (\(_ :: SomeException) -> NS.close clientSock)
+      acceptLoop
+
+-- | Dispatch a single accepted socket to either the HTTP\/1.x or
+-- HTTP\/2 per-connection runtime based on the configured
+-- 'VersionRange'.  Exposed mainly so test fixtures can wire up a
+-- single connection without standing up a full accept loop.
+handleAcceptedSocket :: ServerConfig -> NS.Socket -> IO ()
+handleAcceptedSocket cfg sock
+  | preferredVersion (serverVersionRange cfg) == U.HTTP2 =
+      let h2cfg = (mkH2Config cfg)
+            { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) }
+      in H2.runServerOnSocket h2cfg sock
+  | otherwise =
+      H1.runServerOnSocket (mkH1Config cfg) sock
 
 wrapHttp1Handler :: Handler -> H1.Request -> IO H1.Response
 wrapHttp1Handler handler h1req = do

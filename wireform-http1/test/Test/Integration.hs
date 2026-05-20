@@ -270,11 +270,12 @@ clientCfg p = defaultClientConfig { clientHost = "127.0.0.1", clientPort = p }
 
 mkReq :: Method -> BS.ByteString -> String -> Body -> Headers -> Request
 mkReq m t port body extras = Request
-  { requestMethod  = m
-  , requestTarget  = t
-  , requestVersion = HTTP_1_1
-  , requestHeaders = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
-  , requestBody    = body
+  { requestMethod   = m
+  , requestTarget   = t
+  , requestVersion  = HTTP_1_1
+  , requestHeaders  = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
+  , requestBody     = body
+  , requestTrailers = pure []
   }
 
 resp200 :: BS.ByteString -> Response
