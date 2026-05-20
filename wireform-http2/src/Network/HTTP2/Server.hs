@@ -186,6 +186,12 @@ data StreamRec = StreamRec
     -- payload becomes a 'BodyChunkBytes'; 'BodyChunkEnd' marks the
     -- final END_STREAM and is re-queued by the reader so subsequent
     -- 'requestBody' calls keep returning the empty 'ByteString'.
+  , srSendWindow :: !FlowControl
+    -- ^ Per-stream HTTP\/2 send window (RFC 9113 § 6.9.1).
+    -- Initialised from the peer's @SETTINGS_INITIAL_WINDOW_SIZE@ and
+    -- replenished by per-stream @WINDOW_UPDATE@ frames; an outgoing
+    -- DATA frame must reserve from both this window and
+    -- 'connSendFlowControl'.
   }
 
 data BodyChunkItem
@@ -198,10 +204,15 @@ data ServerStreamState
   | StClosedSrv
   deriving stock (Eq, Show)
 
-freshStream :: Maybe Int -> ServerStreamState -> IO StreamRec
-freshStream el st = do
+freshStream
+  :: Word32          -- ^ peer's @SETTINGS_INITIAL_WINDOW_SIZE@
+  -> Maybe Int
+  -> ServerStreamState
+  -> IO StreamRec
+freshStream initWin el st = do
   q <- atomically $ newTBQueue 64
-  pure $ StreamRec st el 0 q
+  sw <- atomically $ newFlowControl (fromIntegral initWin)
+  pure $ StreamRec st el 0 q sw
 
 -- | Pull the next request-body chunk from a stream's body queue.
 -- Returns 'BS.empty' once END_STREAM has been delivered; subsequent
@@ -320,15 +331,24 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
         Nothing -> do
           closeConnection conn FrameSizeError "malformed SETTINGS payload"
           pure False
-        Just params -> case applySettingsParams defaultSettings params of
-          Left _ -> do
-            closeConnection conn ProtocolError "invalid settings"
-            pure False
-          Right newSettings -> do
-            writeIORef (connRemoteSettings conn) newSettings
-            let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
-            sendFrame conn ack
-            pure True
+        Just params -> do
+          old <- readIORef (connRemoteSettings conn)
+          case applySettingsParams old params of
+            Left _ -> do
+              closeConnection conn ProtocolError "invalid settings"
+              pure False
+            Right newSettings -> do
+              writeIORef (connRemoteSettings conn) newSettings
+              -- Adjust every open stream's send window by the delta
+              -- of the peer's SETTINGS_INITIAL_WINDOW_SIZE
+              -- (RFC 9113 §6.9.2).
+              adjustServerStreamWindows
+                streamsRef
+                (settingsInitialWindowSize old)
+                (settingsInitialWindowSize newSettings)
+              let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+              sendFrame conn ack
+              pure True
 
   FramePing
     | fhStreamId hdr /= 0 -> do
@@ -380,10 +400,19 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                         Nothing | odd sid && sid > lastPeer -> do
                           closeConnection conn ProtocolError "WINDOW_UPDATE on idle stream"
                           pure False
-                        _ -> pure True
-                          -- TODO: per-stream window overflow → RST_STREAM
-                          -- FLOW_CONTROL_ERROR. We don't yet track per-stream
-                          -- send windows here.
+                        Just sr -> do
+                          r <- atomically $
+                            releaseWindow (srSendWindow sr) (fromIntegral inc)
+                          case r of
+                            Left _ -> do
+                              -- Per-stream window overflow → RST_STREAM
+                              -- with FLOW_CONTROL_ERROR (RFC 9113 §6.9.1).
+                              sendRstStream conn sid FlowControlError
+                              modifyIORef' streamsRef
+                                (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                              pure True
+                            Right () -> pure True
+                        Nothing -> pure True  -- closed stream; harmless
 
   FrameGoAway
     | fhStreamId hdr /= 0 -> do
@@ -488,13 +517,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                         -- Check SETTINGS_MAX_CONCURRENT_STREAMS.
                         streamsNow <- readIORef streamsRef
                         let active = Map.size (Map.filter ((/= StClosedSrv) . srState) streamsNow)
+                        peerInit <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
                         case maxConcurrent of
                           Just n | active >= fromIntegral n -> do
                             sendRstStream conn sid' RefusedStream
                             -- We still count this stream as seen so
                             -- the lastPeerStream marker advances.
                             writeIORef lastPeerStreamRef sid'
-                            refused <- freshStream Nothing StClosedSrv
+                            refused <- freshStream peerInit Nothing StClosedSrv
                             modifyIORef' streamsRef (Map.insert sid' refused)
                             pure True
                           _ -> do
@@ -503,7 +533,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             let endStream = testFlag flags flagEndStream
                                 newState = if endStream then StHalfClosedRemote else StOpen
                                 clHdr = lookupContentLength headers
-                            rec0 <- freshStream clHdr newState
+                            rec0 <- freshStream peerInit clHdr newState
                             -- If the body is already closed (no DATA
                             -- frames to come), push the End marker
                             -- now so the handler's 'requestBody'
@@ -517,14 +547,14 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef (Frame hdr (FramePayl
                             if endStream && maybe False (/= 0) clHdr
                               then do
                                 sendRstStream conn sid' ProtocolError
-                                rec1 <- freshStream Nothing StClosedSrv
+                                rec1 <- freshStream peerInit Nothing StClosedSrv
                                 modifyIORef' streamsRef (Map.insert sid' rec1)
                                 pure True
                               else do
                                 let req = buildRequest sid' headers (srBodyQueue rec0)
                                 _ <- serverForkStream cfg $ do
                                   serverHandler cfg req $ \resp ->
-                                    sendResponse conn sid' resp
+                                    sendResponse conn sid' (srSendWindow rec0) resp
                                   modifyIORef' streamsRef
                                     (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid')
                                 pure True
@@ -829,8 +859,8 @@ buildRequest sid headers bodyQ =
     , requestStreamId = sid
     }
 
-sendResponse :: Connection -> StreamId -> Response -> IO ()
-sendResponse conn sid resp = do
+sendResponse :: Connection -> StreamId -> FlowControl -> Response -> IO ()
+sendResponse conn sid sendWin resp = do
   encoder <- readMVar (connHpackEncoder conn)
   let statusBS = BS.pack (map (fromIntegral . fromEnum) (show (responseStatus resp)))
       statusHdr = (":status", statusBS)
@@ -848,21 +878,86 @@ sendResponse conn sid resp = do
           sendHeadersFrame conn sid headerBlock True
     ResponseBodyBS body -> do
       sendHeadersFrame conn sid headerBlock False
-      let dataEndStream = not hasTrailers
-          dataFlags = if dataEndStream then flagEndStream else 0
-          dataFrame = Frame
-            (FrameHeader (fromIntegral (BS.length body)) FrameData dataFlags sid)
-            (DataFrame body)
-      sendFrame conn dataFrame
+      maxFrame <- peerMaxFrameSize conn
+      sendBytes conn sendWin sid (not hasTrailers) body maxFrame
       if hasTrailers
         then sendTrailers conn sid trailers
         else pure ()
     ResponseBodyStream producer -> do
       sendHeadersFrame conn sid headerBlock False
-      streamBody conn sid producer hasTrailers
+      streamBody conn sendWin sid producer hasTrailers
       if hasTrailers
         then sendTrailers conn sid trailers
         else pure ()
+
+-- | Send a contiguous DATA payload chunked to MAX_FRAME_SIZE, with the
+-- final frame carrying @END_STREAM@ when @endStream@ is 'True'.
+sendBytes
+  :: Connection
+  -> FlowControl       -- ^ per-stream send window
+  -> StreamId
+  -> Bool              -- ^ set END_STREAM on the last frame
+  -> ByteString
+  -> Int               -- ^ peer MAX_FRAME_SIZE
+  -> IO ()
+sendBytes conn sendWin sid endStream bs maxFrame
+  | BS.length bs <= maxFrame = sendDataFrame conn sendWin sid endStream bs
+  | otherwise = do
+      let (chunk, rest) = BS.splitAt maxFrame bs
+      sendDataFrame conn sendWin sid False chunk
+      sendBytes conn sendWin sid endStream rest maxFrame
+
+-- | Walk every open stream and shift its send window by the delta of
+-- @oldInit@ vs @newInit@ (RFC 9113 § 6.9.2).
+adjustServerStreamWindows
+  :: IORef (Map.Map StreamId StreamRec) -> Word32 -> Word32 -> IO ()
+adjustServerStreamWindows ref oldInit newInit
+  | oldInit == newInit = pure ()
+  | otherwise = do
+      m <- readIORef ref
+      atomically $ mapM_ adjust (Map.elems m)
+  where
+    adjust sr = do
+      _ <- updateInitialWindowSize
+             (srSendWindow sr)
+             (fromIntegral oldInit)
+             (fromIntegral newInit)
+      pure ()
+
+peerMaxFrameSize :: Connection -> IO Int
+peerMaxFrameSize conn = do
+  s <- readIORef (connRemoteSettings conn)
+  pure (fromIntegral (settingsMaxFrameSize s))
+
+-- | Send one DATA frame, blocking until /both/ the connection-level
+-- and per-stream send flow windows have room (RFC 9113 § 6.9).
+sendDataFrame
+  :: Connection
+  -> FlowControl
+  -> StreamId
+  -> Bool       -- ^ END_STREAM
+  -> ByteString
+  -> IO ()
+sendDataFrame conn sendWin sid endStream bs = do
+  let n = BS.length bs
+  if n == 0
+    then sendIt
+    else do
+      atomically $ do
+        cw <- availableWindow (connSendFlowControl conn)
+        sw <- availableWindow sendWin
+        if cw >= fromIntegral n && sw >= fromIntegral n
+          then do
+            _ <- consumeWindow (connSendFlowControl conn) (fromIntegral n)
+            _ <- consumeWindow sendWin (fromIntegral n)
+            pure ()
+          else retry
+      sendIt
+  where
+    sendIt = sendFrame conn $ Frame
+      (FrameHeader (fromIntegral (BS.length bs)) FrameData
+        (if endStream then flagEndStream else 0) sid)
+      (DataFrame bs)
 
 -- | Send a HEADERS frame with END_HEADERS set (and optionally
 -- END_STREAM). Used for both the response head and the trailer block.
@@ -881,24 +976,25 @@ sendTrailers conn sid trailers = do
   block <- encodeHeaderBlock defaultEncodeStrategy encoder trailers
   sendHeadersFrame conn sid block True
 
-streamBody :: Connection -> StreamId -> IO (Maybe ByteString) -> Bool -> IO ()
-streamBody conn sid producer hasTrailers = do
-  mChunk <- producer
-  case mChunk of
-    Nothing -> do
-      -- End of body. If trailers follow, send an empty DATA *without*
-      -- END_STREAM and let the caller's trailer HEADERS carry it;
-      -- otherwise close the stream with an empty DATA + END_STREAM.
-      let endStreamHere = not hasTrailers
-          flags = if endStreamHere then flagEndStream else 0
-          emptyData = Frame
-            (FrameHeader 0 FrameData flags sid)
-            (DataFrame "")
-      sendFrame conn emptyData
-    Just chunk -> do
-      let dataFrame = Frame
-            (FrameHeader (fromIntegral (BS.length chunk)) FrameData 0 sid)
-            (DataFrame chunk)
-      sendFrame conn dataFrame
-      streamBody conn sid producer hasTrailers
+streamBody
+  :: Connection -> FlowControl -> StreamId -> IO (Maybe ByteString) -> Bool -> IO ()
+streamBody conn sendWin sid producer hasTrailers = do
+  maxFrame <- peerMaxFrameSize conn
+  loop maxFrame
+  where
+    loop maxFrame = do
+      mChunk <- producer
+      case mChunk of
+        Nothing -> do
+          -- End of body. If trailers follow, send an empty DATA
+          -- *without* END_STREAM and let the caller's trailer HEADERS
+          -- carry it; otherwise close the stream with an empty DATA
+          -- + END_STREAM.  An empty terminator doesn't consume the
+          -- flow window.
+          sendDataFrame conn sendWin sid (not hasTrailers) BS.empty
+        Just chunk
+          | BS.null chunk -> loop maxFrame
+          | otherwise -> do
+              sendBytes conn sendWin sid False chunk maxFrame
+              loop maxFrame
 

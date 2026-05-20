@@ -88,6 +88,12 @@ data StreamInbox = StreamInbox
   , siBody :: !(TBQueue BodyItem)
     -- ^ Chunks streamed in by DATA frames, terminated by 'BodyEnd' or
     -- 'BodyError'.
+  , siSendWindow :: !FlowControl
+    -- ^ Per-stream HTTP\/2 send window (RFC 9113 § 6.9.1).
+    -- Initialised from the peer's @SETTINGS_INITIAL_WINDOW_SIZE@ and
+    -- adjusted by per-stream @WINDOW_UPDATE@ frames; an outgoing DATA
+    -- frame must reserve from both this window and the
+    -- connection-level @connSendFlowControl@.
   }
 
 data ResponseHead = ResponseHead
@@ -211,15 +217,25 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
         Nothing -> do
           closeConnection (chConnection handle) FrameSizeError "malformed SETTINGS payload"
           pure False
-        Just params -> case applySettingsParams defaultSettings params of
-          Left _ -> do
-            closeConnection (chConnection handle) ProtocolError "invalid settings"
-            pure False
-          Right newSettings -> do
-            writeIORef (connRemoteSettings (chConnection handle)) newSettings
-            let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
-            sendFrame (chConnection handle) ack
-            pure True
+        Just params -> do
+          old <- readIORef (connRemoteSettings (chConnection handle))
+          case applySettingsParams old params of
+            Left _ -> do
+              closeConnection (chConnection handle) ProtocolError "invalid settings"
+              pure False
+            Right newSettings -> do
+              writeIORef (connRemoteSettings (chConnection handle)) newSettings
+              -- Per-stream send windows need to follow
+              -- SETTINGS_INITIAL_WINDOW_SIZE changes (RFC 9113
+              -- § 6.9.2): each open stream's send window is shifted
+              -- by the delta of old vs new initial size.
+              adjustStreamWindowsForInitialChange
+                handle
+                (settingsInitialWindowSize old)
+                (settingsInitialWindowSize newSettings)
+              let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+              sendFrame (chConnection handle) ack
+              pure True
 
   FramePing
     | testFlag (fhFlags hdr) flagAck -> pure True
@@ -230,14 +246,22 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
 
   FrameWindowUpdate
     | BS.length body /= 4 -> pure True
-    | fhStreamId hdr == 0 -> do
+    | otherwise -> do
         let inc = readWord32 body .&. 0x7FFFFFFF
-        atomically $ do
-          _ <- releaseWindow (connSendFlowControl (chConnection handle))
-                              (fromIntegral inc)
-          pure ()
+            sid = fhStreamId hdr
+        if sid == 0
+          then atomically $ do
+            _ <- releaseWindow (connSendFlowControl (chConnection handle))
+                                (fromIntegral inc)
+            pure ()
+          else do
+            inboxes <- readIORef (chStreams handle)
+            case Map.lookup sid inboxes of
+              Just inbox -> atomically $ do
+                _ <- releaseWindow (siSendWindow inbox) (fromIntegral inc)
+                pure ()
+              Nothing -> pure ()
         pure True
-    | otherwise -> pure True
 
   FrameGoAway -> do
     case decodeGoAway body of
@@ -420,7 +444,12 @@ registerAndSend handle req = do
     streams <- readTVar (stNextStreamId (connStreamTable conn))
     writeTVar (stNextStreamId (connStreamTable conn)) (streams + 2)
     pure streams
-  inbox <- StreamInbox <$> newEmptyMVar <*> atomically (newTBQueue 64)
+  remoteInitial <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
+  inbox <- do
+    h <- newEmptyMVar
+    q <- atomically (newTBQueue 64)
+    sw <- atomically $ newFlowControl (fromIntegral remoteInitial)
+    pure $ StreamInbox h q sw
   modifyIORef' (chStreams handle) (Map.insert sid inbox)
   encoder <- readMVar (connHpackEncoder conn)
   let pseudoHeaders =
@@ -445,72 +474,107 @@ registerAndSend handle req = do
     ReqBodyNone -> pure ()
     ReqBodyBytes b
       | BS.null b -> pure ()
-      | otherwise -> sendBodyOneShot conn sid b
-    ReqBodyStream producer -> sendBodyStream conn sid producer
+      | otherwise -> sendBodyOneShot conn inbox sid b
+    ReqBodyStream producer -> sendBodyStream conn inbox sid producer
   pure (sid, inbox)
 
--- | Send a known-length body in a single DATA frame (chunked to the
--- peer's MAX_FRAME_SIZE), terminating with END_STREAM.  The
--- connection-level flow window is respected.
-sendBodyOneShot :: Connection -> StreamId -> ByteString -> IO ()
-sendBodyOneShot conn sid b = do
+-- | Send a known-length body chunked to the peer's MAX_FRAME_SIZE,
+-- terminating with END_STREAM.  Both connection- and stream-level
+-- flow windows are respected.
+sendBodyOneShot :: Connection -> StreamInbox -> StreamId -> ByteString -> IO ()
+sendBodyOneShot conn inbox sid b = do
   maxFrame <- peerMaxFrameSize conn
   loop b maxFrame
   where
     loop bs maxFrame
-      | BS.length bs <= maxFrame = sendDataFrame conn sid True bs
+      | BS.length bs <= maxFrame = sendDataFrame conn inbox sid True bs
       | otherwise = do
           let (chunk, rest) = BS.splitAt maxFrame bs
-          sendDataFrame conn sid False chunk
+          sendDataFrame conn inbox sid False chunk
           loop rest maxFrame
 
 -- | Pump a streaming-body producer onto the wire as a sequence of DATA
 -- frames, terminated by an empty DATA + END_STREAM.  Each chunk is
--- split to the peer's MAX_FRAME_SIZE and gated on the connection-level
--- send flow window.
+-- split to the peer's MAX_FRAME_SIZE and gated on both the
+-- connection-level and per-stream send flow windows.
 sendBodyStream
-  :: Connection -> StreamId -> IO (Maybe ByteString) -> IO ()
-sendBodyStream conn sid producer = loop
+  :: Connection -> StreamInbox -> StreamId -> IO (Maybe ByteString) -> IO ()
+sendBodyStream conn inbox sid producer = loop
   where
     loop = do
       mChunk <- producer
       case mChunk of
-        Nothing -> sendDataFrame conn sid True BS.empty
+        Nothing -> sendDataFrame conn inbox sid True BS.empty
         Just bs
           | BS.null bs -> loop
           | otherwise -> do
               maxFrame <- peerMaxFrameSize conn
-              sendChunkChopped conn sid bs maxFrame
+              sendChunkChopped conn inbox sid bs maxFrame
               loop
 
-sendChunkChopped :: Connection -> StreamId -> ByteString -> Int -> IO ()
-sendChunkChopped conn sid bs maxFrame
+sendChunkChopped
+  :: Connection -> StreamInbox -> StreamId -> ByteString -> Int -> IO ()
+sendChunkChopped conn inbox sid bs maxFrame
   | BS.null bs = pure ()
-  | BS.length bs <= maxFrame = sendDataFrame conn sid False bs
+  | BS.length bs <= maxFrame = sendDataFrame conn inbox sid False bs
   | otherwise = do
       let (chunk, rest) = BS.splitAt maxFrame bs
-      sendDataFrame conn sid False chunk
-      sendChunkChopped conn sid rest maxFrame
+      sendDataFrame conn inbox sid False chunk
+      sendChunkChopped conn inbox sid rest maxFrame
 
--- | Send one DATA frame, blocking until the connection-level send
--- flow window has room (HTTP\/2 §6.9).  Splits oversized frames
--- with the caller; we just sit on the wire window here.
-sendDataFrame :: Connection -> StreamId -> Bool -> ByteString -> IO ()
-sendDataFrame conn sid endStream bs = do
+-- | Send one DATA frame, blocking until /both/ the connection-level
+-- and per-stream send flow windows have room (HTTP\/2 §6.9 — peers
+-- enforce flow control on both layers and a sender that ignores
+-- either is a protocol error).
+sendDataFrame :: Connection -> StreamInbox -> StreamId -> Bool -> ByteString -> IO ()
+sendDataFrame conn inbox sid endStream bs = do
   let n = BS.length bs
   -- An empty terminator DATA frame doesn't consume flow window.
   if n == 0
     then sendIt
     else do
       atomically $ do
-        ok <- consumeWindow (connSendFlowControl conn) (fromIntegral n)
-        if ok then pure () else retry
+        cw <- availableWindow (connSendFlowControl conn)
+        sw <- availableWindow (siSendWindow inbox)
+        if cw >= fromIntegral n && sw >= fromIntegral n
+          then do
+            _ <- consumeWindow (connSendFlowControl conn) (fromIntegral n)
+            _ <- consumeWindow (siSendWindow inbox) (fromIntegral n)
+            pure ()
+          else retry
       sendIt
   where
     sendIt = sendFrame conn $ Frame
       (FrameHeader (fromIntegral (BS.length bs)) FrameData
         (if endStream then flagEndStream else 0) sid)
       (DataFrame bs)
+
+-- | Walk every open stream and shift its send window by the delta of
+-- @oldInit@ vs @newInit@ (RFC 9113 § 6.9.2).  The peer's
+-- @SETTINGS_INITIAL_WINDOW_SIZE@ governs the /baseline/ from which
+-- per-stream @WINDOW_UPDATE@ frames accumulate, so a settings change
+-- mid-connection has to fan out to every stream's window.
+--
+-- Overflow ('Left' result from 'updateInitialWindowSize') is dropped
+-- silently here: the spec asks for @FLOW_CONTROL_ERROR@ but we can't
+-- escalate cleanly from a recv-loop side-effect.  In practice the
+-- only way to overflow is a peer that sent an absurd new initial
+-- size; degrading to \"window unchanged\" still keeps the connection
+-- alive.
+adjustStreamWindowsForInitialChange
+  :: ClientHandle -> Word32 -> Word32 -> IO ()
+adjustStreamWindowsForInitialChange handle oldInit newInit
+  | oldInit == newInit = pure ()
+  | otherwise = do
+      inboxes <- readIORef (chStreams handle)
+      atomically $ mapM_ adjust (Map.elems inboxes)
+  where
+    adjust inbox = do
+      _ <- updateInitialWindowSize
+             (siSendWindow inbox)
+             (fromIntegral oldInit)
+             (fromIntegral newInit)
+      pure ()
 
 peerMaxFrameSize :: Connection -> IO Int
 peerMaxFrameSize conn = do
