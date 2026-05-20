@@ -23,6 +23,7 @@ module Network.HTTP1.Connection
     -- * Framing-aware body
   , readBody
   , drainBody
+  , ProtocolException (..)
     -- * Send helpers
   , sendBuilder
     -- * Re-exports
@@ -30,11 +31,12 @@ module Network.HTTP1.Connection
   , module Network.HTTP1.Internal.SendBuffer
   ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (Exception, SomeException, throwIO, try)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Word (Word64)
+import GHC.Generics (Generic)
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
 
@@ -42,8 +44,18 @@ import qualified Wireform.Builder as B
 
 import Network.HTTP1.Internal.RecvBuffer
 import Network.HTTP1.Internal.SendBuffer
-import Network.HTTP1.Parser (Framing (..), parseChunkSize)
+import Network.HTTP1.Parser (Framing (..), ParseError (..), parseChunkSize)
 import Network.HTTP1.Types (Body (..))
+
+-- | Thrown by a streaming-body producer when the wire bytes violate
+-- the framing the parser inferred (e.g. malformed chunk-size line,
+-- premature EOF in chunked TE, oversized chunk). The server catches
+-- this around the user 'Handler' and emits a 400 \/ 502 \/ … response
+-- before closing the connection.
+newtype ProtocolException = ProtocolException ParseError
+  deriving stock (Eq, Show, Generic)
+
+instance Exception ProtocolException
 
 data Connection = Connection
   { connSocket :: !Socket
@@ -125,10 +137,10 @@ readChunkedStep conn ref = do
     ChunkPending 0 -> do
       mLine <- recvBufferReadUntilCRLF (connRecv conn) (connSocket conn) 4096
       case mLine of
-        Nothing -> pure Nothing
+        Nothing -> throwIO (ProtocolException ParseUnexpectedEof)
         Just lineBs ->
           case parseChunkSize lineBs of
-            Left _ -> pure Nothing  -- protocol error; surface as EOS
+            Left e -> throwIO (ProtocolException e)
             Right 0 -> do
               -- After the 0-size chunk we must consume the trailer
               -- section, terminated by a blank line. The size-line
@@ -143,31 +155,48 @@ readChunkedStep conn ref = do
       let want = min n 16384
       slice <- recvBufferReadAtMost (connRecv conn) (connSocket conn) (fromIntegral want)
       if BS.null slice
-        then pure Nothing
+        then throwIO (ProtocolException ParseUnexpectedEof)
         else do
           let consumed = BS.length slice
               n' = n - fromIntegral consumed
           if n' == 0
             then do
-              -- consume the trailing CRLF after the chunk data
-              _ <- recvBufferRead (connRecv conn) (connSocket conn) 2
-              writeIORef ref (ChunkPending 0)
+              -- After the chunk data the wire MUST carry a CRLF before
+              -- the next size line. Read it and verify; reject if not.
+              term <- recvBufferRead (connRecv conn) (connSocket conn) 2
+              if BS.length term < 2 || BS.index term 0 /= 0x0d || BS.index term 1 /= 0x0a
+                then throwIO (ProtocolException ParseBadChunkHeader)
+                else writeIORef ref (ChunkPending 0)
             else writeIORef ref (ChunkPending n')
           pure (Just slice)
 
 -- | After a 0-size chunk we have a (possibly empty) trailer section
 -- terminated by a blank line. Each trailer is just a header field; we
 -- read lines until we hit one of length zero (the blank line).
+--
+-- Bare-LF line terminators inside the trailer section are forbidden
+-- (RFC 9112 § 2.2; a smuggling vector); 'recvBufferReadUntilCRLF'
+-- returns 'Nothing' on EOF without seeing CRLF, which we turn into a
+-- protocol error so the caller can respond 400 + close.
 drainTrailers :: Connection -> IO ()
 drainTrailers conn = loop
   where
     loop = do
-      mLine <- recvBufferReadUntilCRLF (connRecv conn) (connSocket conn) 8192
+      mLine <- recvBufferReadUntilCRLFStrict
+                 (connRecv conn) (connSocket conn) 8192
       case mLine of
-        Nothing -> pure ()
-        Just bs
+        Nothing -> throwIO (ProtocolException ParseInvalidHeaderValue)
+        Just (Left ()) ->
+          -- Bare LF in the trailer section. RFC 9112 § 2.2 lets us
+          -- accept it; we choose to reject because the same bytes
+          -- desync proxies that don't (HAProxy CVE-2023-25725 style).
+          throwIO (ProtocolException ParseInvalidHeaderValue)
+        Just (Right bs)
           | BS.null bs -> pure ()
-          | otherwise  -> loop
+          | BS.any badByte bs ->
+              throwIO (ProtocolException ParseInvalidHeaderValue)
+          | otherwise -> loop
+    badByte b = b == 0x0a || b == 0x00 || b == 0x0d
 
 -- | Discard the current body without delivering it to the application.
 -- Required when a handler returns early on a keep-alive connection —

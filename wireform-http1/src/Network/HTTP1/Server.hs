@@ -35,7 +35,7 @@ module Network.HTTP1.Server
   ) where
 
 import Control.Concurrent (ThreadId, forkIO)
-import Control.Exception (bracket, catch, SomeException, finally)
+import Control.Exception (bracket, catch, fromException, SomeException, finally, try)
 import qualified Data.ByteString as BS
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
@@ -84,6 +84,16 @@ data ServerConfig = ServerConfig
     -- return a connection until at least one byte of data has arrived
     -- on it — skipping a syscall round-trip per connection. On
     -- non-Linux kernels the call silently no-ops. Default 'Nothing'.
+  , serverAllowConnect :: !Bool
+    -- ^ Whether to dispatch @CONNECT@ method requests to the user
+    -- handler. Default 'False': @CONNECT@ requests are rejected with
+    -- @405 Method Not Allowed@ before the handler runs.
+    --
+    -- @CONNECT@ is intended for use against an HTTP proxy (RFC 9110
+    -- § 9.3.6); accepting it on an origin server effectively turns
+    -- the server into an open proxy and is a known SSRF / port-scan
+    -- vector. Set 'True' only if you really do want to terminate
+    -- @CONNECT@ tunnels in your application.
   }
 
 defaultServerConfig :: ServerConfig
@@ -96,6 +106,7 @@ defaultServerConfig = ServerConfig
   , serverKeepAlive = True
   , serverListenBacklog = 1024
   , serverTcpDeferAcceptSecs = Nothing
+  , serverAllowConnect = False
   }
 
 runServer :: ServerConfig -> IO ()
@@ -154,21 +165,44 @@ handleClient cfg sock = do
         Just headBs -> case parseRequest headBs of
           Left err -> do
             sendErrorResponse conn (errorToStatus err)
+          Right (req0, _) | requestMethod req0 == CONNECT
+                         , not (serverAllowConnect cfg) ->
+            -- Reject CONNECT by default. RFC 9110 § 9.3.6: CONNECT is
+            -- intended for proxies. Accepting it on an origin server
+            -- turns it into an open tunnel. Override via
+            -- 'serverAllowConnect' if you really want this.
+            sendErrorResponse conn MethodNotAllowed
           Right (req0, framing) -> do
             body <- readBody conn framing
             let req = req0 { requestBody = body }
-            resp0 <- (serverHandler cfg req) `catch` (\(_ :: SomeException) ->
-                       pure (Response InternalServerError HTTP_1_1 [] (BodyBytes "")))
-            let willClose = decideClose cfg req resp0
-                resp =
-                  if willClose
-                    then addCloseHeader resp0
-                    else resp0
-            sendResponse conn (requestMethod req) resp
-            drainBody (requestBody req)
-            if willClose
-              then pure ()
-              else loop conn
+            r <- try @SomeException $ do
+              resp0 <- serverHandler cfg req
+              let willClose = decideClose cfg req resp0
+                  resp =
+                    if willClose
+                      then addCloseHeader resp0
+                      else resp0
+              sendResponse conn (requestMethod req) resp
+              drainBody (requestBody req)
+              pure willClose
+            case r of
+              Left e
+                | Just (ProtocolException pe) <- fromException e ->
+                    -- The handler or body-drain hit a protocol error
+                    -- while reading the request body (e.g. malformed
+                    -- chunk-size line). Reply with the matching 4xx and
+                    -- close the connection; we cannot keep keep-alive
+                    -- alive because the wire is desynced.
+                    sendErrorResponse conn (errorToStatus pe)
+                | otherwise -> do
+                    -- Best-effort 500 if no response went out yet.
+                    -- If a partial response already raced out we'll
+                    -- just close.
+                    sendErrorResponse conn InternalServerError
+                      `catch` (\(_ :: SomeException) -> pure ())
+              Right willClose
+                | willClose -> pure ()
+                | otherwise -> loop conn
 
 ------------------------------------------------------------------------
 -- Response writing
@@ -271,10 +305,18 @@ errorToStatus = \case
   ParseInvalidLength -> BadRequest
   ParseUnsupportedVersion -> HttpVersionNotSupported
   ParseBadChunkHeader -> BadRequest
-  ParseChunkTooLarge -> PayloadTooLarge
+  -- An oversize chunk size *line* (more than 16 hex digits, or a
+  -- value that wouldn't fit in 64 bits) is a malformed-input
+  -- problem, not a "your payload is too large for me" problem. The
+  -- security-test corpus expects 400 here (413 is for the body
+  -- exceeding a server-imposed limit). Match RFC 9112's "400 or
+  -- close" recommendation.
+  ParseChunkTooLarge -> BadRequest
   ParseUnexpectedEof -> BadRequest
   ParseMissingHost -> BadRequest
   ParseMultipleHosts -> BadRequest
+  ParseInvalidHost -> BadRequest
+  ParseInvalidTarget -> BadRequest
 
 ------------------------------------------------------------------------
 -- Keep-alive decision

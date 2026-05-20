@@ -50,11 +50,15 @@ prop_responseHead (GenResponse st hdrs) =
        Left e -> counterexample (show (e, bs)) False
        Right (r, _) -> conjoin
          [ responseStatus r === st
-         , filter (notZeroCL . fst) (responseHeaders r)
-             === filter (notZeroCL . fst) hdrs
+         , filter notAutoInjected (responseHeaders r)
+             === filter notAutoInjected hdrs
          ]
   where
-    notZeroCL n = not (asciiIeqStr n "content-length")
+    -- The encoder auto-injects Content-Length and Date; filter both
+    -- out before comparing to the input header list.
+    notAutoInjected (n, _) =
+         not (asciiIeqStr n "content-length")
+      && not (asciiIeqStr n "date")
 
 ------------------------------------------------------------------------
 -- Helpers

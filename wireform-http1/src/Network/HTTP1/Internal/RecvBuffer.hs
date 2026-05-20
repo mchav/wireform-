@@ -16,6 +16,7 @@ module Network.HTTP1.Internal.RecvBuffer
   , recvBufferRead
   , recvBufferReadAtMost
   , recvBufferReadUntilCRLF
+  , recvBufferReadUntilCRLFStrict
   , recvBufferReadUntilDoubleCRLF
     -- * State
   , recvBufferAvailable
@@ -225,6 +226,86 @@ findCRLF rb start end = withForeignPtr (rbBuffer rb) $ \base -> go base start
               if b1 == 0x0a
                 then pure (Just crPos)
                 else go base (crPos + 1)
+
+------------------------------------------------------------------------
+-- Strict CRLF read (rejects bare LF)
+------------------------------------------------------------------------
+
+-- | Like 'recvBufferReadUntilCRLF' but if a bare LF appears before the
+-- next CRLF, returns 'Just Nothing' (signalling a protocol error in
+-- the trailer / chunked-body section, where RFC 9112 § 2.2 permits
+-- but does not require lenient acceptance).
+--
+-- Returns:
+--
+--   * @Just (Right slice)@ — found a proper CRLF; @slice@ is the line
+--     without the trailing CRLF.
+--   * @Just (Left ())@ — encountered a bare LF before any CRLF.
+--   * @Nothing@ — EOF before finding either, or oversized line.
+recvBufferReadUntilCRLFStrict
+  :: RecvBuffer -> Socket -> Int -> IO (Maybe (Either () ByteString))
+recvBufferReadUntilCRLFStrict rb sock cap = go
+  where
+    go = do
+      rp <- readIORef (rbReadPos rb)
+      wp <- readIORef (rbWritePos rb)
+      let avail = wp - rp
+      if avail > cap
+        then pure Nothing
+        else do
+          outcome <- scanCrlfOrBareLf rb rp wp
+          case outcome of
+            ScanBareLf -> pure (Just (Left ()))
+            ScanFoundCrlf idx -> do
+              let lineLen = idx - rp
+              writeIORef (rbReadPos rb) (idx + 2)
+              pure (Just (Right (BSI.fromForeignPtr (rbBuffer rb) rp lineLen)))
+            ScanNeedMore -> do
+              if wp >= rbCapacity rb - 1024 && rp > 0
+                then recvBufferCompact rb
+                else pure ()
+              got <- fillOnce rb sock 4096
+              if got <= 0
+                then pure Nothing
+                else go
+
+data ScanResult
+  = ScanFoundCrlf !Int
+  | ScanBareLf
+  | ScanNeedMore
+
+-- | Scan @[start, end)@ for either a CRLF (returns its offset) or a
+-- bare LF (returns 'ScanBareLf'). Uses the SIMD CR scanner to skip
+-- whole 16-byte runs but also walks single bytes when a CR is found
+-- to inspect the following byte.
+scanCrlfOrBareLf :: RecvBuffer -> Int -> Int -> IO ScanResult
+scanCrlfOrBareLf rb start end =
+  withForeignPtr (rbBuffer rb) $ \base -> go base start
+  where
+    go base i
+      | i >= end = pure ScanNeedMore
+      | otherwise = do
+          -- Look for the next CR or LF, whichever comes first.
+          let crPos = fromIntegral
+                (c_find_cr (castPtr base) (fromIntegral i) (fromIntegral end))
+              lfPos = fromIntegral
+                (c_find_lf (castPtr base) (fromIntegral i) (fromIntegral end))
+          if lfPos < crPos
+            then pure ScanBareLf
+            else if crPos >= end
+              then pure ScanNeedMore
+              else
+                -- crPos <= lfPos, both within range (or crPos < end).
+                if crPos + 1 >= end
+                  then pure ScanNeedMore
+                  else do
+                    b1 <- peekByteOff base (crPos + 1) :: IO Word8
+                    if b1 == 0x0a
+                      then pure (ScanFoundCrlf crPos)
+                      else go base (crPos + 1)
+
+foreign import ccall unsafe "hs_http1_find_lf"
+  c_find_lf :: Ptr () -> CInt -> CInt -> CInt
 
 ------------------------------------------------------------------------
 -- CRLFCRLF: full header block in one slice

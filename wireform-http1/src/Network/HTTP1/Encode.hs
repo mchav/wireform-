@@ -45,7 +45,11 @@ module Network.HTTP1.Encode
   ) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Internal as BSI
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Word (Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr)
@@ -247,28 +251,67 @@ augmentRequestHeaders meth ver hdrs body =
 
 -- | Same idea for responses, with the status code factored in.
 augmentResponseHeaders :: Status -> Version -> Headers -> Body -> Headers
-augmentResponseHeaders st ver hdrs body
-  | bodyForbidden = hdrs
-  | hasCL || hasTE = hdrs
-  | otherwise = case body of
-      BodyEmpty -> hdrs <> [("Content-Length", "0")]
-      BodyBytes bs ->
-        hdrs <> [("Content-Length", decimalBS (toInteger (BS.length bs)))]
-      BodyStream _
-        | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
-        | otherwise -> hdrs <> [("Connection", "close")]
-      BodyPreEncoded _ -> hdrs
-      -- ^ The precomputed bytes already carry whatever framing they
-      -- need; do not auto-inject anything if the caller round-trips
-      -- through 'responseBuilder' again (unusual but defensible).
+augmentResponseHeaders st ver hdrs body = withDate (framingAugmented)
   where
+    framingAugmented
+      | bodyForbidden = hdrs
+      | hasCL || hasTE = hdrs
+      | otherwise = case body of
+          BodyEmpty -> hdrs <> [("Content-Length", "0")]
+          BodyBytes bs ->
+            hdrs <> [("Content-Length", decimalBS (toInteger (BS.length bs)))]
+          BodyStream _
+            | ver == HTTP_1_1 -> hdrs <> [("Transfer-Encoding", "chunked")]
+            | otherwise -> hdrs <> [("Connection", "close")]
+          BodyPreEncoded _ -> hdrs
     hasCL = hHas "content-length" hdrs
     hasTE = hHas "transfer-encoding" hdrs
+    hasDate = hHas "date" hdrs
     sc = statusCode st
     bodyForbidden =
          (sc >= 100 && sc < 200)
       || sc == 204
       || sc == 304
+    withDate hs
+      | hasDate = hs
+      | otherwise = ("Date", cachedHttpDate ()) : hs
+
+------------------------------------------------------------------------
+-- Cached Date header
+------------------------------------------------------------------------
+
+-- | RFC 9110 § 6.6.1: origin servers SHOULD send a Date header in
+-- every response /unless/ the server can't produce a reliable clock
+-- value. We have a clock, so we always emit it.
+--
+-- Reformatting the current time per request is expensive (UTC →
+-- IMF-fixdate is roughly a microsecond's worth of locale + 'show').
+-- We cache the formatted value and rebuild it at most once per
+-- second; under load that drops Date amortised cost essentially to
+-- zero (one 'getCurrentTime' + one IORef CAS per request, no
+-- formatting on the hot path).
+{-# NOINLINE dateCacheRef #-}
+dateCacheRef :: IORef (UTCTime, BS.ByteString)
+dateCacheRef = unsafePerformIO $ do
+  now <- getCurrentTime
+  newIORef (now, formatHttpDate now)
+
+cachedHttpDate :: () -> BS.ByteString
+cachedHttpDate _ = unsafePerformIO $ do
+  now <- getCurrentTime
+  (cachedAt, cachedBs) <- readIORef dateCacheRef
+  if abs (diffUTCTime now cachedAt) < 1
+    then pure cachedBs
+    else do
+      let !bs = formatHttpDate now
+      atomicModifyIORef' dateCacheRef (\_ -> ((now, bs), ()))
+      pure bs
+{-# NOINLINE cachedHttpDate #-}
+
+-- | IMF-fixdate per RFC 9110 § 5.6.7, e.g.
+-- @Sun, 06 Nov 1994 08:49:37 GMT@.
+formatHttpDate :: UTCTime -> BS.ByteString
+formatHttpDate t = BSC.pack (formatTime defaultTimeLocale "%a, %d %b %Y %H:%M:%S GMT" t)
 
 ------------------------------------------------------------------------
 -- Small builders

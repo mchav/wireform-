@@ -117,11 +117,10 @@ drainAll (BodyPreEncoded _) = pure BS.empty
 drainAll (BodyStream producer) = go []
   where
     go acc = do
-      r <- try @SomeException producer
-      case r of
-        Left _ -> pure (BS.concat (reverse acc))
-        Right Nothing -> pure (BS.concat (reverse acc))
-        Right (Just chunk) -> go (chunk : acc)
+      mc <- producer
+      case mc of
+        Nothing -> pure (BS.concat (reverse acc))
+        Just chunk -> go (chunk : acc)
 
 ------------------------------------------------------------------------
 -- h1spec
@@ -161,14 +160,16 @@ parseH1specSummary out =
 -- Http11Probe
 ------------------------------------------------------------------------
 
--- | Baseline score on this VM as of the commit that wired this up.
--- Any regression below it fails the test. Bumping the baseline as we
--- improve the parser keeps us from silently sliding backwards.
+-- | Baseline score we have to meet. We currently pass /every/ scored
+-- test in the corpus (161/161); the unscored 54 are capabilities and
+-- cookie-handling probes that don't have a single right answer.
+-- Bumping the baseline as we improve the parser keeps us from
+-- silently sliding backwards.
 http11ProbeBaseline :: (Int, Int)
-http11ProbeBaseline = (128, 161)
+http11ProbeBaseline = (161, 161)
 
 http11ProbeTest :: IO EchoCtx -> TestTree
-http11ProbeTest getCtx = testCase "Http11Probe (215 tests, baseline >= 128/161)" $ do
+http11ProbeTest getCtx = testCase "Http11Probe (215 tests, baseline >= 161/161)" $ do
   ctx <- getCtx
   dotnet <- findExecutable "dotnet"
   dll <- resolveHttp11ProbeDll

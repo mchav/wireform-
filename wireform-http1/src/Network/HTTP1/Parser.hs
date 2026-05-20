@@ -118,6 +118,14 @@ data ParseError
   | ParseMultipleHosts
     -- ^ HTTP\/1.1 request with more than one @Host@ header (RFC 9112
     -- § 3.2).
+  | ParseInvalidHost
+    -- ^ The @Host@ header value is structurally invalid (contains
+    -- userinfo, a path, NUL, whitespace, or is empty). RFC 9112 § 3.2:
+    -- "Host = uri-host [ ":" port ]" — no @user\@@ prefix, no slashes.
+  | ParseInvalidTarget
+    -- ^ The request target contains forbidden bytes (NUL, CR, LF,
+    -- non-ASCII octets in origin\/absolute form, …). Common
+    -- smuggling vector.
   deriving stock (Eq, Show, Generic)
 
 instance NFData ParseError
@@ -213,26 +221,32 @@ parseOneHeader raw off0 =
               -- scan to end-of-line: must hit CRLF before any non-field-vchar
               vEnd0 = findNonFieldValue raw valStart
           in
-            if vEnd0 < len && BSU.unsafeIndex raw vEnd0 /= 0x0d
-              then Left ParseInvalidHeaderValue
+            if vEnd0 >= len
+              then
+                -- End of the header-block slice, no trailing CRLF on
+                -- the last line because the caller stripped it.
+                let !valTrimEnd = trimOwsEnd raw valStart vEnd0
+                    !val = sliceBS raw valStart valTrimEnd
+                in Right ((name, val), len)
               else
-                let
-                  -- We're at either end-of-buffer or CR
-                  -- For end-of-buffer (no trailing CRLF on last line
-                  -- because the caller stripped the terminator), treat
-                  -- end-of-buffer as the line end.
-                  !valTrimEnd = trimOwsEnd raw valStart vEnd0
-                  !val = sliceBS raw valStart valTrimEnd
-                  -- Advance past CRLF (or past end of buffer)
-                  off' =
-                    if vEnd0 < len
-                      then
-                        if vEnd0 + 1 < len && BSU.unsafeIndex raw (vEnd0 + 1) == 0x0a
-                          then vEnd0 + 2
-                          else len  -- bare CR at EOL: silently terminate
-                      else len
-                in
-                  Right ((name, val), off')
+                let !b = BSU.unsafeIndex raw vEnd0
+                in if b /= 0x0d
+                     -- Any other non-field-vchar byte (bare LF, NUL,
+                     -- control char, DEL) is forbidden in the value.
+                     then Left ParseInvalidHeaderValue
+                     else
+                       -- We landed on a CR. RFC 9112 § 2.2 forbids
+                       -- bare CR; the CR MUST be immediately followed
+                       -- by LF or it's a protocol error (smuggling
+                       -- vector — a bare CR mid-value can desync
+                       -- proxies).
+                       if vEnd0 + 1 >= len
+                          || BSU.unsafeIndex raw (vEnd0 + 1) /= 0x0a
+                         then Left ParseInvalidHeaderValue
+                         else
+                           let !valTrimEnd = trimOwsEnd raw valStart vEnd0
+                               !val = sliceBS raw valStart valTrimEnd
+                           in Right ((name, val), vEnd0 + 2)
 
 {-# INLINE sliceBS #-}
 sliceBS :: ByteString -> Int -> Int -> ByteString
@@ -281,8 +295,33 @@ parseRequestLine line = do
           case versionFromBytes ver of
             Just v -> Right (meth, tgt, v)
             Nothing
-              | BS.isPrefixOf "HTTP/" ver -> Left ParseUnsupportedVersion
+              -- "HTTP/<MAJOR>.<MINOR>" with single ASCII digits in
+              -- each position is a well-formed but unsupported
+              -- version (505). Anything else is structurally
+              -- malformed (400) — "HTTP/1", "HTTP/01.01", "HTTP/ 1.1"
+              -- all fall here. The split matters: 505 promises "I
+              -- understood you and could send a major/minor pair
+              -- back" whereas 400 means "I couldn't parse the line at
+              -- all".
+              | isWellFormedHttpVersion ver -> Left ParseUnsupportedVersion
               | otherwise -> Left ParseBadRequestLine
+
+-- | True for @HTTP\/D.D@ exactly (one digit each side). Lets us emit
+-- 505 (Unsupported Version) only for well-formed version strings;
+-- everything else is 400.
+isWellFormedHttpVersion :: ByteString -> Bool
+isWellFormedHttpVersion bs =
+     BS.length bs == 8
+  && BSU.unsafeIndex bs 0 == 0x48  -- 'H'
+  && BSU.unsafeIndex bs 1 == 0x54
+  && BSU.unsafeIndex bs 2 == 0x54
+  && BSU.unsafeIndex bs 3 == 0x50
+  && BSU.unsafeIndex bs 4 == 0x2f  -- '/'
+  && asciiDigit (BSU.unsafeIndex bs 5)
+  && BSU.unsafeIndex bs 6 == 0x2e  -- '.'
+  && asciiDigit (BSU.unsafeIndex bs 7)
+  where
+    asciiDigit b = b >= 0x30 && b <= 0x39
 
 ------------------------------------------------------------------------
 -- Status line
@@ -302,7 +341,7 @@ parseStatusLine line = do
       let ver = sliceBS line 0 verEnd
       case versionFromBytes ver of
         Nothing
-          | BS.isPrefixOf "HTTP/" ver -> Left ParseUnsupportedVersion
+          | isWellFormedHttpVersion ver -> Left ParseUnsupportedVersion
           | otherwise -> Left ParseBadStatusLine
         Just v -> do
           let codeStart = verEnd + 1
@@ -357,19 +396,86 @@ parseRequest :: ByteString -> Either ParseError (Request, Framing)
 parseRequest block = do
   let (line, rest) = splitFirstLine block
   (meth, tgt, ver) <- parseRequestLine line
+  validateTarget meth tgt
   hdrs <- parseHeaderBlock rest
   validateHost ver hdrs
   framing <- requestFraming meth ver hdrs
   Right (Request meth tgt ver hdrs BodyEmpty, framing)
 
 -- | RFC 9112 § 3.2: HTTP\/1.1 requests MUST contain exactly one Host
--- header. HTTP\/1.0 has no such requirement.
+-- header. We also validate the value: no userinfo (@user\@host@), no
+-- path (@host\/foo@), no NUL, no whitespace, non-empty.
 validateHost :: Version -> Headers -> Either ParseError ()
 validateHost HTTP_1_0 _ = Right ()
 validateHost HTTP_1_1 hdrs = case hLookupAll "host" hdrs of
   []  -> Left ParseMissingHost
-  [_] -> Right ()
-  _   -> Left ParseMultipleHosts
+  [_] | Just v <- findHost hdrs ->
+        if validHostValue v then Right () else Left ParseInvalidHost
+      | otherwise -> Right ()
+  vs
+    -- Some smuggling attacks send a single "Host: a, b" header as one
+    -- value containing a comma — treat that as multiple too.
+    | any commaInValue vs -> Left ParseMultipleHosts
+    | otherwise -> Left ParseMultipleHosts
+  where
+    commaInValue v = BS.elem 0x2c v
+
+-- | RFC 9112 § 3.2: @Host = uri-host [ \":\" port ]@. We accept any
+-- non-empty sequence of bytes that does not include @\/@ (path),
+-- @\@@ (userinfo), NUL, SP, HTAB, or any control byte.
+validHostValue :: ByteString -> Bool
+validHostValue v
+  | BS.null v = False
+  | otherwise = BS.all goodByte v
+  where
+    goodByte b =
+         b /= 0x00
+      && b /= 0x2f          -- '/'
+      && b /= 0x40          -- '@'
+      && b /= 0x20          -- SP
+      && b /= 0x09          -- HTAB
+      && b > 0x1f
+      && b /= 0x7f
+
+-- | Reject request targets that carry obviously-bad bytes (NUL, CR,
+-- LF, SP) or non-ASCII octets. Per RFC 9112 § 3.2.1 the target is
+-- built from URI bytes only.
+--
+-- Per-method extra constraints (RFC 9112 § 3.2.4 / § 3.2.3):
+--
+--   * Asterisk-form (@\"*\"@) is restricted to OPTIONS.
+--   * CONNECT MUST use authority-form (@host:port@); no scheme, no
+--     path, no asterisk. We don't fully URI-parse, just enforce that
+--     a colon-separated host:port shape with no '\/' and no '?' is
+--     present.
+validateTarget :: Method -> RawTarget -> Either ParseError ()
+validateTarget meth tgt
+  | BS.null tgt = Left ParseInvalidTarget
+  | tgt == "*" =
+      if meth == OPTIONS then Right () else Left ParseInvalidTarget
+  | BS.any badByte tgt = Left ParseInvalidTarget
+  | meth == CONNECT = validateAuthorityForm tgt
+  | otherwise = Right ()
+  where
+    badByte b =
+         b == 0x00
+      || b == 0x20          -- SP (request-line splitter; smuggle vector)
+      || b == 0x09          -- HTAB
+      || b == 0x0a          -- LF
+      || b == 0x0d          -- CR
+      || b > 0x7f           -- non-ASCII octet
+
+-- | CONNECT authority-form: @host \":\" port@. No scheme, no path, no
+-- query. We check for the presence of @:port@ and the absence of
+-- characters that would indicate a different request-target form.
+validateAuthorityForm :: ByteString -> Either ParseError ()
+validateAuthorityForm tgt
+  | BS.elem 0x2f tgt = Left ParseInvalidTarget    -- '/'
+  | BS.elem 0x3f tgt = Left ParseInvalidTarget    -- '?'
+  | BS.elem 0x23 tgt = Left ParseInvalidTarget    -- '#'
+  | BS.elem 0x40 tgt = Left ParseInvalidTarget    -- '@' (userinfo)
+  | not (BS.elem 0x3a tgt) = Left ParseInvalidTarget  -- need :port
+  | otherwise = Right ()
 
 -- | Parse a single HTTP\/1.x response out of a header-block slice.
 parseResponse :: Method -> ByteString -> Either ParseError (Response, Framing)
@@ -548,6 +654,18 @@ parseChunkHeader bs off = unsafePerformIO $
 --
 -- Returns the parsed size on success, 'Left ParseBadChunkHeader' on
 -- garbage, 'Left ParseChunkTooLarge' on >16 hex digits.
+--
+-- Strict validation per RFC 9112 § 7.1.1:
+--
+--   chunk        = chunk-size [ chunk-ext ] CRLF chunk-data CRLF
+--   chunk-size   = 1*HEXDIG
+--   chunk-ext    = *( BWS \";\" BWS chunk-ext-name [ BWS \"=\" BWS chunk-ext-val ] )
+--
+-- We reject leading whitespace, sign characters, @0x@ prefixes,
+-- underscores, trailing whitespace, bare @;@ with no name, and bytes
+-- outside the tchar / quoted-string vocabulary inside the extension.
+-- Many request-smuggling attacks slip through laxer parsers that
+-- accept e.g. \"+10\" or \"3 \" or \"3;\\x07ext\".
 parseChunkSize :: ByteString -> Either ParseError Word64
 parseChunkSize line = unsafePerformIO $
   BSU.unsafeUseAsCStringLen line $ \(p, len) ->
@@ -558,19 +676,77 @@ parseChunkSize line = unsafePerformIO $
         0  -> pure (Left ParseBadChunkHeader)
         _  -> do
           consumed <- (fromIntegral :: CInt -> Int) <$> peek outConsumed
-          -- After the hex digits we accept either end-of-line, or a
-          -- ';' starting the extensions. Anything else is malformed.
           if consumed >= len
             then do
               val <- peek outVal
               pure (Right val)
             else
+              -- The byte immediately after the hex digits must be
+              -- @;@ (start of extensions) — anything else (whitespace,
+              -- letters, punctuation) is malformed.
               let !b = BSU.unsafeIndex line consumed
-              in if b == 0x3b  -- ';'
-                   then do
-                     val <- peek outVal
-                     pure (Right val)
-                   else pure (Left ParseBadChunkHeader)
+              in if b /= 0x3b
+                   then pure (Left ParseBadChunkHeader)
+                   else case validateChunkExtensions line (consumed + 1) of
+                     Left e -> pure (Left e)
+                     Right () -> do
+                       val <- peek outVal
+                       pure (Right val)
+
+-- | Validate the @chunk-ext@ section that follows a @;@ after the
+-- chunk size. We accept a permissive subset of the grammar
+--
+--   1*( ext-name [ \"=\" ext-value ] [ \";\" ... ] )
+--
+-- where @ext-name@ is one or more tchars and @ext-value@ is a token
+-- or quoted-string. We do /not/ try to parse quoted-string fully;
+-- instead we forbid any byte not in field-vchar (CR / LF / NUL /
+-- other control bytes) so smuggling attacks can't sneak framing
+-- characters in.
+validateChunkExtensions :: ByteString -> Int -> Either ParseError ()
+validateChunkExtensions bs off0
+  | off0 >= len = Left ParseBadChunkHeader  -- "3;" with nothing
+  | otherwise = scanName off0
+  where
+    !len = BS.length bs
+    -- Each extension starts with at least one tchar (the ext-name).
+    scanName !i
+      | i >= len = Left ParseBadChunkHeader
+      | otherwise =
+          let !nameEnd = findNonToken bs i
+          in if nameEnd == i
+               then Left ParseBadChunkHeader  -- ";" not followed by tchar
+               else scanAfterName nameEnd
+    scanAfterName !i
+      | i >= len = Right ()
+      | otherwise = case BSU.unsafeIndex bs i of
+          0x3b -> scanName (i + 1)                     -- another ext
+          0x3d -> scanValue (i + 1)                    -- = <value>
+          _    -> Left ParseBadChunkHeader
+    scanValue !i
+      | i >= len = Right ()
+      | otherwise = case BSU.unsafeIndex bs i of
+          0x22 -> scanQuoted (i + 1)                   -- quoted-string
+          _    ->
+            -- Bare token value: 1*tchar, then ';' or end-of-line.
+            let !valEnd = findNonToken bs i
+            in if valEnd == i
+                 then Left ParseBadChunkHeader
+                 else scanAfterValue valEnd
+    scanAfterValue !i
+      | i >= len = Right ()
+      | BSU.unsafeIndex bs i == 0x3b = scanName (i + 1)
+      | otherwise = Left ParseBadChunkHeader
+    scanQuoted !i
+      | i >= len = Left ParseBadChunkHeader
+      | otherwise = case BSU.unsafeIndex bs i of
+          0x22 -> scanAfterValue (i + 1)
+          0x5c                                          -- '\\' (quoted-pair)
+            | i + 1 < len -> scanQuoted (i + 2)
+            | otherwise   -> Left ParseBadChunkHeader
+          c
+            | c == 0x0d || c == 0x0a || c == 0x00 -> Left ParseBadChunkHeader
+            | otherwise -> scanQuoted (i + 1)
 
 -- (unused import dance: keep @.&.@ available so future
 -- extension parsing has the bit-twiddling primitive in scope.)
