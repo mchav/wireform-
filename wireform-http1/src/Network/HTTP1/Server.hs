@@ -189,24 +189,30 @@ sendResponse conn reqMethod resp = do
         reqMethod == HEAD
           || let sc = case responseStatus resp of Status w -> w
              in (sc >= 100 && sc < 200) || sc == 204 || sc == 304
+  let sock = connectionSocket conn
   case responseBody resp of
     BodyPreEncoded pe ->
       let bs = if mustOmitBody then preEncodedHead pe else peBytes pe
-      in NBS.sendAll (connectionSocket conn) bs
+      in NBS.sendAll sock bs
     body -> do
-      let headB = responseBuilder resp
+      let headBs = B.toStrictByteStringWith 1024 (responseBuilder resp)
       if mustOmitBody
-        then sendBuilder conn headB
+        then NBS.sendAll sock headBs
         else case body of
-          BodyEmpty -> sendBuilder conn headB
+          BodyEmpty -> NBS.sendAll sock headBs
           BodyBytes bs
-            | BS.null bs -> sendBuilder conn headB
-            | otherwise  -> sendBuilder conn (headB <> B.byteString bs)
+            | BS.null bs -> NBS.sendAll sock headBs
+            | otherwise  ->
+                -- Vectored I/O: head + body land in one writev() with
+                -- no body copy. The kernel takes both buffers from
+                -- their native locations (head from our scratch pinned
+                -- buffer, body from the caller-supplied ByteString).
+                NBS.sendMany sock [headBs, bs]
           BodyStream producer -> do
             -- Streaming bodies need the head out first (handler-driven
             -- back-pressure) so we don't accumulate the whole body in
             -- RAM.
-            sendBuilder conn headB
+            NBS.sendAll sock headBs
             case responseVersion resp of
               HTTP_1_1 -> streamChunked conn producer
               HTTP_1_0 -> streamRaw conn producer
