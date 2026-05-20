@@ -80,7 +80,6 @@ library
   other-modules:
     Network.HTTP2.Internal.BitOps
     Network.HTTP2.Internal.RecvBuffer
-    Network.HTTP2.HPACK.DynTable
   c-sources:
     cbits/hpack_huffman.c
     cbits/hpack_table.c
