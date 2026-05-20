@@ -93,6 +93,15 @@ export default defineConfig({
           autogenerate: { directory: 'concepts' },
         },
         {
+          label: 'Packages',
+          items: [
+            { label: 'Kafka client', slug: 'packages/kafka' },
+            { label: 'Protocol Buffers', slug: 'packages/proto' },
+            { label: 'wireform-derive', slug: 'packages/derive' },
+            { label: 'wireform-core', slug: 'packages/core' },
+          ],
+        },
+        {
           label: 'Kafka Streams',
           items: [
             { label: 'Overview', slug: 'kafka-streams' },
