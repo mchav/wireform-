@@ -15,10 +15,7 @@ import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Word
-import Network.Socket (Socket)
 import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NBS
 
 import Network.HTTP2.Connection
 import Network.HTTP2.Connection.Settings
@@ -70,7 +67,8 @@ withConnection cfg action = do
         conn <- newConnection ConnectionConfig
           { ccRole = RoleClient
           , ccSettings = clientSettings cfg
-          , ccSocket = sock
+          , ccSocket = Just sock
+          , ccTransport = Nothing
           , ccOnGoAway = \_ _ _ -> pure ()
           }
         sendClientPreface conn (clientSettings cfg)
@@ -84,7 +82,7 @@ sendClientPreface conn settings = do
       settingsFrame = Frame
         (FrameHeader (fromIntegral (length params * 6)) FrameSettings 0 0)
         (SettingsFrame params)
-  NBS.sendMany (connSocket conn) [preface, encodeFrame settingsFrame]
+  tSendMany (connTransport conn) [preface, encodeFrame settingsFrame]
 
 clientRecvLoop :: Connection -> IO ()
 clientRecvLoop conn = do

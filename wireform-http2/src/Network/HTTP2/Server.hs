@@ -6,25 +6,27 @@ module Network.HTTP2.Server
   , ResponseBody (..)
   , runServer
   , runServerOnSocket
+  , runServerOnTransport
   ) where
 
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Exception (bracket, catch, SomeException, throwIO, finally)
+import Control.Exception (bracket, catch, SomeException, finally)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Word
-import Network.Socket (Socket, SockAddr)
+import Network.Socket (Socket)
 import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NBS
+
+import qualified Data.ByteString.Internal as BSI
 
 import Network.HTTP2.Connection
 import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Frame
 import Network.HTTP2.HPACK
+import Network.HTTP2.Transport
 import Network.HTTP2.Types
 
 data ServerConfig = ServerConfig
@@ -110,20 +112,46 @@ acceptLoop cfg listenSock = do
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
 runServerOnSocket cfg sock = handleClient cfg sock
 
+-- | Run the HTTP/2 server over an arbitrary 'Transport' (e.g. a TLS
+-- context). The transport must already be live: the caller is
+-- responsible for the TLS handshake / ALPN negotiation.
+runServerOnTransport :: ServerConfig -> Transport -> IO ()
+runServerOnTransport cfg transport = handleTransport cfg transport
+
 handleClient :: ServerConfig -> Socket -> IO ()
 handleClient cfg sock = do
-  preface <- recvExactSock sock (BS.length connectionPreface)
+  let transport = socketTransport sock
+  handleTransport cfg transport `finally` NS.close sock
+
+handleTransport :: ServerConfig -> Transport -> IO ()
+handleTransport cfg transport = do
+  preface <- recvExactTransport transport (BS.length connectionPreface)
   if preface /= connectionPreface
-    then NS.close sock
+    then pure ()
     else do
-      conn <- newConnection ConnectionConfig
-        { ccRole = RoleServer
-        , ccSettings = serverSettings cfg
-        , ccSocket = sock
-        , ccOnGoAway = \_ _ _ -> pure ()
-        }
+      conn <- newConnectionFromTransport
+                RoleServer
+                (serverSettings cfg)
+                (\_ _ _ -> pure ())
+                transport
       sendServerPreface conn (serverSettings cfg)
-      connectionLoop cfg conn `finally` NS.close sock
+      connectionLoop cfg conn
+
+-- | Receive exactly @n@ bytes from a 'Transport'. Used only to read the
+-- connection preface; the per-connection 'RecvBuffer' takes over after.
+recvExactTransport :: Transport -> Int -> IO ByteString
+recvExactTransport t n = go n []
+  where
+    go 0 acc = pure (BS.concat (reverse acc))
+    go remaining acc = do
+      chunk <- chunkFromTransport t (min remaining 4096)
+      if BS.null chunk
+        then pure (BS.concat (reverse acc))
+        else go (remaining - BS.length chunk) (chunk : acc)
+
+-- | Pull a chunk of up to @n@ bytes via the transport's @recvBuf@.
+chunkFromTransport :: Transport -> Int -> IO ByteString
+chunkFromTransport t n = BSI.createUptoN n $ \ptr -> tRecvBuf t ptr n
 
 sendServerPreface :: Connection -> Settings -> IO ()
 sendServerPreface conn settings = do
@@ -265,12 +293,3 @@ streamBody conn sid producer = do
       sendFrame conn dataFrame
       streamBody conn sid producer
 
-recvExactSock :: Socket -> Int -> IO ByteString
-recvExactSock sock n = go n []
-  where
-    go 0 acc = pure (BS.concat (reverse acc))
-    go remaining acc = do
-      chunk <- NBS.recv sock (min remaining 4096)
-      if BS.null chunk
-        then pure (BS.concat (reverse acc))
-        else go (remaining - BS.length chunk) (chunk : acc)

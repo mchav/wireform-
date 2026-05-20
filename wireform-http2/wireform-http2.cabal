@@ -76,6 +76,7 @@ library
     Network.HTTP2.Connection.StreamTable
     Network.HTTP2.Client
     Network.HTTP2.Server
+    Network.HTTP2.Transport
     Network.HTTP2.Types
   other-modules:
     Network.HTTP2.Internal.BitOps

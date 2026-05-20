@@ -1,6 +1,7 @@
 -- | Pinned ring buffer for zero-allocation receives.
--- Uses Network.Socket.recvBuf to receive directly into our pinned buffer,
--- bypassing the ByteString allocation that Network.Socket.ByteString.recv does.
+-- Uses the supplied @recvBuf@-style callback to receive directly into our
+-- pinned buffer, bypassing the ByteString allocation that
+-- 'Network.Socket.ByteString.recv' does.
 -- Frame reads are served as zero-copy slices (fromForeignPtr) of this buffer.
 module Network.HTTP2.Internal.RecvBuffer
   ( RecvBuffer
@@ -15,7 +16,6 @@ import Data.IORef
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Ptr
-import Network.Socket (Socket, recvBuf)
 
 data RecvBuffer = RecvBuffer
   { rbBuffer :: !(ForeignPtr Word8)
@@ -39,9 +39,14 @@ newRecvBuffer = do
     , rbWritePos = wp
     }
 
--- | Read exactly n bytes. Zero-copy when data doesn't require compaction.
-recvBufferRead :: RecvBuffer -> Socket -> Int -> IO ByteString
-recvBufferRead rb sock n = do
+-- | Read exactly @n@ bytes. Zero-copy when data doesn't require compaction.
+--
+-- The first argument is a @recvBuf@-style callback that fills the given
+-- pointer with up to @n@ bytes and returns the count (0 on EOF). Both the
+-- socket and the TLS transport satisfy this shape; see
+-- "Network.HTTP2.Transport".
+recvBufferRead :: RecvBuffer -> (Ptr Word8 -> Int -> IO Int) -> Int -> IO ByteString
+recvBufferRead rb recv n = do
   rp <- readIORef (rbReadPos rb)
   wp <- readIORef (rbWritePos rb)
   let available = wp - rp
@@ -49,7 +54,7 @@ recvBufferRead rb sock n = do
     then sliceBuffer rb rp n
     else do
       ensureSpace rb rp wp
-      fillUntil rb sock n
+      fillUntil rb recv n
 
 -- Zero-copy slice: return a ByteString backed by the pinned buffer.
 {-# INLINE sliceBuffer #-}
@@ -73,8 +78,8 @@ ensureSpace rb rp wp = do
     else pure ()
 
 -- Receive until we have at least n bytes available.
-fillUntil :: RecvBuffer -> Socket -> Int -> IO ByteString
-fillUntil rb sock n = do
+fillUntil :: RecvBuffer -> (Ptr Word8 -> Int -> IO Int) -> Int -> IO ByteString
+fillUntil rb recv n = do
   rp <- readIORef (rbReadPos rb)
   wp <- readIORef (rbWritePos rb)
   let available = wp - rp
@@ -85,13 +90,11 @@ fillUntil rb sock n = do
           toRecv = max (n - available) (min space 65536)
       if toRecv <= 0
         then do
-          -- Buffer full, compact and retry
           ensureSpace rb rp wp
-          fillUntil rb sock n
+          fillUntil rb recv n
         else do
-          -- Receive directly into pinned buffer — no allocation!
           bytesRead <- withForeignPtr (rbBuffer rb) $ \base ->
-            recvBuf sock (base `plusPtr` wp) toRecv
+            recv (base `plusPtr` wp) toRecv
           if bytesRead <= 0
             then
               if available > 0
@@ -99,4 +102,4 @@ fillUntil rb sock n = do
                 else pure BS.empty
             else do
               writeIORef (rbWritePos rb) (wp + bytesRead)
-              fillUntil rb sock n
+              fillUntil rb recv n
