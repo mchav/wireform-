@@ -82,7 +82,6 @@ library
     Network.HTTP2.Internal.RecvBuffer
   c-sources:
     cbits/hpack_huffman.c
-    cbits/hpack_table.c
   cc-options: -O3
   build-depends:
     base >= 4.16 && < 5,

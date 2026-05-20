@@ -16,23 +16,24 @@ module Network.HTTP2.HPACK.Table
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
 import Data.IORef
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Word
-import Foreign.C.Types
-import Foreign.Ptr
-import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Vector as V
 
 type Header = (ByteString, ByteString)
 
--- C-side static table lookup via FNV-1a hash + open addressing.
--- Single flat array in C, no GHC heap pointer chasing.
-foreign import ccall unsafe "wireform_hpack_static_find_name"
-  c_find_name :: Ptr Word8 -> CSize -> IO CInt
+-- Pre-built index for O(log n) static table lookups.
+{-# NOINLINE staticNameValueIndex #-}
+staticNameValueIndex :: Map (ByteString, ByteString) Int
+staticNameValueIndex = Map.fromList
+  [(V.unsafeIndex staticTable i, i + 1) | i <- [0 .. V.length staticTable - 1]]
 
-foreign import ccall unsafe "wireform_hpack_static_find_name_value"
-  c_find_name_value :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> IO CInt
+{-# NOINLINE staticNameIndex #-}
+staticNameIndex :: Map ByteString Int
+staticNameIndex = Map.fromList
+  [(fst (V.unsafeIndex staticTable i), i + 1) | i <- [0 .. V.length staticTable - 1]]
 
 staticTable :: V.Vector Header
 staticTable = V.fromList
@@ -263,20 +264,11 @@ lookupNameValue dt (name, value) =
 
 {-# INLINE findStaticName #-}
 findStaticName :: ByteString -> Maybe Int
-findStaticName name = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen name $ \(ptr, len) -> do
-    result <- c_find_name (castPtr ptr) (fromIntegral len)
-    pure (if result == 0 then Nothing else Just (fromIntegral result))
+findStaticName name = Map.lookup name staticNameIndex
 
 {-# INLINE findStaticNameValue #-}
 findStaticNameValue :: Header -> Maybe Int
-findStaticNameValue (name, value) = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen name $ \(nPtr, nLen) ->
-    BSU.unsafeUseAsCStringLen value $ \(vPtr, vLen) -> do
-      result <- c_find_name_value
-        (castPtr nPtr) (fromIntegral nLen)
-        (castPtr vPtr) (fromIntegral vLen)
-      pure (if result == 0 then Nothing else Just (fromIntegral result))
+findStaticNameValue hdr = Map.lookup hdr staticNameValueIndex
 
 tableSize :: DynamicTable -> IO Int
 tableSize dt = readIORef (dtSize dt)
@@ -294,6 +286,6 @@ setMaxSize dt newMax = do
 -- This allows the recv buffer memory to be reused/GC'd sooner.
 {-# INLINE internName #-}
 internName :: ByteString -> ByteString
-internName name = case findStaticName name of
+internName name = case Map.lookup name staticNameIndex of
   Just idx -> fst (V.unsafeIndex staticTable (idx - 1))
   Nothing -> name
