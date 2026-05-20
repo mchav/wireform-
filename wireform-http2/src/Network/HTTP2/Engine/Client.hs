@@ -1,0 +1,251 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+-- | gRPC-friendly HTTP\/2 client engine.
+--
+-- The @http-semantics@-shaped client API in wireform-http2's
+-- namespace. The runtime ('run') is currently a stub; see the
+-- "TODO" note on 'run' below.
+module Network.HTTP2.Engine.Client
+  ( -- * The client callback
+    Client
+  , SendRequest
+    -- * Request
+  , Request (..)
+  , requestNoBody
+  , requestFile
+  , requestStreaming
+  , requestStreamingUnmask
+  , requestBuilder
+  , requestStreamingIface
+  , setRequestTrailersMaker
+    -- * Response
+  , Response (..)
+  , responseStatus
+  , responseHeaders
+  , responseBodySize
+  , getResponseBodyChunk
+  , getResponseBodyChunk'
+  , getResponseTrailers
+    -- * Auxiliary information
+  , Aux (..)
+    -- * Streaming body interface
+  , OutBodyIface (..)
+    -- * Trailers
+  , TrailersMaker
+  , NextTrailersMaker (..)
+  , defaultTrailersMaker
+    -- * Settings
+  , ClientConfig (..)
+  , defaultClientConfig
+  , Settings (..)
+  , defaultSettings
+  , Config (..)
+    -- * Type aliases
+  , Path
+  , Authority
+  , Scheme
+  , FileSpec (..)
+  , FileOffset
+  , ByteCount
+  , BufferSize
+    -- * Simple config helpers
+  , allocSimpleConfig
+  , freeSimpleConfig
+    -- * Engine entry point
+  , run
+  ) where
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BSB
+import qualified Data.ByteString.Char8 as BS8
+import Data.IORef (readIORef)
+import Data.Word (Word8, Word32)
+import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Ptr (Ptr)
+import qualified Network.HTTP.Types as HTTP
+import Network.Socket (Socket)
+import qualified Network.Socket.ByteString as NBS
+import qualified System.TimeManager as TM
+
+import Network.HTTP2.Engine.Types
+
+-- | Per-call send hook. The continuation is invoked with the received
+-- 'Response' once headers have arrived.
+type SendRequest = forall r. Request -> (Response -> IO r) -> IO r
+
+-- | The client callback: given a 'SendRequest' and 'Aux', produce a result.
+type Client a = SendRequest -> Aux -> IO a
+
+-- | Per-client auxiliary information.
+data Aux = Aux
+  { auxPossibleClientStreams :: !(IO Int)
+  }
+
+newtype Request = Request OutObj
+  deriving stock (Show)
+
+newtype Response = Response InpObj
+  deriving stock (Show)
+
+addHeaders :: HTTP.Method -> Path -> HTTP.RequestHeaders -> HTTP.RequestHeaders
+addHeaders m p hs = (":method", m) : (":path", p) : hs
+
+requestNoBody :: HTTP.Method -> Path -> HTTP.RequestHeaders -> Request
+requestNoBody m p hdr =
+  Request (OutObj (addHeaders m p hdr) OutBodyNone defaultTrailersMaker)
+
+requestFile :: HTTP.Method -> Path -> HTTP.RequestHeaders -> FileSpec -> Request
+requestFile m p hdr fs =
+  Request (OutObj (addHeaders m p hdr) (OutBodyFile fs) defaultTrailersMaker)
+
+requestBuilder :: HTTP.Method -> Path -> HTTP.RequestHeaders -> BSB.Builder -> Request
+requestBuilder m p hdr b =
+  Request (OutObj (addHeaders m p hdr) (OutBodyBuilder b) defaultTrailersMaker)
+
+requestStreaming
+  :: HTTP.Method
+  -> Path
+  -> HTTP.RequestHeaders
+  -> ((BSB.Builder -> IO ()) -> IO () -> IO ())
+  -> Request
+requestStreaming m p hdr body =
+  Request (OutObj (addHeaders m p hdr) (OutBodyStreaming body) defaultTrailersMaker)
+
+requestStreamingUnmask
+  :: HTTP.Method
+  -> Path
+  -> HTTP.RequestHeaders
+  -> ((forall x. IO x -> IO x) -> (BSB.Builder -> IO ()) -> IO () -> IO ())
+  -> Request
+requestStreamingUnmask m p hdr body =
+  requestStreamingIface m p hdr $ \iface ->
+    body (outBodyUnmask iface) (outBodyPush iface) (outBodyFlush iface)
+
+requestStreamingIface
+  :: HTTP.Method
+  -> Path
+  -> HTTP.RequestHeaders
+  -> (OutBodyIface -> IO ())
+  -> Request
+requestStreamingIface m p hdr body =
+  Request (OutObj (addHeaders m p hdr) (OutBodyStreamingIface body) defaultTrailersMaker)
+
+setRequestTrailersMaker :: Request -> TrailersMaker -> Request
+setRequestTrailersMaker (Request o) tm = Request o { outObjTrailers = tm }
+
+responseStatus :: Response -> Maybe HTTP.Status
+responseStatus (Response r) = do
+  bs <- lookupToken ":status" (inpObjHeaders r)
+  case reads (BS8.unpack bs) of
+    [(n, "")] -> Just (HTTP.mkStatus n BS.empty)
+    _         -> Nothing
+
+responseHeaders :: Response -> TokenHeaderTable
+responseHeaders (Response r) = inpObjHeaders r
+
+responseBodySize :: Response -> Maybe Int
+responseBodySize (Response r) = inpObjBodySize r
+
+getResponseBodyChunk :: Response -> IO ByteString
+getResponseBodyChunk = fmap fst . getResponseBodyChunk'
+
+getResponseBodyChunk' :: Response -> IO (ByteString, Bool)
+getResponseBodyChunk' (Response r) = inpObjBody r
+
+getResponseTrailers :: Response -> IO (Maybe TokenHeaderTable)
+getResponseTrailers (Response r) = readIORef (inpObjTrailers r)
+
+data ClientConfig = ClientConfig
+  { authority :: !Authority
+  , settings :: !Settings
+  , connectionWindowSize :: !Int
+  }
+
+defaultClientConfig :: ClientConfig
+defaultClientConfig = ClientConfig
+  { authority = "localhost"
+  , settings = defaultSettings
+  , connectionWindowSize = 16777216
+  }
+
+data Settings = Settings
+  { headerTableSize :: !Int
+  , enablePush :: !Bool
+  , maxConcurrentStreams :: !(Maybe Word32)
+  , initialWindowSize :: !Int
+  , maxFrameSize :: !Int
+  , maxHeaderListSize :: !(Maybe Word32)
+  , pingRateLimit :: !Int
+  , emptyFrameRateLimit :: !Int
+  , settingsRateLimit :: !Int
+  , rstRateLimit :: !Int
+  }
+  deriving stock (Eq, Show)
+
+defaultSettings :: Settings
+defaultSettings = Settings
+  { headerTableSize = 4096
+  , enablePush = True
+  , maxConcurrentStreams = Just 64
+  , initialWindowSize = 262144
+  , maxFrameSize = 16384
+  , maxHeaderListSize = Nothing
+  , pingRateLimit = 10
+  , emptyFrameRateLimit = 4
+  , settingsRateLimit = 4
+  , rstRateLimit = 4
+  }
+
+data Config = Config
+  { confWriteBuffer :: !(Ptr Word8)
+  , confBufferSize :: !BufferSize
+  , confSendAll :: !(ByteString -> IO ())
+  , confReadN :: !(Int -> IO ByteString)
+  , confPositionReadMaker :: !PositionReadMaker
+  , confTimeoutManager :: !TM.Manager
+  }
+
+-- | Allocate a 'Config' that talks to the given 'Socket'.
+--
+-- A minimal time manager is created internally; 'freeSimpleConfig'
+-- kills it. The position-read maker is the placeholder
+-- 'defaultPositionReadMaker' since gRPC doesn't serve files.
+allocSimpleConfig :: Socket -> BufferSize -> IO Config
+allocSimpleConfig sock bufSize = do
+  buf <- mallocBytes bufSize
+  mgr <- TM.initialize (30 * 1000 * 1000)  -- 30s default
+  pure Config
+    { confWriteBuffer = buf
+    , confBufferSize = bufSize
+    , confSendAll = NBS.sendAll sock
+    , confReadN = recvExactN sock
+    , confPositionReadMaker = defaultPositionReadMaker
+    , confTimeoutManager = mgr
+    }
+
+recvExactN :: Socket -> Int -> IO ByteString
+recvExactN sock n = go n []
+  where
+    go 0 acc = pure (BS.concat (reverse acc))
+    go remaining acc = do
+      chunk <- NBS.recv sock (min remaining 65536)
+      if BS.null chunk
+        then pure (BS.concat (reverse acc))
+        else go (remaining - BS.length chunk) (chunk : acc)
+
+freeSimpleConfig :: Config -> IO ()
+freeSimpleConfig cfg = do
+  free (confWriteBuffer cfg)
+  TM.killManager (confTimeoutManager cfg)
+
+-- | Run an HTTP\/2 client over the supplied I\/O plumbing.
+--
+-- TODO This is a placeholder; the full runtime (stream multiplexing,
+-- HEADERS\/DATA\/trailer dispatch, flow control, PING\/SETTINGS
+-- bookkeeping) is not implemented in this commit. The skeleton is
+-- here so wireform-grpc can link against it; a follow-up replaces
+-- this stub with the working runtime.
+run :: ClientConfig -> Config -> Client a -> IO a
+run _cc _cfg _client =
+  error "Network.HTTP2.Engine.Client.run: runtime not yet implemented"
