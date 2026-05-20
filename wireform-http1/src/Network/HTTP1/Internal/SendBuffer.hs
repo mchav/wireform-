@@ -55,12 +55,14 @@ withSendBuffer SendBuffer{sbBuffer = fp, sbCapacity = cap} sock fill = do
       NBS.sendAll sock bs
 
 -- | Materialise a 'B.Builder' into a strict 'ByteString' and send it on
--- the socket. This goes through @Wireform.Builder@'s
--- 'B.toStrictByteString', which itself uses a pinned scratch buffer
--- internally — so the only allocation is the final pinned 'ByteString'
--- that backs the @send()@.
+-- the socket.
+--
+-- We pass a 4 KiB initial capacity hint to @Wireform.Builder@. A
+-- typical small HTTP\/1.1 response head + body fits comfortably in
+-- that, so the common case is a single pinned allocation + a single
+-- @send()@ — no chunk-list, no growth, no extra copy.
 sendBuilderAll :: Socket -> B.Builder -> IO ()
 sendBuilderAll sock b = do
-  let !bs = B.toStrictByteString b
+  let !bs = B.toStrictByteStringWith 4096 b
   NBS.sendAll sock bs
 {-# INLINE sendBuilderAll #-}

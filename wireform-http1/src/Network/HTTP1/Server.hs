@@ -153,25 +153,27 @@ handleClient cfg sock = do
 ------------------------------------------------------------------------
 
 -- | Send a complete response (head + body) over the connection.
--- Streaming bodies are emitted via chunked TE on HTTP\/1.1 (the encoder
--- already injected the header) or as raw bytes followed by connection
--- close on HTTP\/1.0.
+-- For 'BodyBytes' we combine head + body into a /single/ builder so
+-- the whole response goes out in one @send()@ — this is the hot path
+-- and halves the syscall rate for small responses.
 sendResponse :: Connection -> Method -> Response -> IO ()
 sendResponse conn reqMethod resp = do
-  -- HEAD never carries a body in the response, regardless of what the
-  -- handler returned. We emit the head only.
   let mustOmitBody =
         reqMethod == HEAD
           || let sc = case responseStatus resp of Status w -> w
              in (sc >= 100 && sc < 200) || sc == 204 || sc == 304
-  sendBuilder conn (responseBuilder resp)
+      headB = responseBuilder resp
   if mustOmitBody
-    then pure ()
+    then sendBuilder conn headB
     else case responseBody resp of
-      BodyEmpty -> pure ()
-      BodyBytes bs ->
-        if BS.null bs then pure () else sendBuilder conn (B.byteString bs)
-      BodyStream producer ->
+      BodyEmpty -> sendBuilder conn headB
+      BodyBytes bs
+        | BS.null bs -> sendBuilder conn headB
+        | otherwise  -> sendBuilder conn (headB <> B.byteString bs)
+      BodyStream producer -> do
+        -- Streaming bodies need the head out first (handler-driven
+        -- back-pressure) so we don't accumulate the whole body in RAM.
+        sendBuilder conn headB
         case responseVersion resp of
           HTTP_1_1 -> streamChunked conn producer
           HTTP_1_0 -> streamRaw conn producer

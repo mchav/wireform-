@@ -32,13 +32,21 @@ module Network.HTTP1.Encode
   , encodeRequestHead
   , encodeResponseHead
 
+    -- * Direct decimal encoder (also useful from handlers)
+  , wordDecBS
+
     -- * Misc
   , spaceB
   , crlfB
   ) where
 
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Internal as BSI
+import Data.Word (Word8)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr)
+import Foreign.Storable (pokeByteOff)
+import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Wireform.Builder as B
 
@@ -68,15 +76,51 @@ requestBuilder Request{requestMethod=m, requestTarget=t, requestVersion=v, reque
 
 -- | Build the wire form of an outgoing response head (status line +
 -- headers + terminating CRLFCRLF).
+--
+-- For HTTP\/1.1 status codes that match one of the IANA-registered
+-- common codes (200, 201, 204, 301, 302, 304, 400, 404, 500, …) we
+-- emit a precomputed status line — version + code + reason phrase +
+-- CRLF in one 'B.byteString' append — instead of the three-piece
+-- assembly the general path uses.
 responseBuilder :: Response -> B.Builder
 responseBuilder Response{responseStatus=s, responseVersion=v, responseHeaders=h, responseBody=b} =
+       statusLineFor v s
+    <> headersBuilder (augmentResponseHeaders s v h b)
+    <> crlfB
+
+-- | Pre-baked @\"HTTP\/X.Y <code> <reason>\\r\\n\"@ for the codes the
+-- average HTTP\/1.1 server emits 99 % of the time. Anything outside
+-- the lookup falls back to a per-call assembly.
+{-# INLINE statusLineFor #-}
+statusLineFor :: Version -> Status -> B.Builder
+statusLineFor HTTP_1_1 (Status 200) = B.byteString "HTTP/1.1 200 OK\r\n"
+statusLineFor HTTP_1_1 (Status 201) = B.byteString "HTTP/1.1 201 Created\r\n"
+statusLineFor HTTP_1_1 (Status 204) = B.byteString "HTTP/1.1 204 No Content\r\n"
+statusLineFor HTTP_1_1 (Status 206) = B.byteString "HTTP/1.1 206 Partial Content\r\n"
+statusLineFor HTTP_1_1 (Status 301) = B.byteString "HTTP/1.1 301 Moved Permanently\r\n"
+statusLineFor HTTP_1_1 (Status 302) = B.byteString "HTTP/1.1 302 Found\r\n"
+statusLineFor HTTP_1_1 (Status 303) = B.byteString "HTTP/1.1 303 See Other\r\n"
+statusLineFor HTTP_1_1 (Status 304) = B.byteString "HTTP/1.1 304 Not Modified\r\n"
+statusLineFor HTTP_1_1 (Status 307) = B.byteString "HTTP/1.1 307 Temporary Redirect\r\n"
+statusLineFor HTTP_1_1 (Status 308) = B.byteString "HTTP/1.1 308 Permanent Redirect\r\n"
+statusLineFor HTTP_1_1 (Status 400) = B.byteString "HTTP/1.1 400 Bad Request\r\n"
+statusLineFor HTTP_1_1 (Status 401) = B.byteString "HTTP/1.1 401 Unauthorized\r\n"
+statusLineFor HTTP_1_1 (Status 403) = B.byteString "HTTP/1.1 403 Forbidden\r\n"
+statusLineFor HTTP_1_1 (Status 404) = B.byteString "HTTP/1.1 404 Not Found\r\n"
+statusLineFor HTTP_1_1 (Status 405) = B.byteString "HTTP/1.1 405 Method Not Allowed\r\n"
+statusLineFor HTTP_1_1 (Status 409) = B.byteString "HTTP/1.1 409 Conflict\r\n"
+statusLineFor HTTP_1_1 (Status 410) = B.byteString "HTTP/1.1 410 Gone\r\n"
+statusLineFor HTTP_1_1 (Status 413) = B.byteString "HTTP/1.1 413 Content Too Large\r\n"
+statusLineFor HTTP_1_1 (Status 429) = B.byteString "HTTP/1.1 429 Too Many Requests\r\n"
+statusLineFor HTTP_1_1 (Status 500) = B.byteString "HTTP/1.1 500 Internal Server Error\r\n"
+statusLineFor HTTP_1_1 (Status 502) = B.byteString "HTTP/1.1 502 Bad Gateway\r\n"
+statusLineFor HTTP_1_1 (Status 503) = B.byteString "HTTP/1.1 503 Service Unavailable\r\n"
+statusLineFor v s =
        B.byteString (versionToBytes v)
     <> spaceB
     <> statusCodeBytes s
     <> spaceB
     <> B.byteString (statusReason s)
-    <> crlfB
-    <> headersBuilder (augmentResponseHeaders s v h b)
     <> crlfB
 
 -- | Just the request head as a strict 'ByteString'.
@@ -176,11 +220,32 @@ statusCodeBytes (Status w)
       <> B.word8 (0x30 + fromIntegral (w `mod` 10))
   | otherwise = B.byteString (decimalBS (toInteger w))
 
--- | Decimal-to-ASCII without going through 'show' (which would round-
--- trip via 'String').
+-- | Decimal-to-ASCII without going through 'show' or 'String'.
+--
+-- We write the digits backwards into a 20-byte scratch buffer (max
+-- digits in a 'Word' on 64-bit), then slice. Used for
+-- @Content-Length@; not on the recv hot path so a small per-call
+-- allocation is fine, but the @show@-based round-trip we used to do
+-- showed up in @+RTS -s@ heap profiles.
 decimalBS :: Integer -> BS.ByteString
-decimalBS = BSC.pack . show
--- ^ NB: 'show' on 'Integer' is itself implemented in terms of an
--- internal divmod loop in @base@, not via @reads@, so this is fine for
--- the cold path (Content-Length is small) but we should swap it for a
--- direct decimal-into-builder if it ever shows up in a profile.
+decimalBS n
+  | n < 0 = BS.cons 0x2d (wordDecBS (fromInteger (negate n)))
+  | otherwise = wordDecBS (fromInteger n)
+{-# INLINE decimalBS #-}
+
+-- | Render a 'Word' in base-10 ASCII. Single-allocation pinned write.
+wordDecBS :: Word -> BS.ByteString
+wordDecBS 0 = BS.singleton 0x30
+wordDecBS w0 = unsafePerformIO $ do
+  let maxDigits = 20
+  fp <- BSI.mallocByteString maxDigits
+  startOff <- withForeignPtr fp $ \p -> writeBackwards p (maxDigits - 1) w0
+  pure $! BSI.fromForeignPtr fp startOff (maxDigits - startOff)
+  where
+    writeBackwards :: Ptr Word8 -> Int -> Word -> IO Int
+    writeBackwards _ off 0 = pure (off + 1)
+    writeBackwards p off w = do
+      let !d = fromIntegral (w `rem` 10) :: Word8
+      pokeByteOff p off (0x30 + d)
+      writeBackwards p (off - 1) (w `quot` 10)
+{-# INLINE wordDecBS #-}
