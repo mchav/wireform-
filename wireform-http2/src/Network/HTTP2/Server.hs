@@ -8,7 +8,7 @@ module Network.HTTP2.Server
   , runServerOnSocket
   ) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, ThreadId)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception (bracket, catch, SomeException, throwIO, finally)
@@ -32,6 +32,14 @@ data ServerConfig = ServerConfig
   , serverHost :: !String
   , serverPort :: !String
   , serverHandler :: Request -> (Response -> IO ()) -> IO ()
+  , serverForkConnection :: IO () -> IO ThreadId
+    -- ^ How to fork a new thread for each accepted connection.
+    -- Default: 'forkIO'.
+    -- Use 'forkOn n' for pinned-core scheduling,
+    -- or 'forkOS' for bound OS threads.
+  , serverForkStream :: IO () -> IO ThreadId
+    -- ^ How to fork a new thread for each concurrent stream handler.
+    -- Default: 'forkIO'.
   }
 
 defaultServerConfig :: ServerConfig
@@ -40,6 +48,8 @@ defaultServerConfig = ServerConfig
   , serverHost = "0.0.0.0"
   , serverPort = "8080"
   , serverHandler = \_ respond -> respond defaultResponse
+  , serverForkConnection = forkIO
+  , serverForkStream = forkIO
   }
 
 data Request = Request
@@ -93,7 +103,8 @@ acceptLoop :: ServerConfig -> Socket -> IO ()
 acceptLoop cfg listenSock = do
   (clientSock, _) <- NS.accept listenSock
   NS.setSocketOption clientSock NS.NoDelay 1
-  _ <- forkIO $ handleClient cfg clientSock `catch` (\(_ :: SomeException) -> NS.close clientSock)
+  _ <- serverForkConnection cfg $
+    handleClient cfg clientSock `catch` (\(_ :: SomeException) -> NS.close clientSock)
   acceptLoop cfg listenSock
 
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
@@ -169,8 +180,9 @@ handleFrame' cfg conn (Frame hdr payload) = case payload of
           Right headers -> do
             writeIORef (connLastStreamId conn) (fhStreamId hdr)
             let req = buildRequest (fhStreamId hdr) headers (testFlag (fhFlags hdr) flagEndStream)
-            _ <- forkIO $ serverHandler cfg req $ \resp ->
-              sendResponse conn (fhStreamId hdr) resp
+            _ <- serverForkStream cfg $
+              serverHandler cfg req $ \resp ->
+                sendResponse conn (fhStreamId hdr) resp
             pure ()
     | otherwise -> pure ()
 
