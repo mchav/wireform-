@@ -45,7 +45,6 @@ module Network.HTTP.Client
   ) where
 
 import Control.Exception (Exception, throwIO)
-import qualified Data.ByteString as BS
 import qualified Network.HTTP1.Client as H1
 import qualified Network.HTTP1.Parser as H1
 import qualified Network.HTTP1.Types as H1
@@ -184,7 +183,8 @@ sendRequest (Http2Client handle _) req = do
     { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
     , responseVersion = U.HTTP2
     , responseHeaders = Conv.fromHttp2Headers (H2.crResponseHeaders h2resp)
-    , responseBody    = case H2.crResponseBody h2resp of
-        bs | BS.null bs -> U.BodyEmpty
-           | otherwise  -> U.BodyBytes bs
+    , responseBody    = U.BodyStream (H2.crResponseBody h2resp)
+      -- The HTTP/2 body is a chunk pull-producer; the producer is
+      -- only valid for the lifetime of the surrounding 'withClient'
+      -- bracket -- consume the body before exiting.
     }

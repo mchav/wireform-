@@ -12,6 +12,7 @@ module Network.HTTP2.Client
     -- * Requests
   , sendRequest
   , sendRequestStreamId
+  , drainResponseBody
     -- * Errors
   , ClientStreamError (..)
     -- * Low-level pieces, re-used by TLS bring-up
@@ -76,9 +77,19 @@ data RequestBody
 data ClientResponse = ClientResponse
   { crStatus :: !Int
   , crResponseHeaders :: ![(ByteString, ByteString)]
-  , crResponseBody :: !ByteString
+  , crResponseBody :: !(IO (Maybe ByteString))
+    -- ^ Pull producer for the response body.  Yields successive DATA
+    -- frame payloads until the stream is half-closed by the peer, at
+    -- which point subsequent calls return 'Nothing'.  The producer
+    -- throws 'ClientStreamError' if the peer resets the stream or the
+    -- connection drops before the body completes.
+    --
+    -- The producer is only valid for the lifetime of the underlying
+    -- 'ClientHandle'; consume it before the surrounding
+    -- 'withConnection' bracket exits.  'drainResponseBody' offers a
+    -- convenience that materialises the whole body if you don't care
+    -- about streaming.
   }
-  deriving stock (Eq, Show)
 
 -- | Per-stream inbox the recv loop pushes into.
 data StreamInbox = StreamInbox
@@ -411,22 +422,50 @@ failOutstanding handle = do
 -- Sending
 ------------------------------------------------------------------------
 
--- | Send a request and synchronously wait for the full response.
--- Throws 'ClientStreamError' if the stream is reset or the connection
--- drops before the response completes.
+-- | Send a request and wait for the response headers.
+--
+-- Returns as soon as the peer's response HEADERS frame has been
+-- decoded; the response body streams in lazily via
+-- @'crResponseBody'@.  Throws 'ClientStreamError' if the stream is
+-- reset (or the connection drops) before the headers arrive.
 sendRequest :: ClientHandle -> ClientRequest -> IO ClientResponse
 sendRequest handle req = do
   (_sid, inbox) <- registerAndSend handle req
   headersResult <- takeMVar (siHeaders inbox)
   case headersResult of
     Left err -> throwIO err
-    Right rh -> do
-      body <- drainBody (siBody inbox)
-      pure ClientResponse
-        { crStatus = rhStatus rh
-        , crResponseHeaders = rhHeaders rh
-        , crResponseBody = body
-        }
+    Right rh -> pure ClientResponse
+      { crStatus = rhStatus rh
+      , crResponseHeaders = rhHeaders rh
+      , crResponseBody = nextBodyChunk (siBody inbox)
+      }
+
+-- | Pull one chunk of the response body.  Returns 'Nothing' once the
+-- stream has been half-closed by the peer; the end marker is
+-- re-queued so subsequent calls keep returning 'Nothing' instead of
+-- blocking.  Throws on stream reset.
+nextBodyChunk :: TBQueue BodyItem -> IO (Maybe ByteString)
+nextBodyChunk q = do
+  item <- atomically $ readTBQueue q
+  case item of
+    BodyChunk bs -> pure (Just bs)
+    BodyEnd -> do
+      atomically $ writeTBQueue q BodyEnd
+      pure Nothing
+    BodyError e -> throwIO e
+
+-- | Materialise an entire response body into a single 'ByteString'.
+-- Convenience wrapper for callers that don't care about streaming;
+-- equivalent to looping over 'crResponseBody' until it returns
+-- 'Nothing' and concatenating the chunks.
+drainResponseBody :: ClientResponse -> IO ByteString
+drainResponseBody resp = go []
+  where
+    go acc = do
+      mc <- crResponseBody resp
+      case mc of
+        Nothing -> pure $ BS.concat (reverse acc)
+        Just bs -> go (bs : acc)
 
 -- | Lower-level send that returns only the 'StreamId' (the response
 -- arrives via the recv loop). Provided for callers that want
@@ -583,15 +622,6 @@ peerMaxFrameSize conn = do
   -- (the protocol minimum / maximum are both well below 2^31).
   pure (fromIntegral (settingsMaxFrameSize s))
 
-drainBody :: TBQueue BodyItem -> IO ByteString
-drainBody q = go []
-  where
-    go acc = do
-      item <- atomically $ readTBQueue q
-      case item of
-        BodyChunk bs -> go (bs : acc)
-        BodyEnd      -> pure $ BS.concat (reverse acc)
-        BodyError e  -> throwIO e
 
 ------------------------------------------------------------------------
 -- Frame helpers
