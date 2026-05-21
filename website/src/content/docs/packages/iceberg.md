@@ -71,6 +71,30 @@ paths, and data file paths. Pass each data file path to `wireform-parquet`
 For catalog-backed tables, use `Iceberg.Catalog.REST.Client` or
 `Iceberg.Catalog.Glue` to load metadata before calling the scan planner.
 
+## Performance
+
+### Hot-path microbenchmarks: C kernel vs pure Haskell
+
+#### Deletion vector
+
+| Operation | C kernel | pure Haskell | Speedup |
+|-----------|----------|--------------|---------|
+| decode 1001 positions | 10.3 µs | 29.8 µs | 2.9x |
+| contains check | 12 ns | 1049 ns | 86x |
+
+#### Murmur3 hash
+
+| Input size | C kernel | pure Haskell | Speedup |
+|-----------|----------|--------------|---------|
+| 8 B | 11 ns | 21 ns | 1.9x |
+| 64 B | 24 ns | 116 ns | 4.8x |
+| 1 KiB | 401 ns | 1.58 µs | 3.9x |
+| 64 KiB | 26.2 µs | 98.7 µs | 3.8x |
+
+The C kernels for deletion-vector bitmap operations and Murmur3 hashing are 2-86x faster than the pure Haskell fallbacks. The contains check is the most dramatic: a single bitmap probe takes 12 ns in C vs over 1 µs in pure Haskell. Both kernels are used by default.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-iceberg/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

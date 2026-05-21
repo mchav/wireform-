@@ -102,6 +102,19 @@ infoLength val =
     _ -> Nothing
 ```
 
+## Performance
+
+### Encode/decode
+
+| Payload | encode | decode |
+|---------|--------|--------|
+| single-file metainfo | 960 ns | 1.93 µs |
+| 100-file metainfo | 32.1 µs | 83.1 µs |
+
+Bencode is a simple text-ish format (integers as decimal strings, byte strings length-prefixed). Encode is allocation-lean; decode is dominated by dictionary key sorting.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-bencode/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

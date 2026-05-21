@@ -104,6 +104,21 @@ processConcurrent bs queueDepth =
 For untyped pipelines, `NDJSON.Decode.decode` returns `Vector Aeson.Value`, and
 `NDJSON.Encode.encode` accepts the same.
 
+## Performance
+
+### wireform-ndjson vs aeson + manual line splitting
+
+| Operation | wireform-ndjson | aeson + lines |
+|-----------|----------------|---------------|
+| encode 10 rows | 5.0 µs | 4.8 µs |
+| encode 1000 rows | 545 µs | 504 µs |
+| decode 10 rows | 4.0 µs | 3.9 µs |
+| decode 1000 rows | 442 µs | 402 µs |
+
+Performance is within 10% of raw aeson with manual newline splitting. The SIMD newline scanner does not yet outperform `BS.split '\n'` on these input sizes, so both paths are essentially at parity. wireform-ndjson's value is in the typed API and proper line-framing semantics, not raw speed.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-ndjson/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Role |

@@ -81,6 +81,21 @@ When you need projection or filter pushdown without loading every column,
 use the predicate and aggregate modules together with the Arrow bridge or
 the cross-format `Wireform.Columnar` facade.
 
+## Performance
+
+### XXH64 hash: C kernel vs pure Haskell
+
+| Input size | C kernel | pure Haskell |
+|-----------|----------|--------------|
+| 8 B | 12 ns | 11 ns |
+| 64 B | 19 ns | 43 ns |
+| 1 KiB | 78 ns | 452 ns |
+| 64 KiB | 4.5 µs | 28.1 µs |
+
+The C kernel is 2-6x faster than the pure Haskell fallback from 64 bytes up. At 8 bytes the pure path wins slightly due to call overhead. The C path is the default when compiling with `-fvia-C` or the FFI is available. Page-level decode throughput depends heavily on encoding (PLAIN, DELTA_BINARY_PACKED, RLE/bitpacked) and compression codec.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-parquet/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

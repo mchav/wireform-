@@ -91,6 +91,19 @@ import FlatBuffers.QQ (fbs)
 wireform-gen flatbuffers -i schema.fbs -o src/Gen/
 ```
 
+## Performance
+
+### Encode/decode (zero-copy decode)
+
+| Shape | encode | decode |
+|-------|--------|--------|
+| Person table | 774 ns | 134 ns |
+| Person[100] vector | 94.6 µs | 70 ns |
+
+Like Cap'n Proto, FlatBuffers decode is a zero-copy cursor. The decode cost is near-constant because only the root table offset is resolved; field access is lazy pointer arithmetic into the original buffer. Encode is proportional to the number of fields and vector elements.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-flatbuffers/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

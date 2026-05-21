@@ -95,6 +95,19 @@ lookupName doc =
     _ -> Nothing
 ```
 
+## Performance
+
+### Encode/decode
+
+| Payload | encode | decode |
+|---------|--------|--------|
+| Person | 317 ns | 428 ns |
+| [Person] x 100 | 58.2 µs | 25.2 µs |
+
+Single-record round-trips under a microsecond. Batch decode is faster than encode because the BSON wire format allows scanning without full materialization of nested documents.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-bson/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

@@ -102,6 +102,19 @@ decodeStream bs = go bs
             Right (val, leftover) -> (Right val, leftover) : go leftover
 ```
 
+## Performance
+
+### wireform-cbor vs cborg
+
+| Operation | wireform-cbor | cborg | Winner |
+|-----------|--------------|-------|--------|
+| encode | 305 ns | 275 ns | cborg (1.1x) |
+| decode | 460 ns | 1214 ns | wireform (2.6x) |
+
+Encode performance is roughly even with cborg (the established Haskell CBOR library). Decode is 2.6x faster due to wireform's unboxed-sum decoder architecture.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-cbor/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

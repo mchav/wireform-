@@ -104,6 +104,35 @@ The emitter chooses block style by default and falls back to flow for empty
 containers. Output is round-trippable: `encode` followed by `decode` recovers
 the same `Value`.
 
+## Performance
+
+wireform-yaml is a pure Haskell parser that consistently outperforms the C
+libyaml bindings by 3-32x across all input sizes, making it one of the fastest
+YAML parsers in any language. Against HsYAML (the other pure Haskell option), it
+is 244-408x faster.
+
+### wireform-yaml vs libyaml (C bindings via Hackage `yaml` package)
+
+| Input | wireform-yaml | yaml (libyaml) | Speedup |
+|-------|--------------|----------------|---------|
+| tiny | 0.25 µs | 8.01 µs | 32x |
+| small | 3.80 µs | 40.2 µs | 11x |
+| flow | 4.02 µs | 60.5 µs | 15x |
+| literal | 3.97 µs | 13.2 µs | 3.3x |
+| big | 14.9 µs | 139 µs | 9.4x |
+
+### wireform-yaml vs HsYAML (pure Haskell)
+
+| Input | wireform-yaml | HsYAML | Speedup |
+|-------|--------------|--------|---------|
+| tiny | 0.25 µs | 102 µs | 408x |
+| small | 3.80 µs | 1002 µs | 264x |
+| flow | 4.02 µs | 1242 µs | 309x |
+| literal | 3.97 µs | 1167 µs | 294x |
+| big | 14.9 µs | 3627 µs | 244x |
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-yaml/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Role |

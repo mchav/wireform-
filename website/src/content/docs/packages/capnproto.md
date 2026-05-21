@@ -93,6 +93,19 @@ import CapnProto.QQ (capnp)
 wireform-gen capnp -i schema.capnp -o src/Gen/
 ```
 
+## Performance
+
+### Encode/decode (zero-copy decode)
+
+| Shape | encode | decode |
+|-------|--------|--------|
+| Person struct | 108 ns | 27 ns |
+| Person[100] | 8.5 µs | 27 ns |
+
+Decode is effectively O(1) regardless of payload size because Cap'n Proto uses zero-copy cursors -- only the outer envelope is resolved at decode time, and per-field reads happen lazily on access. Encode is proportional to message size.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-capnproto/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

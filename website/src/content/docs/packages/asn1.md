@@ -105,6 +105,19 @@ import ASN1.QQ (asn1)
 wireform-gen asn1 -i module.asn1 -o src/Gen/
 ```
 
+## Performance
+
+### DER encode/decode
+
+| Payload | encode | decode |
+|---------|--------|--------|
+| Subject | 141 ns | 115 ns |
+| [Subject] x 100 | 16.9 µs | 12.8 µs |
+
+Sub-microsecond per-record encode and decode. The DER codec is allocation-lean with unboxed field codecs.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-asn1/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

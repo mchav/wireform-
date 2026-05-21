@@ -73,6 +73,19 @@ import Ion.QQ (isl)
 This parses the ISL definition and generates a Haskell record with `ToIon`
 and `FromIon` instances that match the schema field names and types.
 
+## Performance
+
+### Encode/decode (binary Ion)
+
+| Payload | encode | decode |
+|---------|--------|--------|
+| Person | 324 ns | 410 ns |
+| [Person] x 100 | 38.5 µs | 41.7 µs |
+
+Sub-microsecond single-record performance. Batch operations scale linearly.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-ion/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

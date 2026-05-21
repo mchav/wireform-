@@ -117,6 +117,22 @@ readTimeseries bs = do
   pure vec
 ```
 
+## Performance
+
+### Encode/decode across representative shapes
+
+| Shape | encode | decode |
+|-------|--------|--------|
+| int | 76 ns | 64 ns |
+| string | 84 ns | 78 ns |
+| bytes (1 KB) | 127 ns | 62 ns |
+| Person struct | 262 ns | 456 ns |
+| list[Person] x 100 | 6.7 µs | 10.7 µs |
+
+Scalar encode/decode runs under 130 ns. Struct payloads are sub-microsecond. The 100-element list benchmark shows ~67 ns per element on encode and ~107 ns per element on decode, competitive with Fory implementations in other languages.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-fory/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

@@ -114,6 +114,19 @@ import Thrift.QQ (thrift)
 wireform-gen thrift -i service.thrift -o src/Gen/
 ```
 
+## Performance
+
+### Binary vs Compact wire protocol
+
+| Payload | Binary | Compact |
+|---------|--------|---------|
+| encode Person | 266 ns | 290 ns |
+| encode [Person] x 100 | 24.5 µs | 27.9 µs |
+
+Binary protocol is slightly faster (~8-12%) than Compact across payload sizes. Both are fast enough that the encode cost is negligible relative to network I/O for typical RPC payloads.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-thrift/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

@@ -106,6 +106,19 @@ printEachRow bs =
 Each callback receives a `Vector Text` of fields for one row. Combine with
 `fromCSVRow` inside the callback when you want typed values row by row.
 
+## Performance
+
+### Encode/decode
+
+| Rows | encode | decode |
+|------|--------|--------|
+| 10 | 5.3 µs | 10.7 µs |
+| 1000 | 640 µs | 1.40 ms |
+
+Encode runs at roughly 640 ns per row at scale. Decode is about 2x slower due to field-type parsing.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-csv/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Role |

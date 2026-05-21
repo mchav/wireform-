@@ -83,6 +83,19 @@ bridgeFromJson :: Value -> E.Value
 bridgeFromJson json = fromJSON json
 ```
 
+## Performance
+
+### Encode/decode (text format)
+
+| Payload | encode | decode |
+|---------|--------|--------|
+| Person | 813 ns | 1.99 µs |
+| [Person] x 100 | 84.6 µs | 236 µs |
+
+EDN is a text format, so encode/decode is naturally slower than binary formats. Single-record encode is still sub-microsecond; decode is under 2 µs.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-edn/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |

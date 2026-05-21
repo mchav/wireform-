@@ -277,3 +277,29 @@ access.
 `wireform-proto` passes 2,675 / 2,675 tests in the official protobuf
 conformance suite, covering proto2 and proto3 binary encoding, proto3 JSON,
 and text format.
+
+## Performance
+
+wireform-proto is 3-7x faster than proto-lens on both encode and decode. The
+speedup comes from unboxed sums in the decoder, direct-write encoding, and
+inlined field codecs.
+
+### Decode: wireform-proto vs proto-lens
+
+| Message shape | wireform-proto | proto-lens | Speedup |
+|---------------|---------------|------------|---------|
+| Small | 21 ns | 76 ns | 3.7x |
+| Medium | 57 ns | 198 ns | 3.5x |
+| Nested | 49 ns | 141 ns | 2.9x |
+| Repeated | 715 ns | 2107 ns | 2.9x |
+
+### Encode: wireform-proto vs proto-lens
+
+| Message shape | wireform-proto | proto-lens | Speedup |
+|---------------|---------------|------------|---------|
+| Small | 26 ns | 146 ns | 5.7x |
+| Medium | 54 ns | 272 ns | 5.0x |
+| Nested | 45 ns | 321 ns | 7.1x |
+| Repeated | 656 ns | 2701 ns | 4.1x |
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-proto/bench-results/` for raw data.

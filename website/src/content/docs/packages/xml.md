@@ -133,6 +133,28 @@ work: add `deriving Generic` and declare empty `instance ToXML Book` and
 For schema-driven types, use the `[xsd| ... |]` quasiquoter or
 `wireform-gen xsd` to generate modules from XSD at compile time or in CI.
 
+## Performance
+
+### DOM parse (medium document, ~25 KB)
+
+| Library | Time | vs wireform typed DOM |
+|---------|------|-----------------------|
+| hexml (C/pugixml bindings) | 29 µs | 6.7x faster |
+| wireform-xml FastDOM | 54 µs | 3.6x faster |
+| wireform-xml typed DOM | 194 µs | baseline |
+| xml-conduit | 1610 µs | 8.3x slower |
+
+### SAX parse (medium document)
+
+| Library | Time |
+|---------|------|
+| xeno | 45 µs |
+| wireform-xml | 149 µs |
+
+wireform-xml's FastDOM is within 2x of hexml (which wraps the C pugixml library) and 30x faster than xml-conduit. The typed DOM trades some speed for a richer, fully-materialised tree. SAX parsing is 3.3x slower than xeno's hand-tuned pull parser, but wireform-xml's SAX path builds a richer event stream with namespace handling.
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-xml/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Role |

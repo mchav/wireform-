@@ -96,6 +96,20 @@ dynamicRoundTrip val =
     Right out -> Right out
 ```
 
+## Performance
+
+wireform-msgpack is ~4x faster than the Hackage `msgpack` package on both
+encode and decode for a typical record payload.
+
+### wireform-msgpack vs Hackage `msgpack`
+
+| Operation | wireform-msgpack | msgpack | Speedup |
+|-----------|-----------------|---------|---------|
+| encode | 292 ns | 1191 ns | 4.1x |
+| decode | 391 ns | 1702 ns | 4.3x |
+
+Criterion, GHC 9.8.4, Apple Silicon. See `wireform-msgpack/bench-results/` for raw data.
+
 ## Notable modules
 
 | Module | Purpose |
