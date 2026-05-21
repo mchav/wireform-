@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 module Protocol.Generated.ComprehensiveSpec (tests) where
 
@@ -19,97 +20,97 @@ import GHC.Generics (Generic)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- Core messages
-import qualified Kafka.Protocol.Generated.MetadataRequest as MetadataReq
-import qualified Kafka.Protocol.Generated.MetadataResponse as MetadataResp
-import qualified Kafka.Protocol.Generated.ApiVersionsRequest as ApiVersionsReq
-import qualified Kafka.Protocol.Generated.ApiVersionsResponse as ApiVersionsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MetadataReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataResponse as MetadataResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as ApiVersionsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsResponse as ApiVersionsResp
 
 -- Coordinator
-import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FindCoordinatorReq
-import qualified Kafka.Protocol.Generated.FindCoordinatorResponse as FindCoordinatorResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest as FindCoordinatorReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse as FindCoordinatorResp
 
 -- Offsets
-import qualified Kafka.Protocol.Generated.ListOffsetsRequest as ListOffsetsReq
-import qualified Kafka.Protocol.Generated.ListOffsetsResponse as ListOffsetsResp
-import qualified Kafka.Protocol.Generated.OffsetCommitRequest as OffsetCommitReq
-import qualified Kafka.Protocol.Generated.OffsetCommitResponse as OffsetCommitResp
-import qualified Kafka.Protocol.Generated.OffsetFetchRequest as OffsetFetchReq
-import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OffsetFetchResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsRequest as ListOffsetsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsResponse as ListOffsetsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitRequest as OffsetCommitReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitResponse as OffsetCommitResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest as OffsetFetchReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse as OffsetFetchResp
 
 -- Consumer Groups
-import qualified Kafka.Protocol.Generated.JoinGroupRequest as JoinGroupReq
-import qualified Kafka.Protocol.Generated.JoinGroupResponse as JoinGroupResp
-import qualified Kafka.Protocol.Generated.HeartbeatRequest as HeartbeatReq
-import qualified Kafka.Protocol.Generated.HeartbeatResponse as HeartbeatResp
-import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LeaveGroupReq
-import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LeaveGroupResp
-import qualified Kafka.Protocol.Generated.SyncGroupRequest as SyncGroupReq
-import qualified Kafka.Protocol.Generated.SyncGroupResponse as SyncGroupResp
-import qualified Kafka.Protocol.Generated.DescribeGroupsRequest as DescribeGroupsReq
-import qualified Kafka.Protocol.Generated.DescribeGroupsResponse as DescribeGroupsResp
-import qualified Kafka.Protocol.Generated.ListGroupsRequest as ListGroupsReq
-import qualified Kafka.Protocol.Generated.ListGroupsResponse as ListGroupsResp
-import qualified Kafka.Protocol.Generated.DeleteGroupsRequest as DeleteGroupsReq
-import qualified Kafka.Protocol.Generated.DeleteGroupsResponse as DeleteGroupsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.JoinGroupRequest as JoinGroupReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.JoinGroupResponse as JoinGroupResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatRequest as HeartbeatReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatResponse as HeartbeatResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupRequest as LeaveGroupReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupResponse as LeaveGroupResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SyncGroupRequest as SyncGroupReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SyncGroupResponse as SyncGroupResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeGroupsRequest as DescribeGroupsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeGroupsResponse as DescribeGroupsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListGroupsRequest as ListGroupsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListGroupsResponse as ListGroupsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteGroupsRequest as DeleteGroupsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteGroupsResponse as DeleteGroupsResp
 
 -- SASL
-import qualified Kafka.Protocol.Generated.SaslHandshakeRequest as SaslHandshakeReq
-import qualified Kafka.Protocol.Generated.SaslHandshakeResponse as SaslHandshakeResp
-import qualified Kafka.Protocol.Generated.SaslAuthenticateRequest as SaslAuthenticateReq
-import qualified Kafka.Protocol.Generated.SaslAuthenticateResponse as SaslAuthenticateResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeRequest as SaslHandshakeReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeResponse as SaslHandshakeResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateRequest as SaslAuthenticateReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateResponse as SaslAuthenticateResp
 
 -- Admin - Topics
-import qualified Kafka.Protocol.Generated.CreateTopicsRequest as CreateTopicsReq
-import qualified Kafka.Protocol.Generated.CreateTopicsResponse as CreateTopicsResp
-import qualified Kafka.Protocol.Generated.DeleteTopicsRequest as DeleteTopicsReq
-import qualified Kafka.Protocol.Generated.DeleteTopicsResponse as DeleteTopicsResp
-import qualified Kafka.Protocol.Generated.CreatePartitionsRequest as CreatePartitionsReq
-import qualified Kafka.Protocol.Generated.CreatePartitionsResponse as CreatePartitionsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreateTopicsRequest as CreateTopicsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreateTopicsResponse as CreateTopicsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteTopicsRequest as DeleteTopicsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteTopicsResponse as DeleteTopicsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreatePartitionsRequest as CreatePartitionsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreatePartitionsResponse as CreatePartitionsResp
 
 -- Admin - Configs
-import qualified Kafka.Protocol.Generated.DescribeConfigsRequest as DescribeConfigsReq
-import qualified Kafka.Protocol.Generated.DescribeConfigsResponse as DescribeConfigsResp
-import qualified Kafka.Protocol.Generated.AlterConfigsRequest as AlterConfigsReq
-import qualified Kafka.Protocol.Generated.AlterConfigsResponse as AlterConfigsResp
-import qualified Kafka.Protocol.Generated.IncrementalAlterConfigsRequest as IncrementalAlterConfigsReq
-import qualified Kafka.Protocol.Generated.IncrementalAlterConfigsResponse as IncrementalAlterConfigsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeConfigsRequest as DescribeConfigsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeConfigsResponse as DescribeConfigsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AlterConfigsRequest as AlterConfigsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AlterConfigsResponse as AlterConfigsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.IncrementalAlterConfigsRequest as IncrementalAlterConfigsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.IncrementalAlterConfigsResponse as IncrementalAlterConfigsResp
 
 -- ACLs
-import qualified Kafka.Protocol.Generated.DescribeAclsRequest as DescribeAclsReq
-import qualified Kafka.Protocol.Generated.DescribeAclsResponse as DescribeAclsResp
-import qualified Kafka.Protocol.Generated.CreateAclsRequest as CreateAclsReq
-import qualified Kafka.Protocol.Generated.CreateAclsResponse as CreateAclsResp
-import qualified Kafka.Protocol.Generated.DeleteAclsRequest as DeleteAclsReq
-import qualified Kafka.Protocol.Generated.DeleteAclsResponse as DeleteAclsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeAclsRequest as DescribeAclsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeAclsResponse as DescribeAclsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreateAclsRequest as CreateAclsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.CreateAclsResponse as CreateAclsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteAclsRequest as DeleteAclsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteAclsResponse as DeleteAclsResp
 
 -- Transactions
-import qualified Kafka.Protocol.Generated.InitProducerIdRequest as InitProducerIdReq
-import qualified Kafka.Protocol.Generated.InitProducerIdResponse as InitProducerIdResp
-import qualified Kafka.Protocol.Generated.AddPartitionsToTxnRequest as AddPartitionsToTxnReq
-import qualified Kafka.Protocol.Generated.AddPartitionsToTxnResponse as AddPartitionsToTxnResp
-import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AddOffsetsToTxnReq
-import qualified Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AddOffsetsToTxnResp
-import qualified Kafka.Protocol.Generated.EndTxnRequest as EndTxnReq
-import qualified Kafka.Protocol.Generated.EndTxnResponse as EndTxnResp
-import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TxnOffsetCommitReq
-import qualified Kafka.Protocol.Generated.TxnOffsetCommitResponse as TxnOffsetCommitResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.InitProducerIdRequest as InitProducerIdReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.InitProducerIdResponse as InitProducerIdResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddPartitionsToTxnRequest as AddPartitionsToTxnReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddPartitionsToTxnResponse as AddPartitionsToTxnResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AddOffsetsToTxnReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AddOffsetsToTxnResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.EndTxnRequest as EndTxnReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.EndTxnResponse as EndTxnResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.TxnOffsetCommitRequest as TxnOffsetCommitReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.TxnOffsetCommitResponse as TxnOffsetCommitResp
 
 -- Records/Data
-import qualified Kafka.Protocol.Generated.DeleteRecordsRequest as DeleteRecordsReq
-import qualified Kafka.Protocol.Generated.DeleteRecordsResponse as DeleteRecordsResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteRecordsRequest as DeleteRecordsReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DeleteRecordsResponse as DeleteRecordsResp
 
 -- Internal protocols (may have no versions but still need to be handled)
-import qualified Kafka.Protocol.Generated.StopReplicaRequest as StopReplicaReq
-import qualified Kafka.Protocol.Generated.StopReplicaResponse as StopReplicaResp
-import qualified Kafka.Protocol.Generated.UpdateMetadataRequest as UpdateMetadataReq
-import qualified Kafka.Protocol.Generated.UpdateMetadataResponse as UpdateMetadataResp
-import qualified Kafka.Protocol.Generated.ControlledShutdownRequest as ControlledShutdownReq
-import qualified Kafka.Protocol.Generated.ControlledShutdownResponse as ControlledShutdownResp
-import qualified Kafka.Protocol.Generated.LeaderAndIsrRequest as LeaderAndIsrReq
-import qualified Kafka.Protocol.Generated.LeaderAndIsrResponse as LeaderAndIsrResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.StopReplicaRequest as StopReplicaReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.StopReplicaResponse as StopReplicaResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.UpdateMetadataRequest as UpdateMetadataReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.UpdateMetadataResponse as UpdateMetadataResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ControlledShutdownRequest as ControlledShutdownReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ControlledShutdownResponse as ControlledShutdownResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaderAndIsrRequest as LeaderAndIsrReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaderAndIsrResponse as LeaderAndIsrResp
 
 -- | A test vector from the Rust generator
 data TestVector = TestVector

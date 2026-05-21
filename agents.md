@@ -68,6 +68,7 @@ for the schema and the regen workflow.
 | ------------- | ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
 | `wireform-proto` | `gen-wkt` executable, sources in `wireform-proto/wkt-codegen/` | (manual: `cabal run gen-wkt`)                | `wireform-proto/src/Proto/Google/Protobuf/`         |
 | `wireform-kafka` | `wireform-kafka:exe:kafka-codegen`, sources in `wireform-kafka/codegen/Kafka/Protocol/Codegen/` | `scripts/regen-kafka-protocol.sh`             | `wireform-kafka/src/Kafka/Protocol/Generated/`      |
+| `wireform-kafka-protocol` | (same `kafka-codegen` output tree) | `scripts/regen-kafka-protocol.sh` | `wireform-kafka/src/Kafka/Protocol/Generated/` (sources); `wireform-kafka-protocol/wireform-kafka-protocol.cabal` lists exposed modules |
 
 #### Kafka-specific notes
 
@@ -86,6 +87,15 @@ When importing a newer Kafka schema set, also reconcile the cabal
 `exposed-modules` list in the same change: every regen-produced `.hs`
 should appear there, and every entry there should map to a regen-produced
 `.hs`.
+
+Wire types live in the separate package `wireform-kafka-protocol`
+(same `wireform-kafka/src` tree via `hs-source-dirs`). `wireform-kafka`
+depends on it but does **not** use `reexported-modules` (keeps Haddock
+clean). Client code in `wireform-kafka` imports protocol modules with
+`PackageImports` (`import qualified "wireform-kafka-protocol" …`) so GHC
+does not compile duplicate copies of `Kafka.Protocol.Generated.*`.
+After a regen, run `scripts/split-kafka-protocol-package.py` if module
+membership changed, or update `wireform-kafka-protocol.cabal` manually.
 
 ## Performance
 
@@ -281,7 +291,8 @@ existing `<Format>.Derive` and adapt the value-mapping calls".
 | `wireform-xml`        | `XML.Class`, `XML.Encode`, `XML.Decode`, `XML.Derive`, `XML.Value`, `XML.Schema`, `XML.SAX`, `XML.DSL`, `XML.QQ`, `XML.FastDOM`, `XML.Generic`, `XML.Incremental`, `XML.Path`, `XML.XSLT`, `XML.CodeGen`                                                                                                                                                                                                                                                                                                                                        | XML 1.0 + SAX / DOM / XSLT / XPath. |
 | `wireform-html`       | `HTML.Value`, `HTML.Parse`, `HTML.Encode`, `HTML.Class`, `HTML.Derive`, `HTML.TagId`, `HTML.DOM`, `HTML.Selector`, `HTML.Rewriter`                                                                                                                                                                                                                                                                                                                                                                                                              | HTML5 parser + DOM + CSS selectors + streaming rewriter. Has its own benchmarks (`bench/HTMLBench.hs`, `bench/ProfileRewriter.hs`). |
 | `wireform-grpc`       | `Network.GRPC.{Client,Server,Common,*}` — see cabal for the full list                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | **Vendored from [`grapesy`](https://github.com/well-typed/grapesy) by Edsko de Vries.** Modules under `Network.GRPC.Util.*` are intentionally `other-modules` (private). Do not match wireform's `<Format>.*` shape; do not retrofit module headers or codegen-generated style here without coordinating an upstream sync. |
-| `wireform-kafka`      | `Kafka` (umbrella), `Kafka.Protocol.{Primitives,Message,Wire.*,ApiVersions,VersionNegotiation,RecordBatch,CRC32C,RecordBatchWire}`, `Kafka.Protocol.Generated.*` (one module per API key), `Kafka.Network.*`, `Kafka.Compression.*`, `Kafka.Client.*`, `Kafka.Telemetry.*`. When wire types are split into a dedicated `wireform-kafka-protocol` target, add `wireform-kafka-protocol` to `build-depends` and import `Kafka.Protocol.*` from there — do **not** use Cabal `reexported-modules` on the client library (it duplicates the full Generated surface in Haddock). Codegen: `wireform-kafka-codegen` + `kafka-codegen` exe; regen via `scripts/regen-kafka-protocol.sh`. | Pure-Haskell native client for the Apache Kafka wire protocol (TCP / TLS / SASL / compression / version negotiation / transactions / consumer groups / pipelining / OTel). Has its own C FFI (`cbits/{crc32c,snappy_ffi,lz4_ffi}.c`). Tests that need a live broker are gated by `WIREFORM_KAFKA_BROKER=host:port`; `Protocol.Generated.{Comprehensive,KnownGood}` are gated on a `test-vectors.json` fixture (silent skip when absent). |
+| `wireform-kafka`      | `Kafka` (umbrella), `Kafka.Protocol.{RecordBatch,RecordBatchWire,CRC32C,ApiVersions,VersionNegotiation}`, `Kafka.Network.{Connection, Auth.{Plain,SCRAM,SASL}}`, `Kafka.Compression.{Gzip,Lz4,Snappy,Zstd,Types}`, `Kafka.Client.{Producer,Consumer,AdminClient,Transaction,Metadata,Pipeline,Internal.*}`, `Kafka.Telemetry.OpenTelemetry`. | Pure-Haskell native client for the Apache Kafka wire protocol (TCP / TLS / SASL / compression / version negotiation / transactions / consumer groups / pipelining / OTel). Depends on `wireform-kafka-protocol` for wire/generated types (import explicitly; not re-exported). Codegen: `wireform-kafka-codegen` + `scripts/regen-kafka-protocol.sh`. C FFI in `cbits/{crc32c,snappy_ffi,lz4_ffi}.c`. Tests gated by `WIREFORM_KAFKA_BROKER=host:port`; `Protocol.Generated.{Comprehensive,KnownGood}` need `test-vectors.json`. |
+| `wireform-kafka-protocol` | `Kafka.Protocol.{Primitives,Message,Wire.*}`, `Kafka.Protocol.Generated.*` (one module per API key). | Generated request/response records and wire codec. Sources under `wireform-kafka/src`; separate package so Haddock and linking stay unambiguous. Regen via `scripts/regen-kafka-protocol.sh`; keep `wireform-kafka-protocol.cabal` `exposed-modules` in sync. |
 
 ### `wireform-proto` — bigger surface, historical layout
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Round-trip tests for the direct-poke Wire codec
 -- (`Kafka.Protocol.Wire` + `Kafka.Protocol.Wire.Primitives`).
@@ -19,9 +20,9 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire as W
-import qualified Kafka.Protocol.Wire.Primitives as WP
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives as WP
 
 tests :: TestTree
 tests = testGroup "Wire codec"

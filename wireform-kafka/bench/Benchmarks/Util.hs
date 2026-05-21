@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Benchmarks.Util
@@ -24,10 +25,10 @@ import Data.ByteString (ByteString)
 import qualified Data.Vector as V
 import qualified Data.Text as T
 
-import qualified Kafka.Protocol.Generated.ProduceRequest as Produce
-import qualified Kafka.Protocol.Generated.FetchRequest as Fetch
-import qualified Kafka.Protocol.Generated.MetadataRequest as Metadata
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ProduceRequest as Produce
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FetchRequest as Fetch
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as Metadata
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 -- -----------------------------------------------------------------------------
 -- Test Data Generation

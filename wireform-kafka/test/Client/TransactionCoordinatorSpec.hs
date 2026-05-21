@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Client.TransactionCoordinatorSpec
@@ -35,10 +36,10 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Kafka.Client.Consumer (TopicPartition(..))
 import Kafka.Client.Internal.TransactionCoordinator
-import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
-import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Main test tree
 transactionCoordinatorSpec :: TestTree

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Round-trip tests for the protocol primitives via the 'Wire'
 -- codec — exercises the per-primitive Wire helpers.
@@ -7,9 +8,9 @@ module Protocol.PrimitivesSpec (tests) where
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Kafka.Protocol.Primitives
-import qualified Kafka.Protocol.Wire as W
-import Kafka.Protocol.Wire.Primitives ()
+import "wireform-kafka-protocol" Kafka.Protocol.Primitives
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
+import "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives ()
 import Test.Tasty
 import Test.Tasty.Hedgehog
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Internal.Heartbeat
@@ -54,10 +55,10 @@ import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
-import qualified Kafka.Protocol.Generated.HeartbeatRequest as HBReq
-import qualified Kafka.Protocol.Generated.HeartbeatResponse as HBResp
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatRequest as HBReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatResponse as HBResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | State for the heartbeat thread
 data HeartbeatState = HeartbeatState

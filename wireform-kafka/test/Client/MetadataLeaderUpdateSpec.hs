@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Tests for the KIP-466 client-side leader-cache patch
 -- (@updatePartitionLeader@) added to @Kafka.Client.Metadata@.
@@ -12,7 +13,7 @@ import Test.Tasty.HUnit (testCase, (@?=))
 
 import qualified Kafka.Client.Metadata as Meta
 import Kafka.Network.Connection (BrokerAddress (..))
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 tests :: TestTree
 tests = testGroup "Metadata: KIP-466 leader cache patch"

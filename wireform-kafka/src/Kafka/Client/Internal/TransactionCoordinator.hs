@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module: Kafka.Client.Internal.TransactionCoordinator
@@ -43,22 +44,22 @@ import Kafka.Client.Consumer (TopicPartition(..))
 import qualified Kafka.Client.Internal.Request as Req
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Network.Connection as Conn
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 -- Import generated protocol messages
-import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
-import qualified Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
-import qualified Kafka.Protocol.Generated.InitProducerIdRequest as IPReq
-import qualified Kafka.Protocol.Generated.InitProducerIdResponse as IPResp
-import qualified Kafka.Protocol.Generated.AddPartitionsToTxnRequest as APTReq
-import qualified Kafka.Protocol.Generated.AddPartitionsToTxnResponse as APTResp
-import qualified Kafka.Protocol.Generated.EndTxnRequest as ETReq
-import qualified Kafka.Protocol.Generated.EndTxnResponse as ETResp
-import qualified Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
-import qualified Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AOTResp
-import qualified Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
-import qualified Kafka.Protocol.Generated.TxnOffsetCommitResponse as TOCResp
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.InitProducerIdRequest as IPReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.InitProducerIdResponse as IPResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddPartitionsToTxnRequest as APTReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddPartitionsToTxnResponse as APTResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.EndTxnRequest as ETReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.EndTxnResponse as ETResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddOffsetsToTxnRequest as AOTReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.AddOffsetsToTxnResponse as AOTResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.TxnOffsetCommitRequest as TOCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.TxnOffsetCommitResponse as TOCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Transaction coordinator information
 data TransactionCoordinator = TransactionCoordinator

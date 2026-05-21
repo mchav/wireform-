@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Protocol.VersionNegotiation
@@ -74,7 +75,7 @@ import Kafka.Protocol.ApiVersions
   , queryApiVersion
   , selectVersion
   )
-import qualified Kafka.Protocol.Message as Msg
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Message as Msg
 
 ----------------------------------------------------------------------
 -- Negotiation lifecycle

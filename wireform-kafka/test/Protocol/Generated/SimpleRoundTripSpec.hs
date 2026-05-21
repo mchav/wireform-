@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Round-trip tests for the protocol primitives that the codegen
 -- composes into message codecs (KafkaString, KafkaArray, ...) via
@@ -10,9 +11,9 @@ import Data.Int (Int32)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire as W
-import qualified Kafka.Protocol.Wire.Primitives as WP
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives as WP
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.Hedgehog

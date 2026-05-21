@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Main
@@ -45,32 +46,32 @@ import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int16)
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified System.IO as IO
 
-import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
-import qualified Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
-import qualified Kafka.Protocol.Generated.HeartbeatRequest as HBReq
-import qualified Kafka.Protocol.Generated.HeartbeatResponse as HBResp
-import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
-import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
-import qualified Kafka.Protocol.Generated.MetadataRequest as MReq
-import qualified Kafka.Protocol.Generated.MetadataResponse as MResp
-import qualified Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
-import qualified Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
-import qualified Kafka.Protocol.Generated.SaslAuthenticateRequest as SAReq
-import qualified Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
-import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
-import qualified Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
-import qualified Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
-import qualified Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
-import qualified Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
-import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatRequest as HBReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatResponse as HBResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataResponse as MResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateRequest as SAReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 ------------------------------------------------------------------------
 -- Vector record

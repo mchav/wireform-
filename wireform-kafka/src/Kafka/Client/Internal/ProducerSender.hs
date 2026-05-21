@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Internal.ProducerSender
@@ -85,12 +86,12 @@ import Kafka.Compression.Types (CompressionCodec (NoCompression))
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.VersionNegotiation as VN
-import qualified Kafka.Protocol.Generated.ProduceRequest as PR
-import qualified Kafka.Protocol.Generated.ProduceResponse as PResp
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ProduceRequest as PR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ProduceResponse as PResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Retry configuration for failed sends. Mirrors librdkafka's
 -- @retries@ + @retry.backoff.ms@ + @retry.backoff.max.ms@ +

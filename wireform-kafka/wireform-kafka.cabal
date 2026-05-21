@@ -6,11 +6,9 @@ description:
     Pure-Haskell native client for the Apache Kafka wire protocol.
     Includes:
     .
-    * @Kafka.Protocol.*@: hand-tuned wire primitives (varints, compact
-      strings, tagged fields), record-batch framing, hardware-accelerated
-      CRC32C and a complete @Kafka.Protocol.Generated.*@ surface emitted
-      from the upstream JSON message definitions by the
-      @kafka-codegen@ executable.
+    * @Kafka.Protocol.{RecordBatch,CRC32C,ApiVersions}@: record-batch
+      framing and version negotiation (wire types are in the separate
+      @wireform-kafka-protocol@ package).
     * @Kafka.Network.*@: TCP / TLS / SASL (PLAIN, SCRAM-SHA-256/512).
     * @Kafka.Compression.*@: gzip, snappy, lz4, zstd record-batch codecs.
     * @Kafka.Client.*@: high-level Producer / Consumer / AdminClient /
