@@ -1,0 +1,88 @@
+name:                hermes
+version:             0.1.0.0
+github:              "MercuryTechnologies/hermes"
+license:             BSD-3-Clause
+author:              "Ian Duncan"
+maintainer:          "ian@mercury.com"
+copyright:           "2024 Mercury Technologies"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/semantic-http#readme>
+
+default-extensions:
+- DataKinds
+- DeriveGeneric
+- DerivingStrategies
+- FlexibleInstances
+- GADTs
+- GeneralizedNewtypeDeriving
+- LambdaCase
+- NumericUnderscores
+- OverloadedStrings
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+- TypeFamilies
+
+dependencies:
+- base >= 4.7 && < 5
+- binary
+- bitvec
+- charset
+- deepseq
+- flatparse
+- parser-combinators
+- bytestring
+- case-insensitive
+- containers
+- foldl
+- hashable
+- memory
+- wireform-core
+- mono-traversable
+- MonadRandom
+- unordered-containers
+- validation
+- symbolize
+- template-haskell
+- text
+- text-short
+- time
+- transformers
+- validation
+- vector
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+  # SIMD-accelerated URL percent-decoder. Built with the rest of
+  # the library so it's available wherever hermes is.
+  c-sources:
+  - cbits/url_decode.c
+  cc-options: -O3
+
+# Tests and benchmarks live in the wireform tree (see
+# wireform-http's test:wireform-http-test). The hpack stanzas
+# previously here were carried over from upstream hermes and
+# referenced module layouts that no longer exist after we
+# pruned mimalloc / mason / the WAI server.

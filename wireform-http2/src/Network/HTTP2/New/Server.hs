@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | HTTP/2 server entry point.
 module Network.HTTP2.New.Server
     ( ServerConfig(..)
@@ -23,7 +25,7 @@ import Network.Socket hiding (recv)
 import Network.Socket.ByteString (recv, sendAll)
 import System.IO (hPutStrLn, stderr)
 
-import Network.HTTP2.Frame
+import "http2" Network.HTTP2.Frame
 import qualified Network.HPACK as HPACK
 
 import Network.HTTP2.New.HPACK

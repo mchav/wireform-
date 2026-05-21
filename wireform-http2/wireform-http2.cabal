@@ -23,38 +23,84 @@ common warnings
 
 library
     import:           warnings
-    ghc-options:      -threaded -rtsopts
+    -- This package is intended to replace the upstream @http2@ +
+    -- @http-semantics@ + @hpack@ libraries for wireform clients and
+    -- servers.  Nothing under @exposed-modules@ depends on those
+    -- upstream packages; everything is reimplemented locally under
+    -- @Network.HTTP2.{Frame,HPACK,Types,Connection,Client,Server,...}@.
     exposed-modules:
-      Network.HTTP2.New
-      Network.HTTP2.New.Types
-      Network.HTTP2.New.Flow
-      Network.HTTP2.New.Stream
-      Network.HTTP2.New.Output
-      Network.HTTP2.New.HPACK
-      Network.HTTP2.New.Frame
-      Network.HTTP2.New.Sender
-      Network.HTTP2.New.Receiver
-      Network.HTTP2.New.Server
-      Network.HTTP2.New.Client
+      Network.HTTP2.Client
+      Network.HTTP2.Server
+      Network.HTTP2.TLS
+      Network.HTTP2.Transport
+      Network.HTTP2.Connection
+      Network.HTTP2.HPACK
+      Network.HTTP2.Frame
+      Network.HTTP2.Types
+      Network.HTTP2.RateLimit
+    other-modules:
+      Network.HTTP2.Internal.BitOps
+      Network.HTTP2.Internal.RecvBuffer
+      Network.HTTP2.Frame.Decode
+      Network.HTTP2.Frame.Encode
+      Network.HTTP2.Frame.Types
+      Network.HTTP2.HPACK.Decode
+      Network.HTTP2.HPACK.Encode
+      Network.HTTP2.HPACK.Huffman
+      Network.HTTP2.HPACK.Table
+      Network.HTTP2.HPACK.Types
+      Network.HTTP2.Connection.FlowControl
+      Network.HTTP2.Connection.Settings
+      Network.HTTP2.Connection.StreamTable
+      Network.HTTP2.Engine.Client
+      Network.HTTP2.Engine.Run.Client
+      Network.HTTP2.Engine.Run.Server
+      Network.HTTP2.Engine.Server
+      Network.HTTP2.Engine.Settings
+      Network.HTTP2.Engine.TLS.Client
+      Network.HTTP2.Engine.TLS.Server
+      Network.HTTP2.Engine.Types
+      Network.HTTP2.TLS.Client
+      Network.HTTP2.TLS.Server
     hs-source-dirs:   src
+    c-sources:        cbits/hpack_huffman.c
+    include-dirs:     cbits
     default-language: GHC2021
+    default-extensions:
+      DeriveAnyClass
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+      StrictData
     ghc-options:
       -O2
       -funfolding-use-threshold=200
     build-depends:
         base                >= 4.17 && < 5
+      , async
+      , array
       , bytestring
+      , case-insensitive
       , containers
+      , crypton-x509
+      , crypton-x509-store
+      , data-default
+      , deepseq
+      , hashable
+      , http-types
+      , iproute
       , network
       , network-byte-order
+      , network-control
       , network-run
       , stm
-      , http2
-      , hpack
-      , http-semantics
-      , http-types
-      , case-insensitive
+      , text
       , time-manager
+      , tls
+      , unordered-containers
+      , utf8-string
+      , vector
+      , wireform-core
 
 executable wireform-http2-server
     import:           warnings
@@ -63,9 +109,8 @@ executable wireform-http2-server
     default-language: GHC2021
     build-depends:
         base
-      , wireform-http2
       , bytestring
-      , network
+      , wireform-http2
 
 test-suite h2spec
     import:           warnings
@@ -76,7 +121,8 @@ test-suite h2spec
     ghc-options:      -threaded -rtsopts
     build-depends:
         base
-      , wireform-http2
-      , process
       , bytestring
+      , directory
       , network
+      , process
+      , wireform-http2

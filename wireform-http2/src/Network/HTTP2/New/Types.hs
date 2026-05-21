@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 module Network.HTTP2.New.Types where
 
@@ -14,7 +15,7 @@ import Data.IntMap.Strict (IntMap)
 import Network.Socket (SockAddr)
 
 import qualified Network.HPACK as HPACK
-import Network.HTTP2.Frame (StreamId, WindowSize, ErrorCode(..), SettingsList)
+import "http2" Network.HTTP2.Frame (StreamId, WindowSize, ErrorCode(..), SettingsList)
 
 ----------------------------------------------------------------
 -- Basic HTTP/2 primitives

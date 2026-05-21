@@ -1,5 +1,6 @@
 packages:
   .
+  hermes/
   wireform-core/
   wireform-derive/
   wireform-columnar-core/
