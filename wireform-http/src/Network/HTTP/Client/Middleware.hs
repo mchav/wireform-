@@ -69,6 +69,7 @@ import Control.Exception (Exception, throwIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -121,48 +122,12 @@ withAuth :: AuthScheme -> Middleware m
 withAuth scheme inner = Transport $ \req ->
   let val = case scheme of
         Bearer t     -> "Bearer " <> t
-        Basic u p    -> "Basic "  <> base64 (u <> ":" <> p)
+        Basic u p    -> "Basic "  <> B64.encode (u <> ":" <> p)
         RawAuth raw  -> raw
   in sendRaw inner req
        { Network.HTTP.Client.Request.headers =
            H.insertHeader H.hAuthorization val (Network.HTTP.Client.Request.headers req)
        }
-
--- Minimal Base64 encoder (RFC 4648). Kept here so we don't pull in
--- another dep.
-base64 :: ByteString -> ByteString
-base64 = BS.pack . go . BS.unpack
-  where
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    char i = BS.index alphabet (fromIntegral i)
-    pad = 0x3D
-    go (a:b:c:rest) =
-      let n = (fromIntegral a `unsafeShiftL` 16)
-            + (fromIntegral b `unsafeShiftL` 8)
-            + (fromIntegral c :: Int)
-      in [ char ((n `div` 262144) `mod` 64)
-         , char ((n `div` 4096)   `mod` 64)
-         , char ((n `div` 64)     `mod` 64)
-         , char (n                `mod` 64)
-         ] <> go rest
-    go [a, b] =
-      let n = (fromIntegral a `unsafeShiftL` 16)
-            + (fromIntegral b `unsafeShiftL` 8 :: Int)
-      in [ char ((n `div` 262144) `mod` 64)
-         , char ((n `div` 4096)   `mod` 64)
-         , char ((n `div` 64)     `mod` 64)
-         , pad
-         ]
-    go [a] =
-      let n = (fromIntegral a `unsafeShiftL` 16 :: Int)
-      in [ char ((n `div` 262144) `mod` 64)
-         , char ((n `div` 4096)   `mod` 64)
-         , pad, pad
-         ]
-    go [] = []
-
-    unsafeShiftL :: Int -> Int -> Int
-    unsafeShiftL x i = x * (2 ^ i)
 
 -- ---------------------------------------------------------------------------
 -- Duration / Timeout

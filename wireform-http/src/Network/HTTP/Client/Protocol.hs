@@ -6,6 +6,14 @@ populates 'HTTP1_1' and ignores 'ProtocolHints'. They exist so
 callers that /do/ care can branch on the negotiated version (HTTP\/2
 push, HTTP\/3 0-RTT) by pattern matching, without forcing every
 transport to implement those features.
+
+The 'PushPromise' payload references the request and the raw
+response types from "Network.HTTP.Client.Request" and
+"Network.HTTP.Client.Response", which would induce a mutual-import
+cycle if we declared them all in one module. To keep the dependency
+graph clean, 'PushPromise' is parameterised over its request and
+response types and re-exported with the concrete types in
+"Network.HTTP.Client.Protocol.Pushed".
 -}
 module Network.HTTP.Client.Protocol
   ( ProtocolInfo (..)
@@ -20,24 +28,31 @@ module Network.HTTP.Client.Protocol
   , defaultCapabilities
   ) where
 
+import Data.Void (Void)
 import Data.Word (Word32, Word64)
 
 -- | The version actually negotiated for a particular response.
-data ProtocolInfo
+-- 'Http2Info' / 'Http3Info' are parameterised over the request and
+-- raw-response types so the protocol module can declare them
+-- without depending on the higher-level Request \/ Response
+-- modules; concrete aliases live in "Network.HTTP.Client" and
+-- 'Network.HTTP.Client.Send'.
+data ProtocolInfo req raw
   = HTTP1_1
-  | HTTP2 !Http2Info
+  | HTTP2 !(Http2Info req raw)
   | HTTP3 !Http3Info
-  deriving stock (Show)
 
-data Http2Info = Http2Info
+instance Show (ProtocolInfo req raw) where
+  show HTTP1_1     = "HTTP1_1"
+  show (HTTP2 _)   = "HTTP2 <Http2Info>"
+  show (HTTP3 i)   = "HTTP3 " <> show i
+
+data Http2Info req raw = Http2Info
   { h2StreamId     :: !Word32
-  , h2PushPromises :: !(IO [PushPromise])
+  , h2PushPromises :: !(IO [PushPromise req raw])
     -- ^ Realised lazily: forcing this returns whatever push promises
     -- the server has announced on this stream so far.
   }
-
-instance Show Http2Info where
-  show i = "Http2Info { h2StreamId = " <> show (h2StreamId i) <> " }"
 
 data Http3Info = Http3Info
   { h3StreamId     :: !Word64
@@ -45,17 +60,14 @@ data Http3Info = Http3Info
   }
   deriving stock (Show)
 
--- | An HTTP\/2 push promise. The promised request is the request the
--- server claims it's about to fulfil; 'pushFulfil' blocks until the
--- response actually arrives.
-data PushPromise = PushPromise
-  { pushPromisedRequest :: !()  -- placeholder; will be Request Void
-                               -- once mutual recursion is broken out.
-  , pushFulfil          :: !(IO ())  -- placeholder
+-- | An HTTP\/2 push promise. 'pushPromisedRequest' is the request
+-- the server claims it's about to fulfil (always a no-body 'req
+-- Void' value); 'pushFulfil' blocks until the response actually
+-- arrives.
+data PushPromise req raw = PushPromise
+  { pushPromisedRequest :: !(req Void)
+  , pushFulfil          :: !(IO raw)
   }
-
-instance Show PushPromise where
-  show _ = "<PushPromise>"
 
 -- | Per-request advisory hints. Transports that don't understand a
 -- given hint ignore it.

@@ -22,14 +22,19 @@ import qualified Network.HTTP.Types.Status as S
 
 import Network.HTTP.Client.BodyStream (Popper, popperBytes)
 import Network.HTTP.Client.Protocol (ProtocolInfo)
+import Network.HTTP.Client.Request (Request)
 
 -- | A raw wire response. The body is a 'Popper'; the recipient is
 -- responsible for draining it before its scoped lifetime ends.
+-- 'protocolInfo' carries any HTTP\/2 push promises announced on the
+-- stream (when the negotiated version supports them); the
+-- 'PushPromise' payload references both 'Request' and 'RawResponse'
+-- itself, so the parameterisation closes the loop here.
 data RawResponse = RawResponse
   { statusCode    :: !S.Status
   , headers       :: !H.Headers
   , bodyPopper    :: !Popper
-  , protocolInfo  :: !ProtocolInfo
+  , protocolInfo  :: !(ProtocolInfo Request RawResponse)
   }
 
 instance Show RawResponse where
@@ -50,7 +55,7 @@ data Response a = Response
   { responseStatus  :: !S.Status
   , responseHeaders :: !H.Headers
   , responseBody    :: !a
-  , responseProtocolInfo :: !ProtocolInfo
+  , responseProtocolInfo :: !(ProtocolInfo Request RawResponse)
   }
   deriving stock (Functor)
 

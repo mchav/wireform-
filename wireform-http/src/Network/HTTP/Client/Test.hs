@@ -73,6 +73,7 @@ module Network.HTTP.Client.Test
   , hasURIPrefix
   , hasURIPath
   , hasURIPathPrefix
+  , hasPathMatches
   , hasQueryParam
   , hasQueryParamPresent
   , hasHeaderEq
@@ -609,6 +610,33 @@ pathPart :: T.Text -> T.Text
 pathPart t =
   let withoutQuery = T.takeWhile (/= '?') t
   in T.takeWhile (/= '#') withoutQuery
+
+-- | Match a path against a capture-style template, e.g.
+-- @"\/users\/:id\/posts\/:postId"@. Segments starting with @:@ in
+-- the template match any single non-@\/@ segment in the actual
+-- path. Segments without @:@ must match literally. The number of
+-- segments must agree (a missing trailing slash on either side is
+-- tolerated).
+--
+-- The matcher does /not/ bind the captured values; it just tests
+-- shape. Pair with 'hasURI' or 'hasURIPath' if you also want the
+-- exact captured ids, or with 'bodyMatches' for more elaborate
+-- assertions.
+hasPathMatches :: T.Text -> RequestMatcher
+hasPathMatches template = RequestMatcher
+  { matcherDescription = "path matches template " <> template
+  , matcherPredicate   = \r -> pathTemplateMatches template (pathPart (rrURI r))
+  }
+
+pathTemplateMatches :: T.Text -> T.Text -> Bool
+pathTemplateMatches tpl actual =
+  let segs t = filter (not . T.null) (T.splitOn "/" t)
+      ts = segs tpl
+      as = segs actual
+      goSeg t a = case T.uncons t of
+        Just (':', _) -> not (T.null a)         -- capture: any non-empty segment
+        _             -> t == a
+  in length ts == length as && and (zipWith goSeg ts as)
 
 -- | Match a specific @?name=value@ query parameter.
 hasQueryParam :: T.Text -> T.Text -> RequestMatcher

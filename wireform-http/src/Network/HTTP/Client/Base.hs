@@ -108,7 +108,7 @@ baseTransport versionRange = Transport $ \req -> do
         -- HTTP/2 responses.
       }
 
-lowToProtocol :: LV.Version -> ProtocolInfo
+lowToProtocol :: LV.Version -> ProtocolInfo WReq.Request RawResponse
 lowToProtocol LV.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
 lowToProtocol _        = HTTP1_1
 

@@ -24,9 +24,12 @@ module Network.HTTP.Client.Decoder
   , bytesDecoder
   , asEither
   , withErrorStatus
+    -- * Re-exports for the @\<!\>@ operator
+  , Alt (..)
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Functor.Alt (Alt (..))
 
 import Network.HTTP.Types.Status (Status)
 import qualified Network.HTTP.Types.Status as S
@@ -46,6 +49,13 @@ data ResponseDecoder a = ResponseDecoder
 
 instance Functor ResponseDecoder where
   fmap f d = d { decodeBody = \s m b -> f <$> decodeBody d s m b }
+
+-- | The @\<!\>@ operator the spec calls for: combines two decoders so
+-- their accept lists union and dispatch goes to whichever side
+-- claims the response 'Content-Type'. Implemented in terms of
+-- 'orDecoder', which is the type-class-free version.
+instance Alt ResponseDecoder where
+  (<!>) = orDecoder
 
 -- | The standard smart constructor: accept the tag's media type with
 -- quality 1.0 and decode the body via the tag's 'Decode' instance.
