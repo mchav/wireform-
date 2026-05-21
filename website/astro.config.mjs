@@ -85,7 +85,6 @@ export default defineConfig({
           items: [
             { label: 'Getting started', slug: 'guides/getting-started' },
             { label: 'Format catalogue', slug: 'guides/formats' },
-            { label: 'Columnar roadmap', slug: 'guides/columnar-roadmap' },
           ],
         },
         {
