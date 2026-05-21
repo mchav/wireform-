@@ -121,6 +121,7 @@ test-suite wireform-http2-test
       Test.FrameEdgeCases
       Test.HPACK
       Test.HPACKEdgeCases
+      Test.HPACKConcurrency
       Test.Connection
       Test.Defensive
     hs-source-dirs:   test

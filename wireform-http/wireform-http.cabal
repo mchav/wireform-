@@ -152,6 +152,7 @@ test-suite wireform-http-test
   main-is: Main.hs
   other-modules:
     Test.Client
+    Test.ConcurrencyStress
     Test.Http1Integration
     Test.Http1EdgeCases
     Test.Http2Integration

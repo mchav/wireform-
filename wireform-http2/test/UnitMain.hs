@@ -6,6 +6,7 @@ import qualified Test.Frame
 import qualified Test.FrameEdgeCases
 import qualified Test.HPACK
 import qualified Test.HPACKEdgeCases
+import qualified Test.HPACKConcurrency
 import qualified Test.Connection
 import qualified Test.Defensive
 
@@ -15,6 +16,7 @@ main = defaultMain $ testGroup "wireform-http2"
   , Test.FrameEdgeCases.tests
   , Test.HPACK.tests
   , Test.HPACKEdgeCases.tests
+  , Test.HPACKConcurrency.tests
   , Test.Connection.tests
   , Test.Defensive.tests
   ]
