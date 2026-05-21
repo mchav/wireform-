@@ -11,6 +11,7 @@ Conventions:
 * 'knownSize', when present, lets the encoder set @Content-Length@
   and lets middleware make informed buffering decisions.
 -}
+{-# LANGUAGE BangPatterns #-}
 module Network.HTTP.Wire.BodyStream
   ( BodyStream (..)
   , Popper
@@ -19,12 +20,17 @@ module Network.HTTP.Wire.BodyStream
   , popperFromList
   , streamFromStrict
   , streamFromList
+    -- * Consuming
   , drainPopper
   , drainBodyStream
+  , popperBytes
+  , bodyStreamBytes
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BSL
 import Data.Int (Int64)
 import Data.IORef (atomicModifyIORef', newIORef)
 
@@ -82,17 +88,45 @@ streamFromList chunks = do
     , knownSize = Just (fromIntegral (sum (map BS.length cleaned)))
     }
 
--- | Drain a popper to a strict 'ByteString'. Stops at the first
--- empty-chunk return.
-drainPopper :: Popper -> IO ByteString
-drainPopper p = go []
+-- | Pull from a popper until EOF and __discard__ the bytes.
+--
+-- This is the right operation when you've decided you don't want a
+-- response body — for example, when a retry middleware skips a
+-- failed attempt's body so the connection can advance, or when the
+-- caller chose 'DiscardBody'. Each chunk is dropped as soon as the
+-- loop reads it; nothing is accumulated in memory.
+--
+-- If you /do/ want the bytes, use 'popperBytes' (which makes the
+-- materialisation explicit at the call site).
+drainPopper :: Popper -> IO ()
+drainPopper p = go
   where
-    go acc = do
+    go = do
+      chunk <- p
+      if BS.null chunk then pure () else go
+
+-- | 'drainPopper' for a 'BodyStream'.
+drainBodyStream :: BodyStream -> IO ()
+drainBodyStream = drainPopper . pull
+
+-- | Pull from a popper until EOF and collect the bytes into a single
+-- strict 'ByteString'.
+--
+-- Chunks are accumulated through a 'BB.Builder' so each append is
+-- O(1); the final 'BSL.toStrict' is the only allocating copy. Use
+-- this when you genuinely need the full body in memory (decoding
+-- JSON, recording a VCR cassette, asserting against a recorded
+-- request). For "just drain to release the connection", use
+-- 'drainPopper' instead — it doesn't allocate.
+popperBytes :: Popper -> IO ByteString
+popperBytes p = BSL.toStrict . BB.toLazyByteString <$> go mempty
+  where
+    go !acc = do
       chunk <- p
       if BS.null chunk
-        then pure $! BS.concat (reverse acc)
-        else go (chunk : acc)
+        then pure acc
+        else go (acc <> BB.byteString chunk)
 
--- | Drain a 'BodyStream'. Equivalent to @drainPopper . pull@.
-drainBodyStream :: BodyStream -> IO ByteString
-drainBodyStream = drainPopper . pull
+-- | 'popperBytes' for a 'BodyStream'.
+bodyStreamBytes :: BodyStream -> IO ByteString
+bodyStreamBytes = popperBytes . pull

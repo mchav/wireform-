@@ -24,7 +24,6 @@ module Network.HTTP.Wire.Body
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import Data.Kind (Type)
 import Data.Void (Void, absurd)
 
@@ -44,8 +43,7 @@ instance Body BodyStream where
 instance Body ByteString where
   toBodyStream = streamFromStrict
 
--- | Strict alias for a no-body request. The 'Body' instance produces
--- 'emptyStream'.
+-- | A no-body request: produces 'emptyStream'.
 instance Body () where
   toBodyStream () = pure emptyStream
 
@@ -74,13 +72,14 @@ class ResponseBody r where
   type Consumed r :: Type
   consumeBody :: S.Status -> H.Headers -> Popper -> IO (Consumed r)
 
--- | Marker type for strict response body consumption: drain the popper
--- and concatenate. Use as @send transport request decoder \@StrictBody@.
+-- | Marker type for strict response body consumption: materialise
+-- the popper into a single 'ByteString'. Use as
+-- @send transport request decoder \@StrictBody@.
 data StrictBody = StrictBody
 
 instance ResponseBody StrictBody where
   type Consumed StrictBody = ByteString
-  consumeBody _status _headers = drainPopper
+  consumeBody _status _headers = popperBytes
 
 -- | Marker type that passes the popper through untouched. The caller
 -- is responsible for draining it before the transport's scoped
@@ -94,7 +93,7 @@ instance ResponseBody StreamingBody where
 -- | Default response-body mode: strict.
 instance ResponseBody ByteString where
   type Consumed ByteString = ByteString
-  consumeBody _status _headers = drainPopper
+  consumeBody _status _headers = popperBytes
 
 -- | Plain function-style streaming: returns the popper.
 --
@@ -109,8 +108,4 @@ data DiscardBody = DiscardBody
 
 instance ResponseBody DiscardBody where
   type Consumed DiscardBody = ()
-  consumeBody _status _headers p = drainAndDiscard
-    where
-      drainAndDiscard = do
-        chunk <- p
-        if BS.null chunk then pure () else drainAndDiscard
+  consumeBody _status _headers = drainPopper

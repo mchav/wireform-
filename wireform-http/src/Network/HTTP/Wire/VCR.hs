@@ -206,11 +206,11 @@ instance Exception CassetteError
 -- downstream callee still sees a popper.
 withRecording :: IORef [Interaction] -> Middleware IO
 withRecording ref inner = Transport $ \req -> do
-  reqBody <- drainBodyStream (WReq.body req)
+  reqBody <- bodyStreamBytes (WReq.body req)
   rebuilt <- streamFromStrict reqBody
   let req' = req { WReq.body = rebuilt }
   raw <- sendRaw inner req'
-  respBody <- drainPopper (bodyPopper raw)
+  respBody <- popperBytes (bodyPopper raw)
   let recRq = toRecordedRequest req' reqBody
       recRs = toRecordedResponse raw respBody
   modifyIORef' ref (<> [Interaction recRq recRs])
@@ -281,7 +281,7 @@ replayTransport c strat = do
 
 toRecRequestSnapshot :: WReq.Request BodyStream -> IO RecordedRequest
 toRecRequestSnapshot req = do
-  bodyBs <- drainBodyStream (WReq.body req)
+  bodyBs <- bodyStreamBytes (WReq.body req)
   pure (toRecordedRequest req bodyBs)
 
 toRawResponse :: RecordedResponse -> IO RawResponse
@@ -300,7 +300,7 @@ sequential :: MatchStrategy
 sequential = MatchStrategy "sequential" $ \req interactions -> case interactions of
   [] -> pure Nothing
   (i : rest) -> do
-    bodyBs <- drainBodyStream (WReq.body req)
+    bodyBs <- bodyStreamBytes (WReq.body req)
     let rec' = toRecordedRequest req bodyBs
     if rrqMethod (interactionRequest i) == rrqMethod rec'
        && rrqURI (interactionRequest i) == rrqURI rec'
@@ -311,7 +311,7 @@ sequential = MatchStrategy "sequential" $ \req interactions -> case interactions
 -- removed from the remaining list.
 byMethodAndURI :: MatchStrategy
 byMethodAndURI = MatchStrategy "byMethodAndURI" $ \req interactions -> do
-  bodyBs <- drainBodyStream (WReq.body req)
+  bodyBs <- bodyStreamBytes (WReq.body req)
   let rec' = toRecordedRequest req bodyBs
       pred_ i =
         rrqMethod (interactionRequest i) == rrqMethod rec'
@@ -322,7 +322,7 @@ byMethodAndURI = MatchStrategy "byMethodAndURI" $ \req interactions -> do
 -- header names match in value.
 byMethodURIAndHeaders :: [H.HeaderName] -> MatchStrategy
 byMethodURIAndHeaders names = MatchStrategy "byMethodURIAndHeaders" $ \req interactions -> do
-  bodyBs <- drainBodyStream (WReq.body req)
+  bodyBs <- bodyStreamBytes (WReq.body req)
   let rec' = toRecordedRequest req bodyBs
       headersOf rs =
         [ (TE.encodeUtf8 (rhName h), TE.encodeUtf8 (rhValue h))
@@ -344,7 +344,7 @@ customStrategy
   -> (RecordedRequest -> Interaction -> Bool)
   -> MatchStrategy
 customStrategy nm p = MatchStrategy nm $ \req interactions -> do
-  bodyBs <- drainBodyStream (WReq.body req)
+  bodyBs <- bodyStreamBytes (WReq.body req)
   let rec' = toRecordedRequest req bodyBs
   pure (extractFirst (p rec') interactions)
 

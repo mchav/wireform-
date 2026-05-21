@@ -204,7 +204,7 @@ stubRoutes
   :: [(RequestMatcher, Request BodyStream -> IO RawResponse)]
   -> Transport IO
 stubRoutes rs = Transport $ \req -> do
-  reqBody <- drainBodyStream (body req)
+  reqBody <- bodyStreamBytes (body req)
   bsRebuilt <- streamFromStrict reqBody
   let reReq = req { body = bsRebuilt }
       rec' = mkRecordedRequest req reqBody
@@ -255,7 +255,7 @@ on_ m r = Route m (\_ _ -> r)
 -- inspect them and downstream code still sees a streamable body.
 mockAPI :: MockAPI -> Transport IO
 mockAPI api = Transport $ \req -> do
-  reqBody <- drainBodyStream (body req)
+  reqBody <- bodyStreamBytes (body req)
   rebuilt <- streamFromStrict reqBody
   let reReq = req { body = rebuilt }
       rec'  = mkRecordedRequest req reqBody
@@ -376,7 +376,7 @@ stateMachine :: StateMachine s -> IO (Transport IO)
 stateMachine sm = do
   var <- newTVarIO (initialState sm)
   pure $ Transport $ \req -> do
-    bs <- drainBodyStream (body req)
+    bs <- bodyStreamBytes (body req)
     rebuilt <- streamFromStrict bs
     let req' = req { body = rebuilt }
     s <- readTVarIO var
@@ -439,7 +439,7 @@ withExpectations :: [MockExpectation] -> (Transport IO -> IO a) -> IO a
 withExpectations es action = do
   counters <- mapM (\_ -> newTVarIO (0 :: Int)) es
   let transport = Transport $ \req -> do
-        bs <- drainBodyStream (body req)
+        bs <- bodyStreamBytes (body req)
         rebuilt <- streamFromStrict bs
         let req' = req { body = rebuilt }
             rec' = mkRecordedRequest req bs
@@ -496,11 +496,11 @@ withRequestLog :: Transport IO -> IO (Transport IO, RequestLog)
 withRequestLog inner = do
   ref <- newIORef []
   let wrapped = Transport $ \req -> do
-        reqBody <- drainBodyStream (body req)
+        reqBody <- bodyStreamBytes (body req)
         bs <- streamFromStrict reqBody
         let req' = req { body = bs }
         raw <- sendRaw inner req'
-        respBody <- drainPopper (bodyPopper raw)
+        respBody <- popperBytes (bodyPopper raw)
         let rec' = mkRecordedRequest req' reqBody
             res' = RecordedResponse (statusCode raw) (Network.HTTP.Wire.Response.headers raw) respBody
         atomicModifyIORef' ref $ \xs -> (xs <> [(rec', res')], ())

@@ -30,11 +30,11 @@ import Control.Exception (Exception, throwIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 
 import qualified Network.HTTP.Client       as LowLevel
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as LB
-import qualified Network.HTTP.Types.Header  as LH
 import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
@@ -97,18 +97,16 @@ baseTransport versionRange = Transport $ \req -> do
 
   LowLevel.withClient lowCfg $ \client -> do
     resp <- LowLevel.sendRequest client lowReq
-    drained <- drainLowLevelBody (Msg.responseBody resp)
-    newPopper <- popperFromStrict drained
+    materialised <- lowLevelBodyBytes (Msg.responseBody resp)
+    newPopper <- popperFromStrict materialised
     pure RawResponse
       { statusCode   = Msg.responseStatus resp
       , headers      = Msg.responseHeaders resp
       , bodyPopper   = newPopper
-      , protocolInfo = case Msg.responseVersion resp of
-          -- HTTP/2 metadata: the low-level path doesn't surface the
-          -- stream id yet, so we emit a placeholder Http2Info.
-          v | v == LowLevel.clientNegotiatedVersion client ->
-                lowToProtocol v
-          v -> lowToProtocol v
+      , protocolInfo = lowToProtocol (Msg.responseVersion resp)
+        -- The low-level path doesn't surface HTTP/2 stream ids yet,
+        -- so 'lowToProtocol' emits a placeholder Http2Info for
+        -- HTTP/2 responses.
       }
 
 lowToProtocol :: LV.Version -> ProtocolInfo
@@ -123,27 +121,19 @@ lowToProtocol _        = HTTP1_1
 toLowLevelBody :: BodyStream -> IO LB.Body
 toLowLevelBody bs = case knownSize bs of
   Just 0  -> pure LB.BodyEmpty
-  Just _  -> do
-    fully <- drainPopper (pull bs)
-    pure (LB.BodyBytes fully)
+  Just _  -> LB.BodyBytes <$> bodyStreamBytes bs
   Nothing -> pure $ LB.BodyStream $ do
     chunk <- pull bs
     if BS.null chunk then pure Nothing else pure (Just chunk)
 
-drainLowLevelBody :: LB.Body -> IO ByteString
-drainLowLevelBody = \case
+-- | Materialise a low-level 'LB.Body' into a strict 'ByteString'.
+--
+-- Streaming bodies are adapted to the wireform 'Popper' shape
+-- (empty 'ByteString' signalling EOF instead of 'Nothing') and then
+-- folded with 'popperBytes', which uses a builder for O(1)
+-- per-chunk appends.
+lowLevelBodyBytes :: LB.Body -> IO ByteString
+lowLevelBodyBytes = \case
   LB.BodyEmpty    -> pure BS.empty
   LB.BodyBytes bs -> pure bs
-  LB.BodyStream p -> drainStream p
-  where
-    drainStream p = go []
-      where
-        go acc = p >>= \case
-          Nothing  -> pure $! BS.concat (reverse acc)
-          Just bs
-            | BS.null bs -> go acc
-            | otherwise  -> go (bs : acc)
-
--- Mute unused-import warnings on LH if no headers are referenced.
-_unused :: LH.HeaderName
-_unused = LH.hContentType
+  LB.BodyStream p -> popperBytes (fromMaybe BS.empty <$> p)

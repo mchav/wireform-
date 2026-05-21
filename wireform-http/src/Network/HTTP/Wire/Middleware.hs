@@ -225,7 +225,7 @@ exponentialBackoff n = defaultRetryPolicy { maxAttempts = n }
 -- /below/ a layer that handles their streaming semantics.
 withRetry :: RetryPolicy -> Middleware IO
 withRetry policy inner = Transport $ \req -> do
-  buffered <- drainBodyStream (body req)
+  buffered <- bodyStreamBytes (body req)
   let attempt n delay = do
         bs <- streamFromStrict buffered
         let attemptReq = req { Network.HTTP.Wire.Request.body = bs }
@@ -235,9 +235,10 @@ withRetry policy inner = Transport $ \req -> do
             threadDelay (toMicros delay)
             let next = scaleDuration delay (backoffFactor policy)
                                             (maxDelay policy)
-            -- Drain and drop the body so the connection / mock can
-            -- progress.
-            _ <- drainPopper (bodyPopper raw)
+            -- Flush the body of this failed attempt so the
+            -- connection / mock can advance, but don't allocate a
+            -- ByteString for bytes we won't look at.
+            drainPopper (bodyPopper raw)
             attempt (n + 1) next
           else pure raw
   attempt 1 (initialDelay policy)

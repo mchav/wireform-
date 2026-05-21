@@ -16,12 +16,11 @@ module Network.HTTP.Wire.Response
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire.BodyStream (Popper)
+import Network.HTTP.Wire.BodyStream (Popper, popperBytes)
 import Network.HTTP.Wire.Protocol (ProtocolInfo)
 
 -- | A raw wire response. The body is a 'Popper'; the recipient is
@@ -40,17 +39,11 @@ instance Show RawResponse where
         <> " <body>"
         <> " " <> show (protocolInfo r)
 
--- | Drain the raw response body to a strict 'ByteString'. Convenience
--- for tests and assertions. After this returns, the popper is
--- exhausted.
+-- | Materialise the raw response body to a strict 'ByteString'.
+-- Convenience for tests and assertions. After this returns, the
+-- popper is exhausted.
 rawResponseBytes :: RawResponse -> IO ByteString
-rawResponseBytes r = go []
-  where
-    go acc = do
-      chunk <- bodyPopper r
-      if BS.null chunk
-        then pure $! BS.concat (reverse acc)
-        else go (chunk : acc)
+rawResponseBytes = popperBytes . bodyPopper
 
 -- | The value 'send' returns. Functor in the body type.
 data Response a = Response

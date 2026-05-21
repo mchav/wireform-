@@ -74,7 +74,7 @@ sendIO
   -> IO (Response a)
 sendIO transport req decoder = do
   raw <- sendRawIO transport req (acceptable decoder)
-  bodyBytes <- drainPopper (bodyPopper raw)
+  bodyBytes <- popperBytes (bodyPopper raw)
   let ct = contentTypeOf (Resp.headers raw)
   case decodeBody decoder (statusCode raw) ct bodyBytes of
     Right a  -> pure Response
