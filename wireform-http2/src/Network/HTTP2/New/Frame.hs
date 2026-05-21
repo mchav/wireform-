@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PackageImports #-}
 -- | Frame-level I/O: parse frames from the socket, encode frames to the
 -- write buffer.  Re-uses Network.HTTP2.Frame for the wire format.
 module Network.HTTP2.New.Frame
@@ -25,7 +26,7 @@ import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (plusPtr, castPtr)
 import Network.ByteOrder (Buffer)
 
-import Network.HTTP2.Frame hiding (EncodeInfo)
+import "http2" Network.HTTP2.Frame hiding (EncodeInfo)
 import Network.HTTP2.New.Types (Config(..))
 
 ----------------------------------------------------------------

@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Sender loop.
 --
 -- Design goals vs the existing http2 library:
@@ -30,8 +32,8 @@ import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (plusPtr, castPtr)
 import Network.ByteOrder (bufferIO)
 
-import Network.HTTP2.Frame hiding (EncodeInfo)
-import qualified Network.HTTP2.Frame as F
+import "http2" Network.HTTP2.Frame hiding (EncodeInfo)
+import qualified "http2" Network.HTTP2.Frame as F
 
 import Network.HTTP2.New.Frame
 import Network.HTTP2.New.HPACK

@@ -1,8 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | Standalone HTTP/2 server for manual testing with h2spec or curl.
 module Main where
 
 import qualified Data.ByteString.Char8 as BC
-import Network.Socket
+import Network.Socket hiding (Stream)
+import qualified Network.Socket as Sock
 import System.IO (hPutStrLn, stderr)
 
 import Network.HTTP2.New
@@ -11,7 +13,7 @@ import Network.HTTP2.New.Types
 main :: IO ()
 main = do
     let hints = defaultHints
-            { addrFlags = [AI_PASSIVE], addrSocketType = Stream }
+            { addrFlags = [AI_PASSIVE], addrSocketType = Sock.Stream }
     addrs <- getAddrInfo (Just hints) (Just "0.0.0.0") (Just "8080")
     let addr = head addrs
     sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)

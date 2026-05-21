@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Receiver loop: reads frames from the socket and dispatches them.
 -- Correctly handles all RFC 9113 (HTTP/2) frame types and error cases.
 module Network.HTTP2.New.Receiver
@@ -23,7 +25,7 @@ import Network.HTTP.Semantics.Token
     ( tokenMethod, tokenStatus, tokenScheme, tokenPath
     , tokenConnection, tokenTE
     )
-import Network.HTTP2.Frame
+import "http2" Network.HTTP2.Frame
 
 import Network.HTTP2.New.HPACK
 import Network.HTTP2.New.Frame
