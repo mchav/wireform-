@@ -121,7 +121,6 @@ export default defineConfig({
                 { label: 'MessagePack', slug: 'packages/msgpack' },
                 { label: 'BSON', slug: 'packages/bson' },
                 { label: 'Ion', slug: 'packages/ion' },
-                { label: 'EDN', slug: 'packages/edn' },
                 { label: 'Bencode', slug: 'packages/bencode' },
                 { label: 'Fory', slug: 'packages/fory' },
               ],
@@ -134,7 +133,7 @@ export default defineConfig({
                 { label: 'YAML', slug: 'packages/yaml' },
                 { label: 'TOML', slug: 'packages/toml' },
                 { label: 'CSV', slug: 'packages/csv' },
-                { label: 'NDJSON', slug: 'packages/ndjson' },
+                { label: 'EDN', slug: 'packages/edn' },
               ],
             },
             {
