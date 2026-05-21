@@ -24,8 +24,12 @@ source-repository head
   location: https://github.com/MercuryTechnologies/hermes
 
 library
+  c-sources:
+      cbits/url_decode.c
+  cc-options: -O3
   exposed-modules:
       Network.HTTP.Headers.Mason
+      Network.HTTP.URL.Decode
       Network.HTTP.ContentCoding
       Network.HTTP.ContentNegotiation
       Network.HTTP.Headers
