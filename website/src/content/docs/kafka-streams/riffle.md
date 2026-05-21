@@ -53,7 +53,7 @@ Exactly-once semantics are preserved through a drain mechanism: before any offse
 
 The topology optimizer can also fuse adjacent synchronous operators into an async operator's callback, so you don't pay the async overhead for the pure transformation steps that follow the external call.
 
-Full walkthrough with capacity sizing: [Enrichment via external systems](./guides/enrichment/).
+Full walkthrough with capacity sizing: [Enrichment via external systems](/kafka-streams/guides/enrichment/).
 
 ## Snapshot stores
 
@@ -87,7 +87,7 @@ Riffle provides several store backends depending on how much state you have and 
 
 **Pointer-mode standby** is for environments where standby replicas are too expensive to maintain as full copies. Instead of replicating the entire state, the standby tracks a `(snapshotId, offset)` pair. When promoted to active, it fetches the snapshot and replays from the offset. Import from `Kafka.Streams.Runtime.StandbyTask`.
 
-See [Topology evolution](./operating/topology-evolution/) for how snapshot stores change rolling deploy strategies.
+See [Topology evolution](/kafka-streams/operating/topology-evolution/) for how snapshot stores change rolling deploy strategies.
 
 ## Two-phase commit sinks
 
@@ -125,7 +125,7 @@ You implement the `TwoPhaseSink` interface for your external system. The interfa
 
 The contract and reference sinks (in-memory, filesystem, HTTP echo) ship in core so you can develop and test locally. Production adapters for JDBC, Iceberg, S3, and HTTP live in separate packages to keep the core dependency footprint small.
 
-Operator walkthrough: [Exactly-once across Kafka and other systems](./operating/exactly-once/).
+Operator walkthrough: [Exactly-once across Kafka and other systems](/kafka-streams/operating/exactly-once/).
 
 ## Watermark coordinator
 
@@ -162,7 +162,7 @@ Sources that don't register a watermark strategy keep the legacy per-task stream
 
 The `suppress` operator already uses coordinated watermarks when available. You can also pair the coordinator with event-time TTL (via `ttlClockFromCoordinator`) so that state expiry is driven by data timestamps rather than wall-clock time.
 
-See [Visibility versus ACID databases](./operating/visibility/).
+See [Visibility versus ACID databases](/kafka-streams/operating/visibility/).
 
 ## Key-group routing
 
@@ -185,7 +185,7 @@ With 128 key-groups, you can scale from 1 worker to 128 workers without touching
 
 The standard dispatch modes (`DispatchPartition` for one-task-per-partition, `DispatchHashed` for hash-based routing within a partition) remain available and stay the default. Key-group routing is purely opt-in.
 
-See [Scaling and rebalancing](./operating/scaling/).
+See [Scaling and rebalancing](/kafka-streams/operating/scaling/).
 
 ## Additional features
 
@@ -229,11 +229,11 @@ You can stop at any step. Every step is an additive deploy -- you're never commi
 
 ## Related reading
 
-- [Enrichment via external systems](./guides/enrichment/) -- async I/O walkthrough with capacity sizing
-- [Topology evolution](./operating/topology-evolution/) -- how snapshot stores change rolling deploys
-- [Scaling and rebalancing](./operating/scaling/) -- key-groups and KIP-848
-- [Exactly-once across Kafka and other systems](./operating/exactly-once/) -- the 2PC sink contract
-- [Observability](./operating/observability/) -- topology JSON, orphan detection, live overlays
-- [Visibility versus ACID databases](./operating/visibility/) -- watermarks and event-time TTL
-- [Topology optimization](./concepts/topology-optimization/) -- including the `optFuseSyncIntoAsync` fusion rule
+- [Enrichment via external systems](/kafka-streams/guides/enrichment/) -- async I/O walkthrough with capacity sizing
+- [Topology evolution](/kafka-streams/operating/topology-evolution/) -- how snapshot stores change rolling deploys
+- [Scaling and rebalancing](/kafka-streams/operating/scaling/) -- key-groups and rebalance
+- [Exactly-once across Kafka and other systems](/kafka-streams/operating/exactly-once/) -- the 2PC sink contract
+- [Observability](/kafka-streams/operating/observability/) -- topology JSON, orphan detection, live overlays
+- [Visibility versus ACID databases](/kafka-streams/operating/visibility/) -- watermarks and event-time TTL
+- [Topology optimization](/kafka-streams/concepts/topology-optimization/) -- including the `optFuseSyncIntoAsync` fusion rule
 - [`RIFFLE_SPEC.md`](https://github.com/iand675/wireform-/blob/main/wireform-kafka/streams/RIFFLE_SPEC.md) -- design contract with per-section rationale
