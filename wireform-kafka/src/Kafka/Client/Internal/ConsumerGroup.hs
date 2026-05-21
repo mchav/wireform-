@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Internal.ConsumerGroup
@@ -53,16 +54,16 @@ import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
-import qualified Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
-import qualified Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
-import qualified Kafka.Protocol.Generated.JoinGroupRequest as JGReq
-import qualified Kafka.Protocol.Generated.JoinGroupResponse as JGResp
-import qualified Kafka.Protocol.Generated.SyncGroupRequest as SGReq
-import qualified Kafka.Protocol.Generated.SyncGroupResponse as SGResp
-import qualified Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
-import qualified Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.JoinGroupRequest as JGReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.JoinGroupResponse as JGResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SyncGroupRequest as SGReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SyncGroupResponse as SGResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Information about the group coordinator broker
 data GroupCoordinator = GroupCoordinator

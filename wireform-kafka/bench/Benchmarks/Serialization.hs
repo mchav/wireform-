@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Benchmarks.Serialization
@@ -23,10 +24,10 @@ import Criterion           (Benchmark, bench, bgroup, whnf)
 import qualified Data.ByteString as BS
 import qualified Data.Int as Int
 
-import qualified Kafka.Protocol.Generated.ProduceRequest  as Produce
-import qualified Kafka.Protocol.Generated.FetchRequest    as Fetch
-import qualified Kafka.Protocol.Generated.MetadataRequest as Metadata
-import qualified Kafka.Protocol.Wire.Codec                as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ProduceRequest  as Produce
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FetchRequest    as Fetch
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as Metadata
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec                as WC
 import           Benchmarks.Util                          ( createProduceRequest
                                                           , createFetchRequest
                                                           , createMetadataRequest

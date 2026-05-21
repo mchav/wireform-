@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 module Client.MetadataSpec (tests) where
 
@@ -17,7 +18,7 @@ import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
 
 import Kafka.Client.Metadata
 import Kafka.Network.Connection (BrokerAddress(..))
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 -- | Generate a broker metadata
 genBrokerMetadata :: Gen BrokerMetadata

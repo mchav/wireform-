@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PackageImports #-}
 
 module Protocol.VersionHandlingSpec (tests) where
 
 import qualified Data.ByteString as BS
 import Data.Int (Int16)
-import Kafka.Protocol.Generated.MetadataRequest
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest
 import Test.Tasty
 import Test.Tasty.HUnit
 

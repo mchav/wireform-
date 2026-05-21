@@ -1,3 +1,5 @@
+{-# LANGUAGE PackageImports #-}
+
 {-|
 Module      : Integration.BasicSpec
 Description : Basic integration tests for the Kafka client.
@@ -28,9 +30,9 @@ import           Test.Tasty.HUnit
 import qualified Kafka.Client.Consumer                       as Consumer
 import qualified Kafka.Client.Producer                       as Producer
 import qualified Kafka.Network.Connection                    as Conn
-import qualified Kafka.Protocol.Generated.MetadataRequest    as MR
-import qualified Kafka.Protocol.Generated.RequestHeader      as RH
-import qualified Kafka.Protocol.Primitives                   as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest    as MR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader      as RH
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives                   as P
 
 -- | Bootstrap broker for testing
 testBroker :: Conn.BrokerAddress

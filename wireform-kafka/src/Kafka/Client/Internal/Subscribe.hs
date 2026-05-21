@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Internal.Subscribe
@@ -67,15 +68,15 @@ import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
-import qualified Kafka.Protocol.Generated.ConsumerProtocolAssignment as CPA
-import qualified Kafka.Protocol.Generated.ConsumerProtocolSubscription as CPS
-import qualified Kafka.Protocol.Generated.ListOffsetsRequest as LOReq
-import qualified Kafka.Protocol.Generated.ListOffsetsResponse as LOResp
-import qualified Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
-import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ConsumerProtocolAssignment as CPA
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ConsumerProtocolSubscription as CPS
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsRequest as LOReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsResponse as LOResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
 import qualified Kafka.Protocol.VersionNegotiation as VN
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Discriminated error type for the subscribe flow. Anything that
 -- isn't a structured failure (network / decode / broker-error code)

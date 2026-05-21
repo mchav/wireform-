@@ -55,3 +55,6 @@ fi
 
 count="$(find "$OUT_DIR" -maxdepth 1 -name '*.hs' | wc -l)"
 echo "==> Done. $count generated modules under $OUT_DIR"
+
+echo "==> Syncing wireform-kafka-protocol module list in wireform-kafka.cabal"
+"$SCRIPT_DIR/sync-kafka-protocol-cabal-modules.sh"

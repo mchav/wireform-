@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -39,10 +40,10 @@ import Data.Int (Int16, Int32)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
 import Foreign.Ptr (plusPtr)
 import GHC.IO (unsafePerformIO)
-import Kafka.Protocol.Generated.RequestHeader qualified as RH
-import Kafka.Protocol.Primitives qualified as P
-import Kafka.Protocol.Wire qualified as W
-import Kafka.Protocol.Wire.Codec qualified as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader as RH
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 import Network.Connection (Connection, connectionGet, connectionPut)
 import Wireform.Builder qualified as WB
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Tests for 'Kafka.Protocol.Wire.SliceVector'.
 module Protocol.SliceVectorSpec (tests) where
@@ -10,7 +11,7 @@ import qualified Data.Vector.Unboxed as VU
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
-import qualified Kafka.Protocol.Wire.SliceVector as SV
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.SliceVector as SV
 
 ----------------------------------------------------------------------
 -- Helpers

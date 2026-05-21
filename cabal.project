@@ -35,6 +35,7 @@ packages:
   wireform-http2/
   wireform-http/
   wireform-grpc/
+  wireform-kafka-protocol/
   wireform-kafka/
   wireform-stats/
 
@@ -67,3 +68,6 @@ package grpc-spec
 -- Serial instances disappears.
 package wireform-kafka
   optimization: 2
+package wireform-kafka-protocol
+  optimization: 2
+

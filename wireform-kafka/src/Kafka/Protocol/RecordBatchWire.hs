@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 
 {-|
@@ -81,7 +82,7 @@ import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.CRC32C as CRC
-import qualified Kafka.Protocol.Wire.SliceVector as SV
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.SliceVector as SV
 import Kafka.Protocol.RecordBatch
   ( Attributes (..)
   , Record (..)
@@ -91,7 +92,7 @@ import Kafka.Protocol.RecordBatch
   , magicV2
   , recordBatchOverhead
   )
-import Kafka.Protocol.Wire
+import "wireform-kafka-protocol" Kafka.Protocol.Wire
   ( pokeByteString
   , pokeInt16BE
   , pokeInt32BE

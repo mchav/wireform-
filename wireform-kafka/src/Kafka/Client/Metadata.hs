@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Metadata
@@ -65,10 +66,10 @@ import Network.Connection (Connection)
 
 import Kafka.Client.Internal.Request
 import Kafka.Network.Connection (BrokerAddress(..))
-import qualified Kafka.Protocol.Generated.MetadataRequest as MR
-import qualified Kafka.Protocol.Generated.MetadataResponse as MResp
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataResponse as MResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Information about a broker in the cluster
 data BrokerMetadata = BrokerMetadata

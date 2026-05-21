@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 module Client.AdminClientSpec (tests) where
 
@@ -13,8 +14,8 @@ import Test.Tasty.HUnit hiding (assert)
 import Data.Int (Int8, Int16)
 import qualified Data.Vector as V
 import qualified Kafka.Client.AdminClient as Admin
-import qualified Kafka.Protocol.Generated.DescribeConfigsResponse as DCResp
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeConfigsResponse as DCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 -- | Test that default admin client config has reasonable values
 unit_defaultConfig :: TestTree

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 module Protocol.Generated.KnownGoodSpec (tests) where
 
@@ -11,8 +12,8 @@ import qualified System.Directory as Dir
 import Data.Int (Int16)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Kafka.Protocol.Generated.MetadataRequest (MetadataRequest)
-import qualified Kafka.Protocol.Wire.Codec as WC
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest (MetadataRequest)
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 import Test.Tasty
 import Test.Tasty.HUnit
 

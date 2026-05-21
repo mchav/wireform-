@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Round-trip tests for the native 'Wire' codec dispatch:
 -- property-based @decode . encode == id@ checks plus exact-byte
@@ -16,12 +17,12 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
-import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVR
-import qualified Kafka.Protocol.Generated.MetadataRequest as MR
-import qualified Kafka.Protocol.Generated.RequestHeader as RH
-import qualified Kafka.Protocol.Generated.ResponseHeader as RsH
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader as RH
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ResponseHeader as RsH
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 tests :: TestTree
 tests = testGroup "Wire codec round-trips (native dispatch)"

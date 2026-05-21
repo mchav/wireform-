@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Client.Consumer
@@ -258,20 +259,20 @@ import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Protocol.VersionNegotiation as VN
-import qualified Kafka.Protocol.Generated.FetchRequest as FR
-import qualified Kafka.Protocol.Generated.FetchResponse as FResp
-import qualified Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
-import qualified Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
-import qualified Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
-import qualified Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
-import qualified Kafka.Protocol.Generated.ListOffsetsRequest as LOReq
-import qualified Kafka.Protocol.Generated.ListOffsetsResponse as LOResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FetchRequest as FR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FetchResponse as FResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsRequest as LOReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ListOffsetsResponse as LOResp
 import qualified Kafka.Compression.Types as Compression
-import qualified Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
-import qualified Kafka.Protocol.Wire as W
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Partition assignment strategy.
 data AssignmentStrategy

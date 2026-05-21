@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 -- | Unit tests for the 'pickApiVersion' selector that's wired
 -- through the Producer / Consumer / AdminClient / Transaction
@@ -17,9 +18,9 @@ import Test.Tasty.HUnit (testCase, (@?=), assertBool)
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
-import qualified Kafka.Protocol.Generated.FetchRequest as FR
-import qualified Kafka.Protocol.Generated.ProduceRequest as PR
-import qualified Kafka.Protocol.Message as Msg
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FetchRequest as FR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ProduceRequest as PR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Message as Msg
 import qualified Kafka.Protocol.VersionNegotiation as VN
 
 ----------------------------------------------------------------------

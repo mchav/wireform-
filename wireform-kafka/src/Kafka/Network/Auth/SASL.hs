@@ -3,6 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Network.Auth.SASL
@@ -86,12 +87,12 @@ import qualified Kafka.Network.Auth.AwsMskIam as Iam
 import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.Plain as Plain
 import qualified Kafka.Network.Auth.Scram as Scram
-import qualified Kafka.Protocol.Generated.SaslAuthenticateRequest as SAReq
-import qualified Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
-import qualified Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
-import qualified Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateRequest as SAReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 ------------------------------------------------------------------------
 -- User-facing config

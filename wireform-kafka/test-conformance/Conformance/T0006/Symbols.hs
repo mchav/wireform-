@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Conformance.T0006.Symbols
@@ -44,9 +45,9 @@ import qualified Kafka.Network.Auth.Scram ()
 import qualified Kafka.Network.Connection ()
 import qualified Kafka.Protocol.ApiVersions ()
 import qualified Kafka.Protocol.CRC32C ()
-import qualified Kafka.Protocol.Wire ()
-import qualified Kafka.Protocol.Message ()
-import qualified Kafka.Protocol.Primitives ()
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire ()
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Message ()
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives ()
 import qualified Kafka.Protocol.RecordBatch ()
 import qualified Kafka.Telemetry.OpenTelemetry ()
 

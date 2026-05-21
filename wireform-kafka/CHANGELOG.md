@@ -10,6 +10,12 @@ and this project adheres to the
 
 ### Added
 
+- **`wireform-kafka-protocol` sublibrary.** Codegen-emitted
+  `Kafka.Protocol.Generated.*` wire records (and
+  `Kafka.Protocol.{Primitives,Message,Wire.*}`) live in a dedicated
+  public sublibrary; the default `wireform-kafka` library
+  re-exports them. Regeneration runs
+  `scripts/sync-kafka-protocol-cabal-modules.sh`.
 - **`Kafka.Client.AdminClient` — KIP-584 feature flags.**
   `describeFeatures` parses the supported + finalized feature
   set off ApiVersionsResponse v3+ and returns a typed

@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PackageImports #-}
 
 {-|
 Module      : Kafka.Protocol.ApiVersions
@@ -45,10 +46,10 @@ import qualified StmContainers.Map as StmMap
 
 import Kafka.Client.Internal.Request
 import Kafka.Network.Connection (BrokerAddress)
-import qualified Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
-import qualified Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
-import qualified Kafka.Protocol.Primitives as P
-import qualified Kafka.Protocol.Wire.Codec as WC
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 -- | Range of supported versions for an API
 data ApiVersionRange = ApiVersionRange
