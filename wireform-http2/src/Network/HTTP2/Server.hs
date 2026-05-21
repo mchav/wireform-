@@ -509,7 +509,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                   closeConnection conn ProtocolError "invalid settings"
                   pure False
                 Right newSettings -> do
-                  writeIORef (connRemoteSettings conn) newSettings
+                  atomicModifyIORef' (connRemoteSettings conn) (\_ -> (newSettings, ()))
                   -- Adjust every open stream's send window by the
                   -- delta of the peer's
                   -- SETTINGS_INITIAL_WINDOW_SIZE (RFC 9113 §6.9.2).
@@ -597,8 +597,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                               _ <- tryPutMVar (srTrailers sr) []
                               atomically $
                                 writeTBQueue (srBodyQueue sr) BodyChunkEnd
-                              modifyIORef' streamsRef
-                                (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
+                              atomicModifyIORef' streamsRef
+                                (\m -> (Map.adjust (\s -> s { srState = StClosedSrv }) sid m, ()))
                               pure True
                             Right () -> pure True
                         Nothing -> pure True  -- closed stream; harmless
@@ -664,8 +664,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                     -- buffer, which is itself a recv ring-buffer
                     -- slice.  Detach with a forced memcpy now.
                     copied <- forceCopyBS block
-                    decoder <- readMVar (connHpackDecoder conn)
-                    res0 <- decodeHeaderBlock decoder copied
+                    res0 <- withMVar (connHpackDecoder conn) $ \decoder ->
+                      decodeHeaderBlock decoder copied
                     res <- case res0 of
                       Right hs -> Right <$> forceCopyHeaders hs
                       Left e   -> pure (Left e)
@@ -676,8 +676,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                       Right trailers
                         | overHeaderListLimit' (serverSettings cfg) trailers -> do
                             sendRstStream conn sid EnhanceYourCalm
-                            modifyIORef' streamsRef
-                              (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
+                            atomicModifyIORef' streamsRef
+                              (\m -> (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid m, ()))
                             pure True
                         | any (\(n, _) -> not (BS.null n) && BS.head n == 0x3A) trailers -> do
                             closeConnection conn ProtocolError "pseudo-header in trailers"
@@ -697,10 +697,10 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                             checkContentLength sid streamsRef >>= \case
                               Just _ -> do
                                 sendRstStream conn sid ProtocolError
-                                modifyIORef' streamsRef (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
+                                atomicModifyStreams_ streamsRef (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid)
                                 pure True
                               Nothing -> do
-                                modifyIORef' streamsRef (Map.adjust (\sr -> sr { srState = StHalfClosedRemote }) sid)
+                                atomicModifyStreams_ streamsRef (Map.adjust (\sr -> sr { srState = StHalfClosedRemote }) sid)
                                 pure True
           Nothing -> handleFreshStream lastPeer sid (fhFlags hdr) body
         where
@@ -719,8 +719,8 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                 Just headerBlock -> do
                   -- See note above on detaching from the recv ring buffer.
                   copied <- forceCopyBS headerBlock
-                  decoder <- readMVar (connHpackDecoder conn)
-                  result <- decodeHeaderBlock decoder copied
+                  result <- withMVar (connHpackDecoder conn) $ \decoder ->
+                    decodeHeaderBlock decoder copied
                   -- 'forceCopyHeaders' rebuilds each name\/value into
                   -- a fresh malloc'd buffer.  HPACK's literal- and
                   -- huffman-decode paths produce bytestrings that —
@@ -746,7 +746,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                           peerInit <- settingsInitialWindowSize <$> readIORef (connRemoteSettings conn)
                           let ourInit = settingsInitialWindowSize (serverSettings cfg)
                           refused <- freshStream peerInit ourInit Nothing StClosedSrv
-                          modifyIORef' streamsRef (Map.insert sid' refused)
+                          atomicModifyStreams_ streamsRef (Map.insert sid' refused)
                           pure True
                       | otherwise -> case validateRequestHeaders headers of
                       Just _err -> do
@@ -765,7 +765,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                             -- the lastPeerStream marker advances.
                             writeIORef lastPeerStreamRef sid'
                             refused <- freshStream peerInit ourInit Nothing StClosedSrv
-                            modifyIORef' streamsRef (Map.insert sid' refused)
+                            atomicModifyStreams_ streamsRef (Map.insert sid' refused)
                             pure True
                           _ -> do
                             writeIORef connLastSid sid'
@@ -783,7 +783,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                             when endStream $ do
                               _ <- tryPutMVar (srTrailers rec0) []
                               atomically $ writeTBQueue (srBodyQueue rec0) BodyChunkEnd
-                            modifyIORef' streamsRef (Map.insert sid' rec0)
+                            atomicModifyStreams_ streamsRef (Map.insert sid' rec0)
                             -- If the request has a content-length header
                             -- and END_STREAM on HEADERS, validate that
                             -- the declared length is 0.
@@ -791,7 +791,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                               then do
                                 sendRstStream conn sid' ProtocolError
                                 rec1 <- freshStream peerInit ourInit Nothing StClosedSrv
-                                modifyIORef' streamsRef (Map.insert sid' rec1)
+                                atomicModifyStreams_ streamsRef (Map.insert sid' rec1)
                                 pure True
                               else do
                                 let req = buildRequest conn connRecvUnackedRef connRecvWindowRef sid' headers rec0
@@ -799,7 +799,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                                   ( do
                                       serverHandler cfg req $ \resp ->
                                         sendResponse conn sid' (srSendWindow rec0) resp
-                                      modifyIORef' streamsRef
+                                      atomicModifyStreams_ streamsRef
                                         (Map.adjust (\sr -> sr { srState = StClosedSrv }) sid')
                                   )
                                   -- Stream workers may still be sending bytes when
@@ -866,7 +866,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                   if streamWin < 0
                     then do
                       sendRstStream conn sid FlowControlError
-                      modifyIORef' streamsRef
+                      atomicModifyStreams_ streamsRef
                         (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
                       pure True
                     else if connWin < 0
@@ -878,7 +878,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                             endStream = testFlag (fhFlags hdr) flagEndStream
                             newReceived = srReceivedBytes sr + bytes
                             newState = if endStream then StHalfClosedRemote else StOpen
-                        modifyIORef' streamsRef
+                        atomicModifyStreams_ streamsRef
                           (Map.insert sid sr { srState = newState, srReceivedBytes = newReceived })
                         -- Hand the payload to the handler's request-body
                         -- consumer.  Empty DATA frames are common terminators;
@@ -904,7 +904,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                             Just expected
                               | expected /= newReceived -> do
                                   sendRstStream conn sid ProtocolError
-                                  modifyIORef' streamsRef
+                                  atomicModifyStreams_ streamsRef
                                     (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
                                   pure True
                             _ -> pure True
@@ -938,7 +938,7 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                 -- connection state).
                 _ <- tryPutMVar (srTrailers sr) []
                 atomically $ writeTBQueue (srBodyQueue sr) BodyChunkEnd
-                modifyIORef' streamsRef
+                atomicModifyStreams_ streamsRef
                   (Map.adjust (\s -> s { srState = StClosedSrv }) sid)
                 pure True
 
@@ -1405,4 +1405,10 @@ streamBody conn sendWin sid producer hasTrailers = do
           | otherwise -> do
               sendBytes conn sendWin sid False chunk maxFrame
               loop maxFrame
+
+-- | Atomically modify a streams map IORef. Wraps the common
+-- pattern of adjusting or inserting into the per-connection stream map
+-- from potentially concurrent threads (recv loop + stream handlers).
+atomicModifyStreams_ :: IORef (Map.Map StreamId a) -> (Map.Map StreamId a -> Map.Map StreamId a) -> IO ()
+atomicModifyStreams_ ref f = atomicModifyIORef' ref (\m -> (f m, ()))
 

@@ -214,8 +214,8 @@ handleFrame env conn handler streamsRef hdr payload = case payload of
 
   HeadersFrame _ block
     | testFlag (fhFlags hdr) flagEndHeaders -> do
-        decoder <- readMVar (connHpackDecoder conn)
-        result <- decodeHeaderBlock decoder block
+        result <- withMVar (connHpackDecoder conn) $ \decoder ->
+          decodeHeaderBlock decoder block
         case result of
           Left _ -> closeConnection conn Wire.CompressionError "hpack decode"
           Right headers -> do

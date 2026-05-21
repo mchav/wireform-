@@ -345,7 +345,7 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
                   closeConnection (chConnection handle) ProtocolError "invalid settings"
                   pure False
                 Right newSettings -> do
-                  writeIORef (connRemoteSettings (chConnection handle)) newSettings
+                  atomicModifyIORef' (connRemoteSettings (chConnection handle)) (\_ -> (newSettings, ()))
                   -- Per-stream send windows follow
                   -- SETTINGS_INITIAL_WINDOW_SIZE changes (RFC 9113
                   -- § 6.9.2): each open stream's send window is
@@ -553,8 +553,8 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
 deliverHeaders
   :: ClientHandle -> StreamId -> FrameFlags -> ByteString -> IO Bool
 deliverHeaders handle sid flags block = do
-  decoder <- readMVar (connHpackDecoder (chConnection handle))
-  res0 <- decodeHeaderBlock decoder block
+  res0 <- withMVar (connHpackDecoder (chConnection handle)) $ \decoder ->
+    decodeHeaderBlock decoder block
   -- 'forceCopyHeaders' rebuilds each name\/value into a fresh
   -- malloc'd buffer.  HPACK literals + huffman-decoded strings can
   -- otherwise stay as lazy thunks that read from @block@ (a recv
@@ -664,9 +664,8 @@ failStream handle sid err = do
 -- fail on their own).
 failOutstanding :: ClientHandle -> IO ()
 failOutstanding handle = do
-  inboxes <- readIORef (chStreams handle)
+  inboxes <- atomicModifyIORef' (chStreams handle) (\m -> (Map.empty, m))
   mapM_ failOne (Map.toList inboxes)
-  writeIORef (chStreams handle) Map.empty
   atomically $ writeTVar (chActiveStreams handle) 0
   where
     failOne (_, inbox) = do
@@ -921,7 +920,7 @@ registerAndSend handle req = do
     ru <- newIORef 0
     rw <- newIORef (fromIntegral ourInitial)
     pure $ StreamInbox h q t sw ru rw
-  modifyIORef' (chStreams handle) (Map.insert sid inbox)
+  atomicModifyIORef' (chStreams handle) (\m -> (Map.insert sid inbox m, ()))
   let pseudoHeaders =
         [ (":method", crMethod req)
         , (":path", crPath req)

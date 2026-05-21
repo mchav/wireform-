@@ -5,7 +5,7 @@
 module Main (main) where
 
 import Control.Concurrent (forkIO, forkOn, getNumCapabilities)
-import Control.Concurrent.MVar (readMVar)
+import Control.Concurrent.MVar (withMVar)
 import Control.Exception (SomeException, catch, bracket, finally)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
@@ -119,9 +119,8 @@ handleFrameRaw conn hdr payload = case fhType hdr of
 
   FrameHeaders
     | testFlag (fhFlags hdr) flagEndHeaders -> do
-        -- payload IS the HPACK block — no ADT unpacking needed
-        decoder <- readMVar (connHpackDecoder conn)
-        _ <- decodeHeaderBlock decoder payload
+        _ <- withMVar (connHpackDecoder conn) $ \decoder ->
+          decodeHeaderBlock decoder payload
         sendResponse conn (fhStreamId hdr)
     | otherwise -> pure ()
 
@@ -137,11 +136,9 @@ handleFrameRaw conn hdr payload = case fhType hdr of
 
 sendResponse :: Connection -> StreamId -> IO ()
 sendResponse conn sid = do
-  encoder <- readMVar (connHpackEncoder conn)
-  -- Real HPACK encode with dynamic table
-  headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder
-    [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
-  -- Zero-copy batch send
+  headerBlock <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder
+      [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
   sendFramesZeroCopy conn
     [ Frame (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
