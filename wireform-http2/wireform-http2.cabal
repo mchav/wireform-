@@ -23,18 +23,12 @@ common warnings
 
 library
     import:           warnings
+    -- This package is intended to replace the upstream @http2@ +
+    -- @http-semantics@ + @hpack@ libraries for wireform clients and
+    -- servers.  Nothing under @exposed-modules@ depends on those
+    -- upstream packages; everything is reimplemented locally under
+    -- @Network.HTTP2.{Frame,HPACK,Types,Connection,Client,Server,...}@.
     exposed-modules:
-      Network.HTTP2.New
-      Network.HTTP2.New.Types
-      Network.HTTP2.New.Flow
-      Network.HTTP2.New.Stream
-      Network.HTTP2.New.Output
-      Network.HTTP2.New.HPACK
-      Network.HTTP2.New.Frame
-      Network.HTTP2.New.Sender
-      Network.HTTP2.New.Receiver
-      Network.HTTP2.New.Server
-      Network.HTTP2.New.Client
       Network.HTTP2.Client
       Network.HTTP2.Server
       Network.HTTP2.TLS
@@ -93,10 +87,7 @@ library
       , data-default
       , deepseq
       , hashable
-      , hpack
-      , http-semantics
       , http-types
-      , http2
       , iproute
       , network
       , network-byte-order
@@ -118,9 +109,8 @@ executable wireform-http2-server
     default-language: GHC2021
     build-depends:
         base
-      , wireform-http2
       , bytestring
-      , network
+      , wireform-http2
 
 test-suite h2spec
     import:           warnings
@@ -131,7 +121,8 @@ test-suite h2spec
     ghc-options:      -threaded -rtsopts
     build-depends:
         base
-      , wireform-http2
-      , process
       , bytestring
+      , directory
       , network
+      , process
+      , wireform-http2

@@ -4,6 +4,7 @@ module Network.HTTP2.Server
   , Request (..)
   , Response (..)
   , ResponseBody (..)
+  , defaultResponse
   , runServer
   , runServerOnSocket
   , runServerOnTransport
