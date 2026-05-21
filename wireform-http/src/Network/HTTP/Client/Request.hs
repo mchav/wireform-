@@ -20,7 +20,7 @@ get [uri|\/users\/{userId}|]
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Request
+module Network.HTTP.Client.Request
   ( -- * The Request type
     Request (..)
     -- * Constructors
@@ -54,9 +54,9 @@ import Data.Text (Text)
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 
-import Network.HTTP.Wire.Media (Encode, encode, mediaType, renderMediaType)
-import Network.HTTP.Wire.Protocol
-import Network.HTTP.Wire.URI
+import Network.HTTP.Client.Media (Encode, encode, mediaType, renderMediaType)
+import Network.HTTP.Client.Protocol
+import Network.HTTP.Client.URI
 
 -- | A value tag for tracing attributes.
 --
@@ -72,7 +72,7 @@ data SpanAttribute
   deriving stock (Eq, Show)
 
 -- | A request is a pure description. The 'body' parameter determines
--- the serialization mode; see "Network.HTTP.Wire.Body".
+-- the serialization mode; see "Network.HTTP.Client.Body".
 data Request body = Request
   { method          :: !M.Method
   , requestURI      :: !RequestURI

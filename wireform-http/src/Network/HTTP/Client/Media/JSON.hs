@@ -16,7 +16,7 @@ send transport req (as \@JSON \@User)
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Media.JSON
+module Network.HTTP.Client.Media.JSON
   ( JSON
   ) where
 
@@ -24,7 +24,7 @@ import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
-import Network.HTTP.Wire.Media
+import Network.HTTP.Client.Media
 
 -- | Phantom tag for @application\/json@. No values — pass it via
 -- 'Data.Proxy.Proxy' or @TypeApplications@.

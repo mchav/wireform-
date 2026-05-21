@@ -22,7 +22,7 @@ assertions need to talk in the same vocabulary as the live client.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Test
+module Network.HTTP.Client.Test
   ( -- * Mock construction
     mockTransport
   , stub
@@ -119,12 +119,12 @@ import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire.BodyStream
-import Network.HTTP.Wire.Protocol
-import Network.HTTP.Wire.Request
-import Network.HTTP.Wire.Response
-import Network.HTTP.Wire.Transport
-import Network.HTTP.Wire.URI
+import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Protocol
+import Network.HTTP.Client.Request
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI
 
 -- ---------------------------------------------------------------------------
 -- Raw-response builders
@@ -502,7 +502,7 @@ withRequestLog inner = do
         raw <- sendRaw inner req'
         respBody <- popperBytes (bodyPopper raw)
         let rec' = mkRecordedRequest req' reqBody
-            res' = RecordedResponse (statusCode raw) (Network.HTTP.Wire.Response.headers raw) respBody
+            res' = RecordedResponse (statusCode raw) (Network.HTTP.Client.Response.headers raw) respBody
         atomicModifyIORef' ref $ \xs -> (xs <> [(rec', res')], ())
         newPopper <- popperFromStrict respBody
         pure raw { bodyPopper = newPopper }
@@ -526,7 +526,7 @@ mkRecordedRequest :: Request BodyStream -> ByteString -> RecordedRequest
 mkRecordedRequest req drained = RecordedRequest
   { rrMethod  = method req
   , rrURI     = requestURIToText (requestURI req)
-  , rrHeaders = Network.HTTP.Wire.Request.headers req
+  , rrHeaders = Network.HTTP.Client.Request.headers req
   , rrBody    = drained
   }
 

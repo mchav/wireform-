@@ -11,7 +11,7 @@ types — multipart, server-sent events, gRPC framing, whatever.
 -}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-module Network.HTTP.Wire.Body
+module Network.HTTP.Client.Body
   ( -- * Request bodies
     Body (..)
     -- * Response bodies
@@ -20,14 +20,14 @@ module Network.HTTP.Wire.Body
   , StreamingBody (..)
   , DiscardBody (..)
     -- * Re-exports
-  , module Network.HTTP.Wire.BodyStream
+  , module Network.HTTP.Client.BodyStream
   ) where
 
 import Data.ByteString (ByteString)
 import Data.Kind (Type)
 import Data.Void (Void, absurd)
 
-import Network.HTTP.Wire.BodyStream
+import Network.HTTP.Client.BodyStream
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 

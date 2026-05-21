@@ -9,7 +9,7 @@ top.
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Media.FormUrlEncoded
+module Network.HTTP.Client.Media.FormUrlEncoded
   ( FormUrlEncoded
   , Form (..)
   , encodeForm
@@ -26,7 +26,7 @@ import Data.Word (Word8)
 
 import qualified Wireform.Builder as WB
 
-import Network.HTTP.Wire.Media
+import Network.HTTP.Client.Media
 
 data FormUrlEncoded
 

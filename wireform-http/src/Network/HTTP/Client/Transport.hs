@@ -9,9 +9,9 @@ which is just @Transport m -> Transport m@.
 The middleware layer is parameterised over @m@ but in practice the
 base transport requires 'IO'. Middleware that needs to lift through
 a transformer stack uses 'MonadUnliftIO' from @unliftio-core@; see
-"Network.HTTP.Wire.Send" for a sketch.
+"Network.HTTP.Client.Send" for a sketch.
 -}
-module Network.HTTP.Wire.Transport
+module Network.HTTP.Client.Transport
   ( -- * Transport
     Transport (..)
   , unsafeMkTransport
@@ -19,12 +19,12 @@ module Network.HTTP.Wire.Transport
   , Middleware
   , noMiddleware
     -- * Re-exports
-  , module Network.HTTP.Wire.Response
+  , module Network.HTTP.Client.Response
   ) where
 
-import Network.HTTP.Wire.BodyStream (BodyStream)
-import Network.HTTP.Wire.Request (Request)
-import Network.HTTP.Wire.Response
+import Network.HTTP.Client.BodyStream (BodyStream)
+import Network.HTTP.Client.Request (Request)
+import Network.HTTP.Client.Response
 
 -- | The wire-level transport. Speaks 'BodyStream' in, 'RawResponse'
 -- out. Always operates on @Request BodyStream@ — middleware that

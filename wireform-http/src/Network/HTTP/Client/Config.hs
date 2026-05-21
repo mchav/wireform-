@@ -8,10 +8,10 @@ retry policy are all available, just not enabled by default
 (because some of them have side effects callers should opt into).
 
 For full control, build the middleware stack manually and use
-'Network.HTTP.Wire.Base.baseTransport' directly.
+'Network.HTTP.Client.Base.baseTransport' directly.
 -}
 {-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Wire.Client
+module Network.HTTP.Client.Config
   ( ClientConfig (..)
   , defaultClientConfig
   , withClient
@@ -21,11 +21,11 @@ import Control.Exception (bracket_)
 
 import qualified Network.HTTP.VersionRange as VR
 
-import Network.HTTP.Wire.Base
-import Network.HTTP.Wire.Cookies (CookieJar, withCookies)
-import Network.HTTP.Wire.Middleware
-import Network.HTTP.Wire.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
-import Network.HTTP.Wire.Transport
+import Network.HTTP.Client.Base
+import Network.HTTP.Client.Cookies (CookieJar, withCookies)
+import Network.HTTP.Client.Middleware
+import Network.HTTP.Client.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
+import Network.HTTP.Client.Transport
 
 data ClientConfig = ClientConfig
   { ccVersionRange :: !VR.VersionRange

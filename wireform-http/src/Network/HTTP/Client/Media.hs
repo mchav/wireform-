@@ -8,12 +8,12 @@ MessagePack, etc.
 
 This module is library-style — no I\/O. The shipped tags (JSON,
 plain text, form-urlencoded, octet-stream) live in
-"Network.HTTP.Wire.Media.JSON" and friends; that keeps aeson and
+"Network.HTTP.Client.Media.JSON" and friends; that keeps aeson and
 http-api-data out of the import graph until you actually want them.
 -}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Wire.Media
+module Network.HTTP.Client.Media
   ( -- * Media types
     MediaType (..)
   , mediaTypeBytes

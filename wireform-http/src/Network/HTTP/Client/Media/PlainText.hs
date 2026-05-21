@@ -3,7 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Media.PlainText
+module Network.HTTP.Client.Media.PlainText
   ( PlainText
   ) where
 
@@ -11,7 +11,7 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 
-import Network.HTTP.Wire.Media
+import Network.HTTP.Client.Media
 
 data PlainText
 

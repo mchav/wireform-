@@ -23,7 +23,7 @@ allocation is explicit at the call site.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Network.HTTP.Wire.Middleware
+module Network.HTTP.Client.Middleware
   ( -- * Re-exports
     Middleware
     -- * Logging
@@ -80,11 +80,11 @@ import qualified System.Timeout
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire.BodyStream
-import Network.HTTP.Wire.Request
-import Network.HTTP.Wire.Response
-import Network.HTTP.Wire.Transport
-import Network.HTTP.Wire.URI
+import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Request
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI
 
 -- ---------------------------------------------------------------------------
 -- Logging
@@ -124,8 +124,8 @@ withAuth scheme inner = Transport $ \req ->
         Basic u p    -> "Basic "  <> base64 (u <> ":" <> p)
         RawAuth raw  -> raw
   in sendRaw inner req
-       { Network.HTTP.Wire.Request.headers =
-           H.insertHeader H.hAuthorization val (Network.HTTP.Wire.Request.headers req)
+       { Network.HTTP.Client.Request.headers =
+           H.insertHeader H.hAuthorization val (Network.HTTP.Client.Request.headers req)
        }
 
 -- Minimal Base64 encoder (RFC 4648). Kept here so we don't pull in
@@ -228,7 +228,7 @@ withRetry policy inner = Transport $ \req -> do
   buffered <- bodyStreamBytes (body req)
   let attempt n delay = do
         bs <- streamFromStrict buffered
-        let attemptReq = req { Network.HTTP.Wire.Request.body = bs }
+        let attemptReq = req { Network.HTTP.Client.Request.body = bs }
         raw <- sendRaw inner attemptReq
         if retryOn policy (statusCode raw) && n < maxAttempts policy
           then do

@@ -6,7 +6,7 @@ metadata. 'Response' is the value the caller receives after the
 chosen 'ResponseBody' has been folded and the chosen
 'ResponseDecoder' has decoded the bytes.
 -}
-module Network.HTTP.Wire.Response
+module Network.HTTP.Client.Response
   ( -- * Raw response
     RawResponse (..)
   , rawResponseBytes
@@ -20,8 +20,8 @@ import Data.ByteString (ByteString)
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire.BodyStream (Popper, popperBytes)
-import Network.HTTP.Wire.Protocol (ProtocolInfo)
+import Network.HTTP.Client.BodyStream (Popper, popperBytes)
+import Network.HTTP.Client.Protocol (ProtocolInfo)
 
 -- | A raw wire response. The body is a 'Popper'; the recipient is
 -- responsible for draining it before its scoped lifetime ends.

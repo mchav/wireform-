@@ -13,7 +13,7 @@ concurrent reads.
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Wire.Cookies
+module Network.HTTP.Client.Cookies
   ( CookieJar
   , Cookie (..)
   , SameSite (..)
@@ -38,10 +38,10 @@ import Data.Word (Word8)
 
 import qualified Network.HTTP.Types.Header as H
 
-import Network.HTTP.Wire.Request
-import Network.HTTP.Wire.Response
-import Network.HTTP.Wire.Transport
-import Network.HTTP.Wire.URI
+import Network.HTTP.Client.Request
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI
 
 -- ---------------------------------------------------------------------------
 -- Cookie data
@@ -112,12 +112,12 @@ withCookies (CookieJar var) inner = Transport $ \req -> do
           req' = case matching of
                    [] -> req
                    _  -> req
-                          { Network.HTTP.Wire.Request.headers =
+                          { Network.HTTP.Client.Request.headers =
                               H.insertHeader H.hCookie (renderCookieHeader matching)
-                                (Network.HTTP.Wire.Request.headers req)
+                                (Network.HTTP.Client.Request.headers req)
                           }
       raw <- sendRaw inner req'
-      let setCookies = parseSetCookieHeaders now resolved (Network.HTTP.Wire.Response.headers raw)
+      let setCookies = parseSetCookieHeaders now resolved (Network.HTTP.Client.Response.headers raw)
       atomically $ modifyTVar' var $ \m ->
         List.foldl' (\acc c -> Map.insert (cookieKey c) c acc) m setCookies
       pure raw

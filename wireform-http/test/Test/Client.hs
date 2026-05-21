@@ -5,13 +5,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the high-level wireform HTTP client (@Network.HTTP.Wire.*@).
+-- | Tests for the high-level wireform HTTP client (@Network.HTTP.Client.*@).
 --
 -- These exercise the pieces that are testable without spinning up a
 -- live server: media-type matching, request encoding, the assertion
 -- library against a mock transport, VCR record/replay, and the
 -- middleware combinators.
-module Test.Wire (tests) where
+module Test.Client (tests) where
 
 import Control.Exception (try, SomeException)
 import qualified Data.Aeson as Aeson
@@ -29,7 +29,7 @@ import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire
+import Network.HTTP.Client
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -43,7 +43,7 @@ data User = User
   deriving anyclass (Aeson.ToJSON, Aeson.FromJSON)
 
 tests :: TestTree
-tests = testGroup "Network.HTTP.Wire"
+tests = testGroup "Network.HTTP.Client"
   [ mediaTypeTests
   , requestBuildingTests
   , sendTests

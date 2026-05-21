@@ -1,13 +1,24 @@
-{- | Unified HTTP client and server for wireform.
+{- | Wireform HTTP — shared message primitives.
 
-This is the umbrella module: it re-exports the unified message
-types, the version range constraints used for negotiation, and the
-top-level client / server entry points.  Drop into the more
-specific modules ("Network.HTTP.Client", "Network.HTTP.Server",
-"Network.HTTP.VersionRange") if you only need part of the surface.
+This umbrella re-exports the version-agnostic HTTP types
+('Network.HTTP.Types.*'), the unified 'Request' \/ 'Response'
+shapes, and the version-range vocabulary used to drive negotiation.
 
-The vendored type primitives live under @Network.HTTP.Types.*@; they
-originated in the @hermes@ library and were rebranded into wireform.
+For the user-facing client and server APIs, import the dedicated
+modules:
+
+* @"Network.HTTP.Client"@ — the high-level, middleware-composable
+  client (request-as-value, content-type tags, retry, tracing,
+  VCR, mock transports). This is what application code wants.
+* @"Network.HTTP.Server"@ — the server side of the unified API.
+* @"Network.HTTP.Connection"@ — the low-level single-connection
+  bracket that the high-level client sits on top of. Reach for
+  this when you need to manage one connection's lifetime by hand
+  (e.g. long-lived HTTP\/2 multiplexing where you want explicit
+  control of stream concurrency).
+
+The Network.HTTP.Types.* primitives were vendored from the @hermes@
+library and rebranded into wireform.
 -}
 module Network.HTTP
   ( -- * Versions
@@ -19,14 +30,9 @@ module Network.HTTP
   , module Network.HTTP.Types.Header
   , module Network.HTTP.Types.Body
   , module Network.HTTP.Message
-    -- * Client \/ Server
-  , module Network.HTTP.Client
-  , module Network.HTTP.Server
   ) where
 
-import Network.HTTP.Client
 import Network.HTTP.Message
-import Network.HTTP.Server
 import Network.HTTP.Types.Body
 import Network.HTTP.Types.Header
 import Network.HTTP.Types.Method

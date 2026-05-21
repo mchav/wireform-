@@ -7,7 +7,7 @@ callers that /do/ care can branch on the negotiated version (HTTP\/2
 push, HTTP\/3 0-RTT) by pattern matching, without forcing every
 transport to implement those features.
 -}
-module Network.HTTP.Wire.Protocol
+module Network.HTTP.Client.Protocol
   ( ProtocolInfo (..)
   , Http2Info (..)
   , Http3Info (..)

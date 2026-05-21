@@ -1,27 +1,26 @@
-{- | The base transport: a 'Transport' built on top of the existing
-low-level "Network.HTTP.Client" connection API.
+{- | The base transport: a 'Transport' built on top of the
+low-level "Network.HTTP.Connection" single-connection API.
 
 This is the production wire shim. It does enough to be useful:
 
 * Parses the request URI to extract scheme \/ host \/ port.
-* Opens a fresh connection per request (no pool; the connection
-  pool is intended to follow, see @ClientConfig@'s @poolConfig@).
+* Opens a fresh connection per request (no pool yet; pooling is
+  intended to follow).
 * Honours HTTPS via the existing TLS module.
 * Bridges the low-level @'Network.HTTP.Types.Body.Body' =
-  'BodyStream' (IO (Maybe ByteString))@ representation to the
-  high-level @'Popper' = 'IO ByteString'@.
+  'IO (Maybe ByteString)'@ shape to the high-level
+  @'Popper' = 'IO ByteString'@.
 
 It /eagerly drains the response body/ before returning the
-'RawResponse'. That's a deliberate limitation — the existing
-low-level body popper's lifetime is tied to the connection scope,
-which means streaming through 'Transport's @sendRaw :: IO
-RawResponse@ shape would require connection-lifetime threading we
-don't have yet. Once 'pooledTransport' lands, streaming will live
-there.
+'RawResponse'. That's a deliberate limitation — the low-level
+body popper's lifetime is tied to the connection scope, which
+means streaming through 'Transport's @sendRaw :: IO RawResponse@
+shape would require connection-lifetime threading we don't have
+yet.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Wire.Base
+module Network.HTTP.Client.Base
   ( baseTransport
   , BaseTransportError (..)
   ) where
@@ -32,23 +31,23 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 
-import qualified Network.HTTP.Client       as LowLevel
+import qualified Network.HTTP.Connection    as Conn
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as LB
 import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
-import           Network.HTTP.Wire.BodyStream
-import qualified Network.HTTP.Wire.Request   as WReq
-import           Network.HTTP.Wire.Protocol
-import           Network.HTTP.Wire.Response
-import           Network.HTTP.Wire.Transport
-import qualified Network.HTTP.Wire.URI       as WURI
+import           Network.HTTP.Client.BodyStream
+import qualified Network.HTTP.Client.Request   as WReq
+import           Network.HTTP.Client.Protocol
+import           Network.HTTP.Client.Response
+import           Network.HTTP.Client.Transport
+import qualified Network.HTTP.Client.URI       as WURI
 
 data BaseTransportError
   = BaseTransportInvalidURI !String
     -- ^ Could not parse the resolved URI.
-  | BaseTransportLowLevel   !LowLevel.ClientError
+  | BaseTransportLowLevel   !Conn.ConnectionError
   deriving stock (Show)
 
 instance Exception BaseTransportError
@@ -68,13 +67,13 @@ baseTransport versionRange = Transport $ \req -> do
       host   = BS8.unpack (WURI.uriHost uri_)
       port   = show (WURI.uriPort uri_)
       tls    = case scheme of
-        WURI.SchemeHttps -> Just (LowLevel.defaultTlsClientConfig host)
+        WURI.SchemeHttps -> Just (Conn.defaultTlsConnectionConfig host)
         WURI.SchemeHttp  -> Nothing
-      lowCfg = LowLevel.ClientConfig
-        { LowLevel.clientHost         = host
-        , LowLevel.clientPort         = port
-        , LowLevel.clientVersionRange = versionRange
-        , LowLevel.clientTls          = tls
+      connCfg = Conn.ConnectionConfig
+        { Conn.connectionHost         = host
+        , Conn.connectionPort         = port
+        , Conn.connectionVersionRange = versionRange
+        , Conn.connectionTls          = tls
         }
       target = WURI.uriPathAndQuery uri_
       authority = Just (WURI.uriHost uri_ <> case BS8.readInt (BS8.pack port) of
@@ -95,8 +94,8 @@ baseTransport versionRange = Transport $ \req -> do
         , Msg.requestTrailers  = pure []
         }
 
-  LowLevel.withClient lowCfg $ \client -> do
-    resp <- LowLevel.sendRequest client lowReq
+  Conn.withConnection connCfg $ \conn -> do
+    resp <- Conn.sendOn conn lowReq
     materialised <- lowLevelBodyBytes (Msg.responseBody resp)
     newPopper <- popperFromStrict materialised
     pure RawResponse

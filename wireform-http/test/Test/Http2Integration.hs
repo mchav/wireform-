@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- | End-to-end HTTP\/2 integration through the unified
-'Network.HTTP.Client' \/ 'Network.HTTP.Server' surface.
+'Network.HTTP.Connection' \/ 'Network.HTTP.Server' surface.
 
 Uses plaintext HTTP\/2 (prior-knowledge h2c) on an ephemeral
 @127.0.0.1@ port — no TLS or ALPN required to exercise the
@@ -21,6 +21,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.HTTP
+import Network.HTTP.Connection
+import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
@@ -42,7 +44,7 @@ helloWorld :: TestTree
 helloWorld = testCase "HTTP/2 plaintext (h2c prior knowledge): hello world" $
   withTestServer http2Only (\_ -> pure (resp200 "hi")) $ \port -> do
     (status, ver, body) <- runClient http2Only port $ \c -> do
-      r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+      r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, responseVersion r, b)
     status @?= S.status200
@@ -53,7 +55,7 @@ echoBody :: TestTree
 echoBody = testCase "POST echoes a bounded request body" $
   withTestServer http2Only echo $ \port -> do
     (status, body) <- runClient http2Only port $ \c -> do
-      r <- sendRequest c (mkRequest "POST" "/" port (BodyBytes "payload") [])
+      r <- sendOn c (mkRequest "POST" "/" port (BodyBytes "payload") [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, b)
     status @?= S.status200
@@ -68,7 +70,7 @@ streamingResponseBody =
   testCase "streaming response body arrives chunk-wise" $
     withTestServer http2Only handler $ \port -> do
       (status, body) <- runClient http2Only port $ \c -> do
-        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+        r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
       status @?= S.status200
@@ -101,7 +103,7 @@ streamingRequestBody =
               [] -> pure Nothing
               (h:t) -> writeIORef chunkRef t >> pure (Just h)
       (status, body) <- runClient http2Only port $ \c -> do
-        r <- sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
+        r <- sendOn c (mkRequest "POST" "/" port (BodyStream producer) [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
       status @?= S.status200
@@ -116,7 +118,7 @@ serverEmitsTrailers =
   testCase "server-set responseTrailers reach the client's crResponseTrailers" $
     withTestServer http2Only handler $ \port -> do
       (status, trs) <- runClient http2Only port $ \c -> do
-        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+        r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
         _ <- drainBody (responseBody r)
         t <- responseTrailers r
         pure (responseStatus r, t)
@@ -147,7 +149,7 @@ largeHeaderBlockTriggersContinuation =
             | n <- [1 :: Int .. 64]
             ]
       (status, body) <- runClient http2Only port $ \c -> do
-        r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty manyHeaders)
+        r <- sendOn c (mkRequest "GET" "/" port BodyEmpty manyHeaders)
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
       status @?= S.status200
@@ -159,8 +161,8 @@ concurrentStreams :: TestTree
 concurrentStreams = testCase "multiple streams on one connection are independent" $
   withTestServer http2Only handler $ \port -> do
     runClient http2Only port $ \c -> do
-      r1 <- sendRequest c (mkRequest "GET" "/one" port BodyEmpty [])
-      r2 <- sendRequest c (mkRequest "GET" "/two" port BodyEmpty [])
+      r1 <- sendOn c (mkRequest "GET" "/one" port BodyEmpty [])
+      r2 <- sendOn c (mkRequest "GET" "/two" port BodyEmpty [])
       b1 <- drainBody (responseBody r1)
       b2 <- drainBody (responseBody r2)
       b1 @?= "one"
@@ -173,11 +175,11 @@ concurrentStreams = testCase "multiple streams on one connection are independent
 
 cancellationViaWithResponse :: TestTree
 cancellationViaWithResponse =
-  testCase "withResponse sends RST_STREAM(CANCEL) when the action throws" $
+  testCase "withResponseOn sends RST_STREAM(CANCEL) when the action throws" $
     withTestServer http2Only handler $ \port -> do
       result <- try @SomeException $
         runClient http2Only port $ \c ->
-          withResponse c (mkRequest "GET" "/" port BodyEmpty []) $ \_ ->
+          withResponseOn c (mkRequest "GET" "/" port BodyEmpty []) $ \_ ->
             error "intentional"
       case result of
         Left _  -> pure ()
@@ -239,15 +241,15 @@ withTestServer range handler action = do
         threadDelay 10000
         action portStr `finally` killThread tid
 
-runClient :: VersionRange -> String -> (Client -> IO a) -> IO a
+runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a
 runClient range port action = do
-  let cfg = defaultClientConfig
-        { clientHost = "127.0.0.1"
-        , clientPort = port
-        , clientVersionRange = range
-        , clientTls = Nothing
+  let cfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = port
+        , connectionVersionRange = range
+        , connectionTls = Nothing
         }
-  withClient cfg action
+  withConnection cfg action
 
 mkRequest
   :: BS.ByteString

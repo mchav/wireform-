@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- | End-to-end HTTP\/1.x integration through the unified
-'Network.HTTP.Client' \/ 'Network.HTTP.Server' surface.
+'Network.HTTP.Connection' \/ 'Network.HTTP.Server' surface.
 
 Each test runs a real TCP listener on @127.0.0.1@ with an
 ephemeral port (@bind 0@) and drives the unified accept loop via
@@ -22,6 +22,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.HTTP
+import Network.HTTP.Connection
+import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
@@ -40,7 +42,7 @@ helloWorld :: TestTree
 helloWorld = testCase "GET hello world (HTTP/1.1)" $
   withTestServer http1Only (\_ -> pure (resp200 "hi")) $ \port -> do
     (status, ver, body) <- runClient http1Only port $ \c -> do
-      r <- sendRequest c (mkRequest "GET" "/" port BodyEmpty [])
+      r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, responseVersion r, b)
     status @?= S.status200
@@ -51,7 +53,7 @@ echoBody :: TestTree
 echoBody = testCase "POST echoes Content-Length body" $
   withTestServer http1Only echo $ \port -> do
     (status, body) <- runClient http1Only port $ \c -> do
-      r <- sendRequest c (mkRequest "POST" "/" port (BodyBytes "rountrip") [])
+      r <- sendOn c (mkRequest "POST" "/" port (BodyBytes "rountrip") [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, b)
     status @?= S.status200
@@ -65,7 +67,7 @@ streamingResponse :: TestTree
 streamingResponse = testCase "streaming response body arrives chunk-wise" $
   withTestServer http1Only stream $ \port -> do
     body <- runClient http1Only port $ \c -> do
-      r <- sendRequest c (mkRequest "GET" "/stream" port BodyEmpty [])
+      r <- sendOn c (mkRequest "GET" "/stream" port BodyEmpty [])
       drainBody (responseBody r)
     body @?= "alphabetagamma"
   where
@@ -94,7 +96,7 @@ chunkedRequestWithEmptyTrailers =
               [] -> pure Nothing
               (h:t) -> writeIORef chunkRef t >> pure (Just h)
       (status, body) <- runClient http1Only port $ \c -> do
-        r <- sendRequest c (mkRequest "POST" "/" port (BodyStream producer) [])
+        r <- sendOn c (mkRequest "POST" "/" port (BodyStream producer) [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
       status @?= S.status200
@@ -111,7 +113,7 @@ expectContinue =
   testCase "Expect: 100-continue: server emits 100, client absorbs it" $
     withTestServer http1Only echo $ \port -> do
       (status, body) <- runClient http1Only port $ \c -> do
-        r <- sendRequest c
+        r <- sendOn c
           (mkRequest "POST" "/" port (BodyBytes "payload")
              [(CI.mk "Expect", "100-continue")])
         b <- drainBody (responseBody r)
@@ -167,15 +169,15 @@ withTestServer range handler action = do
         threadDelay 10000  -- give the listener a tick to spin up
         action portStr `finally` killThread tid
 
-runClient :: VersionRange -> String -> (Client -> IO a) -> IO a
+runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a
 runClient range port action = do
-  let cfg = defaultClientConfig
-        { clientHost = "127.0.0.1"
-        , clientPort = port
-        , clientVersionRange = range
-        , clientTls = Nothing
+  let cfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = port
+        , connectionVersionRange = range
+        , connectionTls = Nothing
         }
-  withClient cfg action
+  withConnection cfg action
 
 mkRequest
   :: BS.ByteString

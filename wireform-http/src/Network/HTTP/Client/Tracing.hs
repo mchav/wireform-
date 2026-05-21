@@ -1,7 +1,7 @@
 {- | OpenTelemetry tracing middleware.
 
 Implements 'withTracing', a 'Middleware' that wraps each
-'Network.HTTP.Wire.Send.send' call in an OTel client span with the
+'Network.HTTP.Client.Send.send' call in an OTel client span with the
 standard semantic-convention attributes and optional caller hooks.
 
 Conventions:
@@ -33,7 +33,7 @@ The instrumentation library name advertised to OTel is
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Network.HTTP.Wire.Tracing
+module Network.HTTP.Client.Tracing
   ( -- * Configuration
     TracingConfig (..)
   , TracingOptions (..)
@@ -73,11 +73,11 @@ import qualified OpenTelemetry.Context.ThreadLocal as Ctx
 import qualified OpenTelemetry.Propagator as Prop
 import qualified OpenTelemetry.Trace.Core as Trace
 
-import Network.HTTP.Wire.BodyStream
-import qualified Network.HTTP.Wire.Request as Req
-import Network.HTTP.Wire.Response
-import Network.HTTP.Wire.Transport
-import qualified Network.HTTP.Wire.URI as WURI
+import Network.HTTP.Client.BodyStream
+import qualified Network.HTTP.Client.Request as Req
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import qualified Network.HTTP.Client.URI as WURI
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -235,7 +235,7 @@ addResponseAttributes opts span_ raw = do
         , Trace.toAttribute (fromIntegral (WS.statusCode (statusCode raw)) :: Int)
         )
       hdrs = captureHeaders (responseHeaderAllowlist opts) "http.response.header"
-                            (Network.HTTP.Wire.Response.headers raw)
+                            (Network.HTTP.Client.Response.headers raw)
   Trace.addAttributes span_ (HashMap.fromList (statusAttr : hdrs))
 
 -- ---------------------------------------------------------------------------

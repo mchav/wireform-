@@ -12,7 +12,7 @@ Conventions:
   and lets middleware make informed buffering decisions.
 -}
 {-# LANGUAGE BangPatterns #-}
-module Network.HTTP.Wire.BodyStream
+module Network.HTTP.Client.BodyStream
   ( BodyStream (..)
   , Popper
   , emptyStream

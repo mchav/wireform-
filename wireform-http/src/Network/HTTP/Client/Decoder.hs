@@ -15,7 +15,7 @@ via the tag's 'Decode' instance. Decoders compose via '<!>' from
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Decoder
+module Network.HTTP.Client.Decoder
   ( ResponseDecoder (..)
   , as
   , orDecoder
@@ -31,7 +31,7 @@ import Data.ByteString (ByteString)
 import Network.HTTP.Types.Status (Status)
 import qualified Network.HTTP.Types.Status as S
 
-import Network.HTTP.Wire.Media
+import Network.HTTP.Client.Media
 
 -- | Content negotiation + body decoding bundled together.
 data ResponseDecoder a = ResponseDecoder

@@ -19,7 +19,7 @@ The transport itself remains in 'IO'.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Wire.Send
+module Network.HTTP.Client.Send
   ( send
   , sendIO
   , withResponse
@@ -35,14 +35,14 @@ import qualified Data.ByteString.Char8 as BS8
 
 import qualified Network.HTTP.Types.Header as H
 
-import Network.HTTP.Wire.Body
-import Network.HTTP.Wire.Decoder
-import Network.HTTP.Wire.Media
-import Network.HTTP.Wire.Request
-import qualified Network.HTTP.Wire.Response as Resp
-import Network.HTTP.Wire.Response
+import Network.HTTP.Client.Body
+import Network.HTTP.Client.Decoder
+import Network.HTTP.Client.Media
+import Network.HTTP.Client.Request
+import qualified Network.HTTP.Client.Response as Resp
+import Network.HTTP.Client.Response
   (Response (..), RawResponse (statusCode, bodyPopper, protocolInfo))
-import Network.HTTP.Wire.Transport
+import Network.HTTP.Client.Transport
 
 -- | Errors thrown by 'send' itself (separate from anything the
 -- transport or middleware might throw).

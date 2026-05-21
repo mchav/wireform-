@@ -16,7 +16,7 @@ prefix) and gets composed with a relative request URI by the
 'withBaseURL' middleware.
 -}
 {-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Wire.URI
+module Network.HTTP.Client.URI
   ( -- * Parsed URIs
     URI (..)
   , Scheme (..)

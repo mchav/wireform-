@@ -22,7 +22,7 @@ runMyClient transport
 @
 
 The mock\/replay 'Transport' shares 'RecordedRequest' \/
-'RecordedResponse' with "Network.HTTP.Wire.Test" so VCR cassettes
+'RecordedResponse' with "Network.HTTP.Client.Test" so VCR cassettes
 and request-log assertions speak the same vocabulary.
 -}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -32,7 +32,7 @@ and request-log assertions speak the same vocabulary.
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Network.HTTP.Wire.VCR
+module Network.HTTP.Client.VCR
   ( -- * Cassettes
     Cassette (..)
   , Interaction (..)
@@ -79,12 +79,12 @@ import qualified Network.HTTP.Types.Status as S
 
 import qualified YAML.Class as Y
 
-import Network.HTTP.Wire.BodyStream
-import Network.HTTP.Wire.Protocol
-import qualified Network.HTTP.Wire.Request as WReq
-import Network.HTTP.Wire.Response
-import Network.HTTP.Wire.Transport
-import Network.HTTP.Wire.URI (requestURIToText)
+import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Protocol
+import qualified Network.HTTP.Client.Request as WReq
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI (requestURIToText)
 
 -- ---------------------------------------------------------------------------
 -- Cassette data
@@ -245,7 +245,7 @@ toRecordedResponse raw bs =
   let (body_, binary) = bodyToRec bs
   in RecordedResponse
        { rrsStatus  = fromIntegral (S.statusCode (statusCode raw))
-       , rrsHeaders = map headerToRec (Network.HTTP.Wire.Response.headers raw)
+       , rrsHeaders = map headerToRec (Network.HTTP.Client.Response.headers raw)
        , rrsBody    = body_
        , rrsBodyBinary = binary
        }
