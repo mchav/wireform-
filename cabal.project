@@ -68,5 +68,3 @@ package grpc-spec
 package wireform-kafka
   optimization: 2
 
-package wireform-kafka:wireform-kafka-protocol
-  optimization: 2
