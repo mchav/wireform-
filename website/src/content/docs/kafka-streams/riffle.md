@@ -187,18 +187,6 @@ The standard dispatch modes (`DispatchPartition` for one-task-per-partition, `Di
 
 See [Scaling and rebalancing](./operating/scaling/).
 
-## KIP-848 rebalance protocol
-
-The classic Kafka consumer group rebalance protocol is eager: when any member joins or leaves, the entire group stops, revokes all assignments, recomputes the assignment, and redistributes. During this window, no member processes any records.
-
-For a consumer group with 50 members, a single instance restart triggers a full stop-the-world rebalance that can take 30-60 seconds. During that time, your entire application is paused.
-
-KIP-848 replaces this with an incremental protocol. Assignment moves to the group coordinator on the broker. Members exchange subscriptions and member epochs. When a task needs to move from member A to member B, it first appears in A's removal set. Only after A acknowledges that it has stopped processing the task does it appear in B's addition set. The rest of the group continues processing unaffected.
-
-The practical effect is that rebalances no longer cause application-wide pauses. Only the members that are gaining or losing tasks are affected, and the impact is limited to the specific tasks being moved.
-
-The classic protocol remains available. Select KIP-848 via `StreamsConfig`.
-
 ## Additional features
 
 Beyond the major features above, Riffle includes a set of smaller improvements that address common operational pain points:
