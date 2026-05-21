@@ -32,10 +32,10 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 
 import qualified Network.HTTP.Client       as LowLevel
-import           Network.HTTP.Message       (Scheme (..))
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as LB
 import qualified Network.HTTP.Types.Header  as LH
+import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
 import           Network.HTTP.Wire.BodyStream
@@ -62,11 +62,14 @@ baseTransport versionRange = Transport $ \req -> do
     Right u  -> pure u
     Left err -> throwIO (BaseTransportInvalidURI err)
   let scheme = WURI.uriScheme uri_
+      lowScheme = case scheme of
+        WURI.SchemeHttps -> Msg.SchemeHttps
+        WURI.SchemeHttp  -> Msg.SchemeHttp
       host   = BS8.unpack (WURI.uriHost uri_)
       port   = show (WURI.uriPort uri_)
       tls    = case scheme of
-        SchemeHttps -> Just (LowLevel.defaultTlsClientConfig host)
-        SchemeHttp  -> Nothing
+        WURI.SchemeHttps -> Just (LowLevel.defaultTlsClientConfig host)
+        WURI.SchemeHttp  -> Nothing
       lowCfg = LowLevel.ClientConfig
         { LowLevel.clientHost         = host
         , LowLevel.clientPort         = port
@@ -76,8 +79,8 @@ baseTransport versionRange = Transport $ \req -> do
       target = WURI.uriPathAndQuery uri_
       authority = Just (WURI.uriHost uri_ <> case BS8.readInt (BS8.pack port) of
                           Just (p, _)
-                            | (scheme == SchemeHttp  && p == 80)  -> ""
-                            | (scheme == SchemeHttps && p == 443) -> ""
+                            | scheme == WURI.SchemeHttp  && p == 80  -> ""
+                            | scheme == WURI.SchemeHttps && p == 443 -> ""
                           _ -> ":" <> BS8.pack port)
 
   lowBody <- toLowLevelBody (WReq.body req)
@@ -85,7 +88,7 @@ baseTransport versionRange = Transport $ \req -> do
         { Msg.requestMethod    = WReq.method req
         , Msg.requestTarget    = target
         , Msg.requestAuthority = authority
-        , Msg.requestScheme    = scheme
+        , Msg.requestScheme    = lowScheme
         , Msg.requestHeaders   = WReq.headers req
         , Msg.requestBody      = lowBody
         , Msg.requestVersion   = VR.preferredVersion versionRange
@@ -108,8 +111,8 @@ baseTransport versionRange = Transport $ \req -> do
           v -> lowToProtocol v
       }
 
-lowToProtocol :: VR.Version -> ProtocolInfo
-lowToProtocol VR.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
+lowToProtocol :: LV.Version -> ProtocolInfo
+lowToProtocol LV.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
 lowToProtocol _        = HTTP1_1
 
 -- | Bridge from the high-level 'BodyStream' (which signals EOF with
