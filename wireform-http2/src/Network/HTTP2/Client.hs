@@ -363,9 +363,9 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
                   -- Table Size Update" on the next header block; we
                   -- don't yet (TODO), so this is best-effort against
                   -- lenient peers.
-                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
-                    enc <- readMVar (connHpackEncoder (chConnection handle))
-                    setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
+                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $
+                    withMVar (connHpackEncoder (chConnection handle)) $ \enc ->
+                      setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
                   let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
                   sendFrame (chConnection handle) ack
                   pure True
@@ -922,7 +922,6 @@ registerAndSend handle req = do
     rw <- newIORef (fromIntegral ourInitial)
     pure $ StreamInbox h q t sw ru rw
   modifyIORef' (chStreams handle) (Map.insert sid inbox)
-  encoder <- readMVar (connHpackEncoder conn)
   let pseudoHeaders =
         [ (":method", crMethod req)
         , (":path", crPath req)
@@ -930,7 +929,8 @@ registerAndSend handle req = do
         , (":authority", crAuthority req)
         ]
       allHeaders = pseudoHeaders <> crHeaders req
-  headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
+  headerBlock <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
   let bodyKind = crBody req
       endStreamOnHeaders = case bodyKind of
         ReqBodyNone -> True

@@ -523,9 +523,9 @@ handleFrame' cfg conn streamsRef lastPeerStreamRef contRef
                   -- don't yet emit the spec-required "Dynamic Table
                   -- Size Update" instruction on the next header
                   -- block.
-                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $ do
-                    enc <- readMVar (connHpackEncoder conn)
-                    setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
+                  when (settingsHeaderTableSize old /= settingsHeaderTableSize newSettings) $
+                    withMVar (connHpackEncoder conn) $ \enc ->
+                      setMaxSize enc (fromIntegral (settingsHeaderTableSize newSettings))
                   let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
                   sendFrame conn ack
                   pure True
@@ -1269,13 +1269,13 @@ buildRequest conn connUnackedRef connWindowRef sid headers sr =
 
 sendResponse :: Connection -> StreamId -> FlowControl -> Response -> IO ()
 sendResponse conn sid sendWin resp = do
-  encoder <- readMVar (connHpackEncoder conn)
   let statusBS = BS.pack (map (fromIntegral . fromEnum) (show (responseStatus resp)))
       statusHdr = (":status", statusBS)
       allHeaders = statusHdr : responseHeaders resp
       trailers = responseTrailers resp
       hasTrailers = not (null trailers)
-  headerBlock <- encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
+  headerBlock <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder allHeaders
   case responseBody resp of
     ResponseBodyEmpty
       | hasTrailers -> do
@@ -1380,8 +1380,8 @@ sendHeadersFrame conn sid headerBlock endStream = do
 -- (chunked over CONTINUATION frames if necessary).
 sendTrailers :: Connection -> StreamId -> [(ByteString, ByteString)] -> IO ()
 sendTrailers conn sid trailers = do
-  encoder <- readMVar (connHpackEncoder conn)
-  block <- encodeHeaderBlock defaultEncodeStrategy encoder trailers
+  block <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder trailers
   sendHeadersFrame conn sid block True
 
 streamBody

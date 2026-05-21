@@ -334,11 +334,10 @@ recvExact conn n =
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do
-  isClosed <- readIORef (connClosed conn)
-  if isClosed
+  alreadyClosed <- atomicModifyIORef' (connClosed conn) (\c -> (True, c))
+  if alreadyClosed
     then pure ()
     else do
-      writeIORef (connClosed conn) True
       lastId <- readIORef (connLastStreamId conn)
       let goaway = Frame
             (FrameHeader 0 FrameGoAway 0 0)

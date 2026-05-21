@@ -158,8 +158,8 @@ doSendRequest env conn streamsRef nextSidRef (OutObj hdrs body trailerMaker) k =
                 : ciHeadersToRaw hdrs
       finalHeaders = injectAuthority (envAuthority env) augmented
 
-  encoder <- readMVar (connHpackEncoder conn)
-  block <- encodeHeaderBlock defaultEncodeStrategy encoder finalHeaders
+  block <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder finalHeaders
 
   case body of
     OutBodyNone -> do
