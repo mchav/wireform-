@@ -1,6 +1,6 @@
 ---
 title: wireform-thrift
-description: "Apache Thrift binary and compact wire protocols with IDL codegen, RPC message framing, and Generic deriving."
+description: "Apache Thrift binary and compact wire protocols with IDL codegen, RPC message framing, and Template Haskell deriving."
 sidebar:
   order: 31
 ---
@@ -14,7 +14,9 @@ compatibility, RPC message framing, or schema codegen from `.thrift` IDL files.
 
 ## Key features
 
-- **Typeclass API** via `ToThrift` and `FromThrift` with GHC `Generic` auto field IDs
+- **Template Haskell deriving** via `deriveThrift` for Haskell record types,
+  with `wireform-derive` annotations; Generic defaults (empty instances) work
+  for simple cases
 - **Binary and Compact wire protocols** with matching encode/decode entry points
 - **Thrift IDL parser and codegen** from `.thrift` schema files
 - **Service definitions** for RPC method signatures
@@ -25,11 +27,13 @@ compatibility, RPC message framing, or schema codegen from `.thrift` IDL files.
 
 ## Basic usage
 
-Derive instances with `Generic`, then pick a wire protocol. Compact is the
-recommended choice for new code because it produces smaller payloads:
+Derive instances with the Template Haskell deriver, then pick a wire protocol.
+Compact is the recommended choice for new code because it produces smaller
+payloads:
 
 ```haskell
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DerivingStrategies #-}
 
 import Data.Text (Text)
@@ -39,6 +43,7 @@ import Thrift.Class
   , encodeThriftBinary, decodeThriftBinary
   , encodeThriftCompact, decodeThriftCompact
   )
+import Thrift.Derive (deriveThrift)
 
 data LogEntry = LogEntry
   { level   :: !Text
@@ -46,7 +51,8 @@ data LogEntry = LogEntry
   , code    :: !Int
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToThrift, FromThrift)
+
+$(deriveThrift ''LogEntry)
 
 entry :: LogEntry
 entry = LogEntry "ERROR" "disk full" 507
@@ -65,6 +71,10 @@ compactBytes = encodeThriftCompact entry
 decodeCompact :: Either String LogEntry
 decodeCompact = decodeThriftCompact compactBytes
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToThrift LogEntry`
+and `instance FromThrift LogEntry` declarations.
 
 For RPC-style communication, wrap payloads in a message envelope:
 

@@ -1,6 +1,6 @@
 ---
 title: wireform-edn
-description: "Extensible Data Notation encoding and decoding with Generic deriving, Clojure literals, and a JSON bridge."
+description: "Extensible Data Notation encoding and decoding with TH deriving, Clojure literals, and a JSON bridge."
 sidebar:
   order: 14
 ---
@@ -17,7 +17,9 @@ documents rather than compact byte streams.
 
 ## Key features
 
-- **Generic deriving** via `ToEDN` and `FromEDN` for records and sum types
+- **Template Haskell deriving** via `deriveEDN` from `EDN.Derive`, with
+  `wireform-derive` annotations; Generic defaults (empty instances) work for
+  simple uncustomized records
 - **Clojure literals** including keywords, symbols, sets, and tagged values
 - **JSON bridge** for converting between EDN and Aeson `Value`
 - **Dynamic values** via the untyped `Value` ADT for schema-less parsing
@@ -30,9 +32,11 @@ keyword keys:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Point where
 
 import EDN.Class (ToEDN, FromEDN, encodeEDN, decodeEDN)
+import EDN.Derive (deriveEDN)
 import GHC.Generics (Generic)
 
 data Point = Point
@@ -40,7 +44,8 @@ data Point = Point
   , pointY :: !Double
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToEDN, FromEDN)
+
+$(deriveEDN ''Point)
 
 toText :: Point -> ByteString
 toText pt = encodeEDN pt
@@ -48,6 +53,11 @@ toText pt = encodeEDN pt
 fromText :: ByteString -> Either String Point
 fromText bs = decodeEDN bs
 ```
+
+For simple records with no custom wire naming, Generic defaults also work:
+declare empty `instance ToEDN Point` and `instance FromEDN Point` after
+`deriving stock (Show, Eq, Generic)`. Field names go to the wire verbatim and
+annotations are not supported.
 
 Tagged literals use EDN's `#tag` reader syntax. Build them with the dynamic
 ADT when you need custom tags:

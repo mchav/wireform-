@@ -1,6 +1,6 @@
 ---
 title: wireform-html
-description: "HTML5 parser, CSS Selectors Level 4, streaming rewriter, and Generic deriving with a C SIMD scanner."
+description: "HTML5 parser, CSS Selectors Level 4, streaming rewriter, and Template Haskell deriving with a C SIMD scanner."
 sidebar:
   order: 21
 ---
@@ -20,7 +20,7 @@ without building a full DOM.
 | CSS Selectors Level 4 | `HTML.Selector`, `HTML.DOM` | Query parsed trees with familiar selector syntax |
 | Streaming rewriter | `HTML.Rewriter` | lol-html-style transforms in one pass, bounded memory |
 | Incremental parsing | `HTML.DOM` | Feed HTML chunks as they arrive |
-| Generic deriving | `HTML.Class`, `HTML.Derive` | Serialize Haskell types to HTML fragments |
+| Template Haskell deriving | `HTML.Class`, `HTML.Derive` | `deriveHTML` with wireform-derive annotations; Generic defaults for simple cases |
 | C SIMD scanner | `cbits/fast_html.c` | Vectorized tag and text scanning on hot paths |
 
 ## Basic usage
@@ -87,26 +87,32 @@ nodes. Element mutation helpers include `setTagName`, `replaceElement`,
 
 ### Typed HTML fragments
 
-When your output is structured data rendered as HTML, derive `ToHTML` and emit
-with `encodeHTMLTyped`.
+When your output is structured data rendered as HTML, derive `ToHTML` with the
+Template Haskell deriver and emit with `encodeHTMLTyped`.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import HTML.Class (ToHTML, encodeHTMLTyped)
+import HTML.Derive (deriveHTML)
 
 data Person = Person
   { name :: !Text
   , role :: !Text
   } deriving stock (Generic)
-    deriving anyclass (ToHTML)
+
+$(deriveHTML ''Person)
 
 renderPerson :: Person -> Text
 renderPerson = encodeHTMLTyped
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToHTML Person` and
+`instance FromHTML Person` declarations.
 
 ### Incremental parsing
 

@@ -18,8 +18,9 @@ struct registries, and schema registration affect the on-wire layout.
 
 ## Key features
 
-- **Generic deriving** via `ToFory` and `FromFory` for records and algebraic
-  types
+- **Template Haskell deriving** via `deriveFory` for records and algebraic
+  types, with `wireform-derive` annotations; Generic defaults (empty instances)
+  work for simple cases
 - **Reference tracking** to deduplicate shared objects and cyclic graphs on
   the wire
 - **Meta-string compression** for repeated field and type names
@@ -33,13 +34,16 @@ struct registries, and schema registration affect the on-wire layout.
 
 ## Basic usage
 
-Derive Fory codecs and round-trip through the default encoder:
+Derive Fory codecs with the Template Haskell deriver and round-trip through
+the default encoder:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Event where
 
 import Fory.Class (ToFory, FromFory, encodeFory, decodeFory)
+import Fory.Derive (deriveFory)
 import GHC.Generics (Generic)
 import Data.Text (Text)
 
@@ -48,7 +52,8 @@ data Event = Event
   , eventName :: !Text
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToFory, FromFory)
+
+$(deriveFory ''Event)
 
 send :: Event -> ByteString
 send ev = encodeFory ev
@@ -56,6 +61,10 @@ send ev = encodeFory ev
 receive :: ByteString -> Either String Event
 receive bs = decodeFory bs
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToFory Event` and
+`instance FromFory Event` declarations.
 
 When the same object appears more than once in a graph, enable reference
 tracking so subsequent occurrences encode as back-references:

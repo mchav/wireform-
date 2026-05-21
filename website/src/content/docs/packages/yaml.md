@@ -1,6 +1,6 @@
 ---
 title: wireform-yaml
-description: "YAML 1.2 encoding and decoding with Generic deriving, anchors, tags, and multi-document streams."
+description: "YAML 1.2 encoding and decoding with TH deriving, anchors, tags, and multi-document streams."
 sidebar:
   order: 22
 ---
@@ -17,7 +17,7 @@ conformance.
 
 | Capability | Why it matters |
 |------------|----------------|
-| `ToYAML` / `FromYAML` with `Generic` | Derive config types once, round-trip without boilerplate |
+| `deriveYAML` Template Haskell deriver | Derive config types with `wireform-derive` annotations; Generic defaults work for simple cases |
 | Block and flow styles | Human-readable block output; compact flow for inline structures |
 | Anchors and aliases | Preserve shared references and cyclic graphs in the value layer |
 | Tags | Explicit scalar typing (`!!int`, application-specific tags) |
@@ -29,27 +29,33 @@ conformance.
 
 ### Typed records
 
-Derive `Generic`, attach `ToYAML` and `FromYAML`, and use `encodeYAML` /
+Derive codecs with the Template Haskell deriver and use `encodeYAML` /
 `decodeYAML` for the common case.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import YAML.Class (ToYAML, FromYAML, encodeYAML, decodeYAML)
+import YAML.Derive (deriveYAML)
 
 data Server = Server
   { host :: !Text
   , port :: !Int
   , tls  :: !Bool
   } deriving stock (Generic)
-    deriving anyclass (ToYAML, FromYAML)
+
+$(deriveYAML ''Server)
 
 loadConfig :: Text -> Either String Server
 loadConfig = decodeYAML
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToYAML Server` and
+`instance FromYAML Server` declarations.
 
 Field naming follows the same `Wireform.Derive` annotation vocabulary as other
 wireform formats (`rename`, `omitEmpty`, and friends via `YAML.Derive`).

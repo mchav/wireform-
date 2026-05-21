@@ -1,6 +1,6 @@
 ---
 title: wireform-msgpack
-description: "MessagePack encoding and decoding with Generic deriving, streaming decode, msgpack-RPC, and a JSON bridge."
+description: "MessagePack encoding and decoding with TH deriving, streaming decode, msgpack-RPC, and a JSON bridge."
 sidebar:
   order: 11
 ---
@@ -13,8 +13,9 @@ with similar flexibility but smaller payloads.
 
 ## Key features
 
-- **Generic deriving** via `ToMsgPack` and `FromMsgPack` for records, enums,
-  and sum types
+- **Template Haskell deriving** via `deriveMsgPack` for records, enums, and sum
+  types, with `wireform-derive` annotations; Generic defaults (empty instances)
+  work for simple cases
 - **Streaming decode** for concatenated or length-prefixed MessagePack frames
 - **msgpack-RPC** message encoding for request/response/notification patterns
 - **JSON bridge** for converting between MessagePack and Aeson `Value`
@@ -23,13 +24,15 @@ with similar flexibility but smaller payloads.
 
 ## Basic usage
 
-Define a type, derive `Generic`, and attach the codec instances:
+Define a type and derive codec instances with Template Haskell:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Person where
 
 import MsgPack.Class (ToMsgPack, FromMsgPack, encodeMsgPack, decodeMsgPack)
+import MsgPack.Derive (deriveMsgPack)
 import GHC.Generics (Generic)
 import Data.Text (Text)
 
@@ -38,7 +41,8 @@ data Person = Person
   , personAge  :: !Int
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToMsgPack, FromMsgPack)
+
+$(deriveMsgPack ''Person)
 
 roundTrip :: Person -> Either String Person
 roundTrip p =
@@ -46,6 +50,10 @@ roundTrip p =
     Left err  -> Left err
     Right val -> Right val
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToMsgPack Person` and
+`instance FromMsgPack Person` declarations.
 
 For RPC-style messaging, use the msgpack-RPC envelope helpers:
 

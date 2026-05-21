@@ -1,6 +1,6 @@
 ---
 title: wireform-ion
-description: "Amazon Ion binary encoding and decoding with Generic deriving, Ion Schema Language support, and a QuasiQuoter."
+description: "Amazon Ion binary encoding and decoding with TH deriving, Ion Schema Language support, and a QuasiQuoter."
 sidebar:
   order: 13
 ---
@@ -13,8 +13,9 @@ with AWS tooling or need schema-checked Ion documents in Haskell.
 
 ## Key features
 
-- **Generic deriving** via `ToIon` and `FromIon` for records and algebraic
-  types
+- **Template Haskell deriving** via `deriveIon` from `Ion.Derive`, with
+  `wireform-derive` annotations; Generic defaults (empty instances) work for
+  simple uncustomized records
 - **Ion Schema Language (ISL)** parser for declarative schema definitions
 - **Schema-driven codegen** that emits Haskell types and codec stubs from ISL
 - **QuasiQuoter** for embedding Ion text literals at compile time
@@ -26,9 +27,11 @@ Derive Ion codecs for a record and round-trip through binary Ion:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Metrics where
 
 import Ion.Class (ToIon, FromIon, encodeIon, decodeIon)
+import Ion.Derive (deriveIon)
 import GHC.Generics (Generic)
 import Data.Text (Text)
 
@@ -37,7 +40,8 @@ data Metric = Metric
   , metricValue :: !Double
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToIon, FromIon)
+
+$(deriveIon ''Metric)
 
 publish :: Metric -> ByteString
 publish m = encodeIon m
@@ -45,6 +49,11 @@ publish m = encodeIon m
 consume :: ByteString -> Either String Metric
 consume bs = decodeIon bs
 ```
+
+For simple records with no custom wire naming, Generic defaults also work:
+declare empty `instance ToIon Metric` and `instance FromIon Metric` after
+`deriving stock (Show, Eq, Generic)`. Field names go to the wire verbatim and
+annotations are not supported.
 
 For schema-first workflows, define types in ISL and splice them at compile
 time with the QuasiQuoter:

@@ -1,6 +1,6 @@
 ---
 title: wireform-bson
-description: "MongoDB BSON encoding and decoding with Generic deriving and full support for MongoDB element types."
+description: "MongoDB BSON encoding and decoding with TH deriving, wireform-derive annotations, and full MongoDB element types."
 sidebar:
   order: 12
 ---
@@ -14,7 +14,9 @@ than JSON.
 
 ## Key features
 
-- **Generic deriving** via `ToBSON` and `FromBSON` for Haskell record types
+- **Template Haskell deriving** via `deriveBSON` for Haskell record types,
+  with `wireform-derive` annotations; Generic defaults (empty instances) work
+  for simple cases
 - **Full MongoDB element set** including `ObjectId`, `Decimal128`,
   JavaScript code, regex, timestamps, and MinKey/MaxKey
 - **Binary subtypes** for UUID, user-defined payloads, and other BSON binary
@@ -24,13 +26,15 @@ than JSON.
 
 ## Basic usage
 
-Map a Haskell record to a BSON document with Generic deriving:
+Map a Haskell record to a BSON document with the Template Haskell deriver:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module UserDoc where
 
 import BSON.Class (ToBSON, FromBSON, encodeBSON, decodeBSON)
+import BSON.Derive (deriveBSON)
 import GHC.Generics (Generic)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
@@ -41,7 +45,8 @@ data User = User
   , userId   :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToBSON, FromBSON)
+
+$(deriveBSON ''User)
 
 insertBytes :: User -> ByteString
 insertBytes user = encodeBSON user
@@ -49,6 +54,10 @@ insertBytes user = encodeBSON user
 readUser :: ByteString -> Either String User
 readUser bs = decodeBSON bs
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToBSON User` and
+`instance FromBSON User` declarations.
 
 When you need MongoDB-specific field types, model them with the `Value`
 constructors and use the dynamic ADT, or wrap the wire shapes in newtypes

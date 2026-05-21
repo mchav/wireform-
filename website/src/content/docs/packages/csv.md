@@ -1,6 +1,6 @@
 ---
 title: wireform-csv
-description: "CSV, TSV, and pipe-separated encoding and decoding with Generic deriving, streaming rows, and SIMD scanning."
+description: "CSV, TSV, and pipe-separated encoding and decoding with TH deriving, streaming rows, and SIMD scanning."
 sidebar:
   order: 24
 ---
@@ -15,7 +15,7 @@ the streaming API when files are too large to load at once.
 
 | Capability | Why it matters |
 |------------|----------------|
-| `ToCSV` / `FromCSV` with `Generic` | Map header rows to Haskell records |
+| `deriveCSV` Template Haskell deriver | Map header rows to Haskell records with `wireform-derive` annotations; Generic defaults work for simple cases |
 | Configurable delimiters | CSV (`,`), TSV (`\t`), pipe, or custom separators |
 | Quoting and escaping | RFC 4180 quoted fields with embedded delimiters |
 | Streaming row callbacks | `decodeStream` processes one row at a time with constant memory |
@@ -26,18 +26,19 @@ the streaming API when files are too large to load at once.
 
 ### Typed rows
 
-Define a record, derive `Generic` and the CSV classes, and decode an entire
-file into a `Vector` of rows.
+Define a record, derive codecs with the Template Haskell deriver, and decode
+an entire file into a `Vector` of rows.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import Data.ByteString (ByteString)
-import CSV.Class (ToCSV, FromCSV, genericToCSVRow, genericFromCSVRow)
+import CSV.Class (ToCSV, FromCSV)
+import CSV.Derive (deriveCSV)
 import CSV.Decode (decodeRecords)
 import CSV.Encode (encodeRecords)
 import CSV.Value (defaultCSV)
@@ -48,15 +49,15 @@ data Row = Row
   , score :: !Int
   } deriving stock (Generic)
 
-instance ToCSV Row where
-  toCSVRow = genericToCSVRow
-
-instance FromCSV Row where
-  fromCSVRow = genericFromCSVRow
+$(deriveCSV ''Row)
 
 loadRows :: ByteString -> Either String (Vector Row)
 loadRows bs = decodeRecords defaultCSV bs
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToCSV Row` and
+`instance FromCSV Row` declarations.
 
 Use `defaultTSV` from `CSV.Value` when the input is tab-separated.
 

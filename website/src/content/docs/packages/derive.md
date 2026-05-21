@@ -1,33 +1,91 @@
 ---
 title: wireform-derive
-description: "Annotation-driven deriving: one set of annotations, every wire format."
+description: "Annotation-driven TH deriving: one set of annotations, every wire format."
 sidebar:
   order: 2
 ---
 
-`wireform-derive` is the shared annotation vocabulary that powers Generic
-deriving across every wireform format. You annotate your Haskell types once, and
-those annotations control how fields are named, tagged, skipped, or restructured
-for MessagePack, CBOR, YAML, XML, Protocol Buffers, Avro, and every other
-supported backend.
+`wireform-derive` is the shared annotation vocabulary that powers Template
+Haskell deriving across every wireform format. You annotate your Haskell types
+once with `ANN` pragmas, call the format's TH deriver, and those annotations
+control how fields are named, tagged, skipped, or restructured for MessagePack,
+CBOR, YAML, XML, Protocol Buffers, Avro, and every other supported backend.
 
-## The problem it solves
+## Two ways to get instances
 
-Without a shared vocabulary, each format would need its own annotation system.
-You'd end up writing separate config for "rename this field to `user_name`" in
-JSON, CBOR, YAML, and so on. With `wireform-derive`, a single `ANN` pragma
-drives all of them:
+Every format's `Class` module (e.g. `MsgPack.Class`, `CBOR.Class`) provides
+two paths to derive instances:
+
+### Path 1: Generic defaults (no annotations)
+
+The typeclasses have `DefaultSignatures` that delegate to `GHC.Generics`.
+You can write empty instances and get working codecs with **plain field names
+and no customization**:
 
 ```haskell
-{-# ANN type User (renameStyle SnakeCase) #-}
+{-# LANGUAGE DeriveGeneric #-}
+import GHC.Generics (Generic)
+import MsgPack.Class (ToMsgPack, FromMsgPack)
+
 data User = User
   { userName :: !Text
   , userAge  :: !Int
-  } deriving stock (Generic)
-    deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR, ToYAML, FromYAML)
+  } deriving stock (Show, Eq, Generic)
+
+instance ToMsgPack User
+instance FromMsgPack User
 ```
 
-All three formats will see `user_name` and `user_age` on the wire.
+This works, but field names go to the wire verbatim (`userName`, `userAge`).
+There is no way to rename, skip, tag, or otherwise customize the encoding.
+
+### Path 2: Template Haskell deriver (with annotations)
+
+Each format ships a `Derive` module that reads `ANN` pragmas through the
+`wireform-derive` vocabulary and splices customized instances:
+
+```haskell
+{-# LANGUAGE TemplateHaskell #-}
+import Wireform.Derive (renameStyle, SnakeCase)
+import MsgPack.Derive (deriveMsgPack)
+
+data User = User
+  { userName :: !Text
+  , userAge  :: !Int
+  }
+
+{-# ANN type User (renameStyle SnakeCase) #-}
+
+deriveMsgPack ''User
+```
+
+Now the wire keys are `user_name` and `user_age`. This is the only path that
+supports the annotation vocabulary described below. It also supports multi-format
+in a single file:
+
+```haskell
+{-# ANN type User (renameStyle SnakeCase) #-}
+deriveMsgPack ''User
+deriveCBOR ''User
+deriveYAML ''User
+```
+
+All three formats will see `user_name` and `user_age` on the wire, driven by
+the same annotation.
+
+## When to use which
+
+| | Generic defaults | TH deriver |
+|---|---|---|
+| Annotations (rename, tag, skip, etc.) | No | Yes |
+| Requires `TemplateHaskell` | No | Yes |
+| Field names | Verbatim from Haskell | Controlled by annotations |
+| Multi-format from one annotation set | No | Yes |
+| Backend-specific overrides | No | Yes |
+
+If your types already have the wire names you want and you don't need any
+customization, Generic defaults are fine. For everything else, use the TH
+deriver.
 
 ## Annotations
 
@@ -153,6 +211,8 @@ while letting each format define its own concepts.
 It serves as the reference implementation for how to write a format deriver:
 
 ```haskell
+{-# LANGUAGE TemplateHaskell #-}
+import Wireform.Derive (renameStyle, SnakeCase)
 import Wireform.Derive.Aeson (deriveJSON)
 
 data Person = Person
@@ -163,7 +223,7 @@ data Person = Person
 {-# ANN type Person (renameStyle SnakeCase) #-}
 
 deriveJSON ''Person
--- generates ToJSON and FromJSON instances
+-- splices ToJSON and FromJSON instances
 -- wire keys: "person_name", "person_age"
 ```
 
@@ -173,6 +233,7 @@ Aeson's `TaggedObject` shape by default.
 ## Quick reference
 
 ```haskell
+{-# LANGUAGE TemplateHaskell #-}
 import Wireform.Derive
 
 -- Type-level: applies to all fields
@@ -185,4 +246,9 @@ import Wireform.Derive
 
 -- Combine multiple
 {-# ANN myField (forBackends ["json", "yaml"] (rename "name")) #-}
+
+-- Splice the instances
+deriveMsgPack ''MyRecord
+deriveCBOR ''MyRecord
+deriveYAML ''MyRecord
 ```

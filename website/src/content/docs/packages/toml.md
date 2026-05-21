@@ -1,6 +1,6 @@
 ---
 title: wireform-toml
-description: "TOML 1.0 and 1.1 encoding and decoding with Generic deriving, section-aware pretty printing, and datetime support."
+description: "TOML 1.0 and 1.1 encoding and decoding with TH deriving, section-aware pretty printing, and datetime support."
 sidebar:
   order: 23
 ---
@@ -16,7 +16,7 @@ suite for both TOML 1.0 and 1.1.
 
 | Capability | Why it matters |
 |------------|----------------|
-| `ToTOML` / `FromTOML` with `Generic` | Load config files directly into typed records |
+| `deriveTOML` Template Haskell deriver | Load config files into typed records with `wireform-derive` annotations; Generic defaults work for simple cases |
 | Section-aware pretty printing | `[database]` and nested `[database.pool]` headers land in sensible order |
 | Datetime support | RFC 3339 offsets and local datetimes as first-class values |
 | Inline and standard tables | Compact inline `{ key = "val" }` or full `[table]` blocks |
@@ -27,32 +27,38 @@ suite for both TOML 1.0 and 1.1.
 
 ### Typed configuration
 
-Derive `Generic`, add `ToTOML` and `FromTOML`, and round-trip with
+Derive codecs with the Template Haskell deriver and round-trip with
 `encodeTOML` / `decodeTOML`.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import TOML.Class (ToTOML, FromTOML, encodeTOML, decodeTOML)
+import TOML.Derive (deriveTOML)
 
 data Database = Database
   { dbHost :: !Text
   , dbPort :: !Int
   } deriving stock (Generic)
-    deriving anyclass (ToTOML, FromTOML)
 
 data AppConfig = AppConfig
   { appName  :: !Text
   , database :: !Database
   } deriving stock (Generic)
-    deriving anyclass (ToTOML, FromTOML)
+
+$(deriveTOML ''Database)
+$(deriveTOML ''AppConfig)
 
 loadConfig :: Text -> Either String AppConfig
 loadConfig = decodeTOML
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToTOML Database` and
+`instance FromTOML Database` declarations (and likewise for `AppConfig`).
 
 Nested records become TOML subtables. The encoder emits a `[database]` section
 with keys under it rather than flattening everything at the top level.
@@ -65,17 +71,19 @@ Haskell types from the value module.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import TOML.Class (FromTOML, decodeTOML)
+import TOML.Derive (deriveTOML)
 
 data Job = Job
   { jobName     :: !Text
   , scheduledAt :: !Text
   } deriving stock (Generic)
-    deriving anyclass (FromTOML)
+
+$(deriveTOML ''Job)
 
 parseJob :: Text -> Either String Job
 parseJob = decodeTOML

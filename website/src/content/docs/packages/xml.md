@@ -1,6 +1,6 @@
 ---
 title: wireform-xml
-description: "Full XML pipeline: SAX and DOM parsing, XPath queries, XSLT transforms, XSD codegen, and Generic deriving."
+description: "Full XML pipeline: SAX and DOM parsing, XPath queries, XSLT transforms, XSD codegen, and Template Haskell deriving."
 sidebar:
   order: 20
 ---
@@ -23,7 +23,7 @@ library that can stream large documents, build a queryable DOM, and derive
 | XSLT 1.0 | `XML.XSLT` | Apply stylesheets for report generation and legacy integrations |
 | XSD codegen | `XML.CodeGen`, `XML.QQ` | Generate Haskell types from schema at compile time or via CLI |
 | Incremental parsing | `XML.Incremental` | Feed chunks as they arrive on a socket or from disk |
-| Generic deriving | `XML.Class`, `XML.Derive` | Map Haskell records to XML elements with `Generic` |
+| Template Haskell deriving | `XML.Class`, `XML.Derive` | `deriveXML` with wireform-derive annotations; Generic defaults for simple cases |
 | C SIMD scanner | `cbits/fast_xml.c` | Vectorized scanning on text-heavy documents |
 
 ## Basic usage
@@ -100,29 +100,35 @@ findBySku bs sku = do
     Just (node, _) -> Right (Just (textContent node))
 ```
 
-### Typed records with Generic
+### Typed records
 
-For application-level messages, derive `ToXML` and `FromXML` and round-trip with
-`encodeXML` / `decodeXML`.
+For application-level messages, derive `ToXML` and `FromXML` with the Template
+Haskell deriver and round-trip with `encodeXML` / `decodeXML`.
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 import GHC.Generics (Generic)
 import Data.Text (Text)
 import XML.Class (ToXML, FromXML, encodeXML, decodeXML)
+import XML.Derive (deriveXML)
 
 data Book = Book
   { title  :: !Text
   , author :: !Text
   , year   :: !Int
   } deriving stock (Generic)
-    deriving anyclass (ToXML, FromXML)
+
+$(deriveXML ''Book)
 
 roundtrip :: Book -> Either String Book
 roundtrip book = decodeXML (encodeXML book)
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToXML Book` and
+`instance FromXML Book` declarations.
 
 For schema-driven types, use the `[xsd| ... |]` quasiquoter or
 `wireform-gen xsd` to generate modules from XSD at compile time or in CI.

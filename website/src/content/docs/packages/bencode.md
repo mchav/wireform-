@@ -1,6 +1,6 @@
 ---
 title: wireform-bencode
-description: "BitTorrent Bencode encoding and decoding with Generic deriving and sorted dictionary keys."
+description: "BitTorrent Bencode encoding and decoding with TH deriving, sorted dictionary keys, and wireform-derive annotations."
 sidebar:
   order: 15
 ---
@@ -14,7 +14,9 @@ on-wire Bencode layout exactly.
 
 ## Key features
 
-- **Generic deriving** via `ToBencode` and `FromBencode` for Haskell records
+- **Template Haskell deriving** via `deriveBencode` from `Bencode.Derive`, with
+  `wireform-derive` annotations; Generic defaults (empty instances) work for
+  simple uncustomized records
 - **Sorted dictionary keys** enforced on encode and validated on decode, as
   required by BEP-3 for stable info hashes
 - **Simple wire grammar** of strings, integers, lists, and dictionaries
@@ -28,9 +30,11 @@ dictionary keys (field names as byte strings):
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 module TorrentInfo where
 
 import Bencode.Class (ToBencode, FromBencode, encodeBencode, decodeBencode)
+import Bencode.Derive (deriveBencode)
 import GHC.Generics (Generic)
 import Data.Text (Text)
 
@@ -39,7 +43,6 @@ data FileInfo = FileInfo
   , filePath   :: !Text
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToBencode, FromBencode)
 
 data Info = Info
   { infoName     :: !Text
@@ -47,7 +50,9 @@ data Info = Info
   , infoFiles    :: ![FileInfo]
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToBencode, FromBencode)
+
+$(deriveBencode ''FileInfo)
+$(deriveBencode ''Info)
 
 encodeInfo :: Info -> ByteString
 encodeInfo info = encodeBencode info
@@ -55,6 +60,11 @@ encodeInfo info = encodeBencode info
 decodeInfo :: ByteString -> Either String Info
 decodeInfo bs = decodeBencode bs
 ```
+
+For simple records with no custom wire naming, Generic defaults also work:
+declare empty `instance ToBencode FileInfo` / `FromBencode FileInfo` (and the
+same for `Info`) after `deriving stock (Show, Eq, Generic)`. Field names go to
+the wire verbatim and annotations are not supported.
 
 The encoder sorts dictionary keys by raw byte order before writing. You can
 pass key/value pairs in any order; the wire output is always canonical for

@@ -15,7 +15,7 @@ that Parquet and ORC readers in wireform can target.
 
 - **Schema framing** and IPC message encode/decode via `Arrow.IPC`
 - **Record batch** encode and decode for in-memory columnar data
-- **Typed record API** with Template Haskell and Generic deriving
+- **Typed record API** with Template Haskell and Generic support
 - **Table projection and subsetting** to read only the columns you need
 - **Optional compression** (Zstd and LZ4 behind Cabal flags)
 - **SIMD buffer validation** for record batch integrity checks

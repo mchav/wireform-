@@ -1,6 +1,6 @@
 ---
-title: Generic deriving
-description: How to use wireform-derive annotations to control serialization across formats.
+title: Deriving instances
+description: "How to derive codec instances across wireform formats using Template Haskell or Generic defaults."
 sidebar:
   order: 1
 ---
@@ -10,97 +10,85 @@ wireform is in heavy development and has not been published to Hackage yet.
 The annotation vocabulary described here may change.
 :::
 
-wireform uses a single annotation vocabulary — defined in `wireform-derive`
-— that works across every format with Generic support. Annotate once,
-and the same rules apply whether you're serializing to MessagePack, CBOR,
-YAML, XML, or any other supported backend.
+wireform provides two ways to derive encode/decode instances for your types.
 
-## Basic usage
+## Template Haskell deriver (recommended)
 
-Derive the format's typeclasses with `DeriveAnyClass`:
+Each format ships a `Derive` module with a TH splice that reads `ANN` pragmas
+from the shared `wireform-derive` annotation vocabulary. This is the only path
+that supports field renaming, tagging, skipping, and backend-specific overrides:
 
 ```haskell
-{-# LANGUAGE DeriveGeneric, DerivingStrategies, DeriveAnyClass #-}
+{-# LANGUAGE TemplateHaskell #-}
+import Wireform.Derive (renameStyle, SnakeCase)
+import MsgPack.Derive (deriveMsgPack)
+import CBOR.Derive (deriveCBOR)
 
 data User = User
   { userName :: !Text
   , userAge  :: !Int
   , userRole :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToMsgPack, FromMsgPack, ToCBOR, FromCBOR)
+  }
+
+{-# ANN type User (renameStyle SnakeCase) #-}
+
+deriveMsgPack ''User
+deriveCBOR ''User
 ```
 
-By default, field names are used as-is. The annotations below let you
-customize how fields are mapped to the wire format.
+Both formats see `user_name`, `user_age`, and `user_role` on the wire,
+driven by the same annotation.
 
-## Annotations
+## Generic defaults (no annotations)
 
-All annotations are applied via `wireform-derive`'s modifier system.
-
-### `rename`
-
-Override the wire name of a specific field:
+Every format's typeclass has `DefaultSignatures` that delegate to
+`GHC.Generics`. If you don't need any customization, write empty instance
+declarations:
 
 ```haskell
-data Config = Config
-  { configHost :: !Text  -- becomes "host" on the wire
-  , configPort :: !Int   -- becomes "port" on the wire
-  }
+{-# LANGUAGE DeriveGeneric #-}
+import GHC.Generics (Generic)
+import MsgPack.Class (ToMsgPack, FromMsgPack)
+
+data User = User
+  { userName :: !Text
+  , userAge  :: !Int
+  } deriving stock (Show, Eq, Generic)
+
+instance ToMsgPack User
+instance FromMsgPack User
 ```
 
-### `renameStyle`
+Field names go to the wire verbatim. The `wireform-derive` annotation
+vocabulary has no effect on this path.
 
-Apply a naming convention to all fields. Supported styles include
-`camelCase`, `snake_case`, `PascalCase`, `kebab-case`, and
-`SCREAMING_SNAKE_CASE`.
+## Full annotation reference
 
-### `tag`
+See [wireform-derive](/packages/derive/) for the complete annotation
+vocabulary: `rename`, `renameStyle`, `tag`, `skip`, `flatten`, `defaults`,
+`optional`, `required`, `coerced`, `wireOverride`, `forBackend`, and
+`extension`.
 
-Set an explicit numeric tag for a field (used in tagged binary formats
-like Protocol Buffers and Thrift).
+## Format-specific derivers
 
-### `skip`
-
-Exclude a field from serialization entirely.
-
-### `defaults`
-
-Provide default values for fields that may be missing during decode.
-
-### `optional` / `required`
-
-Mark fields as optional (decoded to `Maybe`) or required (decode fails
-if missing).
-
-### `flatten`
-
-Inline a nested record's fields into the parent, rather than nesting
-them under a key.
-
-### `oneof`
-
-Model a sum type as a protobuf-style `oneof` field.
-
-### `forBackend` / `forBackends` / `disableFor`
-
-Apply annotations only to specific backends. Useful when different
-formats need different field names or strategies.
-
-## Format-specific modules
-
-Each format package re-exports everything you need:
-
-| Format | To-class | From-class | Module |
-|--------|----------|------------|--------|
-| MessagePack | `ToMsgPack` | `FromMsgPack` | `MsgPack.Class` |
-| CBOR | `ToCBOR` | `FromCBOR` | `CBOR.Class` |
-| YAML | `ToYAML` | `FromYAML` | `YAML.Class` |
-| TOML | `ToTOML` | `FromTOML` | `TOML.Class` |
-| XML | `ToXML` | `FromXML` | `XML.Class` |
-| HTML | `ToHTML` | `FromHTML` | `HTML.Class` |
-| BSON | `ToBSON` | `FromBSON` | `BSON.Class` |
-| Ion | `ToIon` | `FromIon` | `Ion.Class` |
-| EDN | `ToEDN` | `FromEDN` | `EDN.Class` |
-| Bencode | `ToBencode` | `FromBencode` | `Bencode.Class` |
-| CSV | `ToCSV` | `FromCSV` | `CSV.Class` |
-| NDJSON | `ToNDJSON` | `FromNDJSON` | `NDJSON.Class` |
+| Format | TH deriver | Module |
+|--------|------------|--------|
+| MessagePack | `deriveMsgPack` | `MsgPack.Derive` |
+| CBOR | `deriveCBOR` | `CBOR.Derive` |
+| YAML | `deriveYAML` | `YAML.Derive` |
+| TOML | `deriveTOML` | `TOML.Derive` |
+| XML | `deriveXML` | `XML.Derive` |
+| HTML | `deriveHTML` | `HTML.Derive` |
+| BSON | `deriveBSON` | `BSON.Derive` |
+| Ion | `deriveIon` | `Ion.Derive` |
+| EDN | `deriveEDN` | `EDN.Derive` |
+| Bencode | `deriveBencode` | `Bencode.Derive` |
+| CSV | `deriveCSV` | `CSV.Derive` |
+| Fory | `deriveFory` | `Fory.Derive` |
+| Thrift | `deriveThrift` | `Thrift.Derive` |
+| Avro | `deriveAvro` | `Avro.Derive` |
+| Bond | `deriveBond` | `Bond.Derive` |
+| FlatBuffers | `deriveFlatBuffers` | `FlatBuffers.Derive` |
+| Cap'n Proto | `deriveCapnProto` | `CapnProto.Derive` |
+| ASN.1 | `deriveASN1` | `ASN1.Derive` |
+| Aeson (JSON) | `deriveJSON` | `Wireform.Derive.Aeson` |

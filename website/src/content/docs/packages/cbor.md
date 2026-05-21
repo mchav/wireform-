@@ -1,6 +1,6 @@
 ---
 title: wireform-cbor
-description: "RFC 8949 CBOR encoding and decoding with Generic deriving, CDDL codegen, diagnostic notation, and deterministic encoding."
+description: "RFC 8949 CBOR encoding and decoding with TH deriving, CDDL codegen, diagnostic notation, and deterministic encoding."
 sidebar:
   order: 10
 ---
@@ -13,8 +13,9 @@ debugging, schema definition, and cross-language interoperability.
 
 ## Key features
 
-- **Generic deriving** via `ToCBOR` and `FromCBOR` for records, enums, and
-  sum types
+- **Template Haskell deriving** via `deriveCBOR` for records, enums, and sum
+  types, with `wireform-derive` annotations; Generic defaults (empty instances)
+  work for simple cases
 - **Streaming decode** for framed or concatenated CBOR values without loading
   the entire input into memory
 - **CDDL schema language** (RFC 8610) with a parser and Haskell code generator
@@ -26,14 +27,16 @@ debugging, schema definition, and cross-language interoperability.
 
 ## Basic usage
 
-Derive instances with `Generic`, then encode and decode in one call:
+Derive instances with the Template Haskell deriver, then encode and decode in
+one call:
 
 ```haskell
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Config where
 
 import CBOR.Class (ToCBOR, FromCBOR, encodeCBOR, decodeCBOR)
+import CBOR.Derive (deriveCBOR)
 import GHC.Generics (Generic)
 import Data.Text (Text)
 
@@ -42,7 +45,8 @@ data Config = Config
   , cfgPort :: !Int
   }
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (ToCBOR, FromCBOR)
+
+$(deriveCBOR ''Config)
 
 save :: Config -> IO ()
 save cfg = do
@@ -54,6 +58,10 @@ load = do
   bytes <- readFileBinary "config.cbor"
   pure (decodeCBOR bytes)
 ```
+
+For simple cases with no wire-format customization, Generic defaults also
+work: add `deriving Generic` and declare empty `instance ToCBOR Config` and
+`instance FromCBOR Config` declarations.
 
 For signed payloads or content-addressed storage, use deterministic encoding
 so the same value always produces the same bytes:
