@@ -52,8 +52,6 @@ module Network.HTTP.Wire.URI
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BSL
 import Data.Char (toLower)
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -325,6 +323,3 @@ renderRequestURI ru =
       bs  = TE.encodeUtf8 txt
   in parseURI bs
 
--- Re-export Builder helper for downstream test/debug code.
-_unusedBuilder :: BB.Builder -> BSL.ByteString
-_unusedBuilder = BB.toLazyByteString

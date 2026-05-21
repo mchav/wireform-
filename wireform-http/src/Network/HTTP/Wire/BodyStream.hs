@@ -29,10 +29,10 @@ module Network.HTTP.Wire.BodyStream
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BSL
 import Data.Int (Int64)
 import Data.IORef (atomicModifyIORef', newIORef)
+
+import qualified Wireform.Builder as WB
 
 -- | A pull-based byte source. Returns 'BS.empty' to signal EOF.
 type Popper = IO ByteString
@@ -112,20 +112,20 @@ drainBodyStream = drainPopper . pull
 -- | Pull from a popper until EOF and collect the bytes into a single
 -- strict 'ByteString'.
 --
--- Chunks are accumulated through a 'BB.Builder' so each append is
--- O(1); the final 'BSL.toStrict' is the only allocating copy. Use
--- this when you genuinely need the full body in memory (decoding
--- JSON, recording a VCR cassette, asserting against a recorded
--- request). For "just drain to release the connection", use
--- 'drainPopper' instead — it doesn't allocate.
+-- Chunks are accumulated through 'Wireform.Builder' so each append
+-- is O(1); the final 'WB.toStrictByteString' is the only allocating
+-- copy. Use this when you genuinely need the full body in memory
+-- (decoding JSON, recording a VCR cassette, asserting against a
+-- recorded request). For "just drain to release the connection",
+-- use 'drainPopper' instead — it doesn't allocate.
 popperBytes :: Popper -> IO ByteString
-popperBytes p = BSL.toStrict . BB.toLazyByteString <$> go mempty
+popperBytes p = WB.toStrictByteString <$> go mempty
   where
     go !acc = do
       chunk <- p
       if BS.null chunk
         then pure acc
-        else go (acc <> BB.byteString chunk)
+        else go (acc <> WB.byteString chunk)
 
 -- | 'popperBytes' for a 'BodyStream'.
 bodyStreamBytes :: BodyStream -> IO ByteString
