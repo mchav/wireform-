@@ -53,6 +53,7 @@ module Network.HTTP.Client
   , module Network.HTTP.Client.Config
   , module Network.HTTP.Client.Base
   , module Network.HTTP.Client.Pool
+  , module Network.HTTP.Client.TLS
     -- * Protocol metadata
   , module Network.HTTP.Client.Protocol
     -- * Tracing (OpenTelemetry)
@@ -81,6 +82,7 @@ import Network.HTTP.Client.Protocol
 import Network.HTTP.Client.Request
 import Network.HTTP.Client.Response
 import Network.HTTP.Client.Send
+import Network.HTTP.Client.TLS
 import Network.HTTP.Client.Test
 import Network.HTTP.Client.Tracing
 import Network.HTTP.Client.Transport
