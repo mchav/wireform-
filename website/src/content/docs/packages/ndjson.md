@@ -115,7 +115,7 @@ For untyped pipelines, `NDJSON.Decode.decode` returns `Vector Aeson.Value`, and
 | decode 10 rows | 4.0 µs | 3.9 µs |
 | decode 1000 rows | 442 µs | 402 µs |
 
-Performance is within 10% of raw aeson with manual newline splitting. The SIMD newline scanner does not yet outperform `BS.split '\n'` on these input sizes, so both paths are essentially at parity. wireform-ndjson's value is in the typed API and proper line-framing semantics, not raw speed.
+Performance is within 10% of raw aeson with manual newline splitting. wireform-ndjson's value is in the typed API and proper line-framing semantics, not raw speed.
 
 Criterion, GHC 9.8.4, Apple Silicon. See `wireform-ndjson/bench-results/` for raw data.
 

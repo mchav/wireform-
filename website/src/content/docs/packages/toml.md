@@ -117,7 +117,7 @@ AST before mapping into application types.
 | Person | 731 ns | 2.34 µs |
 | [Person] x 100 | 84.5 µs | 335 µs |
 
-The decode path is now linear in input size. An earlier implementation was O(n squared) due to Text indexing; 100-record decode improved from 240 ms to 335 µs after the fix.
+Decode scales linearly with input size.
 
 Criterion, GHC 9.8.4, Apple Silicon. See `wireform-toml/bench-results/` for raw data.
 
