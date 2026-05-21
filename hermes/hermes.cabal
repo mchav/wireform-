@@ -34,6 +34,8 @@ library
       Network.HTTP.Headers.Age
       Network.HTTP.Headers.Allow
       Network.HTTP.Headers.Authorization
+      Network.HTTP.Headers.CacheControl
+      Network.HTTP.Headers.CacheStatus
       Network.HTTP.Headers.Connection
       Network.HTTP.Headers.ContentDisposition
       Network.HTTP.Headers.ContentEncoding
@@ -126,6 +128,7 @@ library
     , time
     , transformers
     , unordered-containers
+    , validation
     , vector
     , wai >=3.2.3
   default-language: Haskell2010
