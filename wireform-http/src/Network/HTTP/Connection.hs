@@ -44,6 +44,9 @@ module Network.HTTP.Connection
   , Connection
   , negotiatedVersion
   , withConnection
+  , openConnection
+  , closeConnection
+  , isPlaintextHttp1
     -- * Sending requests
   , sendOn
   , withResponseOn
@@ -150,6 +153,50 @@ withPlaintextHttp1 cfg action = do
         _         -> U.HTTP1_1
   H1.withClientConnection h1cfg $ \conn ->
     action (Http1Connection conn ver)
+
+-- | True iff this 'Connection' is a plaintext HTTP\/1.x connection
+-- — i.e. one that can be opened \/ closed without 'withConnection'.
+-- The connection pool keys reuse on this: TLS and HTTP\/2
+-- connections fall back to per-request bracketing because the
+-- existing low-level transport stack doesn't expose
+-- open\/close out of bracket scope for them yet.
+isPlaintextHttp1 :: Connection -> Bool
+isPlaintextHttp1 = \case
+  Http1Connection _ _ -> True
+  Http2Connection _ _ -> False
+
+-- | Open a plaintext HTTP\/1.x connection without bracketing it.
+-- Returns 'Left' for configurations that need the bracketed
+-- 'withConnection' path (TLS or HTTP\/2-preferred). Pair with
+-- 'closeConnection' for proper teardown.
+openConnection :: ConnectionConfig -> IO (Either String Connection)
+openConnection cfg = case connectionTls cfg of
+  Just _  -> pure (Left "openConnection: TLS connections require the bracketed withConnection API")
+  Nothing -> case preferredVersion (connectionVersionRange cfg) of
+    U.HTTP2 -> pure (Left "openConnection: HTTP/2 connections require the bracketed withConnection API")
+    ver -> do
+        let h1cfg = H1.defaultClientConfig
+              { H1.clientHost = connectionHost cfg
+              , H1.clientPort = connectionPort cfg
+              }
+            usedVer = case ver of
+              U.HTTP1_0 -> U.HTTP1_0
+              _         -> U.HTTP1_1
+        conn <- H1.openClientConnection h1cfg
+        pure (Right (Http1Connection conn usedVer))
+
+-- | Close a previously-opened 'Connection'. Only meaningful for
+-- connections produced by 'openConnection'; bracketed connections
+-- close themselves when 'withConnection' returns.
+closeConnection :: Connection -> IO ()
+closeConnection = \case
+  Http1Connection conn _ -> H1.closeClientConnection conn
+  Http2Connection _ _ ->
+    -- The HTTP/2 client API only exposes 'withConnection'. The
+    -- pool ensures we never reach this path for HTTP/2; if we
+    -- somehow do, leaking the connection is the safest
+    -- alternative to throwing.
+    pure ()
 
 withPlaintextHttp2 :: ConnectionConfig -> (Connection -> IO a) -> IO a
 withPlaintextHttp2 cfg action = do

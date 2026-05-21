@@ -76,6 +76,7 @@ library
     Network.HTTP.Client.Media.OctetStream
     Network.HTTP.Client.Media.PlainText
     Network.HTTP.Client.Middleware
+    Network.HTTP.Client.Pool
     Network.HTTP.Client.Protocol
     Network.HTTP.Client.Request
     Network.HTTP.Client.Response

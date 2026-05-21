@@ -63,6 +63,7 @@ tests = testGroup "Network.HTTP.Client"
   , faultTests
   , tracingTests
   , compressionTests
+  , poolTests
   ]
 
 -- ---------------------------------------------------------------------------
@@ -429,6 +430,23 @@ prep r = prepareRequest [] r
 -- ---------------------------------------------------------------------------
 -- Compression
 -- ---------------------------------------------------------------------------
+
+poolTests :: TestTree
+poolTests = testGroup "ConnectionPool"
+  [ testCase "newPool / closePool round-trip is clean" $ do
+      pool <- newPool defaultPoolConfig
+      closePool pool
+
+  , testCase "withPool runs the action and tears down" $ do
+      ran <- newIORef False
+      withPool defaultPoolConfig $ \_ -> writeIORef ran True
+      readIORef ran >>= (@?= True)
+
+  , testCase "ClientConfig.ccPoolConfig defaults to Just" $
+      case ccPoolConfig defaultClientConfig of
+        Just _  -> pure ()
+        Nothing -> assertFailure "expected a default PoolConfig"
+  ]
 
 compressionTests :: TestTree
 compressionTests = testGroup "withDecompression"

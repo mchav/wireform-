@@ -52,6 +52,7 @@ module Network.HTTP.Client
     -- * Client wiring
   , module Network.HTTP.Client.Config
   , module Network.HTTP.Client.Base
+  , module Network.HTTP.Client.Pool
     -- * Protocol metadata
   , module Network.HTTP.Client.Protocol
     -- * Tracing (OpenTelemetry)
@@ -68,6 +69,7 @@ import Network.HTTP.Client.BodyStream
 import Network.HTTP.Client.Compression
 import Network.HTTP.Client.Config
 import Network.HTTP.Client.Cookies
+import Network.HTTP.Client.Pool
 import Network.HTTP.Client.Decoder
 import Network.HTTP.Client.Media
 import Network.HTTP.Client.Media.FormUrlEncoded

@@ -21,10 +21,14 @@ import Control.Exception (bracket_)
 
 import qualified Network.HTTP.VersionRange as VR
 
+import Control.Exception (bracket)
+
 import Network.HTTP.Client.Base
 import Network.HTTP.Client.Compression (withDecompression)
 import Network.HTTP.Client.Cookies (CookieJar, withCookies)
 import Network.HTTP.Client.Middleware
+import Network.HTTP.Client.Pool (ConnectionPool, PoolConfig, newPool, closePool, pooledTransport)
+import qualified Network.HTTP.Client.Pool as Pool
 import Network.HTTP.Client.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
 import Network.HTTP.Client.Transport
 
@@ -44,6 +48,11 @@ data ClientConfig = ClientConfig
     -- ^ Honour @Content-Encoding@ on responses (brotli \/ gzip \/
     --   deflate). Defaults to 'True'; set 'False' to pass
     --   compressed bytes through to the caller.
+  , ccPoolConfig   :: !(Maybe PoolConfig)
+    -- ^ When 'Just', 'withClient' allocates a 'ConnectionPool' for
+    --   the duration of the action and routes the base transport
+    --   through it. Defaults to a sensible 'PoolConfig'; pass
+    --   'Nothing' to bypass pooling entirely.
   , ccExtra        :: !([Transport IO -> Transport IO])
     -- ^ Escape hatch for additional middleware to wrap the stack with.
     -- Applied outermost-first, after the standard set below.
@@ -59,21 +68,26 @@ defaultClientConfig = ClientConfig
   , ccCookieJar    = Nothing
   , ccTracing      = defaultTracingConfig
   , ccDecompress   = True
+  , ccPoolConfig   = Just Pool.defaultPoolConfig
   , ccExtra        = []
   }
 
 -- | Build a transport from the config, hand it to the action, and
--- clean up. The current implementation has no shared resources to
--- clean up — every request opens a fresh connection in the base
--- transport — but 'bracket_' is here so that future pooling has a
--- place to plug in without changing the public API.
+-- clean up.  When 'ccPoolConfig' is 'Just' the action runs against
+-- a 'ConnectionPool' allocated for its lifetime; the pool is torn
+-- down (closing all idle connections) when the action returns.
 withClient :: ClientConfig -> (Transport IO -> IO a) -> IO a
-withClient cfg action =
-  bracket_ (pure ()) (pure ()) $ action (assemble cfg)
+withClient cfg action = case ccPoolConfig cfg of
+  Nothing       -> action (assemble cfg Nothing)
+  Just poolCfg  ->
+    bracket (newPool poolCfg) closePool $ \pool ->
+      action (assemble cfg (Just pool))
 
-assemble :: ClientConfig -> Transport IO
-assemble cfg =
-  let base       = baseTransport (ccVersionRange cfg)
+assemble :: ClientConfig -> Maybe ConnectionPool -> Transport IO
+assemble cfg mPool =
+  let base       = case mPool of
+        Just pool -> pooledTransport pool
+        Nothing   -> baseTransport (ccVersionRange cfg)
       decompress = if ccDecompress cfg then withDecompression else id
       cookies    = maybe id withCookies   (ccCookieJar cfg)
       retry_     = maybe id withRetry     (ccRetryPolicy cfg)
