@@ -13,12 +13,18 @@
 -- middleware combinators.
 module Test.Client (tests) where
 
+import qualified Codec.Compression.Brotli as Brotli
+import qualified Codec.Compression.GZip   as GZip
+import qualified Codec.Compression.Zlib   as Zlib
 import Control.Exception (try, SomeException)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -56,6 +62,7 @@ tests = testGroup "Network.HTTP.Client"
   , decoderTests
   , faultTests
   , tracingTests
+  , compressionTests
   ]
 
 -- ---------------------------------------------------------------------------
@@ -418,6 +425,78 @@ tracingTests = testGroup "withTracing"
 -- with sendRaw.
 prep :: Body body => Request body -> IO (Request BodyStream)
 prep r = prepareRequest [] r
+
+-- ---------------------------------------------------------------------------
+-- Compression
+-- ---------------------------------------------------------------------------
+
+compressionTests :: TestTree
+compressionTests = testGroup "withDecompression"
+  [ testCase "decodes gzip-encoded response" $ do
+      let payload = "the quick brown fox jumps over the lazy dog" :: BS.ByteString
+          compressed = BSL.toStrict $ GZip.compress (BSL.fromStrict payload)
+          inner = mockTransport $ \_ -> rawResponse S.status200
+            [(H.hContentType, "text/plain"), ("Content-Encoding", "gzip")]
+            compressed
+          transport = withDecompression inner
+      Response { responseBody = t } <-
+        sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
+      TE.encodeUtf8 t @?= payload
+
+  , testCase "decodes deflate (zlib) response" $ do
+      let payload = "deflate payload bytes here" :: BS.ByteString
+          compressed = BSL.toStrict $ Zlib.compress (BSL.fromStrict payload)
+          inner = mockTransport $ \_ -> rawResponse S.status200
+            [(H.hContentType, "text/plain"), ("Content-Encoding", "deflate")]
+            compressed
+          transport = withDecompression inner
+      Response { responseBody = t } <-
+        sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
+      TE.encodeUtf8 t @?= payload
+
+  , testCase "decodes brotli response" $ do
+      let payload = "brotli payload that is reasonably long for the encoder"
+                      :: BS.ByteString
+          compressed = BSL.toStrict $ Brotli.compress (BSL.fromStrict payload)
+          inner = mockTransport $ \_ -> rawResponse S.status200
+            [(H.hContentType, "text/plain"), ("Content-Encoding", "br")]
+            compressed
+          transport = withDecompression inner
+      Response { responseBody = t } <-
+        sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
+      TE.encodeUtf8 t @?= payload
+
+  , testCase "adds Accept-Encoding when absent" $ do
+      (logged, log_) <- withRequestLog (stubStatus S.status200)
+      let transport = withDecompression logged
+      _ <- sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
+      assertLog log_ (anyRequest (hasHeaderEq H.hAcceptEncoding "br, gzip, deflate"))
+
+  , testCase "leaves unknown Content-Encoding alone" $ do
+      let payload = "raw bytes" :: BS.ByteString
+          inner = mockTransport $ \_ -> rawResponse S.status200
+            [("Content-Encoding", "x-magic")]
+            payload
+          transport = withDecompression inner
+      raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
+      bs <- rawResponseBytes raw
+      bs @?= payload
+
+  , testCase "strips Content-Encoding + Content-Length after decompression" $ do
+      let payload = "hello" :: BS.ByteString
+          compressed = BSL.toStrict $ GZip.compress (BSL.fromStrict payload)
+          inner = mockTransport $ \_ -> rawResponse S.status200
+            [ ("Content-Encoding", "gzip")
+            , (H.hContentLength,
+                BS8.pack (show (BS.length compressed)))
+            ]
+            compressed
+          transport = withDecompression inner
+      raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
+      let RawResponse { headers = respHdrs } = raw
+      H.lookupHeader "Content-Encoding" respHdrs @?= Nothing
+      H.lookupHeader H.hContentLength    respHdrs @?= Nothing
+  ]
 
 vcrTests :: TestTree
 vcrTests = testGroup "VCR"

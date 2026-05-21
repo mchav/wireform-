@@ -1,5 +1,6 @@
 packages:
   .
+  hermes/
   wireform-core/
   wireform-derive/
   wireform-columnar-core/
@@ -38,6 +39,10 @@ packages:
   wireform-kafka-protocol/
   wireform-kafka/
   wireform-stats/
+
+-- mason's network upper bound (< 3.2) is too tight; it builds
+-- against the 3.2.x line just fine in practice.
+allow-newer: mason:network
 
 package *
   optimization: 1

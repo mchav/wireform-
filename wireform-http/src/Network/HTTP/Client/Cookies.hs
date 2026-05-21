@@ -33,8 +33,16 @@ import Data.Char (toLower)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TE
+import qualified Data.Text.Short as ST
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, getCurrentTime)
-import Data.Word (Word8)
+
+import FlatParse.Basic (Result (..), runParser)
+import qualified Mason.Builder as M
+
+import qualified Network.HTTP.Headers.Cookie as Hermes
+import qualified Network.HTTP.Headers.SetCookie as Hermes
 
 import qualified Network.HTTP.Types.Header as H
 
@@ -122,9 +130,25 @@ withCookies (CookieJar var) inner = Transport $ \req -> do
         List.foldl' (\acc c -> Map.insert (cookieKey c) c acc) m setCookies
       pure raw
 
+-- | Render an outgoing @Cookie@ header value via hermes's
+-- 'Hermes.renderCookie', so the serialisation matches the same RFC
+-- 6265 grammar as the response-side parser.
 renderCookieHeader :: [Cookie] -> ByteString
-renderCookieHeader =
-  BS.intercalate "; " . map (\c -> cookieName c <> "=" <> cookieValue c)
+renderCookieHeader cs =
+  let mk c = Hermes.CookiePair
+        { Hermes.cookieName  = bytesToShort (cookieName  c)
+        , Hermes.cookieValue = bytesToShort (cookieValue c)
+        }
+  in M.toStrictByteString (Hermes.renderCookie (Hermes.Cookie (map mk cs)))
+
+-- | UTF-8 'ByteString' to 'ShortText'. Cookie names and values are
+-- ASCII / token-safe in practice, but fall back to a lossless
+-- encoding for any non-UTF-8 bytes so we never throw at the
+-- serialisation boundary.
+bytesToShort :: ByteString -> ST.ShortText
+bytesToShort bs = case ST.fromByteString bs of
+  Just t  -> t
+  Nothing -> ST.fromText (TE.decodeUtf8With (\_ _ -> Just '\xfffd') bs)
 
 -- RFC 6265 § 5.4 (simplified): a cookie matches if its domain
 -- matches the request host, its path is a prefix of the request
@@ -160,7 +184,7 @@ pathMatches reqPath cookiePathBs
   | otherwise = False
 
 -- ---------------------------------------------------------------------------
--- Set-Cookie parsing
+-- Set-Cookie parsing (delegates to hermes)
 -- ---------------------------------------------------------------------------
 
 parseSetCookieHeaders :: UTCTime -> URI -> [H.Header] -> [Cookie]
@@ -171,67 +195,57 @@ parseSetCookieHeaders now ctx hdrs =
   , Just c <- [parseSetCookie now ctx v]
   ]
 
+-- | Parse a single @Set-Cookie@ header value via
+-- 'Hermes.setCookieParser' and project the result into the
+-- wireform 'Cookie' shape, applying the RFC 6265 defaults for any
+-- attributes the response omitted.
 parseSetCookie :: UTCTime -> URI -> ByteString -> Maybe Cookie
-parseSetCookie now ctx raw = do
-  let pieces = map (BS.dropWhile (== 0x20)) (BS.split 0x3B raw)
-  case pieces of
-    []          -> Nothing
-    (nv : rest) -> do
-      let (n0, v0) = BS.break (== 0x3D) nv
-      case BS.uncons v0 of
-        Nothing -> Nothing
-        Just (0x3D, val) -> do
-          let attrs = parseAttrs rest
-              base = Cookie
-                { cookieName     = BS.dropWhileEnd (== 0x20) n0
-                , cookieValue    = val
-                , cookieDomain   = BS8.map toLower (uriHost ctx)
-                , cookiePath     = defaultPath (uriPath ctx)
-                , cookieExpires  = Nothing
-                , cookieSecure   = False
-                , cookieHttpOnly = False
-                , cookieSameSite = SameSiteLax
-                }
-          pure (List.foldl' applyAttr base attrs)
-        _ -> Nothing
+parseSetCookie now ctx raw =
+  case runParser Hermes.setCookieParser raw of
+    OK sc _ -> Just (fromHermesSetCookie now ctx sc)
+    _       -> Nothing
 
-  where
-    defaultPath p
-      | BS.null p          = "/"
-      | not ("/" `BS.isPrefixOf` p) = "/"
-      | otherwise          =
-          let stripped = BS.reverse (BS.dropWhile (/= 0x2F) (BS.reverse p))
-              cleaned  = if BS.null stripped then "/" else stripped
-          in if BS.length cleaned > 1
-               then BS.reverse (BS.dropWhile (== 0x2F) (BS.reverse cleaned))
-               else cleaned
+fromHermesSetCookie :: UTCTime -> URI -> Hermes.SetCookie -> Cookie
+fromHermesSetCookie now ctx sc =
+  let stBytes      = TE.encodeUtf8 . ST.toText
+      domainBytes  = maybe (BS8.map toLower (uriHost ctx))
+                           (BS8.map toLower . stripLeadingDot . stBytes)
+                           (Hermes.setCookieDomain sc)
+      pathBytes    = maybe (defaultPath (uriPath ctx)) stBytes
+                           (Hermes.setCookiePath sc)
+      -- RFC 6265 §5.2.2: when both Expires and Max-Age are given,
+      -- Max-Age wins. Hermes parses both into separate fields, so we
+      -- combine here.
+      expires      = case Hermes.setCookieMaxAge sc of
+        Just s  -> Just (addUTCTime (fromIntegral s :: NominalDiffTime) now)
+        Nothing -> Hermes.setCookieExpires sc
+  in Cookie
+       { cookieName     = stBytes (Hermes.setCookieName sc)
+       , cookieValue    = stBytes (Hermes.setCookieValue sc)
+       , cookieDomain   = domainBytes
+       , cookiePath     = pathBytes
+       , cookieExpires  = expires
+       , cookieSecure   = Hermes.setCookieSecure sc
+       , cookieHttpOnly = Hermes.setCookieHttpOnly sc
+       , cookieSameSite = case Hermes.setCookieSameSite sc of
+           Just Hermes.SameSiteStrict -> SameSiteStrict
+           Just Hermes.SameSiteLax    -> SameSiteLax
+           Just Hermes.SameSiteNone   -> SameSiteNone
+           Nothing                    -> SameSiteLax
+       }
 
-    parseAttrs = map parseAttr
-    parseAttr a =
-      let (k0, v0) = BS.break (== 0x3D) a
-          k = BS8.map toLower (BS.dropWhileEnd (== 0x20) k0)
-          v = case BS.uncons v0 of
-                Just (0x3D, vv) -> BS.dropWhile (== 0x20) vv
-                _               -> ""
-      in (k, v)
-    applyAttr c (k, v)
-      | k == "domain"   = c { cookieDomain = BS8.map toLower (stripLeadingDot v) }
-      | k == "path"     = c { cookiePath   = if BS.null v then cookiePath c else v }
-      | k == "secure"   = c { cookieSecure = True }
-      | k == "httponly" = c { cookieHttpOnly = True }
-      | k == "max-age"  = case BS8.readInteger v of
-          Just (i, _) -> c { cookieExpires = Just (addUTCTime (fromInteger i :: NominalDiffTime) now) }
-          Nothing     -> c
-      | k == "samesite" = c { cookieSameSite = parseSameSite v }
-      | otherwise       = c
-    stripLeadingDot d = case BS.uncons d of
-      Just (0x2E, rest) -> rest
-      _                 -> d
-    parseSameSite v = case BS8.map toLower v of
-      "strict" -> SameSiteStrict
-      "none"   -> SameSiteNone
-      _        -> SameSiteLax
+defaultPath :: ByteString -> ByteString
+defaultPath p
+  | BS.null p                   = "/"
+  | not ("/" `BS.isPrefixOf` p) = "/"
+  | otherwise =
+      let stripped = BS.reverse (BS.dropWhile (/= 0x2F) (BS.reverse p))
+          cleaned  = if BS.null stripped then "/" else stripped
+      in if BS.length cleaned > 1
+           then BS.reverse (BS.dropWhile (== 0x2F) (BS.reverse cleaned))
+           else cleaned
 
--- Drop -Wunused on Word8.
-_unusedWord :: Word8
-_unusedWord = 0
+stripLeadingDot :: ByteString -> ByteString
+stripLeadingDot d = case BS.uncons d of
+  Just (0x2E, rest) -> rest
+  _                 -> d

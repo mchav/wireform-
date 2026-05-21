@@ -42,6 +42,12 @@ import Data.ByteString (ByteString)
 import Data.Char (toLower)
 import qualified Data.List as List
 import Data.String (IsString (..))
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Short as ST
+
+import FlatParse.Basic (Result (..), runParser)
+
+import qualified Network.HTTP.ContentNegotiation as Hermes
 
 import qualified Network.HTTP.Types.Header as H
 
@@ -67,47 +73,41 @@ instance IsString MediaType where
 mediaTypeBytes :: MediaType -> ByteString
 mediaTypeBytes = renderMediaType
 
--- | Parse a @Content-Type@ value, returning the media type and any
--- parameters. Lenient: unknown shapes produce a 'Left' but the only
--- check is that the value contains a single @\"\/\"@.
+-- | Parse a @Content-Type@ value using hermes's
+-- 'Hermes.mediaRangeParser', then project into the wireform
+-- 'MediaType' shape. Trailing whitespace is tolerated.
 parseMediaType :: ByteString -> Either String MediaType
 parseMediaType bs0 =
-  let bs = BS.dropWhile (== 0x20) bs0
-      (head_, rest) = BS.break (== 0x3B) bs  -- ';'
-      (typ, sub0) = BS.break (== 0x2F) head_
-  in case BS.uncons sub0 of
-       Just (0x2F, sub) ->
-         let typLower = BS8.map toLower (BS.dropWhileEnd (== 0x20) typ)
-             subLower = BS8.map toLower (BS.dropWhileEnd (== 0x20) sub)
-         in Right MediaType
-              { mtType       = typLower
-              , mtSubType    = subLower
-              , mtParameters = parseParameters rest
-              }
-       _ -> Left ("malformed Content-Type: " <> BS8.unpack bs0)
+  let bs = BS.dropWhileEnd (== 0x20) (BS.dropWhile (== 0x20) bs0)
+  in case runParser Hermes.mediaRangeParser bs of
+       OK r leftover
+         | BS.all (\b -> b == 0x20 || b == 0x09) leftover ->
+            Right (fromHermesRange r)
+         | otherwise ->
+            Left ("trailing input after Content-Type: " <> show leftover)
+       Fail   -> Left ("malformed Content-Type: " <> show bs0)
+       Err  e -> Left e
 
-parseParameters :: ByteString -> [(ByteString, ByteString)]
-parseParameters = go . dropSemi
-  where
-    dropSemi b = case BS.uncons b of
-      Just (0x3B, rest) -> BS.dropWhile (== 0x20) rest
-      _                 -> BS.dropWhile (== 0x20) b
-    go b
-      | BS.null b = []
-      | otherwise =
-          let (chunk, rest) = BS.break (== 0x3B) b
-              (k, v0) = BS.break (== 0x3D) chunk
-              v = case BS.uncons v0 of
-                    Just (0x3D, val) -> stripQuotes (BS.dropWhile (== 0x20) val)
-                    _                -> ""
-              k' = BS8.map toLower (BS.dropWhileEnd (== 0x20) k)
-          in (k', v) : go (dropSemi rest)
-    stripQuotes b = case BS.uncons b of
-      Just (0x22, rest) ->
-        case BS.unsnoc rest of
-          Just (rest', 0x22) -> rest'
-          _                  -> rest
-      _ -> BS.dropWhileEnd (== 0x20) b
+-- | Convert a hermes 'MediaRange' to our 'MediaType'. Hermes uses
+-- 'ShortText' for the type \/ subtype \/ parameter strings and
+-- represents the wildcard as @""@; we collapse them back to
+-- 'ByteString' and normalise the wildcard back to @"*"@ to match
+-- the rest of the Wire client.
+fromHermesRange :: Hermes.MediaRange -> MediaType
+fromHermesRange r =
+  let mt = Hermes.mediaType r
+      stBytes = TE.encodeUtf8 . ST.toText
+      normalise b
+        | BS.null b = "*"
+        | otherwise = BS8.map toLower b
+  in MediaType
+       { mtType    = normalise (stBytes (Hermes.mediaBaseType mt))
+       , mtSubType = normalise (stBytes (Hermes.mediaSubtype  mt))
+       , mtParameters =
+           [ (BS8.map toLower (stBytes k), stBytes v)
+           | (k, v) <- Hermes.mediaParams r
+           ]
+       }
 
 renderMediaType :: MediaType -> ByteString
 renderMediaType m =

@@ -43,6 +43,8 @@ module Network.HTTP.Client
     -- * Transports and middleware
   , module Network.HTTP.Client.Transport
   , module Network.HTTP.Client.Middleware
+    -- * Compression
+  , module Network.HTTP.Client.Compression
     -- * Send
   , module Network.HTTP.Client.Send
     -- * Cookies
@@ -63,6 +65,7 @@ module Network.HTTP.Client
 import Network.HTTP.Client.Base
 import Network.HTTP.Client.Body
 import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Compression
 import Network.HTTP.Client.Config
 import Network.HTTP.Client.Cookies
 import Network.HTTP.Client.Decoder
