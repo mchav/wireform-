@@ -155,24 +155,6 @@ Smaller features that solve specific pain points. All are additive-standard APIs
 | Internal topics leak across deploys | `detectOrphans` flags drift between expected and actual topics; runtime surfaces it as startup diagnostic | `Kafka.Streams.Observability.OrphanTopics` |
 | Observability is unstructured | Per-operator lag, queue depths, time-spent. `topologyDescription` emits versioned JSON for UI overlays | `Kafka.Streams.Observability.Topology` |
 
-### Test coverage
-
-Riffle ships property-based and chaos tests that validate correctness invariants unit tests cannot cover:
-
-| Test spec | What it validates |
-| ---------- | ----------------- |
-| `KVStoreSMSpec` | State-machine equivalence against `Data.Map` model |
-| `OptimizerEqSpec` | Optimized and unoptimized topologies produce identical output |
-| `WindowMathSpec` | 17 properties covering all window types |
-| `EOSChaosSpec` | Commit cycle correctness under fault injection (exceptions, aborts, partial failures) |
-| `WorkerPoolSMSpec` | Sequential pool dynamics |
-| `WorkerPoolConcurrentSpec` | Concurrent operations preserve invariants; sticky routing under load |
-| `ObservabilityTopologySpec` | Topology JSON round-trips correctly |
-| `OrphanTopicsSpec` | Internal-topic detector handles edge cases |
-| `ChangelogReplaySpec` | Active/standby replication correctness, failover behavior, per-store isolation |
-| `WatermarkSpec` | Stream-time semantics under out-of-order input |
-| `AtLeastOnceRedeliverySpec` | Redelivery invariants and bounds |
-
 ## Mapping problems to Riffle pieces
 
 A decision table for "I have X problem; which Riffle piece is the
@@ -238,23 +220,6 @@ feature at a time: for example, swap a problematic
 `mapValuesM`-on-HTTP for `asyncMapValues`: without touching the
 rest of the topology, and without committing to the entire
 extension tier.
-
-## What's deferred
-
-**Why this section exists:** Riffle development is transparent. Features are
-designed and specified before implementation. This list shows what's coming
-so you can plan around it. If you need one of these features now, it signals
-where to contribute or where to expect it soon.
-
-Features designed but not yet shipped (see `RIFFLE_SPEC.md` for design details):
-
-- Spill-to-snapshot-store as a fourth bounded-suppress policy
-- Time-windowed aggregator and stream-stream join wiring for the coordinated watermark (suppress already uses it)
-- Production JDBC / Iceberg / S3 / HTTP 2PC sink adapters: contract and reference sinks ship in core, production adapters need separate packages
-- Production S3 / GCS / Azure `ObjectStoreClient` adapters: contract and filesystem backends ship in core, cloud adapters need separate packages
-- Production FoundationDB / TiKV / DynamoDB `RemoteKVClient` adapters: contract and test mocks ship in core, production adapters need separate packages
-
-Adapters live in separate packages because each pulls in non-trivial external dependencies. The core `wireform-kafka-streams` package stays driver-free.
 
 ## Recommended adoption path
 
