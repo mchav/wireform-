@@ -50,6 +50,13 @@ tests = testGroup "Network.HTTP.Wire"
   , sendTests
   , middlewareTests
   , vcrTests
+  , mockAPITests
+  , resourceTests
+  , expectationTests
+  , stateMachineTests
+  , decoderTests
+  , faultTests
+  , tracingTests
   ]
 
 -- ---------------------------------------------------------------------------
@@ -141,6 +148,7 @@ sendTests = testGroup "send / mocks"
       _ <- sendIO t (get (compileTemplate "/users/1")) (as @JSON @User)
       assertLog log_ (requestCount 1)
       assertLog log_ (anyRequest (hasMethod M.mGet <> hasURI "/users/1"))
+      assertLog log_ (anyRequest (hasURIPath "/users/1"))
 
   , testCase "decode failure throws DecodeFailure" $ do
       let transport = stub S.status200 "not json at all"
@@ -186,6 +194,230 @@ errorResp = RawResponse
 -- ---------------------------------------------------------------------------
 -- VCR
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- MockAPI declarative routing
+-- ---------------------------------------------------------------------------
+
+mockAPITests :: TestTree
+mockAPITests = testGroup "MockAPI"
+  [ testCase "first matching route wins" $ do
+      let api = mockAPI MockAPI
+            { routes =
+                [ on (hasMethod M.mGet <> hasURIPath "/health")
+                    (\_ _ -> ok200 "ok")
+                , on (hasMethod M.mGet <> hasURIPathPrefix "/users/")
+                    (\_ _ -> json200 (User 1 "alice"))
+                ]
+            , fallback = throwUnexpected
+            }
+      Response { responseBody = u } <-
+        sendIO api (get (compileTemplate "/users/1")) (as @JSON @User)
+      u @?= User 1 "alice"
+
+  , testCase "fallback runs when nothing matches" $ do
+      let api = mockAPI MockAPI
+            { routes   = [on (hasMethod M.mGet <> hasURIPath "/health")
+                              (\_ _ -> ok200 "ok")]
+            , fallback = \_ _ -> rawResponse S.status418 [] "i'm a teapot"
+            }
+      raw <- sendRaw api =<< prep (get (compileTemplate "/unknown"))
+      statusCode raw @?= S.status418
+
+  , testCase "hasQueryParam matches" $ do
+      let api = mockAPI MockAPI
+            { routes =
+                [ on (hasMethod M.mGet
+                       <> hasURIPath "/search"
+                       <> hasQueryParam "q" "hello")
+                    (\_ _ -> ok200 "found")
+                ]
+            , fallback = \_ _ -> rawResponse S.status404 [] ""
+            }
+      raw <- sendRaw api =<< prep (get (compileTemplate "/search?q=hello"))
+      statusCode raw @?= S.status200
+
+  , testCase "hasJSONBody matches on shape" $ do
+      let target = User 1 "alice"
+          api = mockAPI MockAPI
+            { routes =
+                [ on (hasMethod M.mPost <> hasJSONBody target)
+                    (\_ _ -> ok200 "match")
+                ]
+            , fallback = \_ _ -> rawResponse S.status404 [] ""
+            }
+      raw <- sendRaw api =<< prep
+        (withBody @JSON target (post (compileTemplate "/users")))
+      statusCode raw @?= S.status200
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Resource mocks
+-- ---------------------------------------------------------------------------
+
+resourceTests :: TestTree
+resourceTests = testGroup "resource"
+  [ testCase "POST then GET, then DELETE then GET" $ do
+      idVar <- newIORef (0 :: Int)
+      let nextId = atomicModifyIORef' idVar (\n -> (n + 1, T.pack (show (n + 1))))
+      userRoutes <- resource ResourceConfig
+        { basePath   = "/users"
+        , idField    = \(User i _) -> T.pack (show i)
+        , generateId = nextId
+        }
+      let api = mockAPI MockAPI { routes = userRoutes, fallback = throwUnexpected }
+
+      created <- sendIO api
+        (withBody @JSON (User 0 "alice") (post (compileTemplate "/users")))
+        (as @JSON @User)
+      responseStatus created @?= S.status201
+
+      Response { responseBody = u } <- sendIO api
+        (get (compileTemplate "/users/0"))
+        (as @JSON @User)
+      userName u @?= "alice"
+
+      delRaw <- sendRaw api =<< prep (delete (compileTemplate "/users/0"))
+      statusCode delRaw @?= S.status204
+
+      notFound <- sendRaw api =<< prep (get (compileTemplate "/users/0"))
+      statusCode notFound @?= S.status404
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Expectations
+-- ---------------------------------------------------------------------------
+
+expectationTests :: TestTree
+expectationTests = testGroup "withExpectations"
+  [ testCase "expected counts pass" $ do
+      withExpectations
+        [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
+                  (Exactly 1)
+                  (json200 (User 1 "alice"))
+        ]
+        $ \t -> do
+          _ <- sendIO t (get (compileTemplate "/users")) (as @JSON @User)
+          pure ()
+
+  , testCase "violated count throws ExpectationNotMet" $ do
+      result <- try $ withExpectations
+        [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
+                  (Exactly 2)
+                  (json200 (User 1 "alice"))
+        ]
+        $ \t -> do
+          _ <- sendIO t (get (compileTemplate "/users")) (as @JSON @User)
+          pure ()
+      case (result :: Either ExpectationNotMet ()) of
+        Left _  -> pure ()
+        Right _ -> assertFailure "expected ExpectationNotMet"
+
+  , testCase "unexpected request throws UnexpectedRequest" $ do
+      result <- try $ withExpectations
+        [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
+                  AnyTimes
+                  (json200 (User 1 "alice"))
+        ]
+        $ \t -> do
+          _ <- sendIO t (get (compileTemplate "/admin")) (as @JSON @User)
+          pure ()
+      case (result :: Either SomeException ()) of
+        Left _  -> pure ()
+        Right _ -> assertFailure "expected an exception"
+  ]
+
+-- ---------------------------------------------------------------------------
+-- State machines
+-- ---------------------------------------------------------------------------
+
+stateMachineTests :: TestTree
+stateMachineTests = testGroup "stateMachine"
+  [ testCase "polling: pending -> pending -> complete" $ do
+      transport <- stateMachine StateMachine
+        { initialState = 0 :: Int
+        , transition = \n _ _ ->
+            let body_ = if n < 2 then "{\"status\":\"pending\"}"
+                                 else "{\"status\":\"complete\"}"
+            in (,) (n + 1) <$> rawResponse S.status200
+                  [(H.hContentType, "application/json")] body_
+        }
+      let req = get (compileTemplate "/jobs/1")
+      r1 <- sendRaw transport =<< prep req
+      r1Body <- rawResponseBytes r1
+      BS.isInfixOf "pending" r1Body @?= True
+      r2 <- sendRaw transport =<< prep req
+      r2Body <- rawResponseBytes r2
+      BS.isInfixOf "pending" r2Body @?= True
+      r3 <- sendRaw transport =<< prep req
+      r3Body <- rawResponseBytes r3
+      BS.isInfixOf "complete" r3Body @?= True
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Decoders
+-- ---------------------------------------------------------------------------
+
+decoderTests :: TestTree
+decoderTests = testGroup "Decoder"
+  [ testCase "asEither @JSON @JSON returns Right on 2xx" $ do
+      let transport = stubJSON S.status200 (User 1 "alice")
+      Response { responseBody = r } <- sendIO transport
+        (get (compileTemplate "/users/1"))
+        (asEither @JSON @ErrorPayload @JSON @User)
+      r @?= Right (User 1 "alice")
+
+  , testCase "asEither returns Left on non-2xx" $ do
+      let transport = stubJSON S.status404 (ErrorPayload "not found")
+      Response { responseBody = r } <- sendIO transport
+        (get (compileTemplate "/users/999"))
+        (asEither @JSON @ErrorPayload @JSON @User)
+      r @?= Left (ErrorPayload "not found")
+  ]
+
+data ErrorPayload = ErrorPayload { errMsg :: !Text }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Aeson.ToJSON, Aeson.FromJSON)
+
+-- ---------------------------------------------------------------------------
+-- Fault injection
+-- ---------------------------------------------------------------------------
+
+faultTests :: TestTree
+faultTests = testGroup "Faults"
+  [ testCase "withTruncation cuts the body" $ do
+      let inner = stub S.status200 "abcdefghij"
+          transport = withTruncation 4 inner
+      raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
+      bs <- rawResponseBytes raw
+      bs @?= "abcd"
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Tracing (smoke test: middleware composes without error)
+-- ---------------------------------------------------------------------------
+
+tracingTests :: TestTree
+tracingTests = testGroup "withTracing"
+  [ testCase "no-op tracing middleware passes the response through" $ do
+      let inner = stubJSON S.status200 (User 1 "alice")
+          transport = withTracing defaultTracingConfig inner
+      Response { responseBody = u } <-
+        sendIO transport (get (compileTemplate "/users/1")) (as @JSON @User)
+      u @?= User 1 "alice"
+
+  , testCase "TracingDisabled short-circuits to the inner transport" $ do
+      let inner = stubJSON S.status200 (User 2 "bob")
+          transport = withTracing TracingDisabled inner
+      Response { responseBody = u } <-
+        sendIO transport (get (compileTemplate "/users/2")) (as @JSON @User)
+      u @?= User 2 "bob"
+  ]
+
+-- Build a Request BodyStream from any Body-bearing Request for use
+-- with sendRaw.
+prep :: Body body => Request body -> IO (Request BodyStream)
+prep r = prepareRequest [] r
 
 vcrTests :: TestTree
 vcrTests = testGroup "VCR"

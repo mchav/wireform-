@@ -24,16 +24,21 @@ import qualified Network.HTTP.VersionRange as VR
 import Network.HTTP.Wire.Base
 import Network.HTTP.Wire.Cookies (CookieJar, withCookies)
 import Network.HTTP.Wire.Middleware
+import Network.HTTP.Wire.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
 import Network.HTTP.Wire.Transport
 
 data ClientConfig = ClientConfig
   { ccVersionRange :: !VR.VersionRange
-    -- ^ Which on-wire versions to accept. Defaults to 'preferHttp2'.
+    -- ^ Which on-wire versions to accept. Defaults to 'preferHttp1'.
   , ccLogger       :: !(Maybe Logger)
   , ccAuth         :: !(Maybe AuthScheme)
   , ccTimeout      :: !(Maybe Duration)
   , ccRetryPolicy  :: !(Maybe RetryPolicy)
   , ccCookieJar    :: !(Maybe CookieJar)
+  , ccTracing      :: !TracingConfig
+    -- ^ OpenTelemetry tracing. Enabled by default (uses the global
+    --   'OpenTelemetry.Trace.TracerProvider'; a no-op until an SDK
+    --   is installed).
   , ccExtra        :: !([Transport IO -> Transport IO])
     -- ^ Escape hatch for additional middleware to wrap the stack with.
     -- Applied outermost-first, after the standard set below.
@@ -47,6 +52,7 @@ defaultClientConfig = ClientConfig
   , ccTimeout      = Nothing
   , ccRetryPolicy  = Nothing
   , ccCookieJar    = Nothing
+  , ccTracing      = defaultTracingConfig
   , ccExtra        = []
   }
 
@@ -67,8 +73,12 @@ assemble cfg =
       timeout_ = maybe id withTimeout   (ccTimeout cfg)
       auth     = maybe id withAuth      (ccAuth cfg)
       logger   = maybe id withLogging   (ccLogger cfg)
+      tracing  = withTracing (ccTracing cfg)
       extras   = foldr (.) id (ccExtra cfg)
+  -- Tracing sits outermost so the span covers retries, the timeout,
+  -- auth header injection, and cookie processing.
   in extras
+     . tracing
      . logger
      . cookies
      . retry_

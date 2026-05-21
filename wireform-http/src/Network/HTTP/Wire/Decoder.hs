@@ -14,6 +14,7 @@ via the tag's 'Decode' instance. Decoders compose via '<!>' from
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module Network.HTTP.Wire.Decoder
   ( ResponseDecoder (..)
   , as
@@ -21,10 +22,13 @@ module Network.HTTP.Wire.Decoder
   , statusAware
   , mapDecoder
   , bytesDecoder
+  , asEither
+  , withErrorStatus
   ) where
 
 import Data.ByteString (ByteString)
 
+import Network.HTTP.Types.Status (Status)
 import qualified Network.HTTP.Types.Status as S
 
 import Network.HTTP.Wire.Media
@@ -68,7 +72,7 @@ orDecoder a b = ResponseDecoder
 -- new decoder sees the parsed status.
 statusAware
   :: ResponseDecoder a
-  -> (S.Status -> MediaType -> ByteString -> Either DecodeError b)
+  -> (Status -> MediaType -> ByteString -> Either DecodeError b)
   -> ResponseDecoder b
 statusAware d k = d { decodeBody = k }
 
@@ -80,4 +84,44 @@ bytesDecoder :: ResponseDecoder ByteString
 bytesDecoder = ResponseDecoder
   { acceptable = [("*/*", maxQuality)]
   , decodeBody = \_ _ -> Right
+  }
+
+-- | Dispatch on status: dispatch to the success decoder for 2xx
+-- responses, otherwise to the error decoder. The accept list is the
+-- union of both. Useful for APIs that return one shape on success
+-- and another (also-JSON, usually) on failure.
+asEither
+  :: forall tag e tag' a.
+     ( HasMediaType tag,  Decode tag  e
+     , HasMediaType tag', Decode tag' a
+     )
+  => ResponseDecoder (Either e a)
+asEither = ResponseDecoder
+  { acceptable =
+      [ (mediaType @tag,  maxQuality)
+      , (mediaType @tag', maxQuality)
+      ]
+  , decodeBody = \status _ct bs ->
+      let code = S.statusCode status
+      in if code >= 200 && code < 300
+           then Right <$> decode @tag' bs
+           else Left  <$> decode @tag  bs
+  }
+
+-- | Treat a particular status code as an error: 'decodeBody' returns
+-- @Left e@ when the response status matches the supplied predicate,
+-- otherwise delegates to the wrapped decoder. The wrapped decoder
+-- still controls 'acceptable'.
+withErrorStatus
+  :: forall tagE e a.
+     ( HasMediaType tagE, Decode tagE e )
+  => (S.Status -> Bool)
+  -> ResponseDecoder a
+  -> ResponseDecoder (Either e a)
+withErrorStatus isErr inner = ResponseDecoder
+  { acceptable = (mediaType @tagE, maxQuality) : acceptable inner
+  , decodeBody = \status ct bs ->
+      if isErr status
+        then Left  <$> decode @tagE bs
+        else Right <$> decodeBody inner status ct bs
   }

@@ -52,6 +52,8 @@ module Network.HTTP.Wire
   , module Network.HTTP.Wire.Base
     -- * Protocol metadata
   , module Network.HTTP.Wire.Protocol
+    -- * Tracing (OpenTelemetry)
+  , module Network.HTTP.Wire.Tracing
     -- * Test helpers (mock transports, stubs, request log, assertions)
   , module Network.HTTP.Wire.Test
     -- * VCR (record/replay)
@@ -75,6 +77,7 @@ import Network.HTTP.Wire.Request
 import Network.HTTP.Wire.Response
 import Network.HTTP.Wire.Send
 import Network.HTTP.Wire.Test
+import Network.HTTP.Wire.Tracing
 import Network.HTTP.Wire.Transport
 import Network.HTTP.Wire.URI
 import Network.HTTP.Wire.VCR hiding

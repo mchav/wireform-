@@ -58,6 +58,9 @@ module Network.HTTP.Wire.Middleware
   , withSlowBody
   , newFailFirstN
   , newFailureRate
+  , withJitter
+  , withConnectionReset
+  , withTruncation
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -354,27 +357,16 @@ failFirstN n canned inner = do
   pure (m inner)
 
 -- | Allocate a randomised failure-injector. Returns @canned@ with
--- probability @p@; otherwise forwards. Uses 'System.Random.IO' from
--- @random@. The 'StdGen' is owned by this middleware.
+-- probability @p@; otherwise forwards.
 newFailureRate :: Double -> RawResponse -> IO (Middleware IO)
 newFailureRate p canned = do
-  -- Avoid the @random@ dep; do a simple LCG seeded from the system
-  -- time. This is for fault injection in tests, not cryptography.
   seedRef <- newIORef =<< initialSeed
   pure $ \inner -> Transport $ \req -> do
-    roll <- atomicModifyIORef' seedRef stepLCG
-    if roll < p then pure canned else sendRaw inner req
-  where
-    initialSeed :: IO Word64
-    initialSeed = do
-      now <- getCurrentTime
-      pure $ fromIntegral
-        $ round (realToFrac (diffUTCTime now (read "1970-01-01 00:00:00 UTC")) * 1e6 :: Double)
-    stepLCG :: Word64 -> (Word64, Double)
-    stepLCG s =
-      let s' = s * 6364136223846793005 + 1442695040888963407
+    roll <- atomicModifyIORef' seedRef $ \s ->
+      let s' = stepLcg s
           d  = fromIntegral (s' `div` 2 :: Word64) / fromIntegral (maxBound :: Word64) :: Double
       in (s', d)
+    if roll < p then pure canned else sendRaw inner req
 
 -- | Convenience wrapper: same as 'newFailureRate' but applies
 -- immediately. Mostly for symmetry with 'failFirstN'.
@@ -392,3 +384,76 @@ withSlowBody (Duration us) inner = Transport $ \req -> do
         threadDelay us
         bodyPopper raw
   pure raw { bodyPopper = slow }
+
+-- | Sleep for a uniform-random duration in the closed range before
+-- each request. Useful for shaking out race conditions in code that
+-- expects responses to arrive faster than they actually do.
+--
+-- The RNG is an internally-owned LCG seeded from the current time;
+-- it's good enough for jitter but not for anything that needs real
+-- randomness.
+withJitter :: (Duration, Duration) -> IO (Middleware IO)
+withJitter (Duration lo, Duration hi)
+  | hi < lo   = pure (\inner -> inner)
+  | hi == lo  = pure (withLatency (Duration lo))
+  | otherwise = do
+      seedRef <- newIORef =<< initialSeed
+      pure $ \inner -> Transport $ \req -> do
+        d <- atomicModifyIORef' seedRef $ \s ->
+          let s' = stepLcg s
+              fraction = fromIntegral (s' `mod` 1000000) / 1000000 :: Double
+              jittered = lo + round (fraction * fromIntegral (hi - lo) :: Double)
+          in (s', jittered)
+        threadDelay d
+        sendRaw inner req
+
+-- | Throw an 'IOException' simulating a closed peer connection with
+-- probability @p@; otherwise forward the request. The probability is
+-- evaluated independently per request.
+withConnectionReset :: Double -> IO (Middleware IO)
+withConnectionReset p = do
+  seedRef <- newIORef =<< initialSeed
+  pure $ \inner -> Transport $ \req -> do
+    roll <- atomicModifyIORef' seedRef $ \s ->
+      let s' = stepLcg s
+          d  = fromIntegral (s' `mod` 1000000) / 1000000 :: Double
+      in (s', d)
+    if roll < p
+      then throwIO (userError "withConnectionReset: peer closed connection")
+      else sendRaw inner req
+
+-- | Truncate response bodies after @n@ bytes (simulates a mid-body
+-- network drop). Stops yielding chunks once @n@ bytes have been
+-- delivered.
+withTruncation :: Int -> Middleware IO
+withTruncation n inner = Transport $ \req -> do
+  raw <- sendRaw inner req
+  remainingRef <- newIORef n
+  let truncated = do
+        remaining <- readIORef remainingRef
+        if remaining <= 0
+          then pure BS.empty
+          else do
+            chunk <- bodyPopper raw
+            if BS.null chunk
+              then pure BS.empty
+              else do
+                let take_ = min remaining (BS.length chunk)
+                writeIORef remainingRef (remaining - take_)
+                pure (BS.take take_ chunk)
+  pure raw { bodyPopper = truncated }
+
+-- ---------------------------------------------------------------------------
+-- Shared LCG (cheap, time-seeded; suitable for tests, not crypto)
+-- ---------------------------------------------------------------------------
+
+initialSeed :: IO Word64
+initialSeed = do
+  now <- getCurrentTime
+  pure $! fromIntegral
+       $ round (realToFrac
+                  (diffUTCTime now (read "1970-01-01 00:00:00 UTC"))
+                  * 1000000 :: Double)
+
+stepLcg :: Word64 -> Word64
+stepLcg s = s * 6364136223846793005 + 1442695040888963407

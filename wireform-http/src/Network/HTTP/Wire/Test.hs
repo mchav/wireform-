@@ -31,6 +31,26 @@ module Network.HTTP.Wire.Test
   , stubJSON
   , stubSequence
   , stubRoutes
+    -- * MockAPI declarative routing
+  , MockAPI (..)
+  , Route
+  , on
+  , on_
+  , mockAPI
+  , throwUnexpected
+    -- * Resource mocks (CRUD)
+  , ResourceConfig (..)
+  , resource
+    -- * State machines
+  , StateMachine (..)
+  , stateMachine
+    -- * Expectations
+  , withExpectations
+  , expect
+  , expect_
+  , MockExpectation
+  , ExpectedCount (..)
+  , ExpectationNotMet (..)
     -- * Raw-response builders
   , rawResponse
   , ok200
@@ -51,10 +71,16 @@ module Network.HTTP.Wire.Test
   , hasMethod
   , hasURI
   , hasURIPrefix
+  , hasURIPath
+  , hasURIPathPrefix
+  , hasQueryParam
+  , hasQueryParamPresent
   , hasHeaderEq
   , hasHeaderPresent
   , hasBody
   , hasBodyContaining
+  , hasJSONBody
+  , bodyMatches
   , hasStatus
   , hasResponseHeader
   , matchesRequest
@@ -73,15 +99,22 @@ module Network.HTTP.Wire.Test
   , UnexpectedRequest (..)
   ) where
 
+import Control.Concurrent.STM
 import Control.Exception (Exception, throwIO)
-import Data.Aeson (ToJSON)
+import Control.Monad (forM_, unless)
+import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString (ByteString)
 import Data.IORef
+import qualified Data.List as List
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 
 import qualified Network.HTTP.Types.Header as H
@@ -172,12 +205,12 @@ stubSequence responses = do
 stubRoutes
   :: [(RequestMatcher, Request BodyStream -> IO RawResponse)]
   -> Transport IO
-stubRoutes routes = Transport $ \req -> do
+stubRoutes rs = Transport $ \req -> do
   reqBody <- drainBodyStream (body req)
   bsRebuilt <- streamFromStrict reqBody
   let reReq = req { body = bsRebuilt }
       rec' = mkRecordedRequest req reqBody
-  case lookupRoute rec' routes of
+  case lookupRoute rec' rs of
     Just handler -> handler reReq
     Nothing      -> throwIO (UnexpectedRequest rec')
 
@@ -189,6 +222,247 @@ lookupRoute _ [] = Nothing
 lookupRoute rec' ((m, h) : rest)
   | matches m rec' = Just h
   | otherwise      = lookupRoute rec' rest
+
+-- ---------------------------------------------------------------------------
+-- Declarative MockAPI
+-- ---------------------------------------------------------------------------
+
+-- | A pair of a request matcher and a handler. Routes are tried in
+-- order; the first match wins.
+data Route = Route !RequestMatcher !(Request BodyStream -> ByteString -> IO RawResponse)
+
+-- | A small DSL for assembling a mock HTTP API from matched routes.
+data MockAPI = MockAPI
+  { routes    :: ![Route]
+  , fallback  :: !(Request BodyStream -> ByteString -> IO RawResponse)
+    -- ^ Called when no route matches. The provided body bytes are
+    --   the already-drained request body.
+  }
+
+-- | Pair a matcher with a handler. The handler receives the prepared
+-- request (with a fresh popper that yields the buffered body once)
+-- and the drained body as a strict 'ByteString' for convenience.
+on
+  :: RequestMatcher
+  -> (Request BodyStream -> ByteString -> IO RawResponse)
+  -> Route
+on = Route
+
+-- | Shorthand for a route that always returns a constant response.
+on_ :: RequestMatcher -> IO RawResponse -> Route
+on_ m r = Route m (\_ _ -> r)
+
+-- | Assemble a 'MockAPI' into a 'Transport'. Request bodies are
+-- drained upfront and rebuilt as a fresh popper so handlers can
+-- inspect them and downstream code still sees a streamable body.
+mockAPI :: MockAPI -> Transport IO
+mockAPI api = Transport $ \req -> do
+  reqBody <- drainBodyStream (body req)
+  rebuilt <- streamFromStrict reqBody
+  let reReq = req { body = rebuilt }
+      rec'  = mkRecordedRequest req reqBody
+      step []                  = fallback api reReq reqBody
+      step (Route m h : rest)
+        | matches m rec' = h reReq reqBody
+        | otherwise      = step rest
+  step (routes api)
+
+-- | Default fallback: throw 'UnexpectedRequest'. Use this for tests
+-- that should fail loudly on unexpected calls.
+throwUnexpected :: Request BodyStream -> ByteString -> IO RawResponse
+throwUnexpected req drained =
+  throwIO (UnexpectedRequest (mkRecordedRequest req drained))
+
+-- ---------------------------------------------------------------------------
+-- Resource mocks: a small CRUD API generated from a config
+-- ---------------------------------------------------------------------------
+
+-- | Configuration for a 'resource' mock collection.
+data ResourceConfig a = ResourceConfig
+  { basePath   :: !Text
+    -- ^ e.g. @"\/users"@.
+  , idField    :: !(a -> Text)
+    -- ^ How to extract the canonical id from a value.
+  , generateId :: !(IO Text)
+    -- ^ How to generate an id for newly-POSTed items that don't
+    --   carry one.
+  }
+
+-- | Build the route table for a CRUD collection backed by an in-memory
+-- map. Generates:
+--
+--   * @GET    \<base\>@         — list all (JSON array)
+--   * @GET    \<base\>\/{id}@   — get one, 404 if missing
+--   * @POST   \<base\>@         — create (returns 201)
+--   * @PUT    \<base\>\/{id}@   — replace, 404 if missing
+--   * @DELETE \<base\>\/{id}@   — remove, 404 if missing
+resource
+  :: forall a. (FromJSON a, ToJSON a)
+  => ResourceConfig a -> IO [Route]
+resource cfg = do
+  store <- newTVarIO (Map.empty :: Map Text a)
+  let ResourceConfig
+        { basePath   = base
+        , idField    = idOf
+        , generateId = genId
+        } = cfg
+      jsonHdr = [(H.hContentType, "application/json")]
+      jsonResp s v = rawResponse s jsonHdr (BSL.toStrict (Aeson.encode v))
+  pure
+    [ Route (hasMethod M.mGet <> hasURIPath base) $ \_ _ -> do
+        xs <- Map.elems <$> readTVarIO store
+        jsonResp S.status200 xs
+
+    , Route (hasMethod M.mGet <> hasURIPathPrefix (base <> "/")) $ \req _ -> do
+        let i = idFromPath base (rrURI (mkRecordedRequest req ""))
+        m <- readTVarIO store
+        case Map.lookup i m of
+          Just v  -> jsonResp S.status200 v
+          Nothing -> rawResponse S.status404 [] ""
+
+    , Route (hasMethod M.mPost <> hasURIPath base) $ \_ rawBody ->
+        case Aeson.eitherDecodeStrict rawBody of
+          Left err -> rawResponse S.status400 [] (BS8.pack err)
+          Right v  -> do
+            -- If the value already carries an id (via idField),
+            -- prefer that; otherwise mint a fresh one.
+            i <- let candidate = idOf v
+                 in if T.null candidate
+                      then genId
+                      else pure candidate
+            atomically (modifyTVar' store (Map.insert i v))
+            jsonResp S.status201 v
+
+    , Route (hasMethod M.mPut <> hasURIPathPrefix (base <> "/")) $ \req rawBody -> do
+        let i = idFromPath base (rrURI (mkRecordedRequest req ""))
+        existing <- Map.member i <$> readTVarIO store
+        if not existing
+          then rawResponse S.status404 [] ""
+          else case Aeson.eitherDecodeStrict rawBody of
+            Left err -> rawResponse S.status400 [] (BS8.pack err)
+            Right v  -> do
+              atomically (modifyTVar' store (Map.insert i v))
+              jsonResp S.status200 v
+
+    , Route (hasMethod M.mDelete <> hasURIPathPrefix (base <> "/")) $ \req _ -> do
+        let i = idFromPath base (rrURI (mkRecordedRequest req ""))
+        wasPresent <- atomically $ do
+          m <- readTVar store
+          if Map.member i m
+            then writeTVar store (Map.delete i m) >> pure True
+            else pure False
+        if wasPresent
+          then rawResponse S.status204 [] ""
+          else rawResponse S.status404 [] ""
+    ]
+  where
+    idFromPath base p =
+      let prefix = base <> "/"
+      in case T.stripPrefix prefix (T.takeWhile (/= '?') p) of
+           Just rest -> T.takeWhile (/= '/') rest
+           Nothing   -> ""
+
+-- ---------------------------------------------------------------------------
+-- State machine mocks
+-- ---------------------------------------------------------------------------
+
+-- | A mock whose response depends on accumulated state. The state
+-- variable lives in a 'TVar' so the transition is atomic.
+data StateMachine s = StateMachine
+  { initialState :: !s
+  , transition   :: !(s -> Request BodyStream -> ByteString -> IO (s, RawResponse))
+  }
+
+-- | Allocate a state-machine-backed transport.
+stateMachine :: StateMachine s -> IO (Transport IO)
+stateMachine sm = do
+  var <- newTVarIO (initialState sm)
+  pure $ Transport $ \req -> do
+    bs <- drainBodyStream (body req)
+    rebuilt <- streamFromStrict bs
+    let req' = req { body = rebuilt }
+    s <- readTVarIO var
+    (s', resp) <- transition sm s req' bs
+    atomically (writeTVar var s')
+    pure resp
+
+-- ---------------------------------------------------------------------------
+-- Expectations
+-- ---------------------------------------------------------------------------
+
+-- | A single expectation: a 'RequestMatcher', a count bound, and a
+-- handler. Used with 'withExpectations'.
+data MockExpectation = MockExpectation
+  { expMatcher :: !RequestMatcher
+  , expCount   :: !ExpectedCount
+  , expHandler :: !(Request BodyStream -> ByteString -> IO RawResponse)
+  }
+
+data ExpectedCount
+  = Exactly !Int
+  | AtLeast !Int
+  | AtMost  !Int
+  | Between !Int !Int
+  | AnyTimes
+  deriving stock (Eq, Show)
+
+satisfiesCount :: ExpectedCount -> Int -> Bool
+satisfiesCount c n = case c of
+  Exactly k     -> n == k
+  AtLeast k     -> n >= k
+  AtMost  k     -> n <= k
+  Between lo hi -> n >= lo && n <= hi
+  AnyTimes      -> True
+
+data ExpectationNotMet = ExpectationNotMet
+  { metMatcher  :: !Text
+  , metExpected :: !ExpectedCount
+  , metActual   :: !Int
+  }
+  deriving stock (Show)
+
+instance Exception ExpectationNotMet
+
+expect
+  :: RequestMatcher
+  -> ExpectedCount
+  -> (Request BodyStream -> ByteString -> IO RawResponse)
+  -> MockExpectation
+expect = MockExpectation
+
+expect_ :: RequestMatcher -> ExpectedCount -> IO RawResponse -> MockExpectation
+expect_ m c r = MockExpectation m c (\_ _ -> r)
+
+-- | Run an action against a transport whose behaviour is governed by
+-- a list of 'MockExpectation's. Throws 'UnexpectedRequest' if a
+-- non-matching request arrives and 'ExpectationNotMet' at teardown
+-- if any expected count is violated.
+withExpectations :: [MockExpectation] -> (Transport IO -> IO a) -> IO a
+withExpectations es action = do
+  counters <- mapM (\_ -> newTVarIO (0 :: Int)) es
+  let transport = Transport $ \req -> do
+        bs <- drainBodyStream (body req)
+        rebuilt <- streamFromStrict bs
+        let req' = req { body = rebuilt }
+            rec' = mkRecordedRequest req bs
+            go [] _ = throwIO (UnexpectedRequest rec')
+            go (MockExpectation m _ h : restE) (cnt : restC)
+              | matches m rec' = do
+                  atomically (modifyTVar' cnt (+ 1))
+                  h req' bs
+              | otherwise = go restE restC
+            go _ _ = throwIO (UnexpectedRequest rec')
+        go es counters
+  result <- action transport
+  forM_ (zip es counters) $ \(MockExpectation m c _, cntVar) -> do
+    actual <- readTVarIO cntVar
+    unless (satisfiesCount c actual) $
+      throwIO ExpectationNotMet
+        { metMatcher  = matcherDescription m
+        , metExpected = c
+        , metActual   = actual
+        }
+  pure result
 
 -- ---------------------------------------------------------------------------
 -- Request log
@@ -319,6 +593,55 @@ hasURIPrefix u = RequestMatcher
   , matcherPredicate   = T.isPrefixOf u . rrURI
   }
 
+-- | Match on just the path (ignores query string and fragment).
+hasURIPath :: T.Text -> RequestMatcher
+hasURIPath p = RequestMatcher
+  { matcherDescription = "path == " <> p
+  , matcherPredicate   = (== p) . pathPart . rrURI
+  }
+
+-- | Match on a path prefix (ignores query string and fragment).
+hasURIPathPrefix :: T.Text -> RequestMatcher
+hasURIPathPrefix p = RequestMatcher
+  { matcherDescription = "path starts with " <> p
+  , matcherPredicate   = T.isPrefixOf p . pathPart . rrURI
+  }
+
+pathPart :: T.Text -> T.Text
+pathPart t =
+  let withoutQuery = T.takeWhile (/= '?') t
+  in T.takeWhile (/= '#') withoutQuery
+
+-- | Match a specific @?name=value@ query parameter.
+hasQueryParam :: T.Text -> T.Text -> RequestMatcher
+hasQueryParam name val = RequestMatcher
+  { matcherDescription = "?" <> name <> "=" <> val
+  , matcherPredicate = \r -> (name, Just val) `elem` queryPairs (rrURI r)
+  }
+
+-- | Match the presence of a query parameter regardless of value.
+hasQueryParamPresent :: T.Text -> RequestMatcher
+hasQueryParamPresent name = RequestMatcher
+  { matcherDescription = "?" <> name
+  , matcherPredicate = \r -> any (\(k, _) -> k == name) (queryPairs (rrURI r))
+  }
+
+queryPairs :: T.Text -> [(T.Text, Maybe T.Text)]
+queryPairs t =
+  let after = T.dropWhile (/= '?') t
+  in case T.uncons after of
+       Just ('?', rest) ->
+         let stripped = T.takeWhile (/= '#') rest
+             pieces = T.splitOn "&" stripped
+         in map parseQueryPiece (filter (not . T.null) pieces)
+       _ -> []
+  where
+    parseQueryPiece p =
+      case T.breakOn "=" p of
+        (k, eqv) -> case T.uncons eqv of
+          Just ('=', v) -> (k, Just v)
+          _             -> (k, Nothing)
+
 hasHeaderEq :: H.HeaderName -> H.HeaderValue -> RequestMatcher
 hasHeaderEq n v = RequestMatcher
   { matcherDescription = "header " <> T.pack (show n) <> " == " <> TE.decodeUtf8 v
@@ -341,6 +664,23 @@ hasBodyContaining :: ByteString -> RequestMatcher
 hasBodyContaining needle = RequestMatcher
   { matcherDescription = "body contains " <> T.pack (show needle)
   , matcherPredicate   = \r -> needle `BS.isInfixOf` rrBody r
+  }
+
+-- | Match when the request body parses as JSON equal to the given
+-- value. Useful for testing that a serialised payload matches an
+-- expected shape regardless of field ordering.
+hasJSONBody :: (FromJSON a, Eq a) => a -> RequestMatcher
+hasJSONBody expected = RequestMatcher
+  { matcherDescription = "JSON body matches expected value"
+  , matcherPredicate   = \r -> case Aeson.eitherDecodeStrict (rrBody r) of
+      Right v -> v == expected
+      Left  _ -> False
+  }
+
+bodyMatches :: (ByteString -> Bool) -> RequestMatcher
+bodyMatches p = RequestMatcher
+  { matcherDescription = "body matches predicate"
+  , matcherPredicate   = p . rrBody
   }
 
 hasStatus :: S.Status -> ResponseMatcher
