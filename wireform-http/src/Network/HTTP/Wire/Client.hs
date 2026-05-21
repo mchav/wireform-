@@ -1,0 +1,77 @@
+{- | High-level client configuration.
+
+'withClient' assembles a 'Transport' from a 'ClientConfig' by
+composing the configured middleware on top of the base transport.
+The defaults are aimed at being production-reasonable without
+forcing the caller to think about them — TLS, JSON, and a sane
+retry policy are all available, just not enabled by default
+(because some of them have side effects callers should opt into).
+
+For full control, build the middleware stack manually and use
+'Network.HTTP.Wire.Base.baseTransport' directly.
+-}
+{-# LANGUAGE OverloadedStrings #-}
+module Network.HTTP.Wire.Client
+  ( ClientConfig (..)
+  , defaultClientConfig
+  , withClient
+  ) where
+
+import Control.Exception (bracket_)
+
+import qualified Network.HTTP.VersionRange as VR
+
+import Network.HTTP.Wire.Base
+import Network.HTTP.Wire.Cookies (CookieJar, withCookies)
+import Network.HTTP.Wire.Middleware
+import Network.HTTP.Wire.Transport
+
+data ClientConfig = ClientConfig
+  { ccVersionRange :: !VR.VersionRange
+    -- ^ Which on-wire versions to accept. Defaults to 'preferHttp2'.
+  , ccLogger       :: !(Maybe Logger)
+  , ccAuth         :: !(Maybe AuthScheme)
+  , ccTimeout      :: !(Maybe Duration)
+  , ccRetryPolicy  :: !(Maybe RetryPolicy)
+  , ccCookieJar    :: !(Maybe CookieJar)
+  , ccExtra        :: !([Transport IO -> Transport IO])
+    -- ^ Escape hatch for additional middleware to wrap the stack with.
+    -- Applied outermost-first, after the standard set below.
+  }
+
+defaultClientConfig :: ClientConfig
+defaultClientConfig = ClientConfig
+  { ccVersionRange = VR.preferHttp1
+  , ccLogger       = Nothing
+  , ccAuth         = Nothing
+  , ccTimeout      = Nothing
+  , ccRetryPolicy  = Nothing
+  , ccCookieJar    = Nothing
+  , ccExtra        = []
+  }
+
+-- | Build a transport from the config, hand it to the action, and
+-- clean up. The current implementation has no shared resources to
+-- clean up — every request opens a fresh connection in the base
+-- transport — but 'bracket_' is here so that future pooling has a
+-- place to plug in without changing the public API.
+withClient :: ClientConfig -> (Transport IO -> IO a) -> IO a
+withClient cfg action =
+  bracket_ (pure ()) (pure ()) $ action (assemble cfg)
+
+assemble :: ClientConfig -> Transport IO
+assemble cfg =
+  let base     = baseTransport (ccVersionRange cfg)
+      cookies  = maybe id withCookies   (ccCookieJar cfg)
+      retry_   = maybe id withRetry     (ccRetryPolicy cfg)
+      timeout_ = maybe id withTimeout   (ccTimeout cfg)
+      auth     = maybe id withAuth      (ccAuth cfg)
+      logger   = maybe id withLogging   (ccLogger cfg)
+      extras   = foldr (.) id (ccExtra cfg)
+  in extras
+     . logger
+     . cookies
+     . retry_
+     . timeout_
+     . auth
+     $ base

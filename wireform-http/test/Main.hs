@@ -6,6 +6,7 @@ import qualified Test.Http1Integration
 import qualified Test.Http2Integration
 import qualified Test.Negotiation
 import qualified Test.VersionTypes
+import qualified Test.Wire
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform-http"
@@ -13,4 +14,5 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.Negotiation.tests
   , Test.Http1Integration.tests
   , Test.Http2Integration.tests
+  , Test.Wire.tests
   ]

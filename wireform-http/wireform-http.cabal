@@ -71,18 +71,49 @@ library
     Network.HTTP.Types.Method
     Network.HTTP.Types.Status
     Network.HTTP.Types.Version
+    -- High-level wireform client API (see Network.HTTP.Wire).
+    Network.HTTP.Wire
+    Network.HTTP.Wire.Base
+    Network.HTTP.Wire.Body
+    Network.HTTP.Wire.BodyStream
+    Network.HTTP.Wire.Client
+    Network.HTTP.Wire.Cookies
+    Network.HTTP.Wire.Decoder
+    Network.HTTP.Wire.Media
+    Network.HTTP.Wire.Media.FormUrlEncoded
+    Network.HTTP.Wire.Media.JSON
+    Network.HTTP.Wire.Media.OctetStream
+    Network.HTTP.Wire.Media.PlainText
+    Network.HTTP.Wire.Middleware
+    Network.HTTP.Wire.Protocol
+    Network.HTTP.Wire.Request
+    Network.HTTP.Wire.Response
+    Network.HTTP.Wire.Send
+    Network.HTTP.Wire.Test
+    Network.HTTP.Wire.Transport
+    Network.HTTP.Wire.URI
+    Network.HTTP.Wire.VCR
   other-modules:
     Network.HTTP.Internal.Convert
   build-depends:
     base                 >= 4.16 && < 5,
+    aeson                >= 2.1  && < 2.3,
+    base64-bytestring    >= 1.2  && < 1.3,
     bytestring           >= 0.11 && < 0.13,
     case-insensitive     >= 1.2  && < 1.3,
+    containers           >= 0.6  && < 0.9,
     deepseq              >= 1.4  && < 1.6,
     hashable             >= 1.4  && < 1.6,
     network              >= 3.1  && < 3.3,
+    stm                  >= 2.5  && < 2.6,
+    text                 >= 2.0  && < 2.2,
+    time                 >= 1.11 && < 1.13,
     tls                  >= 2.0  && < 2.2,
+    unliftio-core        >= 0.2  && < 0.3,
+    uri-templater        >= 1.0  && < 1.1,
     wireform-http1,
-    wireform-http2
+    wireform-http2,
+    wireform-yaml
 
 test-suite wireform-http-test
   import: defaults
@@ -94,14 +125,18 @@ test-suite wireform-http-test
     Test.Http2Integration
     Test.Negotiation
     Test.VersionTypes
+    Test.Wire
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
   build-depends:
     base,
+    aeson,
     bytestring,
     case-insensitive,
     network,
     tasty            >= 1.4,
     tasty-hunit      >= 0.10,
+    temporary        >= 1.3  && < 1.4,
+    text,
     wireform-http,
     wireform-http1,
     wireform-http2
