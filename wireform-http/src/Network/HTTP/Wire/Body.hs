@@ -18,6 +18,7 @@ module Network.HTTP.Wire.Body
   , ResponseBody (..)
   , StrictBody (..)
   , StreamingBody (..)
+  , DiscardBody (..)
     -- * Re-exports
   , module Network.HTTP.Wire.BodyStream
   ) where
@@ -102,13 +103,14 @@ instance ResponseBody (IO ByteString) where
   type Consumed (IO ByteString) = Popper
   consumeBody _status _headers = pure
 
--- | Discard the body entirely.
+-- | Discard the body entirely. Use as @send transport req decoder
+-- \@DiscardBody@.
 data DiscardBody = DiscardBody
 
 instance ResponseBody DiscardBody where
   type Consumed DiscardBody = ()
-  consumeBody _status _headers p = drainAndDiscard p
+  consumeBody _status _headers p = drainAndDiscard
     where
-      drainAndDiscard popper = do
-        chunk <- popper
-        if BS.null chunk then pure () else drainAndDiscard popper
+      drainAndDiscard = do
+        chunk <- p
+        if BS.null chunk then pure () else drainAndDiscard

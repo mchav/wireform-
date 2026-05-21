@@ -8,10 +8,8 @@ module Network.HTTP.Wire.Media.PlainText
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Encoding.Error as TE
 
 import Network.HTTP.Wire.Media
 
@@ -36,6 +34,3 @@ instance Decode PlainText Text where
 
 instance Decode PlainText ByteString where
   decode = Right
-
-_use :: T.Text
-_use = T.empty

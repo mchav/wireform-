@@ -60,14 +60,12 @@ module Network.HTTP.Wire.VCR
   , applySanitizer
   ) where
 
-import Control.Exception (Exception, bracket, finally, throwIO)
+import Control.Exception (Exception, finally, throwIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import qualified Data.CaseInsensitive as CI
 import Data.IORef
-import qualified Data.List as List
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -98,9 +96,6 @@ newtype RecordedMethod = RecordedMethod { unRecordedMethod :: Text }
 
 methodToRec :: M.Method -> RecordedMethod
 methodToRec = RecordedMethod . TE.decodeUtf8 . M.fromMethod
-
-methodFromRec :: RecordedMethod -> M.Method
-methodFromRec = M.methodFromBytes . TE.encodeUtf8 . unRecordedMethod
 
 -- | A header pair as recorded. We avoid 'CI.CI' in the on-disk shape
 -- because @wireform-yaml@'s 'Generic' deriver doesn't know about it.
@@ -416,7 +411,3 @@ applySanitizer s c = c
       | Interaction rq rs <- cassetteInteractions c
       ]
   }
-
--- bracket import only to avoid -Wunused-imports if bracket gets dropped.
-_unusedBracket :: IO () -> IO ()
-_unusedBracket m = bracket (pure ()) (\_ -> pure ()) (\_ -> m)

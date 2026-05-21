@@ -450,10 +450,9 @@ withTruncation n inner = Transport $ \req -> do
 initialSeed :: IO Word64
 initialSeed = do
   now <- getCurrentTime
-  pure $! fromIntegral
-       $ round (realToFrac
+  pure $! fromIntegral (round (realToFrac
                   (diffUTCTime now (read "1970-01-01 00:00:00 UTC"))
-                  * 1000000 :: Double)
+                  * 1000000 :: Double) :: Integer)
 
 stepLcg :: Word64 -> Word64
 stepLcg s = s * 6364136223846793005 + 1442695040888963407

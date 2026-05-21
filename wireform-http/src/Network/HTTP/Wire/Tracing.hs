@@ -55,10 +55,8 @@ module Network.HTTP.Wire.Tracing
 
 import Control.Exception (SomeException)
 import Control.Monad (unless, when)
-import Data.ByteString (ByteString)
 import qualified Data.CaseInsensitive as CI
 import qualified Data.HashMap.Strict as HashMap
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
 import qualified Data.Text as T
@@ -217,7 +215,7 @@ addRequestAttributes opts span_ req = do
         Nothing -> []
         Just u  ->
           [ ("server.address", Trace.toAttribute (TE.decodeUtf8 (WURI.uriHost u)))
-          , ("server.port",    Trace.toAttribute (fromIntegral (WURI.uriPort u) :: Int))
+          , ("server.port",    Trace.toAttribute (WURI.uriPort u))
           ]
       bodySize = case knownSize (Req.body req) of
         Just n  -> [("http.request.body.size", Trace.toAttribute (fromIntegral n :: Int))]
@@ -276,8 +274,3 @@ toOtelAttribute = \case
   Req.AttrInt    n -> Trace.toAttribute (fromIntegral n :: Int)
   Req.AttrDouble d -> Trace.toAttribute d
   Req.AttrBool   b -> Trace.toAttribute b
-
--- Suppress -Wunused for ByteString import: it appears via re-export
--- in some configurations but not others.
-_unused :: ByteString
-_unused = mempty

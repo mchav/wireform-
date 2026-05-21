@@ -20,7 +20,7 @@ import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BSL
-import Data.Char (chr, ord)
+import Data.Char (chr)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -115,10 +115,7 @@ urlDecode = go mempty
         -> go (acc <> BB.word8 0x20) rest
       Just (c, rest)     -> go (acc <> BB.word8 c) rest
     hexDigit b
-      | b >= 0x30 && b <= 0x39 = Just (fromIntegral (b - 0x30))
-      | b >= 0x41 && b <= 0x46 = Just (fromIntegral (b - 0x41 + 10))
-      | b >= 0x61 && b <= 0x66 = Just (fromIntegral (b - 0x61 + 10))
+      | b >= 0x30 && b <= 0x39 = Just (fromIntegral (b - 0x30) :: Int)
+      | b >= 0x41 && b <= 0x46 = Just (fromIntegral (b - 0x41 + 10) :: Int)
+      | b >= 0x61 && b <= 0x66 = Just (fromIntegral (b - 0x61 + 10) :: Int)
       | otherwise              = Nothing
-
-_unused :: Int
-_unused = ord 'a'

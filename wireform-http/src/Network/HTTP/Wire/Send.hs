@@ -36,11 +36,12 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Network.HTTP.Types.Header as H
 
 import Network.HTTP.Wire.Body
-import Network.HTTP.Wire.BodyStream
 import Network.HTTP.Wire.Decoder
 import Network.HTTP.Wire.Media
 import Network.HTTP.Wire.Request
+import qualified Network.HTTP.Wire.Response as Resp
 import Network.HTTP.Wire.Response
+  (Response (..), RawResponse (statusCode, bodyPopper, protocolInfo))
 import Network.HTTP.Wire.Transport
 
 -- | Errors thrown by 'send' itself (separate from anything the
@@ -74,11 +75,11 @@ sendIO
 sendIO transport req decoder = do
   raw <- sendRawIO transport req (acceptable decoder)
   bodyBytes <- drainPopper (bodyPopper raw)
-  let ct = contentTypeOf (Network.HTTP.Wire.Response.headers raw)
+  let ct = contentTypeOf (Resp.headers raw)
   case decodeBody decoder (statusCode raw) ct bodyBytes of
     Right a  -> pure Response
       { responseStatus       = statusCode raw
-      , responseHeaders      = Network.HTTP.Wire.Response.headers raw
+      , responseHeaders      = Resp.headers raw
       , responseBody         = a
       , responseProtocolInfo = protocolInfo raw
       }
@@ -127,7 +128,7 @@ prepareRequest
   -> IO (Request BodyStream)
 prepareRequest accept req = do
   bs <- toBodyStream (body req)
-  let hdrs0 = Network.HTTP.Wire.Request.headers req
+  let Request { headers = hdrs0 } = req
       hdrs1 = case knownSize bs of
                 Just n | not (H.hasHeader H.hContentLength hdrs0) ->
                   H.insertHeader H.hContentLength (BS8.pack (show n)) hdrs0
@@ -138,6 +139,6 @@ prepareRequest accept req = do
         | otherwise =
             H.insertHeader H.hAccept (acceptHeaderValue accept) hdrs1
   pure req
-    { Network.HTTP.Wire.Request.body    = bs
-    , Network.HTTP.Wire.Request.headers = hdrs2
+    { body    = bs
+    , headers = hdrs2
     }

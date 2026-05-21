@@ -109,10 +109,8 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString (ByteString)
 import Data.IORef
-import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -391,12 +389,12 @@ stateMachine sm = do
 -- ---------------------------------------------------------------------------
 
 -- | A single expectation: a 'RequestMatcher', a count bound, and a
--- handler. Used with 'withExpectations'.
+-- handler. Used with 'withExpectations'. Constructed via 'expect'
+-- or 'expect_'.
 data MockExpectation = MockExpectation
-  { expMatcher :: !RequestMatcher
-  , expCount   :: !ExpectedCount
-  , expHandler :: !(Request BodyStream -> ByteString -> IO RawResponse)
-  }
+  !RequestMatcher
+  !ExpectedCount
+  !(Request BodyStream -> ByteString -> IO RawResponse)
 
 data ExpectedCount
   = Exactly !Int

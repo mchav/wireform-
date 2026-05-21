@@ -16,7 +16,6 @@ module Test.Wire (tests) where
 import Control.Exception (try, SomeException)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -66,15 +65,19 @@ tests = testGroup "Network.HTTP.Wire"
 mediaTypeTests :: TestTree
 mediaTypeTests = testGroup "MediaType"
   [ testCase "parses type/subtype" $ do
-      let Right m = parseMediaType "application/json"
-      mtType m    @?= "application"
-      mtSubType m @?= "json"
+      case parseMediaType "application/json" of
+        Right m -> do
+          mtType m    @?= "application"
+          mtSubType m @?= "json"
+        Left err -> assertFailure err
 
   , testCase "parses parameters and lowercases the name" $ do
-      let Right m = parseMediaType "Application/JSON; charset=utf-8"
-      mtType m    @?= "application"
-      mtSubType m @?= "json"
-      lookup "charset" (mtParameters m) @?= Just "utf-8"
+      case parseMediaType "Application/JSON; charset=utf-8" of
+        Right m -> do
+          mtType m    @?= "application"
+          mtSubType m @?= "json"
+          lookup "charset" (mtParameters m) @?= Just "utf-8"
+        Left err -> assertFailure err
 
   , testCase "wildcard matches" $ do
       matches "application/json" "*/*"          @?= True
@@ -126,9 +129,6 @@ compileTemplate s = case parseTemplate s of
 
 bindVar' :: Text -> Int -> Request a -> Request a
 bindVar' n v r = r { requestURI = bindVar n v (requestURI r) }
-
-seqApply :: a -> (a -> b) -> b
-seqApply x f = f x
 
 -- ---------------------------------------------------------------------------
 -- send + mock transport

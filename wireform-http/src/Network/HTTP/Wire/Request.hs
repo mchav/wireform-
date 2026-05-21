@@ -48,16 +48,13 @@ module Network.HTTP.Wire.Request
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS8
 import Data.Int (Int64)
-import qualified Data.Text as T
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 
-import Network.HTTP.Wire.Media (Encode, HasMediaType, encode, mediaType, renderMediaType)
+import Network.HTTP.Wire.Media (Encode, encode, mediaType, renderMediaType)
 import Network.HTTP.Wire.Protocol
 import Network.HTTP.Wire.URI
 
@@ -171,6 +168,3 @@ addProtocolHint f r = r { protocolHints = f (protocolHints r) }
 -- but having a name helps readability for body conversions.
 mapBody :: (a -> b) -> Request a -> Request b
 mapBody = fmap
-
-_dropUnused :: ByteString
-_dropUnused = BS8.pack (T.unpack (TE.decodeUtf8 ""))

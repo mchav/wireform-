@@ -49,7 +49,7 @@ instance Functor ResponseDecoder where
 
 -- | The standard smart constructor: accept the tag's media type with
 -- quality 1.0 and decode the body via the tag's 'Decode' instance.
-as :: forall tag a. (HasMediaType tag, Decode tag a) => ResponseDecoder a
+as :: forall tag a. Decode tag a => ResponseDecoder a
 as = ResponseDecoder
   { acceptable = [(mediaType @tag, maxQuality)]
   , decodeBody = \_status _ct bs -> decode @tag bs
@@ -92,9 +92,7 @@ bytesDecoder = ResponseDecoder
 -- and another (also-JSON, usually) on failure.
 asEither
   :: forall tag e tag' a.
-     ( HasMediaType tag,  Decode tag  e
-     , HasMediaType tag', Decode tag' a
-     )
+     (Decode tag e, Decode tag' a)
   => ResponseDecoder (Either e a)
 asEither = ResponseDecoder
   { acceptable =
@@ -114,7 +112,7 @@ asEither = ResponseDecoder
 -- still controls 'acceptable'.
 withErrorStatus
   :: forall tagE e a.
-     ( HasMediaType tagE, Decode tagE e )
+     Decode tagE e
   => (S.Status -> Bool)
   -> ResponseDecoder a
   -> ResponseDecoder (Either e a)
