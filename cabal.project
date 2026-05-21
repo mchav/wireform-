@@ -67,3 +67,6 @@ package grpc-spec
 -- Serial instances disappears.
 package wireform-kafka
   optimization: 2
+
+package wireform-kafka:wireform-kafka-protocol
+  optimization: 2
