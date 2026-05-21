@@ -44,7 +44,9 @@ module Network.HTTP.Client.VCR
   , saveCassette
     -- * Recording
   , recordSession
+  , recordSessionChunked
   , withRecording
+  , withChunkedRecording
     -- * Replay
   , replayTransport
   , MatchStrategy (..)
@@ -79,6 +81,7 @@ import qualified Network.HTTP.Types.Status as S
 
 import qualified YAML.Class as Y
 
+import qualified Data.ByteString as BS
 import Network.HTTP.Client.BodyStream
 import Network.HTTP.Client.Protocol
 import qualified Network.HTTP.Client.Request as WReq
@@ -144,6 +147,14 @@ data RecordedResponse = RecordedResponse
   , rrsHeaders :: ![RecordedHeader]
   , rrsBody    :: !Text
   , rrsBodyBinary :: !Bool
+  , rrsBodyChunks :: !(Maybe [Text])
+    -- ^ When 'Just', the body was recorded with chunk boundaries
+    --   preserved and replay yields one chunk per popper read
+    --   (modulo Base64-decoding for binary chunks). When
+    --   'Nothing', the body is the single 'rrsBody' field.
+    --   Older cassettes lack this key; YAML's @FromYAML@ deriver
+    --   defaults missing keys to 'Nothing' so the format is
+    --   backward-compatible.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Y.ToYAML, Y.FromYAML)
@@ -203,7 +214,8 @@ instance Exception CassetteError
 
 -- | Wrap a transport so that every interaction is appended to the
 -- given ref. Drains both bodies through a strict buffer so the
--- downstream callee still sees a popper.
+-- downstream callee still sees a popper. The recorded response
+-- has @rrsBodyChunks = Nothing@.
 withRecording :: IORef [Interaction] -> Middleware IO
 withRecording ref inner = Transport $ \req -> do
   reqBody <- bodyStreamBytes (WReq.body req)
@@ -212,17 +224,62 @@ withRecording ref inner = Transport $ \req -> do
   raw <- sendRaw inner req'
   respBody <- popperBytes (bodyPopper raw)
   let recRq = toRecordedRequest req' reqBody
-      recRs = toRecordedResponse raw respBody
+      recRs = toRecordedResponse raw respBody Nothing
   modifyIORef' ref (<> [Interaction recRq recRs])
   newPopper <- popperFromStrict respBody
+  pure raw { bodyPopper = newPopper }
+
+-- | Like 'withRecording' but preserves response-body chunk
+-- boundaries on the cassette. Each chunk the inner transport
+-- emits is captured individually; on replay the popper yields
+-- the same sequence one chunk at a time. The recorded request
+-- body is still materialised, since request bodies generally
+-- aren't chunk-sensitive.
+withChunkedRecording :: IORef [Interaction] -> Middleware IO
+withChunkedRecording ref inner = Transport $ \req -> do
+  reqBody <- bodyStreamBytes (WReq.body req)
+  rebuilt <- streamFromStrict reqBody
+  let req' = req { WReq.body = rebuilt }
+  raw <- sendRaw inner req'
+  -- Drain the response popper into a list of chunks, preserving
+  -- boundaries. Then store both the joined body (for
+  -- compatibility) and the chunk list.
+  chunksRef <- newIORef []
+  let collect = do
+        chunk <- bodyPopper raw
+        if BS.null chunk
+          then pure ()
+          else do
+            modifyIORef' chunksRef (chunk :)
+            collect
+  collect
+  chunkList <- reverse <$> readIORef chunksRef
+  let joined = BS.concat chunkList
+      recRq = toRecordedRequest req' reqBody
+      recRs = toRecordedResponse raw joined (Just chunkList)
+  modifyIORef' ref (<> [Interaction recRq recRs])
+  newPopper <- popperFromList chunkList
   pure raw { bodyPopper = newPopper }
 
 -- | Record a session: wraps the action with a recording transport,
 -- writes the resulting cassette to disk on success.
 recordSession :: Transport IO -> FilePath -> (Transport IO -> IO a) -> IO a
-recordSession real path action = do
+recordSession = recordSessionWith withRecording
+
+-- | 'recordSession' that preserves chunk boundaries on the response
+-- body. Use when the code under test cares about chunk timing or
+-- when downstream middleware (compression, decoders) does
+-- chunk-aware work.
+recordSessionChunked
+  :: Transport IO -> FilePath -> (Transport IO -> IO a) -> IO a
+recordSessionChunked = recordSessionWith withChunkedRecording
+
+recordSessionWith
+  :: (IORef [Interaction] -> Middleware IO)
+  -> Transport IO -> FilePath -> (Transport IO -> IO a) -> IO a
+recordSessionWith mk real path action = do
   ref <- newIORef []
-  let transport = withRecording ref real
+  let transport = mk ref real
   result <- action transport `finally`
     (do interactions <- readIORef ref
         now <- getCurrentTime
@@ -240,14 +297,20 @@ toRecordedRequest req bs =
        , rrqBodyBinary = binary
        }
 
-toRecordedResponse :: RawResponse -> ByteString -> RecordedResponse
-toRecordedResponse raw bs =
+toRecordedResponse
+  :: RawResponse
+  -> ByteString
+  -> Maybe [ByteString]
+  -> RecordedResponse
+toRecordedResponse raw bs mChunks =
   let (body_, binary) = bodyToRec bs
+      chunks = fmap (map (fst . bodyToRec)) mChunks
   in RecordedResponse
        { rrsStatus  = fromIntegral (S.statusCode (statusCode raw))
        , rrsHeaders = map headerToRec (Network.HTTP.Client.Response.headers raw)
        , rrsBody    = body_
        , rrsBodyBinary = binary
+       , rrsBodyChunks = chunks
        }
 
 -- ---------------------------------------------------------------------------
@@ -286,7 +349,12 @@ toRecRequestSnapshot req = do
 
 toRawResponse :: RecordedResponse -> IO RawResponse
 toRawResponse r = do
-  popper <- popperFromStrict (bodyFromRec (rrsBody r) (rrsBodyBinary r))
+  popper <- case rrsBodyChunks r of
+    Just chunks ->
+      popperFromList
+        (map (\c -> bodyFromRec c (rrsBodyBinary r)) chunks)
+    Nothing ->
+      popperFromStrict (bodyFromRec (rrsBody r) (rrsBodyBinary r))
   pure RawResponse
     { statusCode   = S.Status (fromIntegral (rrsStatus r))
     , headers      = map headerFromRec (rrsHeaders r)

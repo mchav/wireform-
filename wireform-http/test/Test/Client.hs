@@ -64,6 +64,9 @@ tests = testGroup "Network.HTTP.Client"
   , tracingTests
   , compressionTests
   , poolTests
+  , streamingVcrTests
+  , decoderAltTests
+  , pathMatcherTests
   ]
 
 -- ---------------------------------------------------------------------------
@@ -420,12 +423,99 @@ tracingTests = testGroup "withTracing"
       Response { responseBody = u } <-
         sendIO transport (get (compileTemplate "/users/2")) (as @JSON @User)
       u @?= User 2 "bob"
+
+  , testCase "span lifetime extends until the popper hits EOF" $ do
+      -- Smoke test: the popper should still produce its chunk
+      -- /after/ sendRaw returns, since the span (and the popper
+      -- wrapping it) live past that boundary.
+      let inner = stub S.status200 "streamed body"
+          transport = withTracing defaultTracingConfig inner
+      raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
+      first <- bodyPopper raw
+      first @?= "streamed body"
+      eof <- bodyPopper raw
+      eof @?= BS.empty
   ]
 
 -- Build a Request BodyStream from any Body-bearing Request for use
 -- with sendRaw.
 prep :: Body body => Request body -> IO (Request BodyStream)
 prep r = prepareRequest [] r
+
+-- ---------------------------------------------------------------------------
+-- Streaming VCR + Alt + path matcher
+-- ---------------------------------------------------------------------------
+
+streamingVcrTests :: TestTree
+streamingVcrTests = testGroup "Streaming VCR"
+  [ testCase "withChunkedRecording preserves chunk boundaries on replay" $ do
+      let chunks = ["alpha", "beta", "gamma"] :: [BS.ByteString]
+      innerRaw <- do
+        p <- popperFromList chunks
+        pure $ mockTransport $ \_ -> pure RawResponse
+          { statusCode    = S.status200
+          , Network.HTTP.Client.headers       = []
+          , bodyPopper    = p
+          , protocolInfo  = HTTP1_1
+          }
+      withSystemTempDirectory "wire-vcr-stream" $ \dir -> do
+        let path = dir <> "/stream.yaml"
+        _ <- recordSessionChunked innerRaw path $ \t -> do
+          raw <- sendRaw t =<< prep (get (compileTemplate "/x"))
+          -- materialise to ensure recording runs
+          _ <- rawResponseBytes raw
+          pure ()
+        cassette <- loadCassette path
+        replay <- replayTransport cassette byMethodAndURI
+        raw <- sendRaw replay =<< prep (get (compileTemplate "/x"))
+        replayed <- pullChunks (bodyPopper raw)
+        replayed @?= chunks
+  ]
+
+pullChunks :: IO BS.ByteString -> IO [BS.ByteString]
+pullChunks p = go []
+  where
+    go acc = do
+      c <- p
+      if BS.null c then pure (reverse acc) else go (c : acc)
+
+decoderAltTests :: TestTree
+decoderAltTests = testGroup "ResponseDecoder Alt"
+  [ testCase "<!> defers to the second decoder when the first can't decode" $ do
+      let transport = stubBytes S.status200
+            [(H.hContentType, "text/plain; charset=utf-8")]
+            "plain bytes"
+          decoder :: ResponseDecoder Text
+          decoder = as @JSON @Text <!> as @PlainText @Text
+      Response { responseBody = t } <-
+        sendIO transport (get (compileTemplate "/x")) decoder
+      t @?= "plain bytes"
+  ]
+
+pathMatcherTests :: TestTree
+pathMatcherTests = testGroup "hasPathMatches"
+  [ testCase "captures simple :id segment" $ do
+      let api = mockAPI MockAPI
+            { routes =
+                [ on (hasMethod M.mGet <> hasPathMatches "/users/:id")
+                    (\_ _ -> ok200 "match")
+                ]
+            , fallback = \_ _ -> rawResponse S.status404 [] ""
+            }
+      raw <- sendRaw api =<< prep (get (compileTemplate "/users/42"))
+      statusCode raw @?= S.status200
+
+  , testCase "rejects extra segments" $ do
+      let api = mockAPI MockAPI
+            { routes =
+                [ on (hasMethod M.mGet <> hasPathMatches "/users/:id")
+                    (\_ _ -> ok200 "match")
+                ]
+            , fallback = \_ _ -> rawResponse S.status404 [] ""
+            }
+      raw <- sendRaw api =<< prep (get (compileTemplate "/users/42/posts"))
+      statusCode raw @?= S.status404
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Compression

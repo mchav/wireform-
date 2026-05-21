@@ -25,12 +25,14 @@ module Network.HTTP.Client.BodyStream
   , drainBodyStream
   , popperBytes
   , bodyStreamBytes
+    -- * EOF hooks
+  , attachOnEOF
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
-import Data.IORef (atomicModifyIORef', newIORef)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef, writeIORef)
 
 import qualified Wireform.Builder as WB
 
@@ -130,3 +132,24 @@ popperBytes p = WB.toStrictByteString <$> go mempty
 -- | 'popperBytes' for a 'BodyStream'.
 bodyStreamBytes :: BodyStream -> IO ByteString
 bodyStreamBytes = popperBytes . pull
+
+-- | Wrap a popper so the first EOF the consumer sees triggers an
+-- IO callback. Subsequent reads continue to return 'BS.empty'
+-- without re-firing the hook. Useful for end-of-body lifecycle
+-- events (closing a connection back to a pool, ending an OTel
+-- span, flushing a VCR recorder).
+attachOnEOF :: IO () -> Popper -> IO Popper
+attachOnEOF onEof inner = do
+  done <- newIORef False
+  pure $ do
+    already <- readIORef done
+    if already
+      then pure BS.empty
+      else do
+        chunk <- inner
+        if BS.null chunk
+          then do
+            writeIORef done True
+            onEof
+            pure BS.empty
+          else pure chunk

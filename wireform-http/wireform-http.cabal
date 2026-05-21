@@ -81,6 +81,7 @@ library
     Network.HTTP.Client.Request
     Network.HTTP.Client.Response
     Network.HTTP.Client.Send
+    Network.HTTP.Client.Streaming
     Network.HTTP.Client.TLS
     Network.HTTP.Client.Test
     Network.HTTP.Client.Tracing

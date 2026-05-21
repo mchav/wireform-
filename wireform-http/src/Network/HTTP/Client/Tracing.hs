@@ -75,6 +75,7 @@ import qualified OpenTelemetry.Trace.Core as Trace
 
 import Network.HTTP.Client.BodyStream
 import qualified Network.HTTP.Client.Request as Req
+import Network.HTTP.Client.Response (RawResponse (..))
 import Network.HTTP.Client.Response
 import Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI as WURI
@@ -133,6 +134,12 @@ defaultTracingOptions = TracingOptions
 
 -- | OTel client-span middleware.
 --
+-- The span is kept open until the response body popper hits EOF —
+-- so streaming responses get accurate end-to-end timings without
+-- closing the span the moment the headers come back. Non-streaming
+-- responses end the span as soon as their popper is exhausted,
+-- which is typically the next call after 'sendRaw'.
+--
 -- @
 -- withClient defaultClientConfig
 --   { ccExtra = [withTracing defaultTracingConfig] }
@@ -147,42 +154,54 @@ withTracing (TracingEnabled opts) inner = Transport $ \req -> do
         Just f  -> f req
         Nothing -> "HTTP " <> T.pack (show (Req.method req))
 
-  Trace.inSpan' tracer sname (spanArguments opts req) $ \span_ -> do
-    -- Standard semconv attributes
-    addRequestAttributes opts span_ req
+  -- Open the span via the non-bracketed API so we can keep it alive
+  -- past the 'sendRaw' return — the body popper closes it on EOF.
+  ctx0  <- Ctx.getContext
+  span_ <- Trace.createSpan tracer ctx0 sname (spanArguments opts req)
 
-    -- Caller hook
-    requestHook opts span_ req
+  -- Standard semconv attributes
+  addRequestAttributes opts span_ req
 
-    -- Carry user-supplied per-request attributes through
-    unless (null (Req.spanAttributes req)) $
-      Trace.addAttributes span_
-        (HashMap.fromList (map (\(k, v) -> (k, toOtelAttribute v))
-                                          (Req.spanAttributes req)))
+  -- Caller hook
+  requestHook opts span_ req
 
-    -- Inject W3C trace context into outgoing headers via the
-    -- TracerProvider's configured propagator.
-    ctx     <- Ctx.getContext
-    let propagator = Trace.getTracerProviderPropagators tp
-    hdrs'   <- Prop.inject propagator ctx (Req.headers req)
-    let req' = req { Req.headers = hdrs' }
+  -- Carry user-supplied per-request attributes through
+  unless (null (Req.spanAttributes req)) $
+    Trace.addAttributes span_
+      (HashMap.fromList (map (\(k, v) -> (k, toOtelAttribute v))
+                                        (Req.spanAttributes req)))
 
-    -- Run the inner transport, capturing exceptions on the span
-    raw <- sendRaw inner req' `U.withException` \(e :: SomeException) ->
-      Trace.recordException span_ mempty Nothing e
-            >> Trace.setStatus span_ (Trace.Error (T.pack (show e)))
+  -- Inject W3C trace context into outgoing headers via the
+  -- TracerProvider's configured propagator.
+  let propagator = Trace.getTracerProviderPropagators tp
+  hdrs' <- Prop.inject propagator ctx0 (Req.headers req)
+  let req' = req { Req.headers = hdrs' }
 
-    -- Response-side attributes
-    addResponseAttributes opts span_ raw
+  -- Run the inner transport. If sendRaw itself throws (transport
+  -- error, decode error, etc.) record the exception, end the span,
+  -- and rethrow.
+  raw <- sendRaw inner req' `U.withException` \(e :: SomeException) -> do
+    Trace.recordException span_ mempty Nothing e
+    Trace.setStatus span_ (Trace.Error (T.pack (show e)))
+    Trace.endSpan span_ Nothing
 
-    -- Span status per semconv: 5xx is Error, everything else
-    -- inherits the default (Unset).
-    when (WS.statusCode (statusCode raw) >= 500) $
-      Trace.setStatus span_ (Trace.Error
-        (T.pack (show (WS.statusCode (statusCode raw)))))
+  -- Response-side attributes
+  addResponseAttributes opts span_ raw
 
-    responseHook opts span_ raw
-    pure raw
+  -- Span status per semconv: 5xx is Error, everything else
+  -- inherits the default (Unset).
+  when (WS.statusCode (statusCode raw) >= 500) $
+    Trace.setStatus span_ (Trace.Error
+      (T.pack (show (WS.statusCode (statusCode raw)))))
+
+  responseHook opts span_ raw
+
+  -- End the span when the body popper hits EOF. For materialised
+  -- responses (where the popper yields the full body in one go,
+  -- then EOF) this fires on the consumer's second read; for
+  -- streaming responses it fires after the last chunk.
+  popper' <- attachOnEOF (Trace.endSpan span_ Nothing) (bodyPopper raw)
+  pure raw { bodyPopper = popper' }
 
 instrumentationLib :: Trace.InstrumentationLibrary
 instrumentationLib = Trace.InstrumentationLibrary
