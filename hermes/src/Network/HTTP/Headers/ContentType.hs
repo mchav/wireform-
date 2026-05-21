@@ -7,7 +7,7 @@ module Network.HTTP.Headers.ContentType
 import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.ContentNegotiation (MediaType, mediaTypeParser, renderMediaType)
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hContentType)

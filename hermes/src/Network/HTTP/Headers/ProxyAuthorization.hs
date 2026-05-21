@@ -6,7 +6,7 @@ import Network.HTTP.Headers
 import Network.HTTP.Headers.Authorization
 import Network.HTTP.Headers.HeaderFieldName (hProxyAuthorization)
 import FlatParse.Basic
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 
 newtype ProxyAuthorization = ProxyAuthorization { proxyAuthorizationCredentials :: Credentials }
   deriving stock (Eq, Show)

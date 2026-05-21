@@ -8,7 +8,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.List.NonEmpty as NE
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.Date (dateParser, renderDate)
 import Network.HTTP.Headers.HeaderFieldName (hLastModified)

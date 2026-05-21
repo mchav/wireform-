@@ -8,7 +8,7 @@ module Network.HTTP.Headers.Connection
 import Control.Monad.Combinators (sepBy1)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hConnection)
 import Network.HTTP.Headers.Parsing.Util

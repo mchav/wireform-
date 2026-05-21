@@ -39,7 +39,7 @@ import qualified Data.Text.Short as ST
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, getCurrentTime)
 
 import FlatParse.Basic (Result (..), runParser)
-import qualified Mason.Builder as M
+import qualified Wireform.Builder as WB
 
 import qualified Network.HTTP.Headers.Cookie as Hermes
 import qualified Network.HTTP.Headers.SetCookie as Hermes
@@ -139,7 +139,7 @@ renderCookieHeader cs =
         { Hermes.cookieName  = bytesToShort (cookieName  c)
         , Hermes.cookieValue = bytesToShort (cookieValue c)
         }
-  in M.toStrictByteString (Hermes.renderCookie (Hermes.Cookie (map mk cs)))
+  in WB.toStrictByteString (Hermes.renderCookie (Hermes.Cookie (map mk cs)))
 
 -- | UTF-8 'ByteString' to 'ShortText'. Cookie names and values are
 -- ASCII / token-safe in practice, but fall back to a lossless

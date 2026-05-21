@@ -21,7 +21,7 @@ import Network.HTTP.Headers.Parsing.Util
 import qualified Network.HTTP.Headers.Rendering.Util as R
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 
 newtype AuthScheme = AuthScheme ShortText
   deriving stock (Eq, Show)

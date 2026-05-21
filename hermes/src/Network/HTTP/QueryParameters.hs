@@ -10,7 +10,7 @@ import Data.Word (Word64, Word8)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import qualified Data.Vector.Unboxed as VU
 
 newtype Word8Set = Word8Set (VU.Vector Bit) deriving (Eq, Show)

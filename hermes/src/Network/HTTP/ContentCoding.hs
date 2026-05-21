@@ -11,7 +11,7 @@ Values to be added to this namespace require IETF Review (see Section 4.8 of [RF
 module Network.HTTP.ContentCoding where
 
 import Data.Text.Short (ShortText)
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 import Network.HTTP.Headers.Rendering.Util
 

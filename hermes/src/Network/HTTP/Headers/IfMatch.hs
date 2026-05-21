@@ -12,7 +12,7 @@ import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hIfMatch)
 import Network.HTTP.Headers.Parsing.Util
 import FlatParse.Basic
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 
 -- | The "If-Match" header field makes the request method conditional on 
 -- the recipient origin server either having at least one current representation of the target resource, when the field value is "*", or having a current representation of the target resource that has an entity tag matching a member of the 

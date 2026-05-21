@@ -6,14 +6,14 @@ import qualified Data.ByteString as B
 import qualified Data.Foldable1 as F1
 import qualified Data.Text as T
 import Data.Fixed (Fixed(..), Milli)
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Data.Text.Short (ShortText, toShortByteString)
 import qualified Data.Text.Short as TS
 import Network.HTTP.Headers.Parsing.Util (ItemValue (..), RFC8941String (..), RFC8941Token (..))
 import Network.HTTP.Headers.Settings
 import Network.HTTP.Headers.HeaderFieldName (HeaderFieldName, toText)
 
-sepByCommas1 :: (F1.Foldable1 t, M.Buildable s) => t (M.BuilderFor s) -> (M.BuilderFor s)
+sepByCommas1 :: F1.Foldable1 t => t M.Builder -> M.Builder
 sepByCommas1 = F1.intercalate1 ", "
 {-# INLINE sepByCommas1 #-}
 
@@ -34,14 +34,19 @@ rfc8941Binary :: ByteString -> M.Builder
 rfc8941Binary bs = M.char7 ':' <> M.byteString (convertToBase Base64 bs)
 {-# INLINE rfc8941Binary #-}
 
-rfc8941String :: forall s. M.Buildable s => RFC8941String -> M.BuilderFor s
+rfc8941String :: RFC8941String -> M.Builder
 rfc8941String (RFC8941String t) = M.char7 '"' <> shortText t <> M.char7 '"'
   where
-    escapedChars :: M.BuilderFor s
-    escapedChars = TS.foldl' (\b c -> case c of
+    -- NOTE: Upstream hermes computes 'escapedChars' here and then
+    -- discards it. We keep the body byte-identical (no escaping)
+    -- to preserve behaviour during the builder migration; the
+    -- escaping logic is left in place for the next pass that wires
+    -- it in deliberately.
+    _escapedChars :: M.Builder
+    _escapedChars = TS.foldl' (\b c -> case c of
       '"' -> b <> M.char7 '\\' <> M.char7 '"'
       '\\' -> b <> M.char7 '\\' <> M.char7 '\\'
-      c -> b <> M.char7 c) mempty t
+      c' -> b <> M.char7 c') mempty t
 {-# INLINE rfc8941String #-}
 
 rfc8941Token :: RFC8941Token -> M.Builder

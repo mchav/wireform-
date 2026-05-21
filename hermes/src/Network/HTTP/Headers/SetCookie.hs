@@ -11,7 +11,7 @@ import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
 import Data.Time.Clock (UTCTime)
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.Date (dateParser, renderDate)
 import Network.HTTP.Headers.HeaderFieldName (hSetCookie)

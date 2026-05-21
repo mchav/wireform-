@@ -83,7 +83,7 @@ import qualified Data.CaseInsensitive as CI
 import qualified Data.List as List
 
 import FlatParse.Basic (Result (..), runParser)
-import qualified Mason.Builder as M
+import qualified Wireform.Builder as WB
 
 import qualified Network.HTTP.ContentCoding as Hermes
 import qualified Network.HTTP.Headers.HeaderFieldName as Hermes
@@ -106,7 +106,8 @@ class HasContentEncoding tag where
   contentEncoding :: Hermes.ContentCoding
 
 -- | The on-the-wire token for an encoding tag — convenience
--- projection through 'contentEncoding' and 'Mason.Builder'.
+-- projection through 'contentEncoding' rendered via the wireform
+-- builder.
 contentEncodingToken :: forall tag. HasContentEncoding tag => ByteString
 contentEncodingToken = renderCoding (contentEncoding @tag)
 
@@ -200,12 +201,11 @@ data EncodingHandler = EncodingHandler
 ehToken :: EncodingHandler -> ByteString
 ehToken h = renderCoding (ehCoding h)
 
--- | Render a 'ContentCoding' to its wire bytes through mason. Mason's
--- 'Builder' is rank-polymorphic over backends, so a small monomorphic
--- wrapper avoids the point-free type-inference traps that crop up
--- when piping it into 'toStrictByteString'.
+-- | Render a 'ContentCoding' to its wire bytes through the
+-- wireform builder. Kept as a tiny monomorphic helper so callers
+-- don't need a 'WB.Builder' import on top of the hermes one.
 renderCoding :: Hermes.ContentCoding -> ByteString
-renderCoding c = M.toStrictByteString (Hermes.renderContentCoding c)
+renderCoding c = WB.toStrictByteString (Hermes.renderContentCoding c)
 
 -- | Project a 'Decompress' tag into an 'EncodingHandler' suitable
 -- for the decompression middleware.
@@ -293,7 +293,7 @@ parseContentEncoding raw =
 
 -- | Render a preference-ordered handler list as an
 -- @Accept-Encoding@ value. Each handler's hermes 'ContentCoding'
--- is rendered through the mason builder and the tokens joined
+-- is rendered through the wireform builder and the tokens joined
 -- with @\", \"@.
 renderAcceptEncoding :: [EncodingHandler] -> ByteString
 renderAcceptEncoding = BS.intercalate ", " . map ehToken

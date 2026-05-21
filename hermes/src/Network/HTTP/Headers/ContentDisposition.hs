@@ -8,7 +8,7 @@ module Network.HTTP.Headers.ContentDisposition
 import Control.Monad.Combinators (sepBy)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hContentDisposition)
 import Network.HTTP.Headers.Parsing.Util

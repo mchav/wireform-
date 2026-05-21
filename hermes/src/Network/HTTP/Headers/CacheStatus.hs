@@ -26,7 +26,7 @@ import Data.Validation (Validation (..))
 import Data.Text.Short (ShortText)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hCacheStatus)
 import qualified Network.HTTP.Headers.Parsing.Util as P

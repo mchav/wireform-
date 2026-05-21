@@ -7,7 +7,7 @@ import Data.Text.Short (ShortText)
 import Data.Time
 import Data.Time.Calendar
 import Data.Time.Format
-import qualified Mason.Builder as M
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName
 import Network.HTTP.Headers.Parsing.Util

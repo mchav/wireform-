@@ -48,8 +48,8 @@ dependencies:
 - foldl
 - http-types
 - hashable
-- mason
 - memory
+- wireform-core
 - mono-traversable
 - MonadRandom
 - unordered-containers
