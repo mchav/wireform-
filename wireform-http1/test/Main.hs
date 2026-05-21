@@ -7,6 +7,7 @@ import qualified Test.Encode
 import qualified Test.Integration
 import qualified Test.Parser
 import qualified Test.RoundTrip
+import qualified Test.ServerEdgeCases
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform-http1"
@@ -15,4 +16,5 @@ main = defaultMain $ testGroup "wireform-http1"
   , Test.Chunked.tests
   , Test.RoundTrip.tests
   , Test.Integration.tests
+  , Test.ServerEdgeCases.tests
   ]

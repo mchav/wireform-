@@ -117,6 +117,7 @@ test-suite wireform-http1-test
     Test.Chunked
     Test.RoundTrip
     Test.Integration
+    Test.ServerEdgeCases
   build-depends:
     base,
     bytestring,

@@ -118,7 +118,9 @@ test-suite wireform-http2-test
     main-is:          UnitMain.hs
     other-modules:
       Test.Frame
+      Test.FrameEdgeCases
       Test.HPACK
+      Test.HPACKEdgeCases
       Test.Connection
       Test.Defensive
     hs-source-dirs:   test
