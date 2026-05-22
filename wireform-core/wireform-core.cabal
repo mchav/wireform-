@@ -132,3 +132,16 @@ test-suite wireform-core-test
     wireform-core,
     hspec,
     QuickCheck
+
+benchmark parser-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: ParserBench.hs
+  ghc-options: -O2 -rtsopts -threaded
+  build-depends:
+    base,
+    bytestring,
+    wireform-core,
+    flatparse >= 0.5 && < 0.6,
+    criterion >= 1.5 && < 1.7

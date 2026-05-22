@@ -45,6 +45,13 @@ package *
   optimization: 1
   ghc-options: -fasm
 
+-- wireform-core benchmarks need -O2 for fair comparison with flatparse
+package wireform-core
+  optimization: 2
+
+package flatparse
+  optimization: 2
+
 -- wireform-html / wireform-rewriter pattern-match the Text data
 -- constructor with @ByteArray ba#@ from @Data.Array.Byte@. That
 -- only type-checks against text-2.1+ where @Data.Text.Array.Array

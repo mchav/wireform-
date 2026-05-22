@@ -13,14 +13,16 @@ module Wireform.Parser.Driver
   , InternalResult (..)
   ) where
 
-import Control.Exception (SomeException, mask)
+import Control.Exception (SomeException, bracket, mask)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BSI
 import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr, minusPtr)
+import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Ptr (Ptr, plusPtr, minusPtr, castPtr)
+import Foreign.Storable (poke)
 import GHC.Exts (PromptTag#, newPromptTag#, prompt#, State#, RealWorld)
 import GHC.IO (IO (..))
 
@@ -38,7 +40,6 @@ data LoopControl = Continue | Stop
 
 data InternalResult e a
   = IRDone {-# UNPACK #-} !Word64 !a
-    -- ^ Succeeded; carries the position AFTER the consumed input.
   | IRFail !Word64
   | IRErr !Word64 !e
   | IRUnexpectedEof !Word64 !Int
@@ -76,37 +77,37 @@ runParserInternal t p startPos = mask \restore -> do
   currentHead <- transportLoadHead t
   let !curOffset = fromIntegral startPos .&. msk
       !initCur   = base `plusPtr` curOffset
-      -- Set initEnd to reflect data already available in the ring.
-      -- If currentHead > startPos, data from a previous recv is present.
       !endOffset = fromIntegral currentHead .&. msk
       !initEnd   = base `plusPtr` endOffset
 
-  endRef <- newIORef initEnd
-  highWaterRef <- newIORef startPos
-  tsRef <- newIORef TSOpen
+  -- Allocate mutable end pointer on the C heap (one machine word)
+  bracket (mallocBytes 8) free \endPtr -> do
+    poke (castPtr endPtr :: Ptr (Ptr Word8)) initEnd
 
-  let env = ParserEnv
-        { peEndRef   = endRef
-        , peBaseAddr = base
-        , peMask     = msk
-        , peStartPos = startPos
-        , peInitCur  = initCur
-        }
+    highWaterRef <- newIORef startPos
+    tsRef <- newIORef TSOpen
 
-  -- Allocate prompt tag and run parser inside a prompt frame
-  step0 <- IO \s0 -> case newPromptTag# s0 of
-    (# s1, (tag :: PromptTag# (Step e a)) #) ->
-      let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-          body s = case unIO (unParser p tag env initCur) s of
-            (# s', res #) -> case res of
-              OK a newCur ->
-                let !newPos = startPos + fromIntegral (newCur `minusPtr` initCur)
-                in (# s', StepDone newPos a #)
-              Fail    -> (# s', StepFail startPos #)
-              Err e   -> (# s', StepErr startPos e #)
-      in prompt# tag body s1
+    let env = ParserEnv
+          { peEndPtr   = castPtr endPtr
+          , peBaseAddr = base
+          , peMask     = msk
+          , peStartPos = startPos
+          , peInitCur  = initCur
+          }
 
-  driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
+    step0 <- IO \s0 -> case newPromptTag# s0 of
+      (# s1, (tag :: PromptTag# (Step e a)) #) ->
+        let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
+            body s = case unIO (unParser p tag env initCur) s of
+              (# s', res #) -> case res of
+                OK a newCur ->
+                  let !newPos = startPos + fromIntegral (newCur `minusPtr` initCur)
+                  in (# s', StepDone newPos a #)
+                Fail    -> (# s', StepFail startPos #)
+                Err e   -> (# s', StepErr startPos e #)
+        in prompt# tag body s1
+
+    driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
 
 unIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
 unIO (IO f) = f
@@ -140,9 +141,9 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
 
       StepCheckpoint pos resume -> do
         transportAdvanceTail t pos
-        let !curOffset = fromIntegral pos .&. msk
-            !newCur    = base `plusPtr` curOffset
-        end <- readIORef (peEndRef env)
+        let !curOff = fromIntegral pos .&. msk
+            !newCur = base `plusPtr` curOff
+        end <- readEnd env
         nextStep <- resumeContinue resume newCur end
         go nextStep
 
@@ -156,7 +157,7 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
                 !newEnd    = base `plusPtr` newEndOff
                 !newCurOff = fromIntegral pausedAt .&. msk
                 !newCur    = base `plusPtr` newCurOff
-            writeIORef (peEndRef env) newEnd
+            writeEnd env newEnd
             nextStep <- resumeContinue resume newCur newEnd
             go nextStep
 
@@ -230,40 +231,40 @@ parseByteString p bs = BSI.accursedUnutterablePerformIO $ do
     let !start = basePtr `plusPtr` off
         !end   = start `plusPtr` len
 
-    endRef <- newIORef end
+    -- Stack-allocate the end pointer (well, malloc for safety, but it's tiny)
+    bracket (mallocBytes 8) free \endPtr -> do
+      poke (castPtr endPtr :: Ptr (Ptr Word8)) end
 
-    let env = ParserEnv
-          { peEndRef   = endRef
-          , peBaseAddr = start
-          , peMask     = maxBound
-          , peStartPos = 0
-          , peInitCur  = start
-          }
+      let env = ParserEnv
+            { peEndPtr   = castPtr endPtr
+            , peBaseAddr = start
+            , peMask     = maxBound
+            , peStartPos = 0
+            , peInitCur  = start
+            }
 
-    step0 <- IO \s0 -> case newPromptTag# s0 of
-      (# s1, (tag :: PromptTag# (Step e a)) #) ->
-        let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-            body s = case unIO (unParser p tag env start) s of
-              (# s', res #) -> case res of
-                OK a newCur ->
-                  let !pos = fromIntegral (newCur `minusPtr` start)
-                  in (# s', StepDone pos a #)
-                Fail    -> (# s', StepFail 0 #)
-                Err e   -> (# s', StepErr 0 e #)
+      step0 <- IO \s0 -> case newPromptTag# s0 of
+        (# s1, (tag :: PromptTag# (Step e a)) #) ->
+          let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
+              body s = case unIO (unParser p tag env start) s of
+                (# s', res #) -> case res of
+                  OK a newCur ->
+                    let !pos = fromIntegral (newCur `minusPtr` start)
+                    in (# s', StepDone pos a #)
+                  Fail    -> (# s', StepFail 0 #)
+                  Err e   -> (# s', StepErr 0 e #)
 
-        in prompt# tag body s1
+          in prompt# tag body s1
 
-    -- For ByteString parsing, any suspend is answered with EOF
-    -- (there is no more data). Loop until we get a terminal step.
-    let go step = case step of
-          StepDone _ a    -> pure (Right a)
-          StepFail pos    -> pure (Left (ParseFail pos))
-          StepErr pos e   -> pure (Left (ParseErr pos e))
-          StepSuspend _ _ resume -> do
-            nextStep <- resumeEof resume
-            go nextStep
-          StepCheckpoint _ resume -> do
-            nextStep <- resumeContinue resume start end
-            go nextStep
+      let go step = case step of
+            StepDone _ a    -> pure (Right a)
+            StepFail pos    -> pure (Left (ParseFail pos))
+            StepErr pos e   -> pure (Left (ParseErr pos e))
+            StepSuspend _ _ resume -> do
+              nextStep <- resumeEof resume
+              go nextStep
+            StepCheckpoint _ resume -> do
+              nextStep <- resumeContinue resume start end
+              go nextStep
 
-    go step0
+      go step0

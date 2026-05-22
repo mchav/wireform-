@@ -6,34 +6,26 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Core parser types and the suspension primitive.
---
--- Not intended for direct import.  Use "Wireform.Parser" instead.
 module Wireform.Parser.Internal
-  ( -- * Parser type
-    Parser (..)
-
-    -- * Result type
+  ( Parser (..)
   , Res (..)
-
-    -- * Step / Resume (driver protocol)
   , Step (..)
   , Resume (..)
-
-    -- * Parser environment
   , ParserEnv (..)
   , curToPos
-
-    -- * Suspension primitive
   , ensureN
   , ensureNSlow
   , checkpoint
+  , readEnd
+  , writeEnd
   ) where
 
 import Control.Monad (ap)
 import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr, plusPtr, minusPtr)
+import Foreign.Storable (peek, poke)
+import Foreign.Marshal.Alloc (mallocBytes, free)
 import GHC.Exts
   ( PromptTag#, prompt#, control0#
   , State#, RealWorld
@@ -41,36 +33,37 @@ import GHC.Exts
 import GHC.IO (IO (..))
 
 ------------------------------------------------------------------------
--- Parser result (what sub-parsers return to each other)
+-- Parser result
 ------------------------------------------------------------------------
 
--- | Direct return modes of a parser.
 data Res e a
   = OK !a {-# UNPACK #-} !(Ptr Word8)
-    -- ^ Success with value and updated cur pointer
   | Fail
-    -- ^ Recoverable failure; @\<|\>@ may try an alternative
   | Err !e
-    -- ^ Unrecoverable error (after cut\/commit)
 
 ------------------------------------------------------------------------
 -- Parser environment
 ------------------------------------------------------------------------
 
--- | Read/write context shared by all parsers in a single @runParser@ call.
+-- | The end pointer is stored as a @Ptr (Ptr Word8)@ — a single
+-- pointer dereference to read, versus IORef which goes through
+-- MutableVar# and a heap object.
 data ParserEnv = ParserEnv
-  { peEndRef   :: {-# UNPACK #-} !(IORef (Ptr Word8))
-    -- ^ Mutable end pointer; updated by the driver on resumption.
+  { peEndPtr   :: {-# UNPACK #-} !(Ptr (Ptr Word8))
+    -- ^ Mutable end pointer (one machine word, single deref to read)
   , peBaseAddr :: {-# UNPACK #-} !(Ptr Word8)
-    -- ^ Base address of the magic ring.
   , peMask     :: {-# UNPACK #-} !Int
-    -- ^ @ringSize - 1@ for modular indexing.
   , peStartPos :: {-# UNPACK #-} !Word64
-    -- ^ Absolute stream position at parse-run start.
   , peInitCur  :: {-# UNPACK #-} !(Ptr Word8)
-    -- ^ Initial cur pointer; together with 'peStartPos', lets us convert
-    -- pointer offsets to absolute positions.
   }
+
+{-# INLINE readEnd #-}
+readEnd :: ParserEnv -> IO (Ptr Word8)
+readEnd env = peek (peEndPtr env)
+
+{-# INLINE writeEnd #-}
+writeEnd :: ParserEnv -> Ptr Word8 -> IO ()
+writeEnd env = poke (peEndPtr env)
 
 {-# INLINE curToPos #-}
 curToPos :: ParserEnv -> Ptr Word8 -> Word64
@@ -78,14 +71,9 @@ curToPos env cur =
   peStartPos env + fromIntegral (cur `minusPtr` peInitCur env)
 
 ------------------------------------------------------------------------
--- Step / Resume (driver protocol)
+-- Step / Resume
 ------------------------------------------------------------------------
 
--- | Outcome of a @prompt#@ frame.  The driver matches on this after
--- each parser round trip.
---
--- @e@ is the user error type; @r@ is the final result type of the
--- enclosing @runParser@ call.
 data Step e r
   = StepDone    {-# UNPACK #-} !Word64 r
   | StepFail    {-# UNPACK #-} !Word64
@@ -95,26 +83,20 @@ data Step e r
                 !(Resume e r)
   | StepCheckpoint {-# UNPACK #-} !Word64 !(Resume e r)
 
--- | Suspended continuation.  Invoke exactly one method, exactly once.
 data Resume e r = Resume
   { resumeContinue :: !(Ptr Word8 -> Ptr Word8 -> IO (Step e r))
   , resumeEof      :: !(IO (Step e r))
   }
 
 ------------------------------------------------------------------------
--- The Parser newtype
+-- Parser
 ------------------------------------------------------------------------
 
--- | A parser consuming bytes from a pointer window inside a magic ring.
---
--- The prompt tag is threaded explicitly (via @forall r@) so that
--- suspension can type-check without parameterizing the environment
--- on the final result type.
 newtype Parser e a = Parser
   { unParser :: forall r.
                 PromptTag# (Step e r)
              -> ParserEnv
-             -> Ptr Word8     -- cur
+             -> Ptr Word8
              -> IO (Res e a)
   }
 
@@ -147,24 +129,18 @@ instance MonadFail (Parser e) where
   {-# INLINE fail #-}
 
 ------------------------------------------------------------------------
--- ensureN: the core suspension primitive
+-- ensureN
 ------------------------------------------------------------------------
 
--- | Require at least @n@ bytes available from the current position.
--- If enough bytes are in the window, returns immediately.
--- Otherwise suspends via @control0#@ and the driver waits for data.
 ensureN :: Int -> Parser e ()
 ensureN !n = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= n
     then pure (OK () cur)
     else ensureNSlow tag env cur n
 {-# INLINE ensureN #-}
 
--- | Slow path: suspend to the driver.  After resumption, the driver
--- has guaranteed at least @needed@ bytes are available from @cur@.
--- On EOF, returns 'Fail' (recoverable, so @\<|\>@ can handle it).
 ensureNSlow :: forall e r. PromptTag# (Step e r)
             -> ParserEnv -> Ptr Word8 -> Int
             -> IO (Res e ())
@@ -174,7 +150,7 @@ ensureNSlow tag env cur needed = IO \s0 ->
        (\k s1 ->
          let resume = Resume
                { resumeContinue = \newCur newEnd -> do
-                   writeIORef (peEndRef env) newEnd
+                   writeEnd env newEnd
                    IO \s2 -> prompt# tag
                      (\s3 -> k (unIO (pure (OK () newCur))) s3)
                      s2
@@ -191,12 +167,9 @@ ensureNSlow tag env cur needed = IO \s0 ->
 {-# NOINLINE ensureNSlow #-}
 
 ------------------------------------------------------------------------
--- checkpoint: release consumed bytes mid-parse
+-- checkpoint
 ------------------------------------------------------------------------
 
--- | Release consumed bytes back to the producer.  The driver advances
--- the tail to the current position (respecting marks) and immediately
--- resumes.  No transport interaction.
 checkpoint :: Parser e ()
 checkpoint = Parser \tag env cur -> IO \s0 ->
   let !pos = curToPos env cur

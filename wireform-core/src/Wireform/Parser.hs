@@ -162,7 +162,7 @@ import Wireform.Parser.Mark
 -- After ensureN succeeds, the data at cur is guaranteed valid.
 withEnsure :: forall e a. Int -> (Ptr Word8 -> IO a) -> Parser e a
 withEnsure !n readFn = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= n
     then do
@@ -180,7 +180,7 @@ withEnsure !n readFn = Parser \tag env cur -> do
 
 withEnsure_ :: Int -> Parser e ()
 withEnsure_ !n = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= n
     then pure (OK () (cur `plusPtr` n))
@@ -335,7 +335,7 @@ anyDoublebe = castWord64ToDouble <$> anyWord64be
 -- | Match a specific byte; fail if mismatch.
 word8 :: Word8 -> Parser e ()
 word8 !expected = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= 1
     then do
@@ -359,7 +359,7 @@ word8 !expected = Parser \tag env cur -> do
 bytes :: ByteString -> Parser e ()
 bytes !bs = Parser \tag env cur -> do
   let !len = BS.length bs
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= len
     then matchBytes bs cur len
@@ -386,7 +386,7 @@ matchBytes bs ptr len =
 -- | Consume @n@ bytes and return a copy.
 takeBs :: Int -> Parser e ByteString
 takeBs !n = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= n
     then do
@@ -406,7 +406,7 @@ takeBs !n = Parser \tag env cur -> do
 -- the tail advances past these bytes.
 takeRef :: Int -> Parser e (Ptr Word8, Int)
 takeRef !n = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= n
     then pure (OK (cur, n) (cur `plusPtr` n))
@@ -427,7 +427,7 @@ skip !n = withEnsure_ n
 -- Only meaningful in non-streaming mode or after framing.
 takeRest :: Parser e ByteString
 takeRest = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !len = end `minusPtr` cur
   if len <= 0
     then pure (OK BS.empty cur)
@@ -444,7 +444,7 @@ copyFromRing src len = BSI.create len \dst -> BSI.memcpy dst src len
 
 anyChar :: Parser e Char
 anyChar = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= 1
     then decodeUtf8 tag env cur end avail
@@ -452,7 +452,7 @@ anyChar = Parser \tag env cur -> do
       r <- ensureNSlow tag env cur 1
       case r of
         OK () newCur -> do
-          end' <- readIORef (peEndRef env)
+          end' <- readEnd env
           let !avail' = end' `minusPtr` newCur
           decodeUtf8 tag env newCur end' avail'
         Fail  -> pure Fail
@@ -512,7 +512,7 @@ anyChar_ = anyChar *> pure ()
 
 anyCharASCII :: Parser e Char
 anyCharASCII = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   let !avail = end `minusPtr` cur
   if avail >= 1
     then do
@@ -584,7 +584,7 @@ anyAsciiDecimalWord = do
   go (fromIntegral (ord d0 - ord '0'))
   where
     go !acc = Parser \tag env cur -> do
-      end <- readIORef (peEndRef env)
+      end <- readEnd env
       if cur `minusPtr` end >= 0
         then pure (OK acc cur)
         else do
@@ -718,7 +718,7 @@ cutting (Parser p) e merge = Parser \tag env cur -> do
 -- this succeeds.  Otherwise fails.
 eof :: Parser e ()
 eof = Parser \tag env cur -> do
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   if cur `minusPtr` end < 0
     then pure Fail  -- there's data remaining
     else do

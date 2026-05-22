@@ -14,7 +14,7 @@ module Wireform.Parser.Position
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BSI
-import Data.IORef
+import Wireform.Parser.Internal (readEnd)
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr, plusPtr, minusPtr, castPtr)
 
@@ -46,7 +46,7 @@ setPos (Pos target) = Parser \tag env _cur -> do
       mask     = peMask env
       offset   = fromIntegral target .&. mask
       newCur   = ringBase `plusPtr` offset
-  end <- readIORef (peEndRef env)
+  end <- readEnd env
   if newCur `minusPtr` ringBase < 0
     then pure Fail
     else pure (OK () newCur)
