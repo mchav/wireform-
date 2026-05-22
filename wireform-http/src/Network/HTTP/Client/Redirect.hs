@@ -155,11 +155,12 @@ withRedirects policy inner = Transport $ \req0 -> do
   go [] (rpMaxRedirects policy) req0 buffered
   where
     dummyURI = WURI.URI
-      { WURI.uriScheme    = WURI.SchemeHttp
-      , WURI.uriAuthority = WURI.Authority "" Nothing
-      , WURI.uriPath      = "/"
-      , WURI.uriQuery     = ""
-      , WURI.uriFragment  = ""
+      { WURI.uriScheme        = WURI.SchemeHttp
+      , WURI.uriAuthority     = WURI.Authority "" Nothing
+      , WURI.uriUserinfoBytes = Nothing
+      , WURI.uriPath          = "/"
+      , WURI.uriQuery         = ""
+      , WURI.uriFragment      = ""
       }
 
 -- | Resolve a redirect Location against the request URI.

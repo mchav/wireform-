@@ -101,6 +101,7 @@ library
     Network.HTTP.FramingRules
     Network.HTTP.HttpDate
     Network.HTTP.Message
+    Network.HTTP.PercentEncoding
     Network.HTTP.VersionRange
     Network.HTTP.Types.Body
     Network.HTTP.Types.Header
