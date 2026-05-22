@@ -38,10 +38,11 @@ module Wireform.Parser
   , skipSatisfyAscii
 
     -- * Character classes
-  , isDigit, isLatinLetter
+  , isDigit, isLatinLetter, isGreekLetter
 
     -- * ASCII numeric
   , anyAsciiDecimalWord, anyAsciiDecimalInt
+  , anyAsciiHexWord
 
     -- * Control flow
   , (<|>), empty
@@ -50,19 +51,23 @@ module Wireform.Parser
   , many_, some_
   , skipMany, skipSome
   , withOption
+  , chainl, chainr
 
     -- * Error handling
   , err, cut, cutting
+  , ensureNOrEof
 
     -- * Position and span
   , Pos (..), Span (..)
   , getPos, withSpan, byteStringOf, spanToByteString
+  , withByteString
 
     -- * Marks
   , Mark, mark, restore, release
 
     -- * Low-level
   , ensureN#, checkpoint, eof
+  , atEnd, remaining
 
     -- * Re-exports
   , module Wireform.Parser.Error
@@ -552,3 +557,121 @@ eof = Parser \tag env eob s st ->
     1# -> (# st, OK# () s #)
     _  -> (# st, Fail# #)
 {-# INLINE eof #-}
+
+-- | Non-consuming check: 'True' if at end of input.
+atEnd :: Parser e Bool
+atEnd = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, OK# True s #)
+    _  -> (# st, OK# False s #)
+{-# INLINE atEnd #-}
+
+-- | Number of bytes remaining in the current window (cheap, no suspend).
+remaining :: Parser e Int
+remaining = Parser \tag env eob s st ->
+  (# st, OK# (I# (minusAddr# eob s)) s #)
+{-# INLINE remaining #-}
+
+------------------------------------------------------------------------
+-- Chain combinators
+------------------------------------------------------------------------
+
+-- | Left-associative chain.
+-- @chainl f p q@ parses @p@ then zero or more @q@, folding left with @f@.
+chainl :: (b -> a -> b) -> Parser e b -> Parser e a -> Parser e b
+chainl f (Parser p) (Parser q) = Parser \tag env eob s st ->
+  case p tag env eob s st of
+    (# st', OK# b s' #) -> chainlGo f q tag env eob s' st' b
+    (# st', x #)        -> (# st', unsafeCoerce# x #)
+{-# INLINE chainl #-}
+
+chainlGo :: forall e r b a. (b -> a -> b)
+         -> (forall r'. PromptTag# (Step e r') -> ParserEnv -> Addr# -> Addr# -> State# RealWorld -> StRes# e a)
+         -> PromptTag# (Step e r) -> ParserEnv -> Addr# -> Addr# -> State# RealWorld -> b -> StRes# e b
+chainlGo f q tag env eob s st !acc =
+  case q tag env eob s st of
+    (# st', OK# a s' #) -> chainlGo f q tag env eob s' st' (f acc a)
+    (# st', Fail# #)    -> (# st', OK# acc s #)
+    (# st', x #)        -> (# st', unsafeCoerce# x #)
+{-# NOINLINE chainlGo #-}
+
+-- | Right-associative chain.
+-- @chainr f p q@ parses zero or more @p@, then @q@ at the end,
+-- folding right with @f@.
+chainr :: (a -> b -> b) -> Parser e a -> Parser e b -> Parser e b
+chainr f (Parser p) (Parser q) = Parser go where
+  go tag env eob s st =
+    case p tag env eob s st of
+      (# st', OK# a s' #) -> case go tag env eob s' st' of
+        (# st'', OK# b s'' #) -> (# st'', OK# (f a b) s'' #)
+        (# st'', x #)         -> (# st'', unsafeCoerce# x #)
+      (# st', Fail# #) -> q tag env eob s st'
+      (# st', x #)     -> (# st', unsafeCoerce# x #)
+{-# INLINE chainr #-}
+
+------------------------------------------------------------------------
+-- Additional error handling
+------------------------------------------------------------------------
+
+-- | Like 'ensureN#' but on EOF, errors with a specific error
+-- instead of failing recoverably.
+ensureNOrEof :: Int -> e -> Parser e ()
+ensureNOrEof n e = ensureN# (case n of I# n# -> n#) <|> err e
+{-# INLINE ensureNOrEof #-}
+
+------------------------------------------------------------------------
+-- Additional position combinators
+------------------------------------------------------------------------
+
+-- | Parse something and return both the result and the bytes consumed.
+withByteString :: Parser e a -> (a -> ByteString -> Parser e b) -> Parser e b
+withByteString (Parser p) f = Parser \tag env eob s st ->
+  case p tag env eob s st of
+    (# st', OK# a s' #) ->
+      let !len = I# (minusAddr# s' s)
+          !bs  = BSI.BS (ForeignPtr s (peBackingFp env)) len
+      in runParser# (f a bs) tag env eob s' st'
+    (# st', x #) -> (# st', unsafeCoerce# x #)
+{-# INLINE withByteString #-}
+
+------------------------------------------------------------------------
+-- Additional character classes
+------------------------------------------------------------------------
+
+isGreekLetter :: Char -> Bool
+isGreekLetter c = (c >= '\x0391' && c <= '\x03A9') || (c >= '\x03B1' && c <= '\x03C9')
+{-# INLINE isGreekLetter #-}
+
+------------------------------------------------------------------------
+-- Additional ASCII numeric
+------------------------------------------------------------------------
+
+anyAsciiHexWord :: Parser e Word
+anyAsciiHexWord = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case hexDigit (indexWord8OffAddr# s 0#) of
+      (# | (# #) #) -> (# st, Fail# #)
+      (# (# d #) | #) -> goHexWord eob (plusAddr# s 1#) st (W# (word8ToWord# d))
+{-# INLINE anyAsciiHexWord #-}
+
+hexDigit :: Word8# -> (# (# Word8# #) | (# #) #)
+hexDigit w
+  | isTrue# (leWord8# (wordToWord8# 0x30##) w) , isTrue# (leWord8# w (wordToWord8# 0x39##))
+    = (# (# wordToWord8# (word8ToWord# w `minusWord#` 0x30##) #) | #)
+  | isTrue# (leWord8# (wordToWord8# 0x41##) w) , isTrue# (leWord8# w (wordToWord8# 0x46##))
+    = (# (# wordToWord8# (word8ToWord# w `minusWord#` 0x37##) #) | #)
+  | isTrue# (leWord8# (wordToWord8# 0x61##) w) , isTrue# (leWord8# w (wordToWord8# 0x66##))
+    = (# (# wordToWord8# (word8ToWord# w `minusWord#` 0x57##) #) | #)
+  | otherwise = (# | (# #) #)
+{-# INLINE hexDigit #-}
+
+goHexWord :: Addr# -> Addr# -> State# RealWorld -> Word -> StRes# e Word
+goHexWord eob s st !acc =
+  case eqAddr# eob s of
+    1# -> (# st, OK# acc s #)
+    _  -> case hexDigit (indexWord8OffAddr# s 0#) of
+      (# | (# #) #)     -> (# st, OK# acc s #)
+      (# (# d #) | #) -> goHexWord eob (plusAddr# s 1#) st
+                            (acc * 16 + W# (word8ToWord# d))
+{-# NOINLINE goHexWord #-}

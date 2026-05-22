@@ -3,6 +3,9 @@ packages:
   hermes/
   wireform-core/
   wireform-network/
+  wireform-attoparsec/
+  wireform-binary/
+  wireform-cereal/
   wireform-derive/
   wireform-columnar-core/
   wireform-columnar/

@@ -85,6 +85,7 @@ library
     -- Parser
     Wireform.Parser
     Wireform.Parser.Internal
+    Wireform.Parser.Stateful
     Wireform.Parser.Position
     Wireform.Parser.Mark
     Wireform.Parser.Error

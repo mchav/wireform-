@@ -1,0 +1,17 @@
+cabal-version: 3.0
+name: wireform-binary
+version: 0.1.0.0
+synopsis: binary adapter for wireform ChunkParser
+license: BSD-3-Clause
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+
+library
+  default-language: GHC2021
+  hs-source-dirs: src
+  exposed-modules: Wireform.Parser.Adapter.Binary
+  build-depends:
+    base >= 4.18 && < 5,
+    bytestring,
+    binary >= 0.8 && < 0.9,
+    wireform-core
