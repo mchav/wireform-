@@ -43,7 +43,7 @@ prop_requestHead (GenRequest meth tgt hdrs) =
 
 prop_responseHead :: GenResponse -> Property
 prop_responseHead (GenResponse st hdrs) =
-  let resp = Response st HTTP_1_1 hdrs BodyEmpty
+  let resp = Response st HTTP_1_1 hdrs BodyEmpty (pure [])
       bs   = encodeResponseHead resp
       stripped = stripBlankLine bs
   in case parseResponse GET stripped of

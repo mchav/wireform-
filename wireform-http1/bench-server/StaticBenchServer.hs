@@ -81,6 +81,7 @@ staticHandler fb mime = \_req -> pure Response
       , ("Server", "wireform-http1")
       ]
   , responseBody = BodyFile fb
+  , responseTrailers = pure []
   }
 {-# INLINE staticHandler #-}
 

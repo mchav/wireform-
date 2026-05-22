@@ -51,7 +51,8 @@ import qualified System.Posix.IO as PosixIO
 import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
 
 
-import Network.HTTP1.Chunked (encodeChunk, encodeLastChunk)
+import Network.HTTP1.Chunked
+  (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
 import Network.HTTP1.Connection
 import Network.HTTP1.Encode (responseBuilder)
 import Network.HTTP1.Headers
@@ -108,7 +109,14 @@ defaultServerConfig :: ServerConfig
 defaultServerConfig = ServerConfig
   { serverHost = "0.0.0.0"
   , serverPort = "8080"
-  , serverHandler = \_ -> pure $ Response OK HTTP_1_1 [] (BodyBytes "")
+  , serverHandler = \_ ->
+      pure Response
+        { responseStatus  = OK
+        , responseVersion = HTTP_1_1
+        , responseHeaders = []
+        , responseBody    = BodyBytes ""
+        , responseTrailers = pure []
+        }
   , serverForkConnection = forkIO
   , serverMaxHeaderBytes = 32 * 1024
   , serverKeepAlive = True
@@ -288,7 +296,16 @@ sendResponse conn reqMethod resp = do
             -- RAM.
             sendAll headBs
             case responseVersion resp of
-              HTTP_1_1 -> streamChunked conn producer
+              HTTP_1_1 -> do
+                -- Run the trailer action only if the handler advertised
+                -- a non-default value. We can't peek inside an IO so
+                -- we materialise it; for the overwhelmingly common
+                -- case (no trailers) the action is `pure []` and
+                -- this is free.
+                trs <- responseTrailers resp
+                if null trs
+                  then streamChunked conn producer
+                  else streamChunkedWithTrailers conn producer trs
               HTTP_1_0 -> streamRaw conn producer
           BodyFile fb -> sendFileBody transport headBs fb
 
@@ -357,6 +374,38 @@ streamChunked conn producer = loop
               sendBuilder conn (encodeChunk bs)
               loop
 
+-- | Like 'streamChunked' but emits @trailers@ in the chunked-body
+-- terminator's field block (RFC 9112 \u00a77.1.2). Pass @[]@ when
+-- there are no trailers and you'll get the same wire bytes as
+-- 'streamChunked'.
+streamChunkedWithTrailers
+  :: Connection
+  -> IO (Maybe BS.ByteString)
+  -> Headers
+  -> IO ()
+streamChunkedWithTrailers conn producer trailers = loop
+  where
+    -- The empty-trailers branch reuses 'streamChunked' rather than
+    -- calling 'encodeLastChunkWithTrailers []' so the wire bytes go
+    -- out as a single 'B.byteString' append (= one 'tSendAll' call
+    -- on a small buffer). That difference shouldn't matter on a
+    -- well-behaved peer, but it does interact with the
+    -- recv-buffered single-shot client used by 'sendRequest', which
+    -- closes its bracketed connection as soon as the high-level
+    -- send-and-parse-head sequence returns.
+    loop = do
+      mc <- producer
+      case mc of
+        Nothing
+          | null trailers -> sendBuilder conn encodeLastChunk
+          | otherwise     -> sendBuilder conn (encodeLastChunkWithTrailers trailers)
+        Just bs ->
+          if BS.null bs
+            then loop
+            else do
+              sendBuilder conn (encodeChunk bs)
+              loop
+
 streamRaw :: Connection -> IO (Maybe BS.ByteString) -> IO ()
 streamRaw conn producer = loop
   where
@@ -403,6 +452,7 @@ sendErrorResponse conn st = do
         , responseVersion = HTTP_1_1
         , responseHeaders = [("Connection", "close"), ("Content-Length", "0")]
         , responseBody = BodyEmpty
+        , responseTrailers = pure []
         }
   sendBuilder conn (responseBuilder resp)
     `catch` (\(_ :: SomeException) -> pure ())

@@ -52,6 +52,7 @@ echoHandler req = do
         , ("Server", "wireform-http1")
         ]
     , responseBody = BodyBytes body
+    , responseTrailers = pure []
     }
 
 -- | Pull every chunk out of a 'Body' producer and concatenate.

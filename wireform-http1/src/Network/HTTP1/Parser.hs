@@ -484,7 +484,7 @@ parseResponse reqMethod block = do
   (ver, st, _reason) <- parseStatusLine line
   hdrs <- parseHeaderBlock rest
   framing <- responseFraming reqMethod ver st hdrs
-  Right (Response st ver hdrs BodyEmpty, framing)
+  Right (Response st ver hdrs BodyEmpty (pure []), framing)
 
 splitFirstLine :: ByteString -> (ByteString, ByteString)
 splitFirstLine bs =

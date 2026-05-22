@@ -128,8 +128,11 @@ sendRequestOn (ClientConnection conn) req = do
           Right (resp0, framing)
             | is1xx (responseStatus resp0) -> readFinal recv
             | otherwise -> do
-                body <- readBody conn framing
-                pure $ Right resp0 { responseBody = body }
+                (body, trailersIO) <- readBodyAndTrailers conn framing
+                pure $ Right resp0
+                  { responseBody     = body
+                  , responseTrailers = trailersIO
+                  }
     is1xx (Status code) = code >= 100 && code < 200
 
 streamChunked :: Connection -> IO (Maybe ByteString) -> IO ()

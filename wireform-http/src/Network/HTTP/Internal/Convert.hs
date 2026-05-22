@@ -129,10 +129,11 @@ fromHttp1Request scheme r = Request
 
 toHttp1Response :: Response -> H1.Response
 toHttp1Response r = H1.Response
-  { H1.responseStatus  = toHttp1Status (responseStatus r)
-  , H1.responseVersion = toHttp1Version (responseVersion r)
-  , H1.responseHeaders = toHttp1Headers (responseHeaders r)
-  , H1.responseBody    = toHttp1Body (responseBody r)
+  { H1.responseStatus    = toHttp1Status (responseStatus r)
+  , H1.responseVersion   = toHttp1Version (responseVersion r)
+  , H1.responseHeaders   = toHttp1Headers (responseHeaders r)
+  , H1.responseBody      = toHttp1Body (responseBody r)
+  , H1.responseTrailers  = toHttp1Headers <$> responseTrailers r
   }
 
 -- | HTTP\/1.x trailers come from the chunked body's terminator field
@@ -149,11 +150,7 @@ fromHttp1Response r = Response
   , responseVersion = fromHttp1Version (H1.responseVersion r)
   , responseHeaders = fromHttp1Headers (H1.responseHeaders r)
   , responseBody    = fromHttp1Body (H1.responseBody r)
-  , responseTrailers = pure []
-    -- The shipped H1 client API drains the body-and-trailers in
-    -- 'sendRequestOn' and discards the trailer MVar; until that is
-    -- exposed at the client API boundary, the unified surface
-    -- defaults to @pure []@.
+  , responseTrailers = fromHttp1Headers <$> H1.responseTrailers r
   , responseH2StreamId = 0
   , responseCancel = pure ()
   }

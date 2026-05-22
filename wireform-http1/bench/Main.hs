@@ -75,8 +75,9 @@ main = defaultMain
       , "X-Request-Id: 0123456789abcdef"
       ]
 
-    getReq = Request GET "/" HTTP_1_1 [("Host", "example.com"), ("Accept", "*/*")] BodyEmpty
+    getReq = Request GET "/" HTTP_1_1 [("Host", "example.com"), ("Accept", "*/*")] BodyEmpty (pure [])
     okResp = Response OK HTTP_1_1
               [("Content-Type", "text/plain"), ("Server", "wireform-http1")]
               (BodyBytes "Hello, world!\n")
+              (pure [])
 

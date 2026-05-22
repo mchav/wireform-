@@ -63,23 +63,23 @@ responseHeadTests = testGroup "response head"
   -- expected string. We test Date-header injection separately below.
   [ testCase "200 with bytes body" $
       stripDate (encodeResponseHead (Response OK HTTP_1_1
-        [("Content-Type", "text/plain")] (BodyBytes "hi")))
+        [("Content-Type", "text/plain")] (BodyBytes "hi") (pure [])))
         @?= "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n"
   , testCase "204 strips framing" $
-      stripDate (encodeResponseHead (Response NoContent HTTP_1_1 [] BodyEmpty))
+      stripDate (encodeResponseHead (Response NoContent HTTP_1_1 [] BodyEmpty (pure [])))
         @?= "HTTP/1.1 204 No Content\r\n\r\n"
   , testCase "1.0 stream forces close header" $
-      stripDate (encodeResponseHead (Response OK HTTP_1_0 [] (BodyStream (pure Nothing))))
+      stripDate (encodeResponseHead (Response OK HTTP_1_0 [] (BodyStream (pure Nothing)) (pure [])))
         @?= "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
   , testCase "Date header auto-injected" $
       assertBool "expected Date: in encoded response" $
-        let bs = encodeResponseHead (Response OK HTTP_1_1 [] (BodyBytes "hi"))
+        let bs = encodeResponseHead (Response OK HTTP_1_1 [] (BodyBytes "hi") (pure []))
         in BS.isInfixOf "\r\nDate: " bs
   , testCase "Caller's Date header wins" $
       stripDate
         ( encodeResponseHead (Response OK HTTP_1_1
             [("Date", "Mon, 01 Jan 2024 00:00:00 GMT")]
-            (BodyBytes "hi")))
+            (BodyBytes "hi") (pure [])))
         @?= "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n"
         -- ^ stripDate removed the caller-supplied Date; the rest of
         -- the head is the framing line we expect.
