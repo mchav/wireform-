@@ -30,24 +30,37 @@ module Network.HTTP.Server
     ServerConfig (..)
   , defaultServerConfig
   , TlsServerConfig (..)
+  , ServerLimits (..)
+  , defaultServerLimits
     -- * Running
   , runServer
   , runServerOnListener
   , handleAcceptedSocket
     -- * Handler
   , Handler
+    -- * Response defaults and OPTIONS \/ Allow
+  , addServerDefaults
+  , optionsAllowResponse
+  , methodNotAllowed
   ) where
 
 import Control.Concurrent (ThreadId, forkIO)
 import Control.Exception (SomeException, catch)
+import qualified Data.ByteString as BS
+import Data.ByteString (ByteString)
+import qualified Data.List as List
+import Data.Time.Clock (getCurrentTime)
 import qualified Network.Socket as NS
 
 import qualified Network.HTTP1.Server as H1
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2
 
+import Network.HTTP.HttpDate (formatHttpDate)
 import Network.HTTP.Message
 import qualified Network.HTTP.TLS as TLS
+import qualified Network.HTTP.Types.Header as U
+import qualified Network.HTTP.Types.Method as U
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Internal.Convert as Conv
 import qualified Network.HTTP.Types.Body as U
@@ -70,6 +83,42 @@ data ServerConfig = ServerConfig
   , serverForkConnection :: IO () -> IO ThreadId
     -- ^ How to fork the per-connection thread.  Defaults to 'forkIO';
     -- use 'Control.Concurrent.forkOn' for pinned-core scheduling.
+  , serverNameToken    :: !(Maybe ByteString)
+    -- ^ Default value for the @Server@ response header
+    --   (RFC 9110 \u00a710.2.4). 'Nothing' suppresses the header
+    --   entirely.
+  , serverEmitDate     :: !Bool
+    -- ^ Auto-inject a @Date@ header on responses that don't carry
+    --   one (RFC 9110 \u00a710.2.2). Defaults to 'True'.
+  , serverLimits       :: !ServerLimits
+  }
+
+-- | Per-connection limits.  The unified server passes these through
+-- to the underlying HTTP\/1.x and HTTP\/2 server runtimes; honouring
+-- them is up to those layers (and currently only enforced at the
+-- HTTP\/2 frame layer, where their absence is the most damaging).
+data ServerLimits = ServerLimits
+  { limitMaxHeaderBytes    :: !Int
+    -- ^ Cap on the cumulative header block size, including request
+    --   line. Default: 64 KiB. RFC 9112 has no fixed value but the
+    --   common practice cap is 8\u201364 KiB.
+  , limitMaxRequestBody    :: !(Maybe Int)
+    -- ^ Cap on inbound request body length. 'Nothing' = unlimited.
+    --   Enforcement currently delegates to user middleware that
+    --   wraps 'requestBody'; ServerConfig surfaces the value so the
+    --   middleware can read one consistent number.
+  , limitReadTimeoutSecs   :: !(Maybe Double)
+    -- ^ Idle-read timeout. 'Nothing' disables.
+  , limitWriteTimeoutSecs  :: !(Maybe Double)
+    -- ^ Per-write timeout. 'Nothing' disables.
+  }
+
+defaultServerLimits :: ServerLimits
+defaultServerLimits = ServerLimits
+  { limitMaxHeaderBytes    = 64 * 1024
+  , limitMaxRequestBody    = Just (32 * 1024 * 1024)  -- 32 MiB
+  , limitReadTimeoutSecs   = Just 30
+  , limitWriteTimeoutSecs  = Just 30
   }
 
 data TlsServerConfig = TlsServerConfig
@@ -85,6 +134,9 @@ defaultServerConfig = ServerConfig
   , serverHandler = \_ -> pure stubResponse
   , serverTls = Nothing
   , serverForkConnection = forkIO
+  , serverNameToken = Just "wireform-http"
+  , serverEmitDate  = True
+  , serverLimits    = defaultServerLimits
   }
   where
     stubResponse = Response
@@ -94,6 +146,51 @@ defaultServerConfig = ServerConfig
       , responseBody    = U.BodyEmpty
       , responseTrailers = pure []
       }
+
+-- ---------------------------------------------------------------------------
+-- Response defaults / OPTIONS / Allow
+-- ---------------------------------------------------------------------------
+
+-- | Inject @Server@ and @Date@ headers when the handler hasn't set
+-- them already. Idempotent.
+addServerDefaults :: ServerConfig -> Response -> IO Response
+addServerDefaults cfg r0 = do
+  date <- if serverEmitDate cfg && not (U.hasHeader U.hDate hdrs0)
+            then do
+              t <- getCurrentTime
+              pure [(U.hDate, formatHttpDate t)]
+            else pure []
+  let server = case serverNameToken cfg of
+        Just tok | not (U.hasHeader U.hServer hdrs0) -> [(U.hServer, tok)]
+        _                                            -> []
+  pure r0 { responseHeaders = hdrs0 <> server <> date }
+  where
+    hdrs0 = responseHeaders r0
+
+-- | Build a response to @OPTIONS *@ that advertises the methods the
+-- server understands. Sets @Allow@ and a no-body 200.
+optionsAllowResponse :: [U.Method] -> Response
+optionsAllowResponse methods = Response
+  { responseStatus  = U.status200
+  , responseVersion = U.HTTP1_1
+  , responseHeaders = [(U.hAllow, allowValue methods)]
+  , responseBody    = U.BodyEmpty
+  , responseTrailers = pure []
+  }
+
+-- | Build a 405 response with @Allow@ enumerating the supported
+-- methods on this resource.
+methodNotAllowed :: [U.Method] -> Response
+methodNotAllowed methods = Response
+  { responseStatus  = U.status405
+  , responseVersion = U.HTTP1_1
+  , responseHeaders = [(U.hAllow, allowValue methods)]
+  , responseBody    = U.BodyEmpty
+  , responseTrailers = pure []
+  }
+
+allowValue :: [U.Method] -> ByteString
+allowValue = BS.intercalate ", " . map U.fromMethod . List.nub
 
 -- | Bind a TCP listener and serve until killed.
 runServer :: ServerConfig -> IO ()
@@ -116,14 +213,14 @@ runTlsServer cfg tlsCfg =
     -- HTTP/1.x dispatch over the TLS transport.
     (\_v transport -> H1.runServerOnTransport (mkH1Config cfg) transport)
     -- HTTP/2 ServerConfig factory.
-    (\_v -> (mkH2Config cfg) { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) })
+    (\_v -> (mkH2Config cfg) { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg) })
 
 mkH1Config :: ServerConfig -> H1.ServerConfig
 mkH1Config cfg = H1.defaultServerConfig
   { H1.serverHost = serverHost cfg
   , H1.serverPort = serverPort cfg
   , H1.serverForkConnection = serverForkConnection cfg
-  , H1.serverHandler = wrapHttp1Handler (serverHandler cfg)
+  , H1.serverHandler = wrapHttp1Handler cfg (serverHandler cfg)
   }
 
 mkH2Config :: ServerConfig -> H2.ServerConfig
@@ -166,15 +263,16 @@ handleAcceptedSocket :: ServerConfig -> NS.Socket -> IO ()
 handleAcceptedSocket cfg sock
   | preferredVersion (serverVersionRange cfg) == U.HTTP2 =
       let h2cfg = (mkH2Config cfg)
-            { H2.serverHandler = wrapHttp2Handler (serverHandler cfg) }
+            { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg) }
       in H2.runServerOnSocket h2cfg sock
   | otherwise =
       H1.runServerOnSocket (mkH1Config cfg) sock
 
-wrapHttp1Handler :: Handler -> H1.Request -> IO H1.Response
-wrapHttp1Handler handler h1req = do
+wrapHttp1Handler :: ServerConfig -> Handler -> H1.Request -> IO H1.Response
+wrapHttp1Handler cfg handler h1req = do
   let req = Conv.fromHttp1Request SchemeHttp h1req
-  resp <- handler req
+  resp0 <- handler req
+  resp  <- addServerDefaults cfg resp0
   -- Mirror the request's version on the response, matching the
   -- behaviour the http1 server's own defaultServerConfig has.
   let h1resp = Conv.toHttp1Response resp
@@ -184,12 +282,13 @@ runHttp2 :: ServerConfig -> IO ()
 runHttp2 cfg = H2.runServer h2cfg
   where
     h2cfg = (mkH2Config cfg)
-      { H2.serverHandler = wrapHttp2Handler (serverHandler cfg)
+      { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg)
       }
 
-wrapHttp2Handler :: Handler -> H2.Request -> (H2.Response -> IO ()) -> IO ()
-wrapHttp2Handler handler h2req respond = do
+wrapHttp2Handler :: ServerConfig -> Handler -> H2.Request -> (H2.Response -> IO ()) -> IO ()
+wrapHttp2Handler cfg handler h2req respond = do
   let req = Conv.fromHttp2Request h2req
-  resp <- handler req
+  resp0 <- handler req
+  resp  <- addServerDefaults cfg resp0
   h2resp <- Conv.toHttp2Response resp
   respond h2resp

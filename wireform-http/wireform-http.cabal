@@ -80,6 +80,8 @@ library
     Network.HTTP.Client.Middleware
     Network.HTTP.Client.Negotiation
     Network.HTTP.Client.Pool
+    Network.HTTP.Client.Proxy
+    Network.HTTP.Client.Proxy.Connect
     Network.HTTP.Client.Range
     Network.HTTP.Client.Redirect
     Network.HTTP.Client.Protocol
@@ -102,6 +104,7 @@ library
     Network.HTTP.HttpDate
     Network.HTTP.Message
     Network.HTTP.PercentEncoding
+    Network.HTTP.Upgrade
     Network.HTTP.VersionRange
     Network.HTTP.Types.Body
     Network.HTTP.Types.Header
