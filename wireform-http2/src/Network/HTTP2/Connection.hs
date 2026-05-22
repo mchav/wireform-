@@ -7,10 +7,8 @@ module Network.HTTP2.Connection
   , newConnection
   , newConnectionFromTransport
   , sendFrame
-  , sendFrameUnlocked
   , sendFrameZeroCopy
   , sendFrames
-  , sendFramesUnlocked
   , sendFramesZeroCopy
   , sendHeaderBlock
   , recvFrame
@@ -181,7 +179,10 @@ sendFrame conn frame = do
     tSendAll (connTransport conn) bs
 
 -- | Send a frame without acquiring the send lock.
--- Only safe when the caller is the sole writer (e.g. single-threaded connection loop).
+--
+-- __Unsafe__: concurrent callers will interleave frame bytes on the wire.
+-- Only exposed for benchmarks that provably run single-threaded per connection.
+-- Production code should use 'sendFrame'.
 {-# INLINE sendFrameUnlocked #-}
 sendFrameUnlocked :: Connection -> Frame -> IO ()
 sendFrameUnlocked conn frame = tSendAll (connTransport conn) (encodeFrame frame)
@@ -248,33 +249,38 @@ sendHeaderBlock conn sid endStream extraFlags block maxFrame = do
           in f : contFrames rest
 
 -- | Send multiple frames without the send lock. Combines into one writev.
+--
+-- __Unsafe__: see 'sendFrameUnlocked'.
 {-# INLINE sendFramesUnlocked #-}
 sendFramesUnlocked :: Connection -> [Frame] -> IO ()
 sendFramesUnlocked conn frames =
   tSendMany (connTransport conn) (map encodeFrame frames)
 
--- | Zero-copy send: encode frames directly into the connection's pinned
+-- | Zero-copy send: encode a frame directly into the connection's pinned
 -- send buffer, then send from that buffer. Avoids per-frame allocation.
--- Only safe for single-threaded connection loops.
+-- Acquires the send lock so this is safe for concurrent use.
 {-# INLINE sendFrameZeroCopy #-}
 sendFrameZeroCopy :: Connection -> Frame -> IO ()
 sendFrameZeroCopy conn frame = do
   let SendBuffer fp _cap = connSendBuffer conn
-  withForeignPtr fp $ \ptr -> do
-    written <- encodeFrameInto frame ptr
-    let bs = BSI.fromForeignPtr fp 0 written
-    tSendAll (connTransport conn) bs
+  withMVar (connSendLock conn) $ \_ ->
+    withForeignPtr fp $ \ptr -> do
+      written <- encodeFrameInto frame ptr
+      let bs = BSI.fromForeignPtr fp 0 written
+      tSendAll (connTransport conn) bs
 
 -- | Zero-copy batch send: encode multiple frames into the send buffer
 -- contiguously, then send the whole buffer in one syscall.
+-- Acquires the send lock so this is safe for concurrent use.
 {-# INLINE sendFramesZeroCopy #-}
 sendFramesZeroCopy :: Connection -> [Frame] -> IO ()
 sendFramesZeroCopy conn frames = do
   let SendBuffer fp _cap = connSendBuffer conn
-  withForeignPtr fp $ \basePtr -> do
-    totalWritten <- writeFrames basePtr 0 frames
-    let bs = BSI.fromForeignPtr fp 0 totalWritten
-    tSendAll (connTransport conn) bs
+  withMVar (connSendLock conn) $ \_ ->
+    withForeignPtr fp $ \basePtr -> do
+      totalWritten <- writeFrames basePtr 0 frames
+      let bs = BSI.fromForeignPtr fp 0 totalWritten
+      tSendAll (connTransport conn) bs
   where
     writeFrames _ offset [] = pure offset
     writeFrames ptr offset (f:fs) = do
@@ -334,11 +340,10 @@ recvExact conn n =
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do
-  isClosed <- readIORef (connClosed conn)
-  if isClosed
+  alreadyClosed <- atomicModifyIORef' (connClosed conn) (\c -> (True, c))
+  if alreadyClosed
     then pure ()
     else do
-      writeIORef (connClosed conn) True
       lastId <- readIORef (connLastStreamId conn)
       let goaway = Frame
             (FrameHeader 0 FrameGoAway 0 0)

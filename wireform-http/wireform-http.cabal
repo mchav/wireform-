@@ -132,6 +132,19 @@ library
     wireform-http2,
     wireform-yaml
 
+benchmark wireform-http-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Main.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N2"
+  build-depends:
+    base,
+    bytestring,
+    criterion >= 1.5,
+    network,
+    wireform-http
+
 test-suite wireform-http-test
   import: defaults
   type: exitcode-stdio-1.0
@@ -139,8 +152,11 @@ test-suite wireform-http-test
   main-is: Main.hs
   other-modules:
     Test.Client
+    Test.ConcurrencyStress
     Test.Http1Integration
+    Test.Http1EdgeCases
     Test.Http2Integration
+    Test.Http2EdgeCases
     Test.Negotiation
     Test.UrlDecode
     Test.VersionTypes

@@ -29,8 +29,15 @@ module Network.HTTP.Client
     module Network.HTTP.Client.BodyStream
   , module Network.HTTP.Client.Body
     -- * Requests and responses
-  , module Network.HTTP.Client.Request
-  , module Network.HTTP.Client.Response
+  , Request (Request, method, requestURI, body, protocolHints, spanAttributes)
+  , request, get, post, put, delete, patch, options, head_
+  , setMethod, setHeader, addHeader, removeHeader, addRequestHeader
+  , withBody, withRawBody, addSpanAttribute, addProtocolHint, mapBody
+  , SpanAttribute (..)
+  , RawResponse (RawResponse, statusCode, bodyPopper, protocolInfo)
+  , rawResponseBytes
+  , Response (Response, responseStatus, responseHeaders, responseBody, responseProtocolInfo)
+  , mapResponse
     -- * URIs and base URLs
   , module Network.HTTP.Client.URI
     -- * Content type system
@@ -41,7 +48,9 @@ module Network.HTTP.Client
   , module Network.HTTP.Client.Media.FormUrlEncoded
   , module Network.HTTP.Client.Decoder
     -- * Transports and middleware
-  , module Network.HTTP.Client.Transport
+  , Transport (..)
+  , unsafeMkTransport
+  , noMiddleware
   , module Network.HTTP.Client.Middleware
     -- * Compression
   , module Network.HTTP.Client.Compression
@@ -54,7 +63,15 @@ module Network.HTTP.Client
   , module Network.HTTP.Client.Base
   , module Network.HTTP.Client.Pool
   , module Network.HTTP.Client.Streaming
-  , module Network.HTTP.Client.TLS
+  , TLSBackend (..)
+  , TLSConnection
+  , defaultTLSBackend
+  , noTLSBackend
+  , TLSSettings (TLSSettings, alpnProtocols, certificateVerify, clientCertificate)
+  , defaultTLSSettings
+  , CertVerifyMode (..)
+  , ClientCert (..)
+  , TLSVersionRange (..)
     -- * Protocol metadata
   , module Network.HTTP.Client.Protocol
     -- * Tracing (OpenTelemetry)

@@ -36,6 +36,8 @@ import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
 
 import Network.HTTP.Client
+import Network.HTTP.Client.Request (Request (headers))
+import Network.HTTP.Client.Response (RawResponse (headers))
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -454,7 +456,7 @@ streamingVcrTests = testGroup "Streaming VCR"
         p <- popperFromList chunks
         pure $ mockTransport $ \_ -> pure RawResponse
           { statusCode    = S.status200
-          , Network.HTTP.Client.headers       = []
+          , Network.HTTP.Client.Response.headers = []
           , bodyPopper    = p
           , protocolInfo  = HTTP1_1
           }

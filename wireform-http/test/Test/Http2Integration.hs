@@ -9,7 +9,8 @@ HEADERS continuation, cancellation, GOAWAY refusal).
 -}
 module Test.Http2Integration (tests) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.MVar
 import Control.Exception (bracket, finally, try, SomeException)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -237,8 +238,11 @@ withTestServer range handler action = do
               , serverVersionRange = range
               , serverHandler = handler
               }
-        tid <- forkIO (runServerOnListener cfg listenSock)
-        threadDelay 10000
+        readyVar <- newEmptyMVar
+        tid <- forkIO $ do
+          putMVar readyVar ()
+          runServerOnListener cfg listenSock
+        takeMVar readyVar
         action portStr `finally` killThread tid
 
 runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a

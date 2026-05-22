@@ -19,6 +19,7 @@ module Network.HTTP2.RateLimit
   ( RateCounter
   , newRateCounter
   , tickRate
+  , tickRateWith
   ) where
 
 import Data.IORef
@@ -45,6 +46,12 @@ newRateCounter = do
 tickRate :: RateCounter -> IO Int
 tickRate rc = do
   now <- getMonotonicTime
+  tickRateWith now rc
+
+-- | Like 'tickRate' but with an explicit timestamp, useful for
+-- deterministic testing without relying on wall-clock delays.
+tickRateWith :: Double -> RateCounter -> IO Int
+tickRateWith now rc = do
   ws <- readIORef (rcWindowStart rc)
   if now - ws > 1.0
     then do

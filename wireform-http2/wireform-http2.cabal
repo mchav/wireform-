@@ -112,6 +112,58 @@ executable wireform-http2-server
       , bytestring
       , wireform-http2
 
+test-suite wireform-http2-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          UnitMain.hs
+    other-modules:
+      Test.Frame
+      Test.FrameEdgeCases
+      Test.HPACK
+      Test.HPACKEdgeCases
+      Test.HPACKConcurrency
+      Test.Connection
+      Test.Defensive
+    hs-source-dirs:   test
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+      LambdaCase
+    ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"
+    build-depends:
+        base
+      , bytestring
+      , network
+      , stm
+      , tasty          >= 1.4
+      , tasty-hunit    >= 0.10
+      , tasty-quickcheck >= 0.10
+      , QuickCheck     >= 2.14
+      , wireform-http2
+
+test-suite wireform-http2-tls-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          TLSMain.hs
+    other-modules:
+      Test.TLS
+    hs-source-dirs:   test
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+      LambdaCase
+    ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"
+    build-depends:
+        base
+      , bytestring
+      , network
+      , tasty          >= 1.4
+      , tasty-hunit    >= 0.10
+      , tls
+      , crypton-x509
+      , crypton-x509-store
+      , wireform-http2
+
 test-suite h2spec
     import:           warnings
     type:             exitcode-stdio-1.0

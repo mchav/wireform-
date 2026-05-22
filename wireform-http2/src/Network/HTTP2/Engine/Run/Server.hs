@@ -214,8 +214,8 @@ handleFrame env conn handler streamsRef hdr payload = case payload of
 
   HeadersFrame _ block
     | testFlag (fhFlags hdr) flagEndHeaders -> do
-        decoder <- readMVar (connHpackDecoder conn)
-        result <- decodeHeaderBlock decoder block
+        result <- withMVar (connHpackDecoder conn) $ \decoder ->
+          decodeHeaderBlock decoder block
         case result of
           Left _ -> closeConnection conn Wire.CompressionError "hpack decode"
           Right headers -> do
@@ -336,8 +336,8 @@ sendOutObj
   -> OutObj
   -> IO ()
 sendOutObj conn cancelRef sid (OutObj hdrs body trailerMaker) = do
-  encoder <- readMVar (connHpackEncoder conn)
-  block <- encodeHeaderBlock defaultEncodeStrategy encoder (ciHeadersToRaw hdrs)
+  block <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder (ciHeadersToRaw hdrs)
   case body of
     OutBodyNone -> do
       Trailers tr <- trailerMaker Nothing
@@ -451,8 +451,8 @@ ciHeadersToRaw = map (\(k, v) -> (CI.original k, v))
 
 sendTrailerBlock :: Connection -> H2.StreamId -> [(ByteString, ByteString)] -> IO ()
 sendTrailerBlock conn sid hdrs = do
-  encoder <- readMVar (connHpackEncoder conn)
-  block <- encodeHeaderBlock defaultEncodeStrategy encoder hdrs
+  block <- withMVar (connHpackEncoder conn) $ \encoder ->
+    encodeHeaderBlock defaultEncodeStrategy encoder hdrs
   sendHeaders conn sid block True
 
 sendHeaders :: Connection -> H2.StreamId -> ByteString -> Bool -> IO ()

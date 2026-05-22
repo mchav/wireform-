@@ -10,7 +10,8 @@ TLS is covered separately because it needs cert fixtures.
 -}
 module Test.Http1Integration (tests) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -165,8 +166,11 @@ withTestServer range handler action = do
               , serverVersionRange = range
               , serverHandler = handler
               }
-        tid <- forkIO (runServerOnListener cfg listenSock)
-        threadDelay 10000  -- give the listener a tick to spin up
+        readyVar <- newEmptyMVar
+        tid <- forkIO $ do
+          putMVar readyVar ()
+          runServerOnListener cfg listenSock
+        takeMVar readyVar
         action portStr `finally` killThread tid
 
 runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a
