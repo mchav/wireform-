@@ -75,10 +75,10 @@ spec = describe "Parser" $ do
 
   describe "bytes matching" $ do
     it "matches exact bytes" $
-      ok (parseByteString (bytes "hello" :: P ()) "hello") ()
+      ok (parseByteString (byteString "hello" :: P ()) "hello") ()
 
     it "fails on mismatch" $
-      bad (parseByteString (bytes "hello" :: P ()) "hxllo")
+      bad (parseByteString (byteString "hello" :: P ()) "hxllo")
 
   describe "takeBs" $ do
     it "takes n bytes" $
@@ -101,10 +101,10 @@ spec = describe "Parser" $ do
 
   describe "UTF-8 characters" $ do
     it "parses ASCII char" $
-      ok (parseByteString (anyCharASCII :: P Char) "A") 'A'
+      ok (parseByteString (satisfyAscii (const True) :: P Char) "A") 'A'
 
-    it "fails on non-ASCII for anyCharASCII" $
-      bad (parseByteString (anyCharASCII :: P Char) "\xC3\xA9")
+    it "fails on non-ASCII for satisfyAscii" $
+      bad (parseByteString (satisfyAscii (const True) :: P Char) "\xC3\xA9")
 
     it "parses multi-byte UTF-8" $
       ok (parseByteString (anyChar :: P Char) "\xC3\xA9") '\x00E9'

@@ -1,8 +1,10 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Wireform.Parser.Driver
   ( runParser
@@ -21,10 +23,12 @@ import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (mallocBytes, free)
-import Foreign.Ptr (Ptr, plusPtr, minusPtr, castPtr)
+import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
 import Foreign.Storable (poke)
-import GHC.Exts (PromptTag#, newPromptTag#, prompt#, State#, RealWorld)
+import GHC.Exts
+import GHC.ForeignPtr (ForeignPtr (..))
 import GHC.IO (IO (..))
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Wireform.Parser.Error
 import Wireform.Parser.Internal
@@ -33,10 +37,6 @@ import Wireform.Transport
 
 data LoopControl = Continue | Stop
   deriving stock (Eq, Show)
-
-------------------------------------------------------------------------
--- Internal result
-------------------------------------------------------------------------
 
 data InternalResult e a
   = IRDone {-# UNPACK #-} !Word64 !a
@@ -76,13 +76,12 @@ runParserInternal t p startPos = mask \restore -> do
 
   currentHead <- transportLoadHead t
   let !curOffset = fromIntegral startPos .&. msk
-      !initCur   = base `plusPtr` curOffset
+      !(Ptr initCur#) = base `plusPtr` curOffset
       !endOffset = fromIntegral currentHead .&. msk
-      !initEnd   = base `plusPtr` endOffset
+      !(Ptr initEnd#) = base `plusPtr` endOffset
 
-  -- Allocate mutable end pointer on the C heap (one machine word)
   bracket (mallocBytes 8) free \endPtr -> do
-    poke (castPtr endPtr :: Ptr (Ptr Word8)) initEnd
+    poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr initEnd#)
 
     highWaterRef <- newIORef startPos
     tsRef <- newIORef TSOpen
@@ -92,26 +91,23 @@ runParserInternal t p startPos = mask \restore -> do
           , peBaseAddr = base
           , peMask     = msk
           , peStartPos = startPos
-          , peInitCur  = initCur
+          , peInitCur  = Ptr initCur#
           }
 
     step0 <- IO \s0 -> case newPromptTag# s0 of
       (# s1, (tag :: PromptTag# (Step e a)) #) ->
         let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-            body s = case unIO (unParser p tag env initCur) s of
-              (# s', res #) -> case res of
-                OK a newCur ->
-                  let !newPos = startPos + fromIntegral (newCur `minusPtr` initCur)
-                  in (# s', StepDone newPos a #)
-                Fail    -> (# s', StepFail startPos #)
-                Err e   -> (# s', StepErr startPos e #)
+            body s = case runParser# p tag env initEnd# initCur# s of
+              (# s', OK# a cur' #) ->
+                let !newPos = curToPos env cur'
+                in (# s', StepDone newPos a #)
+              (# s', Fail# #) ->
+                (# s', StepFail startPos #)
+              (# s', Err# e #) ->
+                (# s', StepErr startPos e #)
         in prompt# tag body s1
 
     driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
-
-unIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
-unIO (IO f) = f
-{-# INLINE unIO #-}
 
 driverLoop :: forall e a.
               (forall x. IO x -> IO x) -> Transport -> ParserEnv
@@ -126,8 +122,7 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
         transportAdvanceTail t newPos
         pure (IRDone newPos a)
 
-      StepErr pos e ->
-        pure (IRErr pos e)
+      StepErr pos e -> pure (IRErr pos e)
 
       StepFail pos -> do
         ts <- readIORef tsRef
@@ -160,17 +155,11 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
             writeEnd env newEnd
             nextStep <- resumeContinue resume newCur newEnd
             go nextStep
-
           WAEndOfInput -> do
             nextStep <- resumeEof resume
             go nextStep
-
           WATransportError exc ->
             pure (IRTransportError exc)
-
-------------------------------------------------------------------------
--- waitUntilAvailable
-------------------------------------------------------------------------
 
 data WaitAvail
   = WAMoreData {-# UNPACK #-} !Word64
@@ -188,13 +177,9 @@ waitUntilAvailable t tsRef pos needed _ringSize = loop
         else do
           r <- transportWaitData t pos
           case r of
-            MoreData _ -> loop
-            EndOfInput -> do
-              writeIORef tsRef TSClosedEof
-              pure WAEndOfInput
-            TransportError exc -> do
-              writeIORef tsRef (TSClosedErr exc)
-              pure (WATransportError exc)
+            MoreData _     -> loop
+            EndOfInput     -> do { writeIORef tsRef TSClosedEof; pure WAEndOfInput }
+            TransportError exc -> do { writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc) }
 
 ------------------------------------------------------------------------
 -- runParserLoop
@@ -211,60 +196,52 @@ runParserLoop t p k = do
       case r of
         IRDone newPos a -> do
           ctl <- k a
-          case ctl of
-            Continue -> loop newPos
-            Stop     -> pure (Right ())
-        IRCleanEof     -> pure (Right ())
-        IRFail fpos    -> pure (Left (ParseFail fpos))
-        IRErr fpos e   -> pure (Left (ParseErr fpos e))
+          case ctl of { Continue -> loop newPos; Stop -> pure (Right ()) }
+        IRCleanEof           -> pure (Right ())
+        IRFail fpos          -> pure (Left (ParseFail fpos))
+        IRErr fpos e         -> pure (Left (ParseErr fpos e))
         IRUnexpectedEof fpos n -> pure (Left (ParseUnexpectedEof fpos n))
-        IRTransportError exc   -> pure (Left (ParseTransportError exc))
+        IRTransportError exc -> pure (Left (ParseTransportError exc))
 
 ------------------------------------------------------------------------
--- parseByteString
+-- parseByteString (non-streaming, flatparse-equivalent)
 ------------------------------------------------------------------------
 
+-- | Run a parser against a whole 'ByteString'.
+-- The hot path is bit-identical to flatparse — no suspension overhead.
 parseByteString :: forall e a. Parser e a -> ByteString -> Either (ParseError e) a
-parseByteString p bs = BSI.accursedUnutterablePerformIO $ do
-  let (fptr, off, len) = BSI.toForeignPtr bs
-  withForeignPtr fptr \basePtr -> do
-    let !start = basePtr `plusPtr` off
-        !end   = start `plusPtr` len
+parseByteString p b = unsafeDupablePerformIO $ do
+  -- withForeignPtr keeps the ByteString's backing memory alive
+  let !(BSI.BS (ForeignPtr buf# fp) (I# len#)) = b
+      !end# = plusAddr# buf# len#
 
-    -- Stack-allocate the end pointer (well, malloc for safety, but it's tiny)
+  withForeignPtr (ForeignPtr buf# fp) \_ ->
     bracket (mallocBytes 8) free \endPtr -> do
-      poke (castPtr endPtr :: Ptr (Ptr Word8)) end
+      poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr end#)
 
       let env = ParserEnv
             { peEndPtr   = castPtr endPtr
-            , peBaseAddr = start
+            , peBaseAddr = Ptr buf#
             , peMask     = maxBound
             , peStartPos = 0
-            , peInitCur  = start
+            , peInitCur  = Ptr buf#
             }
 
-      step0 <- IO \s0 -> case newPromptTag# s0 of
+      IO \s0 -> case newPromptTag# s0 of
         (# s1, (tag :: PromptTag# (Step e a)) #) ->
           let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-              body s = case unIO (unParser p tag env start) s of
-                (# s', res #) -> case res of
-                  OK a newCur ->
-                    let !pos = fromIntegral (newCur `minusPtr` start)
-                    in (# s', StepDone pos a #)
-                  Fail    -> (# s', StepFail 0 #)
-                  Err e   -> (# s', StepErr 0 e #)
-
-          in prompt# tag body s1
-
-      let go step = case step of
-            StepDone _ a    -> pure (Right a)
-            StepFail pos    -> pure (Left (ParseFail pos))
-            StepErr pos e   -> pure (Left (ParseErr pos e))
-            StepSuspend _ _ resume -> do
-              nextStep <- resumeEof resume
-              go nextStep
-            StepCheckpoint _ resume -> do
-              nextStep <- resumeContinue resume start end
-              go nextStep
-
-      go step0
+              body s = case runParser# p tag env end# buf# s of
+                (# s', OK# a cur' #) ->
+                  let !pos = fromIntegral (I# (minusAddr# cur' buf#))
+                  in (# s', StepDone pos a #)
+                (# s', Fail# #) -> (# s', StepFail 0 #)
+                (# s', Err# e #) -> (# s', StepErr 0 e #)
+          in case prompt# tag body s1 of
+               (# s2, step #) -> unIO (classifyStep step) s2
+  where
+    classifyStep (StepDone _ a)       = pure (Right a)
+    classifyStep (StepFail pos)       = pure (Left (ParseFail pos))
+    classifyStep (StepErr pos e)      = pure (Left (ParseErr pos e))
+    classifyStep (StepSuspend _ _ r)  = resumeEof r >>= classifyStep
+    classifyStep (StepCheckpoint _ r) = resumeEof r >>= classifyStep
+    unIO (IO f) = f

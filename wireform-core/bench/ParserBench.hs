@@ -107,7 +107,7 @@ wfTagged n = do
 wfAsciiChars :: Int -> WP ()
 wfAsciiChars 0 = pure ()
 wfAsciiChars n = do
-  !_ <- W.satisfyASCII (\_ -> True)
+  !_ <- W.satisfyAscii (\_ -> True)
   wfAsciiChars (n - 1)
 {-# INLINE wfAsciiChars #-}
 

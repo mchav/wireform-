@@ -3,151 +3,86 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternSynonyms #-}
 
--- | Fast streaming parser with flatparse-grade performance.
---
--- The parser operates over a magic ring buffer and supports transparent
--- suspension when more data is needed.  The suspension mechanism uses
--- GHC's delimited continuation primops (@prompt#@ / @control0#@, GHC 9.6+).
---
--- = Entry points
---
--- * 'runParser' — parse once from a 'Transport' (streaming).
--- * 'runParserLoop' — parse repeatedly until EOF or callback stop.
--- * 'parseByteString' — parse a whole 'ByteString' (non-streaming, flatparse-equivalent).
---
--- = Combinators
---
--- The API is a near-complete port of @FlatParse.Basic@.  See the
--- individual combinators for streaming-specific differences.
+-- | Fast streaming parser with flatparse-grade inner-loop performance.
 module Wireform.Parser
   ( -- * Parser type
     Parser
 
     -- * Byte primitives
-  , anyWord8
-  , anyWord8_
-  , anyInt8
+  , anyWord8, anyWord8_
+  , anyWord16, anyWord32, anyWord64
+  , anyWord16le, anyWord32le, anyWord64le
+  , anyWord16be, anyWord32be, anyWord64be
+  , anyWord16_, anyWord32_, anyWord64_
+  , anyFloatle, anyFloatbe, anyDoublele, anyDoublebe
 
-    -- * Multi-byte (native endianness)
-  , anyWord16
-  , anyWord32
-  , anyWord64
-  , anyInt16
-  , anyInt32
-  , anyInt64
-
-    -- * Multi-byte (little-endian)
-  , anyWord16le
-  , anyWord32le
-  , anyWord64le
-  , anyInt16le
-  , anyInt32le
-  , anyInt64le
-
-    -- * Multi-byte (big-endian)
-  , anyWord16be
-  , anyWord32be
-  , anyWord64be
-  , anyInt16be
-  , anyInt32be
-  , anyInt64be
-
-    -- * Skip variants
-  , anyWord16_
-  , anyWord32_
-  , anyWord64_
-
-    -- * Floating-point
-  , anyFloatle, anyFloatbe
-  , anyDoublele, anyDoublebe
+    -- * CPS byte primitives (avoid intermediate boxing)
+  , withAnyWord8
+  , withAnyWord16, withAnyWord32, withAnyWord64
 
     -- * Byte matching
   , word8
-  , bytes
+  , byteString
 
     -- * ByteString operations
-  , takeBs
-  , takeRef
-  , skip
-  , takeRest
+  , takeBs, skip
 
     -- * UTF-8 characters
-  , anyChar
-  , anyChar_
-  , anyCharASCII
-  , anyCharASCII_
-  , satisfy
-  , satisfy_
-  , satisfyASCII
-  , satisfyASCII_
-  , char
+  , anyChar, anyChar_
+  , satisfyAscii, satisfyAscii_
+  , skipSatisfyAscii
 
     -- * Character classes
-  , isDigit
-  , isLatinLetter
+  , isDigit, isLatinLetter
 
     -- * ASCII numeric
-  , anyAsciiDecimalWord
-  , anyAsciiDecimalInt
+  , anyAsciiDecimalWord, anyAsciiDecimalInt
 
     -- * Control flow
-  , (<|>)
-  , empty
-  , branch
-  , lookahead
-  , fails
-  , try
-  , optional
-  , optional_
-  , many_
-  , some_
+  , (<|>), empty
+  , branch, lookahead, fails, try
+  , optional, optional_
+  , many_, some_
+  , skipMany, skipSome
+  , withOption
 
     -- * Error handling
-  , err
-  , cut
-  , cutting
+  , err, cut, cutting
 
     -- * Position and span
-  , Pos (..)
-  , Span (..)
-  , getPos
-  , withSpan
-  , byteStringOf
+  , Pos (..), Span (..)
+  , getPos, withSpan, byteStringOf, spanToByteString
 
     -- * Marks
-  , Mark
-  , mark
-  , restore
-  , release
+  , Mark, mark, restore, release
 
     -- * Low-level
-  , ensureN
-  , checkpoint
-
-    -- * EOF
-  , eof
+  , ensureN#, checkpoint, eof
 
     -- * Re-exports
   , module Wireform.Parser.Error
   ) where
 
-import Control.Monad (when)
-import Data.Bits ((.&.), shiftL, shiftR, xor)
-import qualified Data.Bits as Bits
+import Data.Bits ((.&.), shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, ord)
-import Data.IORef
 import Data.Word
-import Data.Int
-import Foreign.Ptr (Ptr, plusPtr, minusPtr, castPtr)
+import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
+import GHC.ForeignPtr (ForeignPtr (..))
 import Foreign.Storable (Storable (..))
-import GHC.Exts (PromptTag#)
+import GHC.Exts
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import GHC.IO (IO (..))
+import System.IO.Unsafe (unsafeDupablePerformIO)
+import GHC.Word (Word8 (..), Word16 (..), Word32 (..), Word64 (..))
+import GHC.Int (Int (..))
 
 import Wireform.Parser.Internal
 import Wireform.Parser.Error
@@ -155,158 +90,125 @@ import Wireform.Parser.Position
 import Wireform.Parser.Mark
 
 ------------------------------------------------------------------------
--- Helpers
+-- Internal: withEnsure# (bounds check then run continuation)
 ------------------------------------------------------------------------
 
--- | Read n bytes, ensuring they are available first.
--- After ensureN succeeds, the data at cur is guaranteed valid.
-withEnsure :: forall e a. Int -> (Ptr Word8 -> IO a) -> Parser e a
-withEnsure !n readFn = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= n
-    then do
-      !a <- readFn cur
-      pure (OK a (cur `plusPtr` n))
-    else do
-      r <- ensureNSlow tag env cur n
-      case r of
-        OK () newCur -> do
-          !a <- readFn newCur
-          pure (OK a (newCur `plusPtr` n))
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
-{-# INLINE withEnsure #-}
-
-withEnsure_ :: Int -> Parser e ()
-withEnsure_ !n = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= n
-    then pure (OK () (cur `plusPtr` n))
-    else do
-      r <- ensureNSlow tag env cur n
-      case r of
-        OK () newCur -> pure (OK () (newCur `plusPtr` n))
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
-{-# INLINE withEnsure_ #-}
+-- | Ensure @n#@ bytes available, then run the body.
+-- The body receives the current @s@ (which may have been updated
+-- by ensureNSlow on the slow path).
+withEnsure# :: Int# -> Parser e a -> Parser e a
+withEnsure# n# (Parser p) = Parser \tag env eob s st ->
+  case n# <=# minusAddr# eob s of
+    1# -> p tag env eob s st
+    _  -> case ensureNSlow tag env eob s n# st of
+            (# st', OK# _ s' #) -> case readEnd# env st' of
+              (# st'', eob' #) -> p tag env eob' s' st''
+            (# st', x #) -> (# st', unsafeCoerce# x #)
+{-# INLINE withEnsure# #-}
 
 ------------------------------------------------------------------------
--- Byte primitives
+-- CPS byte primitives (match flatparse's withAnyWord8 etc)
+------------------------------------------------------------------------
+
+-- | Read one byte and pass it to the continuation.  Most efficient
+-- form — avoids allocating an intermediate @Word8@ on the heap.
+withAnyWord8 :: (Word8 -> Parser e r) -> Parser e r
+withAnyWord8 p = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexWord8OffAddr# s 0# of
+            w# -> runParser# (p (W8# w#)) tag env eob (plusAddr# s 1#) st
+{-# INLINE withAnyWord8 #-}
+
+withAnyWord16 :: (Word16 -> Parser e r) -> Parser e r
+withAnyWord16 p = withEnsure# 2# $ Parser \tag env eob s st ->
+  case indexWord16OffAddr# s 0# of
+    w# -> runParser# (p (W16# w#)) tag env eob (plusAddr# s 2#) st
+{-# INLINE withAnyWord16 #-}
+
+withAnyWord32 :: (Word32 -> Parser e r) -> Parser e r
+withAnyWord32 p = withEnsure# 4# $ Parser \tag env eob s st ->
+  case indexWord32OffAddr# s 0# of
+    w# -> runParser# (p (W32# w#)) tag env eob (plusAddr# s 4#) st
+{-# INLINE withAnyWord32 #-}
+
+withAnyWord64 :: (Word64 -> Parser e r) -> Parser e r
+withAnyWord64 p = withEnsure# 8# $ Parser \tag env eob s st ->
+  case indexWord64OffAddr# s 0# of
+    w# -> runParser# (p (W64# w#)) tag env eob (plusAddr# s 8#) st
+{-# INLINE withAnyWord64 #-}
+
+------------------------------------------------------------------------
+-- Non-CPS byte primitives
 ------------------------------------------------------------------------
 
 anyWord8 :: Parser e Word8
-anyWord8 = withEnsure 1 peek
+anyWord8 = withAnyWord8 pure
 {-# INLINE anyWord8 #-}
 
 anyWord8_ :: Parser e ()
-anyWord8_ = withEnsure_ 1
+anyWord8_ = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> (# st, OK# () (plusAddr# s 1#) #)
 {-# INLINE anyWord8_ #-}
 
-anyInt8 :: Parser e Int8
-anyInt8 = withEnsure 1 (peek . castPtr)
-{-# INLINE anyInt8 #-}
-
-------------------------------------------------------------------------
--- Multi-byte, native endianness
-------------------------------------------------------------------------
-
 anyWord16 :: Parser e Word16
-anyWord16 = withEnsure 2 (peek . castPtr)
+anyWord16 = withAnyWord16 pure
 {-# INLINE anyWord16 #-}
 
 anyWord32 :: Parser e Word32
-anyWord32 = withEnsure 4 (peek . castPtr)
+anyWord32 = withAnyWord32 pure
 {-# INLINE anyWord32 #-}
 
 anyWord64 :: Parser e Word64
-anyWord64 = withEnsure 8 (peek . castPtr)
+anyWord64 = withAnyWord64 pure
 {-# INLINE anyWord64 #-}
 
-anyInt16 :: Parser e Int16
-anyInt16 = withEnsure 2 (peek . castPtr)
-{-# INLINE anyInt16 #-}
-
-anyInt32 :: Parser e Int32
-anyInt32 = withEnsure 4 (peek . castPtr)
-{-# INLINE anyInt32 #-}
-
-anyInt64 :: Parser e Int64
-anyInt64 = withEnsure 8 (peek . castPtr)
-{-# INLINE anyInt64 #-}
-
-------------------------------------------------------------------------
--- Little-endian
-------------------------------------------------------------------------
-
-anyWord16le :: Parser e Word16
-anyWord16le = withEnsure 2 \p -> fromLE16 <$> peek (castPtr p)
-{-# INLINE anyWord16le #-}
-
-anyWord32le :: Parser e Word32
-anyWord32le = withEnsure 4 \p -> fromLE32 <$> peek (castPtr p)
-{-# INLINE anyWord32le #-}
-
-anyWord64le :: Parser e Word64
-anyWord64le = withEnsure 8 \p -> fromLE64 <$> peek (castPtr p)
-{-# INLINE anyWord64le #-}
-
-anyInt16le :: Parser e Int16
-anyInt16le = fromIntegral <$> anyWord16le
-{-# INLINE anyInt16le #-}
-
-anyInt32le :: Parser e Int32
-anyInt32le = fromIntegral <$> anyWord32le
-{-# INLINE anyInt32le #-}
-
-anyInt64le :: Parser e Int64
-anyInt64le = fromIntegral <$> anyWord64le
-{-# INLINE anyInt64le #-}
-
-------------------------------------------------------------------------
--- Big-endian
-------------------------------------------------------------------------
-
-anyWord16be :: Parser e Word16
-anyWord16be = withEnsure 2 \p -> fromBE16 <$> peek (castPtr p)
-{-# INLINE anyWord16be #-}
-
-anyWord32be :: Parser e Word32
-anyWord32be = withEnsure 4 \p -> fromBE32 <$> peek (castPtr p)
-{-# INLINE anyWord32be #-}
-
-anyWord64be :: Parser e Word64
-anyWord64be = withEnsure 8 \p -> fromBE64 <$> peek (castPtr p)
-{-# INLINE anyWord64be #-}
-
-anyInt16be :: Parser e Int16
-anyInt16be = fromIntegral <$> anyWord16be
-{-# INLINE anyInt16be #-}
-
-anyInt32be :: Parser e Int32
-anyInt32be = fromIntegral <$> anyWord32be
-{-# INLINE anyInt32be #-}
-
-anyInt64be :: Parser e Int64
-anyInt64be = fromIntegral <$> anyWord64be
-{-# INLINE anyInt64be #-}
-
-------------------------------------------------------------------------
 -- Skip variants
-------------------------------------------------------------------------
-
 anyWord16_ :: Parser e ()
-anyWord16_ = withEnsure_ 2
+anyWord16_ = withEnsure# 2# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 2#) #)
 {-# INLINE anyWord16_ #-}
 
 anyWord32_ :: Parser e ()
-anyWord32_ = withEnsure_ 4
+anyWord32_ = withEnsure# 4# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 4#) #)
 {-# INLINE anyWord32_ #-}
 
 anyWord64_ :: Parser e ()
-anyWord64_ = withEnsure_ 8
+anyWord64_ = withEnsure# 8# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 8#) #)
 {-# INLINE anyWord64_ #-}
+
+------------------------------------------------------------------------
+-- Endianness variants
+------------------------------------------------------------------------
+
+#if defined(WORDS_BIGENDIAN)
+anyWord16le = withAnyWord16 (pure . byteSwap16)
+anyWord32le = withAnyWord32 (pure . byteSwap32)
+anyWord64le = withAnyWord64 (pure . byteSwap64)
+anyWord16be = anyWord16
+anyWord32be = anyWord32
+anyWord64be = anyWord64
+#else
+anyWord16le :: Parser e Word16
+anyWord16le = anyWord16
+{-# INLINE anyWord16le #-}
+anyWord32le :: Parser e Word32
+anyWord32le = anyWord32
+{-# INLINE anyWord32le #-}
+anyWord64le :: Parser e Word64
+anyWord64le = anyWord64
+{-# INLINE anyWord64le #-}
+anyWord16be :: Parser e Word16
+anyWord16be = withAnyWord16 (pure . byteSwap16)
+{-# INLINE anyWord16be #-}
+anyWord32be :: Parser e Word32
+anyWord32be = withAnyWord32 (pure . byteSwap32)
+{-# INLINE anyWord32be #-}
+anyWord64be :: Parser e Word64
+anyWord64be = withAnyWord64 (pure . byteSwap64)
+{-# INLINE anyWord64be #-}
+#endif
 
 ------------------------------------------------------------------------
 -- Floating-point
@@ -315,15 +217,12 @@ anyWord64_ = withEnsure_ 8
 anyFloatle :: Parser e Float
 anyFloatle = castWord32ToFloat <$> anyWord32le
 {-# INLINE anyFloatle #-}
-
 anyFloatbe :: Parser e Float
 anyFloatbe = castWord32ToFloat <$> anyWord32be
 {-# INLINE anyFloatbe #-}
-
 anyDoublele :: Parser e Double
 anyDoublele = castWord64ToDouble <$> anyWord64le
 {-# INLINE anyDoublele #-}
-
 anyDoublebe :: Parser e Double
 anyDoublebe = castWord64ToDouble <$> anyWord64be
 {-# INLINE anyDoublebe #-}
@@ -332,235 +231,128 @@ anyDoublebe = castWord64ToDouble <$> anyWord64be
 -- Byte matching
 ------------------------------------------------------------------------
 
--- | Match a specific byte; fail if mismatch.
 word8 :: Word8 -> Parser e ()
-word8 !expected = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= 1
-    then do
-      !w <- peek cur
-      if w == expected
-        then pure (OK () (cur `plusPtr` 1))
-        else pure Fail
-    else do
-      r <- ensureNSlow tag env cur 1
-      case r of
-        OK () newCur -> do
-          !w <- peek newCur
-          if w == expected
-            then pure (OK () (newCur `plusPtr` 1))
-            else pure Fail
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
+word8 (W8# expected) = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case eqWord8# (indexWord8OffAddr# s 0#) expected of
+            1# -> (# st, OK# () (plusAddr# s 1#) #)
+            _  -> (# st, Fail# #)
 {-# INLINE word8 #-}
 
--- | Match a literal byte sequence; fail on mismatch.
-bytes :: ByteString -> Parser e ()
-bytes !bs = Parser \tag env cur -> do
-  let !len = BS.length bs
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= len
-    then matchBytes bs cur len
-    else do
-      r <- ensureNSlow tag env cur len
-      case r of
-        OK () newCur -> matchBytes bs newCur len
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
-{-# INLINE bytes #-}
+-- | Match a literal 'ByteString'.  Uses word-at-a-time comparison.
+byteString :: ByteString -> Parser e ()
+byteString bs = Parser \tag env eob s st ->
+  let !(BSI.BS bsfp len@(I# len#)) = bs
+  in case len# <=# minusAddr# eob s of
+       1# -> case memcmpAddr# s (bsAddr# bs) len# of
+               0# -> (# st, OK# () (plusAddr# s len#) #)
+               _  -> (# st, Fail# #)
+       _ -> case ensureNSlow tag env eob s len# st of
+              (# st', OK# _ s' #) -> case readEnd# env st' of
+                (# st'', eob' #) ->
+                  case memcmpAddr# s' (bsAddr# bs) len# of
+                    0# -> (# st'', OK# () (plusAddr# s' len#) #)
+                    _  -> (# st'', Fail# #)
+              (# st', x #) -> (# st', unsafeCoerce# x #)
+{-# INLINE byteString #-}
 
-matchBytes :: ByteString -> Ptr Word8 -> Int -> IO (Res e ())
-matchBytes bs ptr len =
-  BSU.unsafeUseAsCStringLen bs \(bsPtr, _) -> do
-    eq <- BSI.memcmp (castPtr ptr) (castPtr bsPtr) len
-    if eq == 0
-      then pure (OK () (ptr `plusPtr` len))
-      else pure Fail
+bsAddr# :: ByteString -> Addr#
+bsAddr# (BSI.BS (ForeignPtr addr _) _) = addr
+{-# INLINE bsAddr# #-}
+
+memcmpAddr# :: Addr# -> Addr# -> Int# -> Int#
+memcmpAddr# a b n = case unsafeDupablePerformIO (c_memcmp (Ptr a) (Ptr b) (fromIntegral (I# n))) of
+  r -> if r == 0 then 0# else 1#
+{-# INLINE memcmpAddr# #-}
+
+foreign import ccall unsafe "memcmp"
+  c_memcmp :: Ptr Word8 -> Ptr Word8 -> Int -> IO Int
 
 ------------------------------------------------------------------------
 -- ByteString operations
 ------------------------------------------------------------------------
 
--- | Consume @n@ bytes and return a copy.
+-- | Take @n@ bytes, copying out of the ring.
 takeBs :: Int -> Parser e ByteString
-takeBs !n = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= n
-    then do
-      bs <- copyFromRing cur n
-      pure (OK bs (cur `plusPtr` n))
-    else do
-      r <- ensureNSlow tag env cur n
-      case r of
-        OK () newCur -> do
-          bs <- copyFromRing newCur n
-          pure (OK bs (newCur `plusPtr` n))
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
+takeBs (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+  let !bs = unsafeDupablePerformIO (BSI.create (I# n#) \dst -> BSI.memcpy dst (Ptr s) (I# n#))
+  in (# st, OK# bs (plusAddr# s n#) #)
 {-# INLINE takeBs #-}
 
--- | Zero-copy reference into the ring.  Caller must consume before
--- the tail advances past these bytes.
-takeRef :: Int -> Parser e (Ptr Word8, Int)
-takeRef !n = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= n
-    then pure (OK (cur, n) (cur `plusPtr` n))
-    else do
-      r <- ensureNSlow tag env cur n
-      case r of
-        OK () newCur -> pure (OK (newCur, n) (newCur `plusPtr` n))
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
-{-# INLINE takeRef #-}
-
--- | Skip @n@ bytes without copying.
 skip :: Int -> Parser e ()
-skip !n = withEnsure_ n
+skip (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+  (# st, OK# () (plusAddr# s n#) #)
 {-# INLINE skip #-}
 
--- | Consume all remaining bytes (copies).
--- Only meaningful in non-streaming mode or after framing.
-takeRest :: Parser e ByteString
-takeRest = Parser \tag env cur -> do
-  end <- readEnd env
-  let !len = end `minusPtr` cur
-  if len <= 0
-    then pure (OK BS.empty cur)
-    else do
-      bs <- copyFromRing cur len
-      pure (OK bs (cur `plusPtr` len))
-
-copyFromRing :: Ptr Word8 -> Int -> IO ByteString
-copyFromRing src len = BSI.create len \dst -> BSI.memcpy dst src len
-
 ------------------------------------------------------------------------
--- UTF-8 character primitives
+-- UTF-8 / ASCII
 ------------------------------------------------------------------------
 
+-- | Parse any UTF-8 character.
 anyChar :: Parser e Char
-anyChar = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= 1
-    then decodeUtf8 tag env cur end avail
-    else do
-      r <- ensureNSlow tag env cur 1
-      case r of
-        OK () newCur -> do
-          end' <- readEnd env
-          let !avail' = end' `minusPtr` newCur
-          decodeUtf8 tag env newCur end' avail'
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
+anyChar = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexWord8OffAddr# s 0# of
+      c1 -> case leWord8# c1 (wordToWord8# 0x7F##) of
+        1# -> (# st, OK# (C# (chr# (word2Int# (word8ToWord# c1)))) (plusAddr# s 1#) #)
+        _  -> case leWord8# c1 (wordToWord8# 0xBF##) of
+          1# -> (# st, Fail# #)
+          _  -> case leWord8# c1 (wordToWord8# 0xDF##) of
+            1# -> case 2# <=# minusAddr# eob s of
+              1# -> case indexWord8OffAddr# s 1# of
+                c2 ->
+                  let !cp = ((word2Int# (word8ToWord# c1) -# 0xC0#) `uncheckedIShiftL#` 6#)
+                        +# (word2Int# (word8ToWord# c2) -# 0x80#)
+                  in (# st, OK# (C# (chr# cp)) (plusAddr# s 2#) #)
+              _ -> (# st, Fail# #)
+            _  -> case leWord8# c1 (wordToWord8# 0xEF##) of
+              1# -> case 3# <=# minusAddr# eob s of
+                1# -> case indexWord8OffAddr# s 1# of { c2 ->
+                       case indexWord8OffAddr# s 2# of { c3 ->
+                  let !cp = ((word2Int# (word8ToWord# c1) -# 0xE0#) `uncheckedIShiftL#` 12#)
+                        +# ((word2Int# (word8ToWord# c2) -# 0x80#) `uncheckedIShiftL#` 6#)
+                        +# (word2Int# (word8ToWord# c3) -# 0x80#)
+                  in (# st, OK# (C# (chr# cp)) (plusAddr# s 3#) #)
+                  }}
+                _ -> (# st, Fail# #)
+              _  -> case 4# <=# minusAddr# eob s of
+                1# -> case indexWord8OffAddr# s 1# of { c2 ->
+                       case indexWord8OffAddr# s 2# of { c3 ->
+                       case indexWord8OffAddr# s 3# of { c4 ->
+                  let !cp = ((word2Int# (word8ToWord# c1) -# 0xF0#) `uncheckedIShiftL#` 18#)
+                        +# ((word2Int# (word8ToWord# c2) -# 0x80#) `uncheckedIShiftL#` 12#)
+                        +# ((word2Int# (word8ToWord# c3) -# 0x80#) `uncheckedIShiftL#` 6#)
+                        +# (word2Int# (word8ToWord# c4) -# 0x80#)
+                  in (# st, OK# (C# (chr# cp)) (plusAddr# s 4#) #)
+                  }}}
+                _ -> (# st, Fail# #)
 {-# INLINE anyChar #-}
 
-decodeUtf8 :: forall e r. PromptTag# (Step e r)
-           -> ParserEnv -> Ptr Word8 -> Ptr Word8 -> Int -> IO (Res e Char)
-decodeUtf8 tag env cur end avail = do
-  (b0 :: Word8) <- peek cur
-  if b0 < 0x80
-    then pure (OK (chr (fromIntegral b0)) (cur `plusPtr` 1))
-    else if b0 < 0xC0
-      then pure Fail
-      else if b0 < 0xE0
-        then do
-          ensure2 tag env cur 2 \p -> do
-            (b1 :: Word8) <- peek (p `plusPtr` 1)
-            let !c = ((fromIntegral b0 .&. 0x1F) `shiftL` 6)
-                   + (fromIntegral b1 .&. 0x3F) :: Int
-            pure (OK (chr c) (p `plusPtr` 2))
-        else if b0 < 0xF0
-          then do
-            ensure2 tag env cur 3 \p -> do
-              (b1 :: Word8) <- peek (p `plusPtr` 1)
-              (b2 :: Word8) <- peek (p `plusPtr` 2)
-              let !c = ((fromIntegral b0 .&. 0x0F) `shiftL` 12)
-                     + ((fromIntegral b1 .&. 0x3F) `shiftL` 6)
-                     + (fromIntegral b2 .&. 0x3F) :: Int
-              pure (OK (chr c) (p `plusPtr` 3))
-          else do
-            ensure2 tag env cur 4 \p -> do
-              (b1 :: Word8) <- peek (p `plusPtr` 1)
-              (b2 :: Word8) <- peek (p `plusPtr` 2)
-              (b3 :: Word8) <- peek (p `plusPtr` 3)
-              let !c = ((fromIntegral b0 .&. 0x07) `shiftL` 18)
-                     + ((fromIntegral b1 .&. 0x3F) `shiftL` 12)
-                     + ((fromIntegral b2 .&. 0x3F) `shiftL` 6)
-                     + (fromIntegral b3 .&. 0x3F) :: Int
-              pure (OK (chr c) (p `plusPtr` 4))
-  where
-    ensure2 :: PromptTag# (Step e r) -> ParserEnv -> Ptr Word8 -> Int
-            -> (Ptr Word8 -> IO (Res e Char)) -> IO (Res e Char)
-    ensure2 t e c n cont
-      | avail >= n = cont c
-      | otherwise  = do
-          r <- ensureNSlow t e c n
-          case r of
-            OK () newCur -> cont newCur
-            Fail  -> pure Fail
-            Err err' -> pure (Err err')
-    {-# INLINE ensure2 #-}
-
 anyChar_ :: Parser e ()
-anyChar_ = anyChar *> pure ()
+anyChar_ = () <$ anyChar
 {-# INLINE anyChar_ #-}
 
-anyCharASCII :: Parser e Char
-anyCharASCII = Parser \tag env cur -> do
-  end <- readEnd env
-  let !avail = end `minusPtr` cur
-  if avail >= 1
-    then do
-      !b <- peek cur
-      if b < 0x80
-        then pure (OK (chr (fromIntegral b)) (cur `plusPtr` 1))
-        else pure Fail
-    else do
-      r <- ensureNSlow tag env cur 1
-      case r of
-        OK () newCur -> do
-          !b <- peek newCur
-          if b < 0x80
-            then pure (OK (chr (fromIntegral b)) (newCur `plusPtr` 1))
-            else pure Fail
-        Fail  -> pure Fail
-        Err e -> pure (Err e)
-{-# INLINE anyCharASCII #-}
+-- | Parse an ASCII character matching a predicate.
+satisfyAscii :: (Char -> Bool) -> Parser e Char
+satisfyAscii f = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexWord8OffAddr# s 0# of
+      c -> case leWord8# c (wordToWord8# 0x7F##) of
+        1# -> let !ch = C# (chr# (word2Int# (word8ToWord# c)))
+              in if f ch then (# st, OK# ch (plusAddr# s 1#) #) else (# st, Fail# #)
+        _  -> (# st, Fail# #)
+{-# INLINE satisfyAscii #-}
 
-anyCharASCII_ :: Parser e ()
-anyCharASCII_ = anyCharASCII *> pure ()
-{-# INLINE anyCharASCII_ #-}
+satisfyAscii_ :: (Char -> Bool) -> Parser e ()
+satisfyAscii_ f = () <$ satisfyAscii f
+{-# INLINE satisfyAscii_ #-}
 
-satisfy :: (Char -> Bool) -> Parser e Char
-satisfy f = do
-  c <- anyChar
-  if f c then pure c else Parser \tag env cur -> pure Fail
-{-# INLINE satisfy #-}
-
-satisfy_ :: (Char -> Bool) -> Parser e ()
-satisfy_ f = satisfy f *> pure ()
-{-# INLINE satisfy_ #-}
-
-satisfyASCII :: (Char -> Bool) -> Parser e Char
-satisfyASCII f = do
-  c <- anyCharASCII
-  if f c then pure c else Parser \tag env cur -> pure Fail
-{-# INLINE satisfyASCII #-}
-
-satisfyASCII_ :: (Char -> Bool) -> Parser e ()
-satisfyASCII_ f = satisfyASCII f *> pure ()
-{-# INLINE satisfyASCII_ #-}
-
-char :: Char -> Parser e ()
-char c
-  | ord c < 0x80 = word8 (fromIntegral (ord c))
-  | otherwise     = satisfy_ (== c)
-{-# INLINE char #-}
+skipSatisfyAscii :: (Char -> Bool) -> Parser e ()
+skipSatisfyAscii = satisfyAscii_
+{-# INLINE skipSatisfyAscii #-}
 
 ------------------------------------------------------------------------
 -- Character classes
@@ -579,84 +371,82 @@ isLatinLetter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 ------------------------------------------------------------------------
 
 anyAsciiDecimalWord :: Parser e Word
-anyAsciiDecimalWord = do
-  !d0 <- satisfyASCII isDigit
-  go (fromIntegral (ord d0 - ord '0'))
-  where
-    go !acc = Parser \tag env cur -> do
-      end <- readEnd env
-      if cur `minusPtr` end >= 0
-        then pure (OK acc cur)
-        else do
-          !b <- peek cur
-          if b >= 0x30 && b <= 0x39
-            then unParser (go (acc * 10 + fromIntegral (b - 0x30))) tag env (cur `plusPtr` 1)
-            else pure (OK acc cur)
+anyAsciiDecimalWord = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexWord8OffAddr# s 0# of
+      c -> case leWord8# (wordToWord8# 0x30##) c of
+        0# -> (# st, Fail# #)
+        _  -> case leWord8# c (wordToWord8# 0x39##) of
+          0# -> (# st, Fail# #)
+          _  -> let !d0 = W# (word8ToWord# c) - 0x30
+                in goDecWord eob (plusAddr# s 1#) st d0
 {-# INLINE anyAsciiDecimalWord #-}
+
+goDecWord :: Addr# -> Addr# -> State# RealWorld -> Word -> StRes# e Word
+goDecWord eob s st !acc =
+  case eqAddr# eob s of
+    1# -> (# st, OK# acc s #)
+    _  -> case indexWord8OffAddr# s 0# of
+      c -> case leWord8# (wordToWord8# 0x30##) c of
+        0# -> (# st, OK# acc s #)
+        _  -> case leWord8# c (wordToWord8# 0x39##) of
+          0# -> (# st, OK# acc s #)
+          _  -> goDecWord eob (plusAddr# s 1#) st
+                  (acc * 10 + (W# (word8ToWord# c) - 0x30))
+{-# NOINLINE goDecWord #-}
 
 anyAsciiDecimalInt :: Parser e Int
 anyAsciiDecimalInt = fromIntegral <$> anyAsciiDecimalWord
 {-# INLINE anyAsciiDecimalInt #-}
 
 ------------------------------------------------------------------------
--- Control flow combinators
+-- Control flow
 ------------------------------------------------------------------------
 
 empty :: Parser e a
-empty = Parser \tag env cur -> pure Fail
+empty = Parser \tag env eob s st -> (# st, Fail# #)
 {-# INLINE empty #-}
 
-infixr 3 <|>
+infixr 6 <|>
 
--- | Try the left parser; if it fails (Fail, not Err), restore position
--- and try the right parser.
 (<|>) :: Parser e a -> Parser e a -> Parser e a
-Parser p <|> Parser q = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK a cur' -> pure (OK a cur')
-    Fail      -> q tag env cur  -- restore to original cur
-    Err e     -> pure (Err e)
-{-# INLINE (<|>) #-}
+(<|>) (Parser f) (Parser g) = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', Fail# #) -> g tag env eob s st'
+    x                -> x
+{-# INLINE[1] (<|>) #-}
 
--- | @branch p t f@: if @p@ succeeds, run @t@; else run @f@.
+{-# RULES "wireform/reassoc-alt" forall l m r. (l <|> m) <|> r = l <|> (m <|> r) #-}
+
 branch :: Parser e a -> Parser e b -> Parser e b -> Parser e b
-branch p t f = Parser \tag env cur -> do
-  r <- unParser p tag env cur
-  case r of
-    OK _ cur' -> unParser t tag env cur'
-    Fail      -> unParser f tag env cur
-    Err e     -> pure (Err e)
+branch (Parser p) (Parser t) (Parser f) = Parser \tag env eob s st ->
+  case p tag env eob s st of
+    (# st', OK# _ s' #) -> t tag env eob s' st'
+    (# st', Fail# #)    -> f tag env eob s st'
+    (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE branch #-}
 
--- | Lookahead: run without consuming on success.
 lookahead :: Parser e a -> Parser e a
-lookahead (Parser p) = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK a _cur' -> pure (OK a cur)  -- restore cur
-    Fail       -> pure Fail
-    Err e      -> pure (Err e)
+lookahead (Parser f) = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', OK# a _ #) -> (# st', OK# a s #)
+    x                   -> x
 {-# INLINE lookahead #-}
 
--- | Negative lookahead: succeed iff @p@ fails.
 fails :: Parser e a -> Parser e ()
-fails (Parser p) = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK _ _  -> pure Fail
-    Fail    -> pure (OK () cur)
-    Err e   -> pure (Err e)
+fails (Parser f) = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', OK# _ _ #) -> (# st', Fail# #)
+    (# st', Fail# #)   -> (# st', OK# () s #)
+    (# st', x #)       -> (# st', unsafeCoerce# x #)
 {-# INLINE fails #-}
 
--- | On Err, convert to Fail (re-allow backtracking).
 try :: Parser e a -> Parser e a
-try (Parser p) = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK a c -> pure (OK a c)
-    Fail   -> pure Fail
-    Err _  -> pure Fail
+try (Parser f) = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', Err# _ #) -> (# st', Fail# #)
+    x                  -> x
 {-# INLINE try #-}
 
 optional :: Parser e a -> Parser e (Maybe a)
@@ -664,105 +454,67 @@ optional p = (Just <$> p) <|> pure Nothing
 {-# INLINE optional #-}
 
 optional_ :: Parser e a -> Parser e ()
-optional_ p = (p *> pure ()) <|> pure ()
+optional_ p = (() <$ p) <|> pure ()
 {-# INLINE optional_ #-}
 
--- | Skip-many: run @p@ repeatedly until failure, discarding results.
+withOption :: Parser e a -> (a -> Parser e b) -> Parser e b -> Parser e b
+withOption (Parser p) just (Parser nothing) = Parser \tag env eob s st ->
+  case p tag env eob s st of
+    (# st', OK# a s' #) -> runParser# (just a) tag env eob s' st'
+    (# st', Fail# #)    -> nothing tag env eob s st'
+    (# st', x #)        -> (# st', unsafeCoerce# x #)
+{-# INLINE withOption #-}
+
 many_ :: Parser e a -> Parser e ()
-many_ p = go
-  where
-    go = (p *> go) <|> pure ()
+many_ (Parser f) = Parser go where
+  go tag env eob s st = case f tag env eob s st of
+    (# st', OK# _ s' #) -> go tag env eob s' st'
+    (# st', Fail# #)    -> (# st', OK# () s #)
+    (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE many_ #-}
 
--- | Some: run @p@ at least once, then skip the rest.
 some_ :: Parser e a -> Parser e ()
 some_ p = p *> many_ p
 {-# INLINE some_ #-}
+
+skipMany :: Parser e a -> Parser e ()
+skipMany = many_
+{-# INLINE skipMany #-}
+
+skipSome :: Parser e a -> Parser e ()
+skipSome = some_
+{-# INLINE skipSome #-}
 
 ------------------------------------------------------------------------
 -- Error handling
 ------------------------------------------------------------------------
 
--- | Throw an unrecoverable error. Bypasses @\<|\>@ backtracking.
 err :: e -> Parser e a
-err e = Parser \tag env cur -> pure (Err e)
+err e = Parser \tag env eob s st -> (# st, Err# e #)
 {-# INLINE err #-}
 
--- | If the inner parser fails with Fail, convert to Err with the given error.
 cut :: Parser e a -> e -> Parser e a
-cut (Parser p) e = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK a c -> pure (OK a c)
-    Fail   -> pure (Err e)
-    Err e' -> pure (Err e')
+cut (Parser f) e = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', Fail# #) -> (# st', Err# e #)
+    x                -> x
 {-# INLINE cut #-}
 
--- | Like 'cut' but with a merge function for combining errors.
 cutting :: Parser e a -> e -> (e -> e -> e) -> Parser e a
-cutting (Parser p) e merge = Parser \tag env cur -> do
-  r <- p tag env cur
-  case r of
-    OK a c  -> pure (OK a c)
-    Fail    -> pure (Err e)
-    Err e'  -> pure (Err (merge e' e))
+cutting (Parser f) e merge = Parser \tag env eob s st ->
+  case f tag env eob s st of
+    (# st', Fail# #)  -> (# st', Err# e #)
+    (# st', Err# e' #) -> (# st', Err# (merge e' e) #)
+    x                   -> x
 {-# INLINE cutting #-}
 
 ------------------------------------------------------------------------
 -- EOF
 ------------------------------------------------------------------------
 
--- | Succeed iff at end of input.
--- In streaming mode, this may suspend to determine whether more data
--- is coming.  If the transport has reported EOF and cur == end,
--- this succeeds.  Otherwise fails.
 eof :: Parser e ()
-eof = Parser \tag env cur -> do
-  end <- readEnd env
-  if cur `minusPtr` end < 0
-    then pure Fail  -- there's data remaining
-    else do
-      r <- ensureNSlow tag env cur 1
-      case r of
-        OK () _newCur -> pure Fail  -- data arrived, not at EOF
-        Fail          -> pure (OK () cur)  -- genuine EOF
-        Err e         -> pure (Err e)
+eof = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, OK# () s #)
+    _  -> (# st, Fail# #)
 {-# INLINE eof #-}
-
-------------------------------------------------------------------------
--- Byte-order helpers (compile to bswap or noop on x86_64)
-------------------------------------------------------------------------
-
-#if defined(WORDS_BIGENDIAN)
-fromLE16 :: Word16 -> Word16
-fromLE16 = byteSwap16
-fromLE32 :: Word32 -> Word32
-fromLE32 = byteSwap32
-fromLE64 :: Word64 -> Word64
-fromLE64 = byteSwap64
-fromBE16 :: Word16 -> Word16
-fromBE16 = id
-fromBE32 :: Word32 -> Word32
-fromBE32 = id
-fromBE64 :: Word64 -> Word64
-fromBE64 = id
-#else
-fromLE16 :: Word16 -> Word16
-fromLE16 = id
-{-# INLINE fromLE16 #-}
-fromLE32 :: Word32 -> Word32
-fromLE32 = id
-{-# INLINE fromLE32 #-}
-fromLE64 :: Word64 -> Word64
-fromLE64 = id
-{-# INLINE fromLE64 #-}
-fromBE16 :: Word16 -> Word16
-fromBE16 = byteSwap16
-{-# INLINE fromBE16 #-}
-fromBE32 :: Word32 -> Word32
-fromBE32 = byteSwap32
-{-# INLINE fromBE32 #-}
-fromBE64 :: Word64 -> Word64
-fromBE64 = byteSwap64
-{-# INLINE fromBE64 #-}
-#endif

@@ -1,38 +1,36 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Wireform.Parser.Mark
   ( Mark (..)
-  , mark
-  , restore
-  , release
+  , mark, restore, release
   ) where
 
 import Data.Bits ((.&.))
 import Data.Word (Word64)
-import Foreign.Ptr (plusPtr)
+import Foreign.Ptr (Ptr (..), plusPtr)
+import GHC.Exts
 
 import Wireform.Parser.Internal
 
--- | A saved position in the byte stream.
--- Marks survive suspensions trivially — they're just absolute positions.
 newtype Mark = Mark { unMark :: Word64 }
   deriving stock (Eq, Ord, Show)
 
--- | Save the current position as a mark.
 mark :: Parser e Mark
-mark = Parser \tag env cur ->
-  pure (OK (Mark (curToPos env cur)) cur)
+mark = Parser \tag env eob s st ->
+  (# st, OK# (Mark (curToPos env s)) s #)
 {-# INLINE mark #-}
 
--- | Restore the parser to a previously-saved mark.
 restore :: Mark -> Parser e ()
-restore (Mark pos) = Parser \tag env _cur -> do
+restore (Mark pos) = Parser \tag env eob s st ->
   let !offset = fromIntegral pos .&. peMask env
-      !newCur = peBaseAddr env `plusPtr` offset
-  pure (OK () newCur)
+      !(Ptr newCur) = peBaseAddr env `plusPtr` offset
+  in (# st, OK# () newCur #)
 {-# INLINE restore #-}
 
--- | Release a mark.  Currently a no-op at the parser level.
 release :: Mark -> Parser e ()
-release _ = Parser \tag _ cur -> pure (OK () cur)
+release _ = Parser \tag env eob s st -> (# st, OK# () s #)
 {-# INLINE release #-}
