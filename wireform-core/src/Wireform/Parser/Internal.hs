@@ -61,6 +61,8 @@ module Wireform.Parser.Internal
   , writeEnd
   ) where
 
+import Control.Applicative (Alternative (..))
+import Control.Monad (MonadPlus)
 import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr, plusPtr, minusPtr)
@@ -287,6 +289,17 @@ instance Monad (Parser m e) where
 instance MonadFail (Parser m e) where
   fail _ = Parser \env eob s st -> (# st, Fail# #)
   {-# INLINE fail #-}
+
+instance ParserMode m => Alternative (Parser m e) where
+  empty = Parser \env eob s st -> (# st, Fail# #)
+  {-# INLINE empty #-}
+  (Parser f) <|> (Parser g) = Parser \env eob s st ->
+    case f env eob s st of
+      (# st', Fail# #) -> g env eob s st'
+      x                -> x
+  {-# INLINE (<|>) #-}
+
+instance ParserMode m => MonadPlus (Parser m e)
 
 ------------------------------------------------------------------------
 -- ensureN#: bounds check + suspension

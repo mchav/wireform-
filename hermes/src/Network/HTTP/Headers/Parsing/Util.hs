@@ -1,16 +1,30 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Network.HTTP.Headers.Parsing.Util
   ( module Network.HTTP.Headers.Parsing.Util
-  , module FlatParse.Basic
+  , module Wireform.Parser
+  , module Wireform.Parser.Position
+  , module Wireform.Parser.Switch
+  , ParserT
+  , runParser
+  , Result (..)
+  , failed
+  , takeRestString
   ) where
 
 import Control.Applicative (asum)
-import Control.Monad.Combinators hiding (skipMany, skipSome, some, many, (<|>), optional)
+import Control.Monad.Combinators hiding (skipMany, skipSome, some, many, (<|>), optional, empty)
 import qualified Control.Monad.Combinators.NonEmpty as NE
 import Data.ByteArray.Encoding
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString.Short (ShortByteString, toShort)
 import Data.Char
 import Data.CharSet (CharSet)
@@ -25,10 +39,69 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.Short as ST
 import qualified Data.Text.Short.Unsafe as STU
-import FlatParse.Basic
-import FlatParse.Basic.Base
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (Lift(..))
+
+import Wireform.Parser
+import Wireform.Parser.Internal (Pure, Parser (..), type Res#, type StRes#, pattern OK#, pattern Fail#, pattern Err#)
+import Wireform.Parser.Position
+import Wireform.Parser.Switch (switch, char, string)
+import Wireform.Parser.Driver (parseByteString)
+
+------------------------------------------------------------------------
+-- Flatparse compatibility layer
+------------------------------------------------------------------------
+
+-- | Type alias matching flatparse's @ParserT st e a@.
+-- The @st@ parameter is ignored — hermes only uses pure mode.
+type ParserT (st :: k) e a = Parser Pure e a
+
+-- | flatparse-compatible result type.
+data Result e a
+  = OK a !ByteString
+  | Fail
+  | Err !e
+  deriving stock (Show, Functor)
+
+-- | Run a parser on a ByteString, returning flatparse-compatible Result.
+runParser :: Parser Pure e a -> ByteString -> Result e a
+runParser p bs = case parseByteString p' bs of
+    Right (a, rest) -> OK a rest
+    Left (ParseFail _)  -> Fail
+    Left (ParseErr _ e) -> Err e
+    Left _              -> Fail
+  where
+    p' = do
+      a <- p
+      rest <- takeRest
+      pure (a, rest)
+
+-- | flatparse's @failed@ = wireform's 'empty'
+failed :: Parser Pure e a
+failed = empty
+{-# INLINE failed #-}
+
+-- | Take the rest of input as a String (flatparse compat).
+takeRestString :: Parser Pure e String
+takeRestString = BSC.unpack <$> takeRest
+{-# INLINE takeRestString #-}
+
+------------------------------------------------------------------------
+-- embedError (wireform version)
+------------------------------------------------------------------------
+
+-- | Run the parser; if it throws Err#, handle it with the given function.
+embedError :: Parser Pure e b -> (e -> Parser Pure e' b) -> Parser Pure e' b
+embedError (Parser f) hdl = Parser $ \env eob s st -> case f env eob s st of
+  (# st', (# (# x, a #) | | #) #) -> (# st', (# (# x, a #) | | #) #)
+  (# st', (# | (# #) | #) #)      -> (# st', (# | (# #) | #) #)
+  (# st', (# | | (# e #) #) #)    -> case hdl e of
+    Parser g -> g env eob s st'
+{-# INLINE embedError #-}
+
+------------------------------------------------------------------------
+-- HTTP parsing utilities
+------------------------------------------------------------------------
 
 optionalWhitespace :: ParserT st e ()
 optionalWhitespace = ows
@@ -37,19 +110,14 @@ optionalWhitespace = ows
 isOWS :: Char -> Bool
 isOWS c = c == ' ' || c == '\t'
 
--- | Optional whitespace (space or tab).
 ows :: ParserT st e ()
 ows = skipMany (skipSatisfyAscii isOWS)
 {-# INLINE ows #-}
 
--- | Required whitespace (space or tab).
 rws :: ParserT st e ()
 rws = skipSome (skipSatisfyAscii isOWS)
 {-# INLINE rws #-}
 
--- | "Bad whitespace" (space or tab).
---
--- Used where a grammar allows optional whitespace, but only for historical reasons.
 bws :: ParserT st e ()
 bws = ows
 {-# INLINE bws #-}
@@ -84,15 +152,6 @@ quotedCharSet =
   CharSet.fromList ['\x2A'..'\x5B'] <>
   CharSet.fromList ['\x5D'..'\x7E'] <>
   obsTextCharSet
-
--- quotedChar :: (Char -> Either String Bool) -> Either String Bool -> Char -> Maybe (Either String Bool)
--- quotedChar _ (Right False) '"' = Nothing
--- quotedChar _ (Right False) '\\' = Just $ Right True
--- quotedChar _ (Right True) c = if inClass "\t !-~\x80-\xFF" c
---   then Just (Right False)
---   else Just (Left $ "Invalid escape character in quoted string: " ++ show (w2c c))
--- quotedChar f (Right False) c = Just $ f c
--- quotedChar _ (Left c) _ = Nothing
 
 quotedString :: ParserT st e ST.ShortText
 quotedString = between
@@ -176,7 +235,9 @@ instance Lift (ItemValueType t) where
 
 rfc8941Integer :: ParserT st e Int
 rfc8941Integer = do
-  baseVal `notFollowedBy` $(char '.')
+  res <- baseVal
+  notFollowedBy $(char '.')
+  pure res
   where
     baseVal = do
       sign <- ($(char '-') *> pure negate) <|> pure id
@@ -285,7 +346,7 @@ anyRfc8941Parameter t = do
       pure $ STU.fromByteStringUnsafe bs
 {-# INLINE anyRfc8941Parameter #-}
 
-knownRfc8941Parameter :: Q Exp -> ItemValueType t -> Q Exp -- ParserT st String (Maybe t)
+knownRfc8941Parameter :: Q Exp -> ItemValueType t -> Q Exp
 knownRfc8941Parameter k t = do
   [| do
     $(char ';')
@@ -300,11 +361,12 @@ knownRfc8941Parameter k t = do
     star = CharSet.singleton '*'
     firstKeyChar = lcalpha <> star
     keyChar = lcalpha <> digit <> "_-.*"
+    paramKey :: ParserT st e ST.ShortText
     paramKey = withByteString (skipSatisfyAscii (`CharSet.member` firstKeyChar) *> skipMany (skipSatisfyAscii (`CharSet.member` keyChar))) $ \_ bs -> do
       pure $ STU.fromByteStringUnsafe bs
 {-# INLINE knownRfc8941Parameter #-}
 
-knownRfc8941WithRequiredKeyParser :: Q Exp -> Q Exp -> Q Exp -- ParserT st String (Maybe t)
+knownRfc8941WithRequiredKeyParser :: Q Exp -> Q Exp -> Q Exp
 knownRfc8941WithRequiredKeyParser k t = do
   [| do
     $(char ';')
@@ -314,7 +376,7 @@ knownRfc8941WithRequiredKeyParser k t = do
     $(t) |]
 {-# INLINE knownRfc8941WithRequiredKeyParser #-}
 
-knownRfc8941WithNoValueParser :: Q Exp -> Q Exp -- ParserT st String (Maybe t)
+knownRfc8941WithNoValueParser :: Q Exp -> Q Exp
 knownRfc8941WithNoValueParser k = do
   [| do
     $(char ';')
@@ -326,16 +388,6 @@ rfc8941Parameters :: ParserT st String [(ST.ShortText, Maybe ItemValue)]
 rfc8941Parameters = many (anyRfc8941Parameter ItemAny)
 {-# INLINE rfc8941Parameters #-}
 
--- | Run the parser, if an error is thrown, handle it with the given function.
-embedError :: ParserT st e b -> (e -> ParserT st e' b) -> ParserT st e' b
-embedError (ParserT f) hdl = ParserT $ \fp eob s st -> case f fp eob s st of
-  Err# st' e -> case hdl e of
-    ParserT g -> g fp eob s st'
-  OK# st' x a -> OK# st' x a
-  Fail# st' -> Fail# st'
-{-# inline embedError #-}
-
--- | Take the rest of the input as a ShortText
 takeRestShortText :: ParserT st e ST.ShortText
 takeRestShortText = withByteString takeRest $ \_ bs -> pure $ STU.fromByteStringUnsafe bs
 {-# INLINE takeRestShortText #-}

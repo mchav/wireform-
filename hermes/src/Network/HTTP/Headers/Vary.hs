@@ -14,7 +14,6 @@ import qualified Data.ByteString as B
 import Data.Foldable1
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
-import FlatParse.Basic
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.HeaderFieldName
 import Network.HTTP.Headers.Parsing.Util

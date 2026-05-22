@@ -5,7 +5,7 @@ import qualified Data.List.NonEmpty as NE
 import Network.HTTP.Headers
 import Network.HTTP.Headers.Authorization
 import Network.HTTP.Headers.HeaderFieldName (hProxyAuthorization)
-import FlatParse.Basic
+import Network.HTTP.Headers.Parsing.Util
 import qualified Network.HTTP.Headers.Mason as M
 
 newtype ProxyAuthorization = ProxyAuthorization { proxyAuthorizationCredentials :: Credentials }

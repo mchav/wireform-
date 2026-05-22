@@ -21,6 +21,9 @@
 module Wireform.Parser.Switch
   ( switch
   , switchWithPost
+    -- * TH literal splices
+  , char
+  , string
     -- * Helpers used by generated code (not for direct use)
   , switchFailed
   , switchBranch
@@ -29,6 +32,7 @@ module Wireform.Parser.Switch
 
 import Control.Monad (forM)
 import Data.Char (ord)
+import qualified Data.ByteString.Char8 as BSC
 import Data.Foldable (toList, foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -38,8 +42,10 @@ import GHC.Exts
 import GHC.Int (Int (..))
 import GHC.Word (Word8 (..))
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (Lift (..))
 
 import Wireform.Parser.Internal
+import Wireform.Parser (word8, byteString)
 
 ------------------------------------------------------------------------
 -- Helpers called by generated code
@@ -190,3 +196,21 @@ genTrieCode names = go 0 where
 applyPost :: Maybe Exp -> Exp -> Exp
 applyPost Nothing rhs  = rhs
 applyPost (Just p) rhs = InfixE (Just p) (VarE '(>>)) (Just rhs)
+
+------------------------------------------------------------------------
+-- TH literal splices (flatparse-compatible)
+------------------------------------------------------------------------
+
+-- | @$(char \'x\')@ compiles to @word8 0xNN@ for ASCII characters,
+-- or the appropriate multi-byte UTF-8 sequence otherwise.
+-- Only ASCII is supported for now.
+char :: Char -> Q Exp
+char c
+  | n < 0x80  = [| word8 $(lift (fromIntegral n :: Word8)) |]
+  | otherwise = error ("Wireform.Parser.Switch.char: non-ASCII character: " <> show c)
+  where
+    n = ord c
+
+-- | @$(string \"foo\")@ compiles to @byteString \"foo\"@.
+string :: String -> Q Exp
+string s = [| byteString $(lift (BSC.pack s)) |]

@@ -92,7 +92,6 @@ import Data.Maybe
 import Data.Semigroup (sconcat)
 import Data.Text.Short (ShortText)
 import qualified Data.Text.Short as TS
-import FlatParse.Basic
 import GHC.Generics
 import Prelude
 import Network.HTTP.Headers

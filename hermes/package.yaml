@@ -40,7 +40,6 @@ dependencies:
 - bitvec
 - charset
 - deepseq
-- flatparse
 - parser-combinators
 - bytestring
 - case-insensitive
