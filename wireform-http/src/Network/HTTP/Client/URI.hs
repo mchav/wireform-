@@ -30,6 +30,9 @@ module Network.HTTP.Client.URI
   , uriUserinfo
   , isIPv6Host
   , renderHostPort
+    -- * IDN
+  , isIdnaSafe
+  , validateHost
     -- * Query helpers
   , addQueryParam
   , addQueryParams
@@ -143,6 +146,31 @@ renderHostPort sch (Authority h mPort) =
           | otherwise            -> ":" <> BS8.pack (show p)
         Nothing -> ""
   in hostBs <> portBs
+
+-- | True if every byte in the host is ASCII. The wireform stack
+-- doesn't ship a punycode encoder, so non-ASCII hostnames must
+-- already be in IDNA A-label form (@xn--...@) when they reach the
+-- transport layer.
+isIdnaSafe :: ByteString -> Bool
+isIdnaSafe = BS.all (< 0x80)
+
+-- | Validate a host bytestring for transport. Accepts:
+--
+-- * IPv6 literals (any bytes, the bracket structure is enforced
+--   upstream by 'parseURI').
+-- * ASCII-only labels: the on-the-wire form for both A-records and
+--   IDNA A-labels.
+--
+-- Rejects raw UTF-8 \/ non-ASCII U-labels: the caller must supply
+-- the punycode-encoded form (@xn--...@). Returns 'Left' with a
+-- diagnostic message on rejection.
+validateHost :: ByteString -> Either String ByteString
+validateHost h
+  | isIPv6Host h = Right h
+  | isIdnaSafe h = Right h
+  | otherwise =
+      Left ("non-ASCII host requires IDNA A-label form (xn--...): "
+              <> BS8.unpack h)
 
 -- | Concatenation of path and query suitable for the HTTP\/1.1
 -- request-target or HTTP\/2 @:path@ pseudo-header.

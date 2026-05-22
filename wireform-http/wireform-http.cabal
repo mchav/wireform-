@@ -72,6 +72,7 @@ library
     Network.HTTP.Client.Config
     Network.HTTP.Client.Cookies
     Network.HTTP.Client.Decoder
+    Network.HTTP.Client.Expect
     Network.HTTP.Client.Media
     Network.HTTP.Client.Media.FormUrlEncoded
     Network.HTTP.Client.Media.JSON

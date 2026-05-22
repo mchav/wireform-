@@ -327,7 +327,7 @@ sendAndMaterialise conn req = do
     , headers       = Msg.responseHeaders resp
     , bodyPopper    = popper
     , protocolInfo  = case Msg.responseVersion resp of
-        LV.HTTP2 -> HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
+        LV.HTTP2 -> HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [], h2CancelStream = pure () }
         _        -> HTTP1_1
     }
   where

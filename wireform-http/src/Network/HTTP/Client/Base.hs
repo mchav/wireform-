@@ -109,7 +109,7 @@ baseTransport versionRange = Transport $ \req -> do
       }
 
 lowToProtocol :: LV.Version -> ProtocolInfo WReq.Request RawResponse
-lowToProtocol LV.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
+lowToProtocol LV.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [], h2CancelStream = pure () }
 lowToProtocol _        = HTTP1_1
 
 -- | Bridge from the high-level 'BodyStream' (which signals EOF with
