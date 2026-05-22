@@ -107,7 +107,7 @@ wfTagged n = do
 wfAsciiChars :: Int -> WP ()
 wfAsciiChars 0 = pure ()
 wfAsciiChars n = do
-  !_ <- W.satisfyAscii (\_ -> True)
+  W.skipSatisfyAscii (\_ -> True)
   wfAsciiChars (n - 1)
 {-# INLINE wfAsciiChars #-}
 
@@ -165,7 +165,7 @@ fpTagged n = do
 fpAsciiChars :: Int -> FPP ()
 fpAsciiChars 0 = pure ()
 fpAsciiChars n = do
-  !_ <- FP.satisfyAscii (\_ -> True)
+  FP.skipSatisfyAscii (\_ -> True)
   fpAsciiChars (n - 1)
 {-# INLINE fpAsciiChars #-}
 
