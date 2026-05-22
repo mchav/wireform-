@@ -102,15 +102,17 @@ baseTransport versionRange = Transport $ \req -> do
       { statusCode   = Msg.responseStatus resp
       , headers      = Msg.responseHeaders resp
       , bodyPopper   = newPopper
-      , protocolInfo = lowToProtocol (Msg.responseVersion resp)
-        -- The low-level path doesn't surface HTTP/2 stream ids yet,
-        -- so 'lowToProtocol' emits a placeholder Http2Info for
-        -- HTTP/2 responses.
+      , protocolInfo = lowToProtocol resp
       }
 
-lowToProtocol :: LV.Version -> ProtocolInfo WReq.Request RawResponse
-lowToProtocol LV.HTTP2 = HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
-lowToProtocol _        = HTTP1_1
+lowToProtocol :: Msg.Response -> ProtocolInfo WReq.Request RawResponse
+lowToProtocol resp = case Msg.responseVersion resp of
+  LV.HTTP2 -> HTTP2 Http2Info
+    { h2StreamId     = Msg.responseH2StreamId resp
+    , h2PushPromises = pure []
+    , h2CancelStream = Msg.responseCancel resp
+    }
+  _        -> HTTP1_1
 
 -- | Bridge from the high-level 'BodyStream' (which signals EOF with
 -- an empty 'ByteString') to the low-level 'LB.Body' (which signals

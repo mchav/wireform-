@@ -99,6 +99,8 @@ noContent204 = testCase "204 No Content has no body" $
       , responseHeaders = []
       , responseBody    = BodyEmpty
       , responseTrailers = pure []
+      , responseH2StreamId = 0
+      , responseCancel = pure ()
       }
 
 largeBodyRoundTrip :: TestTree
@@ -173,6 +175,8 @@ streamingLargeBody = testCase "streaming 5-chunk response body" $
               []    -> pure Nothing
               (h:t) -> writeIORef ref t >> pure (Just h)
         , responseTrailers = pure []
+        , responseH2StreamId = 0
+        , responseCancel = pure ()
         }
 
 binaryBodyContent :: TestTree
@@ -274,6 +278,8 @@ resp status body = Response
   , responseHeaders  = []
   , responseBody     = if BS.null body then BodyEmpty else BodyBytes body
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 drainBody :: Body -> IO BS.ByteString

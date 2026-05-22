@@ -65,6 +65,7 @@ echoBodyTest = testCase "POST echo body" $
       pure $ Response OK HTTP_1_1
               [("Content-Type", "text/plain")]
               (BodyBytes body)
+              (pure [])
 
 chunkedRequestTest :: TestTree
 chunkedRequestTest = testCase "POST chunked request body" $
@@ -82,7 +83,7 @@ chunkedRequestTest = testCase "POST chunked request body" $
   where
     echo req = do
       body <- drainAll (requestBody req)
-      pure $ Response OK HTTP_1_1 [] (BodyBytes body)
+      pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
 chunkedResponseTest :: TestTree
 chunkedResponseTest = testCase "streaming chunked response" $
@@ -94,7 +95,7 @@ chunkedResponseTest = testCase "streaming chunked response" $
   where
     streaming _ = do
       chunkRef <- newIORef ["alpha","beta","gamma"]
-      pure $ Response OK HTTP_1_1 [] (BodyStream (next chunkRef))
+      pure $ Response OK HTTP_1_1 [] (BodyStream (next chunkRef)) (pure [])
     next ref = do
       xs <- readIORef ref
       case xs of
@@ -124,6 +125,7 @@ staticOk = Enc.precomputeResponse $ Response
   , responseVersion = HTTP_1_1
   , responseHeaders = [("Content-Type", "text/plain"), ("Server", "test")]
   , responseBody    = BodyBytes "Hello, world!\n"
+  , responseTrailers = pure []
   }
 
 preEncodedGetTest :: TestTree
@@ -171,6 +173,7 @@ sendFileGetTest = testCase "sendfile body: GET delivers file bytes verbatim" $
           pure $ Response OK HTTP_1_1
                    [("Content-Type", "text/plain"), ("Server", "test")]
                    (BodyFile fb)
+                   (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq GET "/" port BodyEmpty [])
@@ -188,6 +191,7 @@ sendFileHeadTest = testCase "sendfile body: HEAD emits headers, no body" $
           pure $ Response OK HTTP_1_1
                    [("Content-Type", "text/plain"), ("Server", "test")]
                    (BodyFile fb)
+                   (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq HEAD "/" port BodyEmpty [])
@@ -206,6 +210,7 @@ sendFileCachedFdTest = testCase "sendfile body: cached fd path (no per-request o
     let handler _ = pure $ Response OK HTTP_1_1
                              [("Content-Type", "text/plain")]
                              (BodyFile fb)
+                             (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         -- Two requests on the same connection — exercises the fd
@@ -279,7 +284,7 @@ mkReq m t port body extras = Request
   }
 
 resp200 :: BS.ByteString -> Response
-resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b)
+resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b) (pure [])
 
 bodyOf :: Response -> IO BS.ByteString
 bodyOf r = drainAll (responseBody r)

@@ -61,6 +61,10 @@ data TlsHandshakeError
     -- ^ The peer didn't pick anything from our ALPN list (the
     -- peer-selected protocol, if any, is in the first field).
   | TlsCertNotFound !FilePath
+  | TlsHostnameMismatch !String !String
+    -- ^ The peer's certificate didn't cover the expected SNI \/ X.509
+    -- name. First field: configured server name; second: a
+    -- diagnostic string from the underlying TLS library.
   deriving stock (Show)
 
 instance Exception TlsHandshakeError

@@ -16,6 +16,7 @@ module Network.HTTP.Message
 
 import Control.DeepSeq (NFData (..))
 import Data.ByteString (ByteString)
+import Data.Word (Word32)
 import GHC.Generics (Generic)
 
 import Network.HTTP.Types.Body
@@ -91,9 +92,17 @@ data Response = Response
     -- materialised until the body has finished streaming.  Returns
     -- the empty list when the response had no trailers.
     --
-    -- Outbound (sending a response): not yet wired through the
-    -- unified API; build the version-specific response directly if
-    -- you need to emit trailers from a server handler.
+    -- Outbound from the unified server: only HTTP\/2 surfaces
+    -- trailers on the wire today (the HTTP\/1.x encoder does not
+    -- yet emit a trailer block on the chunked body's terminator).
+  , responseH2StreamId :: !Word32
+    -- ^ HTTP\/2 stream id this response was carried on, or @0@
+    --   for non-H2 responses or callers that don't surface it.
+  , responseCancel :: !(IO ())
+    -- ^ Best-effort cancellation. On HTTP\/2 this emits
+    --   @RST_STREAM(CANCEL)@ to the peer. On HTTP\/1.x and on
+    --   transports that have already drained the body, it's a
+    --   no-op. Idempotent.
   }
 
 instance Show Response where
@@ -106,4 +115,5 @@ instance Show Response where
       <> show (responseHeaders r)
 
 instance NFData Response where
-  rnf (Response s v h b _) = rnf s `seq` rnf v `seq` rnf h `seq` rnf b
+  rnf (Response s v h b _ sid _) =
+    rnf s `seq` rnf v `seq` rnf h `seq` rnf b `seq` rnf sid

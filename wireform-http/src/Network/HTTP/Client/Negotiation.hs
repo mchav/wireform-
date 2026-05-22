@@ -1,0 +1,92 @@
+{- | Content-negotiation header helpers (RFC 9110 \u00a712.5).
+
+The 'Accept', 'Accept-Language', 'Accept-Charset', and 'Accept-Encoding'
+headers all share the same shape: a comma-separated list of values each
+optionally followed by @;q=0.x@ weights. This module provides a single
+'renderQList' renderer that's reused across all four, plus typed
+helpers for the most common builders.
+
+The decoder side already comes from the media-type / content-encoding
+parsers (hermes); these helpers handle the build/inspect side.
+-}
+{-# LANGUAGE OverloadedStrings #-}
+module Network.HTTP.Client.Negotiation
+  ( -- * Quality-list rendering (shared by Accept*)
+    renderQList
+  , renderQuality
+    -- * Accept-Language
+  , Language
+  , language
+  , acceptLanguageValue
+    -- * Accept-Charset
+  , Charset
+  , charset
+  , acceptCharsetValue
+  ) where
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
+
+import Network.HTTP.Client.Media (Quality (..))
+
+-- | Render a list of @(token, quality)@ pairs as a quality-weighted
+-- comma list. Quality 1.0 is omitted; other qualities are rendered
+-- per RFC 9110 \u00a712.4.2 (max three decimals, no exponent, trailing
+-- zeros dropped).
+renderQList :: [(ByteString, Quality)] -> ByteString
+renderQList = BS.intercalate ", " . map one
+  where
+    one (tok, Quality q)
+      | q >= 1.0  = tok
+      | otherwise = tok <> "; q=" <> renderQuality q
+
+-- | Render a quality value (clamped to @[0,1]@) per RFC 9110 \u00a712.4.2.
+renderQuality :: Double -> ByteString
+renderQuality d
+  | d >= 1.0  = "1"
+  | d <= 0.0  = "0"
+  | otherwise =
+      let milli   = round (d * 1000) :: Int
+          padded  = pad3 (BS8.pack (show milli))
+          trimmed = BS.dropWhileEnd (== 0x30) padded
+      in if BS.null trimmed
+           then "0"
+           else "0." <> trimmed
+  where
+    pad3 bs =
+      let n = BS.length bs
+      in if n >= 3 then bs else BS.replicate (3 - n) 0x30 <> bs
+
+-- ---------------------------------------------------------------------------
+-- Accept-Language (RFC 9110 \u00a712.5.4 + RFC 5646 language tags)
+-- ---------------------------------------------------------------------------
+
+-- | A language tag in BCP 47 form (e.g. @\"en-US\"@). The 'IsString'
+-- instance lets you write language literals directly.
+newtype Language = Language { unLanguage :: ByteString }
+  deriving stock (Eq, Show)
+
+-- | Smart constructor. Bytes are stored verbatim; the spec allows
+-- @ALPHA *(\"-\" subtag)@ and @\"*\"@.
+language :: ByteString -> Language
+language = Language
+
+acceptLanguageValue :: [(Language, Quality)] -> ByteString
+acceptLanguageValue = renderQList . map (\(Language l, q) -> (l, q))
+
+-- ---------------------------------------------------------------------------
+-- Accept-Charset (RFC 9110 \u00a712.5.2 \u2014 obsoleted but still seen)
+-- ---------------------------------------------------------------------------
+
+-- | A charset name (e.g. @\"utf-8\"@). Charset matching is
+-- case-insensitive but stored verbatim because that's what the wire
+-- expects.
+newtype Charset = Charset { unCharset :: ByteString }
+  deriving stock (Eq, Show)
+
+charset :: ByteString -> Charset
+charset = Charset
+
+acceptCharsetValue :: [(Charset, Quality)] -> ByteString
+acceptCharsetValue = renderQList . map (\(Charset c, q) -> (c, q))

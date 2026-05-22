@@ -301,6 +301,17 @@ data Response = Response
   , responseVersion :: !Version
   , responseHeaders :: !Headers
   , responseBody    :: !Body
+  , responseTrailers :: !(IO Headers)
+    -- ^ Trailer block carried after the body.
+    --
+    -- /Inbound:/ surfaced by 'sendRequestOn' from the chunked body's
+    -- terminator field block (or @[]@ for non-chunked responses).
+    -- Returns @[]@ when the framing carried no trailers.
+    --
+    -- /Outbound:/ servers that want to emit trailers populate this
+    -- with a (possibly @IO@-deferred) header list. The encoder
+    -- only emits a trailer block on chunked responses; for
+    -- 'ContentLength' framing the value is ignored.
   }
 
 instance Show Response where
@@ -312,3 +323,5 @@ instance Show Response where
 instance NFData Response where
   rnf Response{responseStatus=s,responseVersion=v,responseHeaders=h,responseBody=b} =
     rnf s `seq` rnf v `seq` rnf h `seq` rnf b
+    -- 'responseTrailers' is an IO action; we leave it out for
+    -- the same reason as 'requestTrailers' above.

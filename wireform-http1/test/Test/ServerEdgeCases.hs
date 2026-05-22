@@ -48,7 +48,7 @@ largeBodyTest = testCase "8 KiB POST body round-trips" $
   where
     echo req = do
       body <- drainAll (requestBody req)
-      pure $ Response OK HTTP_1_1 [] (BodyBytes body)
+      pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
 binaryBodyTest :: TestTree
 binaryBodyTest = testCase "all 256 byte values survive round-trip" $
@@ -61,7 +61,7 @@ binaryBodyTest = testCase "all 256 byte values survive round-trip" $
   where
     echo req = do
       body <- drainAll (requestBody req)
-      pure $ Response OK HTTP_1_1 [] (BodyBytes body)
+      pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
 errorStatusTest :: TestTree
 errorStatusTest = testCase "server returns 404, 500" $
@@ -76,13 +76,13 @@ errorStatusTest = testCase "server returns 404, 500" $
     pure ()
   where
     handler req = case requestTarget req of
-      "/404" -> pure $ Response NotFound HTTP_1_1 [] (BodyBytes "not found")
-      "/500" -> pure $ Response InternalServerError HTTP_1_1 [] (BodyBytes "error")
+      "/404" -> pure $ Response NotFound HTTP_1_1 [] (BodyBytes "not found") (pure [])
+      "/500" -> pure $ Response InternalServerError HTTP_1_1 [] (BodyBytes "error") (pure [])
       _      -> pure $ resp200 "ok"
 
 emptyBodyResponseTest :: TestTree
 emptyBodyResponseTest = testCase "204 No Content has empty body" $
-  withServer (\_ -> pure (Response NoContent HTTP_1_1 [] BodyEmpty)) $ \port -> do
+  withServer (\_ -> pure (Response NoContent HTTP_1_1 [] BodyEmpty (pure []))) $ \port -> do
     Right r <- sendRequest (clientCfg port) (mkReq GET "/" port BodyEmpty [])
     responseStatus r @?= NoContent
     body <- bodyOf r
@@ -119,7 +119,7 @@ streamingRequestEchoTest = testCase "streaming chunked request body echo" $
   where
     echo req = do
       body <- drainAll (requestBody req)
-      pure $ Response OK HTTP_1_1 [] (BodyBytes body)
+      pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
 concurrentConnectionsTest :: TestTree
 concurrentConnectionsTest = testCase "3 concurrent connections" $
@@ -155,6 +155,7 @@ responseHeaderPreservationTest = testCase "custom response headers preserved" $
       , ("Content-Type", "text/plain")
       ]
       (BodyBytes "ok")
+      (pure [])
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -214,7 +215,7 @@ mkReq m t port body extras = Request
   }
 
 resp200 :: BS.ByteString -> Response
-resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b)
+resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b) (pure [])
 
 bodyOf :: Response -> IO BS.ByteString
 bodyOf = drainAll . responseBody

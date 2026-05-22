@@ -16,6 +16,8 @@ module Network.HTTP.Types.Method
   ( Method (..)
   , methodToBytes
   , methodFromBytes
+  , mkMethod
+  , MethodError (..)
   , isSafe
   , isIdempotent
   , bodyAllowedInRequest
@@ -55,11 +57,14 @@ module Network.HTTP.Types.Method
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Data.Char (toUpper)
 import Data.Hashable (Hashable)
 import Data.String (IsString (..))
+import Data.Word (Word8)
 import GHC.Generics (Generic)
+
+import Network.HTTP.Internal.Validation (isTchar)
 
 -- | An HTTP request method token. The wrapped 'ByteString' is the
 -- exact uppercase token that appears on the wire (e.g. @"GET"@,
@@ -71,21 +76,46 @@ newtype Method = Method { fromMethod :: ByteString }
 instance Show Method where
   showsPrec _ (Method bs) = shows bs
 
--- | @fromString@ uppercases the input before storing it, mirroring
--- hermes (which built its 'Symbol' from @fmap toUpper@). This is
--- safe for the IANA-registered tokens but is mildly lossy for
--- extensions that legitimately mix case. Use 'methodFromBytes' if
--- you want exact preservation.
+-- | @fromString@ preserves case verbatim. RFC 9110 \u00a79.1 says the
+-- method is a case-sensitive token, so an extension method like
+-- @\"PROPFIND\"@, @\"BatchGet\"@, or @\"M-SEARCH\"@ should round-trip
+-- exactly. The IANA-registered standard methods are all upper-case
+-- already, so this is only observably different for caller-defined
+-- extensions.
+--
+-- (Earlier versions of this module mirrored hermes by applying
+-- 'Data.Char.toUpper'; that was an unsafe lossy transform for
+-- mixed-case extension tokens. The constants below \u2014 'mGet',
+-- 'mPropFind', etc. \u2014 are unaffected because they're already in
+-- the canonical wire spelling.)
 instance IsString Method where
-  fromString = Method . BS8.pack . fmap toUpper
+  fromString = Method . BS8.pack
 
 -- | Render the method as on-the-wire bytes.
 methodToBytes :: Method -> ByteString
 methodToBytes = fromMethod
 
--- | Construct a 'Method' from raw bytes without case-folding.
+-- | Construct a 'Method' from raw bytes without any case-folding or
+-- validation. Use 'mkMethod' if you want the bytes checked against
+-- the @token@ grammar.
 methodFromBytes :: ByteString -> Method
 methodFromBytes = Method
+
+-- | Errors raised by 'mkMethod'.
+data MethodError
+  = MethodEmpty
+  | MethodInvalidByte !Word8
+  deriving stock (Eq, Show)
+
+-- | Validating constructor: ensures the bytes form a non-empty @token@
+-- (RFC 9110 \u00a75.6.2), i.e. only @tchar@ characters. The standard
+-- and WebDAV constants are already valid by construction.
+mkMethod :: ByteString -> Either MethodError Method
+mkMethod bs
+  | BS.null bs = Left MethodEmpty
+  | otherwise = case BS.find (not . isTchar) bs of
+      Nothing -> Right (Method bs)
+      Just w  -> Left (MethodInvalidByte w)
 
 -- | RFC 9110 \"safe\" methods: GET / HEAD / OPTIONS / TRACE.
 isSafe :: Method -> Bool

@@ -88,6 +88,7 @@ staticOk = Enc.precomputeResponse $ Response
       , ("Server", "wireform-http1")
       ]
   , responseBody = BodyBytes "Hello, world!\n"
+  , responseTrailers = pure []
   }
 
 handler :: Handler

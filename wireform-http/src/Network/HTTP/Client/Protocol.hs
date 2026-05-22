@@ -52,6 +52,13 @@ data Http2Info req raw = Http2Info
   , h2PushPromises :: !(IO [PushPromise req raw])
     -- ^ Realised lazily: forcing this returns whatever push promises
     -- the server has announced on this stream so far.
+  , h2CancelStream :: !(IO ())
+    -- ^ Best-effort cancellation of this stream. Transports that
+    -- expose @RST_STREAM(CANCEL)@ at the underlying connection
+    -- handle populate this; the eager-drain transports default to
+    -- 'pure ()' because the body is already materialised by the
+    -- time the caller could observe a 'RawResponse'. Streaming
+    -- transports populate it with a real cancel.
   }
 
 data Http3Info = Http3Info

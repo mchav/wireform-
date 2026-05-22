@@ -10,6 +10,7 @@ module Network.HTTP.Client.Response
   ( -- * Raw response
     RawResponse (..)
   , rawResponseBytes
+  , cancelStream
     -- * Decoded response
   , Response (..)
   , mapResponse
@@ -21,7 +22,8 @@ import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 
 import Network.HTTP.Client.BodyStream (Popper, popperBytes)
-import Network.HTTP.Client.Protocol (ProtocolInfo)
+import Network.HTTP.Client.Protocol
+  (Http2Info (..), ProtocolInfo (..))
 import Network.HTTP.Client.Request (Request)
 
 -- | A raw wire response. The body is a 'Popper'; the recipient is
@@ -49,6 +51,15 @@ instance Show RawResponse where
 -- popper is exhausted.
 rawResponseBytes :: RawResponse -> IO ByteString
 rawResponseBytes = popperBytes . bodyPopper
+
+-- | Best-effort stream cancellation. On HTTP\/2 streaming
+-- transports, this emits @RST_STREAM(CANCEL)@ to the peer. On
+-- transports that have already drained the body, this is a no-op.
+-- Idempotent (calling it more than once is harmless).
+cancelStream :: RawResponse -> IO ()
+cancelStream raw = case protocolInfo raw of
+  HTTP2 info -> h2CancelStream info
+  _          -> pure ()
 
 -- | The value 'send' returns. Functor in the body type.
 data Response a = Response

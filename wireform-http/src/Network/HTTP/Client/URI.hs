@@ -26,6 +26,20 @@ module Network.HTTP.Client.URI
   , uriHost
   , uriPort
   , uriPathAndQuery
+    -- * Userinfo and IPv6 helpers
+  , uriUserinfo
+  , isIPv6Host
+  , renderHostPort
+    -- * IDN
+  , isIdnaSafe
+  , validateHost
+  , hostToAscii
+  , parseURIIdna
+    -- * Query helpers
+  , addQueryParam
+  , addQueryParams
+  , setQueryParams
+  , queryParams
     -- * Base URLs
   , BaseURL (..)
   , parseBaseURL
@@ -61,6 +75,10 @@ import Network.URI.Template.Internal (BoundValue)
 import Network.URI.Template.Types (WrappedValue (..))
 import qualified Network.URI.Template as Template
 
+import qualified Data.Text.IDN as IDN
+
+import qualified Network.HTTP.PercentEncoding as PE
+
 -- | URL scheme. Only HTTP and HTTPS are reified here. The base
 -- transport keys connection routing on this.
 data Scheme = SchemeHttp | SchemeHttps
@@ -79,6 +97,11 @@ data Authority = Authority
 data URI = URI
   { uriScheme    :: !Scheme
   , uriAuthority :: !Authority
+  , uriUserinfoBytes :: !(Maybe ByteString)
+    -- ^ Userinfo as bytes (\"user\" or \"user:password\"), without
+    --   any percent-decoding. RFC 3986 \u00a73.2.1 reserves this slot
+    --   in the URI; HTTP transports treat it as input to Basic auth
+    --   rather than putting it on the wire.
   , uriPath      :: !ByteString
     -- ^ Path component starting with @\"/\"@ (or empty for an
     --   authority-only URI like @http:\/\/host@; we normalise to
@@ -101,9 +124,76 @@ uriPort u = case authPort (uriAuthority u) of
   Just p  -> p
   Nothing -> defaultPort (uriScheme u)
 
--- | The effective host (lowercased ASCII bytes).
+-- | The effective host (lowercased ASCII bytes). For an IPv6 literal
+-- this returns the address bytes /without/ surrounding brackets;
+-- 'renderHostPort' adds them back.
 uriHost :: URI -> ByteString
 uriHost = authHost . uriAuthority
+
+-- | Userinfo as bytes (without any percent-decoding), or 'Nothing'.
+uriUserinfo :: URI -> Maybe ByteString
+uriUserinfo = uriUserinfoBytes
+
+-- | True if @host@ looks like an IPv6 literal (contains @:@). Used by
+-- the renderer to decide whether to add brackets.
+isIPv6Host :: ByteString -> Bool
+isIPv6Host = BS.elem 0x3A
+
+-- | Render a @host[:port]@ pair, bracketing the host if it's IPv6.
+-- The port is omitted when it equals the scheme default.
+renderHostPort :: Scheme -> Authority -> ByteString
+renderHostPort sch (Authority h mPort) =
+  let hostBs = if isIPv6Host h then "[" <> h <> "]" else h
+      portBs = case mPort of
+        Just p
+          | p == defaultPort sch -> ""
+          | otherwise            -> ":" <> BS8.pack (show p)
+        Nothing -> ""
+  in hostBs <> portBs
+
+-- | True if every byte in the host is ASCII.
+isIdnaSafe :: ByteString -> Bool
+isIdnaSafe = BS.all (< 0x80)
+
+-- | Validate (and IDN-encode) a host bytestring for transport.
+-- Accepts:
+--
+-- * IPv6 literals (any bytes; the bracket structure is enforced
+--   upstream by 'parseURI').
+-- * ASCII-only labels: returned unchanged.
+-- * Non-ASCII U-labels: converted to IDNA A-labels (@xn--...@) via
+--   'Data.Text.IDN.toASCII' (RFC 5890\u20135893 \/ RFC 3492). The
+--   bytes are interpreted as UTF-8.
+--
+-- Returns 'Left' with a diagnostic message if conversion fails (bad
+-- UTF-8, prohibited code points, bidi violations, etc.).
+validateHost :: ByteString -> Either String ByteString
+validateHost h
+  | isIPv6Host h = Right h
+  | isIdnaSafe h = Right h
+  | otherwise   = hostToAscii (TE.decodeUtf8 h)
+
+-- | Convert a Unicode host name to its IDNA A-label form via the
+-- @idn@ library. Uses 'IDN.toASCII' which does the per-label
+-- punycoding and IDNA2008 validation.
+hostToAscii :: Text -> Either String ByteString
+hostToAscii t = case IDN.toASCII t of
+  Right ascii -> Right (TE.encodeUtf8 ascii)
+  Left  e     -> Left ("IDNA conversion failed: " <> show e)
+
+-- | Like 'parseURI' but IDN-encodes the host when it contains
+-- non-ASCII bytes. Input is 'Text' so the UTF-8 boundary is
+-- explicit.
+parseURIIdna :: Text -> Either String URI
+parseURIIdna t = do
+  u <- parseURI (TE.encodeUtf8 t)
+  let auth = uriAuthority u
+      h    = authHost auth
+  if isIPv6Host h || isIdnaSafe h
+    then Right u
+    else do
+      h' <- hostToAscii (TE.decodeUtf8 h)
+      Right u { uriAuthority = auth { authHost = h' } }
 
 -- | Concatenation of path and query suitable for the HTTP\/1.1
 -- request-target or HTTP\/2 @:path@ pseudo-header.
@@ -119,24 +209,39 @@ renderURI u =
   let scheme = case uriScheme u of
         SchemeHttp  -> "http://"
         SchemeHttps -> "https://"
-      hostPort = authHost (uriAuthority u) <> case authPort (uriAuthority u) of
+      ui = case uriUserinfoBytes u of
+        Just bs -> bs <> "@"
+        Nothing -> ""
+      hostBs = let h = authHost (uriAuthority u)
+               in if isIPv6Host h then "[" <> h <> "]" else h
+      portBs = case authPort (uriAuthority u) of
         Nothing -> ""
         Just p  -> ":" <> BS8.pack (show p)
-      path = if BS.null (uriPath u) then "/" else uriPath u
+      path  = if BS.null (uriPath u) then "/" else uriPath u
       query = if BS.null (uriQuery u) then "" else "?" <> uriQuery u
       frag  = if BS.null (uriFragment u) then "" else "#" <> uriFragment u
-  in scheme <> hostPort <> path <> query <> frag
+  in scheme <> ui <> hostBs <> portBs <> path <> query <> frag
 
--- | Parse an absolute URI of the form @scheme:\/\/authority\/path?query#fragment@.
+-- | Parse an absolute URI of the form
+-- @scheme:\/\/[userinfo\@]authority\/path?query#fragment@.
 --
--- Deliberately conservative: only HTTP\/HTTPS schemes, only host
--- authorities (no @user\@host@), and no percent-decoding of any
--- component. Returns 'Left' with a human-readable reason on failure.
+-- Limitations: only HTTP\/HTTPS schemes; no percent-decoding of any
+-- component (callers can run that themselves via
+-- "Network.HTTP.PercentEncoding"). Returns 'Left' with a human-readable
+-- reason on failure.
 parseURI :: ByteString -> Either String URI
 parseURI bs = do
   (scheme, rest1) <- splitScheme bs
   rest2           <- stripPrefixBS "//" rest1 `orFail` "URI must be authority-form"
-  let (authBs, pathQF) = BS.break (\b -> b == 0x2F || b == 0x3F || b == 0x23) rest2 -- '/' '?' '#'
+  -- Userinfo: split on the rightmost '@' that occurs before any '/', '?', or '#'.
+  let (preCutoff, _) = BS.break (\b -> b == 0x2F || b == 0x3F || b == 0x23) rest2
+      atIdx          = BS.elemIndexEnd 0x40 preCutoff
+      (userinfo, hostStart) = case atIdx of
+        Just i  ->
+          let (ui, rest) = BS.splitAt i rest2
+          in (Just ui, BS.drop 1 rest)
+        Nothing -> (Nothing, rest2)
+      (authBs, pathQF) = splitAuthority hostStart
   auth <- parseAuthority authBs
   let (pathBs, qfBs) = BS.break (\b -> b == 0x3F || b == 0x23) pathQF
       (queryBs0, fragBs0) =
@@ -147,11 +252,12 @@ parseURI bs = do
           Just (0x23, f) -> ("", f)
           _              -> ("", "")
   pure URI
-    { uriScheme    = scheme
-    , uriAuthority = auth
-    , uriPath      = if BS.null pathBs then "/" else pathBs
-    , uriQuery     = queryBs0
-    , uriFragment  = fragBs0
+    { uriScheme        = scheme
+    , uriAuthority     = auth
+    , uriUserinfoBytes = userinfo
+    , uriPath          = if BS.null pathBs then "/" else pathBs
+    , uriQuery         = queryBs0
+    , uriFragment      = fragBs0
     }
   where
     dropHash b = case BS.uncons b of
@@ -159,6 +265,13 @@ parseURI bs = do
       _              -> b
     orFail Nothing msg = Left msg
     orFail (Just x) _  = Right x
+
+    -- Authority ends at the first '/', '?', or '#' /outside/ a
+    -- bracketed IPv6 literal. We only have to honour bracketing for
+    -- the colon-as-port-separator below, but for the authority
+    -- terminator we still split on those three byte values because
+    -- they can't appear inside an IPv6 literal anyway.
+    splitAuthority = BS.break (\b -> b == 0x2F || b == 0x3F || b == 0x23)
 
 splitScheme :: ByteString -> Either String (Scheme, ByteString)
 splitScheme bs =
@@ -172,17 +285,32 @@ splitScheme bs =
        _ -> Left "URI missing scheme"
 
 parseAuthority :: ByteString -> Either String Authority
-parseAuthority bs
-  | BS.null bs = Left "URI missing host authority"
-  | otherwise = case BS.elemIndexEnd 0x3A bs of
+parseAuthority bs0
+  | BS.null bs0 = Left "URI missing host authority"
+    -- IPv6-literal: @[...]@ optionally followed by @:port@.
+  | Just (0x5B, _) <- BS.uncons bs0 =
+      case BS.elemIndex 0x5D bs0 of
+        Nothing -> Left "URI: unterminated IPv6 authority"
+        Just j  ->
+          let host = BS.take j (BS.drop 1 bs0)        -- drop '[' and ']'
+              tail_ = BS.drop (j + 1) bs0
+          in case BS.uncons tail_ of
+               Nothing -> Right (Authority host Nothing)
+               Just (0x3A, portBs) -> case BS8.readInt portBs of
+                 Just (n, leftover) | BS.null leftover ->
+                   Right (Authority host (Just n))
+                 _ -> Left ("URI: invalid IPv6 port: " <> BS8.unpack portBs)
+               _ -> Left ("URI: junk after IPv6 authority: " <> BS8.unpack tail_)
+    -- Plain host or IPv4 literal: split on the rightmost ':' (if any).
+  | otherwise = case BS.elemIndexEnd 0x3A bs0 of
       Just i | i > 0 ->
-        let (h, p0) = BS.splitAt i bs
+        let (h, p0) = BS.splitAt i bs0
             p       = BS.drop 1 p0
         in case BS8.readInt p of
              Just (n, leftover) | BS.null leftover ->
                Right (Authority h (Just n))
-             _ -> Right (Authority bs Nothing)
-      _ -> Right (Authority bs Nothing)
+             _ -> Right (Authority bs0 Nothing)
+      _ -> Right (Authority bs0 Nothing)
 
 stripPrefixBS :: ByteString -> ByteString -> Maybe ByteString
 stripPrefixBS p bs
@@ -229,11 +357,12 @@ unsafeBaseURL t = case parseBaseURL t of
 
 renderBaseURL :: BaseURL -> ByteString
 renderBaseURL b = renderURI URI
-  { uriScheme    = baseScheme b
-  , uriAuthority = baseAuthority b
-  , uriPath      = if BS.null (basePath b) then "/" else basePath b
-  , uriQuery     = ""
-  , uriFragment  = ""
+  { uriScheme        = baseScheme b
+  , uriAuthority     = baseAuthority b
+  , uriUserinfoBytes = Nothing
+  , uriPath          = if BS.null (basePath b) then "/" else basePath b
+  , uriQuery         = ""
+  , uriFragment      = ""
   }
 
 -- | Resolve a request URI against a base.
@@ -253,11 +382,12 @@ resolveAgainst base req =
         | "/" `BS.isPrefixOf` reqPath = basePath' <> reqPath
         | otherwise = basePath' <> "/" <> reqPath
   in URI
-       { uriScheme    = baseScheme base
-       , uriAuthority = baseAuthority base
-       , uriPath      = joined
-       , uriQuery     = uriQuery req
-       , uriFragment  = uriFragment req
+       { uriScheme        = baseScheme base
+       , uriAuthority     = baseAuthority base
+       , uriUserinfoBytes = uriUserinfoBytes req
+       , uriPath          = joined
+       , uriQuery         = uriQuery req
+       , uriFragment      = uriFragment req
        }
 
 -- ---------------------------------------------------------------------------
@@ -322,4 +452,32 @@ renderRequestURI ru =
   let txt = requestURIToText ru
       bs  = TE.encodeUtf8 txt
   in parseURI bs
+
+-- ---------------------------------------------------------------------------
+-- Query helpers (post-render)
+-- ---------------------------------------------------------------------------
+
+-- | Append a single @(key, value)@ to a 'URI''s query, percent-encoding
+-- both. The pair is added with @&@ separator if the query is
+-- non-empty.
+addQueryParam :: ByteString -> ByteString -> URI -> URI
+addQueryParam k v u =
+  let kv = PE.encodeQueryComponent k <> "=" <> PE.encodeQueryComponent v
+      q  = uriQuery u
+      q' = if BS.null q then kv else q <> "&" <> kv
+  in u { uriQuery = q' }
+
+-- | Append several @(key, value)@ pairs.
+addQueryParams :: [(ByteString, ByteString)] -> URI -> URI
+addQueryParams kvs u = foldl (\acc (k, v) -> addQueryParam k v acc) u kvs
+
+-- | Replace the query string with the supplied pairs (percent-encoded).
+setQueryParams :: [(ByteString, ByteString)] -> URI -> URI
+setQueryParams kvs u = u { uriQuery = PE.renderQueryString kvs }
+
+-- | Decode the query string into a list of @(key, value)@ pairs,
+-- decoding percent-escapes and the @+@-as-space convention. Pairs
+-- with no @=@ surface with an empty value.
+queryParams :: URI -> [(ByteString, ByteString)]
+queryParams = PE.decodeQueryString . uriQuery
 

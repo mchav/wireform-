@@ -84,7 +84,11 @@ data RequestBody
   | ReqBodyStream !(IO (Maybe ByteString))
 
 data ClientResponse = ClientResponse
-  { crStatus :: !Int
+  { crStreamId :: !StreamId
+    -- ^ The stream id the request and response are running on.
+    -- Useful for tracing and for upper-layer integrations that
+    -- want to correlate frames with @h2c@-level diagnostics.
+  , crStatus :: !Int
   , crResponseHeaders :: ![(ByteString, ByteString)]
   , crResponseBody :: !(IO (Maybe ByteString))
     -- ^ Pull producer for the response body.  Yields successive DATA
@@ -104,6 +108,12 @@ data ClientResponse = ClientResponse
     -- the initial HEADERS frame).  Must be called after the body has
     -- been fully drained — pulling trailers before observing the end
     -- of the body will block.
+  , crCancel :: !(IO ())
+    -- ^ Best-effort stream cancellation: emits @RST_STREAM(CANCEL)@
+    -- to the peer and tears down the local inbox. Idempotent (the
+    -- recv loop is also free to remove the inbox first). For
+    -- streams started by 'sendRequest' this is fire-and-forget; for
+    -- 'withResponse' the bracket already calls it on exit.
   }
 
 -- | Per-stream inbox the recv loop pushes into.
@@ -702,10 +712,13 @@ sendRequest handle req = do
   case headersResult of
     Left err -> throwIO err
     Right rh -> pure ClientResponse
-      { crStatus = rhStatus rh
+      { crStreamId = sid
+      , crStatus = rhStatus rh
       , crResponseHeaders = rhHeaders rh
       , crResponseBody = nextBodyChunk handle sid inbox
       , crResponseTrailers = readMVar (siTrailers inbox)
+      , crCancel = sendRstStream handle sid Cancel
+                     `catch` (\(_ :: SomeException) -> pure ())
       }
 
 -- | Bracket-style request that cancels the stream if the action is
@@ -743,10 +756,12 @@ withResponse handle req action = mask $ \restore -> do
     case headersResult of
       Left err -> throwIO err
       Right rh -> action ClientResponse
-        { crStatus = rhStatus rh
+        { crStreamId = sid
+        , crStatus = rhStatus rh
         , crResponseHeaders = rhHeaders rh
         , crResponseBody = nextBodyChunk handle sid inbox
         , crResponseTrailers = readMVar (siTrailers inbox)
+        , crCancel = cancelIfOpen ClientStreamConnectionClosed
         }
   cancelIfOpen ClientStreamConnectionClosed
   case result of

@@ -68,7 +68,11 @@ module Network.HTTP.Client.Compression
   , withDecompressionPolicy
     -- * Header helpers
   , parseContentEncoding
+  , parseContentEncodings
   , renderAcceptEncoding
+    -- * Request-body compression
+  , withCompression
+  , withCompressionUsing
   ) where
 
 import Control.Exception (SomeException, try, evaluate)
@@ -78,15 +82,14 @@ import qualified Codec.Compression.Zlib   as Zlib
 import qualified Codec.Compression.Zlib.Raw as ZlibRaw
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.CaseInsensitive as CI
 import qualified Data.List as List
 
 import FlatParse.Basic (Result (..), runParser)
 import qualified Wireform.Builder as WB
 
 import qualified Network.HTTP.ContentCoding as Hermes
-import qualified Network.HTTP.Headers.HeaderFieldName as Hermes
 
 import qualified Network.HTTP.Types.Header as H
 
@@ -263,33 +266,103 @@ withDecompressionPolicy handlers inner = Transport $ \req -> do
                   (renderAcceptEncoding handlers) hdrs0
             }
   raw <- sendRaw inner req'
-  case H.lookupHeader hContentEncoding (Resp.headers raw) of
+  case H.lookupHeader H.hContentEncoding (Resp.headers raw) of
     Nothing  -> pure raw
-    Just enc -> case parseContentEncoding enc of
-      Nothing     -> pure raw                  -- unknown / multi-step
-      Just coding -> case findHandler coding handlers of
-        Nothing      -> pure raw
-        Just handler -> do
+    Just enc -> case parseContentEncodings enc of
+      []     -> pure raw
+      codings -> case lookupHandlers codings handlers of
+        Nothing -> pure raw                    -- unknown coding in the list
+        Just hs -> do
           compressed <- popperBytes (Resp.bodyPopper raw)
-          plain      <- ehRun handler compressed
-          newPopper  <- popperFromStrict plain
+          -- RFC 9110 \u00a78.4: encodings listed in the order applied,
+          -- so we reverse to undo them. @gzip, br@ means \"gzip then br\":
+          -- the body is br-compressed gzip output, so decompress br first.
+          plain     <- foldlM ehRun compressed (reverse hs)
+          newPopper <- popperFromStrict plain
           pure (stripEncoding raw) { Resp.bodyPopper = newPopper }
+  where
+    foldlM _ z []       = pure z
+    foldlM f z (x : xs) = f x z >>= \z' -> foldlM f z' xs
+
+-- ---------------------------------------------------------------------------
+-- Request-body compression
+-- ---------------------------------------------------------------------------
+
+-- | Compress outgoing request bodies with @tag@. Buffers the request
+-- body, compresses, sets @Content-Encoding@, and refreshes
+-- @Content-Length@ to match the compressed payload. If the request
+-- already carries a @Content-Encoding@ header the middleware leaves
+-- it untouched.
+--
+-- > withClient cfg { ccExtra = [withCompression @Brotli] } $ \\t -> ...
+withCompression
+  :: forall tag.
+     Compress tag
+  => Middleware IO
+withCompression = withCompressionUsing (asCompressor @tag)
+
+-- | Like 'withCompression' but takes the type-erased 'EncodingHandler'
+-- explicitly. Useful for plugging in a runtime-chosen codec.
+withCompressionUsing :: EncodingHandler -> Middleware IO
+withCompressionUsing handler inner = Transport $ \req -> do
+  let hdrs0 = WReq.headers req
+  if H.hasHeader H.hContentEncoding hdrs0
+    then sendRaw inner req
+    else do
+      raw     <- bodyStreamBytes (WReq.body req)
+      encoded <- ehRun handler raw
+      bs'     <- streamFromStrict encoded
+      let token  = ehToken handler
+          hdrs1  = H.insertHeader H.hContentEncoding token hdrs0
+          hdrs2  = H.insertHeader H.hContentLength
+                     (BS8.pack (show (BS.length encoded))) hdrs1
+      sendRaw inner req
+        { WReq.body    = bs'
+        , WReq.headers = hdrs2
+        }
 
 -- ---------------------------------------------------------------------------
 -- Header helpers
 -- ---------------------------------------------------------------------------
 
--- | Parse a @Content-Encoding@ header value to a hermes
--- 'ContentCoding'. Multi-step encodings (e.g. @gzip, br@) return
--- 'Nothing' because correctly applying a sequence means reversing
--- the order, which the middleware would rather punt on than get
--- wrong; the caller-facing result is "leave the body alone".
+-- | Parse a single @Content-Encoding@ token to a hermes
+-- 'ContentCoding'. Returns 'Nothing' if the input is not a single
+-- recognised token. For multi-step encodings, use
+-- 'parseContentEncodings'.
 parseContentEncoding :: ByteString -> Maybe Hermes.ContentCoding
 parseContentEncoding raw =
-  let trimmed = BS.dropWhile (== 0x20) (BS.dropWhileEnd (== 0x20) raw)
+  let trimmed = BS.dropWhile isWS (BS.dropWhileEnd isWS raw)
   in case runParser Hermes.contentCodingParser trimmed of
        OK coding leftover | BS.null leftover -> Just coding
        _                                     -> Nothing
+  where
+    isWS w = w == 0x20 || w == 0x09
+
+-- | Parse a comma-separated @Content-Encoding@ list (RFC 9110 \u00a78.4)
+-- into the underlying tokens, in the order they appeared. Returns
+-- @[]@ if any token is malformed (the middleware then leaves the
+-- body alone rather than half-decoding).
+parseContentEncodings :: ByteString -> [Hermes.ContentCoding]
+parseContentEncodings raw =
+  let toks = filter (not . BS.null) $ map (trim . id) (BS.split 0x2C raw)
+  in case traverse parseContentEncoding toks of
+       Just cs -> cs
+       Nothing -> []
+  where
+    isWS w = w == 0x20 || w == 0x09
+    trim = BS.dropWhile isWS . BS.dropWhileEnd isWS
+
+-- | Resolve a list of codings against a handler set. Returns 'Nothing'
+-- (i.e. \"can't decode this\") if any coding has no handler and isn't
+-- the no-op 'Identity'.
+lookupHandlers
+  :: [Hermes.ContentCoding] -> [EncodingHandler] -> Maybe [EncodingHandler]
+lookupHandlers [] _ = Just []
+lookupHandlers (c : cs) hs
+  | c == Hermes.Identity = lookupHandlers cs hs
+  | otherwise = case findHandler c hs of
+      Nothing -> Nothing
+      Just h  -> (h :) <$> lookupHandlers cs hs
 
 -- | Render a preference-ordered handler list as an
 -- @Accept-Encoding@ value. Each handler's hermes 'ContentCoding'
@@ -301,17 +374,10 @@ renderAcceptEncoding = BS.intercalate ", " . map ehToken
 findHandler :: Hermes.ContentCoding -> [EncodingHandler] -> Maybe EncodingHandler
 findHandler coding = List.find ((== coding) . ehCoding)
 
--- | 'Content-Encoding' lifted from hermes's interned name into our
--- 'CI ByteString' representation. Header comparison is
--- case-insensitive so the values match @content-encoding@ on the
--- wire after HPACK case folding.
-hContentEncoding :: H.HeaderName
-hContentEncoding = Hermes.toCIByteString Hermes.hContentEncoding
-
 stripEncoding :: Resp.RawResponse -> Resp.RawResponse
 stripEncoding raw = raw
   { Resp.headers =
-        H.deleteHeader hContentEncoding
+        H.deleteHeader H.hContentEncoding
       $ H.deleteHeader H.hContentLength
       $ Resp.headers raw
   }

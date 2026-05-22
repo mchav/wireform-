@@ -63,20 +63,28 @@ library
     Network.HTTP
     -- High-level middleware-composable client.
     Network.HTTP.Client
+    Network.HTTP.Client.AuthChallenge
     Network.HTTP.Client.Base
     Network.HTTP.Client.Body
     Network.HTTP.Client.BodyStream
     Network.HTTP.Client.Compression
+    Network.HTTP.Client.Conditional
     Network.HTTP.Client.Config
     Network.HTTP.Client.Cookies
     Network.HTTP.Client.Decoder
+    Network.HTTP.Client.Expect
     Network.HTTP.Client.Media
     Network.HTTP.Client.Media.FormUrlEncoded
     Network.HTTP.Client.Media.JSON
     Network.HTTP.Client.Media.OctetStream
     Network.HTTP.Client.Media.PlainText
     Network.HTTP.Client.Middleware
+    Network.HTTP.Client.Negotiation
     Network.HTTP.Client.Pool
+    Network.HTTP.Client.Proxy
+    Network.HTTP.Client.Proxy.Connect
+    Network.HTTP.Client.Range
+    Network.HTTP.Client.Redirect
     Network.HTTP.Client.Protocol
     Network.HTTP.Client.Request
     Network.HTTP.Client.Response
@@ -93,7 +101,11 @@ library
     -- Shared bits.
     Network.HTTP.Server
     Network.HTTP.TLS
+    Network.HTTP.FramingRules
+    Network.HTTP.HttpDate
     Network.HTTP.Message
+    Network.HTTP.PercentEncoding
+    Network.HTTP.Upgrade
     Network.HTTP.VersionRange
     Network.HTTP.Types.Body
     Network.HTTP.Types.Header
@@ -102,6 +114,7 @@ library
     Network.HTTP.Types.Version
   other-modules:
     Network.HTTP.Internal.Convert
+    Network.HTTP.Internal.Validation
   build-depends:
     base                 >= 4.16 && < 5,
     aeson                >= 2.1  && < 2.3,
@@ -115,6 +128,7 @@ library
     hashable             >= 1.4  && < 1.6,
     hermes,
     hs-opentelemetry-api >= 0.2  && < 0.4,
+    idn                  >= 0.1  && < 0.2,
     network              >= 3.1  && < 3.3,
     semigroupoids        >= 5    && < 7,
     text-short           >= 0.1  && < 0.2,
@@ -151,12 +165,15 @@ test-suite wireform-http-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.AuthChallenge
     Test.Client
     Test.ConcurrencyStress
+    Test.Conditional
     Test.Http1Integration
     Test.Http1EdgeCases
     Test.Http2Integration
     Test.Http2EdgeCases
+    Test.IDN
     Test.Negotiation
     Test.UrlDecode
     Test.VersionTypes

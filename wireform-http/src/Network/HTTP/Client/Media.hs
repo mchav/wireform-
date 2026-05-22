@@ -191,13 +191,29 @@ contentTypeOf hdrs = case H.lookupHeader H.hContentType hdrs of
     Left _   -> MediaType "application" "octet-stream" []
 
 -- | Render a list of @(media-type, quality)@ pairs as an @Accept@
--- header value. Quality 1.0 is omitted.
+-- header value. Quality 1.0 is omitted; other qualities are rendered
+-- per RFC 9110 \u00a712.4.2 \u2014 @0\u201a1\u201a or @0.@ followed by 1-3
+-- DIGIT, no exponent, trailing zeros dropped.
 acceptHeaderValue :: [(MediaType, Quality)] -> ByteString
 acceptHeaderValue = BS.intercalate ", " . List.map one
   where
     one (m, Quality q)
       | q >= 1.0  = renderMediaType m
-      | otherwise = renderMediaType m <> "; q=" <> BS8.pack (formatQ q)
-    formatQ q =
-      let truncated = (fromIntegral (round (q * 1000) :: Int) :: Double) / 1000
-      in show truncated
+      | otherwise = renderMediaType m <> "; q=" <> renderQuality q
+
+-- | Render a quality value (clamped to @[0,1]@) per RFC 9110 \u00a712.4.2.
+renderQuality :: Double -> ByteString
+renderQuality d
+  | d >= 1.0  = "1"
+  | d <= 0.0  = "0"
+  | otherwise =
+      let milli   = round (d * 1000) :: Int                 -- 0..999
+          padded  = pad3 (BS8.pack (show milli))
+          trimmed = BS.dropWhileEnd (== 0x30) padded
+      in if BS.null trimmed
+           then "0"
+           else "0." <> trimmed
+  where
+    pad3 bs =
+      let n = BS.length bs
+      in if n >= 3 then bs else BS.replicate (3 - n) 0x30 <> bs

@@ -138,12 +138,27 @@ workerLoop cfg lowReq chunks rawVar doneVar finished = do
       --    /before/ pumping (otherwise the caller is blocked
       --    waiting for it).
       let popper = readChunk chunks finished doneVar
+          -- Cancellation combines a real H2 RST_STREAM (when the
+          -- low-level layer surfaced one as @responseCancel@) with
+          -- the local consumer-side EOF + worker wake-up: that way
+          -- a caller that cancels still drops out of the popper
+          -- and the bracketed @Conn.withConnection@ unwinds.
+          cancel = do
+            Msg.responseCancel resp
+            writeIORef finished True
+            atomically (writeTBQueue chunks Nothing)
+            _ <- tryPutMVar doneVar ()
+            pure ()
           raw   = RawResponse
             { statusCode    = Msg.responseStatus resp
             , headers       = Msg.responseHeaders resp
             , bodyPopper    = popper
             , protocolInfo  = case Msg.responseVersion resp of
-                LV.HTTP2 -> HTTP2 Http2Info { h2StreamId = 0, h2PushPromises = pure [] }
+                LV.HTTP2 -> HTTP2 Http2Info
+                  { h2StreamId     = Msg.responseH2StreamId resp
+                  , h2PushPromises = pure []
+                  , h2CancelStream = cancel
+                  }
                 _        -> HTTP1_1
             }
       putMVar rawVar (Right raw)

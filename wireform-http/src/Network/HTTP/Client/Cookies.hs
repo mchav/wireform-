@@ -18,11 +18,19 @@ module Network.HTTP.Client.Cookies
   , Cookie (..)
   , SameSite (..)
   , newCookieJar
+  , newCookieJarWithPSL
   , insertCookie
+  , insertCookieChecked
   , getCookies
   , clearCookies
   , pruneExpired
   , withCookies
+    -- * Validation and public-suffix hook
+  , CookieError (..)
+  , validateCookieName
+  , validateCookieValue
+  , PublicSuffixCheck
+  , noPublicSuffix
   ) where
 
 import Control.Concurrent.STM
@@ -74,28 +82,110 @@ data Cookie = Cookie
 -- with the same name but different domain or path are distinct.
 type CookieKey = (ByteString, ByteString, ByteString)
 
-newtype CookieJar = CookieJar (TVar (Map CookieKey Cookie))
+-- | Predicate run on @Set-Cookie@'s @Domain=...@: returns 'True' for
+-- a domain that's on the public suffix list (e.g. @co.uk@,
+-- @github.io@) and so MUST NOT have cookies set against it.
+-- Defaults to 'noPublicSuffix' which never reports a hit; wire your
+-- own (e.g. backed by @publicsuffix@ data) for browser-grade
+-- behaviour.
+type PublicSuffixCheck = ByteString -> Bool
+
+-- | The trivial 'PublicSuffixCheck' that never rejects.  Use this
+-- when the application is talking to a known endpoint set and
+-- doesn't need PSL enforcement.
+noPublicSuffix :: PublicSuffixCheck
+noPublicSuffix = const False
+
+data CookieJar = CookieJar
+  { cjStore :: !(TVar (Map CookieKey Cookie))
+  , cjPSL   :: !PublicSuffixCheck
+  }
 
 newCookieJar :: IO CookieJar
-newCookieJar = CookieJar <$> newTVarIO Map.empty
+newCookieJar = newCookieJarWithPSL noPublicSuffix
+
+-- | Allocate a 'CookieJar' with a custom public-suffix check.
+newCookieJarWithPSL :: PublicSuffixCheck -> IO CookieJar
+newCookieJarWithPSL psl = do
+  s <- newTVarIO Map.empty
+  pure CookieJar { cjStore = s, cjPSL = psl }
 
 cookieKey :: Cookie -> CookieKey
 cookieKey c = (cookieDomain c, cookiePath c, cookieName c)
 
 insertCookie :: CookieJar -> Cookie -> IO ()
-insertCookie (CookieJar var) c =
-  atomically $ modifyTVar' var (Map.insert (cookieKey c) c)
+insertCookie jar c =
+  atomically $ modifyTVar' (cjStore jar) (Map.insert (cookieKey c) c)
+
+-- | Insert with full RFC 6265bis validation: name and value must pass
+-- the cookie-octet grammar, and the cookie's @Domain@ must not be
+-- on the configured public suffix list.
+insertCookieChecked :: CookieJar -> Cookie -> IO (Either CookieError ())
+insertCookieChecked jar c = case validateCookie jar c of
+  Left err -> pure (Left err)
+  Right () -> Right () <$ insertCookie jar c
 
 getCookies :: CookieJar -> IO [Cookie]
-getCookies (CookieJar var) = Map.elems <$> readTVarIO var
+getCookies jar = Map.elems <$> readTVarIO (cjStore jar)
 
 clearCookies :: CookieJar -> IO ()
-clearCookies (CookieJar var) = atomically $ writeTVar var Map.empty
+clearCookies jar = atomically $ writeTVar (cjStore jar) Map.empty
 
 pruneExpired :: CookieJar -> IO ()
-pruneExpired (CookieJar var) = do
+pruneExpired jar = do
   now <- getCurrentTime
-  atomically $ modifyTVar' var (Map.filter (notExpired now))
+  atomically $ modifyTVar' (cjStore jar) (Map.filter (notExpired now))
+
+-- ---------------------------------------------------------------------------
+-- Validation
+-- ---------------------------------------------------------------------------
+
+data CookieError
+  = CookieNameInvalid !ByteString
+  | CookieValueInvalid !ByteString
+  | CookieDomainIsPublicSuffix !ByteString
+  deriving stock (Eq, Show)
+
+-- | RFC 6265bis cookie-name grammar: a token (RFC 9110 \u00a75.6.2).
+validateCookieName :: ByteString -> Either CookieError ()
+validateCookieName bs
+  | BS.null bs = Left (CookieNameInvalid bs)
+  | BS.all isToken bs = Right ()
+  | otherwise = Left (CookieNameInvalid bs)
+  where
+    isToken w =
+         (w >= 0x30 && w <= 0x39)            -- 0-9
+      || (w >= 0x41 && w <= 0x5A)            -- A-Z
+      || (w >= 0x61 && w <= 0x7A)            -- a-z
+      || w == 0x21
+      || (w >= 0x23 && w <= 0x27)
+      || w == 0x2A || w == 0x2B
+      || w == 0x2D || w == 0x2E
+      || w == 0x5E || w == 0x5F || w == 0x60
+      || w == 0x7C || w == 0x7E
+
+-- | RFC 6265bis cookie-octet: %x21 \/ %x23-2B \/ %x2D-3A \/ %x3C-5B \/
+-- %x5D-7E (anything printable ASCII minus CTL, whitespace, double
+-- quote, comma, semicolon, and backslash).
+validateCookieValue :: ByteString -> Either CookieError ()
+validateCookieValue bs
+  | BS.all isCookieOctet bs = Right ()
+  | otherwise = Left (CookieValueInvalid bs)
+  where
+    isCookieOctet w =
+         w == 0x21
+      || (w >= 0x23 && w <= 0x2B)
+      || (w >= 0x2D && w <= 0x3A)
+      || (w >= 0x3C && w <= 0x5B)
+      || (w >= 0x5D && w <= 0x7E)
+
+validateCookie :: CookieJar -> Cookie -> Either CookieError ()
+validateCookie jar c = do
+  validateCookieName  (cookieName  c)
+  validateCookieValue (cookieValue c)
+  if cjPSL jar (cookieDomain c)
+    then Left (CookieDomainIsPublicSuffix (cookieDomain c))
+    else Right ()
 
 notExpired :: UTCTime -> Cookie -> Bool
 notExpired now c = case cookieExpires c of
@@ -110,9 +200,9 @@ notExpired now c = case cookieExpires c of
 -- outgoing requests, parse @Set-Cookie@ on responses and store into
 -- the jar.
 withCookies :: CookieJar -> Middleware IO
-withCookies (CookieJar var) inner = Transport $ \req -> do
+withCookies jar inner = Transport $ \req -> do
   now <- getCurrentTime
-  all_ <- readTVarIO var
+  all_ <- readTVarIO (cjStore jar)
   case renderRequestURI (requestURI req) of
     Left _ -> sendRaw inner req
     Right resolved -> do
@@ -125,8 +215,19 @@ withCookies (CookieJar var) inner = Transport $ \req -> do
                                 (Network.HTTP.Client.Request.headers req)
                           }
       raw <- sendRaw inner req'
-      let setCookies = parseSetCookieHeaders now resolved (Network.HTTP.Client.Response.headers raw)
-      atomically $ modifyTVar' var $ \m ->
+      let setCookies =
+            [ c
+            | c <- parseSetCookieHeaders now resolved
+                     (Network.HTTP.Client.Response.headers raw)
+            -- Drop cookies whose Domain is a public suffix; this is the
+            -- principal protection the PSL gives the cookie subsystem.
+            , not (cjPSL jar (cookieDomain c))
+            -- Validate the cookie's name and value at the boundary;
+            -- silently ignore malformed entries.
+            , Right () <- [validateCookieName  (cookieName  c)]
+            , Right () <- [validateCookieValue (cookieValue c)]
+            ]
+      atomically $ modifyTVar' (cjStore jar) $ \m ->
         List.foldl' (\acc c -> Map.insert (cookieKey c) c acc) m setCookies
       pure raw
 

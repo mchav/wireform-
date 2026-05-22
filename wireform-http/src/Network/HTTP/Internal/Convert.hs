@@ -129,24 +129,30 @@ fromHttp1Request scheme r = Request
 
 toHttp1Response :: Response -> H1.Response
 toHttp1Response r = H1.Response
-  { H1.responseStatus  = toHttp1Status (responseStatus r)
-  , H1.responseVersion = toHttp1Version (responseVersion r)
-  , H1.responseHeaders = toHttp1Headers (responseHeaders r)
-  , H1.responseBody    = toHttp1Body (responseBody r)
+  { H1.responseStatus    = toHttp1Status (responseStatus r)
+  , H1.responseVersion   = toHttp1Version (responseVersion r)
+  , H1.responseHeaders   = toHttp1Headers (responseHeaders r)
+  , H1.responseBody      = toHttp1Body (responseBody r)
+  , H1.responseTrailers  = toHttp1Headers <$> responseTrailers r
   }
 
--- | HTTP\/1.x trailers (the field section after a chunked body's
--- terminator) are dropped by the current 'Network.HTTP1.Connection'
--- body reader, so 'responseTrailers' is unconditionally @pure []@.
--- A future change can surface them through the same pull-producer
--- shape that HTTP\/2 uses.
+-- | HTTP\/1.x trailers come from the chunked body's terminator field
+-- block.  'Network.HTTP1.Connection' already reads them and parks
+-- them on an 'MVar'; we surface that as 'responseTrailers'.
+--
+-- Note: this is the /client-receive/ side. The 'Network.HTTP1.Types'
+-- 'Response' record does not yet carry trailers (the H1 encoder
+-- doesn't emit them), so server-emitted H1 trailers still need
+-- wiring through the 'wireform-http1' encoder.
 fromHttp1Response :: H1.Response -> Response
 fromHttp1Response r = Response
   { responseStatus  = fromHttp1Status (H1.responseStatus r)
   , responseVersion = fromHttp1Version (H1.responseVersion r)
   , responseHeaders = fromHttp1Headers (H1.responseHeaders r)
   , responseBody    = fromHttp1Body (H1.responseBody r)
-  , responseTrailers = pure []
+  , responseTrailers = fromHttp1Headers <$> H1.responseTrailers r
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 ------------------------------------------------------------------------
@@ -222,5 +228,7 @@ fromHttp2Response r = Response
       H2S.ResponseBodyBS bs    -> U.BodyBytes bs
       H2S.ResponseBodyStream p -> U.BodyStream p
   , responseTrailers = pure (fromHttp2Headers (H2S.responseTrailers r))
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 

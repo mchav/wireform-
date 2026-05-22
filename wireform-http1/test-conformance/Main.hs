@@ -108,6 +108,7 @@ echoHandler req = do
         , ("Server", "wireform-http1")
         ]
     , responseBody = BodyBytes body
+    , responseTrailers = pure []
     }
 
 drainAll :: Body -> IO BS.ByteString

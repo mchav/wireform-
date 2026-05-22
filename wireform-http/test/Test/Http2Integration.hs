@@ -91,6 +91,8 @@ streamingResponseBody =
               [] -> pure Nothing
               (h:t) -> writeIORef ref t >> pure (Just h)
         , responseTrailers = pure []
+        , responseH2StreamId = 0
+        , responseCancel = pure ()
         }
 
 streamingRequestBody :: TestTree
@@ -136,6 +138,8 @@ serverEmitsTrailers =
           [ (CI.mk "grpc-status", "0")
           , (CI.mk "grpc-message", "OK")
           ]
+      , responseH2StreamId = 0
+      , responseCancel = pure ()
       }
 
 largeHeaderBlockTriggersContinuation :: TestTree
@@ -202,6 +206,8 @@ cancellationViaWithResponse =
               [] -> pure Nothing
               (h:t) -> writeIORef ref t >> pure (Just h)
         , responseTrailers = pure []
+        , responseH2StreamId = 0
+        , responseCancel = pure ()
         }
 
 ------------------------------------------------------------------------
@@ -280,6 +286,8 @@ resp200 body = Response
   , responseHeaders  = []
   , responseBody     = if BS.null body then BodyEmpty else BodyBytes body
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 drainBody :: Body -> IO BS.ByteString
