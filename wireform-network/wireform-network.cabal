@@ -61,6 +61,10 @@ library
   if !os(windows)
     build-depends: unix >= 2.7
 
+  if flag(iouring) && os(linux)
+    exposed-modules: Wireform.Network.Transport.IOUring
+    cpp-options: -DHAVE_IOURING
+
 test-suite wireform-network-test
   import: defaults
   type: exitcode-stdio-1.0
