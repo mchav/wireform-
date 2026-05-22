@@ -63,10 +63,12 @@ library
     Network.HTTP
     -- High-level middleware-composable client.
     Network.HTTP.Client
+    Network.HTTP.Client.AuthChallenge
     Network.HTTP.Client.Base
     Network.HTTP.Client.Body
     Network.HTTP.Client.BodyStream
     Network.HTTP.Client.Compression
+    Network.HTTP.Client.Conditional
     Network.HTTP.Client.Config
     Network.HTTP.Client.Cookies
     Network.HTTP.Client.Decoder
@@ -78,6 +80,8 @@ library
     Network.HTTP.Client.Middleware
     Network.HTTP.Client.Negotiation
     Network.HTTP.Client.Pool
+    Network.HTTP.Client.Range
+    Network.HTTP.Client.Redirect
     Network.HTTP.Client.Protocol
     Network.HTTP.Client.Request
     Network.HTTP.Client.Response
@@ -94,6 +98,7 @@ library
     -- Shared bits.
     Network.HTTP.Server
     Network.HTTP.TLS
+    Network.HTTP.FramingRules
     Network.HTTP.HttpDate
     Network.HTTP.Message
     Network.HTTP.VersionRange
