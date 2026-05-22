@@ -234,6 +234,25 @@ spec = describe "Parser" $ do
       let p = withSpan (skip 3) (\_ (Span s e) -> pure (subPos e s)) :: P Int
       ok (parseByteString p "hello") 3
 
+  describe "skipBack" $ do
+    it "skips backward and re-reads" $ do
+      let p = do
+            _ <- anyWord8
+            _ <- anyWord8
+            skipBack 2
+            anyWord8 :: P Word8
+      ok (parseByteString p "\xAA\xBB") 0xAA
+    it "fails when skipping past start" $ do
+      let p = skipBack 1 :: P ()
+      bad (parseByteString p "x")
+    it "skip forward then back" $ do
+      let p = do
+            skip 3
+            skipBack 2
+            anyWord8 :: P Word8
+      -- "hello" -> skip 3 -> at 'l' -> back 2 -> at 'e'
+      ok (parseByteString p "hello") (fromIntegral (fromEnum 'e'))
+
   describe "marks" $ do
     it "mark and restore" $ do
       let p = do

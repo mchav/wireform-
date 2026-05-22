@@ -331,10 +331,25 @@ takeRest = Parser \tag env eob s st ->
   in (# st, OK# bs eob #)
 {-# INLINE takeRest #-}
 
--- | Skip backward @n@ bytes. Unsafe: no bounds checking.
+-- | Skip backward @n@ bytes (takes a positive integer).
+--
+-- In the ring buffer context, you can only skip back to bytes that
+-- haven't been overwritten — i.e., bytes between the consumer tail
+-- and the current position.  For 'parseByteString' this is the
+-- entire input.  For streaming, it's bounded by whatever the driver
+-- hasn't advanced the tail past (at minimum, the start of the
+-- current 'runParser' invocation).
+--
+-- Fails if @n@ would move before the start of the current parse
+-- run (the @peInitCur@ boundary).  Does NOT check the ring tail
+-- directly — the driver guarantees tail <= initCur.
 skipBack :: Int -> Parser e ()
 skipBack (I# n#) = Parser \tag env eob s st ->
-  (# st, OK# () (plusAddr# s (negateInt# n#)) #)
+  let !target = plusAddr# s (negateInt# n#)
+      !(Ptr initCur) = peInitCur env
+  in case leAddr# initCur target of
+       1# -> (# st, OK# () target #)
+       _  -> (# st, Fail# #)
 {-# INLINE skipBack #-}
 
 ------------------------------------------------------------------------
