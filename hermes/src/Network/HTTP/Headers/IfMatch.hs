@@ -11,7 +11,6 @@ import Network.HTTP.Headers.ETag
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hIfMatch)
 import Network.HTTP.Headers.Parsing.Util
-import FlatParse.Basic
 import qualified Network.HTTP.Headers.Mason as M
 
 -- | The "If-Match" header field makes the request method conditional on 

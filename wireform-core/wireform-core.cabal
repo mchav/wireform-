@@ -58,11 +58,13 @@ common defaults
     DeriveAnyClass
     OverloadedStrings
     LambdaCase
+    BlockArguments
 
 library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    -- Existing builder modules
     Wireform.Builder
     Wireform.Builder.FastBuilder
     Wireform.Builder.Internal.Prim
@@ -70,14 +72,83 @@ library
     Wireform.FFI
     Wireform.Encode.Direct
     Wireform.Hash
+
+    -- Magic ring
+    Wireform.Ring
+    Wireform.Ring.Internal
+
+    -- Transport abstraction
+    Wireform.Transport
+    Wireform.Transport.Config
+    Wireform.Transport.Capabilities
+
+    -- Parser
+    Wireform.Parser
+    Wireform.Parser.Internal
+    Wireform.Parser.Stateful
+    Wireform.Parser.Switch
+    Wireform.Parser.Position
+    Wireform.Parser.Mark
+    Wireform.Parser.Error
+
+    -- Driver
+    Wireform.Parser.Driver
+
+    -- External-parser adapter
+    Wireform.Parser.Adapter
+
   c-sources: cbits/fast_decode.c
              cbits/fast_scan.c
              cbits/wireform_hash_simd.c
   include-dirs: include/simde
+                include
   cc-options: -O3
+
+  if os(linux)
+    c-sources: cbits/magic_ring_linux.c
+  if os(darwin) || os(freebsd) || os(netbsd) || os(openbsd)
+    c-sources: cbits/magic_ring_posix.c
+  if os(windows)
+    c-sources: cbits/magic_ring_windows.c
+    extra-libraries: kernel32
+
   build-depends:
-    base >= 4.16 && < 5,
+    base >= 4.18 && < 5,
     bytestring >= 0.11 && < 0.13,
+    containers,
     ghc-prim,
+    template-haskell,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14
+
+test-suite wireform-core-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  other-modules:
+    Wireform.Ring.Test
+    Wireform.Parser.Test
+  build-depends:
+    base,
+    bytestring,
+    wireform-core,
+    hspec,
+    QuickCheck
+
+benchmark parser-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: ParserBench.hs
+  other-modules:
+    Common
+    WFBasic
+    FPBasic
+  ghc-options: -O2 -rtsopts -threaded
+  build-depends:
+    base,
+    bytestring,
+    wireform-core,
+    flatparse >= 0.5 && < 0.6,
+    criterion >= 1.5 && < 1.7

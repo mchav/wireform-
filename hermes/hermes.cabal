@@ -115,7 +115,6 @@ library
     , charset
     , containers
     , deepseq
-    , flatparse
     , foldl
     , hashable
     , memory

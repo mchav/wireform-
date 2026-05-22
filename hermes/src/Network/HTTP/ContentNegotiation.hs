@@ -4,7 +4,6 @@ module Network.HTTP.ContentNegotiation where
 import Control.Monad.Combinators (sepBy)
 import qualified Data.ByteString as B
 import qualified Data.Text.Short as ST
-import FlatParse.Basic
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 import Network.HTTP.Headers.Rendering.Util

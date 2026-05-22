@@ -1,7 +1,7 @@
 module Network.HTTP.Headers.PingFrom where
 
 import qualified Data.List.NonEmpty as NE
-import FlatParse.Basic
+import Network.HTTP.Headers.Parsing.Util
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hPingFrom)

@@ -70,7 +70,8 @@ import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import GHC.Generics (Generic)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
-import qualified FlatParse.Basic as FP
+import Wireform.Parser (withByteString, err, skipMany, withAnyWord8, empty)
+import Wireform.Parser.Internal (Pure, Parser)
 
 -- ---------------------------------------------------------------------------
 -- FFI
@@ -189,25 +190,25 @@ decodeWith mode bs
 -- pass. A decode failure raises an unrecoverable
 -- 'URLDecodeError' via 'FP.err'.
 urlDecodedSegment
-  :: FP.ParserT st URLDecodeError a
-  -> FP.ParserT st URLDecodeError ByteString
+  :: Parser Pure URLDecodeError a
+  -> Parser Pure URLDecodeError ByteString
 urlDecodedSegment = decodeSegmentWith 0
 
 -- | Like 'urlDecodedSegment' but also maps @\'+\'@ to a space.
 formUrlDecodedSegment
-  :: FP.ParserT st URLDecodeError a
-  -> FP.ParserT st URLDecodeError ByteString
+  :: Parser Pure URLDecodeError a
+  -> Parser Pure URLDecodeError ByteString
 formUrlDecodedSegment = decodeSegmentWith 1
 
 decodeSegmentWith
   :: Int
-  -> FP.ParserT st URLDecodeError a
-  -> FP.ParserT st URLDecodeError ByteString
+  -> Parser Pure URLDecodeError a
+  -> Parser Pure URLDecodeError ByteString
 decodeSegmentWith mode p =
-  FP.withByteString p $ \_ bs ->
+  withByteString p $ \_ bs ->
     case decodeWith mode bs of
       Right out -> pure out
-      Left e    -> FP.err e
+      Left e    -> err e
 
 -- | Consume bytes while the predicate holds, then decode them.
 -- The predicate sees raw input bytes (before decoding) so it
@@ -215,23 +216,23 @@ decodeSegmentWith mode p =
 -- terminate the segment as outside the run.
 urlDecodedWhile
   :: (Word8 -> Bool)
-  -> FP.ParserT st URLDecodeError ByteString
+  -> Parser Pure URLDecodeError ByteString
 urlDecodedWhile = urlDecodedSegment . skipBytesWhile
 
 formUrlDecodedWhile
   :: (Word8 -> Bool)
-  -> FP.ParserT st URLDecodeError ByteString
+  -> Parser Pure URLDecodeError ByteString
 formUrlDecodedWhile = formUrlDecodedSegment . skipBytesWhile
 
 -- | Skip bytes while @p@ holds. Always succeeds (may consume
 -- zero bytes). Backtracks past the offending byte on failure
--- via flatparse's default @\<|\>@.
-skipBytesWhile :: (Word8 -> Bool) -> FP.ParserT st e ()
-skipBytesWhile p = FP.skipMany consumeIfMatch
+-- via the default @\<|\>@.
+skipBytesWhile :: (Word8 -> Bool) -> Parser Pure e ()
+skipBytesWhile p = skipMany consumeIfMatch
   where
     consumeIfMatch =
-      FP.withAnyWord8 $ \w ->
-        if p w then pure () else FP.failed
+      withAnyWord8 $ \w ->
+        if p w then pure () else empty
 
 -- ---------------------------------------------------------------------------
 -- Helpers
