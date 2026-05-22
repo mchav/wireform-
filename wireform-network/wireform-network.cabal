@@ -63,6 +63,8 @@ library
 
   if flag(iouring) && os(linux)
     exposed-modules: Wireform.Network.Transport.IOUring
+    c-sources: cbits/iouring_glue.c
+    extra-libraries: uring
     cpp-options: -DHAVE_IOURING
 
 test-suite wireform-network-test

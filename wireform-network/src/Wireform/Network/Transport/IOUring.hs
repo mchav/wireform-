@@ -1,16 +1,16 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Linux io_uring-based transport.
 --
--- Uses io_uring for async recv directly into the magic ring buffer.
--- Integrates with the GHC IO manager via eventfd.
+-- Receives data directly into the magic ring buffer via io_uring
+-- async recv.  Integrates with the GHC IO manager via eventfd.
 --
 -- __Requires__: Linux kernel 5.1+, liburing-dev.
--- Build with the @iouring@ flag.
+-- Build with @cabal build -f iouring@.
 module Wireform.Network.Transport.IOUring
   (
 #if defined(HAVE_IOURING)
@@ -21,15 +21,15 @@ module Wireform.Network.Transport.IOUring
 #if defined(HAVE_IOURING)
 
 import Control.Concurrent (threadWaitRead)
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, bracket, toException, throwIO, try)
 import Data.Bits ((.&.))
 import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.C.Types (CInt (..), CSize (..))
-import Foreign.Marshal.Alloc (mallocBytes, free)
-import Foreign.Ptr (Ptr, plusPtr, castPtr, nullPtr)
-import Foreign.Storable (peek, poke)
-import Network.Socket (Socket, fdSocket)
+import Foreign.Marshal.Alloc (alloca, mallocBytes, free, callocBytes)
+import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Storable (peek)
+import Network.Socket (Socket, withFdSocket)
 import System.Posix.Types (Fd (..))
 
 import Wireform.Ring.Internal
@@ -37,10 +37,19 @@ import Wireform.Transport
 import Wireform.Transport.Config
 
 ------------------------------------------------------------------------
+-- C struct size — must match cbits/iouring_glue.c struct hs_iouring
+------------------------------------------------------------------------
+
+-- sizeof(struct io_uring) is ~160 bytes on x86_64 with liburing 2.x.
+-- struct hs_iouring adds ~56 bytes of fields around it.
+-- We allocate generously and zero-initialize.
+hsIouringSize :: Int
+hsIouringSize = 512
+
+------------------------------------------------------------------------
 -- C FFI bindings
 ------------------------------------------------------------------------
 
--- Opaque io_uring state (allocated on C heap)
 data IOUringState
 
 foreign import ccall unsafe "hs_iouring_create"
@@ -51,7 +60,7 @@ foreign import ccall unsafe "hs_iouring_create"
 foreign import ccall unsafe "hs_iouring_submit_recv"
   c_iouring_submit_recv :: Ptr IOUringState -> CSize -> IO CInt
 
-foreign import ccall unsafe "hs_iouring_wait_cqe"
+foreign import ccall safe "hs_iouring_wait_cqe"
   c_iouring_wait_cqe :: Ptr IOUringState -> Ptr Word64 -> IO CInt
 
 foreign import ccall unsafe "hs_iouring_peek_cqe"
@@ -67,15 +76,18 @@ foreign import ccall unsafe "hs_iouring_destroy"
   c_iouring_destroy :: Ptr IOUringState -> IO ()
 
 ------------------------------------------------------------------------
+-- Transport state
+------------------------------------------------------------------------
+
+data IOUringTState
+  = IOpen
+  | IClosedEof
+  | IClosedErr !SomeException
+
+------------------------------------------------------------------------
 -- Transport implementation
 ------------------------------------------------------------------------
 
--- | Create an io_uring-based transport.
---
--- Uses a single io_uring instance with configurable queue depth.
--- Each recv completion writes data directly into the magic ring.
--- The parser thread parks on the eventfd via @threadWaitRead@ when
--- waiting for completions.
 withIOUringTransport :: TransportConfig -> Socket -> (Transport -> IO a) -> IO a
 withIOUringTransport cfg sock action =
   withMagicRing (ringSizeHint cfg) \ring -> do
@@ -87,86 +99,90 @@ withIOUringTransport cfg sock action =
               NoSQPoll -> 0
               SQPollWithIdle ms -> ms
 
-    sockFd <- fdSocket sock
+    -- Allocate C-side state (zero-initialized)
+    bracket (callocBytes hsIouringSize) free \rawPtr -> do
+      let uringPtr = castPtr rawPtr :: Ptr IOUringState
 
-    -- Allocate the C-side io_uring state
-    let stateSize = 1024  -- generous; struct hs_iouring is ~300 bytes
-    bracket (mallocBytes stateSize) free \statePtr -> do
-      rc <- c_iouring_create (fromIntegral sockFd)
-                             (fromIntegral depth)
-                             (fromIntegral sqpollIdle)
-                             base (fromIntegral sz)
-                             (castPtr statePtr)
+      -- Create io_uring instance
+      rc <- withFdSocket sock \fd ->
+        c_iouring_create (fromIntegral fd)
+                         (fromIntegral depth)
+                         (fromIntegral sqpollIdle)
+                         base (fromIntegral sz)
+                         uringPtr
       if rc < 0
-        then error ("io_uring_create failed: " <> show rc)
+        then throwIO (userError $ "io_uring_create failed with code " <> show rc)
         else do
-          let uringPtr = castPtr statePtr :: Ptr IOUringState
+          destroyedRef <- newIORef False
+          let destroy = do
+                alreadyDestroyed <- readIORef destroyedRef
+                if alreadyDestroyed
+                  then pure ()
+                  else do
+                    writeIORef destroyedRef True
+                    c_iouring_destroy uringPtr
 
           eventFd <- c_iouring_get_eventfd uringPtr
-          stateRef <- newIORef TSOpen
+          stateRef <- newIORef IOpen
           tailRef  <- newIORef (0 :: Word64)
 
-          -- Submit initial recv
+          -- Submit initial recv SQE
           _ <- c_iouring_submit_recv uringPtr (fromIntegral sz)
 
-          let loadHead = c_iouring_get_head uringPtr
+          let loadHead :: IO Word64
+              loadHead = c_iouring_get_head uringPtr
 
+              advanceTail :: Word64 -> IO ()
               advanceTail pos = writeIORef tailRef pos
 
+              waitData :: Word64 -> IO WaitResult
               waitData pos = do
                 st <- readIORef stateRef
                 case st of
-                  TSClosedEof   -> pure EndOfInput
-                  TSClosedErr e -> pure (TransportError e)
-                  TSOpen        -> doWait pos
+                  IClosedEof   -> pure EndOfInput
+                  IClosedErr e -> pure (TransportError e)
+                  IOpen        -> doWait pos
 
+              doWait :: Word64 -> IO WaitResult
               doWait pos = do
                 h <- loadHead
                 if h > pos
                   then pure (MoreData h)
                   else do
                     -- Try non-blocking peek first
-                    headPtr <- mallocBytes 8
-                    peekRc <- c_iouring_peek_cqe uringPtr headPtr
-                    if peekRc >= 0
-                      then do
-                        newH <- peek headPtr
-                        free headPtr
-                        if peekRc == 0
+                    alloca \headPtr -> do
+                      peekRc <- c_iouring_peek_cqe uringPtr headPtr
+                      if peekRc > 0
+                        then handleCompletion headPtr peekRc
+                        else if peekRc == 0
                           then do
-                            writeIORef stateRef TSClosedEof
+                            writeIORef stateRef IClosedEof
                             pure EndOfInput
                           else do
-                            -- Submit replacement recv
-                            t <- readIORef tailRef
-                            let available = fromIntegral sz - fromIntegral (newH - t)
-                            _ <- c_iouring_submit_recv uringPtr (fromIntegral available)
-                            pure (MoreData newH)
-                      else do
-                        free headPtr
-                        -- Park on eventfd
-                        threadWaitRead (Fd eventFd)
-                        -- Drain eventfd
-                        headPtr2 <- mallocBytes 8
-                        waitRc <- c_iouring_wait_cqe uringPtr headPtr2
-                        if waitRc > 0
-                          then do
-                            newH <- peek headPtr2
-                            free headPtr2
-                            t <- readIORef tailRef
-                            let available = fromIntegral sz - fromIntegral (newH - t)
-                            _ <- c_iouring_submit_recv uringPtr (fromIntegral available)
-                            pure (MoreData newH)
-                          else if waitRc == 0
-                            then do
-                              free headPtr2
-                              writeIORef stateRef TSClosedEof
-                              pure EndOfInput
-                            else do
-                              free headPtr2
-                              let exc = userError ("io_uring CQE error: " <> show waitRc)
-                              writeIORef stateRef (TSClosedErr (toException exc))
-                              pure (TransportError (toException exc))
+                            -- No completion ready — park on eventfd
+                            threadWaitRead (Fd eventFd)
+                            alloca \headPtr2 -> do
+                              waitRc <- c_iouring_wait_cqe uringPtr headPtr2
+                              if waitRc > 0
+                                then handleCompletion headPtr2 waitRc
+                                else if waitRc == 0
+                                  then do
+                                    writeIORef stateRef IClosedEof
+                                    pure EndOfInput
+                                  else do
+                                    let exc = toException (userError $ "io_uring CQE error: " <> show waitRc)
+                                    writeIORef stateRef (IClosedErr exc)
+                                    pure (TransportError exc)
+
+              handleCompletion :: Ptr Word64 -> CInt -> IO WaitResult
+              handleCompletion headPtr _bytesRc = do
+                newH <- peek headPtr
+                -- Submit replacement recv bounded by available ring space
+                t <- readIORef tailRef
+                let !available = fromIntegral sz - fromIntegral (newH - t)
+                when (available > 0) $
+                  void $ c_iouring_submit_recv uringPtr (fromIntegral available)
+                pure (MoreData newH)
 
               transport = Transport
                 { transportRing        = ring
@@ -174,24 +190,25 @@ withIOUringTransport cfg sock action =
                 , transportAdvanceTail = advanceTail
                 , transportWaitData    = waitData
                 , transportClose       = do
-                    writeIORef stateRef TSClosedEof
-                    c_iouring_destroy uringPtr
+                    writeIORef stateRef IClosedEof
+                    destroy
                 }
 
-          action transport `finally` c_iouring_destroy uringPtr
+          action transport `finally` destroy
   where
+    finally :: IO a -> IO () -> IO a
     finally a cleanup = do
       r <- try @SomeException a
       cleanup
       case r of
         Left e  -> throwIO e
         Right v -> pure v
-    toException = toException
-    throwIO = Control.Exception.throwIO
 
-data TransportState
-  = TSOpen
-  | TSClosedEof
-  | TSClosedErr !SomeException
+    when :: Bool -> IO () -> IO ()
+    when True  m = m
+    when False _ = pure ()
+
+    void :: IO a -> IO ()
+    void m = m >> pure ()
 
 #endif
