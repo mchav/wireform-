@@ -138,18 +138,17 @@ workerLoop cfg lowReq chunks rawVar doneVar finished = do
       --    /before/ pumping (otherwise the caller is blocked
       --    waiting for it).
       let popper = readChunk chunks finished doneVar
-          -- Cancellation: signal EOF on the consumer side and the
-          -- worker drops out of pumpBody / takeMVar. The bracketed
-          -- Conn.withConnection then unwinds, which RST_STREAMs
-          -- the underlying H2 stream (and closes the H1
-          -- connection). This is best-effort; we don't reach into
-          -- the H2 client to send RST_STREAM eagerly.
+          -- Cancellation: flag EOF on the consumer side and unblock
+          -- the worker so the bracketed Conn.withConnection unwinds.
+          -- That unwind RST_STREAMs the underlying H2 stream (and
+          -- closes the H1 connection), so we get reasonable
+          -- best-effort cancellation without reaching into the H2
+          -- client to send RST_STREAM ourselves.
           cancel = do
-            atomicallyWriteFinished
+            writeIORef finished True
             atomically (writeTBQueue chunks Nothing)
             _ <- tryPutMVar doneVar ()
             pure ()
-          atomicallyWriteFinished = writeIORef finished True
           raw   = RawResponse
             { statusCode    = Msg.responseStatus resp
             , headers       = Msg.responseHeaders resp

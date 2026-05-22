@@ -48,13 +48,17 @@ import Control.Concurrent (ThreadId, forkIO)
 import Control.Exception (SomeException, catch)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import qualified Data.List as List
 import Data.Time.Clock (getCurrentTime)
 import qualified Network.Socket as NS
+import qualified Network.Socket.ByteString as NBS
 
 import qualified Network.HTTP1.Server as H1
+import qualified Network.HTTP1.Transport as H1T
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2
+import qualified Network.HTTP2.Transport as H2T
 
 import Network.HTTP.HttpDate (formatHttpDate)
 import Network.HTTP.Message
@@ -259,14 +263,98 @@ runServerOnListener cfg listenSock = acceptLoop
 -- HTTP\/2 per-connection runtime based on the configured
 -- 'VersionRange'.  Exposed mainly so test fixtures can wire up a
 -- single connection without standing up a full accept loop.
+--
+-- For mixed plaintext ranges (a 'VersionRange' that allows /both/
+-- HTTP\/1.x and HTTP\/2 prior-knowledge) we sniff the first bytes
+-- of the connection: if they match the HTTP\/2 connection preface
+-- (@\"PRI * HTTP\/2.0\\r\\n\\r\\nSM\\r\\n\\r\\n\"@) we dispatch the
+-- HTTP\/2 runtime, otherwise the HTTP\/1.x runtime. The peeked
+-- bytes are then prepended to the per-version runtime via
+-- 'bufferedRecvTransport' so neither runtime observes the sniff.
 handleAcceptedSocket :: ServerConfig -> NS.Socket -> IO ()
-handleAcceptedSocket cfg sock
-  | preferredVersion (serverVersionRange cfg) == U.HTTP2 =
-      let h2cfg = (mkH2Config cfg)
-            { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg) }
-      in H2.runServerOnSocket h2cfg sock
-  | otherwise =
-      H1.runServerOnSocket (mkH1Config cfg) sock
+handleAcceptedSocket cfg sock =
+  let allowed   = versionRangeList (serverVersionRange cfg)
+      mixed     = U.HTTP2 `elem` allowed
+                    && (U.HTTP1_1 `elem` allowed || U.HTTP1_0 `elem` allowed)
+      preferred = preferredVersion (serverVersionRange cfg)
+  in case (mixed, preferred) of
+       (False, U.HTTP2) -> dispatchH2 cfg sock BS.empty
+       (False, _      ) -> dispatchH1 cfg sock BS.empty
+       (True , _      ) -> sniffAndDispatch cfg sock
+
+-- | Read up to the length of the HTTP\/2 preface from the socket
+-- and decide which runtime to dispatch.
+sniffAndDispatch :: ServerConfig -> NS.Socket -> IO ()
+sniffAndDispatch cfg sock = do
+  peeked <- recvAtLeast sock (BS.length http2Preface)
+  if http2Preface `BS.isPrefixOf` peeked
+    then dispatchH2 cfg sock peeked
+    else dispatchH1 cfg sock peeked
+
+http2Preface :: ByteString
+http2Preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+-- | Loop until at least @n@ bytes have been received or the peer
+-- closes. May return fewer if EOF arrives early.
+recvAtLeast :: NS.Socket -> Int -> IO ByteString
+recvAtLeast s n = go BS.empty
+  where
+    go acc
+      | BS.length acc >= n = pure acc
+      | otherwise = do
+          chunk <- NBS.recv s (n - BS.length acc)
+          if BS.null chunk
+            then pure acc
+            else go (acc <> chunk)
+
+-- | Dispatch HTTP\/1.x with @prebuf@ bytes already pulled off the
+-- socket (will be the first bytes the runtime sees).
+dispatchH1 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
+dispatchH1 cfg sock prebuf
+  | BS.null prebuf = H1.runServerOnSocket (mkH1Config cfg) sock
+  | otherwise = do
+      transport <- prebuffered1 sock prebuf
+      H1.runServerOnTransport (mkH1Config cfg) transport
+
+dispatchH2 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
+dispatchH2 cfg sock prebuf =
+  let h2cfg = (mkH2Config cfg)
+        { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg) }
+  in if BS.null prebuf
+       then H2.runServerOnSocket h2cfg sock
+       else do
+         transport <- prebuffered2 sock prebuf
+         H2.runServerOnTransport h2cfg transport
+
+prebuffered1 :: NS.Socket -> ByteString -> IO H1T.Transport
+prebuffered1 sock prebuf = do
+  ref <- newIORef prebuf
+  H1T.bufferedRecvTransport
+    (NBS.sendAll sock)
+    (NBS.sendMany sock)
+    (drainOrRecv ref sock)
+    (NS.close sock)
+
+prebuffered2 :: NS.Socket -> ByteString -> IO H2T.Transport
+prebuffered2 sock prebuf = do
+  ref <- newIORef prebuf
+  H2T.bufferedRecvTransport
+    (NBS.sendAll sock)
+    (NBS.sendMany sock)
+    (drainOrRecv ref sock)
+    (NS.close sock)
+
+-- | Pull the prebuffered bytes once, then fall through to live
+-- 'NBS.recv'. The transport's own buffering layer copies them into
+-- its ring so we don't have to be precise about chunk boundaries.
+drainOrRecv :: IORef ByteString -> NS.Socket -> IO ByteString
+drainOrRecv ref sock = do
+  buf <- readIORef ref
+  if BS.null buf
+    then NBS.recv sock 32768
+    else do
+      writeIORef ref BS.empty
+      pure buf
 
 wrapHttp1Handler :: ServerConfig -> Handler -> H1.Request -> IO H1.Response
 wrapHttp1Handler cfg handler h1req = do

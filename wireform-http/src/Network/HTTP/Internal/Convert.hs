@@ -135,11 +135,14 @@ toHttp1Response r = H1.Response
   , H1.responseBody    = toHttp1Body (responseBody r)
   }
 
--- | HTTP\/1.x trailers (the field section after a chunked body's
--- terminator) are dropped by the current 'Network.HTTP1.Connection'
--- body reader, so 'responseTrailers' is unconditionally @pure []@.
--- A future change can surface them through the same pull-producer
--- shape that HTTP\/2 uses.
+-- | HTTP\/1.x trailers come from the chunked body's terminator field
+-- block.  'Network.HTTP1.Connection' already reads them and parks
+-- them on an 'MVar'; we surface that as 'responseTrailers'.
+--
+-- Note: this is the /client-receive/ side. The 'Network.HTTP1.Types'
+-- 'Response' record does not yet carry trailers (the H1 encoder
+-- doesn't emit them), so server-emitted H1 trailers still need
+-- wiring through the 'wireform-http1' encoder.
 fromHttp1Response :: H1.Response -> Response
 fromHttp1Response r = Response
   { responseStatus  = fromHttp1Status (H1.responseStatus r)
@@ -147,6 +150,10 @@ fromHttp1Response r = Response
   , responseHeaders = fromHttp1Headers (H1.responseHeaders r)
   , responseBody    = fromHttp1Body (H1.responseBody r)
   , responseTrailers = pure []
+    -- The shipped H1 client API drains the body-and-trailers in
+    -- 'sendRequestOn' and discards the trailer MVar; until that is
+    -- exposed at the client API boundary, the unified surface
+    -- defaults to @pure []@.
   }
 
 ------------------------------------------------------------------------
