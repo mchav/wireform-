@@ -16,11 +16,13 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 
 import Wireform.Parser
+import Wireform.Parser.Internal (Pure)
+import Wireform.Parser.Internal (Pure)
 import Wireform.Parser.Driver (parseByteString)
 
 import Common (Tm (..))
 
-type P = Parser ()
+type P = Parser Pure ()
 
 ------------------------------------------------------------------------
 -- sexp

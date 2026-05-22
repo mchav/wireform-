@@ -31,12 +31,12 @@ data Span = Span !Pos !Pos
 subPos :: Pos -> Pos -> Int
 subPos (Pos a) (Pos b) = fromIntegral (a - b)
 
-getPos :: Parser e Pos
+getPos :: Parser m e Pos
 getPos = Parser \env eob s st ->
   (# st, OK# (Pos (curToPos env s)) s #)
 {-# INLINE getPos #-}
 
-withSpan :: Parser e a -> (a -> Span -> Parser e b) -> Parser e b
+withSpan :: Parser m e a -> (a -> Span -> Parser m e b) -> Parser m e b
 withSpan (Parser p) f = Parser \env eob s st ->
   case p env eob s st of
     (# st', OK# a s' #) ->
@@ -45,7 +45,7 @@ withSpan (Parser p) f = Parser \env eob s st ->
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE withSpan #-}
 
-byteStringOf :: Parser e a -> Parser e ByteString
+byteStringOf :: Parser m e a -> Parser m e ByteString
 byteStringOf (Parser p) = Parser \env eob s st ->
   case p env eob s st of
     (# st', OK# _ s' #) ->
@@ -55,7 +55,7 @@ byteStringOf (Parser p) = Parser \env eob s st ->
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE byteStringOf #-}
 
-spanToByteString :: Span -> Parser e ByteString
+spanToByteString :: Span -> Parser m e ByteString
 spanToByteString (Span (Pos start) (Pos end)) = Parser \env eob s st ->
   let !len = fromIntegral (end - start)
       base = peBaseAddr env
@@ -68,7 +68,7 @@ spanToByteString (Span (Pos start) (Pos end)) = Parser \env eob s st ->
 -- | Run a parser within an explicitly bounded byte window.
 -- Temporarily restricts @eob@ to the span's end position, then
 -- restores it on completion.
-inSpan :: Span -> Parser e a -> Parser e a
+inSpan :: Span -> Parser m e a -> Parser m e a
 inSpan (Span (Pos start) (Pos end)) (Parser p) = Parser \env eob s st ->
   let base = peBaseAddr env
       mask = peMask env

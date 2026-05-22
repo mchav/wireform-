@@ -46,19 +46,19 @@ import Wireform.Parser.Internal
 ------------------------------------------------------------------------
 
 -- | Fail without consuming input.
-switchFailed :: Parser e a
+switchFailed :: Parser m e a
 switchFailed = Parser \env eob s st -> (# st, Fail# #)
 {-# INLINE switchFailed #-}
 
 -- | Unsafe read — caller must have ensured at least 1 byte.
-switchAnyWord8Unsafe :: Parser e Word8
+switchAnyWord8Unsafe :: Parser m e Word8
 switchAnyWord8Unsafe = Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
     w# -> (# st, OK# (W8# w#) (plusAddr# s 1#) #)
 {-# INLINE switchAnyWord8Unsafe #-}
 
 -- | Branch on an ensure check: if enough bytes, run @t@; else @f@.
-switchBranch :: Int -> Parser e a -> Parser e a -> Parser e a
+switchBranch :: Int -> Parser m e a -> Parser m e a -> Parser m e a
 switchBranch (I# n#) (Parser t) (Parser f) = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> t env eob s st

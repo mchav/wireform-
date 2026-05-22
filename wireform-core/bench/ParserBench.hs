@@ -15,6 +15,7 @@ import Data.Word
 import Data.Int
 
 import qualified Wireform.Parser as W
+import Wireform.Parser.Internal (Pure)
 import qualified Wireform.Parser.Driver as W
 import qualified FlatParse.Basic as FP
 import qualified WFBasic
@@ -67,7 +68,7 @@ mkUtf8_2byteInput n = LBS.toStrict . BSB.toLazyByteString $
 -- Wireform parsers
 ------------------------------------------------------------------------
 
-type WP = W.Parser () 
+type WP = W.Parser Pure ()
 
 wfWord32s :: Int -> WP ()
 wfWord32s 0 = pure ()

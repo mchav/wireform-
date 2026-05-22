@@ -10,6 +10,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- | Core parser types, mirroring flatparse's representation for
 -- identical inner-loop performance.
@@ -24,6 +25,10 @@
 module Wireform.Parser.Internal
   ( -- * Parser type
     Parser (..)
+
+    -- * Mode types and class
+  , Pure, Stream
+  , ParserMode (..)
 
     -- * Result types
   , type Res#
@@ -60,6 +65,7 @@ import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr, plusPtr, minusPtr)
 import Foreign.Storable (peek, poke)
+import Data.Kind (Type)
 import GHC.Exts
 import GHC.ForeignPtr (ForeignPtrContents (..))
 import GHC.IO (IO (..))
@@ -92,6 +98,32 @@ pattern Err# e = (# | | (# e #) #)
 {-# COMPLETE OK#, Fail#, Err# #-}
 
 ------------------------------------------------------------------------
+-- Parser mode (compile-time dispatch for ensure slow path)
+------------------------------------------------------------------------
+
+-- | Whole-input mode.  When bounds check fails, just return 'Fail#'.
+-- Identical codegen to flatparse — zero suspension overhead.
+data Pure
+
+-- | Streaming mode.  When bounds check fails, suspend via @control0#@
+-- to wait for more data from the transport.
+data Stream
+
+-- | Type class dispatching the ensure slow path.
+-- Resolved at compile time via specialization.
+class ParserMode (m :: Type) where
+  onEnsureFail :: ParserEnv -> Addr# -> Addr# -> Int#
+               -> State# RealWorld -> StRes# e ()
+
+instance ParserMode Pure where
+  onEnsureFail _env _eob _s _n st = (# st, Fail# #)
+  {-# INLINE onEnsureFail #-}
+
+instance ParserMode Stream where
+  onEnsureFail = ensureNSlow
+  {-# INLINE onEnsureFail #-}
+
+------------------------------------------------------------------------
 -- Parser environment (carries mutable end pointer for streaming)
 ------------------------------------------------------------------------
 
@@ -113,8 +145,7 @@ data ParserEnv = ParserEnv
     -- ^ Keeps the backing memory alive for zero-copy slices.
   , peTag      :: Any
     -- ^ PromptTag# stored as Any via unsafeCoerce#.
-    -- Only accessed on the cold path (ensureNSlow).
-    -- Keeping it out of the Parser lambda frees a register.
+    -- Only meaningful for streaming mode.
   }
 
 -- | Recover the typed PromptTag# from the env. Only call from ensureNSlow.
@@ -190,10 +221,13 @@ data Resume e r = Resume
 -- | Parser result with state token.
 type StRes# e a = (# State# RealWorld, Res# e a #)
 
--- | The parser type.  Four args on the hot path: env, eob, cur, state.
--- The PromptTag# for streaming suspension lives in @peTag@ of the env,
--- accessed only by @ensureNSlow@ (cold path).
-newtype Parser e a = Parser
+-- | The parser type.  Parameterized by mode @m@ ('Pure' or 'Stream'),
+-- error type @e@, and result type @a@.
+--
+-- Four args on the hot path: env, eob, cur, state.  The mode @m@ is
+-- phantom — it controls which 'ParserMode' instance is used for
+-- bounds-check failures, resolved at compile time.
+newtype Parser (m :: Type) e a = Parser
   { runParser# :: ParserEnv
                -> Addr#         -- eob (end of buffer / current end)
                -> Addr#         -- cur (current position)
@@ -201,7 +235,7 @@ newtype Parser e a = Parser
                -> StRes# e a
   }
 
-instance Functor (Parser e) where
+instance Functor (Parser m e) where
   fmap f (Parser g) = Parser \env eob s st ->
     case g env eob s st of
       (# st', OK# a s' #) -> let !b = f a in (# st', OK# b s' #)
@@ -214,7 +248,7 @@ instance Functor (Parser e) where
       (# st', x #)        -> (# st', unsafeCoerce# x #)
   {-# INLINE (<$) #-}
 
-instance Applicative (Parser e) where
+instance Applicative (Parser m e) where
   pure !a = Parser \env eob s st -> (# st, OK# a s #)
   {-# INLINE pure #-}
 
@@ -240,7 +274,7 @@ instance Applicative (Parser e) where
       (# st', x #) -> (# st', unsafeCoerce# x #)
   {-# INLINE (<*) #-}
 
-instance Monad (Parser e) where
+instance Monad (Parser m e) where
   Parser fa >>= f = Parser \env eob s st ->
     case fa env eob s st of
       (# st', OK# a s' #) -> runParser# (f a) env eob s' st'
@@ -250,7 +284,7 @@ instance Monad (Parser e) where
   (>>) = (*>)
   {-# INLINE (>>) #-}
 
-instance MonadFail (Parser e) where
+instance MonadFail (Parser m e) where
   fail _ = Parser \env eob s st -> (# st, Fail# #)
   {-# INLINE fail #-}
 
@@ -261,11 +295,11 @@ instance MonadFail (Parser e) where
 -- | Require @n#@ bytes available from @cur@.
 -- Fast path: single comparison, no memory access to mutable state.
 -- Slow path: suspends to the driver via @control0#@.
-ensureN# :: Int# -> Parser e ()
+ensureN# :: forall m e. ParserMode m => Int# -> Parser m e ()
 ensureN# n# = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> (# st, OK# () s #)
-    _  -> ensureNSlow env eob s n# st
+    _  -> onEnsureFail @m env eob s n# st
 {-# INLINE ensureN# #-}
 
 ensureNSlow :: ParserEnv
@@ -295,7 +329,8 @@ ensureNSlow env eob s n# st =
 -- checkpoint
 ------------------------------------------------------------------------
 
-checkpoint :: Parser e ()
+-- | Checkpoint is only meaningful in streaming mode.
+checkpoint :: Parser Stream e ()
 checkpoint = Parser \env eob s st0 ->
   let !pos = curToPos env s
       tag :: PromptTag# (Step Any Any)

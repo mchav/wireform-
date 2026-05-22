@@ -11,10 +11,11 @@ import Test.Hspec
 import Test.QuickCheck
 
 import Wireform.Parser
+import Wireform.Parser.Internal (Pure)
 import Wireform.Parser.Driver (parseByteString)
 import Wireform.Parser.Error
 
-type P = Parser String
+type P = Parser Pure String
 
 ok :: (Show a, Eq a) => Either (ParseError String) a -> a -> Expectation
 ok (Right a) expected = a `shouldBe` expected

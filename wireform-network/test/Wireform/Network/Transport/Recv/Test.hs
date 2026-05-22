@@ -15,12 +15,13 @@ import Network.Socket.ByteString (sendAll, recv)
 import Test.Hspec
 
 import Wireform.Parser
+import Wireform.Parser.Internal (Pure, Stream)
 import Wireform.Parser.Driver
 import Wireform.Parser.Error
 import Wireform.Network.Transport.Recv
 import Wireform.Transport.Config
 
-type P = Parser String
+type P = Parser Stream String
 
 spec :: Spec
 spec = describe "RecvTransport" $ do

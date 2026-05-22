@@ -55,7 +55,7 @@ data TransportState
 -- runParser
 ------------------------------------------------------------------------
 
-runParser :: forall e a. Transport -> Parser e a -> IO (Either (ParseError e) a)
+runParser :: forall e a. Transport -> Parser Stream e a -> IO (Either (ParseError e) a)
 runParser t p = do
   startPos <- transportLoadHead t
   ir <- runParserInternal t p startPos
@@ -67,7 +67,7 @@ runParser t p = do
     IRTransportError exc  -> Left (ParseTransportError exc)
     IRCleanEof            -> Left (ParseUnexpectedEof 0 0)
 
-runParserInternal :: forall e a. Transport -> Parser e a -> Word64 -> IO (InternalResult e a)
+runParserInternal :: forall e a. Transport -> Parser Stream e a -> Word64 -> IO (InternalResult e a)
 runParserInternal t p startPos = mask \restore -> do
   let ring  = transportRing t
       !base = ringBase ring
@@ -189,7 +189,7 @@ waitUntilAvailable t tsRef pos needed _ringSize = loop
 -- runParserLoop
 ------------------------------------------------------------------------
 
-runParserLoop :: forall e a. Transport -> Parser e a -> (a -> IO LoopControl)
+runParserLoop :: forall e a. Transport -> Parser Stream e a -> (a -> IO LoopControl)
               -> IO (Either (ParseError e) ())
 runParserLoop t p k = do
   startPos <- transportLoadHead t
@@ -213,7 +213,7 @@ runParserLoop t p k = do
 
 -- | Run a parser against a whole 'ByteString'.
 -- The hot path is bit-identical to flatparse — no suspension overhead.
-parseByteString :: forall e a. Parser e a -> ByteString -> Either (ParseError e) a
+parseByteString :: forall e a. Parser Pure e a -> ByteString -> Either (ParseError e) a
 parseByteString p b = unsafeDupablePerformIO $ do
   -- withForeignPtr keeps the ByteString's backing memory alive
   let !(BSI.BS (ForeignPtr buf# fp) (I# len#)) = b

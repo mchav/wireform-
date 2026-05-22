@@ -25,6 +25,7 @@ import Foreign.C.Types (CLong (..))
 import System.IO.Unsafe (unsafePerformIO)
 
 import Wireform.Parser
+import Wireform.Parser.Internal (Pure)
 import Wireform.Parser.Driver (parseByteString)
 
 data SystemCapabilities = SystemCapabilities
@@ -102,7 +103,7 @@ recommendPlacement _fdNumaNode = pure (Placement Nothing Nothing)
 -- Parsers for /proc and /sys files (using our own parser)
 ------------------------------------------------------------------------
 
-type P = Parser ()
+type P = Parser Pure ()
 
 -- | Parse a CPU list like "0-3,5,7-9" into [0,1,2,3,5,7,8,9].
 pCpuList :: P [Int]

@@ -158,7 +158,7 @@ modify' f = ParserS \tag env r mv eob s rw ->
 -- Lifting basic parsers
 ------------------------------------------------------------------------
 
-liftParser :: Parser e a -> ParserS r s e a
+liftParser :: Parser m e a -> ParserS r s e a
 liftParser (Parser p) = ParserS \tag env _r _mv eob s rw ->
   p env eob s rw
 {-# INLINE liftParser #-}
