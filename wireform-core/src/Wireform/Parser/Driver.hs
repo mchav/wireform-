@@ -86,30 +86,30 @@ runParserInternal t p startPos = mask \restore -> do
     highWaterRef <- newIORef startPos
     tsRef <- newIORef TSOpen
 
-    -- The ring is mmap'd memory — it outlives any ByteString slices
-    -- created during this runParser call because withMagicRing/
-    -- withRecvTransport brackets us.  FinalPtr means no GC action.
-    let env = ParserEnv
-          { peEndPtr   = castPtr endPtr
-          , peBaseAddr = base
-          , peMask     = msk
-          , peStartPos = startPos
-          , peInitCur  = Ptr initCur#
-          , peBackingFp = FinalPtr
-          }
-
-    step0 <- IO \s0 -> case newPromptTag# s0 of
+    -- Allocate tag and construct env inside IO so the tag
+    -- is available for peTag, then return both.
+    (env, step0) <- IO \s0 -> case newPromptTag# s0 of
       (# s1, (tag :: PromptTag# (Step e a)) #) ->
-        let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-            body s = case runParser# p tag env initEnd# initCur# s of
+        let !env' = ParserEnv
+              { peEndPtr   = castPtr endPtr
+              , peBaseAddr = base
+              , peMask     = msk
+              , peStartPos = startPos
+              , peInitCur  = Ptr initCur#
+              , peBackingFp = FinalPtr
+              , peTag      = tagToAny tag
+              }
+            body :: State# RealWorld -> (# State# RealWorld, Step e a #)
+            body s = case runParser# p env' initEnd# initCur# s of
               (# s', OK# a cur' #) ->
-                let !newPos = curToPos env cur'
+                let !newPos = curToPos env' cur'
                 in (# s', StepDone newPos a #)
               (# s', Fail# #) ->
                 (# s', StepFail startPos #)
               (# s', Err# e #) ->
                 (# s', StepErr startPos e #)
-        in prompt# tag body s1
+        in case prompt# tag body s1 of
+             (# s2, step #) -> (# s2, (env', step) #)
 
     driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
 
@@ -223,19 +223,19 @@ parseByteString p b = unsafeDupablePerformIO $ do
     bracket (mallocBytes 8) free \endPtr -> do
       poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr end#)
 
-      let env = ParserEnv
-            { peEndPtr   = castPtr endPtr
-            , peBaseAddr = Ptr buf#
-            , peMask     = maxBound
-            , peStartPos = 0
-            , peInitCur  = Ptr buf#
-            , peBackingFp = fp
-            }
-
       IO \s0 -> case newPromptTag# s0 of
         (# s1, (tag :: PromptTag# (Step e a)) #) ->
-          let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
-              body s = case runParser# p tag env end# buf# s of
+          let env = ParserEnv
+                { peEndPtr   = castPtr endPtr
+                , peBaseAddr = Ptr buf#
+                , peMask     = maxBound
+                , peStartPos = 0
+                , peInitCur  = Ptr buf#
+                , peBackingFp = fp
+                , peTag      = tagToAny tag
+                }
+              body :: State# RealWorld -> (# State# RealWorld, Step e a #)
+              body s = case runParser# p env end# buf# s of
                 (# s', OK# a cur' #) ->
                   let !pos = fromIntegral (I# (minusAddr# cur' buf#))
                   in (# s', StepDone pos a #)

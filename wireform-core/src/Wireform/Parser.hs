@@ -121,12 +121,12 @@ import Wireform.Parser.Mark
 -- The body receives the current @s@ (which may have been updated
 -- by ensureNSlow on the slow path).
 withEnsure# :: Int# -> Parser e a -> Parser e a
-withEnsure# n# (Parser p) = Parser \tag env eob s st ->
+withEnsure# n# (Parser p) = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
-    1# -> p tag env eob s st
-    _  -> case ensureNSlow tag env eob s n# st of
+    1# -> p env eob s st
+    _  -> case ensureNSlow env eob s n# st of
             (# st', OK# _ s' #) -> case readEnd# env st' of
-              (# st'', eob' #) -> p tag env eob' s' st''
+              (# st'', eob' #) -> p env eob' s' st''
             (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE withEnsure# #-}
 
@@ -137,27 +137,27 @@ withEnsure# n# (Parser p) = Parser \tag env eob s st ->
 -- | Read one byte and pass it to the continuation.  Most efficient
 -- form — avoids allocating an intermediate @Word8@ on the heap.
 withAnyWord8 :: (Word8 -> Parser e r) -> Parser e r
-withAnyWord8 p = withEnsure# 1# $ Parser \tag env eob s st ->
+withAnyWord8 p = withEnsure# 1# $ Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
-    w# -> runParser# (p (W8# w#)) tag env eob (plusAddr# s 1#) st
+    w# -> runParser# (p (W8# w#)) env eob (plusAddr# s 1#) st
 {-# INLINE withAnyWord8 #-}
 
 withAnyWord16 :: (Word16 -> Parser e r) -> Parser e r
-withAnyWord16 p = withEnsure# 2# $ Parser \tag env eob s st ->
+withAnyWord16 p = withEnsure# 2# $ Parser \env eob s st ->
   case indexWord16OffAddr# s 0# of
-    w# -> runParser# (p (W16# w#)) tag env eob (plusAddr# s 2#) st
+    w# -> runParser# (p (W16# w#)) env eob (plusAddr# s 2#) st
 {-# INLINE withAnyWord16 #-}
 
 withAnyWord32 :: (Word32 -> Parser e r) -> Parser e r
-withAnyWord32 p = withEnsure# 4# $ Parser \tag env eob s st ->
+withAnyWord32 p = withEnsure# 4# $ Parser \env eob s st ->
   case indexWord32OffAddr# s 0# of
-    w# -> runParser# (p (W32# w#)) tag env eob (plusAddr# s 4#) st
+    w# -> runParser# (p (W32# w#)) env eob (plusAddr# s 4#) st
 {-# INLINE withAnyWord32 #-}
 
 withAnyWord64 :: (Word64 -> Parser e r) -> Parser e r
-withAnyWord64 p = withEnsure# 8# $ Parser \tag env eob s st ->
+withAnyWord64 p = withEnsure# 8# $ Parser \env eob s st ->
   case indexWord64OffAddr# s 0# of
-    w# -> runParser# (p (W64# w#)) tag env eob (plusAddr# s 8#) st
+    w# -> runParser# (p (W64# w#)) env eob (plusAddr# s 8#) st
 {-# INLINE withAnyWord64 #-}
 
 ------------------------------------------------------------------------
@@ -169,7 +169,7 @@ anyWord8 = withAnyWord8 pure
 {-# INLINE anyWord8 #-}
 
 anyWord8_ :: Parser e ()
-anyWord8_ = withEnsure# 1# $ Parser \tag env eob s st ->
+anyWord8_ = withEnsure# 1# $ Parser \env eob s st ->
   (# st, OK# () (plusAddr# s 1#) #)
 {-# INLINE anyWord8_ #-}
 
@@ -187,15 +187,15 @@ anyWord64 = withAnyWord64 pure
 
 -- Skip variants
 anyWord16_ :: Parser e ()
-anyWord16_ = withEnsure# 2# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 2#) #)
+anyWord16_ = withEnsure# 2# $ Parser \env eob s st -> (# st, OK# () (plusAddr# s 2#) #)
 {-# INLINE anyWord16_ #-}
 
 anyWord32_ :: Parser e ()
-anyWord32_ = withEnsure# 4# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 4#) #)
+anyWord32_ = withEnsure# 4# $ Parser \env eob s st -> (# st, OK# () (plusAddr# s 4#) #)
 {-# INLINE anyWord32_ #-}
 
 anyWord64_ :: Parser e ()
-anyWord64_ = withEnsure# 8# $ Parser \tag env eob s st -> (# st, OK# () (plusAddr# s 8#) #)
+anyWord64_ = withEnsure# 8# $ Parser \env eob s st -> (# st, OK# () (plusAddr# s 8#) #)
 {-# INLINE anyWord64_ #-}
 
 ------------------------------------------------------------------------
@@ -252,7 +252,7 @@ anyDoublebe = castWord64ToDouble <$> anyWord64be
 ------------------------------------------------------------------------
 
 word8 :: Word8 -> Parser e ()
-word8 (W8# expected) = withEnsure# 1# $ Parser \tag env eob s st ->
+word8 (W8# expected) = withEnsure# 1# $ Parser \env eob s st ->
   case eqWord8# (indexWord8OffAddr# s 0#) expected of
     1# -> (# st, OK# () (plusAddr# s 1#) #)
     _  -> (# st, Fail# #)
@@ -260,13 +260,13 @@ word8 (W8# expected) = withEnsure# 1# $ Parser \tag env eob s st ->
 
 -- | Match a literal 'ByteString'.  Uses word-at-a-time comparison.
 byteString :: ByteString -> Parser e ()
-byteString bs = Parser \tag env eob s st ->
+byteString bs = Parser \env eob s st ->
   let !(BSI.BS bsfp len@(I# len#)) = bs
   in case len# <=# minusAddr# eob s of
        1# -> case memcmpAddr# s (bsAddr# bs) len# of
                0# -> (# st, OK# () (plusAddr# s len#) #)
                _  -> (# st, Fail# #)
-       _ -> case ensureNSlow tag env eob s len# st of
+       _ -> case ensureNSlow env eob s len# st of
               (# st', OK# _ s' #) -> case readEnd# env st' of
                 (# st'', eob' #) ->
                   case memcmpAddr# s' (bsAddr# bs) len# of
@@ -303,7 +303,7 @@ foreign import ccall unsafe "memcmp"
 -- slice becomes a dangling pointer.  In practice this is safe because
 -- 'runParser' / 'runParserLoop' run within the transport's scope.
 takeBs :: Int -> Parser e ByteString
-takeBs (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+takeBs (I# n#) = withEnsure# n# $ Parser \env eob s st ->
   let !bs = BSI.BS (ForeignPtr s (peBackingFp env)) (I# n#)
   in (# st, OK# bs (plusAddr# s n#) #)
 {-# INLINE takeBs #-}
@@ -311,19 +311,19 @@ takeBs (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
 -- | Take @n@ bytes, always copying.  Use when you need the result
 -- to outlive the transport's scope.
 takeBsCopy :: Int -> Parser e ByteString
-takeBsCopy (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+takeBsCopy (I# n#) = withEnsure# n# $ Parser \env eob s st ->
   let !bs = unsafeDupablePerformIO (BSI.create (I# n#) \dst -> BSI.memcpy dst (Ptr s) (I# n#))
   in (# st, OK# bs (plusAddr# s n#) #)
 {-# INLINE takeBsCopy #-}
 
 skip :: Int -> Parser e ()
-skip (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+skip (I# n#) = withEnsure# n# $ Parser \env eob s st ->
   (# st, OK# () (plusAddr# s n#) #)
 {-# INLINE skip #-}
 
 -- | Consume all remaining bytes in the current window.
 takeRest :: Parser e ByteString
-takeRest = Parser \tag env eob s st ->
+takeRest = Parser \env eob s st ->
   let !len = I# (minusAddr# eob s)
       !bs = if len <= 0
             then BS.empty
@@ -344,7 +344,7 @@ takeRest = Parser \tag env eob s st ->
 -- run (the @peInitCur@ boundary).  Does NOT check the ring tail
 -- directly — the driver guarantees tail <= initCur.
 skipBack :: Int -> Parser e ()
-skipBack (I# n#) = Parser \tag env eob s st ->
+skipBack (I# n#) = Parser \env eob s st ->
   let !target = plusAddr# s (negateInt# n#)
       !(Ptr initCur) = peInitCur env
   in case leAddr# initCur target of
@@ -396,7 +396,7 @@ anyInt64be = fromIntegral <$> anyWord64be
 
 -- | Parse any UTF-8 character.
 anyChar :: Parser e Char
-anyChar = withEnsure# 1# $ Parser \tag env eob s st ->
+anyChar = withEnsure# 1# $ Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
       c1 -> case leWord8# c1 (wordToWord8# 0x7F##) of
         1# -> (# st, OK# (C# (chr# (word2Int# (word8ToWord# c1)))) (plusAddr# s 1#) #)
@@ -439,12 +439,12 @@ anyChar_ = () <$ anyChar
 
 -- | CPS variant: parse an ASCII char and pass to continuation.
 withSatisfyAscii :: (Char -> Bool) -> (Char -> Parser e r) -> Parser e r
-withSatisfyAscii f p = withEnsure# 1# $ Parser \tag env eob s st ->
+withSatisfyAscii f p = withEnsure# 1# $ Parser \env eob s st ->
   case indexCharOffAddr# s 0# of
       c1 -> case leChar# c1 '\x7F'# of
         1# -> let !ch = C# c1
               in if f ch
-                 then runParser# (p ch) tag env eob (plusAddr# s 1#) st
+                 then runParser# (p ch) env eob (plusAddr# s 1#) st
                  else (# st, Fail# #)
         _  -> (# st, Fail# #)
 {-# INLINE withSatisfyAscii #-}
@@ -459,7 +459,7 @@ satisfyAscii_ f = withSatisfyAscii f (\_ -> pure ())
 {-# INLINE satisfyAscii_ #-}
 
 skipSatisfyAscii :: (Char -> Bool) -> Parser e ()
-skipSatisfyAscii f = withEnsure# 1# $ Parser \tag env eob s st ->
+skipSatisfyAscii f = withEnsure# 1# $ Parser \env eob s st ->
   case indexCharOffAddr# s 0# of
       c1 -> case leChar# c1 '\x7F'# of
         1# -> if f (C# c1)
@@ -480,8 +480,8 @@ skipAnyAsciiChar = skipSatisfyAscii (const True)
 
 -- | Parse a UTF-8 character matching a predicate.
 satisfy :: (Char -> Bool) -> Parser e Char
-satisfy f = Parser \tag env eob s st ->
-  case runParser# anyChar tag env eob s st of
+satisfy f = Parser \env eob s st ->
+  case runParser# anyChar env eob s st of
     (# st', OK# c s' #) -> if f c then (# st', OK# c s' #) else (# st', Fail# #)
     x                    -> x
 {-# INLINE satisfy #-}
@@ -493,14 +493,14 @@ satisfy_ f = () <$ satisfy f
 -- | Fused satisfy: uses the ASCII fast path when the byte is < 0x80,
 -- the full UTF-8 path otherwise.  Two separate predicates for each case.
 fusedSatisfy :: (Char -> Bool) -> (Word8 -> Bool) -> Parser e Char
-fusedSatisfy charPred bytePred = withEnsure# 1# $ Parser \tag env eob s st ->
+fusedSatisfy charPred bytePred = withEnsure# 1# $ Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
       w -> case leWord8# w (wordToWord8# 0x7F##) of
         1# -> let !ch = C# (chr# (word2Int# (word8ToWord# w)))
               in if charPred ch
                  then (# st, OK# ch (plusAddr# s 1#) #)
                  else (# st, Fail# #)
-        _  -> case runParser# anyChar tag env eob s st of
+        _  -> case runParser# anyChar env eob s st of
                 (# st', OK# c s' #) -> if charPred c then (# st', OK# c s' #) else (# st', Fail# #)
                 x                    -> x
 {-# INLINE fusedSatisfy #-}
@@ -522,7 +522,7 @@ isLatinLetter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 ------------------------------------------------------------------------
 
 anyAsciiDecimalWord :: Parser e Word
-anyAsciiDecimalWord = withEnsure# 1# $ Parser \tag env eob s st ->
+anyAsciiDecimalWord = withEnsure# 1# $ Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
       c -> case leWord8# (wordToWord8# 0x30##) c of
         0# -> (# st, Fail# #)
@@ -554,46 +554,46 @@ anyAsciiDecimalInt = fromIntegral <$> anyAsciiDecimalWord
 ------------------------------------------------------------------------
 
 empty :: Parser e a
-empty = Parser \tag env eob s st -> (# st, Fail# #)
+empty = Parser \env eob s st -> (# st, Fail# #)
 {-# INLINE empty #-}
 
 infixr 6 <|>
 
 (<|>) :: Parser e a -> Parser e a -> Parser e a
-(<|>) (Parser f) (Parser g) = Parser \tag env eob s st ->
-  case f tag env eob s st of
-    (# st', Fail# #) -> g tag env eob s st'
+(<|>) (Parser f) (Parser g) = Parser \env eob s st ->
+  case f env eob s st of
+    (# st', Fail# #) -> g env eob s st'
     x                -> x
 {-# INLINE[1] (<|>) #-}
 
 {-# RULES "wireform/reassoc-alt" forall l m r. (l <|> m) <|> r = l <|> (m <|> r) #-}
 
 branch :: Parser e a -> Parser e b -> Parser e b -> Parser e b
-branch (Parser p) (Parser t) (Parser f) = Parser \tag env eob s st ->
-  case p tag env eob s st of
-    (# st', OK# _ s' #) -> t tag env eob s' st'
-    (# st', Fail# #)    -> f tag env eob s st'
+branch (Parser p) (Parser t) (Parser f) = Parser \env eob s st ->
+  case p env eob s st of
+    (# st', OK# _ s' #) -> t env eob s' st'
+    (# st', Fail# #)    -> f env eob s st'
     (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE branch #-}
 
 lookahead :: Parser e a -> Parser e a
-lookahead (Parser f) = Parser \tag env eob s st ->
-  case f tag env eob s st of
+lookahead (Parser f) = Parser \env eob s st ->
+  case f env eob s st of
     (# st', OK# a _ #) -> (# st', OK# a s #)
     x                   -> x
 {-# INLINE lookahead #-}
 
 fails :: Parser e a -> Parser e ()
-fails (Parser f) = Parser \tag env eob s st ->
-  case f tag env eob s st of
+fails (Parser f) = Parser \env eob s st ->
+  case f env eob s st of
     (# st', OK# _ _ #) -> (# st', Fail# #)
     (# st', Fail# #)   -> (# st', OK# () s #)
     (# st', x #)       -> (# st', unsafeCoerce# x #)
 {-# INLINE fails #-}
 
 try :: Parser e a -> Parser e a
-try (Parser f) = Parser \tag env eob s st ->
-  case f tag env eob s st of
+try (Parser f) = Parser \env eob s st ->
+  case f env eob s st of
     (# st', Err# _ #) -> (# st', Fail# #)
     x                  -> x
 {-# INLINE try #-}
@@ -607,17 +607,17 @@ optional_ p = (() <$ p) <|> pure ()
 {-# INLINE optional_ #-}
 
 withOption :: Parser e a -> (a -> Parser e b) -> Parser e b -> Parser e b
-withOption (Parser p) just (Parser nothing) = Parser \tag env eob s st ->
-  case p tag env eob s st of
-    (# st', OK# a s' #) -> runParser# (just a) tag env eob s' st'
-    (# st', Fail# #)    -> nothing tag env eob s st'
+withOption (Parser p) just (Parser nothing) = Parser \env eob s st ->
+  case p env eob s st of
+    (# st', OK# a s' #) -> runParser# (just a) env eob s' st'
+    (# st', Fail# #)    -> nothing env eob s st'
     (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE withOption #-}
 
 many_ :: Parser e a -> Parser e ()
 many_ (Parser f) = Parser go where
-  go tag env eob s st = case f tag env eob s st of
-    (# st', OK# _ s' #) -> go tag env eob s' st'
+  go env eob s st = case f env eob s st of
+    (# st', OK# _ s' #) -> go env eob s' st'
     (# st', Fail# #)    -> (# st', OK# () s #)
     (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE many_ #-}
@@ -637,8 +637,8 @@ skipSome = some_
 -- | Run @p@ zero or more times, collecting results into a list.
 many :: Parser e a -> Parser e [a]
 many (Parser f) = Parser go where
-  go tag env eob s st = case f tag env eob s st of
-    (# st', OK# a s' #) -> case go tag env eob s' st' of
+  go env eob s st = case f env eob s st of
+    (# st', OK# a s' #) -> case go env eob s' st' of
       (# st'', OK# as s'' #) -> (# st'', OK# (a : as) s'' #)
       x                      -> x
     (# st', Fail# #)    -> (# st', OK# [] s #)
@@ -658,9 +658,9 @@ notFollowedBy = fails
 -- | Run a parser on exactly @n@ bytes. The inner parser must consume
 -- all @n@ bytes or the overall parse fails.
 isolate :: Int -> Parser e a -> Parser e a
-isolate (I# n#) (Parser p) = withEnsure# n# $ Parser \tag env eob s st ->
+isolate (I# n#) (Parser p) = withEnsure# n# $ Parser \env eob s st ->
   let !isolEnd = plusAddr# s n#
-  in case p tag env isolEnd s st of
+  in case p env isolEnd s st of
        (# st', OK# a s' #) -> case eqAddr# s' isolEnd of
          1# -> (# st', OK# a s' #)
          _  -> (# st', Fail# #)
@@ -673,26 +673,26 @@ isolate (I# n#) (Parser p) = withEnsure# n# $ Parser \tag env eob s st ->
 
 -- | Catch an @Err#@ and handle it.
 withError :: (e -> Parser e a) -> Parser e a -> Parser e a
-withError handler (Parser f) = Parser \tag env eob s st ->
-  case f tag env eob s st of
-    (# st', Err# e #) -> runParser# (handler e) tag env eob s st'
+withError handler (Parser f) = Parser \env eob s st ->
+  case f env eob s st of
+    (# st', Err# e #) -> runParser# (handler e) env eob s st'
     x                  -> x
 {-# INLINE withError #-}
 
 err :: e -> Parser e a
-err e = Parser \tag env eob s st -> (# st, Err# e #)
+err e = Parser \env eob s st -> (# st, Err# e #)
 {-# INLINE err #-}
 
 cut :: Parser e a -> e -> Parser e a
-cut (Parser f) e = Parser \tag env eob s st ->
-  case f tag env eob s st of
+cut (Parser f) e = Parser \env eob s st ->
+  case f env eob s st of
     (# st', Fail# #) -> (# st', Err# e #)
     x                -> x
 {-# INLINE cut #-}
 
 cutting :: Parser e a -> e -> (e -> e -> e) -> Parser e a
-cutting (Parser f) e merge = Parser \tag env eob s st ->
-  case f tag env eob s st of
+cutting (Parser f) e merge = Parser \env eob s st ->
+  case f env eob s st of
     (# st', Fail# #)  -> (# st', Err# e #)
     (# st', Err# e' #) -> (# st', Err# (merge e' e) #)
     x                   -> x
@@ -706,12 +706,12 @@ cutting (Parser f) e merge = Parser \tag env eob s st ->
 -- In streaming mode, this may suspend to check if more data is coming.
 -- Uses ensureN# 1 internally: if ensure fails (no more data), we're at EOF.
 eof :: Parser e ()
-eof = Parser \tag env eob s st ->
+eof = Parser \env eob s st ->
   case eqAddr# eob s of
     1# -> -- Window empty — try to get more bytes. If ensureNSlow returns
           -- Fail#, we're genuinely at EOF. If it returns OK#, there's
           -- more data, so eof should fail.
-          case ensureNSlow tag env eob s 1# st of
+          case ensureNSlow env eob s 1# st of
             (# st', OK# _ _ #) -> (# st', Fail# #)  -- data arrived, not at EOF
             (# st', Fail# #)   -> (# st', OK# () s #)  -- genuine EOF
             (# st', x #)       -> (# st', unsafeCoerce# x #)
@@ -726,7 +726,7 @@ atEnd = (eof *> pure True) <|> pure False
 
 -- | Number of bytes remaining in the current window (cheap, no suspend).
 remaining :: Parser e Int
-remaining = Parser \tag env eob s st ->
+remaining = Parser \env eob s st ->
   (# st, OK# (I# (minusAddr# eob s)) s #)
 {-# INLINE remaining #-}
 
@@ -737,18 +737,18 @@ remaining = Parser \tag env eob s st ->
 -- | Left-associative chain.
 -- @chainl f p q@ parses @p@ then zero or more @q@, folding left with @f@.
 chainl :: (b -> a -> b) -> Parser e b -> Parser e a -> Parser e b
-chainl f (Parser p) (Parser q) = Parser \tag env eob s st ->
-  case p tag env eob s st of
-    (# st', OK# b s' #) -> chainlGo f q tag env eob s' st' b
+chainl f (Parser p) (Parser q) = Parser \env eob s st ->
+  case p env eob s st of
+    (# st', OK# b s' #) -> chainlGo f q env eob s' st' b
     (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# INLINE chainl #-}
 
-chainlGo :: forall e r b a. (b -> a -> b)
-         -> (forall r'. PromptTag# (Step e r') -> ParserEnv -> Addr# -> Addr# -> State# RealWorld -> StRes# e a)
-         -> PromptTag# (Step e r) -> ParserEnv -> Addr# -> Addr# -> State# RealWorld -> b -> StRes# e b
-chainlGo f q tag env eob s st !acc =
-  case q tag env eob s st of
-    (# st', OK# a s' #) -> chainlGo f q tag env eob s' st' (f acc a)
+chainlGo :: forall e b a. (b -> a -> b)
+         -> (ParserEnv -> Addr# -> Addr# -> State# RealWorld -> StRes# e a)
+         -> ParserEnv -> Addr# -> Addr# -> State# RealWorld -> b -> StRes# e b
+chainlGo f q env eob s st !acc =
+  case q env eob s st of
+    (# st', OK# a s' #) -> chainlGo f q env eob s' st' (f acc a)
     (# st', Fail# #)    -> (# st', OK# acc s #)
     (# st', x #)        -> (# st', unsafeCoerce# x #)
 {-# NOINLINE chainlGo #-}
@@ -758,12 +758,12 @@ chainlGo f q tag env eob s st !acc =
 -- folding right with @f@.
 chainr :: (a -> b -> b) -> Parser e a -> Parser e b -> Parser e b
 chainr f (Parser p) (Parser q) = Parser go where
-  go tag env eob s st =
-    case p tag env eob s st of
-      (# st', OK# a s' #) -> case go tag env eob s' st' of
+  go env eob s st =
+    case p env eob s st of
+      (# st', OK# a s' #) -> case go env eob s' st' of
         (# st'', OK# b s'' #) -> (# st'', OK# (f a b) s'' #)
         (# st'', x #)         -> (# st'', unsafeCoerce# x #)
-      (# st', Fail# #) -> q tag env eob s st'
+      (# st', Fail# #) -> q env eob s st'
       (# st', x #)     -> (# st', unsafeCoerce# x #)
 {-# INLINE chainr #-}
 
@@ -783,12 +783,12 @@ ensureNOrEof n e = ensureN# (case n of I# n# -> n#) <|> err e
 
 -- | Parse something and return both the result and the bytes consumed.
 withByteString :: Parser e a -> (a -> ByteString -> Parser e b) -> Parser e b
-withByteString (Parser p) f = Parser \tag env eob s st ->
-  case p tag env eob s st of
+withByteString (Parser p) f = Parser \env eob s st ->
+  case p env eob s st of
     (# st', OK# a s' #) ->
       let !len = I# (minusAddr# s' s)
           !bs  = BSI.BS (ForeignPtr s (peBackingFp env)) len
-      in runParser# (f a bs) tag env eob s' st'
+      in runParser# (f a bs) env eob s' st'
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE withByteString #-}
 
@@ -805,7 +805,7 @@ isGreekLetter c = (c >= '\x0391' && c <= '\x03A9') || (c >= '\x03B1' && c <= '\x
 ------------------------------------------------------------------------
 
 anyAsciiHexWord :: Parser e Word
-anyAsciiHexWord = withEnsure# 1# $ Parser \tag env eob s st ->
+anyAsciiHexWord = withEnsure# 1# $ Parser \env eob s st ->
   case hexDigit (indexWord8OffAddr# s 0#) of
       (# | (# #) #) -> (# st, Fail# #)
       (# (# d #) | #) -> goHexWord eob (plusAddr# s 1#) st (W# (word8ToWord# d))

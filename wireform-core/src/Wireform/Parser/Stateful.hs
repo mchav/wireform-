@@ -52,7 +52,7 @@ import Wireform.Parser.Internal
   , ParserEnv (..), Step (..), Resume (..)
   , type Res#, type StRes#
   , pattern OK#, pattern Fail#, pattern Err#
-  , readEnd, writeEnd, curToPos
+  , readEnd, writeEnd, curToPos, tagToAny
   )
 import Wireform.Parser.Error
 
@@ -160,7 +160,7 @@ modify' f = ParserS \tag env r mv eob s rw ->
 
 liftParser :: Parser e a -> ParserS r s e a
 liftParser (Parser p) = ParserS \tag env _r _mv eob s rw ->
-  p tag env eob s rw
+  p env eob s rw
 {-# INLINE liftParser #-}
 
 ------------------------------------------------------------------------
@@ -177,19 +177,19 @@ runParserS p r s0 b = unsafeDupablePerformIO $ do
     bracket (mallocBytes 8) free \endPtr -> do
       poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr end#)
 
-      let env = ParserEnv
-            { peEndPtr    = castPtr endPtr
-            , peBaseAddr  = Ptr buf#
-            , peMask      = maxBound
-            , peStartPos  = 0
-            , peInitCur   = Ptr buf#
-            , peBackingFp = fp
-            }
-
       IO \rw0 -> case newMutVar# s0 rw0 of
         (# rw1, mv #) -> case newPromptTag# rw1 of
           (# rw2, (tag :: PromptTag# (Step e a)) #) ->
-            let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
+            let env = ParserEnv
+                  { peEndPtr    = castPtr endPtr
+                  , peBaseAddr  = Ptr buf#
+                  , peMask      = maxBound
+                  , peStartPos  = 0
+                  , peInitCur   = Ptr buf#
+                  , peBackingFp = fp
+                  , peTag       = tagToAny tag
+                  }
+                body :: State# RealWorld -> (# State# RealWorld, Step e a #)
                 body rw = case runParserS# p tag env r mv end# buf# rw of
                   (# rw', OK# a _cur #) -> (# rw', StepDone 0 a #)
                   (# rw', Fail# #)      -> (# rw', StepFail 0 #)

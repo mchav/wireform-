@@ -32,22 +32,22 @@ subPos :: Pos -> Pos -> Int
 subPos (Pos a) (Pos b) = fromIntegral (a - b)
 
 getPos :: Parser e Pos
-getPos = Parser \tag env eob s st ->
+getPos = Parser \env eob s st ->
   (# st, OK# (Pos (curToPos env s)) s #)
 {-# INLINE getPos #-}
 
 withSpan :: Parser e a -> (a -> Span -> Parser e b) -> Parser e b
-withSpan (Parser p) f = Parser \tag env eob s st ->
-  case p tag env eob s st of
+withSpan (Parser p) f = Parser \env eob s st ->
+  case p env eob s st of
     (# st', OK# a s' #) ->
       let !sp = Span (Pos (curToPos env s)) (Pos (curToPos env s'))
-      in runParser# (f a sp) tag env eob s' st'
+      in runParser# (f a sp) env eob s' st'
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE withSpan #-}
 
 byteStringOf :: Parser e a -> Parser e ByteString
-byteStringOf (Parser p) = Parser \tag env eob s st ->
-  case p tag env eob s st of
+byteStringOf (Parser p) = Parser \env eob s st ->
+  case p env eob s st of
     (# st', OK# _ s' #) ->
       let !len = I# (minusAddr# s' s)
           !bs  = BSI.BS (ForeignPtr s (peBackingFp env)) len
@@ -56,7 +56,7 @@ byteStringOf (Parser p) = Parser \tag env eob s st ->
 {-# INLINE byteStringOf #-}
 
 spanToByteString :: Span -> Parser e ByteString
-spanToByteString (Span (Pos start) (Pos end)) = Parser \tag env eob s st ->
+spanToByteString (Span (Pos start) (Pos end)) = Parser \env eob s st ->
   let !len = fromIntegral (end - start)
       base = peBaseAddr env
       mask = peMask env
@@ -69,14 +69,14 @@ spanToByteString (Span (Pos start) (Pos end)) = Parser \tag env eob s st ->
 -- Temporarily restricts @eob@ to the span's end position, then
 -- restores it on completion.
 inSpan :: Span -> Parser e a -> Parser e a
-inSpan (Span (Pos start) (Pos end)) (Parser p) = Parser \tag env eob s st ->
+inSpan (Span (Pos start) (Pos end)) (Parser p) = Parser \env eob s st ->
   let base = peBaseAddr env
       mask = peMask env
       !endOff  = fromIntegral end .&. mask
       !(Ptr spanEnd) = base `plusPtr` endOff
       !startOff = fromIntegral start .&. mask
       !(Ptr spanStart) = base `plusPtr` startOff
-  in case p tag env spanEnd spanStart st of
+  in case p env spanEnd spanStart st of
        (# st', OK# a _ #) -> (# st', OK# a s #)
        (# st', x #)       -> (# st', unsafeCoerce# x #)
 {-# INLINE inSpan #-}

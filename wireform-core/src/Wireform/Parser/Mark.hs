@@ -20,17 +20,17 @@ newtype Mark = Mark { unMark :: Word64 }
   deriving stock (Eq, Ord, Show)
 
 mark :: Parser e Mark
-mark = Parser \tag env eob s st ->
+mark = Parser \env eob s st ->
   (# st, OK# (Mark (curToPos env s)) s #)
 {-# INLINE mark #-}
 
 restore :: Mark -> Parser e ()
-restore (Mark pos) = Parser \tag env eob s st ->
+restore (Mark pos) = Parser \env eob s st ->
   let !offset = fromIntegral pos .&. peMask env
       !(Ptr newCur) = peBaseAddr env `plusPtr` offset
   in (# st, OK# () newCur #)
 {-# INLINE restore #-}
 
 release :: Mark -> Parser e ()
-release _ = Parser \tag env eob s st -> (# st, OK# () s #)
+release _ = Parser \env eob s st -> (# st, OK# () s #)
 {-# INLINE release #-}

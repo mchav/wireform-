@@ -45,6 +45,10 @@ module Wireform.Parser.Internal
   , ensureNSlow
   , checkpoint
 
+    -- * Tag storage
+  , tagToAny
+  , pePromptTag
+
     -- * End-pointer access
   , readEnd#
   , writeEnd#
@@ -106,12 +110,22 @@ data ParserEnv = ParserEnv
   , peInitCur  :: {-# UNPACK #-} !(Ptr Word8)
     -- ^ Initial cur address (for absolute-position computation)
   , peBackingFp :: !ForeignPtrContents
-    -- ^ Keeps the backing memory alive for zero-copy 'ByteString'
-    -- slices.  For 'parseByteString' this is the input BS's own
-    -- 'ForeignPtrContents'.  For ring-backed streaming this is
-    -- a finalizer that prevents the ring from being freed while
-    -- any slice survives.
+    -- ^ Keeps the backing memory alive for zero-copy slices.
+  , peTag      :: Any
+    -- ^ PromptTag# stored as Any via unsafeCoerce#.
+    -- Only accessed on the cold path (ensureNSlow).
+    -- Keeping it out of the Parser lambda frees a register.
   }
+
+-- | Recover the typed PromptTag# from the env. Only call from ensureNSlow.
+{-# INLINE pePromptTag #-}
+pePromptTag :: forall e r. ParserEnv -> PromptTag# (Step e r)
+pePromptTag env = unsafeCoerce# (peTag env)
+
+-- | Store a PromptTag# into an Any-typed field.
+{-# INLINE tagToAny #-}
+tagToAny :: PromptTag# a -> Any
+tagToAny t = unsafeCoerce# t
 
 {-# INLINE curToPos #-}
 curToPos :: ParserEnv -> Addr# -> Word64
@@ -176,10 +190,11 @@ data Resume e r = Resume
 -- | Parser result with state token.
 type StRes# e a = (# State# RealWorld, Res# e a #)
 
+-- | The parser type.  Four args on the hot path: env, eob, cur, state.
+-- The PromptTag# for streaming suspension lives in @peTag@ of the env,
+-- accessed only by @ensureNSlow@ (cold path).
 newtype Parser e a = Parser
-  { runParser# :: forall r.
-                  PromptTag# (Step e r)
-               -> ParserEnv
+  { runParser# :: ParserEnv
                -> Addr#         -- eob (end of buffer / current end)
                -> Addr#         -- cur (current position)
                -> State# RealWorld
@@ -187,48 +202,48 @@ newtype Parser e a = Parser
   }
 
 instance Functor (Parser e) where
-  fmap f (Parser g) = Parser \tag env eob s st ->
-    case g tag env eob s st of
+  fmap f (Parser g) = Parser \env eob s st ->
+    case g env eob s st of
       (# st', OK# a s' #) -> let !b = f a in (# st', OK# b s' #)
       (# st', x #)        -> (# st', unsafeCoerce# x #)
   {-# INLINE fmap #-}
 
-  a' <$ Parser g = Parser \tag env eob s st ->
-    case g tag env eob s st of
+  a' <$ Parser g = Parser \env eob s st ->
+    case g env eob s st of
       (# st', OK# _ s' #) -> (# st', OK# a' s' #)
       (# st', x #)        -> (# st', unsafeCoerce# x #)
   {-# INLINE (<$) #-}
 
 instance Applicative (Parser e) where
-  pure !a = Parser \tag env eob s st -> (# st, OK# a s #)
+  pure !a = Parser \env eob s st -> (# st, OK# a s #)
   {-# INLINE pure #-}
 
-  Parser ff <*> Parser fa = Parser \tag env eob s st ->
-    case ff tag env eob s st of
-      (# st', OK# f s' #) -> case fa tag env eob s' st' of
+  Parser ff <*> Parser fa = Parser \env eob s st ->
+    case ff env eob s st of
+      (# st', OK# f s' #) -> case fa env eob s' st' of
         (# st'', OK# a s'' #) -> let !b = f a in (# st'', OK# b s'' #)
         (# st'', x #)         -> (# st'', unsafeCoerce# x #)
       (# st', x #) -> (# st', unsafeCoerce# x #)
   {-# INLINE (<*>) #-}
 
-  Parser fa *> Parser fb = Parser \tag env eob s st ->
-    case fa tag env eob s st of
-      (# st', OK# _ s' #) -> fb tag env eob s' st'
+  Parser fa *> Parser fb = Parser \env eob s st ->
+    case fa env eob s st of
+      (# st', OK# _ s' #) -> fb env eob s' st'
       (# st', x #)        -> (# st', unsafeCoerce# x #)
   {-# INLINE (*>) #-}
 
-  Parser fa <* Parser fb = Parser \tag env eob s st ->
-    case fa tag env eob s st of
-      (# st', OK# a s' #) -> case fb tag env eob s' st' of
+  Parser fa <* Parser fb = Parser \env eob s st ->
+    case fa env eob s st of
+      (# st', OK# a s' #) -> case fb env eob s' st' of
         (# st'', OK# _ s'' #) -> (# st'', OK# a s'' #)
         (# st'', x #)         -> (# st'', unsafeCoerce# x #)
       (# st', x #) -> (# st', unsafeCoerce# x #)
   {-# INLINE (<*) #-}
 
 instance Monad (Parser e) where
-  Parser fa >>= f = Parser \tag env eob s st ->
-    case fa tag env eob s st of
-      (# st', OK# a s' #) -> runParser# (f a) tag env eob s' st'
+  Parser fa >>= f = Parser \env eob s st ->
+    case fa env eob s st of
+      (# st', OK# a s' #) -> runParser# (f a) env eob s' st'
       (# st', x #)        -> (# st', unsafeCoerce# x #)
   {-# INLINE (>>=) #-}
 
@@ -236,7 +251,7 @@ instance Monad (Parser e) where
   {-# INLINE (>>) #-}
 
 instance MonadFail (Parser e) where
-  fail _ = Parser \tag env eob s st -> (# st, Fail# #)
+  fail _ = Parser \env eob s st -> (# st, Fail# #)
   {-# INLINE fail #-}
 
 ------------------------------------------------------------------------
@@ -247,18 +262,19 @@ instance MonadFail (Parser e) where
 -- Fast path: single comparison, no memory access to mutable state.
 -- Slow path: suspends to the driver via @control0#@.
 ensureN# :: Int# -> Parser e ()
-ensureN# n# = Parser \tag env eob s st ->
+ensureN# n# = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> (# st, OK# () s #)
-    _  -> ensureNSlow tag env eob s n# st
+    _  -> ensureNSlow env eob s n# st
 {-# INLINE ensureN# #-}
 
-ensureNSlow :: forall e r. PromptTag# (Step e r)
-            -> ParserEnv
+ensureNSlow :: ParserEnv
             -> Addr# -> Addr# -> Int#
             -> State# RealWorld
             -> StRes# e ()
-ensureNSlow tag env eob s n# st =
+ensureNSlow env eob s n# st =
+  let tag :: PromptTag# (Step Any Any)
+      tag = unsafeCoerce# (peTag env) in
   let !pos    = curToPos env s
       !needed = I# n#
   in control0# tag
@@ -280,8 +296,10 @@ ensureNSlow tag env eob s n# st =
 ------------------------------------------------------------------------
 
 checkpoint :: Parser e ()
-checkpoint = Parser \tag env eob s st0 ->
+checkpoint = Parser \env eob s st0 ->
   let !pos = curToPos env s
+      tag :: PromptTag# (Step Any Any)
+      tag = unsafeCoerce# (peTag env)
   in control0# tag
        (\k st1 ->
          let resume = Resume
