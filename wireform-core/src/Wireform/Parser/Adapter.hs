@@ -1,0 +1,151 @@
+{-# LANGUAGE BlockArguments #-}
+
+module Wireform.Parser.Adapter
+  ( -- * ChunkParser type
+    ChunkParser (..)
+  , ChunkStep (..)
+  , ChunkFinal (..)
+  , ChunkParseError (..)
+
+    -- * Running
+  , runChunked
+  , runChunkedLoop
+
+    -- * Chunk mode
+  , ChunkMode (..)
+  ) where
+
+import Control.Exception (SomeException)
+import Data.Bits ((.&.))
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
+import Data.Word (Word8, Word64)
+import Foreign.ForeignPtr (newForeignPtr_)
+import Foreign.Ptr (Ptr, plusPtr)
+
+import Wireform.Parser.Driver (LoopControl (..))
+import Wireform.Ring.Internal (ringBase, ringSize, ringMask)
+import Wireform.Transport
+
+------------------------------------------------------------------------
+-- Types
+------------------------------------------------------------------------
+
+-- | A chunked-feeding parser.  The lingua franca for incremental
+-- parser libraries (attoparsec, binary, cereal, etc.).
+data ChunkParser a = ChunkParser
+  { stepChunk :: !(ByteString -> ChunkStep a)
+    -- ^ Feed non-empty input.
+  , stepEof   :: !(ChunkFinal a)
+    -- ^ Signal end of input.
+  }
+
+data ChunkStep a
+  = ChunkConsumed {-# UNPACK #-} !Int !(ChunkParser a)
+    -- ^ Consumed N bytes; needs more.
+  | ChunkDone !a {-# UNPACK #-} !Int
+    -- ^ Done; consumed N bytes of the fed chunk (rest is leftover).
+  | ChunkFailed !ChunkParseError
+
+data ChunkFinal a
+  = FinalDone !a
+  | FinalFailed !ChunkParseError
+
+data ChunkParseError = ChunkParseError
+  { chunkErrorMessage  :: !String
+  , chunkErrorContext   :: ![String]
+  , chunkErrorPosition :: {-# UNPACK #-} !Word64
+  } deriving stock (Show)
+
+------------------------------------------------------------------------
+-- Chunk mode
+------------------------------------------------------------------------
+
+data ChunkMode
+  = ChunkCopy
+    -- ^ Allocate a fresh 'ByteString' per chunk (safe, default).
+  | ChunkZeroCopy
+    -- ^ Reference ring memory directly.  Caller must not retain the
+    -- 'ByteString' past the @stepChunk@ return.
+  deriving stock (Eq, Show)
+
+------------------------------------------------------------------------
+-- Running
+------------------------------------------------------------------------
+
+-- | Run a 'ChunkParser' against a transport.
+runChunked :: Transport -> ChunkMode -> ChunkParser a
+           -> IO (Either ChunkParseError a)
+runChunked t mode cp0 = do
+  startPos <- transportLoadHead t
+  loop cp0 startPos startPos startPos
+  where
+    ring = transportRing t
+    base = ringBase ring
+    msk  = ringMask ring
+    sz   = ringSize ring
+
+    advanceThreshold = sz `div` 4
+
+    loop cp parserStart parserPos lastTailAdvance = do
+      h <- transportLoadHead t
+      if h > parserPos
+        then do
+          let !chunkLen = fromIntegral (min (h - parserPos) (fromIntegral sz))
+              !off      = fromIntegral parserPos .&. msk
+              !ptr      = base `plusPtr` off
+          chunk <- makeChunk mode ptr chunkLen
+          case stepChunk cp chunk of
+            ChunkDone a consumed -> do
+              let !newPos = parserPos + fromIntegral consumed
+              transportAdvanceTail t newPos
+              pure (Right a)
+            ChunkConsumed consumed cp' -> do
+              let !newPos = parserPos + fromIntegral consumed
+              if newPos - lastTailAdvance >= fromIntegral advanceThreshold
+                then do
+                  transportAdvanceTail t newPos
+                  loop cp' parserStart newPos newPos
+                else loop cp' parserStart newPos lastTailAdvance
+            ChunkFailed e -> pure (Left e)
+        else do
+          r <- transportWaitData t parserPos
+          case r of
+            MoreData _ ->
+              loop cp parserStart parserPos lastTailAdvance
+            EndOfInput ->
+              case stepEof cp of
+                FinalDone a
+                  | parserPos == parserStart -> pure (Right a)
+                  | otherwise                -> pure (Right a)
+                FinalFailed e -> pure (Left e)
+            TransportError exc ->
+              pure (Left (ChunkParseError (show exc) [] parserPos))
+
+-- | Loop variant for repeated parsing.
+runChunkedLoop :: Transport -> ChunkMode -> ChunkParser a
+               -> (a -> IO LoopControl)
+               -> IO (Either ChunkParseError ())
+runChunkedLoop t mode mkParser k = loop
+  where
+    loop = do
+      r <- runChunked t mode mkParser
+      case r of
+        Right a -> do
+          ctl <- k a
+          case ctl of
+            Continue -> loop
+            Stop     -> pure (Right ())
+        Left e -> pure (Left e)
+
+------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------
+
+makeChunk :: ChunkMode -> Ptr Word8 -> Int -> IO ByteString
+makeChunk ChunkCopy ptr len =
+  BSI.create len \dst -> BSI.memcpy dst ptr len
+makeChunk ChunkZeroCopy ptr len = do
+  fptr <- newForeignPtr_ ptr
+  pure (BSI.fromForeignPtr fptr 0 len)
