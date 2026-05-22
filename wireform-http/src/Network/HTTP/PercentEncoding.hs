@@ -31,11 +31,11 @@ module Network.HTTP.PercentEncoding
   ) where
 
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString (ByteString)
 import Data.Bits ((.&.), shiftR)
 import Data.Word (Word8)
+
+import qualified Wireform.Builder as B
 
 -- ---------------------------------------------------------------------------
 -- Predicates
@@ -81,15 +81,16 @@ isQuerySafe w =
 
 -- | Percent-encode every byte that fails the predicate.
 percentEncodeWith :: (Word8 -> Bool) -> ByteString -> ByteString
-percentEncodeWith safe = BSL.toStrict . BB.toLazyByteString . BS.foldl' step mempty
+percentEncodeWith safe = B.toStrictByteString . BS.foldl' step mempty
   where
     step acc w
-      | safe w    = acc <> BB.word8 w
-      | otherwise = acc <> BB.charUtf8 '%' <> hexNibble (w `shiftR` 4)
+      | safe w    = acc <> B.word8 w
+      | otherwise = acc <> B.word8 0x25  -- '%'
+                        <> hexNibble (w `shiftR` 4)
                         <> hexNibble (w .&. 0x0F)
     hexNibble n
-      | n < 10    = BB.word8 (n + 0x30)
-      | otherwise = BB.word8 (n + 0x37)  -- A=0x41, so 10+0x37 = 0x41
+      | n < 10    = B.word8 (n + 0x30)
+      | otherwise = B.word8 (n + 0x37)  -- A=0x41, so 10+0x37 = 0x41
 
 -- | Percent-encode the unreserved set.
 percentEncode :: ByteString -> ByteString
@@ -101,16 +102,16 @@ percentDecode :: ByteString -> Maybe ByteString
 percentDecode bs0 = go bs0 mempty
   where
     go bs acc = case BS.uncons bs of
-      Nothing -> Just (BSL.toStrict (BB.toLazyByteString acc))
+      Nothing -> Just (B.toStrictByteString acc)
       Just (0x25, rest) -> case BS.uncons rest of
         Just (h1, rest1) -> case BS.uncons rest1 of
           Just (h2, rest2) -> case (hexVal h1, hexVal h2) of
             (Just a, Just b) ->
-              go rest2 (acc <> BB.word8 (fromIntegral (a * 16 + b)))
+              go rest2 (acc <> B.word8 (fromIntegral (a * 16 + b)))
             _ -> Nothing
           _ -> Nothing
         _ -> Nothing
-      Just (w, rest) -> go rest (acc <> BB.word8 w)
+      Just (w, rest) -> go rest (acc <> B.word8 w)
     hexVal w
       | w >= 0x30 && w <= 0x39 = Just (fromIntegral w - 0x30)
       | w >= 0x41 && w <= 0x46 = Just (fromIntegral w - 0x37)
@@ -138,17 +139,16 @@ encodeQueryComponent =
 -- | Encode for @application\/x-www-form-urlencoded@: like
 -- 'encodeQueryComponent' but spaces become @+@ instead of @%20@.
 encodeFormComponent :: ByteString -> ByteString
-encodeFormComponent =
-    BSL.toStrict . BB.toLazyByteString . BS.foldl' step mempty
+encodeFormComponent = B.toStrictByteString . BS.foldl' step mempty
   where
     step acc w
-      | w == 0x20 = acc <> BB.word8 0x2B
+      | w == 0x20 = acc <> B.word8 0x2B
       | isQuerySafe w && w /= 0x26 && w /= 0x3D && w /= 0x2B =
-          acc <> BB.word8 w
-      | otherwise = acc <> BB.charUtf8 '%' <> hex (w `shiftR` 4) <> hex (w .&. 0x0F)
+          acc <> B.word8 w
+      | otherwise = acc <> B.word8 0x25 <> hex (w `shiftR` 4) <> hex (w .&. 0x0F)
     hex n
-      | n < 10    = BB.word8 (n + 0x30)
-      | otherwise = BB.word8 (n + 0x37)
+      | n < 10    = B.word8 (n + 0x30)
+      | otherwise = B.word8 (n + 0x37)
 
 -- ---------------------------------------------------------------------------
 -- Query strings
