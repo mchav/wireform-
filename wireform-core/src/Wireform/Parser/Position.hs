@@ -15,6 +15,7 @@ import qualified Data.ByteString.Internal as BSI
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr)
 import GHC.Exts
+import GHC.ForeignPtr (ForeignPtr (..))
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Wireform.Parser.Internal
@@ -48,7 +49,7 @@ byteStringOf (Parser p) = Parser \tag env eob s st ->
   case p tag env eob s st of
     (# st', OK# _ s' #) ->
       let !len = I# (minusAddr# s' s)
-          !bs  = unsafeDupablePerformIO (BSI.create len \dst -> BSI.memcpy dst (Ptr s) len)
+          !bs  = BSI.BS (ForeignPtr s (peBackingFp env)) len
       in (# st', OK# bs s' #)
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE byteStringOf #-}

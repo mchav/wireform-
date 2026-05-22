@@ -26,7 +26,7 @@ import Foreign.Marshal.Alloc (mallocBytes, free)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
 import Foreign.Storable (poke)
 import GHC.Exts
-import GHC.ForeignPtr (ForeignPtr (..))
+import GHC.ForeignPtr (ForeignPtr (..), ForeignPtrContents (..))
 import GHC.IO (IO (..))
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
@@ -86,12 +86,16 @@ runParserInternal t p startPos = mask \restore -> do
     highWaterRef <- newIORef startPos
     tsRef <- newIORef TSOpen
 
+    -- The ring is mmap'd memory — it outlives any ByteString slices
+    -- created during this runParser call because withMagicRing/
+    -- withRecvTransport brackets us.  FinalPtr means no GC action.
     let env = ParserEnv
           { peEndPtr   = castPtr endPtr
           , peBaseAddr = base
           , peMask     = msk
           , peStartPos = startPos
           , peInitCur  = Ptr initCur#
+          , peBackingFp = FinalPtr
           }
 
     step0 <- IO \s0 -> case newPromptTag# s0 of
@@ -225,6 +229,7 @@ parseByteString p b = unsafeDupablePerformIO $ do
             , peMask     = maxBound
             , peStartPos = 0
             , peInitCur  = Ptr buf#
+            , peBackingFp = fp
             }
 
       IO \s0 -> case newPromptTag# s0 of

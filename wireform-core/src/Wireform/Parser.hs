@@ -23,13 +23,14 @@ module Wireform.Parser
     -- * CPS byte primitives (avoid intermediate boxing)
   , withAnyWord8
   , withAnyWord16, withAnyWord32, withAnyWord64
+  , withSatisfyAscii
 
     -- * Byte matching
   , word8
   , byteString
 
     -- * ByteString operations
-  , takeBs, skip
+  , takeBs, takeBsCopy, skip
 
     -- * UTF-8 characters
   , anyChar, anyChar_
@@ -273,12 +274,30 @@ foreign import ccall unsafe "memcmp"
 -- ByteString operations
 ------------------------------------------------------------------------
 
--- | Take @n@ bytes, copying out of the ring.
+-- | Take @n@ bytes as a zero-copy slice.
+--
+-- For 'parseByteString': the returned 'ByteString' is a zero-copy
+-- slice of the input (identical to flatparse's @take@).
+--
+-- For ring-backed streaming: the returned 'ByteString' holds a
+-- reference to the ring's backing memory.  The slice is valid as
+-- long as the ring exists (managed by 'withMagicRing' / 'withRecvTransport').
+-- If the ring is freed while the 'ByteString' is still alive, the
+-- slice becomes a dangling pointer.  In practice this is safe because
+-- 'runParser' / 'runParserLoop' run within the transport's scope.
 takeBs :: Int -> Parser e ByteString
 takeBs (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
-  let !bs = unsafeDupablePerformIO (BSI.create (I# n#) \dst -> BSI.memcpy dst (Ptr s) (I# n#))
+  let !bs = BSI.BS (ForeignPtr s (peBackingFp env)) (I# n#)
   in (# st, OK# bs (plusAddr# s n#) #)
 {-# INLINE takeBs #-}
+
+-- | Take @n@ bytes, always copying.  Use when you need the result
+-- to outlive the transport's scope.
+takeBsCopy :: Int -> Parser e ByteString
+takeBsCopy (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
+  let !bs = unsafeDupablePerformIO (BSI.create (I# n#) \dst -> BSI.memcpy dst (Ptr s) (I# n#))
+  in (# st, OK# bs (plusAddr# s n#) #)
+{-# INLINE takeBsCopy #-}
 
 skip :: Int -> Parser e ()
 skip (I# n#) = withEnsure# n# $ Parser \tag env eob s st ->
@@ -334,24 +353,39 @@ anyChar_ :: Parser e ()
 anyChar_ = () <$ anyChar
 {-# INLINE anyChar_ #-}
 
--- | Parse an ASCII character matching a predicate.
-satisfyAscii :: (Char -> Bool) -> Parser e Char
-satisfyAscii f = Parser \tag env eob s st ->
+-- | CPS variant: parse an ASCII char and pass to continuation.
+withSatisfyAscii :: (Char -> Bool) -> (Char -> Parser e r) -> Parser e r
+withSatisfyAscii f p = Parser \tag env eob s st ->
   case eqAddr# eob s of
     1# -> (# st, Fail# #)
-    _  -> case indexWord8OffAddr# s 0# of
-      c -> case leWord8# c (wordToWord8# 0x7F##) of
-        1# -> let !ch = C# (chr# (word2Int# (word8ToWord# c)))
-              in if f ch then (# st, OK# ch (plusAddr# s 1#) #) else (# st, Fail# #)
+    _  -> case indexCharOffAddr# s 0# of
+      c1 -> case leChar# c1 '\x7F'# of
+        1# -> let !ch = C# c1
+              in if f ch
+                 then runParser# (p ch) tag env eob (plusAddr# s 1#) st
+                 else (# st, Fail# #)
         _  -> (# st, Fail# #)
+{-# INLINE withSatisfyAscii #-}
+
+-- | Parse an ASCII character matching a predicate.
+satisfyAscii :: (Char -> Bool) -> Parser e Char
+satisfyAscii f = withSatisfyAscii f pure
 {-# INLINE satisfyAscii #-}
 
 satisfyAscii_ :: (Char -> Bool) -> Parser e ()
-satisfyAscii_ f = () <$ satisfyAscii f
+satisfyAscii_ f = withSatisfyAscii f (\_ -> pure ())
 {-# INLINE satisfyAscii_ #-}
 
 skipSatisfyAscii :: (Char -> Bool) -> Parser e ()
-skipSatisfyAscii = satisfyAscii_
+skipSatisfyAscii f = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexCharOffAddr# s 0# of
+      c1 -> case leChar# c1 '\x7F'# of
+        1# -> if f (C# c1)
+              then (# st, OK# () (plusAddr# s 1#) #)
+              else (# st, Fail# #)
+        _  -> (# st, Fail# #)
 {-# INLINE skipSatisfyAscii #-}
 
 ------------------------------------------------------------------------

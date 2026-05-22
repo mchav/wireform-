@@ -57,6 +57,7 @@ import Data.Word (Word8, Word64)
 import Foreign.Ptr (Ptr, plusPtr, minusPtr)
 import Foreign.Storable (peek, poke)
 import GHC.Exts
+import GHC.ForeignPtr (ForeignPtrContents (..))
 import GHC.IO (IO (..))
 import GHC.Word (Word64 (..))
 
@@ -104,6 +105,12 @@ data ParserEnv = ParserEnv
     -- ^ Absolute start position of this parse run
   , peInitCur  :: {-# UNPACK #-} !(Ptr Word8)
     -- ^ Initial cur address (for absolute-position computation)
+  , peBackingFp :: !ForeignPtrContents
+    -- ^ Keeps the backing memory alive for zero-copy 'ByteString'
+    -- slices.  For 'parseByteString' this is the input BS's own
+    -- 'ForeignPtrContents'.  For ring-backed streaming this is
+    -- a finalizer that prevents the ring from being freed while
+    -- any slice survives.
   }
 
 {-# INLINE curToPos #-}
