@@ -149,6 +149,8 @@ defaultServerConfig = ServerConfig
       , responseHeaders = []
       , responseBody    = U.BodyEmpty
       , responseTrailers = pure []
+      , responseH2StreamId = 0
+      , responseCancel = pure ()
       }
 
 -- ---------------------------------------------------------------------------
@@ -180,6 +182,8 @@ optionsAllowResponse methods = Response
   , responseHeaders = [(U.hAllow, allowValue methods)]
   , responseBody    = U.BodyEmpty
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 -- | Build a 405 response with @Allow@ enumerating the supported
@@ -191,6 +195,8 @@ methodNotAllowed methods = Response
   , responseHeaders = [(U.hAllow, allowValue methods)]
   , responseBody    = U.BodyEmpty
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 allowValue :: [U.Method] -> ByteString

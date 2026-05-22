@@ -269,4 +269,6 @@ h2ResponseToUnified h2resp = Response
       -- Body + trailers are both pull-shaped; both are only valid
       -- for the lifetime of the surrounding 'withConnection' bracket --
       -- consume them before exiting.
-    }
+  , responseH2StreamId = fromIntegral (H2.crStreamId h2resp)
+  , responseCancel = H2.crCancel h2resp
+  }

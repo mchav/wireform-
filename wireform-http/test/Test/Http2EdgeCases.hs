@@ -113,6 +113,8 @@ streamingLargeBody = testCase "streaming 256 KiB response body" $
                 writeIORef ref (remaining - 1)
                 pure (Just chunk)
         , responseTrailers = pure []
+        , responseH2StreamId = 0
+        , responseCancel = pure ()
         }
 
 binaryPayload :: TestTree
@@ -220,6 +222,8 @@ emptyStreamingResponse = testCase "streaming body that immediately returns Nothi
       , responseHeaders = []
       , responseBody    = BodyStream (pure Nothing)
       , responseTrailers = pure []
+      , responseH2StreamId = 0
+      , responseCancel = pure ()
       }
 
 ------------------------------------------------------------------------
@@ -298,6 +302,8 @@ resp status body = Response
   , responseHeaders  = []
   , responseBody     = if BS.null body then BodyEmpty else BodyBytes body
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 drainBody :: Body -> IO BS.ByteString

@@ -154,6 +154,8 @@ fromHttp1Response r = Response
     -- 'sendRequestOn' and discards the trailer MVar; until that is
     -- exposed at the client API boundary, the unified surface
     -- defaults to @pure []@.
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 ------------------------------------------------------------------------
@@ -229,5 +231,7 @@ fromHttp2Response r = Response
       H2S.ResponseBodyBS bs    -> U.BodyBytes bs
       H2S.ResponseBodyStream p -> U.BodyStream p
   , responseTrailers = pure (fromHttp2Headers (H2S.responseTrailers r))
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
