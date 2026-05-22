@@ -13,6 +13,11 @@ the obsolete RFC 850 (@Sunday, 06-Nov-94 08:49:37 GMT@) and asctime
 (@Sun Nov  6 08:49:37 1994@) formats; we accept both on the read path
 but only emit IMF-fixdate.
 
+The actual parsing and rendering is delegated to hermes's
+'Network.HTTP.Headers.Date' so the per-format flatparse switches and
+the padded 'M.Builder' formatter are shared with the rest of the
+hermes-driven header layer.
+
 Used by @Date@, @Last-Modified@, @Expires@, @If-Modified-Since@,
 @If-Unmodified-Since@, @If-Range@.
 -}
@@ -29,28 +34,27 @@ module Network.HTTP.HttpDate
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
-import qualified Data.Time as Time
 import Data.Time (UTCTime)
+
+import FlatParse.Basic (Result (..), runParser)
+
+import qualified Network.HTTP.Headers.Date          as Hermes
+import qualified Network.HTTP.Headers.Mason         as M
 
 import qualified Network.HTTP.Types.Header as H
 
 -- | Render an 'UTCTime' as an IMF-fixdate string (RFC 9110 \u00a75.6.7).
 formatHttpDate :: UTCTime -> ByteString
-formatHttpDate =
-  BS8.pack
-    . Time.formatTime Time.defaultTimeLocale "%a, %d %b %Y %H:%M:%S GMT"
+formatHttpDate = M.toStrictByteString . Hermes.renderDate
 
--- | Parse an HTTP-date in any of the three RFC 9110 formats.
+-- | Parse an HTTP-date in any of the three RFC 9110 formats
+-- (IMF-fixdate, RFC 850, asctime). Delegates to hermes's
+-- 'Hermes.dateParser', which uses TH-driven flatparse switches for
+-- the day / month tokens.
 parseHttpDateMaybe :: ByteString -> Maybe UTCTime
-parseHttpDateMaybe bs0 =
-  let s = BS8.unpack bs0
-      try fmt = Time.parseTimeM True Time.defaultTimeLocale fmt s
-  in    try "%a, %d %b %Y %H:%M:%S GMT"   -- IMF-fixdate (preferred)
-    <|> try "%A, %d-%b-%y %H:%M:%S GMT"   -- RFC 850 (obsolete)
-    <|> try "%a %b %_d %H:%M:%S %Y"       -- asctime (obsolete)
-  where
-    Nothing <|> y = y
-    x       <|> _ = x
+parseHttpDateMaybe bs = case runParser Hermes.dateParser bs of
+  OK t leftover | BS8.null leftover -> Just t
+  _                                 -> Nothing
 
 -- | Like 'parseHttpDateMaybe' but with a description on failure.
 parseHttpDate :: ByteString -> Either String UTCTime

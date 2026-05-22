@@ -165,8 +165,10 @@ test-suite wireform-http-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.AuthChallenge
     Test.Client
     Test.ConcurrencyStress
+    Test.Conditional
     Test.Http1Integration
     Test.Http1EdgeCases
     Test.Http2Integration

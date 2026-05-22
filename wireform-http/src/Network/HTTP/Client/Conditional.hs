@@ -2,14 +2,21 @@
 
 Builders for the @If-Match@, @If-None-Match@, @If-Modified-Since@,
 @If-Unmodified-Since@, and @If-Range@ headers, plus a small ETag
-parser. These are pure, value-level helpers \u2014 no middleware
-needed, callers thread them onto a 'Request' via 'addHeader' /
-'setHeader'.
+parser \/ renderer.
+
+The ETag and If-Match grammars are parsed and rendered by hermes
+('Network.HTTP.Headers.ETag', 'Network.HTTP.Headers.IfMatch',
+'Network.HTTP.Headers.IfNoneMatch'); we wrap them in builders that
+produce raw header bytes plus combinators on 'Request'. This module
+is the API surface application code uses; the heavy lifting (the
+@token@ \/ @entity-tag@ grammar and the @M.Builder@ formatters)
+lives in hermes.
 -}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Network.HTTP.Client.Conditional
-  ( -- * ETag values
-    ETag (..)
+  ( -- * ETag values (re-exported from hermes)
+    EntityTag (..)
   , strongETag
   , weakETag
   , parseETag
@@ -34,9 +41,16 @@ module Network.HTTP.Client.Conditional
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import Data.List (intersperse)
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TE
+import qualified Data.Text.Short as ST
 import Data.Time (UTCTime)
+
+import qualified Network.HTTP.Headers.ETag  as Hermes
+import qualified Network.HTTP.Headers.Mason as M
+
+import Network.HTTP.Headers.ETag (EntityTag (..))
 
 import Network.HTTP.HttpDate (formatHttpDate)
 import qualified Network.HTTP.Types.Header as H
@@ -47,56 +61,53 @@ import Network.HTTP.Client.Request (Request, setHeader)
 -- ETag
 -- ---------------------------------------------------------------------------
 
--- | An entity tag. A strong tag uniquely identifies a representation;
--- a weak tag (prefixed @W\/@) only identifies the resource state for
--- the purposes of cache validation.
-data ETag = ETag
-  { etagWeak  :: !Bool
-  , etagOpaque :: !ByteString
-    -- ^ The opaque-tag bytes /without/ the surrounding double quotes.
-  }
-  deriving stock (Eq, Show)
+-- | Build a strong entity tag from raw opaque bytes (without the
+-- surrounding double quotes). Bytes that aren't valid @etagc@ will
+-- be rejected on parse round-trip.
+strongETag :: ByteString -> EntityTag
+strongETag = StrongETag . shortFromBytes
 
-strongETag :: ByteString -> ETag
-strongETag = ETag False
+-- | Build a weak entity tag (will render with the @W\/@ prefix).
+weakETag :: ByteString -> EntityTag
+weakETag = WeakETag . shortFromBytes
 
-weakETag :: ByteString -> ETag
-weakETag = ETag True
+-- | Render an entity tag to its on-the-wire form.
+renderETag :: EntityTag -> ByteString
+renderETag = M.toStrictByteString . Hermes.renderEntityTag
 
--- | Render an 'ETag' to its canonical wire form: @W\/@ prefix if weak,
--- followed by the opaque tag in double quotes.
-renderETag :: ETag -> ByteString
-renderETag (ETag weak op) =
-  let core = "\"" <> op <> "\""
-  in if weak then "W/" <> core else core
+-- | Parse a single entity tag (strong or weak).  Wraps hermes's
+-- 'Hermes.parseETag' and projects out the entity-tag part.
+parseETag :: ByteString -> Maybe EntityTag
+parseETag bs = case Hermes.parseETag bs of
+  Right etag -> Just (Hermes.etag etag)
+  Left  _    -> Nothing
 
--- | Parse a single ETag (strong or weak). Returns 'Nothing' for input
--- that doesn't look like @\"...\"@ or @W\/\"...\"@.
-parseETag :: ByteString -> Maybe ETag
-parseETag raw0 =
-  let raw = BS.dropWhile isWS (BS.dropWhileEnd isWS raw0)
-      (weak, rest) = case BS.stripPrefix "W/" raw of
-        Just r  -> (True,  r)
-        Nothing -> (False, raw)
-  in case BS.uncons rest of
-       Just (0x22, body) -> case BS.unsnoc body of
-         Just (op, 0x22) -> Just (ETag weak op)
-         _               -> Nothing
-       _ -> Nothing
-  where
-    isWS w = w == 0x20 || w == 0x09
+shortFromBytes :: ByteString -> ST.ShortText
+shortFromBytes bs = case ST.fromByteString bs of
+  Just t  -> t
+  Nothing -> ST.fromText (TE.decodeUtf8With TE.lenientDecode bs)
 
 -- ---------------------------------------------------------------------------
 -- If-Match / If-None-Match
 -- ---------------------------------------------------------------------------
 
--- | Build an @If-Match@ value from a non-empty list of tags. RFC 9110
--- \u00a713.1.1 requires at least one entry.
-ifMatchHeader :: [ETag] -> ByteString
-ifMatchHeader = renderETagList
+-- | Build an @If-Match@ value from a list of tags.  An empty list
+-- collapses to the wildcard form (@\"*\"@); a non-empty list is
+-- rendered as a comma-separated 'EntityTag' list, formatted via
+-- hermes's 'Hermes.renderEntityTag'.
+ifMatchHeader :: [EntityTag] -> ByteString
+ifMatchHeader tags = case NE.nonEmpty tags of
+  Nothing -> ifMatchAny
+  Just ne -> renderEntityTagList ne
 
-ifNoneMatchHeader :: [ETag] -> ByteString
-ifNoneMatchHeader = renderETagList
+ifNoneMatchHeader :: [EntityTag] -> ByteString
+ifNoneMatchHeader tags = case NE.nonEmpty tags of
+  Nothing -> ifNoneMatchAny
+  Just ne -> renderEntityTagList ne
+
+renderEntityTagList :: NE.NonEmpty EntityTag -> ByteString
+renderEntityTagList ne =
+  M.toStrictByteString (M.intersperse ", " (fmap Hermes.renderEntityTag ne))
 
 -- | The wildcard @*@ value for both @If-Match@ and @If-None-Match@:
 -- \"any current representation\".
@@ -105,9 +116,6 @@ ifMatchAny = "*"
 
 ifNoneMatchAny :: ByteString
 ifNoneMatchAny = "*"
-
-renderETagList :: [ETag] -> ByteString
-renderETagList = mconcat . intersperse ", " . map renderETag
 
 -- ---------------------------------------------------------------------------
 -- If-Modified-Since / If-Unmodified-Since
@@ -126,21 +134,24 @@ ifUnmodifiedSinceHeader = formatHttpDate
 -- | RFC 9110 \u00a713.1.5: @If-Range@ takes either an entity tag or an
 -- HTTP-date. Sending it with a range header makes the server return
 -- the partial response only when the validator still matches.
-data IfRange = IfRangeETag !ETag | IfRangeDate !UTCTime
+data IfRange
+  = IfRangeETag !EntityTag
+  | IfRangeDate !UTCTime
   deriving stock (Eq, Show)
 
 ifRangeHeader :: IfRange -> ByteString
-ifRangeHeader (IfRangeETag t) = renderETag t
-ifRangeHeader (IfRangeDate d) = formatHttpDate d
+ifRangeHeader = \case
+  IfRangeETag t -> renderETag t
+  IfRangeDate d -> formatHttpDate d
 
 -- ---------------------------------------------------------------------------
 -- Request combinators
 -- ---------------------------------------------------------------------------
 
-ifMatch :: [ETag] -> Request a -> Request a
+ifMatch :: [EntityTag] -> Request a -> Request a
 ifMatch tags = setHeader H.hIfMatch (ifMatchHeader tags)
 
-ifNoneMatch :: [ETag] -> Request a -> Request a
+ifNoneMatch :: [EntityTag] -> Request a -> Request a
 ifNoneMatch tags = setHeader H.hIfNoneMatch (ifNoneMatchHeader tags)
 
 ifModifiedSince :: UTCTime -> Request a -> Request a

@@ -1,37 +1,43 @@
 {- | 401 \/ 407 challenge handling (RFC 9110 \u00a711).
 
-Two pieces:
+Three pieces:
 
-* 'parseAuthChallenges' \/ 'AuthChallenge': lex one or more
-  challenges out of a @WWW-Authenticate@ \/ @Proxy-Authenticate@
-  header value into a list of @scheme@ + parameter pairs.
+* 'parseAuthChallenges' \/ 'AuthChallenge': lex a
+  @WWW-Authenticate@ \/ @Proxy-Authenticate@ header value into a list
+  of @scheme@ + parameter pairs. The actual lexing delegates to
+  hermes's 'Network.HTTP.Headers.Authorization.credentialsParser',
+  which parses the RFC 9110 \u00a711.4 challenge grammar (auth-scheme
+  + token68 \/ auth-param list) into a structured 'Credentials'
+  value; we just project that into the wireform 'AuthChallenge'
+  shape that fits the rest of the client API (case-insensitive
+  scheme \/ name comparisons over flat 'ByteString's).
 * 'withChallengeAuth' middleware: when the inner transport returns
   @401 Unauthorized@ (or @407 Proxy Authentication Required@) and a
   matching challenge is present, the supplied callback gets a chance
   to compute a follow-up @Authorization@ header and the request is
   re-issued. If the callback returns 'Nothing', the 401 \/ 407
   response is returned to the caller verbatim.
+* 'basicChallengeResponder' covers RFC 7617 Basic auth: it matches
+  challenges by realm and emits the right header.
 
-The shipped 'basicChallengeResponder' covers RFC 7617 Basic auth: it
-matches challenges by realm and emits the right header. Digest is
-intentionally not implemented \u2014 it's no longer recommended (its
-MD5 \/ SHA-256 transcript is brittle in practice and prone to
-downgrade) and the wireform stack would rather call out a missing
-implementation than ship a half-baked one. The plumbing here is the
-substrate for a Digest add-on package if anyone wants to write one.
+Digest is intentionally not implemented \u2014 it's no longer
+recommended (its MD5 \/ SHA-256 transcript is brittle in practice
+and prone to downgrade) and the wireform stack would rather call
+out a missing implementation than ship a half-baked one. The
+plumbing here is the substrate for a Digest add-on package if
+anyone wants to write one.
 
-== Parsing limitations
+== Multi-challenge values
 
-The shipped 'parseAuthChallenges' is a small lexer aimed at the
-shapes overwhelmingly seen in the wild: a single scheme followed by a
-parameter list, or a scheme followed by a single @token68@ value
-(@Bearer ABC...@). Multi-challenge values on a single header line
-(e.g. @Basic realm=\"x\", Digest qop=\"auth\"@) are inherently
+A single @WWW-Authenticate@ header value can in principle carry
+several challenges separated by commas, but the grammar is
 ambiguous without scheme-aware lookahead because the comma between
-challenges is indistinguishable from the comma between parameters.
-For multi-scheme servers, send each challenge on its own
-@WWW-Authenticate@ header line; the lookup in 'withChallengeAuth'
-runs the parser per header line and concatenates the result.
+challenges is indistinguishable from the comma between auth-params
+of the same challenge. hermes's 'credentialsParser' parses one
+challenge per header value; we run it per @WWW-Authenticate@ \/
+@Proxy-Authenticate@ header line and concatenate the results, which
+is the right behaviour for the much more common case of a server
+emitting one challenge per header line.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -52,6 +58,14 @@ import qualified Data.ByteString.Base64 as B64
 import Data.ByteString (ByteString)
 import qualified Data.CaseInsensitive as CI
 import Data.CaseInsensitive (CI)
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Short as ST
+
+import FlatParse.Basic (Result (..), runParser)
+
+import qualified Network.HTTP.Headers.Authorization as Hermes
+import qualified Network.HTTP.Headers.Parsing.Util  as Hermes
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
@@ -65,90 +79,56 @@ import           Network.HTTP.Client.BodyStream (drainPopper)
 -- Challenge data
 -- ---------------------------------------------------------------------------
 
--- | A parsed authentication challenge.
+-- | A parsed authentication challenge. Mirrors hermes's 'Credentials'
+-- shape projected onto the case-insensitive 'ByteString' vocabulary
+-- the rest of the client uses.
 data AuthChallenge = AuthChallenge
   { acScheme :: !(CI ByteString)
     -- ^ Scheme, e.g. @\"Basic\"@. Compared case-insensitively per
     --   RFC 9110 \u00a711.4.
   , acParams :: ![(CI ByteString, ByteString)]
-    -- ^ Parameter list, e.g. @[(\"realm\", \"example\")]@.
+    -- ^ Parameter list, e.g. @[(\"realm\", \"example\")]@. Names
+    --   are compared case-insensitively; values are the unquoted
+    --   bytes (RFC 7230 quoted-string backslash escapes are already
+    --   resolved by the hermes parser).
   , acToken68 :: !(Maybe ByteString)
     -- ^ Bearer-style schemes carry a single @token68@ form instead
     --   of a parameter list (e.g. @Negotiate ABC...@).
   }
   deriving stock (Eq, Show)
 
--- | Parse a header value into one challenge. The full multi-challenge
--- grammar is parser-disambiguous in scheme-aware contexts only;
--- callers wanting multi-scheme support should send each challenge on
--- its own header line and call this per line.
+-- | Parse a single header value into one challenge. Returns @[]@ if
+-- the input doesn't parse as a challenge / credentials production.
 parseAuthChallenges :: ByteString -> [AuthChallenge]
-parseAuthChallenges raw0 =
-  let raw = dropWS raw0
-      (scheme, rest) = BS.break isSpaceB raw
-      rest' = dropWS rest
-  in if BS.null scheme
-       then []
-       else
-         let token = parseToken68 rest'
-             prms  = if hasEquals rest' then parseParams rest' else []
-             ch = AuthChallenge
-               { acScheme  = CI.mk scheme
-               , acParams  = [(CI.mk k, v) | (k, v) <- prms]
-               , acToken68 = if null prms then token else Nothing
-               }
-         in [ch]
+parseAuthChallenges raw =
+  let trimmed = BS.dropWhile isWS (BS.dropWhileEnd isWS raw)
+  in case runParser Hermes.credentialsParser trimmed of
+       OK creds leftover
+         | BS.null (BS.dropWhile isWS leftover) ->
+             [fromHermesCredentials creds]
+       _ -> []
   where
-    isSpaceB w = w == 0x20 || w == 0x09
-    dropWS     = BS.dropWhile (\w -> w == 0x20 || w == 0x09 || w == 0x0D || w == 0x0A)
+    isWS w = w == 0x20 || w == 0x09
 
-    -- A token68 is one bare token without an '=' before whitespace
-    -- or end of input.
-    parseToken68 bs =
-      let t = BS.takeWhile (\w -> not (w == 0x20 || w == 0x09 || w == 0x2C)) bs
-      in if BS.null t then Nothing else Just t
-
-    -- Heuristic: there's a '=' on this line, so we treat the rest as
-    -- a parameter list.
-    hasEquals = BS.elem 0x3D
-
-    parseParams = go []
-      where
-        go acc bs0
-          | BS.null bs0 = reverse acc
-          | otherwise =
-              let bs = dropWS bs0
-                  (k, rest) = BS.break (\w -> w == 0x3D || w == 0x2C) bs
-              in case BS.uncons rest of
-                   Just (0x3D, after) ->
-                     let (v, leftover) = lexValue after
-                     in go ((BS.dropWhileEnd isSpaceB k, v) : acc)
-                           (skipComma leftover)
-                   Just (0x2C, after) ->
-                     -- bare token without '='; skip
-                     go acc (dropWS after)
-                   _ -> reverse acc
-
-        lexValue bs0 = case BS.uncons (dropWS bs0) of
-          Just (0x22, body) ->
-            let (v, rest) = BS.break (== 0x22) body
-            in case BS.uncons rest of
-                 Just (0x22, r) -> (unescapeQuoted v, r)
-                 _              -> (unescapeQuoted v, rest)
-          _ ->
-            let bs = dropWS bs0
-                (v, rest) = BS.break (\w -> w == 0x2C || w == 0x20 || w == 0x09) bs
-            in (v, rest)
-
-        skipComma bs = case BS.uncons (dropWS bs) of
-          Just (0x2C, r) -> r
-          _              -> bs
-
-    -- RFC 7230 quoted-string \: a backslash escapes the next byte.
-    unescapeQuoted = BS.pack . unescape . BS.unpack
-    unescape []           = []
-    unescape (0x5C : c : r) = c : unescape r
-    unescape (c : r)        = c : unescape r
+-- | Project hermes's 'Credentials' onto the wireform 'AuthChallenge'.
+fromHermesCredentials :: Hermes.Credentials -> AuthChallenge
+fromHermesCredentials creds = AuthChallenge
+  { acScheme  = CI.mk (schemeBytes (Hermes.scheme creds))
+  , acParams  = case Hermes.contents creds of
+      Hermes.CredentialToken _ -> []
+      Hermes.CredentialParams ps ->
+        [ (CI.mk (shortToBytes k), paramValueBytes v) | (k, v) <- NE.toList ps ]
+  , acToken68 = case Hermes.contents creds of
+      Hermes.CredentialToken bs -> Just bs
+      Hermes.CredentialParams _ -> Nothing
+  }
+  where
+    schemeBytes (Hermes.AuthScheme s) = shortToBytes s
+    paramValueBytes = \case
+      Hermes.CredentialParamToken t  -> shortToBytes t
+      Hermes.CredentialParamString s ->
+        shortToBytes (Hermes.unsafeToRFC8941String s)
+    shortToBytes = TE.encodeUtf8 . ST.toText
 
 -- ---------------------------------------------------------------------------
 -- Middleware
