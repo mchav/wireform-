@@ -76,6 +76,7 @@ library
     Network.HTTP.Client.Media.OctetStream
     Network.HTTP.Client.Media.PlainText
     Network.HTTP.Client.Middleware
+    Network.HTTP.Client.Negotiation
     Network.HTTP.Client.Pool
     Network.HTTP.Client.Protocol
     Network.HTTP.Client.Request
@@ -93,6 +94,7 @@ library
     -- Shared bits.
     Network.HTTP.Server
     Network.HTTP.TLS
+    Network.HTTP.HttpDate
     Network.HTTP.Message
     Network.HTTP.VersionRange
     Network.HTTP.Types.Body
@@ -102,6 +104,7 @@ library
     Network.HTTP.Types.Version
   other-modules:
     Network.HTTP.Internal.Convert
+    Network.HTTP.Internal.Validation
   build-depends:
     base                 >= 4.16 && < 5,
     aeson                >= 2.1  && < 2.3,

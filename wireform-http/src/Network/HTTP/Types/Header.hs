@@ -26,10 +26,36 @@ module Network.HTTP.Types.Header
   , insertHeader
   , addHeader
   , deleteHeader
+    -- * Validation (RFC 9110 \u00a75.1 \/ \u00a75.5)
+    --
+    -- These re-exports cover the validating constructors and the
+    -- hop-by-hop \/ HTTP\/2 forbidden-header helpers. The fast-path
+    -- 'insertHeader' \/ 'addHeader' do not validate; use
+    -- 'mkHeaderName' \/ 'mkHeaderValue' (or
+    -- 'insertHeaderChecked' \/ 'addHeaderChecked') to validate at
+    -- the API boundary.
+  , HeaderError (..)
+  , mkHeaderName
+  , mkHeaderValue
+  , isValidHeaderName
+  , isValidHeaderValue
+  , insertHeaderChecked
+  , addHeaderChecked
+    -- * Hop-by-hop and HTTP\/2 forbidden headers
+  , hopByHopHeaders
+  , isHopByHop
+  , stripHopByHop
+  , http2ForbiddenHeaders
+  , isHttp2Forbidden
+  , validateHttp2Headers
     -- * Common names
   , hHost
   , hContentLength
   , hContentType
+  , hContentEncoding
+  , hContentLanguage
+  , hContentLocation
+  , hContentRange
   , hTransferEncoding
   , hConnection
   , hUpgrade
@@ -38,17 +64,52 @@ module Network.HTTP.Types.Header
   , hUserAgent
   , hAccept
   , hAcceptEncoding
+  , hAcceptLanguage
+  , hAcceptCharset
+  , hAcceptRanges
+  , hRange
+  , hExpect
   , hLocation
   , hAuthorization
+  , hWWWAuthenticate
+  , hProxyAuthenticate
+  , hProxyAuthorization
   , hCookie
   , hSetCookie
   , hTE
   , hTrailer
+  , hAllow
   , hDate
+  , hLastModified
+  , hExpires
+  , hETag
+  , hIfMatch
+  , hIfNoneMatch
+  , hIfModifiedSince
+  , hIfUnmodifiedSince
+  , hIfRange
+  , hVary
+  , hCacheControl
+  , hVia
+  , hForwarded
   ) where
 
 import Data.ByteString (ByteString)
 import Data.CaseInsensitive (CI, mk)
+
+import Network.HTTP.Internal.Validation
+  ( HeaderError (..)
+  , hopByHopHeaders
+  , http2ForbiddenHeaders
+  , isHopByHop
+  , isHttp2Forbidden
+  , isValidHeaderName
+  , isValidHeaderValue
+  , mkHeaderName
+  , mkHeaderValue
+  , stripHopByHop
+  , validateHttp2Headers
+  )
 
 -- | Header field name. Comparison and hashing are case-insensitive.
 type HeaderName = CI ByteString
@@ -103,25 +164,79 @@ addHeader name value hs = hs <> [(name, value)]
 deleteHeader :: HeaderName -> Headers -> Headers
 deleteHeader name = filter ((/= name) . fst)
 
-hHost, hContentLength, hContentType, hTransferEncoding, hConnection,
+-- | Like 'insertHeader' but validates the bytes against RFC 9110 grammar
+-- before mutating the list. Returns @Left@ unchanged headers if the
+-- name or value is invalid.
+insertHeaderChecked
+  :: ByteString
+  -> ByteString
+  -> Headers
+  -> Either HeaderError Headers
+insertHeaderChecked rawName rawValue hdrs = do
+  n <- mkHeaderName  rawName
+  v <- mkHeaderValue rawValue
+  pure (insertHeader n v hdrs)
+
+addHeaderChecked
+  :: ByteString
+  -> ByteString
+  -> Headers
+  -> Either HeaderError Headers
+addHeaderChecked rawName rawValue hdrs = do
+  n <- mkHeaderName  rawName
+  v <- mkHeaderValue rawValue
+  pure (addHeader n v hdrs)
+
+hHost, hContentLength, hContentType, hContentEncoding, hContentLanguage,
+  hContentLocation, hContentRange, hTransferEncoding, hConnection,
   hUpgrade, hHTTP2Settings, hServer, hUserAgent, hAccept, hAcceptEncoding,
-  hLocation, hAuthorization, hCookie, hSetCookie, hTE, hTrailer, hDate
+  hAcceptLanguage, hAcceptCharset, hAcceptRanges, hRange, hExpect,
+  hLocation, hAuthorization, hWWWAuthenticate, hProxyAuthenticate,
+  hProxyAuthorization, hCookie, hSetCookie, hTE, hTrailer, hAllow,
+  hDate, hLastModified, hExpires, hETag, hIfMatch, hIfNoneMatch,
+  hIfModifiedSince, hIfUnmodifiedSince, hIfRange, hVary, hCacheControl,
+  hVia, hForwarded
   :: HeaderName
-hHost             = mk "Host"
-hContentLength    = mk "Content-Length"
-hContentType      = mk "Content-Type"
-hTransferEncoding = mk "Transfer-Encoding"
-hConnection       = mk "Connection"
-hUpgrade          = mk "Upgrade"
-hHTTP2Settings    = mk "HTTP2-Settings"
-hServer           = mk "Server"
-hUserAgent        = mk "User-Agent"
-hAccept           = mk "Accept"
-hAcceptEncoding   = mk "Accept-Encoding"
-hLocation         = mk "Location"
-hAuthorization    = mk "Authorization"
-hCookie           = mk "Cookie"
-hSetCookie        = mk "Set-Cookie"
-hTE               = mk "TE"
-hTrailer          = mk "Trailer"
-hDate             = mk "Date"
+hHost                = mk "Host"
+hContentLength       = mk "Content-Length"
+hContentType         = mk "Content-Type"
+hContentEncoding     = mk "Content-Encoding"
+hContentLanguage     = mk "Content-Language"
+hContentLocation     = mk "Content-Location"
+hContentRange        = mk "Content-Range"
+hTransferEncoding    = mk "Transfer-Encoding"
+hConnection          = mk "Connection"
+hUpgrade             = mk "Upgrade"
+hHTTP2Settings       = mk "HTTP2-Settings"
+hServer              = mk "Server"
+hUserAgent           = mk "User-Agent"
+hAccept              = mk "Accept"
+hAcceptEncoding      = mk "Accept-Encoding"
+hAcceptLanguage      = mk "Accept-Language"
+hAcceptCharset       = mk "Accept-Charset"
+hAcceptRanges        = mk "Accept-Ranges"
+hRange               = mk "Range"
+hExpect              = mk "Expect"
+hLocation            = mk "Location"
+hAuthorization       = mk "Authorization"
+hWWWAuthenticate     = mk "WWW-Authenticate"
+hProxyAuthenticate   = mk "Proxy-Authenticate"
+hProxyAuthorization  = mk "Proxy-Authorization"
+hCookie              = mk "Cookie"
+hSetCookie           = mk "Set-Cookie"
+hTE                  = mk "TE"
+hTrailer             = mk "Trailer"
+hAllow               = mk "Allow"
+hDate                = mk "Date"
+hLastModified        = mk "Last-Modified"
+hExpires             = mk "Expires"
+hETag                = mk "ETag"
+hIfMatch             = mk "If-Match"
+hIfNoneMatch         = mk "If-None-Match"
+hIfModifiedSince     = mk "If-Modified-Since"
+hIfUnmodifiedSince   = mk "If-Unmodified-Since"
+hIfRange             = mk "If-Range"
+hVary                = mk "Vary"
+hCacheControl        = mk "Cache-Control"
+hVia                 = mk "Via"
+hForwarded           = mk "Forwarded"
