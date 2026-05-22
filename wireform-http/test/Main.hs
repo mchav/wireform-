@@ -7,6 +7,7 @@ import qualified Test.Http1EdgeCases
 import qualified Test.Http2Integration
 import qualified Test.Http2EdgeCases
 import qualified Test.ConcurrencyStress
+import qualified Test.IDN
 import qualified Test.Negotiation
 import qualified Test.UrlDecode
 import qualified Test.VersionTypes
@@ -23,4 +24,5 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.ConcurrencyStress.tests
   , Test.Client.tests
   , Test.UrlDecode.tests
+  , Test.IDN.tests
   ]

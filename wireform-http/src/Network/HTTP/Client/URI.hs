@@ -33,6 +33,8 @@ module Network.HTTP.Client.URI
     -- * IDN
   , isIdnaSafe
   , validateHost
+  , hostToAscii
+  , parseURIIdna
     -- * Query helpers
   , addQueryParam
   , addQueryParams
@@ -72,6 +74,8 @@ import Network.URI.Template (ToTemplateValue (..), UriTemplate, parseTemplate, u
 import Network.URI.Template.Internal (BoundValue)
 import Network.URI.Template.Types (WrappedValue (..))
 import qualified Network.URI.Template as Template
+
+import qualified Data.Text.IDN as IDN
 
 import qualified Network.HTTP.PercentEncoding as PE
 
@@ -147,30 +151,49 @@ renderHostPort sch (Authority h mPort) =
         Nothing -> ""
   in hostBs <> portBs
 
--- | True if every byte in the host is ASCII. The wireform stack
--- doesn't ship a punycode encoder, so non-ASCII hostnames must
--- already be in IDNA A-label form (@xn--...@) when they reach the
--- transport layer.
+-- | True if every byte in the host is ASCII.
 isIdnaSafe :: ByteString -> Bool
 isIdnaSafe = BS.all (< 0x80)
 
--- | Validate a host bytestring for transport. Accepts:
+-- | Validate (and IDN-encode) a host bytestring for transport.
+-- Accepts:
 --
--- * IPv6 literals (any bytes, the bracket structure is enforced
+-- * IPv6 literals (any bytes; the bracket structure is enforced
 --   upstream by 'parseURI').
--- * ASCII-only labels: the on-the-wire form for both A-records and
---   IDNA A-labels.
+-- * ASCII-only labels: returned unchanged.
+-- * Non-ASCII U-labels: converted to IDNA A-labels (@xn--...@) via
+--   'Data.Text.IDN.toASCII' (RFC 5890\u20135893 \/ RFC 3492). The
+--   bytes are interpreted as UTF-8.
 --
--- Rejects raw UTF-8 \/ non-ASCII U-labels: the caller must supply
--- the punycode-encoded form (@xn--...@). Returns 'Left' with a
--- diagnostic message on rejection.
+-- Returns 'Left' with a diagnostic message if conversion fails (bad
+-- UTF-8, prohibited code points, bidi violations, etc.).
 validateHost :: ByteString -> Either String ByteString
 validateHost h
   | isIPv6Host h = Right h
   | isIdnaSafe h = Right h
-  | otherwise =
-      Left ("non-ASCII host requires IDNA A-label form (xn--...): "
-              <> BS8.unpack h)
+  | otherwise   = hostToAscii (TE.decodeUtf8 h)
+
+-- | Convert a Unicode host name to its IDNA A-label form via the
+-- @idn@ library. Uses 'IDN.toASCII' which does the per-label
+-- punycoding and IDNA2008 validation.
+hostToAscii :: Text -> Either String ByteString
+hostToAscii t = case IDN.toASCII t of
+  Right ascii -> Right (TE.encodeUtf8 ascii)
+  Left  e     -> Left ("IDNA conversion failed: " <> show e)
+
+-- | Like 'parseURI' but IDN-encodes the host when it contains
+-- non-ASCII bytes. Input is 'Text' so the UTF-8 boundary is
+-- explicit.
+parseURIIdna :: Text -> Either String URI
+parseURIIdna t = do
+  u <- parseURI (TE.encodeUtf8 t)
+  let auth = uriAuthority u
+      h    = authHost auth
+  if isIPv6Host h || isIdnaSafe h
+    then Right u
+    else do
+      h' <- hostToAscii (TE.decodeUtf8 h)
+      Right u { uriAuthority = auth { authHost = h' } }
 
 -- | Concatenation of path and query suitable for the HTTP\/1.1
 -- request-target or HTTP\/2 @:path@ pseudo-header.

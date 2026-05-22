@@ -128,6 +128,7 @@ library
     hashable             >= 1.4  && < 1.6,
     hermes,
     hs-opentelemetry-api >= 0.2  && < 0.4,
+    idn                  >= 0.1  && < 0.2,
     network              >= 3.1  && < 3.3,
     semigroupoids        >= 5    && < 7,
     text-short           >= 0.1  && < 0.2,
@@ -170,6 +171,7 @@ test-suite wireform-http-test
     Test.Http1EdgeCases
     Test.Http2Integration
     Test.Http2EdgeCases
+    Test.IDN
     Test.Negotiation
     Test.UrlDecode
     Test.VersionTypes
