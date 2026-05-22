@@ -141,6 +141,10 @@ benchmark parser-bench
   type: exitcode-stdio-1.0
   hs-source-dirs: bench
   main-is: ParserBench.hs
+  other-modules:
+    Common
+    WFBasic
+    FPBasic
   ghc-options: -O2 -rtsopts -threaded
   build-depends:
     base,

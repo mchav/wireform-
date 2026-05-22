@@ -7,6 +7,7 @@
 module Wireform.Parser.Position
   ( Pos (..), Span (..), subPos
   , getPos, withSpan, byteStringOf, spanToByteString
+  , inSpan
   ) where
 
 import Data.Bits ((.&.))
@@ -63,3 +64,19 @@ spanToByteString (Span (Pos start) (Pos end)) = Parser \tag env eob s st ->
       !(Ptr ptr) = base `plusPtr` off
       !bs  = unsafeDupablePerformIO (BSI.create len \dst -> BSI.memcpy dst (Ptr ptr) len)
   in (# st, OK# bs s #)
+
+-- | Run a parser within an explicitly bounded byte window.
+-- Temporarily restricts @eob@ to the span's end position, then
+-- restores it on completion.
+inSpan :: Span -> Parser e a -> Parser e a
+inSpan (Span (Pos start) (Pos end)) (Parser p) = Parser \tag env eob s st ->
+  let base = peBaseAddr env
+      mask = peMask env
+      !endOff  = fromIntegral end .&. mask
+      !(Ptr spanEnd) = base `plusPtr` endOff
+      !startOff = fromIntegral start .&. mask
+      !(Ptr spanStart) = base `plusPtr` startOff
+  in case p tag env spanEnd spanStart st of
+       (# st', OK# a _ #) -> (# st', OK# a s #)
+       (# st', x #)       -> (# st', unsafeCoerce# x #)
+{-# INLINE inSpan #-}

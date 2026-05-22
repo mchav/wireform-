@@ -9,6 +9,7 @@ import Criterion.Main
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as LBS
 import Data.Word
 import Data.Int
@@ -16,6 +17,8 @@ import Data.Int
 import qualified Wireform.Parser as W
 import qualified Wireform.Parser.Driver as W
 import qualified FlatParse.Basic as FP
+import qualified WFBasic
+import qualified FPBasic
 
 ------------------------------------------------------------------------
 -- Input generation
@@ -247,4 +250,30 @@ main = do
         [ bench "wireform" $ nf (runWF (wfUtf8Chars n)) utf8Input
         , bench "flatparse" $ nf (runFP (fpUtf8Chars n)) utf8Input
         ]
+
+    -- Flatparse-equivalent real-world benchmarks
+    , bgroup "sexp"
+        [ bench "wireform" $ whnf WFBasic.runSexp sexpInp
+        , bench "flatparse" $ whnf FPBasic.runSexp sexpInp
+        ]
+    , bgroup "long keyword"
+        [ bench "wireform" $ whnf WFBasic.runLongws longwsInp
+        , bench "flatparse" $ whnf FPBasic.runLongws longwsInp
+        ]
+    , bgroup "numeral csv"
+        [ bench "wireform" $ whnf WFBasic.runNumcsv numcsvInp
+        , bench "flatparse" $ whnf FPBasic.runNumcsv numcsvInp
+        ]
+    , bgroup "lambda term"
+        [ bench "wireform" $ whnf WFBasic.runTm tmInp
+        , bench "flatparse" $ whnf FPBasic.runTm tmInp
+        ]
     ]
+  where
+    sexpInp = BS.concat $ "(" : replicate 33333 "(foo (foo (foo ((bar baza)))))" <> [")"]
+    longwsInp = BS.concat $ replicate 55555 "thisisalongkeyword   "
+    numcsvInp = BSC.pack (concat ("0" : [",  " <> show i | i <- [1..100000::Int]]))
+    tmInp = BSC.pack (unlines (
+      [ "let x" <> show x <> " = fun f. fun g. fun x. fun y. f (f (f ((g x y + g x y) * g x y * g x y * 13500)));"
+      | x <- [0..3000::Int]
+      ] <> [("x1000" :: String)]))

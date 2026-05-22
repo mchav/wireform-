@@ -34,8 +34,10 @@ module Wireform.Parser
 
     -- * UTF-8 characters
   , anyChar, anyChar_
+  , satisfy, satisfy_
   , satisfyAscii, satisfyAscii_
   , skipSatisfyAscii
+  , fusedSatisfy
 
     -- * Character classes
   , isDigit, isLatinLetter, isGreekLetter
@@ -60,7 +62,7 @@ module Wireform.Parser
     -- * Position and span
   , Pos (..), Span (..)
   , getPos, withSpan, byteStringOf, spanToByteString
-  , withByteString
+  , withByteString, inSpan
 
     -- * Marks
   , Mark, mark, restore, release
@@ -392,6 +394,35 @@ skipSatisfyAscii f = Parser \tag env eob s st ->
               else (# st, Fail# #)
         _  -> (# st, Fail# #)
 {-# INLINE skipSatisfyAscii #-}
+
+-- | Parse a UTF-8 character matching a predicate.
+satisfy :: (Char -> Bool) -> Parser e Char
+satisfy f = Parser \tag env eob s st ->
+  case runParser# anyChar tag env eob s st of
+    (# st', OK# c s' #) -> if f c then (# st', OK# c s' #) else (# st', Fail# #)
+    x                    -> x
+{-# INLINE satisfy #-}
+
+satisfy_ :: (Char -> Bool) -> Parser e ()
+satisfy_ f = () <$ satisfy f
+{-# INLINE satisfy_ #-}
+
+-- | Fused satisfy: uses the ASCII fast path when the byte is < 0x80,
+-- the full UTF-8 path otherwise.  Two separate predicates for each case.
+fusedSatisfy :: (Char -> Bool) -> (Word8 -> Bool) -> Parser e Char
+fusedSatisfy charPred bytePred = Parser \tag env eob s st ->
+  case eqAddr# eob s of
+    1# -> (# st, Fail# #)
+    _  -> case indexWord8OffAddr# s 0# of
+      w -> case leWord8# w (wordToWord8# 0x7F##) of
+        1# -> let !ch = C# (chr# (word2Int# (word8ToWord# w)))
+              in if charPred ch
+                 then (# st, OK# ch (plusAddr# s 1#) #)
+                 else (# st, Fail# #)
+        _  -> case runParser# anyChar tag env eob s st of
+                (# st', OK# c s' #) -> if charPred c then (# st', OK# c s' #) else (# st', Fail# #)
+                x                    -> x
+{-# INLINE fusedSatisfy #-}
 
 ------------------------------------------------------------------------
 -- Character classes
