@@ -19,6 +19,7 @@ import Network.Socket (Socket)
 import Network.Socket.ByteString (recv)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
+import qualified Data.ByteString.Unsafe as BSU
 
 import Wireform.Ring.Internal
 import Wireform.Transport
@@ -105,12 +106,12 @@ withRecvTransport cfg sock action =
 ------------------------------------------------------------------------
 
 recvBufSock :: Socket -> Ptr Word8 -> Int -> IO Int
-recvBufSock sock _ptr maxLen = do
+recvBufSock sock ptr maxLen = do
   bs <- recv sock (fromIntegral maxLen)
   let !n = BS.length bs
   if n == 0
     then pure 0
     else do
-      BSI.unsafeUseAsCStringLen bs \(src, len) ->
-        BSI.memcpy _ptr (castPtr src) len
+      BSU.unsafeUseAsCStringLen bs \(src, len) ->
+        BSI.memcpy ptr (castPtr src) len
       pure n

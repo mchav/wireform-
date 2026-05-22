@@ -37,7 +37,8 @@ data LoopControl = Continue | Stop
 ------------------------------------------------------------------------
 
 data InternalResult e a
-  = IRDone !a
+  = IRDone {-# UNPACK #-} !Word64 !a
+    -- ^ Succeeded; carries the position AFTER the consumed input.
   | IRFail !Word64
   | IRErr !Word64 !e
   | IRUnexpectedEof !Word64 !Int
@@ -55,27 +56,30 @@ data TransportState
 
 runParser :: forall e a. Transport -> Parser e a -> IO (Either (ParseError e) a)
 runParser t p = do
-  ir <- runParserInternal t p
+  startPos <- transportLoadHead t
+  ir <- runParserInternal t p startPos
   pure $ case ir of
-    IRDone a              -> Right a
+    IRDone _ a            -> Right a
     IRFail pos            -> Left (ParseFail pos)
     IRErr pos e           -> Left (ParseErr pos e)
     IRUnexpectedEof pos n -> Left (ParseUnexpectedEof pos n)
     IRTransportError exc  -> Left (ParseTransportError exc)
     IRCleanEof            -> Left (ParseUnexpectedEof 0 0)
 
-runParserInternal :: forall e a. Transport -> Parser e a -> IO (InternalResult e a)
-runParserInternal t p = mask \restore -> do
+runParserInternal :: forall e a. Transport -> Parser e a -> Word64 -> IO (InternalResult e a)
+runParserInternal t p startPos = mask \restore -> do
   let ring  = transportRing t
       !base = ringBase ring
       !msk  = ringMask ring
       !sz   = ringSize ring
 
-  startHead <- transportLoadHead t
-  let !startPos  = startHead
-      !curOffset = fromIntegral startPos .&. msk
+  currentHead <- transportLoadHead t
+  let !curOffset = fromIntegral startPos .&. msk
       !initCur   = base `plusPtr` curOffset
-      !initEnd   = initCur
+      -- Set initEnd to reflect data already available in the ring.
+      -- If currentHead > startPos, data from a previous recv is present.
+      !endOffset = fromIntegral currentHead .&. msk
+      !initEnd   = base `plusPtr` endOffset
 
   endRef <- newIORef initEnd
   highWaterRef <- newIORef startPos
@@ -119,7 +123,7 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
     go step = case step of
       StepDone newPos a -> do
         transportAdvanceTail t newPos
-        pure (IRDone a)
+        pure (IRDone newPos a)
 
       StepErr pos e ->
         pure (IRErr pos e)
@@ -197,21 +201,23 @@ waitUntilAvailable t tsRef pos needed _ringSize = loop
 
 runParserLoop :: forall e a. Transport -> Parser e a -> (a -> IO LoopControl)
               -> IO (Either (ParseError e) ())
-runParserLoop t p k = loop
+runParserLoop t p k = do
+  startPos <- transportLoadHead t
+  loop startPos
   where
-    loop = do
-      r <- runParserInternal t p
+    loop pos = do
+      r <- runParserInternal t p pos
       case r of
-        IRDone a -> do
+        IRDone newPos a -> do
           ctl <- k a
           case ctl of
-            Continue -> loop
+            Continue -> loop newPos
             Stop     -> pure (Right ())
         IRCleanEof     -> pure (Right ())
-        IRFail pos     -> pure (Left (ParseFail pos))
-        IRErr pos e    -> pure (Left (ParseErr pos e))
-        IRUnexpectedEof pos n -> pure (Left (ParseUnexpectedEof pos n))
-        IRTransportError exc  -> pure (Left (ParseTransportError exc))
+        IRFail fpos    -> pure (Left (ParseFail fpos))
+        IRErr fpos e   -> pure (Left (ParseErr fpos e))
+        IRUnexpectedEof fpos n -> pure (Left (ParseUnexpectedEof fpos n))
+        IRTransportError exc   -> pure (Left (ParseTransportError exc))
 
 ------------------------------------------------------------------------
 -- parseByteString
@@ -234,7 +240,7 @@ parseByteString p bs = BSI.accursedUnutterablePerformIO $ do
           , peInitCur  = start
           }
 
-    IO \s0 -> case newPromptTag# s0 of
+    step0 <- IO \s0 -> case newPromptTag# s0 of
       (# s1, (tag :: PromptTag# (Step e a)) #) ->
         let body :: State# RealWorld -> (# State# RealWorld, Step e a #)
             body s = case unIO (unParser p tag env start) s of
@@ -245,12 +251,19 @@ parseByteString p bs = BSI.accursedUnutterablePerformIO $ do
                 Fail    -> (# s', StepFail 0 #)
                 Err e   -> (# s', StepErr 0 e #)
 
-        in case prompt# tag body s1 of
-             (# s2, step #) -> case step of
-               StepDone _ a    -> (# s2, Right a #)
-               StepFail pos    -> (# s2, Left (ParseFail pos) #)
-               StepErr pos e   -> (# s2, Left (ParseErr pos e) #)
-               StepSuspend pos n _ ->
-                 (# s2, Left (ParseUnexpectedEof pos n) #)
-               StepCheckpoint _ _ ->
-                 (# s2, Left (ParseFail 0) #)
+        in prompt# tag body s1
+
+    -- For ByteString parsing, any suspend is answered with EOF
+    -- (there is no more data). Loop until we get a terminal step.
+    let go step = case step of
+          StepDone _ a    -> pure (Right a)
+          StepFail pos    -> pure (Left (ParseFail pos))
+          StepErr pos e   -> pure (Left (ParseErr pos e))
+          StepSuspend _ _ resume -> do
+            nextStep <- resumeEof resume
+            go nextStep
+          StepCheckpoint _ resume -> do
+            nextStep <- resumeContinue resume start end
+            go nextStep
+
+    go step0

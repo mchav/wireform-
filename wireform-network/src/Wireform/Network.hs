@@ -13,10 +13,6 @@ module Wireform.Network
   ( -- * Transport construction
     withRecvTransport
 
-    -- * Profiles
-  , Profile (..)
-  , profileConfig
-
     -- * Re-exports
   , module Wireform.Transport
   , module Wireform.Transport.Config
