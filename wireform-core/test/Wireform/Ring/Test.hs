@@ -12,6 +12,7 @@ import Test.Hspec
 import Test.QuickCheck
 
 import Wireform.Ring
+import Wireform.Transport.Capabilities (detectCapabilities, capPageSize, capCoreCount)
 
 spec :: Spec
 spec = describe "MagicRing" $ do
@@ -128,6 +129,16 @@ spec = describe "MagicRing" $ do
           when (v /= fromIntegral (i `mod` 251)) $
             error ("mismatch at iteration " <> show i)
 
+  describe "capabilities detection" $ do
+    it "detects page size > 0" $ do
+      caps <- detectCapabilities
+      capPageSize caps `shouldSatisfy` (> 0)
+
+    it "detects at least 1 core" $ do
+      caps <- detectCapabilities
+      capCoreCount caps `shouldSatisfy` (>= 1)
+
+  describe "stress tests (continued)" $ do
     it "alternating write/read at boundary" $ do
       withMagicRing 4096 $ \ring -> do
         let n = ringSize ring

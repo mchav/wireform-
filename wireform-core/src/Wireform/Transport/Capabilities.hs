@@ -1,5 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Wireform.Transport.Capabilities
   ( SystemCapabilities (..)
@@ -11,16 +14,18 @@ module Wireform.Transport.Capabilities
   , recommendPlacement
   ) where
 
-import Control.Exception (try, SomeException)
-import Data.Char (isDigit, isSpace)
+import qualified Control.Exception as CE
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IORef
-import Data.List (isPrefixOf)
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Word (Word8)
 import Foreign.C.Types (CLong (..))
-import System.IO (hGetContents, IOMode (..), withFile)
 import System.IO.Unsafe (unsafePerformIO)
+
+import Wireform.Parser
+import Wireform.Parser.Driver (parseByteString)
 
 data SystemCapabilities = SystemCapabilities
   { capPageSize        :: !Int
@@ -90,9 +95,107 @@ detectCapabilitiesUncached = do
     , capCoreTopology    = CoreTopology IntMap.empty IntMap.empty IntMap.empty
     }
 
--- | Recommend a placement for a given fd (NIC NUMA node detection).
 recommendPlacement :: Maybe Int -> IO Placement
 recommendPlacement _fdNumaNode = pure (Placement Nothing Nothing)
+
+------------------------------------------------------------------------
+-- Parsers for /proc and /sys files (using our own parser)
+------------------------------------------------------------------------
+
+type P = Parser ()
+
+-- | Parse a CPU list like "0-3,5,7-9" into [0,1,2,3,5,7,8,9].
+pCpuList :: P [Int]
+pCpuList = do
+  first <- pRange
+  rest  <- many (word8 0x2C *> pRange)  -- ','
+  pure (concat (first : rest))
+  where
+    pRange :: P [Int]
+    pRange = do
+      lo <- anyAsciiDecimalInt
+      withOption (word8 0x2D *> anyAsciiDecimalInt) -- '-'
+        (\hi -> pure [lo..hi])
+        (pure [lo])
+
+-- | Parse a decimal integer, skipping leading whitespace.
+pDecimal :: P Int
+pDecimal = skipWs *> anyAsciiDecimalInt
+
+-- | Skip ASCII whitespace.
+skipWs :: P ()
+skipWs = skipMany (satisfyAscii (\c -> c == ' ' || c == '\t' || c == '\n' || c == '\r'))
+
+-- | Skip to after a keyword, then parse what follows.
+pAfterKeyword :: ByteString -> P a -> P a
+pAfterKeyword kw p = go
+  where
+    go = (byteString kw *> p) <|> (anyWord8 *> go)
+
+-- | Count lines starting with a given prefix.
+pCountPrefix :: ByteString -> P Int
+pCountPrefix pfx = go 0
+  where
+    go !n = (byteString pfx *> pSkipLine *> go (n + 1))
+        <|> (pSkipLine *> go n)  -- pSkipLine fails at EOF, terminating the loop
+        <|> pure n
+
+-- | Skip bytes until newline (inclusive). Fails at EOF.
+pSkipLine :: P ()
+pSkipLine = go
+  where
+    go = withAnyWord8 \w ->
+      if w == 0x0A then pure () else go
+
+-- | Parse "Linux version X.Y.Z ..." from /proc/version.
+pKernelVersion :: P (Int, Int)
+pKernelVersion = pAfterKeyword "version " $ do
+  major <- anyAsciiDecimalInt
+  word8 0x2E  -- '.'
+  minor <- anyAsciiDecimalInt
+  pure (major, minor)
+
+-- | Parse "Hugepagesize:    2048 kB" lines from /proc/meminfo.
+pHugePageSize :: P [Int]
+pHugePageSize = go []
+  where
+    go !acc =
+      (do byteString "Hugepagesize:"
+          skipWs
+          n <- anyAsciiDecimalInt
+          skipWs
+          byteString "kB"
+          pSkipLine
+          go (n * 1024 : acc))
+      <|> (pSkipLine *> go acc)
+      <|> pure (reverse acc)
+
+-- | Parse "MemTotal:       12345 kB" from a NUMA node's meminfo.
+pNodeMemMB :: P Int
+pNodeMemMB = go
+  where
+    go = (do byteString "MemTotal:"
+             skipWs
+             n <- anyAsciiDecimalInt
+             pure (n `div` 1024))
+     <|> (pSkipLine *> go)
+     <|> pure 0
+
+------------------------------------------------------------------------
+-- File reading + parsing
+------------------------------------------------------------------------
+
+tryReadFileBS :: FilePath -> IO (Maybe ByteString)
+tryReadFileBS path = do
+  r <- CE.try @CE.SomeException (BS.readFile path)
+  case r of
+    Left _  -> pure Nothing
+    Right s -> pure (Just s)
+
+runP :: P a -> ByteString -> Maybe a
+runP p bs = case parseByteString p bs of
+  Right a -> Just a
+  Left _  -> Nothing
 
 ------------------------------------------------------------------------
 -- Platform-specific detection
@@ -107,10 +210,10 @@ getPageSize = fromIntegral <$> c_page_size
 getCoreCount :: IO Int
 getCoreCount = do
 #if defined(linux_HOST_OS)
-  r <- tryReadFile "/proc/cpuinfo"
+  r <- tryReadFileBS "/proc/cpuinfo"
   case r of
     Nothing -> pure 1
-    Just s  -> pure $ max 1 (length (filter ("processor" `isPrefixOf`) (lines s)))
+    Just bs -> pure $ max 1 (maybe 1 id (runP (pCountPrefix "processor") bs))
 #else
   pure 1
 #endif
@@ -118,33 +221,21 @@ getCoreCount = do
 getHugePageSizes :: IO [Int]
 getHugePageSizes = do
 #if defined(linux_HOST_OS)
-  r <- tryReadFile "/sys/kernel/mm/hugepages"
+  r <- tryReadFileBS "/proc/meminfo"
   case r of
     Nothing -> pure []
-    Just _  -> do
-      r2 <- tryReadFile "/proc/meminfo"
-      case r2 of
-        Nothing -> pure []
-        Just s  -> pure $ mapMaybe parseHugeLine (lines s)
+    Just bs -> pure $ maybe [] id (runP pHugePageSize bs)
 #else
   pure []
 #endif
-  where
-    parseHugeLine l
-      | "Hugepagesize:" `isPrefixOf` l =
-          let ws = words l
-          in case ws of
-               [_, n, "kB"] -> Just (read n * 1024)
-               _            -> Nothing
-      | otherwise = Nothing
 
 getIsolatedCores :: IO [Int]
 getIsolatedCores = do
 #if defined(linux_HOST_OS)
-  r <- tryReadFile "/sys/devices/system/cpu/isolated"
+  r <- tryReadFileBS "/sys/devices/system/cpu/isolated"
   case r of
     Nothing -> pure []
-    Just s  -> pure (parseCpuList (filter (not . isSpace) s))
+    Just bs -> pure $ maybe [] id (runP (skipWs *> pCpuList) (BS.filter (/= 0x0A) bs))
 #else
   pure []
 #endif
@@ -152,10 +243,8 @@ getIsolatedCores = do
 getHasIOUring :: IO Bool
 getHasIOUring = do
 #if defined(linux_HOST_OS)
-  r <- tryReadFile "/proc/version"
-  case r of
-    Nothing -> pure False
-    Just s  -> pure (detectKernelVersion s >= (5, 1))
+  ver <- kernelVersion
+  pure (ver >= (5, 1))
 #else
   pure False
 #endif
@@ -180,84 +269,37 @@ getIOUringFeatures = do
 getNumaNodes :: IO [NumaNodeInfo]
 getNumaNodes = do
 #if defined(linux_HOST_OS)
-  r <- tryReadFile "/sys/devices/system/node/online"
+  r <- tryReadFileBS "/sys/devices/system/node/online"
   case r of
     Nothing -> pure []
-    Just s  -> do
-      let nodeIds = parseCpuList (filter (not . isSpace) s)
+    Just bs -> do
+      let nodeIds = maybe [] id (runP (skipWs *> pCpuList) (BS.filter (/= 0x0A) bs))
       mapM getNodeInfo nodeIds
 #else
   pure []
 #endif
   where
     getNodeInfo nid = do
-      cpuList <- tryReadFile ("/sys/devices/system/node/node" <> show nid <> "/cpulist")
-      memInfo <- tryReadFile ("/sys/devices/system/node/node" <> show nid <> "/meminfo")
-      let cores = maybe [] (parseCpuList . filter (not . isSpace)) cpuList
-          memMB = maybe 0 parseNodeMemMB memInfo
+      cpuList <- tryReadFileBS ("/sys/devices/system/node/node" <> bsShow nid <> "/cpulist")
+      memInfo <- tryReadFileBS ("/sys/devices/system/node/node" <> bsShow nid <> "/meminfo")
+      let cores = case cpuList of
+            Nothing -> []
+            Just bs -> maybe [] id (runP pCpuList (BS.filter (/= 0x0A) bs))
+          memMB = case memInfo of
+            Nothing -> 0
+            Just bs -> maybe 0 id (runP pNodeMemMB bs)
       pure (NumaNodeInfo nid cores memMB)
-    parseNodeMemMB s =
-      let ls = filter (\l -> "MemTotal:" `isPrefixOf` dropWhile (== ' ') l) (lines s)
-      in case ls of
-           (l:_) -> case filter (all isDigit) (words l) of
-                       (n:_) -> read n `div` 1024
-                       _     -> 0
-           _ -> 0
 
-------------------------------------------------------------------------
--- Helpers
-------------------------------------------------------------------------
-
-tryReadFile :: FilePath -> IO (Maybe String)
-tryReadFile path = do
-  r <- try (withFile path ReadMode hGetContents)
-  case r of
-    Left (_ :: SomeException) -> pure Nothing
-    Right s                   -> pure (Just s)
-
-parseCpuList :: String -> [Int]
-parseCpuList "" = []
-parseCpuList s = concatMap parseRange (splitOn ',' s)
-  where
-    parseRange r = case break (== '-') r of
-      (a, "")    -> if all isDigit a && not (null a) then [read a] else []
-      (a, '-':b) -> if all isDigit a && all isDigit b && not (null a) && not (null b)
-                     then [read a .. read b]
-                     else []
-      _          -> []
-    splitOn _ "" = []
-    splitOn c xs = case break (== c) xs of
-      (a, "")     -> [a]
-      (a, _:rest) -> a : splitOn c rest
-
-detectKernelVersion :: String -> (Int, Int)
-detectKernelVersion s =
-  let ws = words s
-      ver = fromMaybe "0.0" $ do
-              idx <- findIndex (== "version") (fmap (fmap toLower) ws)
-              ws `safeIndex` (idx + 1)
-  in parseVersion ver
-  where
-    findIndex _ [] = Nothing
-    findIndex p (x:xs)
-      | p x       = Just 0
-      | otherwise  = (+ 1) <$> findIndex p xs
-    safeIndex [] _ = Nothing
-    safeIndex (x:_) 0 = Just x
-    safeIndex (_:xs) n = safeIndex xs (n - 1)
-    toLower c
-      | c >= 'A' && c <= 'Z' = toEnum (fromEnum c + 32)
-      | otherwise = c
-
-parseVersion :: String -> (Int, Int)
-parseVersion s = case break (== '.') s of
-  (major, '.':rest) -> case break (== '.') rest of
-    (minor, _) -> (readDef 0 major, readDef 0 minor)
-  _ -> (0, 0)
-  where
-    readDef d xs = if all isDigit xs && not (null xs) then read xs else d
+    bsShow :: Int -> FilePath
+    bsShow = show
 
 kernelVersion :: IO (Int, Int)
 kernelVersion = do
-  r <- tryReadFile "/proc/version"
-  pure $ maybe (0, 0) detectKernelVersion r
+#if defined(linux_HOST_OS)
+  r <- tryReadFileBS "/proc/version"
+  pure $ case r of
+    Nothing -> (0, 0)
+    Just bs -> maybe (0, 0) id (runP pKernelVersion bs)
+#else
+  pure (0, 0)
+#endif
