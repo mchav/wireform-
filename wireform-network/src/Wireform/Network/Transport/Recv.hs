@@ -1,19 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Cross-platform recv-based transport.
 --
 -- Single-threaded design: the parser thread itself calls @recv@.
--- @threadWaitRead@ parks on the GHC IO manager (epoll\/kqueue\/IOCP)
--- without burning a thread.
+-- The GHC IO manager (epoll\/kqueue\/IOCP) handles readiness
+-- notification, so the thread parks without burning CPU.
 module Wireform.Network.Transport.Recv
   ( withRecvTransport
   ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, try, toException, IOException)
 import Data.Bits ((.&.))
 import Data.IORef
 import Data.Word (Word8, Word64)
+import Foreign.C.Types (CSize (..))
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
 import Network.Socket (Socket)
 import Network.Socket.ByteString (recv)
@@ -25,22 +28,12 @@ import Wireform.Ring.Internal
 import Wireform.Transport
 import Wireform.Transport.Config
 
-------------------------------------------------------------------------
--- Transport state
-------------------------------------------------------------------------
-
 data RecvState
   = RecvOpen
   | RecvClosedEof
   | RecvClosedErr !SomeException
 
-------------------------------------------------------------------------
--- Construction
-------------------------------------------------------------------------
-
 -- | Create a recv-based transport for the given socket.
--- Reads from the socket into a magic ring buffer.
--- On exit (normal or exceptional), the ring is destroyed.
 -- The socket is NOT closed — the caller owns it.
 withRecvTransport :: TransportConfig -> Socket -> (Transport -> IO a) -> IO a
 withRecvTransport cfg sock action =
@@ -73,15 +66,16 @@ withRecvTransport cfg sock action =
               let !writeOff  = fromIntegral h .&. msk
                   !writePtr  = base `plusPtr` writeOff
                   !available = sz - fromIntegral (h - t)
+                  -- Don't cross the ring boundary in a single recv
                   !maxRecv   = min available (sz - writeOff)
               if maxRecv <= 0
                 then pure (MoreData h)
                 else do
-                  result <- try (recvBufSock sock writePtr maxRecv)
+                  result <- try @IOException (doRawRecv sock writePtr maxRecv)
                   case result of
-                    Left (exc :: SomeException) -> do
-                      writeIORef stateRef (RecvClosedErr exc)
-                      pure (TransportError exc)
+                    Left exc -> do
+                      writeIORef stateRef (RecvClosedErr (toException exc))
+                      pure (TransportError (toException exc))
                     Right n
                       | n == 0 -> do
                           writeIORef stateRef RecvClosedEof
@@ -101,13 +95,12 @@ withRecvTransport cfg sock action =
 
     action transport
 
-------------------------------------------------------------------------
--- Low-level recv into a buffer
-------------------------------------------------------------------------
-
-recvBufSock :: Socket -> Ptr Word8 -> Int -> IO Int
-recvBufSock sock ptr maxLen = do
-  bs <- recv sock (fromIntegral maxLen)
+-- | Receive bytes from the socket. Uses Network.Socket.ByteString.recv
+-- which internally does threadWaitRead + recv syscall, then copies
+-- into our ring buffer.
+doRawRecv :: Socket -> Ptr Word8 -> Int -> IO Int
+doRawRecv sock ptr maxLen = do
+  bs <- recv sock maxLen
   let !n = BS.length bs
   if n == 0
     then pure 0
