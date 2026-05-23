@@ -5,13 +5,16 @@
 module Wireform.Network.Transport.Recv.Test (spec) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (finally)
+import Control.Exception (finally, fromException)
+import Control.Monad (replicateM_)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Word
 import Network.Socket hiding (close, recv)
 import qualified Network.Socket as S
 import Network.Socket.ByteString (sendAll, recv)
+import System.Timeout (timeout)
 import Test.Hspec
 
 import Wireform.Parser
@@ -66,6 +69,56 @@ spec = describe "RecvTransport" $ do
         case r of
           Right () -> pure ()  -- clean EOF after consuming the 'a' header + 'bc'
           Left _ -> pure ()    -- unexpected EOF is also acceptable here
+
+  describe "ring-overflow guard (does not deadlock)" $ do
+    it "fails fast with ParseRingOverflow when needed > ringSize" $ do
+      -- 'ringSizeHint = 1' is rounded up to the platform's minimum
+      -- (a single page on every supported OS), so the actual ring
+      -- size is some page-sized power of two — much smaller than the
+      -- 64 KiB we are about to request.
+      let cfg = defaultTransportConfig { ringSizeHint = 1 }
+          payload = BS.replicate 1024 0x41
+      recvFn <- chunkedRecvFn [payload, payload, payload, payload]
+      mRes <- timeout 2_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (takeBs 65536 :: P ByteString)
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: takeBs n > ringSize should not block forever"
+        Just (Left (ParseRingOverflow _ requested ringSize)) -> do
+          requested `shouldBe` 65536
+          ringSize  `shouldSatisfy` (< 65536)
+        Just other ->
+          expectationFailure $
+            "expected ParseRingOverflow, got: " <> show other
+
+    it "surfaces RingExhausted when the parser fills the ring without checkpointing" $ do
+      -- Read more raw bytes in a single 'runParser' than the ring can
+      -- hold from startPos.  The parser never advances tail, the
+      -- producer fills the ring, and the next ensureN# suspension
+      -- must surface as a transport error rather than a spin.
+      let cfg = defaultTransportConfig { ringSizeHint = 1 }
+          -- One byte per chunk forces the recv path to re-enter many
+          -- times so the ring will reach the full state mid-parse.
+          chunks = replicate 20000 (BS.singleton 0x42)
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (replicateM_ 20000 anyWord8 :: P ())
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: consuming > ringSize without checkpoint should not block forever"
+        Just (Left (ParseTransportError exc)) ->
+          case fromException exc :: Maybe RingExhausted of
+            Just _  -> pure ()
+            Nothing ->
+              expectationFailure $
+                "expected RingExhausted inside ParseTransportError, got: " <> show exc
+        Just other ->
+          expectationFailure $
+            "expected ParseTransportError(RingExhausted), got: " <> show other
 
   it "parses a simple message from a socket" $ do
     withConnectedPair \(writer, reader) -> do
