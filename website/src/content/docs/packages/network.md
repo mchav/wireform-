@@ -52,22 +52,53 @@ backing memory, valid until the transport's tail is advanced past it.
 
 ## Transport constructors
 
-`Wireform.Network` re-exports three constructors:
+The transport surface is symmetric: a `ReceiveTransport` carries
+parser-side reads, a `SendTransport` carries encoder-side writes,
+and `DuplexTransport` pairs them on one underlying byte stream.
+
+### Receive side
 
 | Function | When to use |
 |----------|-------------|
-| `withRecvTransport :: TransportConfig -> Socket -> (Transport -> IO a) -> IO a` | TCP socket recv, bracket-scoped. The straightforward path. |
-| `withRecvBufTransport :: TransportConfig -> RecvFn -> (Transport -> IO a) -> IO a` | Wrap any `Ptr Word8 -> Int -> IO Int` recv callback (TLS, in-memory test pipe, mock socket). Bracket-scoped. |
-| `newRecvBufTransport :: TransportConfig -> RecvFn -> IO Transport` | Same as above but lifetime-managed by the caller; `transportClose` unmaps the ring. Used by the long-lived `Connection` objects in `wireform-http1` / `wireform-http2` / `wireform-kafka`. |
+| `withReceiveTransport :: TransportConfig -> Socket -> (ReceiveTransport -> IO a) -> IO a` | TCP socket recv, bracket-scoped. The straightforward path. |
+| `withReceiveBufTransport :: TransportConfig -> ReceiveFn -> (ReceiveTransport -> IO a) -> IO a` | Wrap any `Ptr Word8 -> Int -> IO Int` recv callback (TLS, in-memory test pipe, mock socket). Bracket-scoped. |
+| `newReceiveBufTransport :: TransportConfig -> ReceiveFn -> IO ReceiveTransport` | Same as above but lifetime-managed by the caller; `receiveClose` unmaps the ring. |
+
+### Send side (symmetric)
+
+| Function | When to use |
+|----------|-------------|
+| `withSendTransport :: TransportConfig -> Socket -> (SendTransport -> IO a) -> IO a` | TCP socket send, bracket-scoped. The dual of `withReceiveTransport`. |
+| `withSendBufTransport :: TransportConfig -> SendFn -> IO () -> (SendTransport -> IO a) -> IO a` | Wrap any `Ptr Word8 -> Int -> IO Int` send callback (TLS, in-memory test sink). The `IO ()` is the shutdown-write action. |
+| `newSendBufTransport :: TransportConfig -> SendFn -> IO () -> IO SendTransport` | Lifetime-managed variant. |
+
+Encoders interact with the send ring via the reservation API
+exposed from `Wireform.Transport.Send`:
+
+```haskell
+reserveSend         :: SendTransport -> Int -> IO (Ptr Word8, Word64)
+withSendReservation :: SendTransport -> Int -> (Ptr Word8 -> Int -> IO Int) -> IO Int
+sendByteString      :: SendTransport -> ByteString -> IO ()
+sendByteStringMany  :: SendTransport -> [ByteString] -> IO ()
+sendBuilder         :: SendTransport -> Builder -> IO ()
+```
+
+### Duplex (paired on one wire)
+
+| Function | When to use |
+|----------|-------------|
+| `withDuplexTransport :: TransportConfig -> Socket -> (DuplexTransport -> IO a) -> IO a` | The shape downstream `Connection` objects in `wireform-http1` / `wireform-http2` / `wireform-kafka` build on. |
+| `newDuplexTransport :: TransportConfig -> Socket -> IO DuplexTransport` | Lifetime-managed variant. |
+| `newDuplexPipe :: TransportConfig -> IO (DuplexTransport, DuplexTransport)` | In-memory paired duplex for tests; replaces the per-package `mkPipeTransport` variants. |
 
 The accompanying `TransportConfig` selects the ring size (default
 1 MiB; `Pipeline` callers in `wireform-kafka` configure 16 MiB to fit
 typical Fetch responses) and an IO-manager wait policy.
 
-`chunkedRecvFn :: [ByteString] -> IO RecvFn` is a test fixture that
-delivers a fixed chunk list one at a time then signals EOF. The
-streaming-parser test suites in every downstream package use it to
-drive the magic ring without a real socket pair.
+`chunkedReceiveFn :: [ByteString] -> IO ReceiveFn` is a test fixture
+that delivers a fixed chunk list one at a time then signals EOF.
+The streaming-parser test suites in every downstream package use it
+to drive the magic ring without a real socket pair.
 
 ## TLS-on-ring via OpenSSL
 
@@ -99,10 +130,11 @@ The surface mirrors the bits OpenSSL exposes: `newClientCtx` /
 glues it all together: hands you a magic-ring `Transport` that the
 streaming-parser readers in any wireform package can drive.
 
-The pure-Haskell `tls` package keeps working through the legacy
-`bufferedRecvTransport` bridge in `Network.HTTP1.Transport` /
-`Network.HTTP2.Transport` — pick whichever fits your deployment.
-The contrast:
+OpenSSL is now the only TLS implementation in `wireform-kafka`,
+the new `wireform-http1` stack, and the new `wireform-http2` stack
+(the vendored grapesy engine under `Network.HTTP2.Engine.*` still
+uses the pure-Haskell `tls` package, and `wireform-grpc` keeps
+following Engine).  The contrast:
 
 | Concern | `tls` bridge | OpenSSL direct |
 |---------|--------------|----------------|
@@ -215,7 +247,7 @@ import Wireform.Parser.Driver    (runParserLoop, LoopControl (..))
 
 drainFrames :: Socket -> IO ()
 drainFrames sock =
-  withRecvTransport defaultTransportConfig sock $ \t ->
+  withReceiveTransport defaultTransportConfig sock $ \t ->
     runParserLoop t lengthPrefixedFrame $ \body -> do
       handle body
       pure Continue
