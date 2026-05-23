@@ -63,8 +63,10 @@
   State#-threaded (no behavioural change for ordinary callers — the
   existing call sites all already have a State# in scope).  Callers
   that constructed `ParserEnv` directly (driver, parseByteString,
-  Stateful) now allocate a 24-byte cells buffer instead of an 8-byte
-  endPtr.
+  Stateful) now stack-allocate a 24-byte cells buffer (via
+  `allocaBytes`) instead of `bracket (mallocBytes 8) free`.  Removes
+  a C `malloc` + `free` round-trip per `runParser` call on the
+  streaming path.
 
 ## 0.1.0.0 -- 2026
 

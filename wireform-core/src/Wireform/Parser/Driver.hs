@@ -15,14 +15,14 @@ module Wireform.Parser.Driver
   , InternalResult (..)
   ) where
 
-import Control.Exception (SomeException, bracket, mask)
+import Control.Exception (SomeException, mask)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BSI
 import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
 import Foreign.Storable (poke)
 import GHC.Exts
@@ -87,9 +87,13 @@ runParserInternal t p startPos = mask \restore -> do
       !avail     = fromIntegral (currentHead - startPos) :: Int
       !(Ptr initEnd#) = (Ptr initCur#) `plusPtr` avail
 
-  -- One bracketed buffer holds the three mutable cells the parser
-  -- shares with the driver: end pointer, anchor pos, anchor cur.
-  bracket (mallocBytes 24) free \cells -> do
+  -- One stack-allocated buffer holds the three mutable cells the
+  -- parser shares with the driver: end pointer, anchor pos, anchor
+  -- cur.  The cells live for the duration of the parse run and
+  -- never escape — neither 'ParserEnv' nor any 'control0#'
+  -- continuation can outlive the surrounding 'prompt#' frame, which
+  -- is set up inside this 'allocaBytes' scope.
+  allocaBytes 24 \cells -> do
     let !endPtr     = cells
         !anchorPos  = cells `plusPtr` 8
         !anchorCur  = cells `plusPtr` 16
@@ -269,7 +273,7 @@ parseByteString p b = unsafeDupablePerformIO $ do
       !end# = plusAddr# buf# len#
 
   withForeignPtr (ForeignPtr buf# fp) \_ ->
-    bracket (mallocBytes 24) free \cells -> do
+    allocaBytes 24 \cells -> do
       let !endPtr    = cells
           !anchorPos = cells `plusPtr` 8
           !anchorCur = cells `plusPtr` 16

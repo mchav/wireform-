@@ -35,7 +35,7 @@ module Wireform.Parser.Stateful
   ) where
 
 import Data.Word (Word8, Word64)
-import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
 import Foreign.Storable (poke)
 import GHC.Exts
@@ -43,7 +43,6 @@ import GHC.ForeignPtr (ForeignPtr (..), ForeignPtrContents (..))
 import GHC.IO (IO (..))
 import qualified Data.ByteString.Internal as BSI
 import Foreign.ForeignPtr (withForeignPtr)
-import Control.Exception (bracket)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Wireform.Parser
@@ -174,7 +173,7 @@ runParserS p r s0 b = unsafeDupablePerformIO $ do
       !end# = plusAddr# buf# len#
 
   withForeignPtr (ForeignPtr buf# fp) \_ ->
-    bracket (mallocBytes 24) free \cells -> do
+    allocaBytes 24 \cells -> do
       let !endPtr    = cells
           !anchorPos = cells `plusPtr` 8
           !anchorCur = cells `plusPtr` 16
