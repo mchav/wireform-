@@ -77,8 +77,10 @@ library
     Wireform.Ring
     Wireform.Ring.Internal
 
-    -- Transport abstraction
+    -- Transport abstraction (symmetric send / receive)
     Wireform.Transport
+    Wireform.Transport.Receive
+    Wireform.Transport.Send
     Wireform.Transport.Config
     Wireform.Transport.Capabilities
 

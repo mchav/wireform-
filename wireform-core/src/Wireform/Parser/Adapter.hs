@@ -75,13 +75,13 @@ data ChunkMode
 ------------------------------------------------------------------------
 
 -- | Run a 'ChunkParser' against a transport.
-runChunked :: Transport -> ChunkMode -> ChunkParser a
+runChunked :: ReceiveTransport -> ChunkMode -> ChunkParser a
            -> IO (Either ChunkParseError a)
 runChunked t mode cp0 = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   loop cp0 startPos startPos startPos
   where
-    ring = transportRing t
+    ring = receiveRing t
     base = ringBase ring
     msk  = ringMask ring
     sz   = ringSize ring
@@ -89,7 +89,7 @@ runChunked t mode cp0 = do
     advanceThreshold = sz `div` 4
 
     loop cp parserStart parserPos lastTailAdvance = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       if h > parserPos
         then do
           let !chunkLen = fromIntegral (min (h - parserPos) (fromIntegral sz))
@@ -99,32 +99,32 @@ runChunked t mode cp0 = do
           case stepChunk cp chunk of
             ChunkDone a consumed -> do
               let !newPos = parserPos + fromIntegral consumed
-              transportAdvanceTail t newPos
+              receiveAdvanceTail t newPos
               pure (Right a)
             ChunkConsumed consumed cp' -> do
               let !newPos = parserPos + fromIntegral consumed
               if newPos - lastTailAdvance >= fromIntegral advanceThreshold
                 then do
-                  transportAdvanceTail t newPos
+                  receiveAdvanceTail t newPos
                   loop cp' parserStart newPos newPos
                 else loop cp' parserStart newPos lastTailAdvance
             ChunkFailed e -> pure (Left e)
         else do
-          r <- transportWaitData t parserPos
+          r <- receiveWaitData t parserPos
           case r of
-            MoreData _ ->
+            ReceiveMoreData _ ->
               loop cp parserStart parserPos lastTailAdvance
-            EndOfInput ->
+            ReceiveEndOfInput ->
               case stepEof cp of
                 FinalDone a
                   | parserPos == parserStart -> pure (Right a)
                   | otherwise                -> pure (Right a)
                 FinalFailed e -> pure (Left e)
-            TransportError exc ->
+            ReceiveFailed exc ->
               pure (Left (ChunkParseError (show exc) [] parserPos))
 
 -- | Loop variant for repeated parsing.
-runChunkedLoop :: Transport -> ChunkMode -> ChunkParser a
+runChunkedLoop :: ReceiveTransport -> ChunkMode -> ChunkParser a
                -> (a -> IO LoopControl)
                -> IO (Either ChunkParseError ())
 runChunkedLoop t mode mkParser k = loop

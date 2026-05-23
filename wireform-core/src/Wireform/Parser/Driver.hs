@@ -57,9 +57,9 @@ data TransportState
 -- runParser
 ------------------------------------------------------------------------
 
-runParser :: forall e a. Transport -> Parser Stream e a -> IO (Either (ParseError e) a)
+runParser :: forall e a. ReceiveTransport -> Parser Stream e a -> IO (Either (ParseError e) a)
 runParser t p = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   ir <- runParserInternal t p startPos
   pure $ case ir of
     IRDone _ a              -> Right a
@@ -70,14 +70,14 @@ runParser t p = do
     IRCleanEof              -> Left (ParseUnexpectedEof 0 0)
     IRRingOverflow pos n sz -> Left (ParseRingOverflow pos n sz)
 
-runParserInternal :: forall e a. Transport -> Parser Stream e a -> Word64 -> IO (InternalResult e a)
+runParserInternal :: forall e a. ReceiveTransport -> Parser Stream e a -> Word64 -> IO (InternalResult e a)
 runParserInternal t p startPos = mask \restore -> do
-  let ring  = transportRing t
+  let ring  = receiveRing t
       !base = ringBase ring
       !msk  = ringMask ring
       !sz   = ringSize ring
 
-  currentHead <- transportLoadHead t
+  currentHead <- receiveLoadHead t
   let !curOffset = fromIntegral startPos .&. msk
       !(Ptr initCur#) = base `plusPtr` curOffset
       -- See StepCheckpoint / StepSuspend for the rationale on
@@ -146,7 +146,7 @@ runParserInternal t p startPos = mask \restore -> do
     driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
 
 driverLoop :: forall e a.
-              (forall x. IO x -> IO x) -> Transport -> ParserEnv
+              (forall x. IO x -> IO x) -> ReceiveTransport -> ParserEnv
            -> Ptr Word8 -> Int -> Int
            -> Word64 -> IORef Word64 -> IORef TransportState
            -> Step e a -> IO (InternalResult e a)
@@ -155,7 +155,7 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
     go :: Step e a -> IO (InternalResult e a)
     go step = case step of
       StepDone newPos a -> do
-        transportAdvanceTail t newPos
+        receiveAdvanceTail t newPos
         pure (IRDone newPos a)
 
       StepErr pos e -> pure (IRErr pos e)
@@ -171,8 +171,8 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
             | otherwise      -> IRUnexpectedEof pos 0
 
       StepCheckpoint pos resume -> do
-        transportAdvanceTail t pos
-        h <- transportLoadHead t
+        receiveAdvanceTail t pos
+        h <- receiveLoadHead t
         -- Compute eob relative to the new cur so that a wrap (where
         -- @pos .&. msk == h .&. msk@ because exactly a ring's worth
         -- of bytes are in flight) does not collapse eob onto cur and
@@ -232,38 +232,38 @@ data WaitAvail
   | WAEndOfInput
   | WATransportError !SomeException
 
-waitUntilAvailable :: Transport -> IORef TransportState
+waitUntilAvailable :: ReceiveTransport -> IORef TransportState
                    -> Word64 -> Int -> Int -> IO WaitAvail
 waitUntilAvailable t tsRef pos needed _ringSize = do
-  h0 <- transportLoadHead t
+  h0 <- receiveLoadHead t
   loop (max pos h0)
   where
     -- 'waitFrom' is the position we ask the transport to advance past.
     -- It advances on each iteration so a transport that delivers data
     -- in dribs (a chunked feeder, a TLS layer that yields partial
     -- records, an io_uring SQ that hands us one CQE at a time)
-    -- doesn't spin: each 'transportWaitData' is asked to wait /past/
+    -- doesn't spin: each 'receiveWaitData' is asked to wait /past/
     -- the head we already observed, so it must either pull fresh
-    -- bytes or report EndOfInput.
+    -- bytes or report ReceiveEndOfInput.
     loop !waitFrom = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       if h - pos >= fromIntegral needed
         then pure (WAMoreData h)
         else do
-          r <- transportWaitData t waitFrom
+          r <- receiveWaitData t waitFrom
           case r of
-            MoreData h'    -> loop (max waitFrom h')
-            EndOfInput     -> do { writeIORef tsRef TSClosedEof; pure WAEndOfInput }
-            TransportError exc -> do { writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc) }
+            ReceiveMoreData h' -> loop (max waitFrom h')
+            ReceiveEndOfInput  -> do { writeIORef tsRef TSClosedEof; pure WAEndOfInput }
+            ReceiveFailed exc  -> do { writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc) }
 
 ------------------------------------------------------------------------
 -- runParserLoop
 ------------------------------------------------------------------------
 
-runParserLoop :: forall e a. Transport -> Parser Stream e a -> (a -> IO LoopControl)
+runParserLoop :: forall e a. ReceiveTransport -> Parser Stream e a -> (a -> IO LoopControl)
               -> IO (Either (ParseError e) ())
 runParserLoop t p k = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   loop startPos
   where
     loop pos = do
