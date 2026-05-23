@@ -172,16 +172,25 @@ data WaitAvail
 
 waitUntilAvailable :: Transport -> IORef TransportState
                    -> Word64 -> Int -> Int -> IO WaitAvail
-waitUntilAvailable t tsRef pos needed _ringSize = loop
+waitUntilAvailable t tsRef pos needed _ringSize = do
+  h0 <- transportLoadHead t
+  loop (max pos h0)
   where
-    loop = do
+    -- 'waitFrom' is the position we ask the transport to advance past.
+    -- It advances on each iteration so a transport that delivers data
+    -- in dribs (a chunked feeder, a TLS layer that yields partial
+    -- records, an io_uring SQ that hands us one CQE at a time)
+    -- doesn't spin: each 'transportWaitData' is asked to wait /past/
+    -- the head we already observed, so it must either pull fresh
+    -- bytes or report EndOfInput.
+    loop !waitFrom = do
       h <- transportLoadHead t
       if h - pos >= fromIntegral needed
         then pure (WAMoreData h)
         else do
-          r <- transportWaitData t pos
+          r <- transportWaitData t waitFrom
           case r of
-            MoreData _     -> loop
+            MoreData h'    -> loop (max waitFrom h')
             EndOfInput     -> do { writeIORef tsRef TSClosedEof; pure WAEndOfInput }
             TransportError exc -> do { writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc) }
 
