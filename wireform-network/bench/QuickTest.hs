@@ -41,21 +41,7 @@ mkWord32Input n = LBS.toStrict . BSB.toLazyByteString $
   mconcat [ BSB.word32BE (fromIntegral i) | i <- [0 .. n - 1] ]
 
 connectedPair :: IO (Socket, Socket)
-connectedPair = do
-  listener <- socket AF_INET Stream defaultProtocol
-  setSocketOption listener ReuseAddr 1
-  bind listener (SockAddrInet 0 (tupleToHostAddress (127, 0, 0, 1)))
-  listen listener 1
-  boundAddr <- getSocketName listener
-  accepted <- newEmptyMVar
-  _ <- forkIO do
-    (server, _) <- accept listener
-    putMVar accepted server
-  client <- socket AF_INET Stream defaultProtocol
-  connect client boundAddr
-  server <- takeMVar accepted
-  S.close listener
-  pure (client, server)
+connectedPair = socketPair AF_UNIX Stream defaultProtocol
 
 mkMemoryTransport :: MagicRing -> BS.ByteString -> IO Transport
 mkMemoryTransport ring payload = do
