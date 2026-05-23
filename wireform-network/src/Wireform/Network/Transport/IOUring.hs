@@ -185,11 +185,13 @@ withIOUringTransport cfg sock action =
                 pure (MoreData newH)
 
               transport = Transport
-                { transportRing        = ring
-                , transportLoadHead    = loadHead
-                , transportAdvanceTail = advanceTail
-                , transportWaitData    = waitData
-                , transportClose       = do
+                { transportRingBaseField = base
+                , transportRingSizeField = sz
+                , transportRingMaskField = msk
+                , transportLoadHead      = loadHead
+                , transportAdvanceTail   = advanceTail
+                , transportWaitData      = waitData
+                , transportClose         = do
                     writeIORef stateRef IClosedEof
                     destroy
                 }

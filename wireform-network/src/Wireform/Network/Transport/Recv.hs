@@ -108,7 +108,7 @@ newRecvBufTransport cfg recvIntoBuf = do
 -- callback.  Used by both 'withRecvBufTransport' and
 -- 'newRecvBufTransport' so they share the ring-state machinery
 -- verbatim.
-mkTransport :: MagicRing -> RecvFn -> IO Transport
+mkTransport :: MagicRing s -> RecvFn -> IO Transport
 mkTransport ring recvIntoBuf = do
   let !base = ringBase ring
       !msk  = ringMask ring
@@ -158,11 +158,13 @@ mkTransport ring recvIntoBuf = do
                         pure (MoreData newHead)
 
   pure Transport
-    { transportRing        = ring
-    , transportLoadHead    = loadHead
-    , transportAdvanceTail = advanceTail
-    , transportWaitData    = waitData
-    , transportClose       = writeIORef stateRef RecvClosedEof
+    { transportRingBaseField = base
+    , transportRingSizeField = sz
+    , transportRingMaskField = msk
+    , transportLoadHead      = loadHead
+    , transportAdvanceTail   = advanceTail
+    , transportWaitData      = waitData
+    , transportClose         = writeIORef stateRef RecvClosedEof
     }
 
 -- | Receive bytes from the socket directly into the ring.

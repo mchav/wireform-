@@ -43,7 +43,7 @@ mkWord32Input n = LBS.toStrict . BSB.toLazyByteString $
 connectedPair :: IO (Socket, Socket)
 connectedPair = socketPair AF_UNIX Stream defaultProtocol
 
-mkMemoryTransport :: MagicRing -> BS.ByteString -> IO Transport
+mkMemoryTransport :: MagicRing s -> BS.ByteString -> IO Transport
 mkMemoryTransport ring payload = do
   let !base = ringBase ring
       !payloadLen = BS.length payload
@@ -51,14 +51,16 @@ mkMemoryTransport ring payload = do
     copyBytes base (castPtr src) len
   let !headPos = fromIntegral payloadLen :: Word64
   pure Transport
-    { transportRing        = ring
-    , transportLoadHead    = pure headPos
-    , transportAdvanceTail = \_ -> pure ()
-    , transportWaitData    = \_ -> pure EndOfInput
-    , transportClose       = pure ()
+    { transportRingBaseField = ringBase ring
+    , transportRingSizeField = ringSize ring
+    , transportRingMaskField = ringMask ring
+    , transportLoadHead      = pure headPos
+    , transportAdvanceTail   = \_ -> pure ()
+    , transportWaitData      = \_ -> pure EndOfInput
+    , transportClose         = pure ()
     }
 
-withRecvTransportReuse :: MagicRing -> Socket -> (Transport -> IO a) -> IO a
+withRecvTransportReuse :: MagicRing s -> Socket -> (Transport -> IO a) -> IO a
 withRecvTransportReuse ring sock action = do
   let !base = ringBase ring
       !msk  = ringMask ring
@@ -102,11 +104,13 @@ withRecvTransportReuse ring sock action = do
                     writeIORef headRef newHead
                     pure (MoreData newHead)
       transport = Transport
-        { transportRing        = ring
-        , transportLoadHead    = loadHead
-        , transportAdvanceTail = advanceTail
-        , transportWaitData    = waitData
-        , transportClose       = writeIORef eofRef True
+        { transportRingBaseField = base
+        , transportRingSizeField = sz
+        , transportRingMaskField = msk
+        , transportLoadHead      = loadHead
+        , transportAdvanceTail   = advanceTail
+        , transportWaitData      = waitData
+        , transportClose         = writeIORef eofRef True
         }
   action transport
 
@@ -153,13 +157,15 @@ main = do
       let !headPos = fromIntegral (BS.length payload) :: Word64
       headRef <- newIORef (0 :: Word64)
       let t = Transport
-            { transportRing        = ring
-            , transportLoadHead    = readIORef headRef
-            , transportAdvanceTail = \_ -> pure ()
-            , transportWaitData    = \_ -> do
+            { transportRingBaseField = ringBase ring
+            , transportRingSizeField = ringSize ring
+            , transportRingMaskField = ringMask ring
+            , transportLoadHead      = readIORef headRef
+            , transportAdvanceTail   = \_ -> pure ()
+            , transportWaitData      = \_ -> do
                 writeIORef headRef headPos
                 pure (MoreData headPos)
-            , transportClose       = pure ()
+            , transportClose         = pure ()
             }
       wallTimeIO "  stream-1suspend" $ do
         r <- runParser t (word32sP @Stream n)
