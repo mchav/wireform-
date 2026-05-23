@@ -81,6 +81,9 @@ library
       , array
       , bytestring
       , case-insensitive
+      -- crypton-x509 / crypton-x509-store / tls below are used only by
+      -- the vendored grapesy engine under Network.HTTP2.Engine.*.  The
+      -- new stack uses OpenSSL via wireform-network.
       , containers
       , crypton-x509
       , crypton-x509-store
@@ -161,9 +164,6 @@ test-suite wireform-http2-tls-test
       , network
       , tasty          >= 1.4
       , tasty-hunit    >= 0.10
-      , tls
-      , crypton-x509
-      , crypton-x509-store
       , wireform-http2
 
 test-suite h2spec

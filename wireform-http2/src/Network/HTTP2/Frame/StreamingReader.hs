@@ -53,9 +53,9 @@ import Wireform.Ring.Internal
   , ringMask
   )
 import Wireform.Transport
-  ( Transport (..)
-  , WaitResult (..)
-  , transportRing
+  ( ReceiveTransport (..)
+  , ReceiveWait (..)
+  , receiveRing
   )
 
 import Network.HTTP2.Frame
@@ -87,13 +87,13 @@ instance Show ReadError where
 ------------------------------------------------------------------------
 
 -- | Read one HTTP\/2 frame off the transport.  Uses the current
--- 'transportLoadHead' as the starting cursor, so this entry point is
+-- 'receiveLoadHead' as the starting cursor, so this entry point is
 -- meant for the very first read on a fresh connection (head = 0).
 -- For loops use 'readFrameLoop' or 'readFrameFrom', both of which
 -- track position explicitly.
-readFrame :: Transport -> IO (Either ReadError Frame)
+readFrame :: ReceiveTransport -> IO (Either ReadError Frame)
 readFrame t = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   fmap (fmap fst) (readFrameFrom t startPos)
 {-# INLINE readFrame #-}
 
@@ -104,28 +104,28 @@ readFrame t = do
 --
 -- The 'Frame's payload 'ByteString' is a zero-copy slice of the
 -- ring's backing memory; it stays valid until the caller next
--- 'transportAdvanceTail's past it (this function does the advance).
+-- 'receiveAdvanceTail's past it (this function does the advance).
 -- 'BS.copy' if the payload outlives the per-frame handler scope.
 --
 -- == Hot loop shape (per Core inspection)
 --
--- 1. One 'transportLoadHead' read at the top.
+-- 1. One 'receiveLoadHead' read at the top.
 -- 2. Decode header (worker/wrapper takes @Addr#@ directly).
 -- 3. Check @h - startPos >= 9 + payloadLen@ /without/ re-reading
 --    head (single-threaded design: head can only advance on
---    'transportWaitData', which we haven't called).
--- 4. Decode payload + 'transportAdvanceTail' once.
+--    'receiveWaitData', which we haven't called).
+-- 4. Decode payload + 'receiveAdvanceTail' once.
 --
--- This is one fewer 'transportLoadHead' per frame than the more
+-- This is one fewer 'receiveLoadHead' per frame than the more
 -- conservative \"stage 1, then stage 2\" shape — measurable on
 -- small-frame workloads (~5% per-frame improvement on the
 -- @1000 small DATA frames@ benchmark).
 readFrameFrom
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> IO (Either ReadError (Frame, Word64))
 readFrameFrom t startPos = do
-  let !ring = transportRing t
+  let !ring = receiveRing t
   hdrE <- ensureBytes t startPos frameHeaderLength
   case hdrE of
     Left e -> pure (Left e)
@@ -150,20 +150,20 @@ readFrameFrom t startPos = do
                 Left e -> pure (Left (ReadDecode e))
                 Right pl -> do
                   let !nextPos = payloadPos + fromIntegral payloadLen
-                  transportAdvanceTail t nextPos
+                  receiveAdvanceTail t nextPos
                   pure (Right (Frame hdr pl, nextPos))
 {-# INLINE readFrameFrom #-}
 
 -- | Loop: keep reading frames and dispatching them to the handler,
 -- threading the position counter so we don't pay a
--- 'transportLoadHead' round-trip per frame.  Returns on the first
+-- 'receiveLoadHead' round-trip per frame.  Returns on the first
 -- error or when the handler returns 'False' ("stop").
 readFrameLoop
-  :: Transport
+  :: ReceiveTransport
   -> (Frame -> IO Bool)   -- ^ 'True' = keep going, 'False' = stop.
   -> IO (Either ReadError ())
 readFrameLoop t handler = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   loop startPos
   where
     loop !pos = do
@@ -180,10 +180,10 @@ readFrameLoop t handler = do
 
 -- | Block until at least @n@ bytes are available past @startPos@.
 -- Returns the (latest known) head position on success so callers
--- can re-use the value without paying a second 'transportLoadHead'
+-- can re-use the value without paying a second 'receiveLoadHead'
 -- round-trip if they need more from the same window.
 ensureBytes
-  :: Transport
+  :: ReceiveTransport
   -> Word64           -- ^ start position
   -> Int              -- ^ bytes needed
   -> IO (Either ReadError Word64)
@@ -191,15 +191,15 @@ ensureBytes t startPos needed = loop
   where
     needed64 = fromIntegral needed :: Word64
     loop = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       if h - startPos >= needed64
         then pure (Right h)
         else do
-          r <- transportWaitData t h
+          r <- receiveWaitData t h
           case r of
-            MoreData _         -> loop
-            EndOfInput         -> pure (Left ReadUnexpectedEof)
-            TransportError exc -> pure (Left (ReadTransportError exc))
+            ReceiveMoreData _         -> loop
+            ReceiveEndOfInput         -> pure (Left ReadUnexpectedEof)
+            ReceiveFailed exc -> pure (Left (ReadTransportError exc))
 {-# INLINE ensureBytes #-}
 
 -- | Zero-copy 'BS.ByteString' over @[pos, pos + len)@ of the ring.
