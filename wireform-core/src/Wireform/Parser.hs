@@ -118,16 +118,22 @@ import Wireform.Parser.Mark
 ------------------------------------------------------------------------
 
 -- | Ensure @n#@ bytes available, then run the body.
--- The body receives the current @s@ (which may have been updated
--- by ensureNSlow on the slow path).
+--
+-- Fast path (1 register comparison, no memory access).
+-- Semi-fast path: re-read 'peEndPtr' to catch stale @eob@ after a
+-- prior streaming resume; avoids the NOINLINE 'ensureNSlow' call.
+-- Slow path: genuine suspension via 'onEnsureFail'.
 withEnsure# :: forall m e a. ParserMode m => Int# -> Parser m e a -> Parser m e a
 withEnsure# n# (Parser p) = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> p env eob s st
-    _  -> case onEnsureFail @m env eob s n# st of
-            (# st', OK# _ s' #) -> case readEnd# env st' of
-              (# st'', eob' #) -> p env eob' s' st''
-            (# st', x #) -> (# st', unsafeCoerce# x #)
+    _  -> case readEnd# env st of
+      (# st', eob' #) -> case n# <=# minusAddr# eob' s of
+        1# -> p env eob' s st'
+        _  -> case onEnsureFail @m env eob' s n# st' of
+          (# st'', OK# _ s'' #) -> case readEnd# env st'' of
+            (# st''', eob'' #) -> p env eob'' s'' st'''
+          (# st'', x #) -> (# st'', unsafeCoerce# x #)
 {-# INLINE withEnsure# #-}
 
 ------------------------------------------------------------------------

@@ -306,13 +306,19 @@ instance ParserMode m => MonadPlus (Parser m e)
 ------------------------------------------------------------------------
 
 -- | Require @n#@ bytes available from @cur@.
--- Fast path: single comparison, no memory access to mutable state.
+--
+-- Fast path: single register comparison (identical to flatparse).
+-- Semi-fast: re-read 'peEndPtr' to catch stale @eob@ after a
+-- prior streaming resume; no function-call overhead.
 -- Slow path: suspends to the driver via @control0#@.
 ensureN# :: forall m e. ParserMode m => Int# -> Parser m e ()
 ensureN# n# = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> (# st, OK# () s #)
-    _  -> onEnsureFail @m env eob s n# st
+    _  -> case readEnd# env st of
+      (# st', eob' #) -> case n# <=# minusAddr# eob' s of
+        1# -> (# st', OK# () s #)
+        _  -> onEnsureFail @m env eob' s n# st'
 {-# INLINE ensureN# #-}
 
 -- | Streaming slow path.
