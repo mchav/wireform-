@@ -162,38 +162,45 @@ readHeaderBlockFrom t startPos cap = do
   let !ring = transportRing t
       !base = ringBase ring
       !msk  = ringMask ring
-  loop ring base msk startPos
+  -- @scanFrom@ tracks how far we've already scanned for the
+  -- terminator on previous round-trips; on each waitData refill we
+  -- step back 3 bytes (so a CRLFCR that straddled the previous
+  -- 'avail' end is re-examined) but otherwise we don't rescan the
+  -- bytes we've already classified.  Reduces SIMD work on
+  -- drip-fed transports.
+  loop ring base msk 0
   where
-    loop !ring !base !msk !sPos = do
-      -- We're free to wait for at least one byte; the scanner
-      -- needs four bytes to confirm CRLFCRLF, so anything less is
-      -- "keep going".
+    loop !ring !base !msk !scanFrom = do
       h <- transportLoadHead t
-      let !avail = fromIntegral (h - sPos) :: Int
+      let !avail = fromIntegral (h - startPos) :: Int
       if avail > cap
         then pure (Left (ReadMessageTooLong cap))
         else do
-          mIdx <- findCRLFCRLF base msk sPos avail
+          mIdx <- findCRLFCRLF base msk startPos scanFrom avail
           case mIdx of
             Just idx -> do
-              -- @idx@ is the offset (from sPos) of the first
-              -- CR of the terminator.  Block is [sPos, sPos+idx).
+              -- @idx@ is the offset (from startPos) of the first
+              -- CR of the terminator.  Block is [startPos, startPos+idx).
               let !blockLen   = idx
-                  !block      = ringSlice ring sPos blockLen
-                  !nextPos    = sPos + fromIntegral (blockLen + 4)
+                  !block      = ringSlice ring startPos blockLen
+                  !nextPos    = startPos + fromIntegral (blockLen + 4)
               transportAdvanceTail t nextPos
               pure (Right (block, nextPos))
             Nothing -> do
-              -- Need more bytes; suspend on the IO manager.
+              -- Need more bytes; suspend on the IO manager.  On
+              -- the next iteration resume scanning from a small
+              -- backstep so a CRLFCR straddling the previous
+              -- buffer end is re-examined.
+              let !nextScan = max 0 (avail - 3)
               r <- transportWaitData t h
               case r of
-                MoreData _         -> loop ring base msk sPos
+                MoreData _         -> loop ring base msk nextScan
                 EndOfInput         -> pure (Left ReadUnexpectedEof)
                 TransportError exc -> pure (Left (ReadTransportError exc))
 
 -- | Locate the byte offset (relative to @startPos@) of the next
 -- @\\r\\n\\r\\n@ in the ring.  Returns 'Nothing' when no terminator
--- is in the @[startPos, startPos+avail)@ window.
+-- is in the @[startPos+scanFrom, startPos+avail)@ window.
 --
 -- The double-mapped ring guarantees that any read of up to
 -- @ringSize@ bytes starting anywhere in @[base, base + N)@ is
@@ -204,14 +211,15 @@ findCRLFCRLF
   :: Ptr Word8
   -> Int            -- ^ mask = ringSize - 1
   -> Word64         -- ^ start position
+  -> Int            -- ^ scan-from offset (resume after a refill)
   -> Int            -- ^ bytes available from start
   -> IO (Maybe Int)
-findCRLFCRLF base msk startPos avail
+findCRLFCRLF base msk startPos scanFrom avail
   | avail < 4 = pure Nothing
   | otherwise = do
       let !startOff = fromIntegral startPos .&. msk
           !startPtr = base `plusPtr` startOff
-      go startPtr 0
+      go startPtr scanFrom
   where
     -- We linear-scan for CR using the SIMD finder, then check the
     -- three follow-up bytes (LF / CR / LF).  Most CRs in a header
@@ -239,14 +247,15 @@ findCRLF
   :: Ptr Word8
   -> Int
   -> Word64
+  -> Int            -- ^ scan-from offset (resume after a refill)
   -> Int
   -> IO (Maybe Int)
-findCRLF base msk startPos avail
+findCRLF base msk startPos scanFrom avail
   | avail < 2 = pure Nothing
   | otherwise = do
       let !startOff = fromIntegral startPos .&. msk
           !startPtr = base `plusPtr` startOff
-      go startPtr 0
+      go startPtr scanFrom
   where
     go !ptr !off
       | off + 2 > avail = pure Nothing
@@ -376,28 +385,29 @@ readChunkSizeLineFrom t startPos = do
   let !ring = transportRing t
       !base = ringBase ring
       !msk  = ringMask ring
-  loop ring base msk startPos
+  loop ring base msk 0
   where
-    loop !ring !base !msk !sPos = do
+    loop !ring !base !msk !scanFrom = do
       h <- transportLoadHead t
-      let !avail = fromIntegral (h - sPos) :: Int
+      let !avail = fromIntegral (h - startPos) :: Int
       if avail > defaultChunkLineCap
         then pure (Left (ReadMessageTooLong defaultChunkLineCap))
         else do
-          mIdx <- findCRLF base msk sPos avail
+          mIdx <- findCRLF base msk startPos scanFrom avail
           case mIdx of
             Just idx -> do
               let !lineLen = idx
-                  !line    = ringSlice ring sPos lineLen
-                  !nextPos = sPos + fromIntegral (lineLen + 2)
+                  !line    = ringSlice ring startPos lineLen
+                  !nextPos = startPos + fromIntegral (lineLen + 2)
               transportAdvanceTail t nextPos
               pure $ case Classic.parseChunkSize line of
                 Right n -> Right (n, nextPos)
                 Left e  -> Left (ReadParse e)
             Nothing -> do
+              let !nextScan = max 0 (avail - 1)
               r <- transportWaitData t h
               case r of
-                MoreData _         -> loop ring base msk sPos
+                MoreData _         -> loop ring base msk nextScan
                 EndOfInput         -> pure (Left ReadUnexpectedEof)
                 TransportError exc -> pure (Left (ReadTransportError exc))
 
