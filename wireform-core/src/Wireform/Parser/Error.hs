@@ -23,6 +23,14 @@ data ParseError e
 
   | ParseTransportError !SomeException
     -- ^ Transport-level failure (broken connection, closed socket, etc.).
+
+  | ParseRingOverflow !Word64 !Int !Int
+    -- ^ The parser asked for more bytes than the magic ring can ever
+    -- hold (or, more precisely, more than the remaining capacity from
+    -- the parser's current position).  Continuing would deadlock —
+    -- the producer cannot make room because the consumer is suspended
+    -- waiting for bytes the producer cannot deliver.  Fields: parser
+    -- position, requested bytes, ring size.
   deriving stock (Show, Functor)
 
 -- | Internal sentinel: clean EOF before any bytes were consumed for

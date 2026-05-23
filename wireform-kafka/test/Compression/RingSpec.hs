@@ -117,7 +117,7 @@ ringRoundTrip label codec payload = testCase label $ do
 decompressViaRing
   :: CompressionCodec
   -> BS.ByteString
-  -> Wireform.Ring.MagicRing
+  -> Wireform.Ring.MagicRing s
   -> IO (Either String BS.ByteString)
 decompressViaRing codec compressed dst = do
   r <- BSU.unsafeUseAsCStringLen compressed $ \(p, l) ->

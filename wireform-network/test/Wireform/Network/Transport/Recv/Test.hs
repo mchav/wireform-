@@ -1,17 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
 
 module Wireform.Network.Transport.Recv.Test (spec) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (finally)
+import Control.Exception (finally, fromException)
+import Control.Monad (replicateM_)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Word
 import Network.Socket hiding (close, recv)
 import qualified Network.Socket as S
 import Network.Socket.ByteString (sendAll, recv)
+import System.Timeout (timeout)
 import Test.Hspec
 
 import Wireform.Parser
@@ -66,6 +70,89 @@ spec = describe "RecvTransport" $ do
         case r of
           Right () -> pure ()  -- clean EOF after consuming the 'a' header + 'bc'
           Left _ -> pure ()    -- unexpected EOF is also acceptable here
+
+  describe "reads larger than ringSize do not deadlock" $ do
+    it "takeBs drains a payload larger than the ring into a fresh allocation" $ do
+      -- 'ringSizeHint = 1' is rounded up to the platform's minimum
+      -- (a single page on every supported OS), so the actual ring
+      -- is some page-sized power of two — much smaller than the
+      -- 64 KiB request we are about to make.  The drain path inside
+      -- 'takeBs' should walk the bytes through the ring chunk by
+      -- chunk, checkpointing to free space, and return the full
+      -- 65536-byte 'ByteString' instead of deadlocking.
+      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
+          total   = 65536
+          chunkSz = 1024
+          chunks  =
+            [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
+            | i <- [0 .. (total `div` chunkSz) - 1]
+            ]
+          expected = BS.concat chunks
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (takeBs total :: P ByteString)
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: takeBs n > ringSize should drain, not block forever"
+        Just (Right bs) -> do
+          BS.length bs `shouldBe` total
+          bs `shouldBe` expected
+        Just (Left e) ->
+          expectationFailure $
+            "expected drained ByteString, got: " <> show e
+
+    it "takeBsCopy drains a payload larger than the ring into a fresh allocation" $ do
+      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
+          total   = 100_000
+          chunkSz = 997  -- odd size, exercises the chunk-boundary math
+          chunks  =
+            [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
+            | i <- [0 .. (total `div` chunkSz)]
+            ]
+          expected = BS.take total (BS.concat chunks)
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (takeBsCopy total :: P ByteString)
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: takeBsCopy n > ringSize should drain, not block forever"
+        Just (Right bs) -> do
+          BS.length bs `shouldBe` total
+          bs `shouldBe` expected
+        Just (Left e) ->
+          expectationFailure $
+            "expected drained ByteString, got: " <> show e
+
+    it "surfaces RingExhausted when a non-draining parser fills the ring without checkpointing" $ do
+      -- Read more raw bytes in a single 'runParser' than the ring can
+      -- hold from startPos using byte-at-a-time 'anyWord8' (which
+      -- does not auto-drain like 'takeBs' / 'takeBsCopy' do).  The
+      -- parser never advances tail, the producer fills the ring,
+      -- and the next ensureN# suspension surfaces as a transport
+      -- error rather than spinning forever.
+      let cfg = defaultTransportConfig { ringSizeHint = 1 }
+          chunks = replicate 20000 (BS.singleton 0x42)
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (replicateM_ 20000 anyWord8 :: P ())
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: consuming > ringSize without checkpoint should not block forever"
+        Just (Left (ParseTransportError exc)) ->
+          case fromException exc :: Maybe RingExhausted of
+            Just _  -> pure ()
+            Nothing ->
+              expectationFailure $
+                "expected RingExhausted inside ParseTransportError, got: " <> show exc
+        Just other ->
+          expectationFailure $
+            "expected ParseTransportError(RingExhausted), got: " <> show other
 
   it "parses a simple message from a socket" $ do
     withConnectedPair \(writer, reader) -> do

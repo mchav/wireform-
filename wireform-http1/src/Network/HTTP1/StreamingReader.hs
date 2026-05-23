@@ -76,6 +76,7 @@ import Wireform.Ring.Internal
 import Wireform.Transport
   ( Transport (..)
   , WaitResult (..)
+  , transportRing
   )
 
 import Network.HTTP1.Method (Method)
@@ -292,7 +293,7 @@ findCRLF base msk startPos scanFrom avail
 -- The slice becomes a dangling pointer if it outlives the magic
 -- ring's 'withMagicRing' bracket; callers that retain past that
 -- scope MUST @BS.copy@.
-ringSlice :: MagicRing -> Word64 -> Int -> ByteString
+ringSlice :: MagicRing s -> Word64 -> Int -> ByteString
 ringSlice ring pos (I# len#) =
   let !base = ringBase ring
       !msk  = ringMask ring

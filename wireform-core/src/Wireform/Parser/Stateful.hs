@@ -35,7 +35,7 @@ module Wireform.Parser.Stateful
   ) where
 
 import Data.Word (Word8, Word64)
-import Foreign.Marshal.Alloc (mallocBytes, free)
+import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
 import Foreign.Storable (poke)
 import GHC.Exts
@@ -43,7 +43,6 @@ import GHC.ForeignPtr (ForeignPtr (..), ForeignPtrContents (..))
 import GHC.IO (IO (..))
 import qualified Data.ByteString.Internal as BSI
 import Foreign.ForeignPtr (withForeignPtr)
-import Control.Exception (bracket)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Wireform.Parser
@@ -174,8 +173,13 @@ runParserS p r s0 b = unsafeDupablePerformIO $ do
       !end# = plusAddr# buf# len#
 
   withForeignPtr (ForeignPtr buf# fp) \_ ->
-    bracket (mallocBytes 8) free \endPtr -> do
-      poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr end#)
+    allocaBytes 24 \cells -> do
+      let !endPtr    = cells
+          !anchorPos = cells `plusPtr` 8
+          !anchorCur = cells `plusPtr` 16
+      poke (castPtr endPtr    :: Ptr (Ptr Word8)) (Ptr end#)
+      poke (castPtr anchorPos :: Ptr Word64)      0
+      poke (castPtr anchorCur :: Ptr (Ptr Word8)) (Ptr buf#)
 
       IO \rw0 -> case newMutVar# s0 rw0 of
         (# rw1, mv #) -> case newPromptTag# rw1 of
@@ -184,8 +188,8 @@ runParserS p r s0 b = unsafeDupablePerformIO $ do
                   { peEndPtr    = castPtr endPtr
                   , peBaseAddr  = Ptr buf#
                   , peMask      = maxBound
-                  , peStartPos  = 0
-                  , peInitCur   = Ptr buf#
+                  , peAnchorPos = castPtr anchorPos
+                  , peAnchorCur = castPtr anchorCur
                   , peBackingFp = fp
                   , peTag       = tagToAny tag
                   }

@@ -14,13 +14,15 @@ module Wireform.Network.Transport.Recv
   , newRecvBufTransport
   , RecvFn
   , chunkedRecvFn
+  , RingExhausted (..)
   ) where
 
-import Control.Exception (SomeException, try, toException, IOException)
+import Control.Exception (Exception, SomeException, try, toException, IOException)
 import Data.Bits ((.&.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.IORef
+import Data.Typeable (Typeable)
 import Data.Word (Word8, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
@@ -41,6 +43,30 @@ import Wireform.Transport.Config
 --
 -- The callback may block.  It is called by the parser thread only.
 type RecvFn = Ptr Word8 -> Int -> IO Int
+
+-- | The producer cannot make progress because the ring is full and
+-- the consumer has not yet released any tail.  Surfaced as a sticky
+-- 'Wireform.Transport.TransportError' (and ultimately a
+-- 'Wireform.Parser.Error.ParseTransportError') instead of letting
+-- the producer/consumer pair spin forever.
+--
+-- In practice this either means the parser is trying to consume a
+-- single message that does not fit in the ring (raise 'ringSizeHint'
+-- in the 'TransportConfig'), or the parser is consuming the ring
+-- without ever advancing tail (insert a 'checkpoint' between
+-- messages).  The wireform-core driver already detects the first
+-- case as 'ParseRingOverflow' before suspension; this exception is
+-- the fallback that catches the second case.
+data RingExhausted = RingExhausted
+  { ringExhaustedSize     :: !Int
+    -- ^ Physical ring size (N).
+  , ringExhaustedHead     :: !Word64
+    -- ^ Producer head when the stall was detected.
+  , ringExhaustedTail     :: !Word64
+    -- ^ Consumer tail when the stall was detected.
+  } deriving stock (Show, Typeable)
+
+instance Exception RingExhausted
 
 data RecvState
   = RecvOpen
@@ -108,7 +134,7 @@ newRecvBufTransport cfg recvIntoBuf = do
 -- callback.  Used by both 'withRecvBufTransport' and
 -- 'newRecvBufTransport' so they share the ring-state machinery
 -- verbatim.
-mkTransport :: MagicRing -> RecvFn -> IO Transport
+mkTransport :: MagicRing s -> RecvFn -> IO Transport
 mkTransport ring recvIntoBuf = do
   let !base = ringBase ring
       !msk  = ringMask ring
@@ -141,7 +167,25 @@ mkTransport ring recvIntoBuf = do
                 -- Don't cross the ring boundary in a single recv
                 !maxRecv   = min available (sz - writeOff)
             if maxRecv <= 0
-              then pure (MoreData h)
+              then do
+                -- Ring is full (head - tail == ringSize) AND the
+                -- consumer is asking us to advance past 'pos' >= head.
+                -- We cannot satisfy this: there is no room to recv
+                -- into and the consumer is stalled (otherwise it
+                -- would have advanced tail by now).  Returning
+                -- 'MoreData h' here would spin the driver loop in
+                -- 'waitUntilAvailable' forever because h does not
+                -- move; converting it to a sticky transport error
+                -- propagates the deadlock condition as a
+                -- 'ParseTransportError' the caller can actually
+                -- handle.
+                let !exc = toException
+                       (RingExhausted { ringExhaustedSize = sz
+                                      , ringExhaustedHead = h
+                                      , ringExhaustedTail = t
+                                      })
+                writeIORef stateRef (RecvClosedErr exc)
+                pure (TransportError exc)
               else do
                 result <- try @IOException (recvIntoBuf writePtr maxRecv)
                 case result of
@@ -158,11 +202,13 @@ mkTransport ring recvIntoBuf = do
                         pure (MoreData newHead)
 
   pure Transport
-    { transportRing        = ring
-    , transportLoadHead    = loadHead
-    , transportAdvanceTail = advanceTail
-    , transportWaitData    = waitData
-    , transportClose       = writeIORef stateRef RecvClosedEof
+    { transportRingBaseField = base
+    , transportRingSizeField = sz
+    , transportRingMaskField = msk
+    , transportLoadHead      = loadHead
+    , transportAdvanceTail   = advanceTail
+    , transportWaitData      = waitData
+    , transportClose         = writeIORef stateRef RecvClosedEof
     }
 
 -- | Receive bytes from the socket directly into the ring.
