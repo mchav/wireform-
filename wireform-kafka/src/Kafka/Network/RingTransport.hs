@@ -75,6 +75,21 @@ withConnectionTransport cfg conn action = do
 --
 -- A zero-byte read from 'NC.connectionGet' is treated as EOF
 -- ('withRecvBufTransport' turns that into 'EndOfInput').
+--
+-- == Per-recv allocation
+--
+-- The request to 'NC.connectionGet' is capped at 64 KiB.  Two reasons:
+--
+--   * For TLS connections the underlying @tls@ package will yield at
+--     most one record (max 16 KiB) per call regardless of what we
+--     ask for, so a bigger request doesn't get us more data.
+--   * For plain TCP connections @crypton-connection@ allocates a
+--     pinned buffer of the requested size /up front/ and then trims
+--     to the actual byte count returned by the kernel.  A 1 MiB
+--     request (the magic ring's default size) would waste 1 MiB of
+--     pinned allocation per recv call, even when the kernel only
+--     has a few hundred bytes ready.  64 KiB is the same cap the
+--     classic 'connectionGetExact' path used in 'readFrame'.
 connectionRecvFn :: NC.Connection -> IO RecvFn
 connectionRecvFn conn = do
   leftover <- newIORef BS.empty
@@ -92,7 +107,8 @@ connectionRecvFn conn = do
           copyBSInto dst taken
           pure take_
         else do
-          chunkE <- try (NC.connectionGet conn (max want 4096))
+          let !askFor = min recvChunkCap (max want minRecvChunk)
+          chunkE <- try (NC.connectionGet conn askFor)
           case chunkE of
             Left (e :: SomeException) -> throwIO e
             Right chunk
@@ -104,6 +120,20 @@ connectionRecvFn conn = do
                   writeIORef ref rest
                   copyBSInto dst taken
                   pure take_
+
+-- | Hard cap on a single 'NC.connectionGet' request.  Matches the
+-- 'connectionGetExact' chunking the pre-migration pipeline used,
+-- and the TLS record size limit so the underlying @tls@ package
+-- never returns more than this in a single 'recvData' anyway.
+recvChunkCap :: Int
+recvChunkCap = 64 * 1024
+
+-- | Floor on the recv request — if the parser only wants 4 bytes
+-- (e.g. a frame length prefix) it's still worth asking the OS for
+-- 'minRecvChunk' so a single Kafka response that won't ever be
+-- split across recvs lands in one call.
+minRecvChunk :: Int
+minRecvChunk = 4 * 1024
 
 {-# INLINE copyBSInto #-}
 copyBSInto :: Ptr Word8 -> BS.ByteString -> IO ()

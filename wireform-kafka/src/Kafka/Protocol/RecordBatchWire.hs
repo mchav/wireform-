@@ -80,6 +80,7 @@ import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as VUM
 
+import qualified Kafka.Compression.Ring as CompressionRing
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.CRC32C as CRC
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.SliceVector as SV
@@ -781,10 +782,16 @@ peekBatchWithDecompression fp basePtr p endPtr = do
                 then pure V.empty
                 else readRecords fp basePtr n q8 bodyEnd
             _ -> do
+              -- The compressed @records@ section runs from @q8@ to
+              -- @bodyEnd@ within the input ForeignPtr.  Hand the raw
+              -- pointer + length straight to the ring-aware
+              -- decompressor (no input-side BS allocation; for
+              -- snappy + zstd the output is sized exactly via
+              -- 'BSI.mallocByteString' so the C decompressor writes
+              -- directly into the heap buffer that becomes the
+              -- result ByteString).
               let !rawLen = bodyEnd `minusPtr` q8
-                  !rawOff = q8 `minusPtr` basePtr
-                  !rawBs  = BSI.fromForeignPtr fp rawOff rawLen
-              decompressedR <- Compression.decompress codec rawBs
+              decompressedR <- CompressionRing.decompressFromPtr codec q8 rawLen
               case decompressedR of
                 Left err -> errOut ("Decompression failed: " ++ err)
                 Right decompressed
@@ -1334,10 +1341,13 @@ peekSlicedBatchWithDecompression fp basePtr p endPtr = do
                          , SV.fromForeignPtrSlices fp hV
                          )
               _ -> do
+                -- Ring-aware path: hand the raw compressed pointer +
+                -- length straight to the codec; the destination
+                -- ByteString is sized exactly (snappy / zstd) so the
+                -- C decompressor writes directly into the
+                -- 'BSI.mallocByteString'-allocated buffer.
                 let !rawLen = bodyEnd `minusPtr` q8
-                    !rawOff = q8 `minusPtr` basePtr
-                    !rawBs  = BSI.fromForeignPtr fp rawOff rawLen
-                decompressedR <- Compression.decompress codec rawBs
+                decompressedR <- CompressionRing.decompressFromPtr codec q8 rawLen
                 case decompressedR of
                   Left err -> errOut ("Decompression failed: " ++ err)
                   Right decompressed

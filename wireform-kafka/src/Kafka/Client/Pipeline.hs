@@ -108,6 +108,7 @@ import qualified Kafka.Network.FrameParser as FrameParser
 import qualified Kafka.Network.RingTransport as RingTransport
 import Wireform.Parser.Driver (LoopControl (..))
 import Wireform.Parser.Error (ParseError (..))
+import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (profileConfig, Profile (..))
 
 -- | Unique identifier for a pipelined request.
@@ -121,6 +122,17 @@ data PipelineConfig = PipelineConfig
     -- ^ Maximum size of request queue (default: 1000)
   , pipelineTimeout :: !Int
     -- ^ Request timeout in seconds (default: 30)
+  , pipelineRingSize :: !Int
+    -- ^ Magic-ring receive buffer size, in bytes (default: 16 MiB).
+    --   MUST be at least as large as the largest single Kafka
+    --   response the broker will return (e.g. the configured
+    --   @fetch.max.bytes@ + protocol overhead), otherwise the
+    --   streaming frame parser deadlocks waiting for bytes the
+    --   ring cannot hold.  The magic-ring constructor rounds this
+    --   up to the next power-of-two page-aligned multiple, and
+    --   the underlying mmap is virtual address space only —
+    --   physical memory is only paged in for the bytes actually
+    --   touched, so over-provisioning is cheap on Linux.
   } deriving (Eq, Show, Generic)
 
 -- | Default pipeline configuration.
@@ -129,6 +141,7 @@ defaultPipelineConfig = PipelineConfig
   { pipelineMaxInFlight = 100
   , pipelineMaxQueueSize = 1000
   , pipelineTimeout = 30
+  , pipelineRingSize = 16 * 1024 * 1024
   }
 
 -- | Pending request awaiting response. The body 'TMVar' resolves
@@ -567,9 +580,11 @@ receiveLoop :: Pipeline -> IO ()
 receiveLoop p@Pipeline{..} = do
   closed0 <- readTVarIO pipelineClosed
   unless closed0 $ do
+    let !ringCfg = (profileConfig Throughput)
+          { WC.ringSizeHint = pipelineRingSize pipelineConfig }
     eLoop <- try @SomeException $
       RingTransport.withConnectionTransport
-        (profileConfig Throughput)
+        ringCfg
         pipelineConnection
         $ \transport ->
             FrameParser.runKafkaFrameLoop transport (handleFrame p)

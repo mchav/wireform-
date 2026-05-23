@@ -37,6 +37,7 @@ import Network.Socket (Socket)
 
 import qualified Wireform.Transport as WT
 import Wireform.Network (newRecvBufTransport)
+import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (defaultTransportConfig)
 
 import Network.HTTP2.Connection.FlowControl
@@ -159,7 +160,13 @@ mkConnection role settings onGoAway transport mSock = do
   encoder <- newDynamicTable 4096 >>= newMVar
   decoder <- newDynamicTable 4096 >>= newMVar
   sendLock <- newMVar ()
-  ringT <- newRecvBufTransport defaultTransportConfig (tRecvBuf transport)
+  -- 1 MiB ring: comfortably bigger than the largest single frame
+  -- HTTP/2 can deliver (SETTINGS_MAX_FRAME_SIZE caps at 16 MiB but
+  -- practical deployments stay well under 1 MiB; e.g. nghttp2's
+  -- default is 16 KiB).  The mmap is virtual address space — actual
+  -- pages are only faulted in for bytes the recv path touches.
+  let !ringCfg = defaultTransportConfig { WC.ringSizeHint = 1024 * 1024 }
+  ringT <- newRecvBufTransport ringCfg (tRecvBuf transport)
   ringCursor <- newIORef 0
   lastStreamId <- newIORef 0
   closed <- newIORef False

@@ -160,6 +160,7 @@ library
         Kafka.Compression.BuilderZstd
         Kafka.Compression.Gzip
         Kafka.Compression.Lz4
+        Kafka.Compression.Ring
         Kafka.Compression.Snappy
         Kafka.Compression.Types
         Kafka.Compression.Zstd
@@ -877,6 +878,7 @@ test-suite wireform-kafka-test
         Network.OAuthOidcSpec
         Network.BootstrapSpec
         Network.FrameParserSpec
+        Compression.RingSpec
         Client.ConsumerSnapshotsSpec
         Client.MetadataCacheControlSpec
         Client.RackAwareSpec

@@ -29,6 +29,8 @@ module Network.HTTP1.Connection
   ( Connection
   , newConnection
   , newConnectionFromTransport
+  , newConnectionFromTransportWithRingSize
+  , defaultRingSize
   , connectionTransport
   , connectionSocket
   , connectionRingTransport
@@ -66,6 +68,7 @@ import Network.HTTP1.Headers (Header)
 import qualified Wireform.Builder as B
 import Wireform.Network (newRecvBufTransport)
 import qualified Wireform.Transport as WT
+import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (defaultTransportConfig)
 
 import Network.HTTP1.Internal.SendBuffer
@@ -108,15 +111,34 @@ data Connection = Connection
 newConnection :: Socket -> IO Connection
 newConnection sock = newConnectionFromTransport (socketTransport sock)
 
+-- | Default magic-ring size: 256 KiB.  Easily fits the largest
+-- header block (h2o caps requests at 32 KiB by default) plus
+-- several chunked-TE body chunks (16 KiB cap each) plus some
+-- breathing room, while keeping per-connection virtual memory
+-- modest.  Set explicitly via
+-- 'newConnectionFromTransportWithRingSize' for connections that
+-- need a larger ring (very-large @Content-Length@ bodies that the
+-- application wants to read in one shot).
+defaultRingSize :: Int
+defaultRingSize = 256 * 1024
+
 -- | Build a 'Connection' from an arbitrary 'Transport'.  This is
 -- the entry point used by the TLS bridge and any other non-socket
 -- transport.  The transport's 'tRecvBuf' is plumbed onto a
 -- magic-ring 'Wireform.Transport.Transport'; 'tSendAll' /
 -- 'tSendMany' / 'tClose' / 'tSocket' continue to serve the send +
 -- metadata side as before.
+--
+-- Uses 'defaultRingSize' for the magic ring.
 newConnectionFromTransport :: Transport -> IO Connection
-newConnectionFromTransport t = do
-  ringT  <- newRecvBufTransport defaultTransportConfig (tRecvBuf t)
+newConnectionFromTransport = newConnectionFromTransportWithRingSize defaultRingSize
+
+-- | Like 'newConnectionFromTransport' but lets the caller pick the
+-- magic-ring size.  See 'defaultRingSize' for the reasoning.
+newConnectionFromTransportWithRingSize :: Int -> Transport -> IO Connection
+newConnectionFromTransportWithRingSize ringSz t = do
+  let !cfg = defaultTransportConfig { WC.ringSizeHint = ringSz }
+  ringT  <- newRecvBufTransport cfg (tRecvBuf t)
   cursor <- newIORef 0
   sb     <- newSendBuffer
   closed <- newIORef False
