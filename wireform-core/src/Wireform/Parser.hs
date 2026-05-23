@@ -90,6 +90,7 @@ module Wireform.Parser
   , module Wireform.Parser.Error
   ) where
 
+import Control.Monad (when)
 import Data.Bits ((.&.), shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -98,8 +99,10 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, ord)
 import Data.Int
 import Data.Word
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
-import GHC.ForeignPtr (ForeignPtr (..))
+import GHC.ForeignPtr (ForeignPtr (..), mallocPlainForeignPtrBytes)
 import Foreign.Storable (Storable (..))
 import GHC.Exts
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
@@ -297,35 +300,158 @@ foreign import ccall unsafe "memcmp"
 -- ByteString operations
 ------------------------------------------------------------------------
 
--- | Take @n@ bytes as a zero-copy slice.
+-- | Take @n@ bytes.
 --
--- For 'parseByteString': the returned 'ByteString' is a zero-copy
--- slice of the input (identical to flatparse's @take@).
+-- Returns a /zero-copy slice/ into the ring (in streaming mode) or
+-- the input 'ByteString' (in 'parseByteString' mode) whenever @n@
+-- fits in the current backing buffer in one go.  When @n@ exceeds
+-- the magic ring's capacity, falls back to draining the bytes into
+-- a fresh heap allocation: 'takeBs' still hands the caller all @n@
+-- bytes, the cost is one allocation + memcpy and the result no
+-- longer aliases the ring.
 --
--- For ring-backed streaming: the returned 'ByteString' holds a
+-- == Lifetime
+--
+-- For the zero-copy slice case the returned 'ByteString' holds a
 -- reference to the ring's backing memory.  The slice is valid as
 -- long as the ring exists (managed by 'withMagicRing' / 'withRecvTransport').
 -- If the ring is freed while the 'ByteString' is still alive, the
 -- slice becomes a dangling pointer.  In practice this is safe because
 -- 'runParser' / 'runParserLoop' run within the transport's scope.
 --
+-- For the drained-into-a-fresh-allocation case (@n@ > ring size) the
+-- result is an ordinary heap 'ByteString' with no ring dependency
+-- and may outlive 'withMagicRing' freely.
+--
 -- A type-system-enforced alternative for callers that prefer to
 -- /prove/ slices cannot outlive a refill lives in "Wireform.Ring":
 -- use 'Wireform.Ring.RingSlice' values and 'Wireform.Ring.copyRingSlice'
 -- as the explicit escape hatch.
-takeBs :: ParserMode m => Int -> Parser m e ByteString
-takeBs (I# n#) = withEnsure# n# $ Parser \env eob s st ->
-  let !bs = BSI.BS (ForeignPtr s (peBackingFp env)) (I# n#)
-  in (# st, OK# bs (plusAddr# s n#) #)
+takeBs :: forall m e. ParserMode m => Int -> Parser m e ByteString
+takeBs total
+  | total <= 0 = pure BS.empty
+  | otherwise = Parser \env eob s st ->
+      let !(I# mask#) = peMask env
+      in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
+        1# -> runParser# (takeBsSlice @m total) env eob s st
+        _  -> runParser# (takeBsDrain @m total) env eob s st
 {-# INLINE takeBs #-}
 
 -- | Take @n@ bytes, always copying.  Use when you need the result
 -- to outlive the transport's scope.
-takeBsCopy :: ParserMode m => Int -> Parser m e ByteString
-takeBsCopy (I# n#) = withEnsure# n# $ Parser \env eob s st ->
-  let !bs = unsafeDupablePerformIO (BSI.create (I# n#) \dst -> BSI.memcpy dst (Ptr s) (I# n#))
-  in (# st, OK# bs (plusAddr# s n#) #)
+--
+-- Like 'takeBs', accepts any @n@ — for @n@ larger than the ring
+-- size, the bytes are drained chunk-by-chunk through the ring into
+-- the destination, advancing the consumer tail between chunks so
+-- the producer has room to keep filling.
+takeBsCopy :: forall m e. ParserMode m => Int -> Parser m e ByteString
+takeBsCopy total
+  | total <= 0 = pure BS.empty
+  | otherwise = Parser \env eob s st ->
+      let !(I# mask#) = peMask env
+      in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
+        1# -> runParser# (takeBsCopySingle @m total) env eob s st
+        _  -> runParser# (takeBsDrain @m total) env eob s st
 {-# INLINE takeBsCopy #-}
+
+-- | Single-shot zero-copy slice (fast path of 'takeBs').
+takeBsSlice :: forall m e. ParserMode m => Int -> Parser m e ByteString
+takeBsSlice (I# n#) = withEnsure# @m n# $ Parser \env eob s st ->
+  let !bs = BSI.BS (ForeignPtr s (peBackingFp env)) (I# n#)
+  in (# st, OK# bs (plusAddr# s n#) #)
+{-# INLINE takeBsSlice #-}
+
+-- | Single-shot memcpy into a fresh allocation (fast path of 'takeBsCopy').
+takeBsCopySingle :: forall m e. ParserMode m => Int -> Parser m e ByteString
+takeBsCopySingle (I# n#) = withEnsure# @m n# $ Parser \env eob s st ->
+  let !bs = unsafeDupablePerformIO
+        (BSI.create (I# n#) \dst -> copyBytes dst (Ptr s) (I# n#))
+  in (# st, OK# bs (plusAddr# s n#) #)
+{-# INLINE takeBsCopySingle #-}
+
+-- | Drain @total@ bytes through the ring into a fresh heap
+-- allocation.  Used by 'takeBs' and 'takeBsCopy' when @total@ does
+-- not fit in the ring at once.
+--
+-- Strategy:
+--
+-- 1.  Allocate a pinned 'ForeignPtr' of size @total@.
+-- 2.  'modeCheckpoint' — advance tail to the parser's current
+--     position so the producer has the whole ring to refill into.
+-- 3.  Loop: 'ensureN#' a ring-sized chunk, memcpy from the cursor
+--     into the destination, advance the cursor, 'modeCheckpoint' if
+--     more chunks remain.
+--
+-- In streaming mode the loop performs roughly @ceil(total /
+-- ringSize)@ producer/consumer round-trips.  In whole-input mode
+-- the dispatch in 'takeBs' / 'takeBsCopy' never picks this path (the
+-- mask is 'maxBound'), so the @ParserMode m@ generality is just for
+-- type-checking — at runtime only the streaming instance executes.
+takeBsDrain :: forall m e. ParserMode m => Int -> Parser m e ByteString
+takeBsDrain total = do
+  ringSz <- readRingSize
+  fp <- allocPinnedFp total
+  modeCheckpoint @m
+  drainLoop @m fp 0 total ringSz
+  pure $! BSI.BS fp total
+{-# INLINABLE takeBsDrain #-}
+
+-- | Pull at most 'ringSize' bytes per iteration into @fp@; advance
+-- cur and tail between iterations.
+drainLoop :: forall m e. ParserMode m
+          => ForeignPtr Word8 -> Int -> Int -> Int -> Parser m e ()
+drainLoop fp copied total ringSz
+  | copied >= total = pure ()
+  | otherwise = do
+      let !c = min (total - copied) ringSz
+      ensureNExact @m c
+      memcpyFromCur fp copied c
+      let !copied' = copied + c
+      when (copied' < total) (modeCheckpoint @m)
+      drainLoop @m fp copied' total ringSz
+
+-- | 'peMask + 1' — the streaming ring's capacity, or 'maxBound' /
+-- arbitrary in whole-input mode (the dispatch in 'takeBs' / 'takeBsCopy'
+-- never enters the drain path in whole-input mode, so the value is
+-- not actually consumed there).
+readRingSize :: Parser m e Int
+readRingSize = Parser \env _eob s st ->
+  let !rsz = case peMask env of
+        m -> if m == maxBound then m else m + 1
+  in (# st, OK# rsz s #)
+{-# INLINE readRingSize #-}
+
+-- | 'ensureN#' lifted to a boxed-Int argument for the drain loop.
+ensureNExact :: forall m e. ParserMode m => Int -> Parser m e ()
+ensureNExact (I# n#) = ensureN# @m n#
+{-# INLINE ensureNExact #-}
+
+-- | Allocate a pinned 'ForeignPtr' of the given size, threading the
+-- parser's 'State#' so allocation order is well-defined.
+allocPinnedFp :: Int -> Parser m e (ForeignPtr Word8)
+allocPinnedFp n = Parser \_env _eob s st0 ->
+  case unIO (mallocPlainForeignPtrBytes n) st0 of
+    (# st1, fp #) -> (# st1, OK# fp s #)
+  where
+    unIO (IO f) = f
+{-# INLINE allocPinnedFp #-}
+
+-- | Copy @len@ bytes from the parser's cursor into @fp + dstOff@,
+-- advancing the cursor by @len@ bytes.  Caller must have called
+-- 'ensureN#' (or equivalent) for at least @len@ bytes.
+memcpyFromCur :: ForeignPtr Word8 -> Int -> Int -> Parser m e ()
+memcpyFromCur fp (I# dstOff#) (I# len#) = Parser \_env _eob s st0 ->
+  case unIO
+        (withForeignPtr fp \(Ptr dst#) ->
+          copyBytes
+            (Ptr (plusAddr# dst# dstOff#))
+            (Ptr s)
+            (I# len#))
+       st0 of
+    (# st1, () #) -> (# st1, OK# () (plusAddr# s len#) #)
+  where
+    unIO (IO f) = f
+{-# INLINE memcpyFromCur #-}
 
 skip :: ParserMode m => Int -> Parser m e ()
 skip (I# n#) = withEnsure# n# $ Parser \env eob s st ->
@@ -351,16 +477,19 @@ takeRest = Parser \env eob s st ->
 -- hasn't advanced the tail past (at minimum, the start of the
 -- current 'runParser' invocation).
 --
--- Fails if @n@ would move before the start of the current parse
--- run (the @peInitCur@ boundary).  Does NOT check the ring tail
--- directly — the driver guarantees tail <= initCur.
+-- Fails if @n@ would move before the most recent anchor (the start
+-- of the current parse run for non-streaming, or the latest
+-- 'checkpoint' for streaming).  Does NOT check the ring tail
+-- directly — the driver guarantees tail <= anchor.
 skipBack :: ParserMode m => Int -> Parser m e ()
 skipBack (I# n#) = Parser \env eob s st ->
   let !target = plusAddr# s (negateInt# n#)
-      !(Ptr initCur) = peInitCur env
-  in case leAddr# initCur target of
-       1# -> (# st, OK# () target #)
-       _  -> (# st, Fail# #)
+      !(Ptr anchorPtr#) = peAnchorCur env
+  in case readAddrOffAddr# anchorPtr# 0# st of
+       (# st', anchorCur# #) ->
+         case leAddr# anchorCur# target of
+           1# -> (# st', OK# () target #)
+           _  -> (# st', Fail# #)
 {-# INLINE skipBack #-}
 
 ------------------------------------------------------------------------

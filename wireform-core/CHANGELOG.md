@@ -21,15 +21,50 @@
   un-scoped from a safety standpoint.  Transport constructors must
   populate the three raw fields explicitly.
 
+* `Wireform.Parser` -- `takeBs` and `takeBsCopy` now drain any byte
+  count, including counts larger than the magic ring's capacity.
+  Reads that fit in the ring keep their existing fast path
+  (zero-copy slice or single memcpy).  Reads that exceed the ring
+  allocate a fresh pinned 'ByteString' and chunk-copy through the
+  ring, calling 'modeCheckpoint' between chunks so the producer has
+  room to keep refilling.  No deadlock, no `ParseRingOverflow` for
+  these primitives — the caller gets the full byte string they
+  asked for.  Primitives that cannot be drained safely (literal
+  `byteString` matches, `isolate`, raw `ensureN#`) still surface
+  `ParseRingOverflow` when their size exceeds the ring.
+
 * `Wireform.Parser.Driver` / `Wireform.Parser.Error` -- detect the
-  case where the streaming parser asks for more bytes than the ring
-  can ever hold.  Previously this deadlocked: the producer cannot
-  make room (head is pinned at @tail + ringSize@), the consumer is
-  suspended waiting for bytes the producer cannot deliver, and the
-  driver's wait loop spins on a no-progress @MoreData@ from the
-  transport.  The driver now short-circuits with a new
-  `ParseRingOverflow` error variant (carrying the parser position,
-  requested byte count, and ring size) before suspending.
+  case where the streaming parser asks (via `ensureN#`, `byteString`,
+  or `isolate`) for more bytes than the ring can ever hold and
+  short-circuit with a new `ParseRingOverflow` error variant
+  (position, requested bytes, ring size).  Without this guard the
+  wait loop spins forever on a no-progress @MoreData@ from the
+  transport because the producer cannot make room and the consumer
+  is suspended waiting for it.
+
+* `Wireform.Parser.Driver` -- fix a latent wrap bug in the
+  StepSuspend / StepCheckpoint resume paths.  The driver used to
+  compute the resumed eob as @base + (head .&. mask)@, which
+  collapses onto cur whenever the producer has filled exactly one
+  ring-worth of bytes since the suspension (because the masked
+  offsets coincide).  The parser would then see zero bytes available
+  even though `head - cur == ringSize`.  Replaced with
+  @newCur + (head - pos)@, which correctly places eob in the second
+  mapping when wrap happens.  Same fix applied to the initial eob
+  in `runParserInternal`.
+
+* `Wireform.Parser.Internal.ParserEnv` -- replaced the immutable
+  `peStartPos` / `peInitCur` fields with mutable `peAnchorPos` /
+  `peAnchorCur` cells, plus matching `writeAnchor` / `writeAnchor#`
+  helpers.  Whenever the driver wraps the parser's cur back into the
+  first mapping (StepCheckpoint or StepSuspend resume), it now also
+  re-anchors the env so that `curToPos` keeps producing the correct
+  absolute position even after the wrap.  `curToPos` is now
+  State#-threaded (no behavioural change for ordinary callers — the
+  existing call sites all already have a State# in scope).  Callers
+  that constructed `ParserEnv` directly (driver, parseByteString,
+  Stateful) now allocate a 24-byte cells buffer instead of an 8-byte
+  endPtr.
 
 ## 0.1.0.0 -- 2026
 

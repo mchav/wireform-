@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
 
@@ -70,37 +71,70 @@ spec = describe "RecvTransport" $ do
           Right () -> pure ()  -- clean EOF after consuming the 'a' header + 'bc'
           Left _ -> pure ()    -- unexpected EOF is also acceptable here
 
-  describe "ring-overflow guard (does not deadlock)" $ do
-    it "fails fast with ParseRingOverflow when needed > ringSize" $ do
+  describe "reads larger than ringSize do not deadlock" $ do
+    it "takeBs drains a payload larger than the ring into a fresh allocation" $ do
       -- 'ringSizeHint = 1' is rounded up to the platform's minimum
       -- (a single page on every supported OS), so the actual ring
-      -- size is some page-sized power of two — much smaller than the
-      -- 64 KiB we are about to request.
-      let cfg = defaultTransportConfig { ringSizeHint = 1 }
-          payload = BS.replicate 1024 0x41
-      recvFn <- chunkedRecvFn [payload, payload, payload, payload]
-      mRes <- timeout 2_000_000 $
+      -- is some page-sized power of two — much smaller than the
+      -- 64 KiB request we are about to make.  The drain path inside
+      -- 'takeBs' should walk the bytes through the ring chunk by
+      -- chunk, checkpointing to free space, and return the full
+      -- 65536-byte 'ByteString' instead of deadlocking.
+      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
+          total   = 65536
+          chunkSz = 1024
+          chunks  =
+            [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
+            | i <- [0 .. (total `div` chunkSz) - 1]
+            ]
+          expected = BS.concat chunks
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
         withRecvBufTransport cfg recvFn $ \t ->
-          runParser t (takeBs 65536 :: P ByteString)
+          runParser t (takeBs total :: P ByteString)
       case mRes of
         Nothing ->
           expectationFailure
-            "deadlocked: takeBs n > ringSize should not block forever"
-        Just (Left (ParseRingOverflow _ requested ringSize)) -> do
-          requested `shouldBe` 65536
-          ringSize  `shouldSatisfy` (< 65536)
-        Just other ->
+            "deadlocked: takeBs n > ringSize should drain, not block forever"
+        Just (Right bs) -> do
+          BS.length bs `shouldBe` total
+          bs `shouldBe` expected
+        Just (Left e) ->
           expectationFailure $
-            "expected ParseRingOverflow, got: " <> show other
+            "expected drained ByteString, got: " <> show e
 
-    it "surfaces RingExhausted when the parser fills the ring without checkpointing" $ do
+    it "takeBsCopy drains a payload larger than the ring into a fresh allocation" $ do
+      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
+          total   = 100_000
+          chunkSz = 997  -- odd size, exercises the chunk-boundary math
+          chunks  =
+            [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
+            | i <- [0 .. (total `div` chunkSz)]
+            ]
+          expected = BS.take total (BS.concat chunks)
+      recvFn <- chunkedRecvFn chunks
+      mRes <- timeout 5_000_000 $
+        withRecvBufTransport cfg recvFn $ \t ->
+          runParser t (takeBsCopy total :: P ByteString)
+      case mRes of
+        Nothing ->
+          expectationFailure
+            "deadlocked: takeBsCopy n > ringSize should drain, not block forever"
+        Just (Right bs) -> do
+          BS.length bs `shouldBe` total
+          bs `shouldBe` expected
+        Just (Left e) ->
+          expectationFailure $
+            "expected drained ByteString, got: " <> show e
+
+    it "surfaces RingExhausted when a non-draining parser fills the ring without checkpointing" $ do
       -- Read more raw bytes in a single 'runParser' than the ring can
-      -- hold from startPos.  The parser never advances tail, the
-      -- producer fills the ring, and the next ensureN# suspension
-      -- must surface as a transport error rather than a spin.
+      -- hold from startPos using byte-at-a-time 'anyWord8' (which
+      -- does not auto-drain like 'takeBs' / 'takeBsCopy' do).  The
+      -- parser never advances tail, the producer fills the ring,
+      -- and the next ensureN# suspension surfaces as a transport
+      -- error rather than spinning forever.
       let cfg = defaultTransportConfig { ringSizeHint = 1 }
-          -- One byte per chunk forces the recv path to re-enter many
-          -- times so the ring will reach the full state mid-parse.
           chunks = replicate 20000 (BS.singleton 0x42)
       recvFn <- chunkedRecvFn chunks
       mRes <- timeout 5_000_000 $
