@@ -52,6 +52,10 @@ package *
 package wireform-core
   optimization: 2
 
+-- transport-bench needs -O2 so parser specialization fires
+package wireform-network
+  optimization: 2
+
 package flatparse
   optimization: 2
 
