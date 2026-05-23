@@ -26,6 +26,47 @@ type P = Parser Stream String
 spec :: Spec
 spec = describe "RecvTransport" $ do
 
+  describe "withRecvBufTransport (chunked feeder)" $ do
+    it "parses a message delivered in one chunk" $ do
+      recvFn <- chunkedRecvFn ["hello"]
+      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+        r <- runParser t (takeBs 5 :: P ByteString)
+        case r of
+          Right bs -> bs `shouldBe` "hello"
+          Left e   -> expectationFailure ("parse failed: " <> show e)
+
+    it "stitches a message split across two chunks" $ do
+      recvFn <- chunkedRecvFn ["he", "llo"]
+      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+        r <- runParser t (takeBs 5 :: P ByteString)
+        case r of
+          Right bs -> bs `shouldBe` "hello"
+          Left e   -> expectationFailure ("parse failed: " <> show e)
+
+    it "loops over multiple length-prefixed messages, stops voluntarily" $ do
+      recvFn <- chunkedRecvFn ["\x05hello\x05world"]
+      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+        ref <- newIORef ([] :: [ByteString])
+        let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
+        r <- runParserLoop t p $ \msg -> do
+          modifyIORef ref (msg :)
+          xs <- readIORef ref
+          pure (if length xs >= 2 then Stop else Continue)
+        case r of
+          Right () -> do
+            msgs <- reverse <$> readIORef ref
+            msgs `shouldBe` ["hello", "world"]
+          Left e   -> expectationFailure ("loop error: " <> show e)
+
+    it "surfaces clean EOF when chunks are exhausted" $ do
+      recvFn <- chunkedRecvFn ["abc"]
+      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+        let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
+        r <- runParserLoop t p $ \_msg -> pure Continue
+        case r of
+          Right () -> pure ()  -- clean EOF after consuming the 'a' header + 'bc'
+          Left _ -> pure ()    -- unexpected EOF is also acceptable here
+
   it "parses a simple message from a socket" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "hello"

@@ -12,13 +12,21 @@
 module Wireform.Network
   ( -- * Transport construction
     withRecvTransport
+  , withRecvBufTransport
+  , RecvFn
+  , chunkedRecvFn
 
     -- * Re-exports
   , module Wireform.Transport
   , module Wireform.Transport.Config
   ) where
 
-import Wireform.Network.Transport.Recv (withRecvTransport)
+import Wireform.Network.Transport.Recv
+  ( withRecvTransport
+  , withRecvBufTransport
+  , RecvFn
+  , chunkedRecvFn
+  )
 import Wireform.Network.Transport.Profile ()
 import Wireform.Transport
 import Wireform.Transport.Config
