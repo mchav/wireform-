@@ -97,6 +97,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, ord)
+import Data.Coerce (coerce)
 import Data.Int
 import Data.Word
 import Foreign.Marshal.Utils (copyBytes)
@@ -333,7 +334,17 @@ takeBs total
       let !(I# mask#) = peMask env
       in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
         1# -> runParser# (takeBsSlice @m total) env eob s st
-        _  -> runParser# (takeBsDrain @m total) env eob s st
+        -- Drain path is Stream-monomorphic so that 'modeCheckpoint'
+        -- in the loop body resolves to 'checkpoint' at compile time
+        -- (no per-iteration dictionary indirection).  'coerce' is
+        -- safe because the 'm' phantom parameter of 'Parser' has
+        -- role phantom — 'Parser Stream e a' and 'Parser m e a'
+        -- have identical runtime representation.  Pure mode never
+        -- reaches this branch at runtime (peMask is maxBound for
+        -- Pure, so the bounds check always picks the fast slice).
+        _  -> runParser#
+                (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
+                env eob s st
 {-# INLINE takeBs #-}
 
 -- | Take @n@ bytes, always copying.  Use when you need the result
@@ -350,7 +361,11 @@ takeBsCopy total
       let !(I# mask#) = peMask env
       in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
         1# -> runParser# (takeBsCopySingle @m total) env eob s st
-        _  -> runParser# (takeBsDrain @m total) env eob s st
+        -- See 'takeBs' for why the drain path is Stream-monomorphic
+        -- + 'coerce'd back to 'Parser m'.
+        _  -> runParser#
+                (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
+                env eob s st
 {-# INLINE takeBsCopy #-}
 
 -- | Single-shot zero-copy slice (fast path of 'takeBs').
@@ -375,31 +390,30 @@ takeBsCopySingle (I# n#) = withEnsure# @m n# $ Parser \env eob s st ->
 -- Strategy:
 --
 -- 1.  Allocate a pinned 'ForeignPtr' of size @total@.
--- 2.  'modeCheckpoint' — advance tail to the parser's current
---     position so the producer has the whole ring to refill into.
+-- 2.  'checkpoint' — advance tail to the parser's current position
+--     so the producer has the whole ring to refill into.
 -- 3.  Loop: 'ensureN#' a ring-sized chunk, memcpy from the cursor
---     into the destination, advance the cursor, 'modeCheckpoint' if
+--     into the destination, advance the cursor, 'checkpoint' if
 --     more chunks remain.
 --
--- In streaming mode the loop performs roughly @ceil(total /
--- ringSize)@ producer/consumer round-trips.  In whole-input mode
--- the dispatch in 'takeBs' / 'takeBsCopy' never picks this path (the
--- mask is 'maxBound'), so the @ParserMode m@ generality is just for
--- type-checking — at runtime only the streaming instance executes.
+-- The loop performs roughly @ceil(total / ringSize)@
+-- producer/consumer round-trips.
 --
--- 'INLINABLE' + the 'SPECIALIZE' below eliminate the per-iteration
--- dictionary indirection on 'modeCheckpoint' that the polymorphic
--- version would otherwise pay.
-takeBsDrain :: forall m e. ParserMode m => Int -> Parser m e ByteString
-takeBsDrain total = do
+-- Deliberately monomorphic in @Parser Stream e@ rather than
+-- polymorphic over @ParserMode m@: 'checkpoint' / 'ensureN#' need
+-- to resolve at compile time so the inner loop carries no
+-- dictionary indirection.  Pure-mode callers can't reach this
+-- function anyway (their bounds check always picks the fast
+-- slice), so the polymorphic dispatch lives in 'takeBs' /
+-- 'takeBsCopy' which 'coerce' the 'Parser Stream' result into
+-- 'Parser m' across the (phantom) @m@ parameter.
+takeBsDrainStream :: forall e. Int -> Parser Stream e ByteString
+takeBsDrainStream total = do
   ringSz <- readRingSize
   fp <- allocPinnedFp total
-  modeCheckpoint @m
-  drainLoop @m fp 0 total ringSz
+  checkpoint
+  drainLoopStream fp 0 total ringSz
   pure $! BSI.BS fp total
-{-# INLINABLE takeBsDrain #-}
-
-{-# SPECIALIZE takeBsDrain :: Int -> Parser Stream e ByteString #-}
 
 -- | Pull at most 'ringSize' bytes per iteration into @fp@; advance
 -- cur and tail between iterations.
@@ -409,21 +423,18 @@ takeBsDrain total = do
 -- recursive call.  Without the bang on @ringSz@ in particular the
 -- worker shipped it as a boxed 'Int' and paid one @case I#@ per
 -- iteration to unbox it.
-drainLoop :: forall m e. ParserMode m
-          => ForeignPtr Word8 -> Int -> Int -> Int -> Parser m e ()
-drainLoop !fp !copied !total !ringSz
+drainLoopStream
+  :: forall e.
+     ForeignPtr Word8 -> Int -> Int -> Int -> Parser Stream e ()
+drainLoopStream !fp !copied !total !ringSz
   | copied >= total = pure ()
   | otherwise = do
-      let !c = min (total - copied) ringSz
-      ensureNExact @m c
-      memcpyFromCur fp copied c
-      let !copied' = copied + c
-      when (copied' < total) (modeCheckpoint @m)
-      drainLoop @m fp copied' total ringSz
-{-# INLINABLE drainLoop #-}
-
-{-# SPECIALIZE drainLoop
-      :: ForeignPtr Word8 -> Int -> Int -> Int -> Parser Stream e () #-}
+      let !(I# c#) = min (total - copied) ringSz
+      ensureN# @Stream c#
+      memcpyFromCur fp copied (I# c#)
+      let !copied' = copied + I# c#
+      when (copied' < total) checkpoint
+      drainLoopStream fp copied' total ringSz
 
 -- | 'peMask + 1' — the streaming ring's capacity, or 'maxBound' /
 -- arbitrary in whole-input mode (the dispatch in 'takeBs' / 'takeBsCopy'
@@ -435,11 +446,6 @@ readRingSize = Parser \env _eob s st ->
         m -> if m == maxBound then m else m + 1
   in (# st, OK# rsz s #)
 {-# INLINE readRingSize #-}
-
--- | 'ensureN#' lifted to a boxed-Int argument for the drain loop.
-ensureNExact :: forall m e. ParserMode m => Int -> Parser m e ()
-ensureNExact (I# n#) = ensureN# @m n#
-{-# INLINE ensureNExact #-}
 
 -- | Allocate a pinned 'ForeignPtr' of the given size, threading the
 -- parser's 'State#' so allocation order is well-defined.
