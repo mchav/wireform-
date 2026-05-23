@@ -55,6 +55,7 @@ import Wireform.Ring.Internal
 import Wireform.Transport
   ( Transport (..)
   , WaitResult (..)
+  , transportRing
   )
 
 import Network.HTTP2.Frame
@@ -207,7 +208,7 @@ ensureBytes t startPos needed = loop
 -- a 'newForeignPtr_' / @unsafePerformIO@ round-trip.  The slice
 -- becomes a dangling pointer if it outlives 'withMagicRing'; copy
 -- via 'BS.copy' to retain past that scope.
-ringSlice :: MagicRing -> Word64 -> Int -> ByteString
+ringSlice :: MagicRing s -> Word64 -> Int -> ByteString
 ringSlice ring pos (I# len#) =
   let !base = ringBase ring
       !msk  = ringMask ring

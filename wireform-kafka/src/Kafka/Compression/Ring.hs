@@ -311,7 +311,7 @@ decompressIntoRing
   :: CompressionCodec
   -> Ptr Word8                                   -- ^ src
   -> Int                                         -- ^ src length
-  -> MagicRing                                   -- ^ dst
+  -> MagicRing s                                 -- ^ dst
   -> IO (Either RingDecompressError Int)
 decompressIntoRing codec src len dst
   | len <= 0  = pure (Right 0)
