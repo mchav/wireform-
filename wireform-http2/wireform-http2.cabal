@@ -36,6 +36,7 @@ library
       Network.HTTP2.Connection
       Network.HTTP2.HPACK
       Network.HTTP2.Frame
+      Network.HTTP2.Frame.Stream
       Network.HTTP2.Types
       Network.HTTP2.RateLimit
     other-modules:
@@ -119,6 +120,7 @@ test-suite wireform-http2-test
     other-modules:
       Test.Frame
       Test.FrameEdgeCases
+      Test.FrameStream
       Test.HPACK
       Test.HPACKEdgeCases
       Test.HPACKConcurrency
@@ -139,7 +141,9 @@ test-suite wireform-http2-test
       , tasty-hunit    >= 0.10
       , tasty-quickcheck >= 0.10
       , QuickCheck     >= 2.14
+      , wireform-core
       , wireform-http2
+      , wireform-network
 
 test-suite wireform-http2-tls-test
     import:           warnings
