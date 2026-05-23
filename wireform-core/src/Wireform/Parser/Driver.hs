@@ -84,7 +84,15 @@ runParserInternal t p startPos = mask \restore -> do
       -- computing eob from @cur + avail@ rather than
       -- @base + (head .&. msk)@: when @head - startPos == ringSize@,
       -- the masked offsets coincide and eob collapses onto cur.
-      !avail     = fromIntegral (currentHead - startPos) :: Int
+      --
+      -- Clamp to 'sz' (the ring size).  A well-behaved transport
+      -- maintains @head <= tail + ringSize@ so the clamp is a no-op,
+      -- but a misbehaving transport (e.g. a benchmark fixture that
+      -- prefills more bytes than the ring holds, or a bug in a
+      -- recv loop) can claim a much larger head — without the
+      -- clamp 'eob' would point past the double mapping and the
+      -- first parser read past 'base + 2*ringSize' would segfault.
+      !avail     = min sz (fromIntegral (currentHead - startPos))
       !(Ptr initEnd#) = (Ptr initCur#) `plusPtr` avail
 
   -- One stack-allocated buffer holds the three mutable cells the
@@ -171,11 +179,14 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
         -- make the parser see zero bytes when there are actually
         -- ringSize bytes available.  The double mapping guarantees
         -- @newCur + avail@ is addressable for any @avail <= ringSize@.
+        -- The 'min sz' guards against transports that mis-report
+        -- head past 'tail + ringSize'; without it the parser could
+        -- read past the double mapping and segfault.
         -- 'resumeContinue' re-anchors the env so 'curToPos' stays
         -- correct after the cur wrap.
         let !curOff = fromIntegral pos .&. msk
             !newCur = base `plusPtr` curOff
-            !avail  = fromIntegral (h - pos) :: Int
+            !avail  = min sz (fromIntegral (h - pos))
             !newEnd = newCur `plusPtr` avail
         nextStep <- resumeContinue resume newCur newEnd
         go nextStep
@@ -200,11 +211,13 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
                 -- @newCur@ when the producer has filled exactly one
                 -- ring-worth of bytes since @pausedAt@, hiding all the
                 -- newly-available bytes from the parser.
+                -- 'min sz' guards against misbehaving transports —
+                -- see the matching comment in 'runParserInternal'.
                 -- 'resumeContinue' re-anchors the env so 'curToPos'
                 -- stays correct after the cur wrap.
                 let !newCurOff = fromIntegral pausedAt .&. msk
                     !newCur    = base `plusPtr` newCurOff
-                    !avail     = fromIntegral (newHead - pausedAt) :: Int
+                    !avail     = min sz (fromIntegral (newHead - pausedAt))
                     !newEnd    = newCur `plusPtr` avail
                 nextStep <- resumeContinue resume newCur newEnd
                 go nextStep

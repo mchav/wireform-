@@ -124,17 +124,28 @@ recvAll sock total = go [] total
 
 prefillRing :: MagicRing s -> ByteString -> IO ()
 prefillRing ring payload =
+  -- Truncate to the ring's physical size — the bench harness
+  -- sometimes feeds payloads larger than the ring (to exercise
+  -- streaming), and copying the whole thing here would overflow
+  -- past the double mapping.
   BSU.unsafeUseAsCStringLen payload \(src, len) ->
-    copyBytes (ringBase ring) (castPtr src) len
+    copyBytes (ringBase ring) (castPtr src) (min len (ringSize ring))
 
 ------------------------------------------------------------------------
 -- Transports
 ------------------------------------------------------------------------
 
 -- | In-memory transport: all data visible immediately (no suspension).
+--
+-- Reports head at @min payloadLen ringSize@: when the payload is
+-- larger than the ring, the bench is really measuring "parse the
+-- first ringSize bytes" — but the harness used to claim @head =
+-- payloadLen@ unconditionally, which lies to the driver and (since
+-- the driver was tightened up to compute @eob = cur + (head - pos)@)
+-- now segfaults instead of silently truncating via mask wrap.
 mkPrefilledTransport :: MagicRing s -> Int -> IO Transport
 mkPrefilledTransport ring payloadLen = do
-  let !headPos = fromIntegral payloadLen :: Word64
+  let !headPos = fromIntegral (min payloadLen (ringSize ring)) :: Word64
   pure Transport
     { transportRingBaseField = ringBase ring
     , transportRingSizeField = ringSize ring
@@ -146,10 +157,12 @@ mkPrefilledTransport ring payloadLen = do
     }
 
 -- | In-memory transport: head starts at 0, first waitData delivers data.
--- Forces exactly one suspension/resume cycle.
+-- Forces exactly one suspension/resume cycle.  See
+-- 'mkPrefilledTransport' for the @min payloadLen ringSize@
+-- truncation rationale.
 mkSuspendOnceTransport :: MagicRing s -> Int -> IO Transport
 mkSuspendOnceTransport ring payloadLen = do
-  let !headPos = fromIntegral payloadLen :: Word64
+  let !headPos = fromIntegral (min payloadLen (ringSize ring)) :: Word64
   headRef <- newIORef (0 :: Word64)
   pure Transport
     { transportRingBaseField = ringBase ring
@@ -324,7 +337,15 @@ recvIntoBuf sock base total = go 0
 ------------------------------------------------------------------------
 
 main :: IO ()
-main = withMagicRing (ringSizeHint defaultTransportConfig) \ring -> do
+main =
+  -- Ring needs to hold the largest payload contiguously for the
+  -- "stream (no suspend)" cases to be meaningful — the harness's
+  -- prefilled transport reports @head = min payloadLen ringSize@,
+  -- so a 3.3 MB payload on a 1 MB ring would silently truncate
+  -- (and used to segfault via reads past the double mapping
+  -- before the driver was tightened up).  4 MiB covers the 3.3 MB
+  -- length-prefixed case with room to spare.
+  withMagicRing (4 * 1024 * 1024) \ring -> do
   let !n10k  = 10000
       !n100k = 100000
 
