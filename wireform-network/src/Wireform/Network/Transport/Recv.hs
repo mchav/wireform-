@@ -16,13 +16,9 @@ import Control.Exception (SomeException, try, toException, IOException)
 import Data.Bits ((.&.))
 import Data.IORef
 import Data.Word (Word8, Word64)
-import Foreign.C.Types (CSize (..))
-import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Ptr (Ptr, plusPtr)
 import Network.Socket (Socket)
-import Network.Socket.ByteString (recv)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
-import qualified Data.ByteString.Unsafe as BSU
+import qualified Network.Socket as S
 
 import Wireform.Ring.Internal
 import Wireform.Transport
@@ -95,16 +91,8 @@ withRecvTransport cfg sock action =
 
     action transport
 
--- | Receive bytes from the socket. Uses Network.Socket.ByteString.recv
--- which internally does threadWaitRead + recv syscall, then copies
--- into our ring buffer.
+-- | Receive bytes from the socket directly into the ring.
+-- Uses Network.Socket.recvBuf so the kernel writes straight into the
+-- ring pointer — no intermediate ByteString allocation or copy.
 doRawRecv :: Socket -> Ptr Word8 -> Int -> IO Int
-doRawRecv sock ptr maxLen = do
-  bs <- recv sock maxLen
-  let !n = BS.length bs
-  if n == 0
-    then pure 0
-    else do
-      BSU.unsafeUseAsCStringLen bs \(src, len) ->
-        BSI.memcpy ptr (castPtr src) len
-      pure n
+doRawRecv sock ptr maxLen = S.recvBuf sock ptr maxLen

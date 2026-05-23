@@ -306,36 +306,54 @@ instance ParserMode m => MonadPlus (Parser m e)
 ------------------------------------------------------------------------
 
 -- | Require @n#@ bytes available from @cur@.
--- Fast path: single comparison, no memory access to mutable state.
+--
+-- Fast path: single register comparison (identical to flatparse).
+-- Semi-fast: re-read 'peEndPtr' to catch stale @eob@ after a
+-- prior streaming resume; no function-call overhead.
 -- Slow path: suspends to the driver via @control0#@.
 ensureN# :: forall m e. ParserMode m => Int# -> Parser m e ()
 ensureN# n# = Parser \env eob s st ->
   case n# <=# minusAddr# eob s of
     1# -> (# st, OK# () s #)
-    _  -> onEnsureFail @m env eob s n# st
+    _  -> case readEnd# env st of
+      (# st', eob' #) -> case n# <=# minusAddr# eob' s of
+        1# -> (# st', OK# () s #)
+        _  -> onEnsureFail @m env eob' s n# st'
 {-# INLINE ensureN# #-}
 
+-- | Streaming slow path.
+--
+-- Before suspending via @control0#@, re-read the mutable end pointer.
+-- After a prior resume, @>>=@ threads the stale @eob@ that was captured
+-- in its closure, so the fast-path comparison in 'ensureN#' fails even
+-- though new data is already available in the ring.  The re-read here
+-- catches that case and avoids a redundant suspension round-trip.
 ensureNSlow :: ParserEnv
             -> Addr# -> Addr# -> Int#
             -> State# RealWorld
             -> StRes# e ()
-ensureNSlow env eob s n# st =
-  let tag :: PromptTag# (Step Any Any)
-      tag = unsafeCoerce# (peTag env) in
-  let !pos    = curToPos env s
-      !needed = I# n#
-  in control0# tag
-       (\k st1 ->
-         let resume = Resume
-               { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
-                   IO \st2 ->
-                     let st3 = writeEnd# env newEnd st2
-                     in prompt# tag (\st4 -> k (\st5 -> (# st5, OK# () newCur #)) st4) st3
-               , resumeEof =
-                   IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
-               }
-         in (# st1, StepSuspend pos needed resume #)
-       ) st
+ensureNSlow env _eob s n# st =
+  case readEnd# env st of
+    (# st0, eob' #) ->
+      case n# <=# minusAddr# eob' s of
+        1# -> (# st0, OK# () s #)
+        _  ->
+          let tag :: PromptTag# (Step Any Any)
+              tag = unsafeCoerce# (peTag env) in
+          let !pos    = curToPos env s
+              !needed = I# n#
+          in control0# tag
+               (\k st1 ->
+                 let resume = Resume
+                       { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
+                           IO \st2 ->
+                             let st3 = writeEnd# env newEnd st2
+                             in prompt# tag (\st4 -> k (\st5 -> (# st5, OK# () newCur #)) st4) st3
+                       , resumeEof =
+                           IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
+                       }
+                 in (# st1, StepSuspend pos needed resume #)
+               ) st0
 {-# NOINLINE ensureNSlow #-}
 
 ------------------------------------------------------------------------
