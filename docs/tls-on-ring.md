@@ -1,9 +1,44 @@
 # TLS on the magic ring — architectural notes
 
-## Where we are today
+## TL;DR
 
-For HTTP/1, HTTP/2, and Kafka, TLS connections plumb into the magic-ring
-transport through the same bridge:
+There are two TLS paths in wireform now:
+
+* **`tls`-package bridge** (the legacy path).  Used by
+  `Network.HTTP1.TLS.tlsTransport` and `Network.HTTP2.TLS.tlsTransport`.
+  `tls`'s `recvData` returns plaintext as a fresh `ByteString` per
+  TLS record; `bufferedRecvTransport` memcpys it into the magic
+  ring.  One extra copy + one fresh `ByteString` per record on top
+  of the in-place AES-GCM `tls` already does internally.  Works
+  with the `tls` package's well-vetted handshake + record-layer
+  implementation and stays compatible with the existing
+  `crypton-connection` ecosystem.
+
+* **Direct OpenSSL bridge** in
+  `Wireform.Network.TLS.OpenSSL`.  Calls `libssl`'s `SSL_read_ex`
+  directly via FFI; the destination buffer is the magic ring's
+  backing memory, so plaintext is written into the ring with
+  *zero* extra allocations or copies on the recv path.  This is
+  the "TLS-on-ring" architectural shape we wanted; it works because
+  OpenSSL's API exposes a Ptr-based recv whereas the Haskell `tls`
+  package does not.
+
+Both paths exist side-by-side; callers pick based on tradeoffs:
+
+| Concern                       | `tls` bridge                | OpenSSL direct                                |
+| ----------------------------- | --------------------------- | --------------------------------------------- |
+| Decrypt-into-ring (no copy)   | ✗ (memcpy per record)       | ✓                                             |
+| Crypto implementation         | `tls` (pure Haskell)        | `libssl` (system)                             |
+| Cert verification             | full chain via crypton-x509 | system trust store via `SSL_CTX_set_default_verify_paths` |
+| ALPN                          | ✓                           | ✓                                             |
+| TLS 1.3                       | ✓                           | ✓                                             |
+| External system dependency    | `crypton`                   | `libssl`                                      |
+| Per-record allocation         | 1 `ByteString`              | 0                                             |
+
+## The legacy bridge path
+
+For HTTP/1, HTTP/2, and Kafka, TLS connections can plumb into the
+magic-ring transport through the `tls`-package bridge:
 
 ```
 TLS.Context
@@ -89,22 +124,86 @@ To actually decrypt straight into the magic ring we would need one of:
    (kTLS shipped in 4.13+ but the application-handshake APIs
    evolved through 5.x).
 
-## Recommended path
+## The direct-OpenSSL path
 
-For now the bridge is correct, defensible (~1 extra memcpy per
-record) and lets us reuse `tls`'s well-vetted handshake +
-record-layer implementation.
+`Wireform.Network.TLS.OpenSSL` is the ring-direct shape.  Layout:
 
-The biggest architectural improvement that's still tractable is
-**kTLS** (option 3): we hand the kernel the cipher state after
-handshake, then the ring's `Network.Socket.recvBuf` path receives
-plaintext directly with no extra Haskell-side work.  Worth pursuing
-when production deployments would benefit; for now the bridge is
-what ships.
+```
+libssl  (via cbits/wireform_openssl.c)
+   │  SSL_read_ex(ssl, dst, dst_len, &n)
+   ▼
+tlsRecvFn :: SslConn -> RecvFn   (Ptr Word8 -> Int -> IO Int)
+   │
+   ▼
+withRecvBufTransport / newRecvBufTransport   (magic ring)
+   │  Wireform.Transport
+   ▼
+Network.HTTP{1,2}.StreamingReader / Kafka.Network.FrameParser
+```
 
-Option 2 (rewrite the record layer) is a research project we should
-not undertake without a concrete throughput-bound benchmark
-demonstrating the need.
+OpenSSL handles handshake (`SSL_connect` / `SSL_accept`),
+cert verification (against the system trust store or with
+`SslVerifyNone` for self-signed / test setups), SNI
+(`SSL_set_tlsext_host_name`), ALPN (`SSL_CTX_set_alpn_protos` +
+`SSL_get0_alpn_selected`), and TLS 1.3.  The decrypt-into-Ptr
+read path is `SSL_read_ex` directly — no intermediate buffer on
+the Haskell side, no `ByteString` allocation per record.
+
+WANT_READ / WANT_WRITE are surfaced as `WF_SSL_WANT_RETRY` and
+the Haskell layer parks on the GHC IO manager
+(`threadWaitRead` / `threadWaitWrite`) before retrying, so the
+thread doesn't busy-spin on partial reads.
+
+The HTTP/1, HTTP/2, and Kafka connection layers can use this in
+place of the `tls`-package bridge by constructing the magic-ring
+transport via `Wireform.Network.TLS.OpenSSL.newTlsRecvTransport`
+or `withTlsRecvTransport` instead of going through
+`bufferedRecvTransport`.
+
+## When to use which
+
+* **Prefer OpenSSL direct** when you can rely on a system `libssl`
+  being present, want to skip the per-record `ByteString`
+  allocation, or need TLS 1.3 features (session resumption,
+  0-RTT) that the Haskell `tls` package implements less aggressively.
+* **Prefer the `tls` bridge** when you can't add a C dependency
+  (statically-linked / sandbox-restricted deploys), need the
+  exact certificate-validation semantics `crypton-x509` provides,
+  or want a pure-Haskell crypto path for auditability.
+
+Both are first-class — neither is going away.
+
+## Historical: why the tls package alone wasn't enough
+
+The first attempt at TLS-on-ring kept going through the Haskell
+`tls` package and tried to find a Ptr-based recv inside its public
+surface.  There isn't one — `recvData` and `Backend.backendRecv`
+both return `ByteString`.  Three options to fix it from the `tls`
+side, in roughly increasing order of effort, all of which we
+rejected in favour of the OpenSSL direct path:
+
+1. **Patch `tls` upstream** to add a Ptr-based recv.  Small in
+   spirit; the internal record layer has to grow a caller-supplied
+   buffer parameter.  Probably accepted but multi-week including
+   upstream review.
+
+2. **Reimplement the TLS record layer** on top of `crypton`'s
+   AES-GCM / ChaCha20-Poly1305 primitives, delegating only the
+   handshake to `tls`.  Architecturally cleanest but ~1–2 weeks
+   of dedicated work plus a sustained maintenance commitment
+   (record-layer code talks to crypto primitives; bugs are
+   security-sensitive).
+
+3. **Linux kTLS** — kernel decrypts records and presents
+   plaintext to userspace via the normal socket recv path.  Our
+   existing `recvBuf` path then writes plaintext straight into
+   the ring with zero extra work.  Smallest code change but adds
+   a kernel-version dependency and an ABI dance with `tls` /
+   OpenSSL to surrender the cipher state after handshake.
+
+OpenSSL exposes the right API up front (`SSL_read_ex`).  Pulling
+in `libssl` is a smaller engineering bet than any of the above
+and gets us the ring-direct shape today.
 
 ## Compression contrast
 
