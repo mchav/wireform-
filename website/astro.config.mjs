@@ -98,6 +98,7 @@ export default defineConfig({
               label: 'Infrastructure',
               items: [
                 { label: 'wireform-core', slug: 'packages/core' },
+                { label: 'wireform-network', slug: 'packages/network' },
                 { label: 'wireform-derive', slug: 'packages/derive' },
                 { label: 'wireform-columnar', slug: 'packages/columnar' },
               ],

@@ -1,28 +1,47 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
 {- | Connection-level state shared by client and server.
 
 A 'Connection' wraps:
 
   * the underlying byte 'Transport' (a raw socket by default; can also
     be a TLS context, an in-memory test sink, …),
-  * a pinned recv 'RecvBuffer' (zero-allocation @recv()@),
+  * a magic-ring 'Wireform.Transport.Transport' that pulls bytes
+    straight from @recv@ into a double-mapped ring (zero-allocation
+    receive path; replaces the previous pinned 'RecvBuffer'),
   * a pinned send 'SendBuffer' (zero-allocation encode + send),
+  * a cursor 'IORef' that tracks how far the recv side has consumed
+    so successive @read*@ helpers can chain without round-tripping
+    through 'transportLoadHead' between iterations,
   * a closed-flag so finalizers don't double-close.
 
 The body-reading helpers ('readBody', 'drainBody') run the framing
 state machine inferred by 'Network.HTTP1.Parser.requestFraming' \/
-'responseFraming' and feed the next request \/ response on the wire as
-soon as the previous body is consumed (HTTP\/1.1 keep-alive +
+'responseFraming' and feed the next request \/ response on the wire
+as soon as the previous body is consumed (HTTP\/1.1 keep-alive +
 pipelining).
 -}
 module Network.HTTP1.Connection
   ( Connection
   , newConnection
   , newConnectionFromTransport
+  , newConnectionFromTransportWithRingSize
+  , defaultRingSize
   , connectionTransport
   , connectionSocket
-  , connectionRecvBuffer
+  , connectionRingTransport
+  , connectionCursor
+  , connectionReadCursor
+  , connectionAdvanceCursor
   , connectionSendBuffer
   , closeConnection
+    -- * Head readers (zero-copy, SIMD on the ring)
+  , readRequestHead
+  , readResponseHead
     -- * Framing-aware body
   , readBody
   , readBodyAndTrailers
@@ -31,7 +50,6 @@ module Network.HTTP1.Connection
     -- * Send helpers
   , sendBuilder
     -- * Re-exports
-  , module Network.HTTP1.Internal.RecvBuffer
   , module Network.HTTP1.Internal.SendBuffer
   , module Network.HTTP1.Transport
   ) where
@@ -48,12 +66,21 @@ import Network.Socket (Socket)
 import Network.HTTP1.Headers (Header)
 
 import qualified Wireform.Builder as B
+import Wireform.Network (newRecvBufTransport)
+import qualified Wireform.Transport as WT
+import qualified Wireform.Transport.Config as WC
+import Wireform.Transport.Config (defaultTransportConfig)
 
-import Network.HTTP1.Internal.RecvBuffer
 import Network.HTTP1.Internal.SendBuffer
-import Network.HTTP1.Parser (Framing (..), ParseError (..), parseChunkSize)
+import Network.HTTP1.Method (Method)
+import Network.HTTP1.Parser (Framing (..), ParseError (..))
+import qualified Network.HTTP1.StreamingReader as SR
 import Network.HTTP1.Transport
-import Network.HTTP1.Types (Body (..))
+import Network.HTTP1.Types
+  ( Body (..)
+  , Request
+  , Response
+  )
 
 -- | Thrown by a streaming-body producer when the wire bytes violate
 -- the framing the parser inferred (e.g. malformed chunk-size line,
@@ -66,34 +93,97 @@ newtype ProtocolException = ProtocolException ParseError
 instance Exception ProtocolException
 
 data Connection = Connection
-  { connTransport :: !Transport
-  , connRecv      :: !RecvBuffer
-  , connSend      :: !SendBuffer
-  , connClosed    :: !(IORef Bool)
+  { connTransport    :: !Transport
+  , connRingTransport :: !WT.Transport
+    -- ^ Magic-ring transport plumbed onto @tRecvBuf connTransport@.
+    -- Owns its own 'Wireform.Ring.Internal.MagicRing' which is
+    -- destroyed on 'closeConnection'.
+  , connCursor       :: !(IORef Word64)
+    -- ^ Position in the ring past the last byte consumed by any
+    -- of the @read*@ helpers.  Chained through them so we don't
+    -- pay a 'transportLoadHead' round-trip per call.
+  , connSend         :: !SendBuffer
+  , connClosed       :: !(IORef Bool)
   }
 
--- | Build a 'Connection' from a raw 'Socket'.  The socket is wrapped
--- with 'socketTransport'.
+-- | Build a 'Connection' from a raw 'Socket'.  The socket is
+-- wrapped with 'socketTransport'.
 newConnection :: Socket -> IO Connection
 newConnection sock = newConnectionFromTransport (socketTransport sock)
 
--- | Build a 'Connection' from an arbitrary 'Transport'.  This is the
--- entry point used by the TLS bridge and any other non-socket transport.
+-- | Default magic-ring size: 256 KiB.  Easily fits the largest
+-- header block (h2o caps requests at 32 KiB by default) plus
+-- several chunked-TE body chunks (16 KiB cap each) plus some
+-- breathing room, while keeping per-connection virtual memory
+-- modest.  Set explicitly via
+-- 'newConnectionFromTransportWithRingSize' for connections that
+-- need a larger ring (very-large @Content-Length@ bodies that the
+-- application wants to read in one shot).
+defaultRingSize :: Int
+defaultRingSize = 256 * 1024
+
+-- | Build a 'Connection' from an arbitrary 'Transport'.  This is
+-- the entry point used by the TLS bridge and any other non-socket
+-- transport.  The transport's 'tRecvBuf' is plumbed onto a
+-- magic-ring 'Wireform.Transport.Transport'; 'tSendAll' /
+-- 'tSendMany' / 'tClose' / 'tSocket' continue to serve the send +
+-- metadata side as before.
+--
+-- Uses 'defaultRingSize' for the magic ring.
 newConnectionFromTransport :: Transport -> IO Connection
-newConnectionFromTransport t =
-  Connection t <$> newRecvBuffer <*> newSendBuffer <*> newIORef False
+newConnectionFromTransport = newConnectionFromTransportWithRingSize defaultRingSize
+
+-- | Like 'newConnectionFromTransport' but lets the caller pick the
+-- magic-ring size.  See 'defaultRingSize' for the reasoning.
+newConnectionFromTransportWithRingSize :: Int -> Transport -> IO Connection
+newConnectionFromTransportWithRingSize ringSz t = do
+  let !cfg = defaultTransportConfig { WC.ringSizeHint = ringSz }
+  ringT  <- newRecvBufTransport cfg (tRecvBuf t)
+  cursor <- newIORef 0
+  sb     <- newSendBuffer
+  closed <- newIORef False
+  pure Connection
+    { connTransport     = t
+    , connRingTransport = ringT
+    , connCursor        = cursor
+    , connSend          = sb
+    , connClosed        = closed
+    }
 
 connectionTransport :: Connection -> Transport
 connectionTransport = connTransport
 
--- | The underlying socket, if this connection is socket-backed.  TLS
--- and other non-socket transports return 'Nothing'; callers using the
--- @sendfile(2)@ fast path branch on this.
+-- | The underlying socket, if this connection is socket-backed.
+-- TLS and other non-socket transports return 'Nothing'; callers
+-- using the @sendfile(2)@ fast path branch on this.
 connectionSocket :: Connection -> Maybe Socket
 connectionSocket = tSocket . connTransport
 
-connectionRecvBuffer :: Connection -> RecvBuffer
-connectionRecvBuffer = connRecv
+-- | The magic-ring transport plumbed onto the connection's recv
+-- side.  Exposed for callers that want to drive a custom streaming
+-- parser against the ring (e.g. a benchmark, a long-lived parsing
+-- loop that wants 'Wireform.Transport.Transport' directly).  Most
+-- code should use 'readRequestHead' / 'readResponseHead' /
+-- 'readBody' instead.
+connectionRingTransport :: Connection -> WT.Transport
+connectionRingTransport = connRingTransport
+
+-- | The 'IORef' tracking how far the recv path has consumed.
+-- Exposed alongside 'connectionRingTransport' so a custom parser
+-- loop can chain reads.
+connectionCursor :: Connection -> IORef Word64
+connectionCursor = connCursor
+
+-- | Read the cursor.
+connectionReadCursor :: Connection -> IO Word64
+connectionReadCursor = readIORef . connCursor
+
+-- | Bump the cursor to the supplied position and tell the ring
+-- transport it can recycle bytes up to that point.
+connectionAdvanceCursor :: Connection -> Word64 -> IO ()
+connectionAdvanceCursor conn pos = do
+  writeIORef (connCursor conn) pos
+  WT.transportAdvanceTail (connRingTransport conn) pos
 
 connectionSendBuffer :: Connection -> SendBuffer
 connectionSendBuffer = connSend
@@ -104,8 +194,51 @@ closeConnection conn = do
   if wasClosed
     then pure ()
     else do
+      -- Order matters: close the magic-ring transport first (frees
+      -- its mmap), then close the underlying socket / TLS context.
+      _ <- try @SomeException (WT.transportClose (connRingTransport conn))
       _ <- try @SomeException (tClose (connTransport conn))
       pure ()
+
+------------------------------------------------------------------------
+-- Head readers
+------------------------------------------------------------------------
+
+-- | Read one request head off the wire (request line + header block,
+-- terminated by @CRLFCRLF@).  Walks the magic ring directly with
+-- the SIMD CRLFCRLF scanner + delegates to the classic
+-- 'Network.HTTP1.Parser.parseRequest' for the structural parse.
+readRequestHead
+  :: Connection
+  -> IO (Either SR.ReadError (Request, Framing))
+readRequestHead conn = do
+  pos <- readIORef (connCursor conn)
+  r   <- SR.readRequestHeadFrom (connRingTransport conn) pos
+  case r of
+    Right (ok, newPos) -> do
+      writeIORef (connCursor conn) newPos
+      pure (Right ok)
+    Left e -> pure (Left e)
+
+-- | Read one response head off the wire.  Takes the request method
+-- so the framing inference applies the HEAD \/ CONNECT special
+-- cases.
+readResponseHead
+  :: Connection
+  -> Method
+  -> IO (Either SR.ReadError (Response, Framing))
+readResponseHead conn reqMethod = do
+  pos <- readIORef (connCursor conn)
+  r   <- SR.readResponseHeadFrom (connRingTransport conn) pos reqMethod
+  case r of
+    Right (ok, newPos) -> do
+      writeIORef (connCursor conn) newPos
+      pure (Right ok)
+    Left e -> pure (Left e)
+
+------------------------------------------------------------------------
+-- Body
+------------------------------------------------------------------------
 
 -- | Build a streaming-body producer for the framing the parser told
 -- us about.  Discards any trailer block that comes with a chunked
@@ -118,10 +251,18 @@ readBody conn framing = fst <$> readBodyAndTrailers conn framing
 -- trailers / they were empty).  The trailers action blocks until
 -- the body has been fully drained; @drainBody@ also pulls them
 -- through.
+--
+-- == Body chunk lifetime
+--
+-- The 'ByteString' chunks the 'BodyStream' producer yields are
+-- zero-copy slices into the connection's magic ring.  They become
+-- dangling pointers as soon as the producer is called again (the
+-- next call advances the ring tail, which can recycle the bytes
+-- the slice referenced).  Applications that retain a chunk past
+-- the next producer call MUST 'BS.copy' first.
 readBodyAndTrailers
   :: Connection -> Framing -> IO (Body, IO [Header])
 readBodyAndTrailers _ NoBody = do
-  -- No body, no trailers; pre-fill so a reader doesn't block.
   mv <- newMVar []
   pure (BodyEmpty, readMVar mv)
 readBodyAndTrailers _ (ContentLength 0) = do
@@ -137,21 +278,25 @@ readBodyAndTrailers conn (ContentLength n) = do
             _ <- tryPutMVar trailersMV []
             pure Nothing
           else do
-            let want = min rem' 16384
-            chunk <- recvBufferReadAtMost
-                       (connRecv conn) (tRecvBuf (connTransport conn))
-                       (fromIntegral want)
-            if BS.null chunk
-              then do
+            let want = fromIntegral (min rem' 16384) :: Int
+            pos <- readIORef (connCursor conn)
+            r <- SR.readUpTo (connRingTransport conn) pos want
+            case r of
+              Left _ -> do
                 _ <- tryPutMVar trailersMV []
                 pure Nothing  -- premature EOF
-              else do
-                let newRem = rem' - fromIntegral (BS.length chunk)
+              Right (chunk, newPos) -> do
+                -- Force a heap copy so the chunk stays valid past
+                -- 'connectionAdvanceCursor' (which releases the
+                -- ring bytes for the recv path to reuse).
+                let !chunkCopy = BS.copy chunk
+                connectionAdvanceCursor conn newPos
+                let newRem = rem' - fromIntegral (BS.length chunkCopy)
                 writeIORef remRef newRem
                 when' (newRem == 0) $ do
                   _ <- tryPutMVar trailersMV []
                   pure ()
-                pure (Just chunk)
+                pure (Just chunkCopy)
   pure (BodyStream producer, readMVar trailersMV)
 readBodyAndTrailers conn Chunked = do
   stateRef <- newIORef (ChunkPending 0)
@@ -161,13 +306,16 @@ readBodyAndTrailers conn Chunked = do
 readBodyAndTrailers conn CloseDelimited = do
   trailersMV <- newEmptyMVar
   let producer = do
-        chunk <- recvBufferReadAtMost
-                   (connRecv conn) (tRecvBuf (connTransport conn)) 16384
-        if BS.null chunk
-          then do
+        pos <- readIORef (connCursor conn)
+        r <- SR.readUpTo (connRingTransport conn) pos 16384
+        case r of
+          Left _ -> do
             _ <- tryPutMVar trailersMV []
             pure Nothing
-          else pure (Just chunk)
+          Right (chunk, newPos) -> do
+            let !chunkCopy = BS.copy chunk
+            connectionAdvanceCursor conn newPos
+            pure (Just chunkCopy)
   pure (BodyStream producer, readMVar trailersMV)
 
 -- | Local 'when' helper that doesn't pull in Control.Monad.
@@ -183,12 +331,9 @@ data ChunkState
     -- ^ Saw the 0-size terminator; subsequent calls return Nothing.
 
 -- | One step of chunked decoding: emit the next slice of body bytes
--- (or Nothing on terminator). Pulls more from the recv buffer as needed.
---
--- Critically, all reads here go through 'recvBufferReadUntilCRLF' /
--- 'recvBufferRead' / 'recvBufferReadAtMost', which only consume from
--- the ring buffer what they actually return — there's no over-read,
--- so chunk bodies arrive cleanly after their size lines.
+-- (or Nothing on terminator).  Reads the chunk-size line via the
+-- SIMD CRLF scanner, then pulls exactly @sz@ chunk-data bytes off
+-- the ring, then verifies the trailing CRLF before looping.
 readChunkedStep
   :: Connection
   -> IORef ChunkState
@@ -199,43 +344,49 @@ readChunkedStep conn ref trailersMV = do
   case st of
     ChunkDone -> pure Nothing
     ChunkPending 0 -> do
-      mLine <- recvBufferReadUntilCRLF (connRecv conn) recv 4096
-      case mLine of
-        Nothing -> throwIO (ProtocolException ParseUnexpectedEof)
-        Just lineBs ->
-          case parseChunkSize lineBs of
-            Left e -> throwIO (ProtocolException e)
-            Right 0 -> do
-              -- After the 0-size chunk we read the (possibly empty)
-              -- trailer section, terminated by a blank line, and
-              -- park the parsed fields on the trailers MVar.
+      pos <- readIORef (connCursor conn)
+      lineE <- SR.readChunkSizeLineFrom (connRingTransport conn) pos
+      case lineE of
+        Left e -> throwIO (ProtocolException (readErrorToParseError e))
+        Right (sz, newPos) -> do
+          writeIORef (connCursor conn) newPos
+          if sz == 0
+            then do
               trs <- readTrailers conn
               _ <- tryPutMVar trailersMV trs
               writeIORef ref ChunkDone
               pure Nothing
-            Right sz -> do
+            else do
               writeIORef ref (ChunkPending sz)
               readChunkedStep conn ref trailersMV
     ChunkPending n -> do
-      let want = min n 16384
-      slice <- recvBufferReadAtMost (connRecv conn) recv (fromIntegral want)
-      if BS.null slice
-        then throwIO (ProtocolException ParseUnexpectedEof)
-        else do
-          let consumed = BS.length slice
+      let want = fromIntegral (min n 16384) :: Int
+      pos <- readIORef (connCursor conn)
+      r <- SR.readUpTo (connRingTransport conn) pos want
+      case r of
+        Left _ -> throwIO (ProtocolException ParseUnexpectedEof)
+        Right (slice, newPos) -> do
+          let !sliceCopy = BS.copy slice
+              consumed = BS.length sliceCopy
               n' = n - fromIntegral consumed
           if n' == 0
             then do
-              -- After the chunk data the wire MUST carry a CRLF before
-              -- the next size line. Read it and verify; reject if not.
-              term <- recvBufferRead (connRecv conn) recv 2
-              if BS.length term < 2 || BS.index term 0 /= 0x0d || BS.index term 1 /= 0x0a
-                then throwIO (ProtocolException ParseBadChunkHeader)
-                else writeIORef ref (ChunkPending 0)
-            else writeIORef ref (ChunkPending n')
-          pure (Just slice)
-  where
-    recv = tRecvBuf (connTransport conn)
+              -- The wire MUST carry a CRLF before the next size line.
+              termE <- SR.readExact (connRingTransport conn) newPos 2
+              case termE of
+                Left _ -> throwIO (ProtocolException ParseBadChunkHeader)
+                Right (term, afterTerm)
+                  | BS.length term < 2
+                      || BS.index term 0 /= 0x0d
+                      || BS.index term 1 /= 0x0a ->
+                      throwIO (ProtocolException ParseBadChunkHeader)
+                  | otherwise -> do
+                      connectionAdvanceCursor conn afterTerm
+                      writeIORef ref (ChunkPending 0)
+            else do
+              connectionAdvanceCursor conn newPos
+              writeIORef ref (ChunkPending n')
+          pure (Just sliceCopy)
 
 -- | After a 0-size chunk we have a (possibly empty) trailer section
 -- terminated by a blank line.  Each trailer is just a header field;
@@ -248,21 +399,24 @@ readChunkedStep conn ref trailersMV = do
 readTrailers :: Connection -> IO [Header]
 readTrailers conn = go []
   where
-    recv = tRecvBuf (connTransport conn)
     go acc = do
-      mLine <- recvBufferReadUntilCRLFStrict
-                 (connRecv conn) recv 8192
-      case mLine of
-        Nothing -> throwIO (ProtocolException ParseInvalidHeaderValue)
-        Just (Left ()) ->
+      pos <- readIORef (connCursor conn)
+      r   <- SR.readUntilCRLFStrict (connRingTransport conn) pos 8192
+      case r of
+        Left e -> throwIO (ProtocolException (readErrorToParseError e))
+        Right (Nothing, _) ->
           throwIO (ProtocolException ParseInvalidHeaderValue)
-        Just (Right bs)
-          | BS.null bs -> pure (reverse acc)
-          | BS.any badByte bs ->
-              throwIO (ProtocolException ParseInvalidHeaderValue)
-          | otherwise -> case parseTrailerLine bs of
-              Nothing  -> throwIO (ProtocolException ParseInvalidHeaderValue)
-              Just hdr -> go (hdr : acc)
+        Right (Just SR.StrictBareLf, _) ->
+          throwIO (ProtocolException ParseInvalidHeaderValue)
+        Right (Just (SR.StrictLine bs), newPos) -> do
+          writeIORef (connCursor conn) newPos
+          if BS.null bs
+            then pure (reverse acc)
+            else if BS.any badByte bs
+                   then throwIO (ProtocolException ParseInvalidHeaderValue)
+                   else case parseTrailerLine bs of
+                     Nothing  -> throwIO (ProtocolException ParseInvalidHeaderValue)
+                     Just hdr -> go (hdr : acc)
     badByte b = b == 0x0a || b == 0x00 || b == 0x0d
 
 -- | Parse a single @name: value@ trailer line.  The same syntax
@@ -302,3 +456,15 @@ drainBody = \case
 -- the connection's @sendAll@ callback (raw socket or TLS write).
 sendBuilder :: Connection -> B.Builder -> IO ()
 sendBuilder conn = sendBuilderAll (tSendAll (connTransport conn))
+
+------------------------------------------------------------------------
+-- Internal: SR.ReadError → Parser.ParseError mapping for
+-- protocol-exception throwing inside the body machinery.
+------------------------------------------------------------------------
+
+readErrorToParseError :: SR.ReadError -> ParseError
+readErrorToParseError = \case
+  SR.ReadParse e            -> e
+  SR.ReadMessageTooLong _   -> ParseMessageTooLong
+  SR.ReadUnexpectedEof      -> ParseUnexpectedEof
+  SR.ReadTransportError _   -> ParseUnexpectedEof

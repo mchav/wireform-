@@ -36,11 +36,13 @@ library
       Network.HTTP2.Connection
       Network.HTTP2.HPACK
       Network.HTTP2.Frame
+      Network.HTTP2.Frame.StreamingReader
       Network.HTTP2.Types
       Network.HTTP2.RateLimit
+      Network.HTTP2.TLS.Client
+      Network.HTTP2.TLS.Server
     other-modules:
       Network.HTTP2.Internal.BitOps
-      Network.HTTP2.Internal.RecvBuffer
       Network.HTTP2.Frame.Decode
       Network.HTTP2.Frame.Encode
       Network.HTTP2.Frame.Types
@@ -60,8 +62,6 @@ library
       Network.HTTP2.Engine.TLS.Client
       Network.HTTP2.Engine.TLS.Server
       Network.HTTP2.Engine.Types
-      Network.HTTP2.TLS.Client
-      Network.HTTP2.TLS.Server
     hs-source-dirs:   src
     c-sources:        cbits/hpack_huffman.c
     include-dirs:     cbits
@@ -101,6 +101,7 @@ library
       , utf8-string
       , vector
       , wireform-core
+      , wireform-network
 
 executable wireform-http2-server
     import:           warnings
@@ -139,6 +140,7 @@ test-suite wireform-http2-test
       , tasty-hunit    >= 0.10
       , tasty-quickcheck >= 0.10
       , QuickCheck     >= 2.14
+      , wireform-core
       , wireform-http2
 
 test-suite wireform-http2-tls-test

@@ -62,8 +62,9 @@ socketTransport sock = Transport
 
 -- | Wrap a chunk-returning recv function (e.g. @tls@'s @recvData@) as
 -- a 'Transport'.  A small holdover buffer bridges the chunk-returning
--- shape to the @Ptr@-filling 'tRecvBuf' that the recv ring buffer
--- expects.
+-- shape to the @Ptr@-filling 'tRecvBuf' that
+-- 'Network.HTTP1.Connection.newConnectionFromTransport' then plumbs
+-- onto the magic-ring transport.
 bufferedRecvTransport
   :: (ByteString -> IO ())
   -> ([ByteString] -> IO ())

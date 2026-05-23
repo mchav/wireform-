@@ -81,11 +81,13 @@ library
         crc32c.h
         snappy_ffi.h
         lz4_ffi.h
+        wireform_decompress.h
         wireform_time.h
     c-sources:
         cbits/crc32c.c
         cbits/snappy_ffi.c
         cbits/lz4_ffi.c
+        cbits/wireform_decompress.c
     -- The fast-clock C shim is gated to non-Windows. On Windows
     -- 'Kafka.Time' falls back to 'Data.Time.Clock.POSIX.getPOSIXTime'
     -- which itself uses 'GetSystemTimeAsFileTime' (also a fast
@@ -99,7 +101,9 @@ library
     cc-options: -O3 -march=native
     pkgconfig-depends:
         snappy,
-        liblz4
+        liblz4,
+        libzstd,
+        zlib
     exposed-modules:
         Kafka
         Kafka.Common
@@ -160,6 +164,7 @@ library
         Kafka.Compression.BuilderZstd
         Kafka.Compression.Gzip
         Kafka.Compression.Lz4
+        Kafka.Compression.Ring
         Kafka.Compression.Snappy
         Kafka.Compression.Types
         Kafka.Compression.Zstd
@@ -171,6 +176,8 @@ library
         Kafka.Network.Auth.SASL
         Kafka.Network.Auth.Scram
         Kafka.Network.Connection
+        Kafka.Network.FrameParser
+        Kafka.Network.RingTransport
         Kafka.Network.TlsOffload
         Kafka.Network.Transport
         Kafka.Protocol.ApiVersions
@@ -387,6 +394,8 @@ library
         case-insensitive          >= 1.2   && < 1.3,
         containers                >= 0.6   && < 0.9,
         wireform-core             == 0.1.*,
+        wireform-kafka-protocol,
+        wireform-network          == 0.1.*,
         crypton                   >= 1.0   && < 1.1,
         crypton-connection        >= 0.4   && < 0.5,
         crypton-x509              >= 1.7   && < 1.8,
@@ -803,6 +812,7 @@ executable gen-test-vectors
     build-depends:
         base,
         wireform-kafka,
+        wireform-kafka-protocol,
         aeson,
         aeson-pretty             >= 0.8   && < 0.9,
         bytestring,
@@ -871,6 +881,8 @@ test-suite wireform-kafka-test
         Client.ResponseFrameSpec
         Network.OAuthOidcSpec
         Network.BootstrapSpec
+        Network.FrameParserSpec
+        Compression.RingSpec
         Client.ConsumerSnapshotsSpec
         Client.MetadataCacheControlSpec
         Client.RackAwareSpec
@@ -928,6 +940,8 @@ test-suite wireform-kafka-test
         wireform-core,
         wireform-kafka,
         wireform-kafka:wireform-kafka-codegen,
+        wireform-kafka-protocol,
+        wireform-network,
         prettyprinter             >= 1.7   && < 1.8,
         aeson,
         async,
@@ -1061,3 +1075,4 @@ benchmark wireform-kafka-bench
         time,
         vector,
         hw-kafka-client
+

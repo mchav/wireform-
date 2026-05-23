@@ -57,6 +57,7 @@ import Network.HTTP1.Connection
 import Network.HTTP1.Encode (responseBuilder)
 import Network.HTTP1.Headers
 import Network.HTTP1.Parser
+import qualified Network.HTTP1.StreamingReader as SR
 import Network.HTTP1.Status
 import Network.HTTP1.Types
 
@@ -181,23 +182,22 @@ handleConnection :: ServerConfig -> Connection -> IO ()
 handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
   where
     loop conn = do
-      mHead <- recvBufferReadUntilDoubleCRLF
-                 (connectionRecvBuffer conn)
-                 (tRecvBuf (connectionTransport conn))
-                 (serverMaxHeaderBytes cfg)
-      case mHead of
-        Nothing -> pure ()  -- EOF or oversized head
-        Just headBs -> case parseRequest headBs of
-          Left err -> do
-            sendErrorResponse conn (errorToStatus err)
-          Right (req0, _) | requestMethod req0 == CONNECT
-                         , not (serverAllowConnect cfg) ->
-            -- Reject CONNECT by default. RFC 9110 § 9.3.6: CONNECT is
-            -- intended for proxies. Accepting it on an origin server
-            -- turns it into an open tunnel. Override via
-            -- 'serverAllowConnect' if you really want this.
-            sendErrorResponse conn MethodNotAllowed
-          Right (req0, framing) -> do
+      hdE <- readRequestHead conn
+      case hdE of
+        Left SR.ReadUnexpectedEof   -> pure ()  -- EOF before a request
+        Left (SR.ReadMessageTooLong _) ->
+          sendErrorResponse conn RequestHeaderFieldsTooLarge
+        Left (SR.ReadTransportError _) -> pure ()
+        Left (SR.ReadParse err) ->
+          sendErrorResponse conn (errorToStatus err)
+        Right (req0, _) | requestMethod req0 == CONNECT
+                       , not (serverAllowConnect cfg) ->
+          -- Reject CONNECT by default. RFC 9110 § 9.3.6: CONNECT is
+          -- intended for proxies. Accepting it on an origin server
+          -- turns it into an open tunnel. Override via
+          -- 'serverAllowConnect' if you really want this.
+          sendErrorResponse conn MethodNotAllowed
+        Right (req0, framing) -> do
             -- RFC 9110 §10.1.1: if the client said
             -- @Expect: 100-continue@, the server MUST either send
             -- 100 Continue or a final response *before* the client

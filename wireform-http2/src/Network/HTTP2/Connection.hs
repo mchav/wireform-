@@ -35,13 +35,18 @@ import Foreign.ForeignPtr
 import Foreign.Ptr
 import Network.Socket (Socket)
 
+import qualified Wireform.Transport as WT
+import Wireform.Network (newRecvBufTransport)
+import qualified Wireform.Transport.Config as WC
+import Wireform.Transport.Config (defaultTransportConfig)
+
 import Network.HTTP2.Connection.FlowControl
 import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Connection.StreamTable
 import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Encode (encodeFrameInto)
+import qualified Network.HTTP2.Frame.StreamingReader as SR
 import Network.HTTP2.HPACK
-import Network.HTTP2.Internal.RecvBuffer
 import Network.HTTP2.Transport
 import Network.HTTP2.Types
 
@@ -101,7 +106,15 @@ data Connection = Connection
   , connHpackEncoder :: !(MVar DynamicTable)
   , connHpackDecoder :: !(MVar DynamicTable)
   , connSendLock :: !(MVar ())
-  , connRecvBuffer :: !RecvBuffer
+  , connRingTransport :: !WT.Transport
+    -- ^ Magic-ring transport plumbed onto @tRecvBuf connTransport@.
+    -- Owns its own 'Wireform.Ring.Internal.MagicRing' (destroyed
+    -- on 'closeConnection') and is the sole receive side for the
+    -- recv loop.  Replaces the previous pinned 'RecvBuffer'.
+  , connRingCursor :: !(IORef Word64)
+    -- ^ Position past the last byte consumed by 'recvFrame' /
+    -- 'recvFrameRaw'.  Chained through the StreamingReader so we
+    -- don't pay a 'transportLoadHead' round-trip per frame.
   , connLastStreamId :: !(IORef StreamId)
   , connClosed :: !(IORef Bool)
   , connOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
@@ -147,7 +160,14 @@ mkConnection role settings onGoAway transport mSock = do
   encoder <- newDynamicTable 4096 >>= newMVar
   decoder <- newDynamicTable 4096 >>= newMVar
   sendLock <- newMVar ()
-  recvBuf <- newRecvBuffer
+  -- 1 MiB ring: comfortably bigger than the largest single frame
+  -- HTTP/2 can deliver (SETTINGS_MAX_FRAME_SIZE caps at 16 MiB but
+  -- practical deployments stay well under 1 MiB; e.g. nghttp2's
+  -- default is 16 KiB).  The mmap is virtual address space — actual
+  -- pages are only faulted in for bytes the recv path touches.
+  let !ringCfg = defaultTransportConfig { WC.ringSizeHint = 1024 * 1024 }
+  ringT <- newRecvBufTransport ringCfg (tRecvBuf transport)
+  ringCursor <- newIORef 0
   lastStreamId <- newIORef 0
   closed <- newIORef False
   sendBuf <- newSendBuffer
@@ -163,7 +183,8 @@ mkConnection role settings onGoAway transport mSock = do
     , connHpackEncoder = encoder
     , connHpackDecoder = decoder
     , connSendLock = sendLock
-    , connRecvBuffer = recvBuf
+    , connRingTransport = ringT
+    , connRingCursor = ringCursor
     , connLastStreamId = lastStreamId
     , connClosed = closed
     , connOnGoAway = onGoAway
@@ -287,56 +308,41 @@ sendFramesZeroCopy conn frames = do
       written <- encodeFrameInto f (ptr `plusPtr` offset)
       writeFrames ptr (offset + written) fs
 
+-- | Receive a typed frame off the wire.  Walks the magic ring via
+-- 'Network.HTTP2.Frame.StreamingReader.readFrameFrom' (single
+-- 'transportLoadHead' per frame, zero-copy payload slice into the
+-- ring) and runs 'decodeFramePayload' for per-type validation.
+--
+-- Bytes of the payload slice are valid only until the connection's
+-- ring tail next advances past them, which 'readFrameFrom' does on
+-- success — copy via 'BS.copy' if you need the bytes past the
+-- next recv loop iteration.
 recvFrame :: Connection -> IO (Either FrameDecodeError Frame)
 recvFrame conn = do
-  headerBytes <- recvExact conn frameHeaderLength
-  if BS.length headerBytes < frameHeaderLength
-    then pure (Left FrameTooShort)
-    else case decodeFrameHeader headerBytes of
-      Left err -> pure (Left err)
-      Right hdr -> do
-        let payloadLen = fromIntegral (fhLength hdr)
-        if payloadLen == 0
-          then case decodeFramePayload hdr BS.empty of
-            Left err -> pure (Left err)
-            Right fp -> pure (Right (Frame hdr fp))
-          else do
-            payload <- recvExact conn payloadLen
-            if BS.length payload < payloadLen
-              then pure (Left FrameTooShort)
-              else case decodeFramePayload hdr payload of
-                Left err -> pure (Left err)
-                Right fp -> pure (Right (Frame hdr fp))
+  pos <- readIORef (connRingCursor conn)
+  r   <- SR.readFrameFrom (connRingTransport conn) pos
+  case r of
+    Right (fr, newPos) -> do
+      writeIORef (connRingCursor conn) newPos
+      pure (Right fr)
+    Left (SR.ReadDecode e)        -> pure (Left e)
+    Left SR.ReadUnexpectedEof     -> pure (Left FrameTooShort)
+    Left (SR.ReadTransportError _) -> pure (Left FrameTooShort)
 
--- | Receive a frame header + raw payload without constructing FramePayload.
--- Avoids the ADT allocation for frames where the caller only needs the raw bytes
--- (e.g. HEADERS where the payload IS the HPACK block, DATA where it IS the body).
--- Returns Nothing on connection close.
+-- | Receive a frame header + raw payload without constructing the
+-- typed 'FramePayload'.  Used by the engine layer for DATA / HEADERS
+-- where the payload bytes IS what the caller wants.  Returns
+-- 'Nothing' on connection close (clean EOF or transport error).
 {-# INLINE recvFrameRaw #-}
 recvFrameRaw :: Connection -> IO (Maybe (FrameHeader, ByteString))
 recvFrameRaw conn = do
-  headerBytes <- recvExact conn frameHeaderLength
-  if BS.length headerBytes < frameHeaderLength
-    then pure Nothing
-    else case decodeFrameHeader headerBytes of
-      Left _ -> pure Nothing
-      Right hdr -> do
-        let payloadLen = fromIntegral (fhLength hdr)
-        if payloadLen == 0
-          then pure (Just (hdr, BS.empty))
-          else do
-            payload <- recvExact conn payloadLen
-            if BS.length payload < payloadLen
-              then pure Nothing
-              else pure (Just (hdr, payload))
-
--- | Receive exactly n bytes using the connection's pinned ring buffer.
--- Returns a zero-copy slice when data doesn't wrap around the ring,
--- or a fresh copy on wrap-around (rare in practice).
-{-# INLINE recvExact #-}
-recvExact :: Connection -> Int -> IO ByteString
-recvExact conn n =
-  recvBufferRead (connRecvBuffer conn) (tRecvBuf (connTransport conn)) n
+  pos <- readIORef (connRingCursor conn)
+  r   <- SR.readFrameFrom (connRingTransport conn) pos
+  case r of
+    Right (Frame hdr (FramePayloadRaw bs), newPos) -> do
+      writeIORef (connRingCursor conn) newPos
+      pure (Just (hdr, bs))
+    Left _ -> pure Nothing
 
 closeConnection :: Connection -> ErrorCode -> ByteString -> IO ()
 closeConnection conn code msg = do
@@ -349,6 +355,12 @@ closeConnection conn code msg = do
             (FrameHeader 0 FrameGoAway 0 0)
             (GoAwayFrame lastId code msg)
       sendFrame conn goaway
+        `catch` (\(_ :: SomeException) -> pure ())
+      -- Tear down the magic ring (frees its mmap).  Any frame
+      -- payload slices the caller still holds become dangling
+      -- pointers; they should have been 'BS.copy'd inside the
+      -- per-frame handler.
+      WT.transportClose (connRingTransport conn)
         `catch` (\(_ :: SomeException) -> pure ())
 
 connectionSettings :: Connection -> IO (Settings, Settings)

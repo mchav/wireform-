@@ -41,6 +41,7 @@ import Network.HTTP1.Chunked (encodeChunk, encodeLastChunk)
 import Network.HTTP1.Connection
 import Network.HTTP1.Encode (requestBuilder)
 import Network.HTTP1.Parser
+import qualified Network.HTTP1.StreamingReader as SR
 import Network.HTTP1.Types
 
 data ClientConfig = ClientConfig
@@ -86,8 +87,43 @@ withClientConnection cfg = bracket (openClientConnection cfg) closeClientConnect
 
 -- | Send a single request on a freshly-opened connection and return
 -- the response. The connection is closed afterwards.
+--
+-- The response body is fully read and materialised as a
+-- 'BodyBytes' before the connection is torn down — otherwise the
+-- magic ring the body producer reads from would be freed by the
+-- 'closeClientConnection' that the inner bracket runs, and the
+-- producer's subsequent reads would access unmapped memory.
+-- Applications that need to stream large response bodies should
+-- use 'sendRequestOn' with their own 'withClientConnection'
+-- scope so the connection (and its ring) stays alive while the
+-- body is being consumed.
 sendRequest :: ClientConfig -> Request -> IO (Either ParseError Response)
-sendRequest cfg req = withClientConnection cfg $ \conn -> sendRequestOn conn req
+sendRequest cfg req = withClientConnection cfg $ \conn -> do
+  r <- sendRequestOn conn req
+  case r of
+    Left e     -> pure (Left e)
+    Right resp -> do
+      bs  <- collectBody (responseBody resp)
+      trs <- responseTrailers resp
+      pure $ Right resp
+        { responseBody     = BodyBytes bs
+        , responseTrailers = pure trs
+        }
+
+-- | Drain a 'Body' into a single contiguous 'ByteString'.
+collectBody :: Body -> IO ByteString
+collectBody = \case
+  BodyEmpty           -> pure BS.empty
+  BodyBytes bs        -> pure bs
+  BodyPreEncoded _    -> pure BS.empty
+  BodyFile _          -> pure BS.empty
+  BodyStream producer -> loop []
+    where
+      loop acc = do
+        mc <- producer
+        case mc of
+          Nothing -> pure (BS.concat (reverse acc))
+          Just c  -> loop (c : acc)
 
 -- | Send a request on an existing connection (for keep-alive \/
 -- pipelining). The returned response's body is a streaming producer;
@@ -96,7 +132,6 @@ sendRequest cfg req = withClientConnection cfg $ \conn -> sendRequestOn conn req
 -- be misframed.
 sendRequestOn :: ClientConnection -> Request -> IO (Either ParseError Response)
 sendRequestOn (ClientConnection conn) req = do
-  let recv = tRecvBuf (connectionTransport conn)
   sendBuilder conn (requestBuilder req)
   case requestBody req of
     BodyEmpty -> pure ()
@@ -114,25 +149,23 @@ sendRequestOn (ClientConnection conn) req = do
   -- (informational) responses are interim — keep reading until we
   -- see the final one.  This is how an @Expect: 100-continue@ on
   -- the request gets its 100 acknowledgement transparently absorbed.
-  readFinal recv
+  readFinal
   where
-    readFinal recv = do
-      mHead <- recvBufferReadUntilDoubleCRLF
-                 (connectionRecvBuffer conn)
-                 recv
-                 (32 * 1024)
-      case mHead of
-        Nothing -> pure (Left ParseUnexpectedEof)
-        Just headBs -> case parseResponse (requestMethod req) headBs of
-          Left err -> pure (Left err)
-          Right (resp0, framing)
-            | is1xx (responseStatus resp0) -> readFinal recv
-            | otherwise -> do
-                (body, trailersIO) <- readBodyAndTrailers conn framing
-                pure $ Right resp0
-                  { responseBody     = body
-                  , responseTrailers = trailersIO
-                  }
+    readFinal = do
+      hE <- readResponseHead conn (requestMethod req)
+      case hE of
+        Left SR.ReadUnexpectedEof    -> pure (Left ParseUnexpectedEof)
+        Left (SR.ReadMessageTooLong _) -> pure (Left ParseMessageTooLong)
+        Left (SR.ReadTransportError _) -> pure (Left ParseUnexpectedEof)
+        Left (SR.ReadParse e)          -> pure (Left e)
+        Right (resp0, framing)
+          | is1xx (responseStatus resp0) -> readFinal
+          | otherwise -> do
+              (body, trailersIO) <- readBodyAndTrailers conn framing
+              pure $ Right resp0
+                { responseBody     = body
+                , responseTrailers = trailersIO
+                }
     is1xx (Status code) = code >= 100 && code < 200
 
 streamChunked :: Connection -> IO (Maybe ByteString) -> IO ()

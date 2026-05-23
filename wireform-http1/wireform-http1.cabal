@@ -74,16 +74,17 @@ library
     Network.HTTP1.Version
     Network.HTTP1.Headers
     Network.HTTP1.Parser
+    Network.HTTP1.StreamingReader
     Network.HTTP1.Encode
     Network.HTTP1.Chunked
     Network.HTTP1.Connection
     Network.HTTP1.Transport
+    Network.HTTP1.TLS
     Network.HTTP1.SendFile
     Network.HTTP1.Server
     Network.HTTP1.Client
     Network.HTTP1.Client.Pool
   other-modules:
-    Network.HTTP1.Internal.RecvBuffer
     Network.HTTP1.Internal.SendBuffer
     Network.HTTP1.Internal.Ascii
   c-sources:
@@ -102,9 +103,11 @@ library
     stm >= 2.5 && < 2.7,
     text >= 2.0 && < 2.2,
     time >= 1.11 && < 1.15,
+    tls >= 1.7 && < 2.2,
     unix >= 2.7 && < 2.9,
     vector >= 0.13 && < 0.14,
-    wireform-core
+    wireform-core,
+    wireform-network
 
 test-suite wireform-http1-test
   import: defaults
@@ -127,6 +130,7 @@ test-suite wireform-http1-test
     stm,
     wireform-core,
     wireform-http1,
+    wireform-network,
     tasty >= 1.4,
     tasty-hunit >= 0.10,
     tasty-quickcheck >= 0.10,

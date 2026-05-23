@@ -86,8 +86,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, throwIO, try)
-import Control.Monad (forever, unless, when)
-import Data.Binary.Get (getInt32be, runGet)
+import Control.Monad (unless, when)
 import qualified Data.Binary.Put as BP
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -101,10 +100,16 @@ import qualified Kafka.Time as KafkaTime
 import qualified Kafka.Client.ReauthDriver
 import Network.Connection
   ( Connection
-  , connectionGetExact
   , connectionPut
   , connectionClose
   )
+
+import qualified Kafka.Network.FrameParser as FrameParser
+import qualified Kafka.Network.RingTransport as RingTransport
+import Wireform.Parser.Driver (LoopControl (..))
+import Wireform.Parser.Error (ParseError (..))
+import qualified Wireform.Transport.Config as WC
+import Wireform.Transport.Config (profileConfig, Profile (..))
 
 -- | Unique identifier for a pipelined request.
 type RequestId = Int32
@@ -117,6 +122,17 @@ data PipelineConfig = PipelineConfig
     -- ^ Maximum size of request queue (default: 1000)
   , pipelineTimeout :: !Int
     -- ^ Request timeout in seconds (default: 30)
+  , pipelineRingSize :: !Int
+    -- ^ Magic-ring receive buffer size, in bytes (default: 16 MiB).
+    --   MUST be at least as large as the largest single Kafka
+    --   response the broker will return (e.g. the configured
+    --   @fetch.max.bytes@ + protocol overhead), otherwise the
+    --   streaming frame parser deadlocks waiting for bytes the
+    --   ring cannot hold.  The magic-ring constructor rounds this
+    --   up to the next power-of-two page-aligned multiple, and
+    --   the underlying mmap is virtual address space only —
+    --   physical memory is only paged in for the bytes actually
+    --   touched, so over-provisioning is cheap on Linux.
   } deriving (Eq, Show, Generic)
 
 -- | Default pipeline configuration.
@@ -125,6 +141,7 @@ defaultPipelineConfig = PipelineConfig
   { pipelineMaxInFlight = 100
   , pipelineMaxQueueSize = 1000
   , pipelineTimeout = 30
+  , pipelineRingSize = 16 * 1024 * 1024
   }
 
 -- | Pending request awaiting response. The body 'TMVar' resolves
@@ -543,67 +560,73 @@ frameMessage payload =
    in BS.append hdr payload
 
 -- | Read frames off the connection and route each one to its
--- pending request. The Kafka response framing is
--- @[Int32 length][Int32 correlationId][body]@; we strip the first
--- four bytes (length) and the next four (correlation id), then
--- deliver the rest to the waiting 'TMVar'.
+-- pending request.
+--
+-- Bytes flow from the broker socket through the wireform magic-ring
+-- transport ('Kafka.Network.RingTransport.withConnectionTransport')
+-- and the streaming Kafka frame parser
+-- ('Kafka.Network.FrameParser.kafkaFrameParser') feeds one
+-- @(correlationId, body)@ to the loop handler per frame.  No
+-- per-chunk @connectionGetExact@ allocation and no per-frame
+-- 'runGet' invocation; the framing walk is one bounds-check + two
+-- 32-bit loads + a slice.
+--
+-- The body 'ByteString' the parser hands us is a zero-copy slice
+-- of the ring's backing memory.  We immediately @BS.copy@ it before
+-- storing in the response slot — 'pendingResponse' may outlive the
+-- transport scope (the application thread reads it long after the
+-- ring tail has advanced past those bytes).
 receiveLoop :: Pipeline -> IO ()
-receiveLoop p@Pipeline{..} = loop
-  where
-    loop = do
-      closed <- readTVarIO pipelineClosed
-      unless closed $ do
-        eFrame <- try (readFrame pipelineConnection)
-                    :: IO (Either SomeException (Either String (RequestId, ByteString)))
-        case eFrame of
-          Left e ->
-            failPipeline p ("recv failed: " <> show e)
-          Right (Left err) ->
-            failPipeline p ("recv decode: " <> err)
-          Right (Right (cid, body)) -> do
-            mReq <- atomically $ do
-              m <- readTVar pipelinePending
-              case IntMap.lookup (fromIntegral cid) m of
-                Nothing -> pure Nothing
-                Just req -> do
-                  writeTVar pipelinePending
-                    (IntMap.delete (fromIntegral cid) m)
-                  modifyTVar' pipelineStats $ \s -> s
-                    { statsResponsesReceived = statsResponsesReceived s + 1
-                    , statsCurrentInFlight   = max 0 (statsCurrentInFlight s - 1)
-                    }
-                  pure (Just req)
-            case mReq of
-              Nothing -> pure ()  -- correlation id we don't recognise; drop
-              Just req -> atomically $
-                tryPutTMVar (pendingResponse req) (Right body)
-                  >> pure ()
-            loop
+receiveLoop p@Pipeline{..} = do
+  closed0 <- readTVarIO pipelineClosed
+  unless closed0 $ do
+    let !ringCfg = (profileConfig Throughput)
+          { WC.ringSizeHint = pipelineRingSize pipelineConfig }
+    eLoop <- try @SomeException $
+      RingTransport.withConnectionTransport
+        ringCfg
+        pipelineConnection
+        $ \transport ->
+            FrameParser.runKafkaFrameLoop transport (handleFrame p)
+    case eLoop of
+      Left e -> failPipeline p ("recv failed: " <> show e)
+      Right (Right ()) -> pure ()  -- clean EOF / 'Stop'
+      Right (Left perr) ->
+        failPipeline p ("recv decode: " <> renderFrameError perr)
 
--- | Read one length-prefixed Kafka response off the wire and
--- split it into @(correlationId, body)@.
-readFrame
-  :: Connection
-  -> IO (Either String (RequestId, ByteString))
-readFrame conn = do
-  lenBytes <- connectionGetExact conn 4
-  if BS.length lenBytes < 4
-    then pure (Left "short read on frame length")
+handleFrame :: Pipeline -> (RequestId, ByteString) -> IO LoopControl
+handleFrame p@Pipeline{..} (cid, bodySlice) = do
+  closed <- readTVarIO pipelineClosed
+  if closed
+    then pure Stop
     else do
-      let !len = fromIntegral
-                   (runGet getInt32be (BL.fromStrict lenBytes)) :: Int
-      if len < 4
-        then pure (Left "frame too short to contain a correlation id")
-        else do
-          payload <- connectionGetExact conn len
-          if BS.length payload < len
-            then pure (Left "short read on frame body")
-            else
-              let !cidBs = BS.take 4 payload
-                  !body  = BS.drop 4 payload
-                  !cid   = fromIntegral
-                             (runGet getInt32be (BL.fromStrict cidBs))
-               in pure (Right (cid, body))
+      let !body = BS.copy bodySlice
+      mReq <- atomically $ do
+        m <- readTVar pipelinePending
+        case IntMap.lookup (fromIntegral cid) m of
+          Nothing -> pure Nothing
+          Just req -> do
+            writeTVar pipelinePending
+              (IntMap.delete (fromIntegral cid) m)
+            modifyTVar' pipelineStats $ \s -> s
+              { statsResponsesReceived = statsResponsesReceived s + 1
+              , statsCurrentInFlight   = max 0 (statsCurrentInFlight s - 1)
+              }
+            pure (Just req)
+      case mReq of
+        Nothing  -> pure ()  -- correlation id we don't recognise; drop
+        Just req -> atomically $
+          tryPutTMVar (pendingResponse req) (Right body)
+            >> pure ()
+      pure Continue
+
+renderFrameError :: ParseError FrameParser.FrameError -> String
+renderFrameError = \case
+  ParseFail pos             -> "parse failed at " <> show pos
+  ParseErr  pos e           -> "parse error at " <> show pos <> ": " <> show e
+  ParseUnexpectedEof pos n  -> "unexpected EOF at " <> show pos
+                             <> " (needed " <> show n <> " more bytes)"
+  ParseTransportError exc   -> "transport error: " <> show exc
 
 -- | Wake once a second; for every pending request whose elapsed
 -- time exceeds 'pipelineTimeout' seconds, fail it with

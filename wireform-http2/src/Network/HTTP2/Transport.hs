@@ -87,8 +87,9 @@ bufferedRecvTransport sendAll sendMany recvChunk close = do
 -- | Copy from the leftover chunk (if any), then pull a single fresh
 -- chunk from the underlying stream and copy as much of it as fits.
 --
--- Returning a short read here is fine: callers (the 'RecvBuffer'
--- ring) loop until they have what they need.
+-- Returning a short read here is fine: the magic-ring transport
+-- ('Wireform.Network.newRecvBufTransport') that 'tRecvBuf' feeds
+-- into loops until it has what the parser needs.
 bufferedFill
   :: IORef ByteString
   -> IO ByteString

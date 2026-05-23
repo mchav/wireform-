@@ -51,7 +51,22 @@ module Network.HTTP1.Parser
     -- * Helpers (exported for testing)
   , findNonToken
   , findNonFieldValue
+
+    -- * Cross-parser validation hooks
+    -- $crossvalid
+  , validateHost
+  , validateTarget
+  , requestFraming
+  , responseFraming
   ) where
+
+-- $crossvalid
+-- These four helpers are exported so the streaming wireform parser
+-- in "Network.HTTP1.StreamingParser" can re-use the exact same
+-- structural / smuggling validation logic as the classic
+-- whole-block parser.  Sharing them keeps the two parsers'
+-- semantics aligned without duplicating the (subtle, frequently
+-- audited) request-smuggling guards.
 
 import Control.DeepSeq (NFData)
 import Data.Bits ((.&.))
