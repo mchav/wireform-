@@ -99,10 +99,9 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, ord)
 import Data.Int
 import Data.Word
-import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
-import GHC.ForeignPtr (ForeignPtr (..), mallocPlainForeignPtrBytes)
+import GHC.ForeignPtr (ForeignPtr (..), mallocPlainForeignPtrBytes, unsafeWithForeignPtr)
 import Foreign.Storable (Storable (..))
 import GHC.Exts
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
@@ -387,6 +386,10 @@ takeBsCopySingle (I# n#) = withEnsure# @m n# $ Parser \env eob s st ->
 -- the dispatch in 'takeBs' / 'takeBsCopy' never picks this path (the
 -- mask is 'maxBound'), so the @ParserMode m@ generality is just for
 -- type-checking — at runtime only the streaming instance executes.
+--
+-- 'INLINABLE' + the 'SPECIALIZE' below eliminate the per-iteration
+-- dictionary indirection on 'modeCheckpoint' that the polymorphic
+-- version would otherwise pay.
 takeBsDrain :: forall m e. ParserMode m => Int -> Parser m e ByteString
 takeBsDrain total = do
   ringSz <- readRingSize
@@ -396,11 +399,19 @@ takeBsDrain total = do
   pure $! BSI.BS fp total
 {-# INLINABLE takeBsDrain #-}
 
+{-# SPECIALIZE takeBsDrain :: Int -> Parser Stream e ByteString #-}
+
 -- | Pull at most 'ringSize' bytes per iteration into @fp@; advance
 -- cur and tail between iterations.
+--
+-- Bang patterns on every argument so the strictness analyzer
+-- unboxes 'copied' / 'total' / 'ringSz' into 'Int#' across the
+-- recursive call.  Without the bang on @ringSz@ in particular the
+-- worker shipped it as a boxed 'Int' and paid one @case I#@ per
+-- iteration to unbox it.
 drainLoop :: forall m e. ParserMode m
           => ForeignPtr Word8 -> Int -> Int -> Int -> Parser m e ()
-drainLoop fp copied total ringSz
+drainLoop !fp !copied !total !ringSz
   | copied >= total = pure ()
   | otherwise = do
       let !c = min (total - copied) ringSz
@@ -409,6 +420,10 @@ drainLoop fp copied total ringSz
       let !copied' = copied + c
       when (copied' < total) (modeCheckpoint @m)
       drainLoop @m fp copied' total ringSz
+{-# INLINABLE drainLoop #-}
+
+{-# SPECIALIZE drainLoop
+      :: ForeignPtr Word8 -> Int -> Int -> Int -> Parser Stream e () #-}
 
 -- | 'peMask + 1' — the streaming ring's capacity, or 'maxBound' /
 -- arbitrary in whole-input mode (the dispatch in 'takeBs' / 'takeBsCopy'
@@ -439,10 +454,18 @@ allocPinnedFp n = Parser \_env _eob s st0 ->
 -- | Copy @len@ bytes from the parser's cursor into @fp + dstOff@,
 -- advancing the cursor by @len@ bytes.  Caller must have called
 -- 'ensureN#' (or equivalent) for at least @len@ bytes.
+--
+-- Uses 'unsafeWithForeignPtr' rather than 'withForeignPtr': the
+-- former skips the per-call 'keepAlive#' barrier and the fresh
+-- closure allocation that goes with it.  Safe here because @fp@
+-- is bound by the outer @do@-block in 'takeBsDrain' and stays live
+-- for the entire drain — the returned @BSI.BS fp _@ keeps it
+-- referenced past the loop's last iteration, and the drain loop
+-- itself only ever reads through the address.
 memcpyFromCur :: ForeignPtr Word8 -> Int -> Int -> Parser m e ()
 memcpyFromCur fp (I# dstOff#) (I# len#) = Parser \_env _eob s st0 ->
   case unIO
-        (withForeignPtr fp \(Ptr dst#) ->
+        (unsafeWithForeignPtr fp \(Ptr dst#) ->
           copyBytes
             (Ptr (plusAddr# dst# dstOff#))
             (Ptr s)
