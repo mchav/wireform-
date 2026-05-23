@@ -108,12 +108,26 @@ demonstrating the need.
 
 ## Compression contrast
 
-For comparison, **compression** (`Kafka.Compression.Ring`) does
-operate directly on ring memory: the source pointer is a slice of
-the response body (or of the magic ring if the caller arranges that)
-and for snappy + zstd the destination is sized exactly via
-`BSI.mallocByteString` so the C decompressor writes directly into the
-result `ByteString` with no intermediate `malloc` + `memcpy` + `free`
-round-trip.  The reason compression-on-ring is tractable where
-TLS-on-ring is not: snappy / zstd / lz4 / zlib all expose Ptr-based
-decompress APIs; the `tls` package does not.
+For comparison, **compression** is fully ring-direct via
+`Kafka.Compression.Ring`:
+
+  * **Source** is a raw `Ptr Word8 + Int` — typically a slice of
+    the magic ring's backing memory.  No input-side `ByteString`
+    allocation.
+  * **Destination** is either:
+      - a freshly-allocated `BSI.mallocByteString` sized exactly to
+        the codec-reported output length (snappy + zstd, via the
+        new direct C FFI in `cbits/wireform_decompress.c`); or
+      - a **caller-supplied magic ring** (`decompressIntoRing`) that
+        the C decompressor writes plaintext into in-place.  For
+        gzip + lz4 — whose frame headers don't reliably encode the
+        plaintext size — this lets the caller size the destination
+        ring once at connection / batch scope and reuse it across
+        decompressions with no per-call allocation.
+
+The reason compression-on-ring is tractable where TLS-on-ring is
+not: snappy / zstd / lz4 / zlib all expose `void*` / `Ptr` C APIs
+that take a destination buffer; the `tls` package does not.  To get
+TLS to the same shape we'd need either upstream surface changes,
+a new record-layer implementation on top of crypton, or Linux kTLS
+— see the three options above.

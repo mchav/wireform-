@@ -81,11 +81,13 @@ library
         crc32c.h
         snappy_ffi.h
         lz4_ffi.h
+        wireform_decompress.h
         wireform_time.h
     c-sources:
         cbits/crc32c.c
         cbits/snappy_ffi.c
         cbits/lz4_ffi.c
+        cbits/wireform_decompress.c
     -- The fast-clock C shim is gated to non-Windows. On Windows
     -- 'Kafka.Time' falls back to 'Data.Time.Clock.POSIX.getPOSIXTime'
     -- which itself uses 'GetSystemTimeAsFileTime' (also a fast
@@ -99,7 +101,9 @@ library
     cc-options: -O3 -march=native
     pkgconfig-depends:
         snappy,
-        liblz4
+        liblz4,
+        libzstd,
+        zlib
     exposed-modules:
         Kafka
         Kafka.Common
