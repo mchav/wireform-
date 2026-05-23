@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Linux io_uring-based transport.
+-- | Linux io_uring-based magic-ring receive transport.
 --
 -- Receives data directly into the magic ring buffer via io_uring
 -- async recv.  Integrates with the GHC IO manager via eventfd.
@@ -14,7 +14,7 @@
 module Wireform.Network.Transport.IOUring
   (
 #if defined(HAVE_IOURING)
-    withIOUringTransport
+    withIOUringReceiveTransport
 #endif
   ) where
 
@@ -33,7 +33,7 @@ import Network.Socket (Socket, withFdSocket)
 import System.Posix.Types (Fd (..))
 
 import Wireform.Ring.Internal
-import Wireform.Transport
+import Wireform.Transport.Receive
 import Wireform.Transport.Config
 
 ------------------------------------------------------------------------
@@ -88,8 +88,8 @@ data IOUringTState
 -- Transport implementation
 ------------------------------------------------------------------------
 
-withIOUringTransport :: TransportConfig -> Socket -> (Transport -> IO a) -> IO a
-withIOUringTransport cfg sock action =
+withIOUringReceiveTransport :: TransportConfig -> Socket -> (ReceiveTransport -> IO a) -> IO a
+withIOUringReceiveTransport cfg sock action =
   withMagicRing (ringSizeHint cfg) \ring -> do
     let !base = ringBase ring
         !sz   = ringSize ring
@@ -135,19 +135,19 @@ withIOUringTransport cfg sock action =
               advanceTail :: Word64 -> IO ()
               advanceTail pos = writeIORef tailRef pos
 
-              waitData :: Word64 -> IO WaitResult
+              waitData :: Word64 -> IO ReceiveWait
               waitData pos = do
                 st <- readIORef stateRef
                 case st of
-                  IClosedEof   -> pure EndOfInput
-                  IClosedErr e -> pure (TransportError e)
+                  IClosedEof   -> pure ReceiveEndOfInput
+                  IClosedErr e -> pure (ReceiveFailed e)
                   IOpen        -> doWait pos
 
-              doWait :: Word64 -> IO WaitResult
+              doWait :: Word64 -> IO ReceiveWait
               doWait pos = do
                 h <- loadHead
                 if h > pos
-                  then pure (MoreData h)
+                  then pure (ReceiveMoreData h)
                   else do
                     -- Try non-blocking peek first
                     alloca \headPtr -> do
@@ -157,7 +157,7 @@ withIOUringTransport cfg sock action =
                         else if peekRc == 0
                           then do
                             writeIORef stateRef IClosedEof
-                            pure EndOfInput
+                            pure ReceiveEndOfInput
                           else do
                             -- No completion ready — park on eventfd
                             threadWaitRead (Fd eventFd)
@@ -168,13 +168,13 @@ withIOUringTransport cfg sock action =
                                 else if waitRc == 0
                                   then do
                                     writeIORef stateRef IClosedEof
-                                    pure EndOfInput
+                                    pure ReceiveEndOfInput
                                   else do
                                     let exc = toException (userError $ "io_uring CQE error: " <> show waitRc)
                                     writeIORef stateRef (IClosedErr exc)
-                                    pure (TransportError exc)
+                                    pure (ReceiveFailed exc)
 
-              handleCompletion :: Ptr Word64 -> CInt -> IO WaitResult
+              handleCompletion :: Ptr Word64 -> CInt -> IO ReceiveWait
               handleCompletion headPtr _bytesRc = do
                 newH <- peek headPtr
                 -- Submit replacement recv bounded by available ring space
@@ -182,16 +182,16 @@ withIOUringTransport cfg sock action =
                 let !available = fromIntegral sz - fromIntegral (newH - t)
                 when (available > 0) $
                   void $ c_iouring_submit_recv uringPtr (fromIntegral available)
-                pure (MoreData newH)
+                pure (ReceiveMoreData newH)
 
-              transport = Transport
-                { transportRingBaseField = base
-                , transportRingSizeField = sz
-                , transportRingMaskField = msk
-                , transportLoadHead      = loadHead
-                , transportAdvanceTail   = advanceTail
-                , transportWaitData      = waitData
-                , transportClose         = do
+              transport = ReceiveTransport
+                { receiveRingBase    = base
+                , receiveRingSize    = sz
+                , receiveRingMask    = msk
+                , receiveLoadHead    = loadHead
+                , receiveAdvanceTail = advanceTail
+                , receiveWaitData    = waitData
+                , receiveClose       = do
                     writeIORef stateRef IClosedEof
                     destroy
                 }

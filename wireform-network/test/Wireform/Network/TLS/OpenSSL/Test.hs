@@ -5,13 +5,13 @@
 -- | End-to-end TLS-on-magic-ring round-trip: a real TLS handshake
 -- between two threads in the same process, then encrypted bytes
 -- flowing client → server with the server decrypting straight into
--- the magic ring via 'tlsRecvFn', then a wireform parser reading
+-- the magic ring via 'tlsReceiveFn', then a wireform parser reading
 -- plaintext off the ring.  Proves the direct-OpenSSL path:
 --
 --   1. Negotiates a real TLS 1.2+ session (self-signed cert,
 --      'newClientCtx False' on the client to skip verify).
 --   2. Successfully encrypts + decrypts.
---   3. Plumbs cleanly through 'withTlsRecvTransport' so the
+--   3. Plumbs cleanly through 'withTlsReceiveTransport' so the
 --      magic-ring parser surface sees plaintext with no intermediate
 --      ByteString allocation.
 module Wireform.Network.TLS.OpenSSL.Test (spec) where
@@ -46,7 +46,7 @@ spec = describe "Wireform.Network.TLS.OpenSSL" $ do
     it "round-trips encrypted bytes (client send → server recv on ring)" $
       withTlsPair certPath keyPath $ \(clientConn, serverConn) -> do
         tlsSend clientConn "\x05hello"
-        withTlsRecvTransport defaultTransportConfig serverConn $ \t -> do
+        withTlsReceiveTransport defaultTransportConfig serverConn $ \t -> do
           r <- runParser t (anyWord8 >>= \n -> takeBs (fromIntegral n) :: P BS.ByteString)
           case r of
             Right bs -> bs `shouldBe` "hello"
@@ -56,7 +56,7 @@ spec = describe "Wireform.Network.TLS.OpenSSL" $ do
       withTlsPair certPath keyPath $ \(clientConn, serverConn) -> do
         tlsSend clientConn "\x0b"
         tlsSend clientConn "hello world"
-        withTlsRecvTransport defaultTransportConfig serverConn $ \t -> do
+        withTlsReceiveTransport defaultTransportConfig serverConn $ \t -> do
           r <- runParser t (anyWord8 >>= \n -> takeBs (fromIntegral n) :: P BS.ByteString)
           case r of
             Right bs -> bs `shouldBe` "hello world"
