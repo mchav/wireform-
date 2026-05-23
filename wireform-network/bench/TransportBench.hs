@@ -193,15 +193,7 @@ withRecvTransportReuse ring sock action = do
   action transport
 
 doRawRecv :: Socket -> Ptr Word8 -> Int -> IO Int
-doRawRecv sock ptr maxLen = do
-  bs <- recv sock maxLen
-  let !n = BS.length bs
-  if n == 0
-    then pure 0
-    else do
-      BSU.unsafeUseAsCStringLen bs \(src, len) ->
-        copyBytes ptr (castPtr src) len
-      pure n
+doRawRecv sock ptr maxLen = recvBuf sock ptr maxLen
 
 ------------------------------------------------------------------------
 -- Benchmark: transport + magic ring (ring pre-allocated)
