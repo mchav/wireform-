@@ -36,16 +36,9 @@ library
       Network.HTTP2.Connection
       Network.HTTP2.HPACK
       Network.HTTP2.Frame
-      Network.HTTP2.Frame.Stream
       Network.HTTP2.Frame.StreamingReader
       Network.HTTP2.Types
       Network.HTTP2.RateLimit
-    exposed-modules:
-      -- Exposed so the @wireform-http2-recv-vs-transport@ benchmark
-      -- can drive the classic recv buffer directly for an
-      -- apples-to-apples comparison.  Not part of the stability
-      -- surface — treat the API as private.
-      Network.HTTP2.Internal.RecvBuffer
     other-modules:
       Network.HTTP2.Internal.BitOps
       Network.HTTP2.Frame.Decode
@@ -108,6 +101,7 @@ library
       , utf8-string
       , vector
       , wireform-core
+      , wireform-network
 
 executable wireform-http2-server
     import:           warnings
@@ -119,27 +113,6 @@ executable wireform-http2-server
       , bytestring
       , wireform-http2
 
--- | Head-to-head: classic RecvBuffer + decodeFrameHeader/Payload vs
--- the new magic-ring transport + frameParser.  Run with:
---   cabal bench wireform-http2-recv-vs-transport
-benchmark wireform-http2-recv-vs-transport
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          RecvVsTransport.hs
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-      LambdaCase
-    ghc-options:      -threaded -rtsopts -with-rtsopts=-N1
-    build-depends:
-        base
-      , bytestring
-      , criterion >= 1.5
-      , wireform-core
-      , wireform-http2
-      , wireform-network
-
 test-suite wireform-http2-test
     import:           warnings
     type:             exitcode-stdio-1.0
@@ -147,7 +120,6 @@ test-suite wireform-http2-test
     other-modules:
       Test.Frame
       Test.FrameEdgeCases
-      Test.FrameStream
       Test.HPACK
       Test.HPACKEdgeCases
       Test.HPACKConcurrency
@@ -170,7 +142,6 @@ test-suite wireform-http2-test
       , QuickCheck     >= 2.14
       , wireform-core
       , wireform-http2
-      , wireform-network
 
 test-suite wireform-http2-tls-test
     import:           warnings

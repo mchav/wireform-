@@ -13,6 +13,7 @@ module Wireform.Network
   ( -- * Transport construction
     withRecvTransport
   , withRecvBufTransport
+  , newRecvBufTransport
   , RecvFn
   , chunkedRecvFn
 
@@ -24,6 +25,7 @@ module Wireform.Network
 import Wireform.Network.Transport.Recv
   ( withRecvTransport
   , withRecvBufTransport
+  , newRecvBufTransport
   , RecvFn
   , chunkedRecvFn
   )

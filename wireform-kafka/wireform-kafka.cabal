@@ -1070,20 +1070,3 @@ benchmark wireform-kafka-bench
         vector,
         hw-kafka-client
 
--- | Head-to-head: classic connectionGetExact + runGet framing vs the
--- new magic-ring transport + kafkaFrameParser.  Run with:
---   cabal bench wireform-kafka-recv-vs-transport
-benchmark wireform-kafka-recv-vs-transport
-    import: defaults
-    type: exitcode-stdio-1.0
-    main-is: RecvVsTransport.hs
-    hs-source-dirs: bench
-    ghc-options: -threaded -rtsopts -with-rtsopts=-N1 -O2
-    build-depends:
-        base,
-        wireform-kafka,
-        wireform-core,
-        wireform-network,
-        binary,
-        bytestring,
-        criterion                 >= 1.5   && < 1.7

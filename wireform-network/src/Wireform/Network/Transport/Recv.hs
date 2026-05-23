@@ -11,6 +11,7 @@
 module Wireform.Network.Transport.Recv
   ( withRecvTransport
   , withRecvBufTransport
+  , newRecvBufTransport
   , RecvFn
   , chunkedRecvFn
   ) where
@@ -78,62 +79,91 @@ withRecvBufTransport
   -> IO a
 withRecvBufTransport cfg recvIntoBuf action =
   withMagicRing (ringSizeHint cfg) \ring -> do
-    let !base = ringBase ring
-        !msk  = ringMask ring
-        !sz   = ringSize ring
+    t <- mkTransport ring recvIntoBuf
+    action t
 
-    headRef  <- newIORef (0 :: Word64)
-    tailRef  <- newIORef (0 :: Word64)
-    stateRef <- newIORef RecvOpen
+-- | IO-style ('bracket'-free) constructor.  Allocates a fresh magic
+-- ring + wires the supplied recv callback through it; the caller is
+-- responsible for calling 'transportClose' (which both flips the
+-- transport's EOF flag /and/ unmaps the magic ring) when the
+-- connection terminates.
+--
+-- Preferred over 'withRecvBufTransport' when the transport's
+-- lifetime is tied to a long-lived stateful object (e.g.
+-- 'Network.HTTP1.Connection') rather than a single nested action.
+--
+-- After 'transportClose' the ring's memory is gone; any
+-- 'BS.ByteString' slices into the ring that the caller still holds
+-- become dangling pointers.  Copy them before close.
+newRecvBufTransport
+  :: TransportConfig
+  -> RecvFn
+  -> IO Transport
+newRecvBufTransport cfg recvIntoBuf = do
+  ring <- newMagicRing (ringSizeHint cfg)
+  t0   <- mkTransport ring recvIntoBuf
+  pure t0 { transportClose = transportClose t0 *> destroyMagicRing ring }
 
-    let loadHead = readIORef headRef
+-- | Internal: build the transport over an existing ring + recv
+-- callback.  Used by both 'withRecvBufTransport' and
+-- 'newRecvBufTransport' so they share the ring-state machinery
+-- verbatim.
+mkTransport :: MagicRing -> RecvFn -> IO Transport
+mkTransport ring recvIntoBuf = do
+  let !base = ringBase ring
+      !msk  = ringMask ring
+      !sz   = ringSize ring
 
-        advanceTail pos = writeIORef tailRef pos
+  headRef  <- newIORef (0 :: Word64)
+  tailRef  <- newIORef (0 :: Word64)
+  stateRef <- newIORef RecvOpen
 
-        waitData pos = do
-          st <- readIORef stateRef
-          case st of
-            RecvClosedEof   -> pure EndOfInput
-            RecvClosedErr e -> pure (TransportError e)
-            RecvOpen        -> doRecv pos
+  let loadHead = readIORef headRef
 
-        doRecv pos = do
-          h <- readIORef headRef
-          if h > pos
-            then pure (MoreData h)
-            else do
-              t <- readIORef tailRef
-              let !writeOff  = fromIntegral h .&. msk
-                  !writePtr  = base `plusPtr` writeOff
-                  !available = sz - fromIntegral (h - t)
-                  -- Don't cross the ring boundary in a single recv
-                  !maxRecv   = min available (sz - writeOff)
-              if maxRecv <= 0
-                then pure (MoreData h)
-                else do
-                  result <- try @IOException (recvIntoBuf writePtr maxRecv)
-                  case result of
-                    Left exc -> do
-                      writeIORef stateRef (RecvClosedErr (toException exc))
-                      pure (TransportError (toException exc))
-                    Right n
-                      | n == 0 -> do
-                          writeIORef stateRef RecvClosedEof
-                          pure EndOfInput
-                      | otherwise -> do
-                          let !newHead = h + fromIntegral n
-                          writeIORef headRef newHead
-                          pure (MoreData newHead)
+      advanceTail pos = writeIORef tailRef pos
 
-        transport = Transport
-          { transportRing        = ring
-          , transportLoadHead    = loadHead
-          , transportAdvanceTail = advanceTail
-          , transportWaitData    = waitData
-          , transportClose       = writeIORef stateRef RecvClosedEof
-          }
+      waitData pos = do
+        st <- readIORef stateRef
+        case st of
+          RecvClosedEof   -> pure EndOfInput
+          RecvClosedErr e -> pure (TransportError e)
+          RecvOpen        -> doRecv pos
 
-    action transport
+      doRecv pos = do
+        h <- readIORef headRef
+        if h > pos
+          then pure (MoreData h)
+          else do
+            t <- readIORef tailRef
+            let !writeOff  = fromIntegral h .&. msk
+                !writePtr  = base `plusPtr` writeOff
+                !available = sz - fromIntegral (h - t)
+                -- Don't cross the ring boundary in a single recv
+                !maxRecv   = min available (sz - writeOff)
+            if maxRecv <= 0
+              then pure (MoreData h)
+              else do
+                result <- try @IOException (recvIntoBuf writePtr maxRecv)
+                case result of
+                  Left exc -> do
+                    writeIORef stateRef (RecvClosedErr (toException exc))
+                    pure (TransportError (toException exc))
+                  Right n
+                    | n == 0 -> do
+                        writeIORef stateRef RecvClosedEof
+                        pure EndOfInput
+                    | otherwise -> do
+                        let !newHead = h + fromIntegral n
+                        writeIORef headRef newHead
+                        pure (MoreData newHead)
+
+  pure Transport
+    { transportRing        = ring
+    , transportLoadHead    = loadHead
+    , transportAdvanceTail = advanceTail
+    , transportWaitData    = waitData
+    , transportClose       = writeIORef stateRef RecvClosedEof
+    }
 
 -- | Receive bytes from the socket directly into the ring.
 -- Uses Network.Socket.recvBuf so the kernel writes straight into the
