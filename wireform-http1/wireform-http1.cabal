@@ -74,6 +74,7 @@ library
     Network.HTTP1.Version
     Network.HTTP1.Headers
     Network.HTTP1.Parser
+    Network.HTTP1.StreamingParser
     Network.HTTP1.Encode
     Network.HTTP1.Chunked
     Network.HTTP1.Connection
@@ -118,6 +119,7 @@ test-suite wireform-http1-test
     Test.RoundTrip
     Test.Integration
     Test.ServerEdgeCases
+    Test.StreamingParser
   build-depends:
     base,
     bytestring,
@@ -127,6 +129,7 @@ test-suite wireform-http1-test
     stm,
     wireform-core,
     wireform-http1,
+    wireform-network,
     tasty >= 1.4,
     tasty-hunit >= 0.10,
     tasty-quickcheck >= 0.10,
