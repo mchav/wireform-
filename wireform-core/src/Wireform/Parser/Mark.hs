@@ -21,7 +21,8 @@ newtype Mark = Mark { unMark :: Word64 }
 
 mark :: Parser m e Mark
 mark = Parser \env eob s st ->
-  (# st, OK# (Mark (curToPos env s)) s #)
+  case curToPos env s st of
+    (# st', pos #) -> (# st', OK# (Mark pos) s #)
 {-# INLINE mark #-}
 
 restore :: Mark -> Parser m e ()

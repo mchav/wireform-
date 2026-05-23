@@ -44,6 +44,7 @@ module Wireform.Parser.Internal
     -- * Parser environment
   , ParserEnv (..)
   , curToPos
+  , curToPosIO
 
     -- * Suspension / checkpoint primitives
   , ensureN#
@@ -59,6 +60,10 @@ module Wireform.Parser.Internal
   , writeEnd#
   , readEnd
   , writeEnd
+
+    -- * Anchor access
+  , writeAnchor#
+  , writeAnchor
   ) where
 
 import Control.Applicative (Alternative (..))
@@ -117,35 +122,66 @@ class ParserMode (m :: Type) where
   onEnsureFail :: ParserEnv -> Addr# -> Addr# -> Int#
                -> State# RealWorld -> StRes# e ()
 
+  -- | Mode-polymorphic checkpoint.  In streaming mode, advances the
+  -- transport's tail to the parser's current position (freeing ring
+  -- space behind it).  In whole-input mode, a no-op — there is no
+  -- ring to refill.
+  --
+  -- Used by 'Wireform.Parser.takeBs' / 'takeBsCopy' to drain reads
+  -- larger than the ring without deadlocking.
+  modeCheckpoint :: Parser m e ()
+
 instance ParserMode Pure where
   onEnsureFail _env _eob _s _n st = (# st, Fail# #)
   {-# INLINE onEnsureFail #-}
+  modeCheckpoint = Parser \_env _eob s st -> (# st, OK# () s #)
+  {-# INLINE modeCheckpoint #-}
 
 instance ParserMode Stream where
   onEnsureFail = ensureNSlow
   {-# INLINE onEnsureFail #-}
+  modeCheckpoint = checkpoint
+  {-# INLINE modeCheckpoint #-}
 
 ------------------------------------------------------------------------
 -- Parser environment (carries mutable end pointer for streaming)
 ------------------------------------------------------------------------
 
--- | Shared context for a parse run. The mutable end pointer is the
--- only thing that changes during streaming; everything else is
--- constant for the duration of a @runParser@ call.
+-- | Shared context for a parse run.
+--
+-- Three mutable cells (pointer-to-Ptr fields) carry state that the
+-- driver updates between parser resumptions:
+--
+--   * 'peEndPtr'    — the producer's head pointer, refreshed after
+--                     a 'StepSuspend' / 'StepCheckpoint' round-trip.
+--   * 'peAnchorPos' — the absolute byte offset of the parser's most
+--                     recent /anchor/.  Initially the parse run's
+--                     @startPos@; updated whenever the driver wraps
+--                     'cur' back into the first mapping (currently
+--                     on every 'StepCheckpoint' / 'StepSuspend' resume).
+--   * 'peAnchorCur' — the cur pointer that pairs with 'peAnchorPos'.
+--
+-- Logical position is computed as @anchorPos + (cur - anchorCur)@
+-- (see 'curToPos').  Re-anchoring on cur-resets keeps that identity
+-- correct even when a single parse run drains more bytes than the
+-- ring buffer can hold (the parser's logical 'cur' advances past
+-- @anchorCur + ringSize@, the driver wraps it back, and the anchor
+-- shifts forward by the wrap amount).
 data ParserEnv = ParserEnv
-  { peEndPtr   :: {-# UNPACK #-} !(Ptr (Ptr Word8))
-    -- ^ Mutable end pointer (single deref to read, updated on resume)
-  , peBaseAddr :: {-# UNPACK #-} !(Ptr Word8)
-    -- ^ Ring base address
-  , peMask     :: {-# UNPACK #-} !Int
-    -- ^ @ringSize - 1@
-  , peStartPos :: {-# UNPACK #-} !Word64
-    -- ^ Absolute start position of this parse run
-  , peInitCur  :: {-# UNPACK #-} !(Ptr Word8)
-    -- ^ Initial cur address (for absolute-position computation)
-  , peBackingFp :: !ForeignPtrContents
+  { peEndPtr     :: {-# UNPACK #-} !(Ptr (Ptr Word8))
+    -- ^ Mutable end pointer (single deref to read, updated on resume).
+  , peBaseAddr   :: {-# UNPACK #-} !(Ptr Word8)
+    -- ^ Ring base address.
+  , peMask       :: {-# UNPACK #-} !Int
+    -- ^ @ringSize - 1@ (or 'maxBound' in whole-input mode).
+  , peAnchorPos  :: {-# UNPACK #-} !(Ptr Word64)
+    -- ^ Mutable anchor: absolute byte position corresponding to
+    -- 'peAnchorCur'.
+  , peAnchorCur  :: {-# UNPACK #-} !(Ptr (Ptr Word8))
+    -- ^ Mutable anchor: cur address corresponding to 'peAnchorPos'.
+  , peBackingFp  :: !ForeignPtrContents
     -- ^ Keeps the backing memory alive for zero-copy slices.
-  , peTag      :: Any
+  , peTag        :: Any
     -- ^ PromptTag# stored as Any via unsafeCoerce#.
     -- Only meaningful for streaming mode.
   }
@@ -160,12 +196,43 @@ pePromptTag env = unsafeCoerce# (peTag env)
 tagToAny :: PromptTag# a -> Any
 tagToAny t = unsafeCoerce# t
 
+-- | Convert a cur address to an absolute logical position.  Reads
+-- the mutable anchor cells, so it must be threaded through 'State#'.
 {-# INLINE curToPos #-}
-curToPos :: ParserEnv -> Addr# -> Word64
-curToPos env cur =
-  let !(Ptr base) = peInitCur env
-      !off = I# (minusAddr# cur base)
-  in peStartPos env + fromIntegral off
+curToPos :: ParserEnv -> Addr# -> State# RealWorld
+         -> (# State# RealWorld, Word64 #)
+curToPos env cur s0 =
+  let !(Ptr posCell)  = peAnchorPos env
+      !(Ptr curCell#) = peAnchorCur env
+  in case readWord64OffAddr# posCell 0# s0 of
+       (# s1, ap# #) ->
+         case readAddrOffAddr# curCell# 0# s1 of
+           (# s2, ac# #) ->
+             let !off = I# (minusAddr# cur ac#)
+                 !pos = W64# ap# + fromIntegral off
+             in (# s2, pos #)
+
+-- | Boxed wrapper for IO contexts.
+curToPosIO :: ParserEnv -> Ptr Word8 -> IO Word64
+curToPosIO env (Ptr cur#) = IO \s -> curToPos env cur# s
+{-# INLINE curToPosIO #-}
+
+-- | Write a fresh @(anchorPos, anchorCur)@ pair.  Called by the driver
+-- whenever it wraps the parser's cur back into the first mapping
+-- (StepCheckpoint resume, StepSuspend resume).
+writeAnchor# :: ParserEnv -> Word64 -> Addr#
+             -> State# RealWorld -> State# RealWorld
+writeAnchor# env (W64# pos#) cur# s0 =
+  let !(Ptr posCell)  = peAnchorPos env
+      !(Ptr curCell#) = peAnchorCur env
+      !s1 = writeWord64OffAddr# posCell 0# pos# s0
+      !s2 = writeAddrOffAddr#   curCell# 0# cur# s1
+  in s2
+{-# INLINE writeAnchor# #-}
+
+writeAnchor :: ParserEnv -> Word64 -> Ptr Word8 -> IO ()
+writeAnchor env pos (Ptr cur#) = IO \s -> (# writeAnchor# env pos cur# s, () #)
+{-# INLINE writeAnchor #-}
 
 {-# INLINE readEnd# #-}
 readEnd# :: ParserEnv -> State# RealWorld -> (# State# RealWorld, Addr# #)
@@ -340,20 +407,26 @@ ensureNSlow env _eob s n# st =
         _  ->
           let tag :: PromptTag# (Step Any Any)
               tag = unsafeCoerce# (peTag env) in
-          let !pos    = curToPos env s
-              !needed = I# n#
-          in control0# tag
-               (\k st1 ->
-                 let resume = Resume
-                       { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
-                           IO \st2 ->
-                             let st3 = writeEnd# env newEnd st2
-                             in prompt# tag (\st4 -> k (\st5 -> (# st5, OK# () newCur #)) st4) st3
-                       , resumeEof =
-                           IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
-                       }
-                 in (# st1, StepSuspend pos needed resume #)
-               ) st0
+          case curToPos env s st0 of
+            (# st0', pos #) ->
+              let !needed = I# n#
+              in control0# tag
+                   (\k st1 ->
+                     let resume = Resume
+                           { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
+                               IO \st2 ->
+                                 -- The driver always wraps newCur back
+                                 -- into the first mapping; re-anchor so
+                                 -- 'curToPos' stays correct after the
+                                 -- wrap.
+                                 let st3 = writeEnd# env newEnd st2
+                                     st4 = writeAnchor# env pos newCur st3
+                                 in prompt# tag (\st5 -> k (\st6 -> (# st6, OK# () newCur #)) st5) st4
+                           , resumeEof =
+                               IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
+                           }
+                     in (# st1, StepSuspend pos needed resume #)
+                   ) st0'
 {-# NOINLINE ensureNSlow #-}
 
 ------------------------------------------------------------------------
@@ -363,16 +436,26 @@ ensureNSlow env _eob s n# st =
 -- | Checkpoint is only meaningful in streaming mode.
 checkpoint :: Parser Stream e ()
 checkpoint = Parser \env eob s st0 ->
-  let !pos = curToPos env s
-      tag :: PromptTag# (Step Any Any)
+  let tag :: PromptTag# (Step Any Any)
       tag = unsafeCoerce# (peTag env)
-  in control0# tag
-       (\k st1 ->
-         let resume = Resume
-               { resumeContinue = \(Ptr newCur) _ ->
-                   IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, OK# () newCur #)) st3) st2
-               , resumeEof =
-                   IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
-               }
-         in (# st1, StepCheckpoint pos resume #)
-       ) st0
+  in case curToPos env s st0 of
+       (# st0', pos #) ->
+         control0# tag
+           (\k st1 ->
+             let resume = Resume
+                   { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
+                       IO \st2 ->
+                         -- Re-anchor: the driver has wrapped newCur back
+                         -- to @base + (pos .&. mask)@ which decouples
+                         -- the cur pointer from the original anchor.
+                         -- Without re-anchoring, 'curToPos' would
+                         -- compute the wrong absolute position on the
+                         -- next call.
+                         let st3 = writeEnd# env newEnd st2
+                             st4 = writeAnchor# env pos newCur st3
+                         in prompt# tag (\st5 -> k (\st6 -> (# st6, OK# () newCur #)) st5) st4
+                   , resumeEof =
+                       IO \st2 -> prompt# tag (\st3 -> k (\st4 -> (# st4, Fail# #)) st3) st2
+                   }
+             in (# st1, StepCheckpoint pos resume #)
+           ) st0'

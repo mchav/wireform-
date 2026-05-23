@@ -33,15 +33,20 @@ subPos (Pos a) (Pos b) = fromIntegral (a - b)
 
 getPos :: Parser m e Pos
 getPos = Parser \env eob s st ->
-  (# st, OK# (Pos (curToPos env s)) s #)
+  case curToPos env s st of
+    (# st', pos #) -> (# st', OK# (Pos pos) s #)
 {-# INLINE getPos #-}
 
 withSpan :: Parser m e a -> (a -> Span -> Parser m e b) -> Parser m e b
 withSpan (Parser p) f = Parser \env eob s st ->
   case p env eob s st of
     (# st', OK# a s' #) ->
-      let !sp = Span (Pos (curToPos env s)) (Pos (curToPos env s'))
-      in runParser# (f a sp) env eob s' st'
+      case curToPos env s st' of
+        (# st'', startPos #) ->
+          case curToPos env s' st'' of
+            (# st''', endPos #) ->
+              let !sp = Span (Pos startPos) (Pos endPos)
+              in runParser# (f a sp) env eob s' st'''
     (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE withSpan #-}
 
