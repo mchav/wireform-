@@ -45,6 +45,8 @@ data InternalResult e a
   | IRUnexpectedEof !Word64 !Int
   | IRTransportError !SomeException
   | IRCleanEof
+  | IRRingOverflow {-# UNPACK #-} !Word64 {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+    -- ^ position, requested bytes, ring size — see 'ParseRingOverflow'.
 
 data TransportState
   = TSOpen
@@ -60,12 +62,13 @@ runParser t p = do
   startPos <- transportLoadHead t
   ir <- runParserInternal t p startPos
   pure $ case ir of
-    IRDone _ a            -> Right a
-    IRFail pos            -> Left (ParseFail pos)
-    IRErr pos e           -> Left (ParseErr pos e)
-    IRUnexpectedEof pos n -> Left (ParseUnexpectedEof pos n)
-    IRTransportError exc  -> Left (ParseTransportError exc)
-    IRCleanEof            -> Left (ParseUnexpectedEof 0 0)
+    IRDone _ a              -> Right a
+    IRFail pos              -> Left (ParseFail pos)
+    IRErr pos e             -> Left (ParseErr pos e)
+    IRUnexpectedEof pos n   -> Left (ParseUnexpectedEof pos n)
+    IRTransportError exc    -> Left (ParseTransportError exc)
+    IRCleanEof              -> Left (ParseUnexpectedEof 0 0)
+    IRRingOverflow pos n sz -> Left (ParseRingOverflow pos n sz)
 
 runParserInternal :: forall e a. Transport -> Parser Stream e a -> Word64 -> IO (InternalResult e a)
 runParserInternal t p startPos = mask \restore -> do
@@ -146,24 +149,32 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
         nextStep <- resumeContinue resume newCur end
         go nextStep
 
-      StepSuspend pausedAt needed resume -> do
-        modifyIORef' hwRef (max pausedAt)
-        result <- restore (waitUntilAvailable t tsRef pausedAt needed sz)
-        case result of
-          WAMoreData newHead -> do
-            modifyIORef' hwRef (max newHead)
-            let !newEndOff = fromIntegral newHead .&. msk
-                !newEnd    = base `plusPtr` newEndOff
-                !newCurOff = fromIntegral pausedAt .&. msk
-                !newCur    = base `plusPtr` newCurOff
-            writeEnd env newEnd
-            nextStep <- resumeContinue resume newCur newEnd
-            go nextStep
-          WAEndOfInput -> do
-            nextStep <- resumeEof resume
-            go nextStep
-          WATransportError exc ->
-            pure (IRTransportError exc)
+      StepSuspend pausedAt needed resume
+        | needed > sz ->
+            -- The parser asked for more bytes than the entire ring can
+            -- ever hold.  No amount of refilling will satisfy this;
+            -- waiting would deadlock (producer can't make room because
+            -- the consumer is suspended waiting for it).  Fail loudly
+            -- instead.
+            pure (IRRingOverflow pausedAt needed sz)
+        | otherwise -> do
+            modifyIORef' hwRef (max pausedAt)
+            result <- restore (waitUntilAvailable t tsRef pausedAt needed sz)
+            case result of
+              WAMoreData newHead -> do
+                modifyIORef' hwRef (max newHead)
+                let !newEndOff = fromIntegral newHead .&. msk
+                    !newEnd    = base `plusPtr` newEndOff
+                    !newCurOff = fromIntegral pausedAt .&. msk
+                    !newCur    = base `plusPtr` newCurOff
+                writeEnd env newEnd
+                nextStep <- resumeContinue resume newCur newEnd
+                go nextStep
+              WAEndOfInput -> do
+                nextStep <- resumeEof resume
+                go nextStep
+              WATransportError exc ->
+                pure (IRTransportError exc)
 
 data WaitAvail
   = WAMoreData {-# UNPACK #-} !Word64
@@ -210,11 +221,12 @@ runParserLoop t p k = do
         IRDone newPos a -> do
           ctl <- k a
           case ctl of { Continue -> loop newPos; Stop -> pure (Right ()) }
-        IRCleanEof           -> pure (Right ())
-        IRFail fpos          -> pure (Left (ParseFail fpos))
-        IRErr fpos e         -> pure (Left (ParseErr fpos e))
-        IRUnexpectedEof fpos n -> pure (Left (ParseUnexpectedEof fpos n))
-        IRTransportError exc -> pure (Left (ParseTransportError exc))
+        IRCleanEof               -> pure (Right ())
+        IRFail fpos              -> pure (Left (ParseFail fpos))
+        IRErr fpos e             -> pure (Left (ParseErr fpos e))
+        IRUnexpectedEof fpos n   -> pure (Left (ParseUnexpectedEof fpos n))
+        IRTransportError exc     -> pure (Left (ParseTransportError exc))
+        IRRingOverflow fpos n sz -> pure (Left (ParseRingOverflow fpos n sz))
 
 ------------------------------------------------------------------------
 -- parseByteString (non-streaming, flatparse-equivalent)

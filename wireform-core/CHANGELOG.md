@@ -21,6 +21,16 @@
   un-scoped from a safety standpoint.  Transport constructors must
   populate the three raw fields explicitly.
 
+* `Wireform.Parser.Driver` / `Wireform.Parser.Error` -- detect the
+  case where the streaming parser asks for more bytes than the ring
+  can ever hold.  Previously this deadlocked: the producer cannot
+  make room (head is pinned at @tail + ringSize@), the consumer is
+  suspended waiting for bytes the producer cannot deliver, and the
+  driver's wait loop spins on a no-progress @MoreData@ from the
+  transport.  The driver now short-circuits with a new
+  `ParseRingOverflow` error variant (carrying the parser position,
+  requested byte count, and ring size) before suspending.
+
 ## 0.1.0.0 -- 2026
 
 Initial release.
