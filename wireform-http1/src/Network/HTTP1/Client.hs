@@ -9,9 +9,9 @@ Two primary modes:
 * 'withClientConnection' — bracket pattern: open a TCP connection,
   run an action, close it.
 
-For TLS (or any non-socket transport) build the 'Connection' via
-'newConnectionFromTransport' and call 'sendRequestOn' yourself; the
-high-level helpers here are TCP-only.
+For TLS build the 'Connection' via 'newConnectionFromTls' (passing a
+handshaked 'Wireform.Network.TLS.OpenSSL.SslConn') and call
+'sendRequestOn' yourself; the high-level helpers here are TCP-only.
 
 A pooled variant lives in "Network.HTTP1.Client.Pool".
 -}
@@ -59,11 +59,12 @@ defaultClientConfig = ClientConfig
 
 -- | Opaque handle for a client-side HTTP\/1.x connection.  Construct
 -- via 'openClientConnection' (TCP) or by wrapping a
--- 'newConnectionFromTransport' yourself (TLS / other).
+-- 'newConnectionFromTls' yourself (TLS).
 newtype ClientConnection = ClientConnection { unClientConnection :: Connection }
 
--- | The underlying socket, if the connection is socket-backed.  TLS
--- connections return 'Nothing'.
+-- | The underlying socket if the connection has one (TCP and TLS both
+-- do; the TLS variant deliberately doesn't expose it through the
+-- sendfile fast path).
 clientConnectionSocket :: ClientConnection -> Maybe Socket
 clientConnectionSocket (ClientConnection c) = connectionSocket c
 
@@ -77,7 +78,7 @@ openClientConnection cfg = do
       sock <- NS.openSocket addr
       NS.connect sock (NS.addrAddress addr)
       NS.setSocketOption sock NS.NoDelay 1
-      ClientConnection <$> newConnection sock
+      ClientConnection <$> newConnectionFromSocket sock
 
 closeClientConnection :: ClientConnection -> IO ()
 closeClientConnection (ClientConnection c) = closeConnection c
@@ -132,10 +133,10 @@ collectBody = \case
 -- be misframed.
 sendRequestOn :: ClientConnection -> Request -> IO (Either ParseError Response)
 sendRequestOn (ClientConnection conn) req = do
-  sendBuilder conn (requestBuilder req)
+  connectionSendBuilder conn (requestBuilder req)
   case requestBody req of
     BodyEmpty -> pure ()
-    BodyBytes bs -> if BS.null bs then pure () else sendBuilder conn (B.byteString bs)
+    BodyBytes bs -> if BS.null bs then pure () else connectionSendBytes conn bs
     BodyStream producer -> streamChunked conn producer
     BodyPreEncoded _ -> pure ()
     -- ^ Pre-encoded request bodies are unusual but not nonsensical
@@ -174,7 +175,7 @@ streamChunked conn producer = loop
     loop = do
       mc <- producer
       case mc of
-        Nothing -> sendBuilder conn encodeLastChunk
+        Nothing -> connectionSendBuilder conn encodeLastChunk
         Just bs
           | BS.null bs -> loop
-          | otherwise -> sendBuilder conn (encodeChunk bs) >> loop
+          | otherwise -> connectionSendBuilder conn (encodeChunk bs) >> loop

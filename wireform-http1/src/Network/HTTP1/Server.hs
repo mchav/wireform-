@@ -32,7 +32,8 @@ module Network.HTTP1.Server
   , defaultServerConfig
   , runServer
   , runServerOnSocket
-  , runServerOnTransport
+  , runServerOnTls
+  , runServerOnConnection
   , Handler
   ) where
 
@@ -50,6 +51,8 @@ import System.IO
 import qualified System.Posix.IO as PosixIO
 import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
 
+
+import Wireform.Network.TLS.OpenSSL (SslConn)
 
 import Network.HTTP1.Chunked
   (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
@@ -167,16 +170,21 @@ acceptLoop cfg listenSock = do
 
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
 runServerOnSocket cfg sock = do
-  conn <- newConnection sock
+  conn <- newConnectionFromSocket sock
   handleConnection cfg conn
 
--- | Drive the server over an arbitrary 'Transport' (e.g. a TLS context).
--- The transport must already be live; the caller is responsible for the
--- TLS handshake \/ ALPN negotiation.
-runServerOnTransport :: ServerConfig -> Transport -> IO ()
-runServerOnTransport cfg transport = do
-  conn <- newConnectionFromTransport transport
+-- | Drive the server over a TLS-wrapped connection.  The caller is
+-- responsible for the handshake and any ALPN assertion
+-- ('Network.HTTP1.TLS.assertHttp11Alpn').
+runServerOnTls :: ServerConfig -> SslConn -> IO ()
+runServerOnTls cfg ssl = do
+  conn <- newConnectionFromTls ssl
   handleConnection cfg conn
+
+-- | Drive the server over an already-built 'Connection' (e.g. an
+-- in-memory pipe duplex wrapped via 'newConnectionFromDuplex').
+runServerOnConnection :: ServerConfig -> Connection -> IO ()
+runServerOnConnection = handleConnection
 
 handleConnection :: ServerConfig -> Connection -> IO ()
 handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
@@ -270,52 +278,54 @@ sendResponse conn reqMethod resp = do
         reqMethod == HEAD
           || let sc = case responseStatus resp of Status w -> w
              in (sc >= 100 && sc < 200) || sc == 204 || sc == 304
-      transport = connectionTransport conn
-      sendAll = tSendAll transport
-      sendMany = tSendMany transport
   case responseBody resp of
     BodyPreEncoded pe ->
       let bs = if mustOmitBody then preEncodedHead pe else peBytes pe
-      in sendAll bs
+      in connectionSendBytes conn bs
     body -> do
       let headBs = B.toStrictByteStringWith 1024 (responseBuilder resp)
       if mustOmitBody
-        then sendAll headBs
+        then connectionSendBytes conn headBs
         else case body of
-          BodyEmpty -> sendAll headBs
+          BodyEmpty -> connectionSendBytes conn headBs
           BodyBytes bs
-            | BS.null bs -> sendAll headBs
+            | BS.null bs -> connectionSendBytes conn headBs
             | otherwise  ->
-                -- Vectored I/O: head + body land in one writev() with
-                -- no body copy on socket transports.  TLS falls back
-                -- to concat + a single send.
-                sendMany [headBs, bs]
+                -- Stage head + body as one ring reservation, then
+                -- drain in one sendmsg.  Replaces the prior writev
+                -- with a ring-coalesced equivalent.
+                connectionSendMany conn [headBs, bs]
           BodyStream producer -> do
             -- Streaming bodies need the head out first (handler-driven
             -- back-pressure) so we don't accumulate the whole body in
             -- RAM.
-            sendAll headBs
+            connectionSendBytes conn headBs
             case responseVersion resp of
               HTTP_1_1 -> do
-                -- Run the trailer action only if the handler advertised
-                -- a non-default value. We can't peek inside an IO so
-                -- we materialise it; for the overwhelmingly common
-                -- case (no trailers) the action is `pure []` and
-                -- this is free.
                 trs <- responseTrailers resp
                 if null trs
                   then streamChunked conn producer
                   else streamChunkedWithTrailers conn producer trs
               HTTP_1_0 -> streamRaw conn producer
-          BodyFile fb -> sendFileBody transport headBs fb
+          BodyFile fb -> sendFileBody conn headBs fb
 
--- | Push a file-backed response body.  On socket transports we use
--- the @sendfile(2)@ fast path with @MSG_MORE@ on the head; on
--- non-socket transports (TLS) we fall back to a userspace
--- @read()@\/@write()@ loop.
-sendFileBody :: Transport -> BS.ByteString -> FileBody -> IO ()
-sendFileBody transport headBs fb = case tSocket transport of
+-- | Push a file-backed response body.  On plain TCP connections we
+-- use the @sendfile(2)@ fast path with @MSG_MORE@ on the head; on
+-- TLS connections (where the kernel cannot encrypt for us) we fall
+-- back to a userspace @read()@\/ring-send loop.
+sendFileBody :: Connection -> BS.ByteString -> FileBody -> IO ()
+sendFileBody conn headBs fb = case connSocket of
   Just sock -> do
+    -- Flush the send ring first so head bytes go out in order with
+    -- respect to the upcoming sendfile.  Then SF.sendMore primes
+    -- the kernel with MSG_MORE so the sendfile can coalesce on the
+    -- wire.
+    --
+    -- (We deliberately call SF.sendMore here, not through the send
+    -- ring: the sendfile fast path is a kernel-managed zero-copy
+    -- and the head MUST be the immediately-preceding write on the
+    -- same socket fd.)
+    sendFlushConn conn
     SF.sendMore sock headBs
     case fbSource fb of
       FileSourcePath p ->
@@ -330,21 +340,35 @@ sendFileBody transport headBs fb = case tSocket transport of
       FileSourceFd fd ->
         SF.sendFile sock fd (fbOffset fb) (fbLength fb)
   Nothing -> do
-    tSendAll transport headBs
+    -- TLS / non-socket: head through the ring, body through a
+    -- userspace copy loop that also goes through the ring.
+    connectionSendBytes conn headBs
     case fbSource fb of
       FileSourcePath p ->
         withBinaryFile p ReadMode $ \h ->
-          userspaceCopyHandle transport h (fbOffset fb) (fbLength fb)
+          userspaceCopyHandle conn h (fbOffset fb) (fbLength fb)
       FileSourceFd fd -> do
         h <- PosixIO.fdToHandle fd
-        userspaceCopyHandle transport h (fbOffset fb) (fbLength fb)
+        userspaceCopyHandle conn h (fbOffset fb) (fbLength fb)
+  where
+    -- sendfile bypasses the ring; only fires on plain TCP (TLS sets
+    -- connSocket to Nothing intentionally so the userspace branch
+    -- runs through the TLS-aware send ring).
+    connSocket = connectionSocket conn
 
--- | Userspace read + sendAll loop, used when the transport doesn't
--- support @sendfile(2)@ (TLS, in-memory).  64 KiB chunks match the
+-- | Best-effort flush of any pending bytes in the send ring.  The
+-- inline send-ring drain is already synchronous so this is usually a
+-- no-op, but the io_uring backend (when wired in later) keeps
+-- in-flight SQEs that this would await.
+sendFlushConn :: Connection -> IO ()
+sendFlushConn _ = pure ()
+
+-- | Userspace read + ring-send loop, used when sendfile is
+-- unavailable (TLS, in-memory).  64 KiB chunks match the
 -- @sendfile(2)@ default and are large enough to amortise per-call
 -- overhead.
-userspaceCopyHandle :: Transport -> Handle -> Word64 -> Word64 -> IO ()
-userspaceCopyHandle transport h off0 len0 = do
+userspaceCopyHandle :: Connection -> Handle -> Word64 -> Word64 -> IO ()
+userspaceCopyHandle conn h off0 len0 = do
   hSeek h AbsoluteSeek (fromIntegral off0)
   loop len0
   where
@@ -357,7 +381,7 @@ userspaceCopyHandle transport h off0 len0 = do
       if got <= 0
         then pure ()
         else do
-          tSendAll transport bs
+          connectionSendBytes conn bs
           loop (rem' - fromIntegral got)
 
 streamChunked :: Connection -> IO (Maybe BS.ByteString) -> IO ()
@@ -366,12 +390,12 @@ streamChunked conn producer = loop
     loop = do
       mc <- producer
       case mc of
-        Nothing -> sendBuilder conn encodeLastChunk
+        Nothing -> connectionSendBuilder conn encodeLastChunk
         Just bs ->
           if BS.null bs
             then loop  -- skip empty chunk (would be a premature terminator)
             else do
-              sendBuilder conn (encodeChunk bs)
+              connectionSendBuilder conn (encodeChunk bs)
               loop
 
 -- | Like 'streamChunked' but emits @trailers@ in the chunked-body
@@ -397,13 +421,13 @@ streamChunkedWithTrailers conn producer trailers = loop
       mc <- producer
       case mc of
         Nothing
-          | null trailers -> sendBuilder conn encodeLastChunk
-          | otherwise     -> sendBuilder conn (encodeLastChunkWithTrailers trailers)
+          | null trailers -> connectionSendBuilder conn encodeLastChunk
+          | otherwise     -> connectionSendBuilder conn (encodeLastChunkWithTrailers trailers)
         Just bs ->
           if BS.null bs
             then loop
             else do
-              sendBuilder conn (encodeChunk bs)
+              connectionSendBuilder conn (encodeChunk bs)
               loop
 
 streamRaw :: Connection -> IO (Maybe BS.ByteString) -> IO ()
@@ -413,7 +437,7 @@ streamRaw conn producer = loop
       mc <- producer
       case mc of
         Nothing -> pure ()
-        Just bs -> sendBuilder conn (B.byteString bs) >> loop
+        Just bs -> connectionSendBytes conn bs >> loop
 
 ------------------------------------------------------------------------
 -- Errors / framing decisions
@@ -439,7 +463,7 @@ isContinueExpect bs = BS.map asciiLower (trim bs) == "100-continue"
 -- request \/ response framing.
 sendInterim :: Connection -> IO ()
 sendInterim conn =
-  (tSendAll (connectionTransport conn) "HTTP/1.1 100 Continue\r\n\r\n")
+  connectionSendBytes conn "HTTP/1.1 100 Continue\r\n\r\n"
     `catch` (\(_ :: SomeException) -> pure ())
 
 -- | Send a static error response after a parse failure. Always closes
@@ -454,7 +478,7 @@ sendErrorResponse conn st = do
         , responseBody = BodyEmpty
         , responseTrailers = pure []
         }
-  sendBuilder conn (responseBuilder resp)
+  connectionSendBuilder conn (responseBuilder resp)
     `catch` (\(_ :: SomeException) -> pure ())
 
 errorToStatus :: ParseError -> Status

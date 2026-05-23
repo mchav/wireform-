@@ -74,9 +74,9 @@ import Wireform.Ring.Internal
   , ringMask
   )
 import Wireform.Transport
-  ( Transport (..)
-  , WaitResult (..)
-  , transportRing
+  ( ReceiveTransport (..)
+  , ReceiveWait (..)
+  , receiveRing
   )
 
 import Network.HTTP1.Method (Method)
@@ -146,11 +146,11 @@ defaultChunkLineCap = 4 * 1024
 -- request-handling scope).  If the caller needs to retain the bytes
 -- beyond that scope it MUST @BS.copy@.
 readHeaderBlock
-  :: Transport
+  :: ReceiveTransport
   -> Int          -- ^ hard cap; @ReadMessageTooLong@ if exceeded.
   -> IO (Either ReadError ByteString)
 readHeaderBlock t cap = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   fmap (fmap fst) (readHeaderBlockFrom t startPos cap)
 
 -- | Like 'readHeaderBlock' but starting from an explicit ring
@@ -161,12 +161,12 @@ readHeaderBlock t cap = do
 -- benchmark harnesses and by connection-layer pull loops that
 -- track position themselves.
 readHeaderBlockFrom
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> Int
   -> IO (Either ReadError (ByteString, Word64))
 readHeaderBlockFrom t startPos cap = do
-  let !ring = transportRing t
+  let !ring = receiveRing t
       !base = ringBase ring
       !msk  = ringMask ring
   -- @scanFrom@ tracks how far we've already scanned for the
@@ -178,7 +178,7 @@ readHeaderBlockFrom t startPos cap = do
   loop ring base msk 0
   where
     loop !ring !base !msk !scanFrom = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
       if avail > cap
         then pure (Left (ReadMessageTooLong cap))
@@ -191,7 +191,7 @@ readHeaderBlockFrom t startPos cap = do
               let !blockLen   = idx
                   !block      = ringSlice ring startPos blockLen
                   !nextPos    = startPos + fromIntegral (blockLen + 4)
-              transportAdvanceTail t nextPos
+              receiveAdvanceTail t nextPos
               pure (Right (block, nextPos))
             Nothing -> do
               -- Need more bytes; suspend on the IO manager.  On
@@ -199,11 +199,11 @@ readHeaderBlockFrom t startPos cap = do
               -- backstep so a CRLFCR straddling the previous
               -- buffer end is re-examined.
               let !nextScan = max 0 (avail - 3)
-              r <- transportWaitData t h
+              r <- receiveWaitData t h
               case r of
-                MoreData _         -> loop ring base msk nextScan
-                EndOfInput         -> pure (Left ReadUnexpectedEof)
-                TransportError exc -> pure (Left (ReadTransportError exc))
+                ReceiveMoreData _         -> loop ring base msk nextScan
+                ReceiveEndOfInput         -> pure (Left ReadUnexpectedEof)
+                ReceiveFailed exc -> pure (Left (ReadTransportError exc))
 
 -- | Locate the byte offset (relative to @startPos@) of the next
 -- @\\r\\n\\r\\n@ in the ring.  Returns 'Nothing' when no terminator
@@ -318,27 +318,27 @@ ringSlice ring pos (I# len#) =
 --
 -- Returns the parsed 'Request' (body slot stays @BodyEmpty@; the
 -- caller wires it up using the returned 'Framing') or a 'ReadError'.
-readRequestHead :: Transport -> IO (Either ReadError (Request, Framing))
+readRequestHead :: ReceiveTransport -> IO (Either ReadError (Request, Framing))
 readRequestHead t = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   fmap (fmap fst) (readRequestHeadFrom t startPos)
 {-# INLINE readRequestHead #-}
 
 -- | Like 'readRequestHead' but tracks position explicitly.  Returns
 -- @(result, newPos)@ so callers can loop reading successive
 -- requests on a keep-alive connection without re-reading
--- 'transportLoadHead' (which gives the head, not the consumed
+-- 'receiveLoadHead' (which gives the head, not the consumed
 -- position) between iterations.
 --
 -- The header block is copied off the ring before 'parseRequest'
 -- runs so the resulting 'Request's header slices stay valid past
--- the next 'transportAdvanceTail' that the body reader (or the
+-- the next 'receiveAdvanceTail' that the body reader (or the
 -- next request's head reader) will issue.  Single allocation per
 -- request — typically <2 KB on the wire — and it's the price we
 -- pay for not racing the recv path on a long-lived keep-alive
 -- connection where the magic ring will eventually wrap.
 readRequestHeadFrom
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> IO (Either ReadError ((Request, Framing), Word64))
 readRequestHeadFrom t startPos = do
@@ -357,16 +357,16 @@ readRequestHeadFrom t startPos = do
 -- Takes the request method so 'responseFraming' can apply the
 -- HEAD \/ CONNECT special cases.
 readResponseHead
-  :: Transport
+  :: ReceiveTransport
   -> Method
   -> IO (Either ReadError (Response, Framing))
 readResponseHead t reqMethod = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   fmap (fmap fst) (readResponseHeadFrom t startPos reqMethod)
 {-# INLINE readResponseHead #-}
 
 readResponseHeadFrom
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> Method
   -> IO (Either ReadError ((Response, Framing), Word64))
@@ -390,24 +390,24 @@ readResponseHeadFrom t startPos reqMethod = do
 -- to find the CRLF, then defers to 'Classic.parseChunkSize' for the
 -- hex / extension grammar.
 readChunkSizeLine
-  :: Transport
+  :: ReceiveTransport
   -> IO (Either ReadError Word64)
 readChunkSizeLine t = do
-  startPos <- transportLoadHead t
+  startPos <- receiveLoadHead t
   fmap (fmap fst) (readChunkSizeLineFrom t startPos)
 
 readChunkSizeLineFrom
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> IO (Either ReadError (Word64, Word64))
 readChunkSizeLineFrom t startPos = do
-  let !ring = transportRing t
+  let !ring = receiveRing t
       !base = ringBase ring
       !msk  = ringMask ring
   loop ring base msk 0
   where
     loop !ring !base !msk !scanFrom = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
       if avail > defaultChunkLineCap
         then pure (Left (ReadMessageTooLong defaultChunkLineCap))
@@ -418,17 +418,17 @@ readChunkSizeLineFrom t startPos = do
               let !lineLen = idx
                   !line    = ringSlice ring startPos lineLen
                   !nextPos = startPos + fromIntegral (lineLen + 2)
-              transportAdvanceTail t nextPos
+              receiveAdvanceTail t nextPos
               pure $ case Classic.parseChunkSize line of
                 Right n -> Right (n, nextPos)
                 Left e  -> Left (ReadParse e)
             Nothing -> do
               let !nextScan = max 0 (avail - 1)
-              r <- transportWaitData t h
+              r <- receiveWaitData t h
               case r of
-                MoreData _         -> loop ring base msk nextScan
-                EndOfInput         -> pure (Left ReadUnexpectedEof)
-                TransportError exc -> pure (Left (ReadTransportError exc))
+                ReceiveMoreData _         -> loop ring base msk nextScan
+                ReceiveEndOfInput         -> pure (Left ReadUnexpectedEof)
+                ReceiveFailed exc -> pure (Left (ReadTransportError exc))
 
 ------------------------------------------------------------------------
 -- Body-shaped readers
@@ -441,26 +441,26 @@ readChunkSizeLineFrom t startPos = do
 -- Used by the @ContentLength@ and @CloseDelimited@ body-stream
 -- producers in 'Network.HTTP1.Connection'.  The returned slice is
 -- zero-copy into the ring memory and is invalidated by the next
--- 'advancePast' / 'transportAdvanceTail' call — i.e. the caller
+-- 'advancePast' / 'receiveAdvanceTail' call — i.e. the caller
 -- must hand it to the application synchronously before pulling
 -- another chunk.
 readUpTo
-  :: Transport
+  :: ReceiveTransport
   -> Word64       -- ^ start position
   -> Int          -- ^ maximum bytes to return (clamped to ring size)
   -> IO (Either ReadError (ByteString, Word64))
 readUpTo t startPos want = do
-  let !ring = transportRing t
-  h0 <- transportLoadHead t
+  let !ring = receiveRing t
+  h0 <- receiveLoadHead t
   let !haveNow = h0 - startPos
   if haveNow > 0
     then deliver ring startPos h0
     else do
-      r <- transportWaitData t h0
+      r <- receiveWaitData t h0
       case r of
-        MoreData h1 -> deliver ring startPos h1
-        EndOfInput  -> pure (Left ReadUnexpectedEof)
-        TransportError exc -> pure (Left (ReadTransportError exc))
+        ReceiveMoreData h1 -> deliver ring startPos h1
+        ReceiveEndOfInput  -> pure (Left ReadUnexpectedEof)
+        ReceiveFailed exc -> pure (Left (ReadTransportError exc))
   where
     deliver ring s h =
       let !want64 = fromIntegral want :: Word64
@@ -473,12 +473,12 @@ readUpTo t startPos want = do
 -- they arrive; returns @(slice, newPos)@ on success, @Left
 -- ReadUnexpectedEof@ if EOF arrives first.
 readExact
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> Int
   -> IO (Either ReadError (ByteString, Word64))
 readExact t startPos n = do
-  let !ring = transportRing t
+  let !ring = receiveRing t
       !need64 = fromIntegral n :: Word64
   e <- ensureBytes t startPos need64
   case e of
@@ -504,18 +504,18 @@ data StrictLine
 -- 'StrictBareLf' (smuggling guard for the chunked-TE trailer
 -- section, RFC 9112 § 2.2).
 readUntilCRLFStrict
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> Int          -- ^ hard byte cap
   -> IO (Either ReadError (Maybe StrictLine, Word64))
 readUntilCRLFStrict t startPos cap = do
-  let !ring = transportRing t
+  let !ring = receiveRing t
       !base = ringBase ring
       !msk  = ringMask ring
   loop ring base msk 0
   where
     loop !ring !base !msk !scanFrom = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
       if avail > cap
         then pure (Right (Nothing, startPos))
@@ -527,15 +527,15 @@ readUntilCRLFStrict t startPos cap = do
               let !lineLen = idx
                   !line    = ringSlice ring startPos lineLen
                   !nextPos = startPos + fromIntegral (lineLen + 2)
-              transportAdvanceTail t nextPos
+              receiveAdvanceTail t nextPos
               pure (Right (Just (StrictLine line), nextPos))
             ScanNeedMore -> do
               let !nextScan = max 0 (avail - 1)
-              r <- transportWaitData t h
+              r <- receiveWaitData t h
               case r of
-                MoreData _         -> loop ring base msk nextScan
-                EndOfInput         -> pure (Right (Nothing, startPos))
-                TransportError exc -> pure (Left (ReadTransportError exc))
+                ReceiveMoreData _         -> loop ring base msk nextScan
+                ReceiveEndOfInput         -> pure (Right (Nothing, startPos))
+                ReceiveFailed exc -> pure (Left (ReadTransportError exc))
 
 data ScanResult
   = ScanFoundCrlf !Int
@@ -580,10 +580,10 @@ foreign import ccall unsafe "hs_http1_find_lf"
 
 -- | Tell the transport that bytes up to @pos@ are no longer needed
 -- (releases space in the ring for the recv path to reuse).  Wraps
--- 'transportAdvanceTail' so the connection-layer call sites don't
+-- 'receiveAdvanceTail' so the connection-layer call sites don't
 -- have to import the transport surface directly.
-advancePast :: Transport -> Word64 -> IO ()
-advancePast = transportAdvanceTail
+advancePast :: ReceiveTransport -> Word64 -> IO ()
+advancePast = receiveAdvanceTail
 {-# INLINE advancePast #-}
 
 ------------------------------------------------------------------------
@@ -593,21 +593,21 @@ advancePast = transportAdvanceTail
 -- | Block until at least @needed@ bytes are available past @startPos@.
 -- Returns the (latest known) head on success.
 ensureBytes
-  :: Transport
+  :: ReceiveTransport
   -> Word64
   -> Word64
   -> IO (Either ReadError Word64)
 ensureBytes t startPos needed = loop
   where
     loop = do
-      h <- transportLoadHead t
+      h <- receiveLoadHead t
       if h - startPos >= needed
         then pure (Right h)
         else do
-          r <- transportWaitData t h
+          r <- receiveWaitData t h
           case r of
-            MoreData _         -> loop
-            EndOfInput         -> pure (Left ReadUnexpectedEof)
-            TransportError exc -> pure (Left (ReadTransportError exc))
+            ReceiveMoreData _         -> loop
+            ReceiveEndOfInput         -> pure (Left ReadUnexpectedEof)
+            ReceiveFailed exc -> pure (Left (ReadTransportError exc))
 {-# INLINE ensureBytes #-}
 
