@@ -65,7 +65,7 @@ module Kafka.Protocol.VersionNegotiation
 import Control.Concurrent.STM (atomically)
 import Control.Exception (Exception)
 import Data.Int (Int16, Int32)
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 
 import Kafka.Network.Connection (BrokerAddress)
 import Kafka.Protocol.ApiVersions

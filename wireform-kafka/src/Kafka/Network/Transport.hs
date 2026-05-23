@@ -2,170 +2,145 @@
 
 {- |
 Module      : Kafka.Network.Transport
-Description : Pluggable network transport for Kafka client
-Copyright   : (c) 2026
-License     : BSD-3-Clause
-Maintainer  : kafka-native
-
-The default 'Kafka.Network.Connection' module is hard-coded to
-@crypton-connection@. That works for production but is awkward for:
-
-  * unix-socket / Vsock / abstract-socket transports (custom
-    fabrics, micro-VM wireup);
-  * in-process testing transports that pipe bytes through a 'TVar'
-    rather than a real socket;
-  * shared-process integration tests where a single Haskell process
-    drives both a mock broker and a real client end without
-    listening on a real TCP port.
+Description : Pluggable byte-stream transport for the Kafka client.
 
 The 'Transport' record is the minimal interface a custom transport
-has to satisfy: open / read-up-to-N / write-bytes / close. The
-existing 'Network.Connection' path implements this via
-'mkTcpTransport' (and the test suite carries an in-memory
-'mkPipeTransport' implementation).
+has to satisfy: open / read-up-to-N / write-bytes / close.  The
+default 'Kafka.Network.Connection' module is the canonical
+implementation, backed by 'Wireform.Network.DuplexTransport' (one
+magic-ring receive transport + one magic-ring send transport) and,
+when TLS is in use, the OpenSSL 'Wireform.Network.TLS.OpenSSL.SslConn'.
 
-This module is intentionally free of any TLS / SASL specifics —
+This module is intentionally free of any TLS \/ SASL specifics —
 those are layered on /top/ by 'Kafka.Network.Connection' and
-'Kafka.Network.Auth.SASL'. A custom transport that wants to carry
-a TLS session inside a unix socket just composes the two.
+'Kafka.Network.Auth.SASL'.
 -}
 module Kafka.Network.Transport (
   -- * Transport interface
   Transport (..),
 
   -- * Built-in transports
-  mkTcpTransport,
+  mkConnectionTransport,
   mkPipeTransport,
 ) where
 
-import Control.Concurrent.STM
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Network.Connection qualified as NC
-import Wireform.Builder qualified as WB
+import qualified Wireform.Builder as WB
+
+import qualified Kafka.Network.Connection as Conn
+import qualified Wireform.Network as WN
+import qualified Wireform.Transport.Receive as WR
+import qualified Wireform.Transport.Send as WS
+import Data.Bits ((.&.))
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
+import Data.IORef
+import Foreign.Marshal.Utils (copyBytes)
+import Foreign.Ptr (plusPtr)
+import Control.Exception (SomeException, try, throwIO)
+import Data.Word (Word64)
 
 
 {- | Pluggable byte-stream transport.
 
 Every operation is total in the type sense; failures are
-surfaced via 'Left'. Implementations are expected to be
+surfaced via 'Left'.  Implementations are expected to be
 /thread-safe for sequential use/ — callers serialise reads and
 writes via an external lock or by routing all I/O through a
 single thread, which is what 'Kafka.Client.Pipeline' does.
 -}
 data Transport = Transport
   { transportRead :: Int -> IO (Either String ByteString)
-  -- ^ Read up to @n@ bytes. Empty 'ByteString' means peer
-  --   closed (EOF).
   , transportWrite :: ByteString -> IO (Either String ())
-  -- ^ Write the given bytes, blocking until they're handed to
-  --   the kernel / next layer.
   , transportWriteBuilder :: WB.Builder -> IO (Either String ())
-  -- ^ Write a 'WB.Builder' directly without materializing an
-  --   intermediate 'ByteString'. Defaults to materializing via
-  --   'WB.toStrictByteString' then calling 'transportWrite'.
-  --   Transports backed by a 'Handle' can override this to use
-  --   'WB.hPutBuilder' for zero-copy streaming output.
   , transportClose :: IO ()
-  -- ^ Close the transport. Idempotent: a second call is a
-  --   no-op.
   , transportName :: String
-  -- ^ Human-readable label for logs / errors. Examples:
-  --   @"tcp:broker1:9092"@, @"unix:/var/run/kafka.sock"@,
-  --   @"pipe:test-456"@.
   }
 
-
-{- | Wrap an existing @crypton-connection@ 'NC.Connection' as a
-'Transport'. This is what 'Kafka.Network.Connection' implements
-under the hood; exposed so callers that want the default TCP /
-TLS plumbing without committing to 'ConnectionManager' can opt
-in piecemeal.
--}
-mkTcpTransport :: NC.Connection -> String -> Transport
-mkTcpTransport conn label =
+{- | Wrap a 'Kafka.Network.Connection.Connection' as a 'Transport'.
+    This is what the default code path does under the hood. -}
+mkConnectionTransport :: Conn.Connection -> String -> Transport
+mkConnectionTransport conn label =
   Transport
     { transportRead = \n -> do
-        bs <- NC.connectionGet conn n
-        pure (Right bs)
+        r <- try (Conn.connectionGet conn n) :: IO (Either SomeException ByteString)
+        case r of
+          Right bs -> pure (Right bs)
+          Left  e  -> pure (Left (show e))
     , transportWrite = \bs -> do
-        NC.connectionPut conn bs
-        pure (Right ())
-    , transportWriteBuilder = \builder -> do
-        -- crypton-connection doesn't expose a Handle, so we
-        -- materialise. A future version could use connectionGetHandle
-        -- for true zero-copy output.
-        NC.connectionPut conn (WB.toStrictByteString builder)
-        pure (Right ())
-    , transportClose = NC.connectionClose conn
-    , transportName = label
+        r <- try (Conn.connectionPut conn bs) :: IO (Either SomeException ())
+        case r of
+          Right () -> pure (Right ())
+          Left  e  -> pure (Left (show e))
+    , transportWriteBuilder = \b -> do
+        r <- try (Conn.connectionPutBuilder conn b) :: IO (Either SomeException ())
+        case r of
+          Right () -> pure (Right ())
+          Left  e  -> pure (Left (show e))
+    , transportClose = Conn.connectionClose conn
+    , transportName  = label
     }
 
 
-{- | Build a pair of 'Transport's connected by an in-memory
-queue. Useful for tests that want to drive both ends of a
-broker conversation in the same process.
+{- | Build a pair of 'Transport's connected by in-memory queues.
+Useful for tests that want to drive both ends of a broker
+conversation in the same process.
 
-@
-(clientSide, brokerSide) <- mkPipeTransport
-_ <- transportWrite clientSide \"hello\"
-Right msg <- transportRead brokerSide 5
-msg == \"hello\"
-@
+Both sides go through magic-ring 'Wireform.Network.DuplexTransport's,
+so the bytes flow through the same code path as a real network
+connection (just without the kernel).
 -}
 mkPipeTransport :: IO (Transport, Transport)
 mkPipeTransport = do
-  -- Two unbounded queues, one per direction. We lift to lists of
-  -- chunks so we can preserve write boundaries — readers can ask
-  -- for fewer bytes than a chunk and we re-queue the leftover.
-  c2b <- newTVarIO (mempty :: ByteString)
-  b2c <- newTVarIO (mempty :: ByteString)
-  closed <- newTVarIO False
+  (a, b) <- WN.newDuplexPipe WN.defaultTransportConfig
+  cursorA <- newIORef (0 :: Word64)
+  cursorB <- newIORef (0 :: Word64)
+  pure (asTransport "pipe:client" a cursorA, asTransport "pipe:broker" b cursorB)
+  where
+    asTransport label duplex cursor =
+      let rx = WN.duplexReceive duplex
+          tx = WN.duplexSend duplex
+      in Transport
+           { transportRead = \n -> do
+               r <- try (readUpTo rx cursor n) :: IO (Either SomeException ByteString)
+               case r of
+                 Right bs -> pure (Right bs)
+                 Left  e  -> pure (Left (show e))
+           , transportWrite = \bs -> do
+               r <- try (WS.sendByteString tx bs) :: IO (Either SomeException ())
+               case r of
+                 Right () -> pure (Right ())
+                 Left  e  -> pure (Left (show e))
+           , transportWriteBuilder = \b -> do
+               r <- try (WS.sendByteString tx (WB.toStrictByteString b))
+                       :: IO (Either SomeException ())
+               case r of
+                 Right () -> pure (Right ())
+                 Left  e  -> pure (Left (show e))
+           , transportClose = WN.closeDuplexTransport duplex
+           , transportName  = label
+           }
 
-  let drain ref n = atomically $ do
-        bs <- readTVar ref
-        if BS.null bs
-          then do
-            isClosed <- readTVar closed
-            if isClosed
-              then pure BS.empty -- EOF
-              else retry
-          else do
-            let !taken = BS.take n bs
-                !rest = BS.drop n bs
-            writeTVar ref rest
-            pure taken
-
-      append ref bs = atomically $ do
-        cur <- readTVar ref
-        writeTVar ref (cur <> bs)
-
-      mkSide rRef wRef lbl =
-        Transport
-          { transportRead = \n -> do
-              isClosed <- readTVarIO closed
-              cur <- readTVarIO rRef
-              if isClosed && BS.null cur
-                then pure (Right BS.empty)
-                else fmap Right (drain rRef n)
-          , transportWrite = \bs -> do
-              isClosed <- readTVarIO closed
-              if isClosed
-                then pure (Left (lbl <> ": transport closed"))
-                else do
-                  append wRef bs
-                  pure (Right ())
-          , transportWriteBuilder = \builder -> do
-              isClosed <- readTVarIO closed
-              if isClosed
-                then pure (Left (lbl <> ": transport closed"))
-                else do
-                  append wRef (WB.toStrictByteString builder)
-                  pure (Right ())
-          , transportClose = atomically (writeTVar closed True)
-          , transportName = lbl
-          }
-
-      clientSide = mkSide b2c c2b "pipe:client"
-      brokerSide = mkSide c2b b2c "pipe:broker"
-  pure (clientSide, brokerSide)
+    readUpTo rx cursor n
+      | n <= 0 = pure BS.empty
+      | otherwise = do
+          pos <- readIORef cursor
+          h0  <- WR.receiveLoadHead rx
+          h <- if h0 > pos then pure h0
+                 else do
+                   r <- WR.receiveWaitData rx pos
+                   case r of
+                     WR.ReceiveMoreData h' -> pure h'
+                     WR.ReceiveEndOfInput  -> pure pos
+                     WR.ReceiveFailed e    -> throwIO e
+          if h <= pos
+            then pure BS.empty
+            else do
+              let !want = min n (fromIntegral (h - pos))
+                  !off  = fromIntegral pos .&. WR.receiveRingMask rx
+                  !ptr  = WR.receiveRingBase rx `plusPtr` off
+              bs <- BSI.create want $ \dst -> copyBytes dst ptr want
+              let !newPos = pos + fromIntegral want
+              writeIORef cursor newPos
+              WR.receiveAdvanceTail rx newPos
+              pure bs

@@ -12,7 +12,7 @@ module Network.ConnectionLivenessSpec (tests) where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally, try, SomeException)
-import qualified Network.Connection as NC
+import qualified Kafka.Network.Connection as NC
 import qualified Network.Socket as Sock
 import qualified Network.Socket.ByteString as Sock.BS
 import qualified Data.ByteString as BS

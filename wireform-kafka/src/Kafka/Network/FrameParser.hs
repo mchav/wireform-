@@ -52,7 +52,7 @@ import Wireform.Parser.Driver
   )
 import Wireform.Parser.Error (ParseError)
 import Wireform.Parser.Internal (Stream)
-import Wireform.Transport (Transport)
+import Wireform.Transport (ReceiveTransport)
 
 -- | Kafka-specific recoverable parse errors raised by 'cut' /
 -- 'err' inside the frame parser.  The driver wraps these in a
@@ -99,7 +99,7 @@ kafkaFrameParser = do
 -- The handler may return 'Stop' to terminate the loop voluntarily
 -- (matches the contract of 'runParserLoop' from wireform-core).
 runKafkaFrameLoop
-  :: Transport
+  :: ReceiveTransport
   -> ((Int32, ByteString) -> IO LoopControl)
   -> IO (Either (ParseError FrameError) ())
 runKafkaFrameLoop t = runParserLoop t kafkaFrameParser

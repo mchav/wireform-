@@ -22,7 +22,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
 import qualified Data.IORef as IORef
 import qualified Data.List
-import qualified Network.Connection as NC
+import qualified Kafka.Network.Connection as NC
 import qualified Network.Socket as Sock
 import qualified Network.Socket.ByteString as Sock.BS
 import System.Timeout (timeout)

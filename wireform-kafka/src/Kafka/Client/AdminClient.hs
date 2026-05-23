@@ -256,7 +256,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 
 import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Errors as Errors

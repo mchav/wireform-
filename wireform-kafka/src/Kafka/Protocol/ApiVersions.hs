@@ -41,7 +41,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 
 import Kafka.Client.Internal.Request

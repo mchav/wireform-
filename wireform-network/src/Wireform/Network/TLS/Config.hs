@@ -56,6 +56,18 @@ data TlsClientConfig = TlsClientConfig
   , tlsClientCertificate   :: !(Maybe (FilePath, FilePath))
     -- ^ @(certChain, privateKey)@ for mTLS.  Both PEM.
 
+  , tlsClientSni           :: !(Maybe ByteString)
+    -- ^ SNI (Server Name Indication) hostname.  When 'Nothing',
+    -- the caller's connect-time hostname is used (passed into
+    -- 'Wireform.Network.TLS.OpenSSL.newClient' directly).
+
+  , tlsClientVerifyHostname :: !(Maybe ByteString)
+    -- ^ When 'Just', also pin the cert's CN \/ SAN to the given
+    -- hostname (calls
+    -- 'Wireform.Network.TLS.OpenSSL.setClientHostnameVerify').
+    -- Defaults to 'Nothing': use 'tlsClientVerifyPeer' alone for
+    -- system trust store + cert chain validation.
+
   , tlsClientAlpn          :: ![ByteString]
     -- ^ ALPN protocols to advertise, in preference order.
     -- e.g. @[\"h2\", \"http\/1.1\"]@.  Empty list disables ALPN.
@@ -72,6 +84,8 @@ defaultTlsClientConfig = TlsClientConfig
   { tlsClientVerifyPeer    = True
   , tlsClientCaBundle      = Nothing
   , tlsClientCertificate   = Nothing
+  , tlsClientSni           = Nothing
+  , tlsClientVerifyHostname = Nothing
   , tlsClientAlpn          = []
   , tlsClientMinVersion    = Tls12
   , tlsClientCipherSuites  = Nothing

@@ -237,7 +237,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 import qualified StmContainers.Map as StmMap
 import qualified ListT
 

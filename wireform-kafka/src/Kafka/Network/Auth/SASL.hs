@@ -80,7 +80,7 @@ import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Network.Connection (Connection)
+import Kafka.Network.Connection.Internal (Connection)
 
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Auth.AwsMskIam as Iam

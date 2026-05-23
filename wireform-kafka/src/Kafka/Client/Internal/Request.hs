@@ -44,7 +44,7 @@ import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeade
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
-import Network.Connection (Connection, connectionGet, connectionPut)
+import Kafka.Network.Connection.Internal (Connection, connectionGet, connectionPut)
 import Wireform.Builder qualified as WB
 
 

@@ -32,7 +32,7 @@ import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
 import qualified Network.Socket as Socket
 import qualified Network.Socket.ByteString as SocketBS
-import qualified Network.Connection as NC
+import qualified Kafka.Network.Connection as NC
 import System.Directory
   ( createDirectory
   , getTemporaryDirectory
