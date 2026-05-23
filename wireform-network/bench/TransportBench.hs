@@ -6,23 +6,31 @@
 
 -- | Benchmark: magic ring transport vs standard network recv.
 --
--- The magic ring is pre-allocated once (as it would be in production —
--- one ring per connection lifetime), so per-iteration cost is only the
--- lightweight recv+parse work, not the mmap setup.
+-- == Architecture
 --
--- Three approaches compared per workload:
+-- The magic ring is pre-allocated once (one ring per connection lifetime).
+-- Per-benchmark-iteration cost is the lightweight recv+parse work only.
 --
---   * @transport+ring@: recv into magic ring, streaming parser
---     (pipelining, zero-copy takeBs slices from ring memory)
+-- == What's measured
 --
---   * @recv+concat+parse@: recv loop → BS.concat → parseByteString
---     (typical Haskell network code; per-recv ByteString alloc,
---     final O(n) concat copy)
+-- Five scenarios are compared for each workload:
 --
---   * @recvBuf+pinned@: recv+memcpy into pre-allocated pinned buffer
---     → parseByteString (no concat, isolates the allocation difference)
+--   * @stream (ring, no I\/O)@: data pre-filled in ring, no suspension.
+--     Isolates the streaming parser's inner-loop overhead — should match
+--     the pure parse exactly (and does).
 --
--- Socket pair creation is included in all approaches for fairness.
+--   * @stream (ring, 1 suspend)@: data in ring but head starts at 0,
+--     forcing one control0#\/prompt# suspension round-trip before parsing.
+--     Measures the GHC delimited-continuation constant.
+--
+--   * @transport+ring (net)@: full transport path over a loopback socket
+--     using recvBuf directly into the ring.
+--
+--   * @recv+concat+parse@: standard Haskell network pattern — recv loop,
+--     BS.concat, then parseByteString.
+--
+--   * @recvBuf+pinned@: recv+memcpy into a pre-allocated pinned buffer,
+--     then parseByteString (removes concat overhead).
 module Main where
 
 import Criterion.Main
@@ -53,7 +61,7 @@ import Wireform.Transport
 import Wireform.Transport.Config (defaultTransportConfig, ringSizeHint)
 
 ------------------------------------------------------------------------
--- Parsers (polymorphic via ParserMode so they specialize at each site)
+-- Parsers
 ------------------------------------------------------------------------
 
 word32sP :: ParserMode m => Int -> Parser m () ()
@@ -123,65 +131,90 @@ recvAll sock total = go [] total
         else go (chunk : acc) (left - BS.length chunk)
 
 ------------------------------------------------------------------------
--- Lightweight recv transport from a pre-existing ring
---
--- Mirrors Wireform.Network.Transport.Recv but takes an existing
--- MagicRing instead of creating one. This is what production code
--- effectively does: one ring per connection, many parses.
+-- Pre-fill ring with a ByteString
 ------------------------------------------------------------------------
 
+prefillRing :: MagicRing -> ByteString -> IO ()
+prefillRing ring payload =
+  BSU.unsafeUseAsCStringLen payload \(src, len) ->
+    copyBytes (ringBase ring) (castPtr src) len
+
+------------------------------------------------------------------------
+-- Transports
+------------------------------------------------------------------------
+
+-- | In-memory transport: all data visible immediately (no suspension).
+mkPrefilledTransport :: MagicRing -> Int -> IO Transport
+mkPrefilledTransport ring payloadLen = do
+  let !headPos = fromIntegral payloadLen :: Word64
+  pure Transport
+    { transportRing        = ring
+    , transportLoadHead    = pure headPos
+    , transportAdvanceTail = \_ -> pure ()
+    , transportWaitData    = \_ -> pure EndOfInput
+    , transportClose       = pure ()
+    }
+
+-- | In-memory transport: head starts at 0, first waitData delivers data.
+-- Forces exactly one suspension/resume cycle.
+mkSuspendOnceTransport :: MagicRing -> Int -> IO Transport
+mkSuspendOnceTransport ring payloadLen = do
+  let !headPos = fromIntegral payloadLen :: Word64
+  headRef <- newIORef (0 :: Word64)
+  pure Transport
+    { transportRing        = ring
+    , transportLoadHead    = readIORef headRef
+    , transportAdvanceTail = \_ -> pure ()
+    , transportWaitData    = \_ -> do
+        writeIORef headRef headPos
+        pure (MoreData headPos)
+    , transportClose       = pure ()
+    }
+
+-- | Network recv transport reusing a pre-allocated ring.
 withRecvTransportReuse :: MagicRing -> Socket -> (Transport -> IO a) -> IO a
 withRecvTransportReuse ring sock action = do
   let !base = ringBase ring
       !msk  = ringMask ring
       !sz   = ringSize ring
-
   headRef  <- newIORef (0 :: Word64)
   tailRef  <- newIORef (0 :: Word64)
   eofRef   <- newIORef False
   errRef   <- newIORef (Nothing :: Maybe SomeException)
-
   let loadHead = readIORef headRef
-
       advanceTail pos = writeIORef tailRef pos
-
       waitData pos = do
         isEof <- readIORef eofRef
-        if isEof
-          then pure EndOfInput
-          else do
-            mbErr <- readIORef errRef
-            case mbErr of
-              Just e  -> pure (TransportError e)
-              Nothing -> doRecv pos
-
+        if isEof then pure EndOfInput
+        else do
+          mbErr <- readIORef errRef
+          case mbErr of
+            Just e  -> pure (TransportError e)
+            Nothing -> doRecv pos
       doRecv pos = do
         h <- readIORef headRef
-        if h > pos
-          then pure (MoreData h)
+        if h > pos then pure (MoreData h)
+        else do
+          t <- readIORef tailRef
+          let !writeOff  = fromIntegral h .&. msk
+              !writePtr  = base `plusPtr` writeOff
+              !available = sz - fromIntegral (h - t)
+              !maxRecv   = min available (sz - writeOff)
+          if maxRecv <= 0 then pure (MoreData h)
           else do
-            t <- readIORef tailRef
-            let !writeOff  = fromIntegral h .&. msk
-                !writePtr  = base `plusPtr` writeOff
-                !available = sz - fromIntegral (h - t)
-                !maxRecv   = min available (sz - writeOff)
-            if maxRecv <= 0
-              then pure (MoreData h)
-              else do
-                result <- E.try @IOException (doRawRecv sock writePtr maxRecv)
-                case result of
-                  Left exc -> do
-                    writeIORef errRef (Just (toException exc))
-                    pure (TransportError (toException exc))
-                  Right n
-                    | n == 0 -> do
-                        writeIORef eofRef True
-                        pure EndOfInput
-                    | otherwise -> do
-                        let !newHead = h + fromIntegral n
-                        writeIORef headRef newHead
-                        pure (MoreData newHead)
-
+            result <- E.try @IOException (S.recvBuf sock writePtr maxRecv)
+            case result of
+              Left exc -> do
+                writeIORef errRef (Just (toException exc))
+                pure (TransportError (toException exc))
+              Right n
+                | n == 0 -> do
+                    writeIORef eofRef True
+                    pure EndOfInput
+                | otherwise -> do
+                    let !newHead = h + fromIntegral n
+                    writeIORef headRef newHead
+                    pure (MoreData newHead)
       transport = Transport
         { transportRing        = ring
         , transportLoadHead    = loadHead
@@ -189,15 +222,29 @@ withRecvTransportReuse ring sock action = do
         , transportWaitData    = waitData
         , transportClose       = writeIORef eofRef True
         }
-
   action transport
 
-doRawRecv :: Socket -> Ptr Word8 -> Int -> IO Int
-doRawRecv sock ptr maxLen = recvBuf sock ptr maxLen
+------------------------------------------------------------------------
+-- Benchmark functions
+------------------------------------------------------------------------
 
-------------------------------------------------------------------------
--- Benchmark: transport + magic ring (ring pre-allocated)
-------------------------------------------------------------------------
+benchStreamNoSuspend :: MagicRing -> ByteString -> Parser Stream () () -> IO ()
+benchStreamNoSuspend ring payload parser = do
+  prefillRing ring payload
+  t <- mkPrefilledTransport ring (BS.length payload)
+  r <- runParserInternal t parser 0
+  case r of
+    IRDone _ () -> pure ()
+    _           -> error "stream-nosuspend failed"
+
+benchStreamOneSuspend :: MagicRing -> ByteString -> Parser Stream () () -> IO ()
+benchStreamOneSuspend ring payload parser = do
+  prefillRing ring payload
+  t <- mkSuspendOnceTransport ring (BS.length payload)
+  r <- runParser t parser
+  case r of
+    Right () -> pure ()
+    Left e   -> error ("stream-1suspend failed: " <> show e)
 
 benchTransport :: MagicRing -> ByteString -> Parser Stream () () -> IO ()
 benchTransport ring payload parser = do
@@ -212,10 +259,6 @@ benchTransport ring payload parser = do
   takeMVar senderDone
   S.close sender
   S.close receiver
-
-------------------------------------------------------------------------
--- Benchmark: transport + magic ring + runParserLoop (per-message)
-------------------------------------------------------------------------
 
 benchTransportLoop :: MagicRing -> ByteString -> Int -> IO ()
 benchTransportLoop ring payload expectedMsgs = do
@@ -236,10 +279,6 @@ benchTransportLoop ring payload expectedMsgs = do
   S.close sender
   S.close receiver
 
-------------------------------------------------------------------------
--- Benchmark: standard recv + concat + pure parse
-------------------------------------------------------------------------
-
 benchRecvConcat :: ByteString -> Parser Pure () () -> IO ()
 benchRecvConcat payload parser = do
   (sender, receiver) <- connectedPair
@@ -252,10 +291,6 @@ benchRecvConcat payload parser = do
   takeMVar senderDone
   S.close sender
   S.close receiver
-
-------------------------------------------------------------------------
--- Benchmark: recv into pre-allocated pinned buffer + parse
-------------------------------------------------------------------------
 
 benchRecvBuf :: ByteString -> Parser Pure () () -> IO ()
 benchRecvBuf payload parser = do
@@ -312,25 +347,33 @@ main = withMagicRing (ringSizeHint defaultTransportConfig) \ring -> do
 
   defaultMain
     [ bgroup "word32be x10K (40 KB)"
-        [ bench "transport+ring"     $ nfIO (benchTransport ring w32_10k (word32sP @Stream n10k))
-        , bench "recv+concat+parse"  $ nfIO (benchRecvConcat w32_10k (word32sP @Pure n10k))
-        , bench "recvBuf+pinned"     $ nfIO (benchRecvBuf w32_10k (word32sP @Pure n10k))
+        [ bench "stream (no suspend)"   $ nfIO (benchStreamNoSuspend ring w32_10k (word32sP @Stream n10k))
+        , bench "stream (1 suspend)"    $ nfIO (benchStreamOneSuspend ring w32_10k (word32sP @Stream n10k))
+        , bench "transport+ring (net)"  $ nfIO (benchTransport ring w32_10k (word32sP @Stream n10k))
+        , bench "recv+concat+parse"     $ nfIO (benchRecvConcat w32_10k (word32sP @Pure n10k))
+        , bench "recvBuf+pinned"        $ nfIO (benchRecvBuf w32_10k (word32sP @Pure n10k))
         ]
     , bgroup "word32be x100K (400 KB)"
-        [ bench "transport+ring"     $ nfIO (benchTransport ring w32_100k (word32sP @Stream n100k))
-        , bench "recv+concat+parse"  $ nfIO (benchRecvConcat w32_100k (word32sP @Pure n100k))
-        , bench "recvBuf+pinned"     $ nfIO (benchRecvBuf w32_100k (word32sP @Pure n100k))
+        [ bench "stream (no suspend)"   $ nfIO (benchStreamNoSuspend ring w32_100k (word32sP @Stream n100k))
+        , bench "stream (1 suspend)"    $ nfIO (benchStreamOneSuspend ring w32_100k (word32sP @Stream n100k))
+        , bench "transport+ring (net)"  $ nfIO (benchTransport ring w32_100k (word32sP @Stream n100k))
+        , bench "recv+concat+parse"     $ nfIO (benchRecvConcat w32_100k (word32sP @Pure n100k))
+        , bench "recvBuf+pinned"        $ nfIO (benchRecvBuf w32_100k (word32sP @Pure n100k))
         ]
     , bgroup "length-prefixed x10K (330 KB)"
-        [ bench "transport+ring"          $ nfIO (benchTransport ring lp_10k (lenPrefixedP @Stream n10k))
-        , bench "transport+ring (loop)"   $ nfIO (benchTransportLoop ring lp_10k n10k)
-        , bench "recv+concat+parse"       $ nfIO (benchRecvConcat lp_10k (lenPrefixedP @Pure n10k))
-        , bench "recvBuf+pinned"          $ nfIO (benchRecvBuf lp_10k (lenPrefixedP @Pure n10k))
+        [ bench "stream (no suspend)"        $ nfIO (benchStreamNoSuspend ring lp_10k (lenPrefixedP @Stream n10k))
+        , bench "stream (1 suspend)"         $ nfIO (benchStreamOneSuspend ring lp_10k (lenPrefixedP @Stream n10k))
+        , bench "transport+ring (net)"       $ nfIO (benchTransport ring lp_10k (lenPrefixedP @Stream n10k))
+        , bench "transport+ring (loop, net)" $ nfIO (benchTransportLoop ring lp_10k n10k)
+        , bench "recv+concat+parse"          $ nfIO (benchRecvConcat lp_10k (lenPrefixedP @Pure n10k))
+        , bench "recvBuf+pinned"             $ nfIO (benchRecvBuf lp_10k (lenPrefixedP @Pure n10k))
         ]
     , bgroup "length-prefixed x100K (3.3 MB)"
-        [ bench "transport+ring"          $ nfIO (benchTransport ring lp_100k (lenPrefixedP @Stream n100k))
-        , bench "transport+ring (loop)"   $ nfIO (benchTransportLoop ring lp_100k n100k)
-        , bench "recv+concat+parse"       $ nfIO (benchRecvConcat lp_100k (lenPrefixedP @Pure n100k))
-        , bench "recvBuf+pinned"          $ nfIO (benchRecvBuf lp_100k (lenPrefixedP @Pure n100k))
+        [ bench "stream (no suspend)"        $ nfIO (benchStreamNoSuspend ring lp_100k (lenPrefixedP @Stream n100k))
+        , bench "stream (1 suspend)"         $ nfIO (benchStreamOneSuspend ring lp_100k (lenPrefixedP @Stream n100k))
+        , bench "transport+ring (net)"       $ nfIO (benchTransport ring lp_100k (lenPrefixedP @Stream n100k))
+        , bench "transport+ring (loop, net)" $ nfIO (benchTransportLoop ring lp_100k n100k)
+        , bench "recv+concat+parse"          $ nfIO (benchRecvConcat lp_100k (lenPrefixedP @Pure n100k))
+        , bench "recvBuf+pinned"             $ nfIO (benchRecvBuf lp_100k (lenPrefixedP @Pure n100k))
         ]
     ]
