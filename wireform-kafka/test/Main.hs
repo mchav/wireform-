@@ -73,6 +73,7 @@ import Client.TransactionSpec qualified
 import Codegen.WireGeneratorSpec qualified
 import Network.AuthSpec qualified
 import Network.BootstrapSpec qualified
+import Network.FrameParserSpec qualified
 import Network.ConnectionHelpersSpec qualified
 import Network.ConnectionLivenessSpec qualified
 import Network.ConnectionRetrySpec qualified
@@ -237,5 +238,6 @@ networkTests =
     , Network.SaslReauthSpec.tests
     , Network.OAuthOidcSpec.tests
     , Network.BootstrapSpec.tests
+    , Network.FrameParserSpec.tests
     , Network.ReauthDriverSpec.tests
     ]
