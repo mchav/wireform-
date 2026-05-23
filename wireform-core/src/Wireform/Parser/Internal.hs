@@ -167,6 +167,27 @@ instance ParserMode Stream where
 -- ring buffer can hold (the parser's logical 'cur' advances past
 -- @anchorCur + ringSize@, the driver wraps it back, and the anchor
 -- shifts forward by the wrap amount).
+--
+-- == Concurrency model
+--
+-- These cells are mutable but require neither locks nor memory
+-- barriers, because the writer (the driver) and the reader (the
+-- parser) never run at the same time:
+--
+--   * Parser writes are confined to 'resumeContinue' closures, which
+--     run /while the parser is suspended/ (between 'control0#'
+--     reifying the continuation and 'prompt#' re-entering it).
+--   * The parser cannot observe a cell mid-update because it is not
+--     executing at all during the update.
+--   * The update of all three cells happens-before the @prompt#@
+--     that resumes the parser, by virtue of being sequenced in the
+--     same @IO@ action.
+--
+-- So the three writes look atomic to the parser even though they are
+-- three separate stores: suspension is the synchronization
+-- primitive.  No GHC fence is needed (single-threaded use; the
+-- transport contract requires that producer and consumer share a
+-- thread for a given parse run).
 data ParserEnv = ParserEnv
   { peEndPtr     :: {-# UNPACK #-} !(Ptr (Ptr Word8))
     -- ^ Mutable end pointer (single deref to read, updated on resume).
@@ -416,9 +437,13 @@ ensureNSlow env _eob s n# st =
                            { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
                                IO \st2 ->
                                  -- The driver always wraps newCur back
-                                 -- into the first mapping; re-anchor so
-                                 -- 'curToPos' stays correct after the
-                                 -- wrap.
+                                 -- into the first mapping; re-anchor
+                                 -- so 'curToPos' stays correct after
+                                 -- the wrap.  Both stores are safe
+                                 -- without a fence: the parser is
+                                 -- suspended (between this 'control0#'
+                                 -- and the 'prompt#' below) while
+                                 -- they execute.
                                  let st3 = writeEnd# env newEnd st2
                                      st4 = writeAnchor# env pos newCur st3
                                  in prompt# tag (\st5 -> k (\st6 -> (# st6, OK# () newCur #)) st5) st4
@@ -445,12 +470,22 @@ checkpoint = Parser \env eob s st0 ->
              let resume = Resume
                    { resumeContinue = \(Ptr newCur) (Ptr newEnd) ->
                        IO \st2 ->
-                         -- Re-anchor: the driver has wrapped newCur back
-                         -- to @base + (pos .&. mask)@ which decouples
-                         -- the cur pointer from the original anchor.
-                         -- Without re-anchoring, 'curToPos' would
-                         -- compute the wrong absolute position on the
-                         -- next call.
+                         -- Re-anchor: the driver has wrapped newCur
+                         -- back to @base + (pos .&. mask)@ which
+                         -- decouples the cur pointer from the original
+                         -- anchor.  Without re-anchoring, 'curToPos'
+                         -- would compute the wrong absolute position
+                         -- on the next call.
+                         --
+                         -- These two stores (end pointer + anchor
+                         -- pair) are not behind any lock or fence:
+                         -- they run inside the resume body, which is
+                         -- only invoked while the parser is suspended
+                         -- between 'control0#' and the matching
+                         -- 'prompt#' below.  The parser cannot observe
+                         -- a partial update because it is not running
+                         -- at all during the update — suspension is
+                         -- the synchronization mechanism.
                          let st3 = writeEnd# env newEnd st2
                              st4 = writeAnchor# env pos newCur st3
                          in prompt# tag (\st5 -> k (\st6 -> (# st6, OK# () newCur #)) st5) st4

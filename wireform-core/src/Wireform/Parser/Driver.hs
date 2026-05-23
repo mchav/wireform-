@@ -93,6 +93,12 @@ runParserInternal t p startPos = mask \restore -> do
   -- never escape — neither 'ParserEnv' nor any 'control0#'
   -- continuation can outlive the surrounding 'prompt#' frame, which
   -- is set up inside this 'allocaBytes' scope.
+  --
+  -- The cells are mutated by the parser-side resume bodies (see
+  -- 'checkpoint' / 'ensureNSlow' in "Wireform.Parser.Internal") with
+  -- no lock or fence: those bodies only run while the parser is
+  -- suspended between 'control0#' and the matching 'prompt#'.  See
+  -- the 'ParserEnv' haddock for the full argument.
   allocaBytes 24 \cells -> do
     let !endPtr     = cells
         !anchorPos  = cells `plusPtr` 8
