@@ -75,6 +75,7 @@ library
     Network.HTTP1.Headers
     Network.HTTP1.Parser
     Network.HTTP1.StreamingParser
+    Network.HTTP1.StreamingReader
     Network.HTTP1.Encode
     Network.HTTP1.Chunked
     Network.HTTP1.Connection
@@ -83,8 +84,14 @@ library
     Network.HTTP1.Server
     Network.HTTP1.Client
     Network.HTTP1.Client.Pool
-  other-modules:
+  exposed-modules:
+    -- Internal: pinned recv ring buffer.  Exposed so the
+    -- @wireform-http1-recv-vs-transport@ benchmark can drive it
+    -- directly for an apples-to-apples comparison against the
+    -- magic-ring streaming parser path.  Not part of the
+    -- stability surface — treat the API as private.
     Network.HTTP1.Internal.RecvBuffer
+  other-modules:
     Network.HTTP1.Internal.SendBuffer
     Network.HTTP1.Internal.Ascii
   c-sources:
@@ -147,6 +154,23 @@ benchmark wireform-http1-bench
     criterion >= 1.5,
     deepseq,
     wireform-http1
+
+-- | Head-to-head: classic RecvBuffer + parseRequest vs the new
+-- magic-ring transport + requestHeadParser.  Run with:
+--   cabal bench wireform-http1-recv-vs-transport
+benchmark wireform-http1-recv-vs-transport
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: RecvVsTransport.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N1"
+  build-depends:
+    base,
+    bytestring,
+    criterion >= 1.5,
+    wireform-core,
+    wireform-http1,
+    wireform-network
 
 -- | Fast-path benchmark: bypasses the runtime's per-request
 -- encoder by precomputing the response head and using the raw
