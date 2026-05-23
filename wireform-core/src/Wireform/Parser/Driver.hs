@@ -32,7 +32,7 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Wireform.Parser.Error
 import Wireform.Parser.Internal
-import Wireform.Ring.Internal (MagicRing, ringBase, ringSize, ringMask)
+import Wireform.Ring.Internal (ringBase, ringSize, ringMask)
 import Wireform.Transport
 
 data LoopControl = Continue | Stop

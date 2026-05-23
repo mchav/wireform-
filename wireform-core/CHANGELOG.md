@@ -1,5 +1,26 @@
 # Changelog for wireform-core
 
+## Unreleased
+
+* `Wireform.Ring` -- gave `MagicRing` a phantom type parameter `s`
+  modelled after `Control.Monad.ST.ST`.  `withMagicRing` is now
+  rank-2 (`Int -> (forall s. MagicRing s -> IO a) -> IO a`), which
+  seals `s` inside the ring's scope.  New `RingSlice s` type (a
+  pointer + length tagged with the ring's `s`) replaces ad-hoc
+  `ByteString` slicing for callers that want type-system-enforced
+  safety against dangling references after a refill.  `copyRingSlice
+  :: RingSlice s -> IO ByteString` is the explicit escape hatch.
+
+* `Wireform.Transport` -- replaced the typed `transportRing ::
+  MagicRing` field with three raw fields (`transportRingBaseField`,
+  `transportRingSizeField`, `transportRingMaskField`).  This keeps
+  `Transport` un-parameterised so the new `s` does not have to
+  cascade through every downstream `Transport`-using package.  The
+  existing `transportRing :: Transport -> MagicRing s` getter
+  remains for backwards compatibility but is polymorphic in `s`, i.e.
+  un-scoped from a safety standpoint.  Transport constructors must
+  populate the three raw fields explicitly.
+
 ## 0.1.0.0 -- 2026
 
 Initial release.

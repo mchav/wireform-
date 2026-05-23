@@ -308,6 +308,11 @@ foreign import ccall unsafe "memcmp"
 -- If the ring is freed while the 'ByteString' is still alive, the
 -- slice becomes a dangling pointer.  In practice this is safe because
 -- 'runParser' / 'runParserLoop' run within the transport's scope.
+--
+-- A type-system-enforced alternative for callers that prefer to
+-- /prove/ slices cannot outlive a refill lives in "Wireform.Ring":
+-- use 'Wireform.Ring.RingSlice' values and 'Wireform.Ring.copyRingSlice'
+-- as the explicit escape hatch.
 takeBs :: ParserMode m => Int -> Parser m e ByteString
 takeBs (I# n#) = withEnsure# n# $ Parser \env eob s st ->
   let !bs = BSI.BS (ForeignPtr s (peBackingFp env)) (I# n#)
