@@ -223,15 +223,25 @@ data StreamQueue = StreamQueue
 {- | Mutable state for the ring-direct sink.
 
 The builder writes directly into the ring's double-mapped memory.
-On overflow, 'rsPublishHead' publishes the filled bytes and
-'rsEnsureRoom' blocks until enough room is available.  The callbacks
-are closed over the 'SendTransport' at construction time (in
-"Wireform.Transport.Send"), so 'FastBuilder' does not depend on
-the transport types.
+On overflow the handler first checks whether the ring already has
+room (deferred publish).  Only when the ring is actually full does
+it publish ('rsPublishHead') and wait ('rsEnsureRoom').  This
+batches writes so that a single 'sendBuilderDirect' call produces
+at most one 'sendPublishHead' per ring-size worth of data, matching
+the syscall count of the old materialize-then-copy path.
+
+The callbacks are closed over the 'SendTransport' at construction
+time (in "Wireform.Transport.Send"), so 'FastBuilder' does not
+depend on the transport types.
 -}
 data RingSinkState = RingSinkState
   { rsHead        :: {-# UNPACK #-} !Word64
-  -- ^ Logical head: start of the current not-yet-published region.
+  -- ^ Logical head: start of the current buffer region.
+  -- Tracks the builder's logical write position; may be ahead
+  -- of the last published head.
+  , rsPublished   :: {-# UNPACK #-} !Word64
+  -- ^ Last position passed to 'rsPublishHead'.  Everything
+  -- before this has been handed off to the ring consumer.
   , rsBase        :: {-# UNPACK #-} !(Ptr Word8)
   -- ^ Ring base address (first mapping).
   , rsMask        :: {-# UNPACK #-} !Int
@@ -245,6 +255,9 @@ data RingSinkState = RingSinkState
   , rsEnsureRoom  :: !(Word64 -> IO ())
   -- ^ Block until the ring has room for head to advance to this
   -- position.  Throws on transport failure / close.
+  , rsLoadTail    :: !(IO Word64)
+  -- ^ Read the consumer's current tail position.  Used to check
+  -- whether the ring has room without publishing first.
   }
 
 
@@ -259,9 +272,12 @@ finalizeRingSink rsRef finalCur = do
   let !off      = fromIntegral (rsHead rs) .&. rsMask rs
       !startPtr = rsBase rs `plusPtr` off
       !written  = finalCur `minusPtr` startPtr
-      !newHead  = rsHead rs + fromIntegral written
-  when (written > 0) $ rsPublishHead rs newHead
-  pure newHead
+      !finalHead = rsHead rs + fromIntegral written
+  -- Publish everything from the last-published position to
+  -- the builder's final cursor in a single call.
+  when (finalHead > rsPublished rs) $
+    rsPublishHead rs finalHead
+  pure finalHead
 
 
 {- | A streaming byte transform — middleware that processes chunks
@@ -1019,19 +1035,28 @@ byteStringInsert_ bstr = mkBuilder $ do
           !startPtr = rsBase rs `plusPtr` off
           !written  = cur `minusPtr` startPtr
           !newHead  = rsHead rs + fromIntegral written
-      when (written > 0) $ io $ rsPublishHead rs newHead
       let !bsLen    = S.length bstr
           !chunkSz  = min (rsRingSize rs)
                           (max bsLen (rsChunkSize rs))
           !wantHead = newHead + fromIntegral chunkSz
-      io $ rsEnsureRoom rs wantHead
+      -- Check if the ring already has room; publish only if needed
+      tl <- io $ rsLoadTail rs
+      let !ringCap = fromIntegral (rsRingSize rs) :: Word64
+      published' <- if wantHead - tl <= ringCap
+            then io $ pure (rsPublished rs)
+            else do
+              io $ do
+                when (newHead > rsPublished rs) $
+                  rsPublishHead rs newHead
+                rsEnsureRoom rs wantHead
+              io $ pure newHead
       let !bsOff = fromIntegral newHead .&. rsMask rs
           !bsPtr = rsBase rs `plusPtr` bsOff
       io $ S.unsafeUseAsCString bstr $ \src ->
         copyBytes bsPtr (castPtr src) bsLen
       let !afterBs = newHead + fromIntegral bsLen
-      io $ rsPublishHead rs afterBs
-      io $ writeIORef rsRef rs { rsHead = afterBs }
+      io $ writeIORef rsRef rs { rsHead = afterBs
+                                , rsPublished = published' }
       let !contOff = fromIntegral afterBs .&. rsMask rs
           !contPtr = rsBase rs `plusPtr` contOff
           !remain  = chunkSz - bsLen
@@ -1137,14 +1162,30 @@ getBytes_ n = mkBuilder $ do
           !startPtr = rsBase rs `plusPtr` off
           !written  = cur `minusPtr` startPtr
           !newHead  = rsHead rs + fromIntegral written
-      when (written > 0) $ io $ rsPublishHead rs newHead
+      -- Try to extend without publishing: the ring may already
+      -- have room beyond what we initially reserved.
       let !chunkSz = min (rsRingSize rs)
                          (max (I# n) (rsChunkSize rs))
           !wantHead = newHead + fromIntegral chunkSz
-      io $ rsEnsureRoom rs wantHead
+      tl <- io $ rsLoadTail rs
+      let !ringCap = fromIntegral (rsRingSize rs) :: Word64
+      published' <- if wantHead - tl <= ringCap
+            then
+              -- Room available without publishing — the consumer
+              -- has already drained past our needs.
+              io $ pure (rsPublished rs)
+            else do
+              -- Ring is full relative to tail.  Publish what we
+              -- have so the consumer can drain, then wait.
+              io $ do
+                when (newHead > rsPublished rs) $
+                  rsPublishHead rs newHead
+                rsEnsureRoom rs wantHead
+              io $ pure newHead
       let !newOff = fromIntegral newHead .&. rsMask rs
           !newPtr = rsBase rs `plusPtr` newOff
-      io $ writeIORef rsRef rs { rsHead = newHead }
+      io $ writeIORef rsRef rs { rsHead = newHead
+                                , rsPublished = published' }
       setCur newPtr
       setEnd (newPtr `plusPtr` chunkSz)
 {-# NOINLINE getBytes_ #-}

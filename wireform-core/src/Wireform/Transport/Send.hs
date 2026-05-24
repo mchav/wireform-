@@ -301,12 +301,14 @@ sendBuilderDirect t b = do
       !ptr = sendRingBase t `plusPtr` off
   rsRef <- newIORef RingSinkState
     { rsHead        = h
+    , rsPublished   = h
     , rsBase        = sendRingBase t
     , rsMask        = sendRingMask t
     , rsRingSize    = sendRingSize t
     , rsChunkSize   = chunkSz
     , rsPublishHead = sendPublishHead t
     , rsEnsureRoom  = ensureRoom t
+    , rsLoadTail    = sendLoadTail t
     }
   finalCur <- runBuilder b (RingSink rsRef) ptr (ptr `plusPtr` chunkSz)
   _ <- finalizeRingSink rsRef finalCur
