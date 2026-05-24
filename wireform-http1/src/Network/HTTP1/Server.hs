@@ -54,6 +54,7 @@ import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
 
 
 import Wireform.Network.TLS.OpenSSL (SslConn)
+import Wireform.Ring.Pool (RingPool)
 
 import Network.HTTP1.Chunked
   (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
@@ -108,6 +109,12 @@ data ServerConfig = ServerConfig
     -- the server into an open proxy and is a known SSRF / port-scan
     -- vector. Set 'True' only if you really do want to terminate
     -- @CONNECT@ tunnels in your application.
+  , serverRingPool :: !(Maybe RingPool)
+    -- ^ Optional pool of pre-allocated magic ring buffers. When
+    -- 'Just', accepted connections acquire rings from the pool
+    -- instead of allocating fresh ones (saving ~6 syscalls per
+    -- ring). Connections return rings to the pool on close.
+    -- Default 'Nothing' (allocate per-connection).
   }
 
 defaultServerConfig :: ServerConfig
@@ -128,6 +135,7 @@ defaultServerConfig = ServerConfig
   , serverListenBacklog = 1024
   , serverTcpDeferAcceptSecs = Nothing
   , serverAllowConnect = False
+  , serverRingPool = Nothing
   }
 
 runServer :: ServerConfig -> IO ()
@@ -171,7 +179,9 @@ acceptLoop cfg listenSock = do
 
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
 runServerOnSocket cfg sock = do
-  conn <- newConnectionFromSocket sock
+  conn <- case serverRingPool cfg of
+    Just pool -> newConnectionFromSocketPooled pool sock
+    Nothing   -> newConnectionFromSocket sock
   handleConnection cfg conn
 
 -- | Drive the server over a TLS-wrapped connection.  The caller is
@@ -227,10 +237,7 @@ handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
             r <- try @SomeException $ do
               resp0 <- serverHandler cfg req
               let willClose = decideClose cfg req resp0
-                  resp =
-                    if willClose
-                      then addCloseHeader resp0
-                      else resp0
+                  resp = adjustConnectionHeader willClose req resp0
               sendResponse conn (requestMethod req) resp
               drainBody (requestBody req)
               pure willClose
@@ -535,7 +542,18 @@ serverWantsClose hs = case findConnection hs of
   Nothing -> False
   Just v  -> any (== ConnClose) (parseConnection v)
 
-addCloseHeader :: Response -> Response
-addCloseHeader r
+-- | Set the appropriate Connection header based on the keep-alive
+-- decision and the client's protocol version.
+--
+-- - Closing: add @Connection: close@ (unless the handler already set one)
+-- - Keeping alive on HTTP/1.0: echo @Connection: keep-alive@ so the
+--   1.0 client knows the connection persists (RFC 9112 §9.3)
+-- - Keeping alive on HTTP/1.1: no header needed (persistence is default)
+adjustConnectionHeader :: Bool -> Request -> Response -> Response
+adjustConnectionHeader willClose req r
   | hHas "connection" (responseHeaders r) = r
-  | otherwise = r { responseHeaders = responseHeaders r <> [("Connection", "close")] }
+  | willClose =
+      r { responseHeaders = responseHeaders r <> [("Connection", "close")] }
+  | requestVersion req == HTTP_1_0 =
+      r { responseHeaders = responseHeaders r <> [("Connection", "keep-alive")] }
+  | otherwise = r

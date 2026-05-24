@@ -19,6 +19,7 @@ module Wireform.Network.Transport.Duplex
   , newDuplexTransport
   , withDuplexBufTransport
   , newDuplexBufTransport
+  , newDuplexBufTransportPooled
   , closeDuplexTransport
   ) where
 
@@ -27,6 +28,7 @@ import qualified Network.Socket as S
 import Network.Socket (Socket)
 
 import Wireform.Ring.Internal
+import Wireform.Ring.Pool (RingPool, acquireRing, releaseRing)
 import Wireform.Transport.Config
 import Wireform.Transport.Receive
 import Wireform.Transport.Send
@@ -113,6 +115,29 @@ newDuplexBufTransport cfg recvFn sendFn shut = do
   tx0    <- buildSendTransport txRing sendFn shut
   let rx = rx0 { receiveClose = receiveClose rx0 *> destroyMagicRing rxRing }
       tx = tx0 { sendClose    = sendClose tx0    *> destroyMagicRing txRing }
+  pure DuplexTransport
+    { duplexReceive = rx
+    , duplexSend    = tx
+    , duplexClose   = closeBoth tx rx
+    }
+
+-- | Like 'newDuplexBufTransport' but acquires rings from a
+-- 'RingPool' instead of allocating fresh ones. On close, rings are
+-- returned to the pool for reuse rather than destroyed.
+newDuplexBufTransportPooled
+  :: RingPool
+  -> TransportConfig
+  -> ReceiveFn
+  -> SendFn
+  -> IO ()
+  -> IO DuplexTransport
+newDuplexBufTransportPooled pool cfg recvFn sendFn shut = do
+  rxRing <- acquireRing pool (ringSizeHint cfg)
+  txRing <- acquireRing pool (ringSizeHint cfg)
+  rx0    <- buildReceiveTransport rxRing recvFn
+  tx0    <- buildSendTransport txRing sendFn shut
+  let rx = rx0 { receiveClose = receiveClose rx0 *> releaseRing pool rxRing }
+      tx = tx0 { sendClose    = sendClose tx0    *> releaseRing pool txRing }
   pure DuplexTransport
     { duplexReceive = rx
     , duplexSend    = tx

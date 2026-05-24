@@ -29,6 +29,7 @@ pipelining).
 module Network.HTTP1.Connection
   ( Connection
   , newConnectionFromSocket
+  , newConnectionFromSocketPooled
   , newConnectionFromTls
   , newConnectionFromDuplex
   , newConnectionFromDuplexWithRingSize
@@ -66,6 +67,7 @@ import Data.IORef
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Network.Socket (Socket)
+import qualified Network.Socket as S
 import Network.HTTP1.Headers (Header)
 
 import qualified Wireform.Builder as B
@@ -73,7 +75,9 @@ import Wireform.Network
   ( DuplexTransport (..)
   , closeDuplexTransport
   , newDuplexTransport
+  , newDuplexBufTransportPooled
   )
+import Wireform.Ring.Pool (RingPool)
 import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (defaultTransportConfig)
 import Wireform.Transport.Receive (ReceiveTransport, receiveAdvanceTail)
@@ -135,6 +139,20 @@ newConnectionFromSocket :: Socket -> IO Connection
 newConnectionFromSocket sock = do
   let !cfg = defaultTransportConfig { WC.ringSizeHint = defaultRingSize }
   duplex <- newDuplexTransport cfg sock
+  buildConnection duplex (Just sock) Nothing
+
+-- | Like 'newConnectionFromSocket' but acquires ring buffers from a
+-- 'RingPool' instead of allocating fresh ones. On 'closeConnection',
+-- rings are returned to the pool for reuse. This eliminates the
+-- @memfd_create@ + @mmap@ + @memset@ cost of ring allocation on the
+-- connection hot path.
+newConnectionFromSocketPooled :: RingPool -> Socket -> IO Connection
+newConnectionFromSocketPooled pool sock = do
+  let !cfg = defaultTransportConfig { WC.ringSizeHint = defaultRingSize }
+  duplex <- newDuplexBufTransportPooled pool cfg
+              (\p n -> S.recvBuf sock p n)
+              (\p n -> S.sendBuf sock p n)
+              (S.shutdown sock S.ShutdownSend)
   buildConnection duplex (Just sock) Nothing
 
 -- | Build a 'Connection' from a handshaked OpenSSL TLS connection.

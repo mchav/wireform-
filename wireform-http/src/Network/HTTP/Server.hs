@@ -59,8 +59,10 @@ import qualified Network.HTTP1.Server as H1
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2
 import qualified Network.HTTP2.Transport as H2T
+import Wireform.Ring.Pool (RingPool)
 import Wireform.Network
   ( newDuplexBufTransport
+  , newDuplexBufTransportPooled
   , defaultTransportConfig
   )
 import qualified Wireform.Transport.Config as WC
@@ -104,6 +106,9 @@ data ServerConfig = ServerConfig
     -- ^ Auto-inject a @Date@ header on responses that don't carry
     --   one (RFC 9110 \u00a710.2.2). Defaults to 'True'.
   , serverLimits       :: !ServerLimits
+  , serverRingPool     :: !(Maybe RingPool)
+    -- ^ Optional pool of pre-allocated magic ring buffers for
+    -- connection recycling. See 'Wireform.Ring.Pool'.
   }
 
 -- | Per-connection limits.  The unified server passes these through
@@ -150,6 +155,7 @@ defaultServerConfig = ServerConfig
   , serverNameToken = Just "wireform-http"
   , serverEmitDate  = True
   , serverLimits    = defaultServerLimits
+  , serverRingPool  = Nothing
   }
   where
     stubResponse = Response
@@ -243,6 +249,7 @@ mkH1Config cfg = H1.defaultServerConfig
   , H1.serverPort = serverPort cfg
   , H1.serverForkConnection = serverForkConnection cfg
   , H1.serverHandler = wrapHttp1Handler cfg (serverHandler cfg)
+  , H1.serverRingPool = serverRingPool cfg
   }
 
 mkH2Config :: ServerConfig -> H2.ServerConfig
@@ -331,7 +338,7 @@ dispatchH1 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
 dispatchH1 cfg sock prebuf
   | BS.null prebuf = H1.runServerOnSocket (mkH1Config cfg) sock
   | otherwise = do
-      conn <- prebufferedH1Connection sock prebuf
+      conn <- prebufferedH1Connection (serverRingPool cfg) sock prebuf
       H1.runServerOnConnection (mkH1Config cfg) conn
 
 dispatchH2 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
@@ -347,11 +354,14 @@ dispatchH2 cfg sock prebuf =
 -- | Build an HTTP\/1 'H1C.Connection' from a 'NS.Socket' with @prebuf@
 -- bytes already pulled off the wire (delivered as the first bytes
 -- the receive ring sees) on the receive side.
-prebufferedH1Connection :: NS.Socket -> ByteString -> IO H1C.Connection
-prebufferedH1Connection sock prebuf = do
+prebufferedH1Connection :: Maybe RingPool -> NS.Socket -> ByteString -> IO H1C.Connection
+prebufferedH1Connection mPool sock prebuf = do
   ref <- newIORef prebuf
   let !cfg = defaultTransportConfig { WC.ringSizeHint = 256 * 1024 }
-  duplex <- newDuplexBufTransport cfg
+      mkDuplex = case mPool of
+        Just pool -> newDuplexBufTransportPooled pool cfg
+        Nothing   -> newDuplexBufTransport cfg
+  duplex <- mkDuplex
               (prefixedRecv ref sock)
               (\p n -> NS.sendBuf sock p n)
               (NS.shutdown sock NS.ShutdownSend)

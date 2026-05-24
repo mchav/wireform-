@@ -1,0 +1,106 @@
+cabal-version: 3.0
+name: wireform-http-wai
+version: 0.1.0.0
+synopsis: WAI adapter for wireform-http
+description:
+  Bidirectional adapter between WAI (Web Application Interface) and
+  the wireform-http unified request\/response types.
+  .
+  Use this to:
+  .
+  * Test existing WAI applications with wireform-http client tooling
+    ('waiToHandler', 'waiTransport').
+  * Serve wireform-http handlers through Warp or any WAI-compatible
+    server ('handlerToWai').
+
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Network, Web
+build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
+
+common defaults
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+    BangPatterns
+    PackageImports
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    Network.HTTP.WAI
+  build-depends:
+    base                 >= 4.16 && < 5,
+    bytestring           >= 0.11 && < 0.13,
+    case-insensitive     >= 1.2  && < 1.3,
+    http-types           >= 0.12 && < 0.13,
+    network              >= 3.1  && < 3.3,
+    text                 >= 2.0  && < 2.2,
+    vault                >= 0.3  && < 0.4,
+    wai                  >= 3.2  && < 3.3,
+    wireform-http
+
+benchmark wireform-http-wai-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Main.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N2"
+  build-depends:
+    base,
+    bytestring,
+    case-insensitive,
+    criterion          >= 1.5,
+    http-client        >= 0.7,
+    http-types,
+    network,
+    wai,
+    warp               >= 3.3,
+    wireform-core,
+    wireform-http,
+    wireform-http-wai
+
+test-suite wireform-http-wai-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.WAI
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    case-insensitive,
+    http-types,
+    network,
+    tasty            >= 1.4,
+    tasty-hunit      >= 0.10,
+    wai,
+    wireform-http,
+    wireform-http-wai

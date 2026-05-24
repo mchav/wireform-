@@ -61,9 +61,11 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Generics (Generic)
 
+import qualified Data.CaseInsensitive as CI
 import qualified Network.HTTP.Connection    as Conn
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as LB
+import qualified Network.HTTP.Types.Header  as H
 import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
@@ -295,10 +297,15 @@ runWithSlot pool target cfg req = mask $ \restore -> do
   -- on failure close + decrement.
   result <- restore (try (sendAndMaterialise conn req))
   case result of
-    Right raw -> do
-      now <- getCurrentTime
-      releaseIdle pool target (Slot conn now)
-      pure raw
+    Right raw
+      | responseWantsClose raw -> do
+          void (try @SomeException (Conn.closeConnection conn))
+          releaseDead pool target
+          pure raw
+      | otherwise -> do
+          now <- getCurrentTime
+          releaseIdle pool target (Slot conn now)
+          pure raw
     Left (e :: SomeException) -> do
       void (try @SomeException (Conn.closeConnection conn))
       releaseDead pool target
@@ -346,6 +353,20 @@ sendAndMaterialise conn req = do
           Just b
             | BS.null b -> go acc
             | otherwise -> go (b : acc)
+
+-- | Check if the server indicated the connection should not be reused.
+-- Looks for the @close@ token in the @Connection@ header value
+-- (case-insensitive, comma-separated per RFC 9110 §7.6.1).
+responseWantsClose :: RawResponse -> Bool
+responseWantsClose raw =
+  case H.lookupHeader H.hConnection (headers raw) of
+    Nothing -> False
+    Just v  -> any isClose (BS8.split ',' v)
+  where
+    isClose tok =
+      let trimmed = BS.dropWhile isOWS (BS.reverse (BS.dropWhile isOWS (BS.reverse tok)))
+      in CI.mk trimmed == CI.mk "close"
+    isOWS w = w == 0x20 || w == 0x09
 
 toLowLevelRequest :: WReq.Request BodyStream -> IO Msg.Request
 toLowLevelRequest req = do

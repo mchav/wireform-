@@ -39,6 +39,7 @@ packages:
   wireform-http1/
   wireform-http2/
   wireform-http/
+  wireform-http-wai/
   wireform-grpc/
   wireform-kafka-protocol/
   wireform-kafka/

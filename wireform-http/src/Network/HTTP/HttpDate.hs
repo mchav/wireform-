@@ -36,9 +36,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import Data.Time (UTCTime)
 
--- 'Hermes.dateParser' is built on the vendored Wireform.Parser;
--- pair it with hermes's own runParser \/ Result rather than
--- flatparse's so the parser type unifies.
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 
 import qualified Network.HTTP.Headers.Date          as Hermes

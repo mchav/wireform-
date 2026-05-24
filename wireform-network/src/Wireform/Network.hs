@@ -31,6 +31,7 @@ module Wireform.Network
   , newDuplexTransport
   , withDuplexBufTransport
   , newDuplexBufTransport
+  , newDuplexBufTransportPooled
   , closeDuplexTransport
 
     -- * In-memory pipe (testing)
@@ -62,6 +63,7 @@ import Wireform.Network.Transport.Duplex
   , newDuplexTransport
   , withDuplexBufTransport
   , newDuplexBufTransport
+  , newDuplexBufTransportPooled
   , closeDuplexTransport
   )
 import Wireform.Network.Transport.Pipe (newDuplexPipe)
