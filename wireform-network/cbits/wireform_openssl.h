@@ -28,6 +28,14 @@ SSL_CTX* wf_ssl_ctx_new_client(int verify_peer);
 SSL_CTX* wf_ssl_ctx_new_server(const char *cert_path, const char *key_path);
 void     wf_ssl_ctx_free(SSL_CTX *ctx);
 
+/* Optional knobs.  Each returns 0 on success / WF_SSL_FATAL on failure. */
+int wf_ssl_ctx_load_ca_bundle(SSL_CTX *ctx, const char *ca_path);
+int wf_ssl_ctx_use_client_cert(SSL_CTX *ctx,
+                                const char *cert_path,
+                                const char *key_path);
+int wf_ssl_ctx_set_min_proto(SSL_CTX *ctx, int version);   /* 12 or 13 */
+int wf_ssl_ctx_set_cipher_suites(SSL_CTX *ctx, const char *cipher_list);
+
 /* ALPN.  protos / protos_len: length-prefixed list,
  * e.g. "\x02h2\x08http/1.1". */
 int  wf_ssl_ctx_set_alpn(SSL_CTX *ctx,

@@ -22,7 +22,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32)
 import qualified Data.IORef as IORef
 import qualified Data.List
-import qualified Network.Connection as NC
+import qualified Kafka.Network.Connection as NC
 import qualified Network.Socket as Sock
 import qualified Network.Socket.ByteString as Sock.BS
 import System.Timeout (timeout)
@@ -136,16 +136,15 @@ withClientConnection
   -> (NC.Connection -> IO a)
   -> IO a
 withClientConnection port k = do
-  ctx <- NC.initConnectionContext
-  bracket
-    (NC.connectTo ctx (NC.ConnectionParams
-        { NC.connectionHostname  = "127.0.0.1"
-        , NC.connectionPort      = port
-        , NC.connectionUseSecure = Nothing
-        , NC.connectionUseSocks  = Nothing
-        }))
-    NC.connectionClose
-    k
+  let addr = NC.BrokerAddress { NC.brokerHost = "127.0.0.1"
+                              , NC.brokerPort = port
+                              }
+      cfg  = NC.defaultConnectionConfig
+  r <- NC.connect addr cfg
+  case r of
+    Left err   -> error ("withClientConnection: " <> err)
+    Right conn ->
+      bracket (pure conn) NC.connectionClose k
 
 -- | A request /builder/ in the shape that 'sendRequest' wants:
 -- given the pipeline-allocated correlation id, return the wire

@@ -36,7 +36,7 @@ import Foreign.Ptr
 import Network.Socket (Socket)
 
 import qualified Wireform.Transport as WT
-import Wireform.Network (newRecvBufTransport)
+import Wireform.Network (newReceiveBufTransport)
 import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (defaultTransportConfig)
 
@@ -106,7 +106,7 @@ data Connection = Connection
   , connHpackEncoder :: !(MVar DynamicTable)
   , connHpackDecoder :: !(MVar DynamicTable)
   , connSendLock :: !(MVar ())
-  , connRingTransport :: !WT.Transport
+  , connRingTransport :: !WT.ReceiveTransport
     -- ^ Magic-ring transport plumbed onto @tRecvBuf connTransport@.
     -- Owns its own 'Wireform.Ring.Internal.MagicRing' (destroyed
     -- on 'closeConnection') and is the sole receive side for the
@@ -114,7 +114,7 @@ data Connection = Connection
   , connRingCursor :: !(IORef Word64)
     -- ^ Position past the last byte consumed by 'recvFrame' /
     -- 'recvFrameRaw'.  Chained through the StreamingReader so we
-    -- don't pay a 'transportLoadHead' round-trip per frame.
+    -- don't pay a 'receiveLoadHead' round-trip per frame.
   , connLastStreamId :: !(IORef StreamId)
   , connClosed :: !(IORef Bool)
   , connOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
@@ -166,7 +166,7 @@ mkConnection role settings onGoAway transport mSock = do
   -- default is 16 KiB).  The mmap is virtual address space — actual
   -- pages are only faulted in for bytes the recv path touches.
   let !ringCfg = defaultTransportConfig { WC.ringSizeHint = 1024 * 1024 }
-  ringT <- newRecvBufTransport ringCfg (tRecvBuf transport)
+  ringT <- newReceiveBufTransport ringCfg (tRecvBuf transport)
   ringCursor <- newIORef 0
   lastStreamId <- newIORef 0
   closed <- newIORef False
@@ -310,7 +310,7 @@ sendFramesZeroCopy conn frames = do
 
 -- | Receive a typed frame off the wire.  Walks the magic ring via
 -- 'Network.HTTP2.Frame.StreamingReader.readFrameFrom' (single
--- 'transportLoadHead' per frame, zero-copy payload slice into the
+-- 'receiveLoadHead' per frame, zero-copy payload slice into the
 -- ring) and runs 'decodeFramePayload' for per-type validation.
 --
 -- Bytes of the payload slice are valid only until the connection's
@@ -360,7 +360,7 @@ closeConnection conn code msg = do
       -- payload slices the caller still holds become dangling
       -- pointers; they should have been 'BS.copy'd inside the
       -- per-frame handler.
-      WT.transportClose (connRingTransport conn)
+      WT.receiveClose (connRingTransport conn)
         `catch` (\(_ :: SomeException) -> pure ())
 
 connectionSettings :: Connection -> IO (Settings, Settings)

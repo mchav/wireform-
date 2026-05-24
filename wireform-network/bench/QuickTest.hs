@@ -43,24 +43,24 @@ mkWord32Input n = LBS.toStrict . BSB.toLazyByteString $
 connectedPair :: IO (Socket, Socket)
 connectedPair = socketPair AF_UNIX Stream defaultProtocol
 
-mkMemoryTransport :: MagicRing s -> BS.ByteString -> IO Transport
+mkMemoryTransport :: MagicRing s -> BS.ByteString -> IO ReceiveTransport
 mkMemoryTransport ring payload = do
   let !base = ringBase ring
       !payloadLen = BS.length payload
   BSU.unsafeUseAsCStringLen payload \(src, len) ->
     copyBytes base (castPtr src) len
   let !headPos = fromIntegral payloadLen :: Word64
-  pure Transport
-    { transportRingBaseField = ringBase ring
-    , transportRingSizeField = ringSize ring
-    , transportRingMaskField = ringMask ring
-    , transportLoadHead      = pure headPos
-    , transportAdvanceTail   = \_ -> pure ()
-    , transportWaitData      = \_ -> pure EndOfInput
-    , transportClose         = pure ()
+  pure ReceiveTransport
+    { receiveRingBase = ringBase ring
+    , receiveRingSize = ringSize ring
+    , receiveRingMask = ringMask ring
+    , receiveLoadHead      = pure headPos
+    , receiveAdvanceTail   = \_ -> pure ()
+    , receiveWaitData      = \_ -> pure ReceiveEndOfInput
+    , receiveClose         = pure ()
     }
 
-withRecvTransportReuse :: MagicRing s -> Socket -> (Transport -> IO a) -> IO a
+withRecvTransportReuse :: MagicRing s -> Socket -> (ReceiveTransport -> IO a) -> IO a
 withRecvTransportReuse ring sock action = do
   let !base = ringBase ring
       !msk  = ringMask ring
@@ -73,44 +73,44 @@ withRecvTransportReuse ring sock action = do
       advanceTail pos = writeIORef tailRef pos
       waitData pos = do
         isEof <- readIORef eofRef
-        if isEof then pure EndOfInput
+        if isEof then pure ReceiveEndOfInput
         else do
           mbErr <- readIORef errRef
           case mbErr of
-            Just e  -> pure (TransportError e)
+            Just e  -> pure (ReceiveFailed e)
             Nothing -> doRecv pos
       doRecv pos = do
         h <- readIORef headRef
-        if h > pos then pure (MoreData h)
+        if h > pos then pure (ReceiveMoreData h)
         else do
           t <- readIORef tailRef
           let !writeOff  = fromIntegral h .&. msk
               !writePtr  = base `plusPtr` writeOff
               !available = sz - fromIntegral (h - t)
               !maxRecv   = min available (sz - writeOff)
-          if maxRecv <= 0 then pure (MoreData h)
+          if maxRecv <= 0 then pure (ReceiveMoreData h)
           else do
             result <- E.try @IOException (S.recvBuf sock writePtr maxRecv)
             case result of
               Left exc -> do
                 writeIORef errRef (Just (toException exc))
-                pure (TransportError (toException exc))
+                pure (ReceiveFailed (toException exc))
               Right n
                 | n == 0 -> do
                     writeIORef eofRef True
-                    pure EndOfInput
+                    pure ReceiveEndOfInput
                 | otherwise -> do
                     let !newHead = h + fromIntegral n
                     writeIORef headRef newHead
-                    pure (MoreData newHead)
-      transport = Transport
-        { transportRingBaseField = base
-        , transportRingSizeField = sz
-        , transportRingMaskField = msk
-        , transportLoadHead      = loadHead
-        , transportAdvanceTail   = advanceTail
-        , transportWaitData      = waitData
-        , transportClose         = writeIORef eofRef True
+                    pure (ReceiveMoreData newHead)
+      transport = ReceiveTransport
+        { receiveRingBase = base
+        , receiveRingSize = sz
+        , receiveRingMask = msk
+        , receiveLoadHead      = loadHead
+        , receiveAdvanceTail   = advanceTail
+        , receiveWaitData      = waitData
+        , receiveClose         = writeIORef eofRef True
         }
   action transport
 
@@ -156,16 +156,16 @@ main = do
         copyBytes (ringBase ring) (castPtr src) len
       let !headPos = fromIntegral (BS.length payload) :: Word64
       headRef <- newIORef (0 :: Word64)
-      let t = Transport
-            { transportRingBaseField = ringBase ring
-            , transportRingSizeField = ringSize ring
-            , transportRingMaskField = ringMask ring
-            , transportLoadHead      = readIORef headRef
-            , transportAdvanceTail   = \_ -> pure ()
-            , transportWaitData      = \_ -> do
+      let t = ReceiveTransport
+            { receiveRingBase = ringBase ring
+            , receiveRingSize = ringSize ring
+            , receiveRingMask = ringMask ring
+            , receiveLoadHead      = readIORef headRef
+            , receiveAdvanceTail   = \_ -> pure ()
+            , receiveWaitData      = \_ -> do
                 writeIORef headRef headPos
-                pure (MoreData headPos)
-            , transportClose         = pure ()
+                pure (ReceiveMoreData headPos)
+            , receiveClose         = pure ()
             }
       wallTimeIO "  stream-1suspend" $ do
         r <- runParser t (word32sP @Stream n)
@@ -173,7 +173,7 @@ main = do
           Right () -> pure ()
           Left e -> error (show e)
 
-  putStrLn "\n=== 4. Transport + network (data pre-sent) ==="
+  putStrLn "\n=== 4. ReceiveTransport + network (data pre-sent) ==="
   withMagicRing (ringSizeHint defaultTransportConfig) \ring -> do
     sequence_ $ replicate 10 $ do
       (sender, receiver) <- connectedPair

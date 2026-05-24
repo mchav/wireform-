@@ -143,41 +143,41 @@ prefillRing ring payload =
 -- payloadLen@ unconditionally, which lies to the driver and (since
 -- the driver was tightened up to compute @eob = cur + (head - pos)@)
 -- now segfaults instead of silently truncating via mask wrap.
-mkPrefilledTransport :: MagicRing s -> Int -> IO Transport
+mkPrefilledTransport :: MagicRing s -> Int -> IO ReceiveTransport
 mkPrefilledTransport ring payloadLen = do
   let !headPos = fromIntegral (min payloadLen (ringSize ring)) :: Word64
-  pure Transport
-    { transportRingBaseField = ringBase ring
-    , transportRingSizeField = ringSize ring
-    , transportRingMaskField = ringMask ring
-    , transportLoadHead      = pure headPos
-    , transportAdvanceTail   = \_ -> pure ()
-    , transportWaitData      = \_ -> pure EndOfInput
-    , transportClose         = pure ()
+  pure ReceiveTransport
+    { receiveRingBase = ringBase ring
+    , receiveRingSize = ringSize ring
+    , receiveRingMask = ringMask ring
+    , receiveLoadHead      = pure headPos
+    , receiveAdvanceTail   = \_ -> pure ()
+    , receiveWaitData      = \_ -> pure ReceiveEndOfInput
+    , receiveClose         = pure ()
     }
 
 -- | In-memory transport: head starts at 0, first waitData delivers data.
 -- Forces exactly one suspension/resume cycle.  See
 -- 'mkPrefilledTransport' for the @min payloadLen ringSize@
 -- truncation rationale.
-mkSuspendOnceTransport :: MagicRing s -> Int -> IO Transport
+mkSuspendOnceTransport :: MagicRing s -> Int -> IO ReceiveTransport
 mkSuspendOnceTransport ring payloadLen = do
   let !headPos = fromIntegral (min payloadLen (ringSize ring)) :: Word64
   headRef <- newIORef (0 :: Word64)
-  pure Transport
-    { transportRingBaseField = ringBase ring
-    , transportRingSizeField = ringSize ring
-    , transportRingMaskField = ringMask ring
-    , transportLoadHead      = readIORef headRef
-    , transportAdvanceTail   = \_ -> pure ()
-    , transportWaitData      = \_ -> do
+  pure ReceiveTransport
+    { receiveRingBase = ringBase ring
+    , receiveRingSize = ringSize ring
+    , receiveRingMask = ringMask ring
+    , receiveLoadHead      = readIORef headRef
+    , receiveAdvanceTail   = \_ -> pure ()
+    , receiveWaitData      = \_ -> do
         writeIORef headRef headPos
-        pure (MoreData headPos)
-    , transportClose         = pure ()
+        pure (ReceiveMoreData headPos)
+    , receiveClose         = pure ()
     }
 
 -- | Network recv transport reusing a pre-allocated ring.
-withRecvTransportReuse :: MagicRing s -> Socket -> (Transport -> IO a) -> IO a
+withRecvTransportReuse :: MagicRing s -> Socket -> (ReceiveTransport -> IO a) -> IO a
 withRecvTransportReuse ring sock action = do
   let !base = ringBase ring
       !msk  = ringMask ring
@@ -190,44 +190,44 @@ withRecvTransportReuse ring sock action = do
       advanceTail pos = writeIORef tailRef pos
       waitData pos = do
         isEof <- readIORef eofRef
-        if isEof then pure EndOfInput
+        if isEof then pure ReceiveEndOfInput
         else do
           mbErr <- readIORef errRef
           case mbErr of
-            Just e  -> pure (TransportError e)
+            Just e  -> pure (ReceiveFailed e)
             Nothing -> doRecv pos
       doRecv pos = do
         h <- readIORef headRef
-        if h > pos then pure (MoreData h)
+        if h > pos then pure (ReceiveMoreData h)
         else do
           t <- readIORef tailRef
           let !writeOff  = fromIntegral h .&. msk
               !writePtr  = base `plusPtr` writeOff
               !available = sz - fromIntegral (h - t)
               !maxRecv   = min available (sz - writeOff)
-          if maxRecv <= 0 then pure (MoreData h)
+          if maxRecv <= 0 then pure (ReceiveMoreData h)
           else do
             result <- E.try @IOException (S.recvBuf sock writePtr maxRecv)
             case result of
               Left exc -> do
                 writeIORef errRef (Just (toException exc))
-                pure (TransportError (toException exc))
+                pure (ReceiveFailed (toException exc))
               Right n
                 | n == 0 -> do
                     writeIORef eofRef True
-                    pure EndOfInput
+                    pure ReceiveEndOfInput
                 | otherwise -> do
                     let !newHead = h + fromIntegral n
                     writeIORef headRef newHead
-                    pure (MoreData newHead)
-      transport = Transport
-        { transportRingBaseField = base
-        , transportRingSizeField = sz
-        , transportRingMaskField = msk
-        , transportLoadHead      = loadHead
-        , transportAdvanceTail   = advanceTail
-        , transportWaitData      = waitData
-        , transportClose         = writeIORef eofRef True
+                    pure (ReceiveMoreData newHead)
+      transport = ReceiveTransport
+        { receiveRingBase = base
+        , receiveRingSize = sz
+        , receiveRingMask = msk
+        , receiveLoadHead      = loadHead
+        , receiveAdvanceTail   = advanceTail
+        , receiveWaitData      = waitData
+        , receiveClose         = writeIORef eofRef True
         }
   action transport
 

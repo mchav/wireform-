@@ -101,6 +101,48 @@ void wf_ssl_ctx_free(SSL_CTX *ctx) {
     if (ctx) SSL_CTX_free(ctx);
 }
 
+/* Optional: load an explicit CA bundle (PEM) on top of the default
+ * system trust store the client ctx already uses.  Callers that want
+ * to /replace/ the system store should construct the ctx with
+ * verify_peer=0 and then opt back into verification themselves. */
+int wf_ssl_ctx_load_ca_bundle(SSL_CTX *ctx, const char *ca_path) {
+    if (!ctx || !ca_path) return WF_SSL_FATAL;
+    if (SSL_CTX_load_verify_locations(ctx, ca_path, NULL) != 1) {
+        return WF_SSL_FATAL;
+    }
+    return WF_SSL_OK;
+}
+
+/* mTLS client identity.  Loads the cert chain + private key and
+ * checks they match. */
+int wf_ssl_ctx_use_client_cert(SSL_CTX *ctx,
+                                const char *cert_path,
+                                const char *key_path) {
+    if (!ctx || !cert_path || !key_path) return WF_SSL_FATAL;
+    if (SSL_CTX_use_certificate_chain_file(ctx, cert_path) != 1) return WF_SSL_FATAL;
+    if (SSL_CTX_use_PrivateKey_file(ctx, key_path, SSL_FILETYPE_PEM) != 1) return WF_SSL_FATAL;
+    if (SSL_CTX_check_private_key(ctx) != 1) return WF_SSL_FATAL;
+    return WF_SSL_OK;
+}
+
+/* Override the minimum protocol version.  @version is 12 (TLS 1.2)
+ * or 13 (TLS 1.3); anything else falls back to TLS 1.2. */
+int wf_ssl_ctx_set_min_proto(SSL_CTX *ctx, int version) {
+    if (!ctx) return WF_SSL_FATAL;
+    int v = (version == 13) ? TLS1_3_VERSION : TLS1_2_VERSION;
+    if (SSL_CTX_set_min_proto_version(ctx, v) != 1) return WF_SSL_FATAL;
+    return WF_SSL_OK;
+}
+
+/* Override the cipher list (TLS 1.2 and earlier).  TLS 1.3 cipher
+ * suites are configured separately via SSL_CTX_set_ciphersuites;
+ * for now we leave those at OpenSSL defaults. */
+int wf_ssl_ctx_set_cipher_suites(SSL_CTX *ctx, const char *cipher_list) {
+    if (!ctx || !cipher_list) return WF_SSL_FATAL;
+    if (SSL_CTX_set_cipher_list(ctx, cipher_list) != 1) return WF_SSL_FATAL;
+    return WF_SSL_OK;
+}
+
 /* ALPN protocol list: pre-encoded as a series of <len byte><proto bytes>
  * tuples (e.g. \x02h2\x08http/1.1).  Returns 0 on success per the
  * OpenSSL convention. */

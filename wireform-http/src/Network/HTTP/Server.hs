@@ -54,11 +54,20 @@ import Data.Time.Clock (getCurrentTime)
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NBS
 
+import qualified Network.HTTP1.Connection as H1C
 import qualified Network.HTTP1.Server as H1
-import qualified Network.HTTP1.Transport as H1T
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2
 import qualified Network.HTTP2.Transport as H2T
+import Wireform.Network
+  ( newDuplexBufTransport
+  , defaultTransportConfig
+  )
+import qualified Wireform.Transport.Config as WC
+import Foreign.Marshal.Utils (copyBytes)
+import qualified Data.ByteString.Unsafe as BSU
+import Foreign.Ptr (Ptr, castPtr)
+import Data.Word (Word8)
 
 import Network.HTTP.HttpDate (formatHttpDate)
 import Network.HTTP.Message
@@ -319,8 +328,8 @@ dispatchH1 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
 dispatchH1 cfg sock prebuf
   | BS.null prebuf = H1.runServerOnSocket (mkH1Config cfg) sock
   | otherwise = do
-      transport <- prebuffered1 sock prebuf
-      H1.runServerOnTransport (mkH1Config cfg) transport
+      conn <- prebufferedH1Connection sock prebuf
+      H1.runServerOnConnection (mkH1Config cfg) conn
 
 dispatchH2 :: ServerConfig -> NS.Socket -> ByteString -> IO ()
 dispatchH2 cfg sock prebuf =
@@ -332,15 +341,24 @@ dispatchH2 cfg sock prebuf =
          transport <- prebuffered2 sock prebuf
          H2.runServerOnTransport h2cfg transport
 
-prebuffered1 :: NS.Socket -> ByteString -> IO H1T.Transport
-prebuffered1 sock prebuf = do
+-- | Build an HTTP\/1 'H1C.Connection' from a 'NS.Socket' with @prebuf@
+-- bytes already pulled off the wire (delivered as the first bytes
+-- the receive ring sees) on the receive side.
+prebufferedH1Connection :: NS.Socket -> ByteString -> IO H1C.Connection
+prebufferedH1Connection sock prebuf = do
   ref <- newIORef prebuf
-  H1T.bufferedRecvTransport
-    (NBS.sendAll sock)
-    (NBS.sendMany sock)
-    (drainOrRecv ref sock)
-    (NS.close sock)
+  let !cfg = defaultTransportConfig { WC.ringSizeHint = 256 * 1024 }
+  duplex <- newDuplexBufTransport cfg
+              (prefixedRecv ref sock)
+              (\p n -> NS.sendBuf sock p n)
+              (NS.shutdown sock NS.ShutdownSend)
+  H1C.newConnectionFromDuplex duplex
 
+-- | Build a legacy HTTP\/2 'H2T.Transport' from a 'NS.Socket' with
+-- @prebuf@ already pulled.  The new HTTP\/2 stack still threads its
+-- recv through a local 'H2T.Transport' record (the magic ring is
+-- internal to 'Network.HTTP2.Connection'), so the legacy bridge is
+-- still useful here.
 prebuffered2 :: NS.Socket -> ByteString -> IO H2T.Transport
 prebuffered2 sock prebuf = do
   ref <- newIORef prebuf
@@ -349,6 +367,21 @@ prebuffered2 sock prebuf = do
     (NBS.sendMany sock)
     (drainOrRecv ref sock)
     (NS.close sock)
+
+prefixedRecv :: IORef ByteString -> NS.Socket -> Ptr Word8 -> Int -> IO Int
+prefixedRecv ref sock dst want = do
+  buf <- readIORef ref
+  if BS.null buf
+    then NS.recvBuf sock dst want
+    else do
+      let !take_ = min (BS.length buf) want
+          !taken = BS.take take_ buf
+          !rest  = BS.drop take_ buf
+      writeIORef ref rest
+      BSU.unsafeUseAsCStringLen taken $ \(src, len) ->
+        copyBytes dst (castPtr src) len
+      pure take_
+{-# INLINE prefixedRecv #-}
 
 -- | Pull the prebuffered bytes once, then fall through to live
 -- 'NBS.recv'. The transport's own buffering layer copies them into

@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
 
-module Wireform.Network.Transport.Recv.Test (spec) where
+module Wireform.Network.Transport.Receive.Test (spec) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (finally, fromException)
@@ -22,7 +22,7 @@ import Wireform.Parser
 import Wireform.Parser.Internal (Pure, Stream)
 import Wireform.Parser.Driver
 import Wireform.Parser.Error
-import Wireform.Network.Transport.Recv
+import Wireform.Network.Transport.Receive
 import Wireform.Transport.Config
 
 type P = Parser Stream String
@@ -30,26 +30,26 @@ type P = Parser Stream String
 spec :: Spec
 spec = describe "RecvTransport" $ do
 
-  describe "withRecvBufTransport (chunked feeder)" $ do
+  describe "withReceiveBufTransport (chunked feeder)" $ do
     it "parses a message delivered in one chunk" $ do
-      recvFn <- chunkedRecvFn ["hello"]
-      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+      recvFn <- chunkedReceiveFn ["hello"]
+      withReceiveBufTransport defaultTransportConfig recvFn $ \t -> do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
           Left e   -> expectationFailure ("parse failed: " <> show e)
 
     it "stitches a message split across two chunks" $ do
-      recvFn <- chunkedRecvFn ["he", "llo"]
-      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+      recvFn <- chunkedReceiveFn ["he", "llo"]
+      withReceiveBufTransport defaultTransportConfig recvFn $ \t -> do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
           Left e   -> expectationFailure ("parse failed: " <> show e)
 
     it "loops over multiple length-prefixed messages, stops voluntarily" $ do
-      recvFn <- chunkedRecvFn ["\x05hello\x05world"]
-      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+      recvFn <- chunkedReceiveFn ["\x05hello\x05world"]
+      withReceiveBufTransport defaultTransportConfig recvFn $ \t -> do
         ref <- newIORef ([] :: [ByteString])
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParserLoop t p $ \msg -> do
@@ -63,8 +63,8 @@ spec = describe "RecvTransport" $ do
           Left e   -> expectationFailure ("loop error: " <> show e)
 
     it "surfaces clean EOF when chunks are exhausted" $ do
-      recvFn <- chunkedRecvFn ["abc"]
-      withRecvBufTransport defaultTransportConfig recvFn $ \t -> do
+      recvFn <- chunkedReceiveFn ["abc"]
+      withReceiveBufTransport defaultTransportConfig recvFn $ \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParserLoop t p $ \_msg -> pure Continue
         case r of
@@ -88,9 +88,9 @@ spec = describe "RecvTransport" $ do
             | i <- [0 .. (total `div` chunkSz) - 1]
             ]
           expected = BS.concat chunks
-      recvFn <- chunkedRecvFn chunks
+      recvFn <- chunkedReceiveFn chunks
       mRes <- timeout 5_000_000 $
-        withRecvBufTransport cfg recvFn $ \t ->
+        withReceiveBufTransport cfg recvFn $ \t ->
           runParser t (takeBs total :: P ByteString)
       case mRes of
         Nothing ->
@@ -112,9 +112,9 @@ spec = describe "RecvTransport" $ do
             | i <- [0 .. (total `div` chunkSz)]
             ]
           expected = BS.take total (BS.concat chunks)
-      recvFn <- chunkedRecvFn chunks
+      recvFn <- chunkedReceiveFn chunks
       mRes <- timeout 5_000_000 $
-        withRecvBufTransport cfg recvFn $ \t ->
+        withReceiveBufTransport cfg recvFn $ \t ->
           runParser t (takeBsCopy total :: P ByteString)
       case mRes of
         Nothing ->
@@ -127,7 +127,7 @@ spec = describe "RecvTransport" $ do
           expectationFailure $
             "expected drained ByteString, got: " <> show e
 
-    it "surfaces RingExhausted when a non-draining parser fills the ring without checkpointing" $ do
+    it "surfaces ReceiveRingExhausted when a non-draining parser fills the ring without checkpointing" $ do
       -- Read more raw bytes in a single 'runParser' than the ring can
       -- hold from startPos using byte-at-a-time 'anyWord8' (which
       -- does not auto-drain like 'takeBs' / 'takeBsCopy' do).  The
@@ -136,29 +136,29 @@ spec = describe "RecvTransport" $ do
       -- error rather than spinning forever.
       let cfg = defaultTransportConfig { ringSizeHint = 1 }
           chunks = replicate 20000 (BS.singleton 0x42)
-      recvFn <- chunkedRecvFn chunks
+      recvFn <- chunkedReceiveFn chunks
       mRes <- timeout 5_000_000 $
-        withRecvBufTransport cfg recvFn $ \t ->
+        withReceiveBufTransport cfg recvFn $ \t ->
           runParser t (replicateM_ 20000 anyWord8 :: P ())
       case mRes of
         Nothing ->
           expectationFailure
             "deadlocked: consuming > ringSize without checkpoint should not block forever"
         Just (Left (ParseTransportError exc)) ->
-          case fromException exc :: Maybe RingExhausted of
+          case fromException exc :: Maybe ReceiveRingExhausted of
             Just _  -> pure ()
             Nothing ->
               expectationFailure $
-                "expected RingExhausted inside ParseTransportError, got: " <> show exc
+                "expected ReceiveRingExhausted inside ParseTransportError, got: " <> show exc
         Just other ->
           expectationFailure $
-            "expected ParseTransportError(RingExhausted), got: " <> show other
+            "expected ParseTransportError(ReceiveRingExhausted), got: " <> show other
 
   it "parses a simple message from a socket" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "hello"
       shutdown writer ShutdownSend
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
@@ -168,7 +168,7 @@ spec = describe "RecvTransport" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "\x05hello"
       shutdown writer ShutdownSend
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParser t p
         case r of
@@ -179,7 +179,7 @@ spec = describe "RecvTransport" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "\x05hello\x05world"
       shutdown writer ShutdownSend
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParserLoop t p \msg -> do
           msg `shouldBe` "hello"
@@ -206,7 +206,7 @@ spec = describe "RecvTransport" $ do
       sendAll writer "\x06foobar"
       shutdown writer ShutdownSend
       ref <- newIORef ([] :: [ByteString])
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParserLoop t p \msg -> do
           modifyIORef ref (msg :)
@@ -222,7 +222,7 @@ spec = describe "RecvTransport" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "\x0Ahello"  -- says 10 bytes, only sends 5
       shutdown writer ShutdownSend
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParser t p
         case r of
@@ -234,7 +234,7 @@ spec = describe "RecvTransport" $ do
     withConnectedPair \(writer, reader) -> do
       sendAll writer "data"
       shutdown writer ShutdownSend
-      withRecvTransport defaultTransportConfig reader \t -> do
+      withReceiveTransport defaultTransportConfig reader \t -> do
         r1 <- runParser t (takeBs 4 :: P ByteString)
         case r1 of
           Right bs -> bs `shouldBe` "data"

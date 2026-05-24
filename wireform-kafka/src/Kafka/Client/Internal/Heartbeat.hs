@@ -49,7 +49,7 @@ import System.IO (hPutStrLn, stderr)
 import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn

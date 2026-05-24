@@ -48,7 +48,7 @@ import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Network.Connection (Connection)
+import Kafka.Network.Connection (Connection)
 
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Connection as Conn

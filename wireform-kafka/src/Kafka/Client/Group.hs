@@ -124,7 +124,7 @@ import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.SASL as SASL
 import qualified Kafka.Network.Auth.Scram as Scram
 import qualified Kafka.Network.Connection as Conn
-import qualified Network.TLS as TLS
+import qualified Wireform.Network.TLS.Config as TLS
 
 -- | What to do when the user-provided handler throws.
 data ErrorPolicy
@@ -207,7 +207,7 @@ data GroupConfig = GroupConfig
     --   'False' for local development; flip to 'True' for any
     --   production / cloud broker. AWS MSK IAM (and Confluent
     --   Cloud's PLAIN \/ OAUTHBEARER) /require/ TLS.
-  , tlsParams          :: !(Maybe TLS.ClientParams)
+  , tlsParams          :: !(Maybe TLS.TlsClientConfig)
     -- ^ Custom TLS parameters. When 'Nothing' but 'useTls' is
     --   'True' we fall back to 'Conn.defaultTlsSettings' against the
     --   first bootstrap broker hostname (system trust store, strong

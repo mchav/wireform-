@@ -98,14 +98,15 @@ import Data.Int
 import GHC.Generics (Generic)
 import qualified Kafka.Time as KafkaTime
 import qualified Kafka.Client.ReauthDriver
-import Network.Connection
+import Kafka.Network.Connection
   ( Connection
   , connectionPut
   , connectionClose
   )
+import qualified Kafka.Network.Connection.Internal as Conn (connDuplex)
 
 import qualified Kafka.Network.FrameParser as FrameParser
-import qualified Kafka.Network.RingTransport as RingTransport
+import qualified Wireform.Network as WN
 import Wireform.Parser.Driver (LoopControl (..))
 import Wireform.Parser.Error (ParseError (..))
 import qualified Wireform.Transport.Config as WC
@@ -580,14 +581,16 @@ receiveLoop :: Pipeline -> IO ()
 receiveLoop p@Pipeline{..} = do
   closed0 <- readTVarIO pipelineClosed
   unless closed0 $ do
-    let !ringCfg = (profileConfig Throughput)
-          { WC.ringSizeHint = pipelineRingSize pipelineConfig }
+    -- The Pipeline's Connection already owns a magic-ring
+    -- DuplexTransport; pull the receive side out directly and feed
+    -- it to the streaming Kafka frame parser.  (Pre-rewrite this
+    -- went through Kafka.Network.RingTransport.withConnectionTransport,
+    -- which bridged a crypton-connection 'Network.Connection' onto a
+    -- fresh magic ring; the new connection's ring IS the recv ring,
+    -- no bridging needed.)
+    let rx = WN.duplexReceive (Conn.connDuplex pipelineConnection)
     eLoop <- try @SomeException $
-      RingTransport.withConnectionTransport
-        ringCfg
-        pipelineConnection
-        $ \transport ->
-            FrameParser.runKafkaFrameLoop transport (handleFrame p)
+      FrameParser.runKafkaFrameLoop rx (handleFrame p)
     case eLoop of
       Left e -> failPipeline p ("recv failed: " <> show e)
       Right (Right ()) -> pure ()  -- clean EOF / 'Stop'

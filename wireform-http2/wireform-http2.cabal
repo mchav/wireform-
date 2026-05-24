@@ -41,6 +41,16 @@ library
       Network.HTTP2.RateLimit
       Network.HTTP2.TLS.Client
       Network.HTTP2.TLS.Server
+      -- Vendored grapesy engine.  Exposed (rather than hidden)
+      -- because wireform-grpc imports it directly.
+      Network.HTTP2.Engine.Client
+      Network.HTTP2.Engine.Run.Client
+      Network.HTTP2.Engine.Run.Server
+      Network.HTTP2.Engine.Server
+      Network.HTTP2.Engine.Settings
+      Network.HTTP2.Engine.TLS.Client
+      Network.HTTP2.Engine.TLS.Server
+      Network.HTTP2.Engine.Types
     other-modules:
       Network.HTTP2.Internal.BitOps
       Network.HTTP2.Frame.Decode
@@ -54,14 +64,6 @@ library
       Network.HTTP2.Connection.FlowControl
       Network.HTTP2.Connection.Settings
       Network.HTTP2.Connection.StreamTable
-      Network.HTTP2.Engine.Client
-      Network.HTTP2.Engine.Run.Client
-      Network.HTTP2.Engine.Run.Server
-      Network.HTTP2.Engine.Server
-      Network.HTTP2.Engine.Settings
-      Network.HTTP2.Engine.TLS.Client
-      Network.HTTP2.Engine.TLS.Server
-      Network.HTTP2.Engine.Types
     hs-source-dirs:   src
     c-sources:        cbits/hpack_huffman.c
     include-dirs:     cbits
@@ -82,8 +84,6 @@ library
       , bytestring
       , case-insensitive
       , containers
-      , crypton-x509
-      , crypton-x509-store
       , data-default
       , deepseq
       , hashable
@@ -96,7 +96,6 @@ library
       , stm
       , text
       , time-manager
-      , tls
       , unordered-containers
       , utf8-string
       , vector
@@ -161,9 +160,6 @@ test-suite wireform-http2-tls-test
       , network
       , tasty          >= 1.4
       , tasty-hunit    >= 0.10
-      , tls
-      , crypton-x509
-      , crypton-x509-store
       , wireform-http2
 
 test-suite h2spec

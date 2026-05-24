@@ -39,8 +39,16 @@ module Wireform.Network.TLS.OpenSSL
   , setAlpnClient
   , setAlpnServer
 
+    -- * Optional context tuning
+  , loadCaBundle
+  , useClientCert
+  , setMinProto
+  , setCipherSuites
+  , TlsProtoVersion (..)
+
     -- * Connections
   , SslConn
+  , sslConnSocket
   , newClient
   , newServer
   , setClientHostnameVerify
@@ -48,14 +56,23 @@ module Wireform.Network.TLS.OpenSSL
   , getAlpn
 
     -- * Direct-into-ring I\/O
-  , RecvFn
-  , tlsRecvFn
+  , ReceiveFn
+  , SendFn
+  , tlsReceiveFn
+  , tlsSendFn
   , tlsSend
   , tlsShutdown
 
-    -- * Magic-ring transport bridge
-  , withTlsRecvTransport
-  , newTlsRecvTransport
+    -- * Magic-ring transport bridges
+  , withTlsReceiveTransport
+  , newTlsReceiveTransport
+  , withTlsSendTransport
+  , newTlsSendTransport
+  , withTlsDuplexTransport
+  , newTlsDuplexTransport
+
+    -- * Errors
+  , OpenSslError (..)
   ) where
 
 import Control.Concurrent (threadWaitRead, threadWaitWrite)
@@ -75,12 +92,23 @@ import Network.Socket (Socket, withFdSocket)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.Types (Fd (Fd))
 
-import Wireform.Network.Transport.Recv
-  ( RecvFn
-  , newRecvBufTransport
-  , withRecvBufTransport
+import Wireform.Network.Transport.Receive
+  ( ReceiveFn
+  , newReceiveBufTransport
+  , withReceiveBufTransport
   )
-import Wireform.Transport (Transport)
+import Wireform.Network.Transport.Send
+  ( SendFn
+  , newSendBufTransport
+  , withSendBufTransport
+  )
+import Wireform.Network.Transport.Duplex
+  ( DuplexTransport
+  , newDuplexBufTransport
+  , withDuplexBufTransport
+  )
+import Wireform.Transport.Receive (ReceiveTransport)
+import Wireform.Transport.Send (SendTransport)
 import Wireform.Transport.Config (TransportConfig)
 
 ------------------------------------------------------------------------
@@ -111,6 +139,18 @@ foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_set_alpn"
 
 foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_set_alpn_select_server"
   c_ssl_ctx_set_alpn_select_server :: SslCtxPtr -> Ptr CUChar -> IO ()
+
+foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_load_ca_bundle"
+  c_ssl_ctx_load_ca_bundle :: SslCtxPtr -> CString -> IO CInt
+
+foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_use_client_cert"
+  c_ssl_ctx_use_client_cert :: SslCtxPtr -> CString -> CString -> IO CInt
+
+foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_set_min_proto"
+  c_ssl_ctx_set_min_proto :: SslCtxPtr -> CInt -> IO CInt
+
+foreign import ccall unsafe "wireform_openssl.h wf_ssl_ctx_set_cipher_suites"
+  c_ssl_ctx_set_cipher_suites :: SslCtxPtr -> CString -> IO CInt
 
 foreign import ccall unsafe "wireform_openssl.h wf_ssl_new_for_fd"
   c_ssl_new_for_fd :: SslCtxPtr -> CInt -> IO SslPtr
@@ -224,6 +264,51 @@ newServerCtx certPath keyPath = sslInitOnce `seq`
 freeCtx :: SslCtx -> IO ()
 freeCtx (SslCtx ctx) = c_ssl_ctx_free ctx
 
+------------------------------------------------------------------------
+-- Optional context tuning
+------------------------------------------------------------------------
+
+-- | Minimum TLS protocol version.  See 'setMinProto'.
+data TlsProtoVersion
+  = Tls12
+  | Tls13
+  deriving stock (Eq, Show)
+
+-- | Load an explicit CA bundle (PEM) on top of the system trust
+-- store the client context already uses (when 'newClientCtx' was
+-- called with @verifyPeer=True@).  Throws 'OpenSslError' on failure.
+loadCaBundle :: SslCtx -> FilePath -> IO ()
+loadCaBundle (SslCtx ctx) path = withCString path $ \cp -> do
+  rc <- c_ssl_ctx_load_ca_bundle ctx cp
+  if rc /= 0 then throwSsl ("loadCaBundle: " <> path) else pure ()
+
+-- | Configure an mTLS client identity: PEM cert chain + matching
+-- private key (also PEM).  Apply before 'newClient'.
+useClientCert :: SslCtx -> FilePath -> FilePath -> IO ()
+useClientCert (SslCtx ctx) cert key =
+  withCString cert $ \cp ->
+    withCString key $ \kp -> do
+      rc <- c_ssl_ctx_use_client_cert ctx cp kp
+      if rc /= 0 then throwSsl ("useClientCert: " <> cert) else pure ()
+
+-- | Override the minimum TLS protocol version for this context.
+-- Default is TLS 1.2; raise to 'Tls13' to refuse earlier-version
+-- handshakes.
+setMinProto :: SslCtx -> TlsProtoVersion -> IO ()
+setMinProto (SslCtx ctx) v = do
+  let n = case v of { Tls12 -> 12; Tls13 -> 13 }
+  rc <- c_ssl_ctx_set_min_proto ctx n
+  if rc /= 0 then throwSsl "setMinProto" else pure ()
+
+-- | Override the TLS 1.2 cipher suite list (OpenSSL cipher-string
+-- syntax, e.g. @\"HIGH:!aNULL:!MD5\"@).  TLS 1.3 cipher selection
+-- is left at OpenSSL defaults.
+setCipherSuites :: SslCtx -> BS.ByteString -> IO ()
+setCipherSuites (SslCtx ctx) cs =
+  BSU.unsafeUseAsCString (cs `BS.snoc` 0) $ \cp -> do
+    rc <- c_ssl_ctx_set_cipher_suites ctx cp
+    if rc /= 0 then throwSsl "setCipherSuites" else pure ()
+
 -- | Encode an ALPN protocol list as the wire-format
 -- @\\xNNproto1\\xMMproto2...@ shape OpenSSL expects.
 encodeAlpn :: [BS.ByteString] -> BS.ByteString
@@ -297,6 +382,12 @@ data SslConn = SslConn
     -- ^ Kept here so the recv\/send paths can park on the IO manager
     -- when 'WfSslWantRetry' bubbles up.
   }
+
+-- | The underlying socket carrying this TLS connection.  Exposed
+-- so callers that want to set socket options (KEEPALIVE, NODELAY)
+-- or pull a raw fd can do so without a separate handle.
+sslConnSocket :: SslConn -> Socket
+sslConnSocket (SslConn _ sock) = sock
 
 -- | Build + handshake a TLS client.  Steps: bind the connection to
 -- the socket fd, set SNI (if hostname given), then 'SSL_connect'
@@ -403,7 +494,7 @@ getAlpn (SslConn ssl _) =
 -- Direct-into-ring I\/O
 ------------------------------------------------------------------------
 
--- | A 'RecvFn' that decrypts plaintext bytes directly into the
+-- | A 'ReceiveFn' that decrypts plaintext bytes directly into the
 -- supplied 'Ptr Word8'.  No intermediate 'ByteString' allocation:
 -- OpenSSL's @SSL_read_ex@ writes straight into the magic ring's
 -- backing memory.
@@ -411,8 +502,8 @@ getAlpn (SslConn ssl _) =
 -- Blocks on the IO manager when @SSL_read_ex@ returns WANT_READ
 -- (waiting for the next TLS record's bytes on the wire); returns
 -- @0@ on clean EOF (@close_notify@).
-tlsRecvFn :: SslConn -> RecvFn
-tlsRecvFn (SslConn ssl sock) = recv
+tlsReceiveFn :: SslConn -> ReceiveFn
+tlsReceiveFn (SslConn ssl sock) = recv
   where
     recv dst want = loop
       where
@@ -426,7 +517,29 @@ tlsRecvFn (SslConn ssl sock) = recv
             WfSslWantRetry -> do
               withFdSocket sock $ \fd -> threadWaitRead (Fd (fromIntegral fd))
               loop
-            WfSslFatal -> throwSsl "tlsRecvFn"
+            WfSslFatal -> throwSsl "tlsReceiveFn"
+
+-- | A 'SendFn' that encrypts plaintext directly from the supplied
+-- 'Ptr Word8' (e.g. a slice of the send magic ring).  Returns the
+-- number of bytes consumed from the buffer (always > 0 on success).
+--
+-- Blocks on the IO manager when @SSL_write_ex@ returns WANT_WRITE.
+tlsSendFn :: SslConn -> SendFn
+tlsSendFn (SslConn ssl sock) = send
+  where
+    send src want = loop
+      where
+        loop = alloca $ \nP -> do
+          rc <- c_ssl_write_from ssl src (fromIntegral want) nP
+          case rc of
+            WfSslOk -> do
+              n <- peek nP
+              pure (fromIntegral n)
+            WfSslWantRetry -> do
+              withFdSocket sock $ \fd -> threadWaitWrite (Fd (fromIntegral fd))
+              loop
+            WfSslEof   -> throwSsl "tlsSendFn: peer closed"
+            WfSslFatal -> throwSsl "tlsSendFn"
 
 -- | Encrypt the supplied bytes and write them to the wire.  Blocks
 -- on the IO manager on WANT_WRITE.
@@ -459,25 +572,71 @@ tlsShutdown (SslConn ssl _) = c_ssl_shutdown ssl
 -- Magic-ring transport bridge
 ------------------------------------------------------------------------
 
--- | Run an action with a magic-ring 'Transport' whose recv side
--- decrypts OpenSSL plaintext directly into the ring (no intermediate
--- 'ByteString').  The TLS connection's lifetime is bound to the
--- action; on exit the ring is unmapped and the SSL* is freed.
-withTlsRecvTransport
+-- | Run an action with a 'ReceiveTransport' whose recv side
+-- decrypts OpenSSL plaintext directly into the ring (no
+-- intermediate 'ByteString').  The TLS connection's lifetime is
+-- bound to the action; on exit the ring is unmapped and the SSL*
+-- is freed.
+withTlsReceiveTransport
   :: TransportConfig
   -> SslConn
-  -> (Transport -> IO a)
+  -> (ReceiveTransport -> IO a)
   -> IO a
-withTlsRecvTransport cfg conn action =
-  withRecvBufTransport cfg (tlsRecvFn conn) action
+withTlsReceiveTransport cfg conn action =
+  withReceiveBufTransport cfg (tlsReceiveFn conn) action
 
--- | IO-style ('bracket'-free) constructor for the OpenSSL-backed
--- magic-ring transport.  Caller is responsible for calling
--- 'Wireform.Transport.transportClose' (which unmaps the ring) and
--- 'freeConn' separately when the connection terminates.
-newTlsRecvTransport
+-- | IO-style ('bracket'-free) constructor for an OpenSSL-backed
+-- 'ReceiveTransport'.  Caller is responsible for 'receiveClose'
+-- (unmaps the ring) and 'freeConn' (frees the SSL*).
+newTlsReceiveTransport
   :: TransportConfig
   -> SslConn
-  -> IO Transport
-newTlsRecvTransport cfg conn =
-  newRecvBufTransport cfg (tlsRecvFn conn)
+  -> IO ReceiveTransport
+newTlsReceiveTransport cfg conn =
+  newReceiveBufTransport cfg (tlsReceiveFn conn)
+
+-- | Send-side counterpart: encrypt bytes drained from the magic
+-- ring straight to the wire.  'sendShutdownWrite' issues
+-- @SSL_shutdown@ (sends close_notify).
+withTlsSendTransport
+  :: TransportConfig
+  -> SslConn
+  -> (SendTransport -> IO a)
+  -> IO a
+withTlsSendTransport cfg conn@(SslConn ssl _) action =
+  withSendBufTransport cfg (tlsSendFn conn) (c_ssl_shutdown ssl) action
+
+-- | IO-style constructor for an OpenSSL-backed 'SendTransport'.
+newTlsSendTransport
+  :: TransportConfig
+  -> SslConn
+  -> IO SendTransport
+newTlsSendTransport cfg conn@(SslConn ssl _) =
+  newSendBufTransport cfg (tlsSendFn conn) (c_ssl_shutdown ssl)
+
+-- | One TLS context, two magic rings: the natural shape for a
+-- request/response connection over TLS.  Both rings share the
+-- same SSL*; the connection's lifetime is the action's lifetime.
+withTlsDuplexTransport
+  :: TransportConfig
+  -> SslConn
+  -> (DuplexTransport -> IO a)
+  -> IO a
+withTlsDuplexTransport cfg conn@(SslConn ssl _) =
+  withDuplexBufTransport cfg
+                         (tlsReceiveFn conn)
+                         (tlsSendFn conn)
+                         (c_ssl_shutdown ssl)
+
+-- | IO-style 'DuplexTransport' for TLS.  Caller is responsible for
+-- 'duplexClose' (releases both rings) and 'freeConn' (frees the
+-- SSL*); the SSL* must outlive both rings.
+newTlsDuplexTransport
+  :: TransportConfig
+  -> SslConn
+  -> IO DuplexTransport
+newTlsDuplexTransport cfg conn@(SslConn ssl _) =
+  newDuplexBufTransport cfg
+                        (tlsReceiveFn conn)
+                        (tlsSendFn conn)
+                        (c_ssl_shutdown ssl)

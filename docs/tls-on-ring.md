@@ -7,12 +7,12 @@ There are two TLS paths in wireform now:
 * **`tls`-package bridge** (the legacy path).  Used by
   `Network.HTTP1.TLS.tlsTransport` and `Network.HTTP2.TLS.tlsTransport`.
   `tls`'s `recvData` returns plaintext as a fresh `ByteString` per
-  TLS record; `bufferedRecvTransport` memcpys it into the magic
-  ring.  One extra copy + one fresh `ByteString` per record on top
-  of the in-place AES-GCM `tls` already does internally.  Works
-  with the `tls` package's well-vetted handshake + record-layer
-  implementation and stays compatible with the existing
-  `crypton-connection` ecosystem.
+  TLS record; the per-package buffered-recv bridges memcpy it into
+  the magic ring.  One extra copy + one fresh `ByteString` per
+  record on top of the in-place AES-GCM `tls` already does
+  internally.  No longer used anywhere in the repo — OpenSSL is
+  the only TLS implementation now (including in the vendored
+  grapesy engine + `wireform-grpc`).
 
 * **Direct OpenSSL bridge** in
   `Wireform.Network.TLS.OpenSSL`.  Calls `libssl`'s `SSL_read_ex`

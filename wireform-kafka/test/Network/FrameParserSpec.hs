@@ -13,7 +13,7 @@ import Data.Int (Int32)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
 
-import Wireform.Network (chunkedRecvFn, withRecvBufTransport)
+import Wireform.Network (chunkedReceiveFn, withReceiveBufTransport)
 import Wireform.Parser.Driver (LoopControl (..))
 import Wireform.Transport.Config (defaultTransportConfig)
 
@@ -34,12 +34,12 @@ tests :: TestTree
 tests = testGroup "Kafka.Network.FrameParser"
   [ testCase "reads a single frame off the magic ring" $ do
       let bs = frameBytes 7 "hello"
-      recvFn <- chunkedRecvFn [bs]
+      recvFn <- chunkedReceiveFn [bs]
       got <- newIORef Nothing
-      r <- withRecvBufTransport defaultTransportConfig recvFn $ \t ->
+      r <- withReceiveBufTransport defaultTransportConfig recvFn $ \t ->
         FP.runKafkaFrameLoop t $ \(cid, body) -> do
           -- 'takeBs' hands back a slice of the magic-ring memory
-          -- which becomes invalid as soon as 'withRecvBufTransport'
+          -- which becomes invalid as soon as 'withReceiveBufTransport'
           -- tears the ring down.  Force the copy now via a bang so
           -- the IORef holds a heap-allocated bytestring that
           -- outlives the transport scope.
@@ -58,9 +58,9 @@ tests = testGroup "Kafka.Network.FrameParser"
           f2 = frameBytes 22 "defg"
           combined = f1 <> f2
           (l, r)   = BS.splitAt (BS.length f1 + 4) combined
-      recvFn <- chunkedRecvFn [l, r]
+      recvFn <- chunkedReceiveFn [l, r]
       acc <- newIORef ([] :: [(Int32, BS.ByteString)])
-      _ <- withRecvBufTransport defaultTransportConfig recvFn $ \t ->
+      _ <- withReceiveBufTransport defaultTransportConfig recvFn $ \t ->
         FP.runKafkaFrameLoop t $ \(cid, body) -> do
           let !bodyCopy = BS.copy body
           modifyIORef acc ((cid, bodyCopy) :)
@@ -73,8 +73,8 @@ tests = testGroup "Kafka.Network.FrameParser"
       let !payload = BL.toStrict $ BP.runPut $ BP.putInt32be 2  -- < 4
           !len     = BS.length payload
           _ = len
-      recvFn <- chunkedRecvFn [payload]
-      r <- withRecvBufTransport defaultTransportConfig recvFn $ \t ->
+      recvFn <- chunkedReceiveFn [payload]
+      r <- withReceiveBufTransport defaultTransportConfig recvFn $ \t ->
         FP.runKafkaFrameLoop t $ \_ -> pure Continue
       case r of
         Left _ -> pure ()
