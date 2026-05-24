@@ -1035,33 +1035,39 @@ byteStringInsert_ bstr = mkBuilder $ do
           !startPtr = rsBase rs `plusPtr` off
           !written  = cur `minusPtr` startPtr
           !newHead  = rsHead rs + fromIntegral written
-      let !bsLen    = S.length bstr
-          !chunkSz  = min (rsRingSize rs)
-                          (max bsLen (rsChunkSize rs))
-          !wantHead = newHead + fromIntegral chunkSz
-      -- Check if the ring already has room; publish only if needed
-      tl <- io $ rsLoadTail rs
-      let !ringCap = fromIntegral (rsRingSize rs) :: Word64
-      published' <- if wantHead - tl <= ringCap
-            then io $ pure (rsPublished rs)
-            else do
-              io $ do
-                when (newHead > rsPublished rs) $
-                  rsPublishHead rs newHead
-                rsEnsureRoom rs wantHead
-              io $ pure newHead
-      let !bsOff = fromIntegral newHead .&. rsMask rs
-          !bsPtr = rsBase rs `plusPtr` bsOff
-      io $ S.unsafeUseAsCString bstr $ \src ->
-        copyBytes bsPtr (castPtr src) bsLen
-      let !afterBs = newHead + fromIntegral bsLen
-      io $ writeIORef rsRef rs { rsHead = afterBs
-                                , rsPublished = published' }
-      let !contOff = fromIntegral afterBs .&. rsMask rs
-          !contPtr = rsBase rs `plusPtr` contOff
-          !remain  = chunkSz - bsLen
+          !bsLen    = S.length bstr
+          !ringSz   = rsRingSize rs
+      -- Publish accumulated builder bytes before the BS copy.
+      when (written > 0) $ io $ do
+        when (newHead > rsPublished rs) $
+          rsPublishHead rs newHead
+      -- Copy the BS into the ring, chunking at ringSize if
+      -- the BS is larger than the ring can hold contiguously.
+      io $ S.unsafeUseAsCString bstr $ \src -> do
+        let loop !srcOff !hd !remaining
+              | remaining <= 0 = pure hd
+              | otherwise = do
+                  let !chunk = min remaining ringSz
+                      !wh    = hd + fromIntegral chunk
+                  rsEnsureRoom rs wh
+                  let !dstOff = fromIntegral hd .&. rsMask rs
+                      !dst    = rsBase rs `plusPtr` dstOff
+                  copyBytes dst (castPtr src `plusPtr` srcOff) chunk
+                  rsPublishHead rs wh
+                  loop (srcOff + chunk) wh (remaining - chunk)
+        afterBs <- loop 0 newHead bsLen
+        let !pub = afterBs
+        writeIORef rsRef rs { rsHead = afterBs
+                            , rsPublished = pub }
+      -- Set up a fresh region for subsequent builder writes.
+      rs' <- io $ readIORef rsRef
+      let !contChunk = min ringSz (rsChunkSize rs')
+          !contWant  = rsHead rs' + fromIntegral contChunk
+      io $ rsEnsureRoom rs' contWant
+      let !contOff = fromIntegral (rsHead rs') .&. rsMask rs'
+          !contPtr = rsBase rs' `plusPtr` contOff
       setCur contPtr
-      setEnd (contPtr `plusPtr` remain)
+      setEnd (contPtr `plusPtr` contChunk)
 {-# NOINLINE byteStringInsert_ #-}
 
 
@@ -1158,6 +1164,17 @@ getBytes_ n = mkBuilder $ do
     RingSink rsRef -> do
       cur <- getCur
       rs <- io $ readIORef rsRef
+      -- The ring provides at most ringSize contiguous bytes.
+      -- ensureBytes requests larger than that are a programming
+      -- error — use byteStringInsert (triggered automatically
+      -- by byteString / byteStringThreshold) for large payloads.
+      when (I# n > rsRingSize rs) $
+        io $ error $
+          "Wireform.Builder: RingSink getBytes request ("
+            ++ show (I# n)
+            ++ ") exceeds ring size ("
+            ++ show (rsRingSize rs)
+            ++ "); use byteString/byteStringInsert for large payloads"
       let !off      = fromIntegral (rsHead rs) .&. rsMask rs
           !startPtr = rsBase rs `plusPtr` off
           !written  = cur `minusPtr` startPtr
@@ -1171,12 +1188,8 @@ getBytes_ n = mkBuilder $ do
       let !ringCap = fromIntegral (rsRingSize rs) :: Word64
       published' <- if wantHead - tl <= ringCap
             then
-              -- Room available without publishing — the consumer
-              -- has already drained past our needs.
               io $ pure (rsPublished rs)
             else do
-              -- Ring is full relative to tail.  Publish what we
-              -- have so the consumer can drain, then wait.
               io $ do
                 when (newHead > rsPublished rs) $
                   rsPublishHead rs newHead
