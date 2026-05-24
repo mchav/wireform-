@@ -60,14 +60,14 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Char8 as BS8
 import Data.IORef (readIORef)
-import Data.Word (Word8, Word32)
-import Foreign.Marshal.Alloc (mallocBytes, free)
-import Foreign.Ptr (Ptr)
+import Data.Word (Word32)
 import qualified Network.HTTP.Types as HTTP
 import Network.Socket (Socket)
+import qualified Network.Socket as S
 import qualified Network.Socket.ByteString as NBS
 import qualified System.TimeManager as TM
 
+import Network.HTTP2.Transport (SendFn)
 import qualified Network.HTTP2.Engine.Run.Client as RunClient
 import Network.HTTP2.Engine.Types
 
@@ -199,9 +199,7 @@ defaultSettings = Settings
   }
 
 data Config = Config
-  { confWriteBuffer :: !(Ptr Word8)
-  , confBufferSize :: !BufferSize
-  , confSendAll :: !(ByteString -> IO ())
+  { confSendFn :: !SendFn
   , confReadN :: !(Int -> IO ByteString)
   , confPositionReadMaker :: !PositionReadMaker
   , confTimeoutManager :: !TM.Manager
@@ -213,13 +211,10 @@ data Config = Config
 -- kills it. The position-read maker is the placeholder
 -- 'defaultPositionReadMaker' since gRPC doesn't serve files.
 allocSimpleConfig :: Socket -> BufferSize -> IO Config
-allocSimpleConfig sock bufSize = do
-  buf <- mallocBytes bufSize
+allocSimpleConfig sock _bufSize = do
   mgr <- TM.initialize (30 * 1000 * 1000)  -- 30s default
   pure Config
-    { confWriteBuffer = buf
-    , confBufferSize = bufSize
-    , confSendAll = NBS.sendAll sock
+    { confSendFn = S.sendBuf sock
     , confReadN = recvExactN sock
     , confPositionReadMaker = defaultPositionReadMaker
     , confTimeoutManager = mgr
@@ -236,8 +231,7 @@ recvExactN sock n = go n []
         else go (remaining - BS.length chunk) (chunk : acc)
 
 freeSimpleConfig :: Config -> IO ()
-freeSimpleConfig cfg = do
-  free (confWriteBuffer cfg)
+freeSimpleConfig cfg =
   TM.killManager (confTimeoutManager cfg)
 
 -- | Run an HTTP\/2 client over the supplied I\/O plumbing.
@@ -249,7 +243,7 @@ run cc cfg client =
   RunClient.runClient
     RunClient.RunEnv
       { RunClient.envAuthority = authority cc
-      , RunClient.envSendAll = confSendAll cfg
+      , RunClient.envSendFn = confSendFn cfg
       , RunClient.envReadN = confReadN cfg
       , RunClient.envConnectionWindow = connectionWindowSize cc
       , RunClient.envInitialWindowSize = initialWindowSize (settings cc)

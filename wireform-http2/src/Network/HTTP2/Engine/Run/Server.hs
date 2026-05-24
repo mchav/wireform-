@@ -52,7 +52,7 @@ import Network.HTTP2.Connection.Settings (encodeSettings)
 import qualified Network.HTTP2.Connection.Settings as ConnSettings
 import Network.HTTP2.Frame
 import Network.HTTP2.HPACK
-import Network.HTTP2.Transport (Transport (..))
+import Network.HTTP2.Transport (Transport (..), SendFn)
 import Network.HTTP2.Types (FrameType (..))
 import qualified Network.HTTP2.Types as H2
 import qualified Network.HTTP2.Types as Wire
@@ -64,7 +64,7 @@ import Network.HTTP2.Engine.Types
 data RunEnv = RunEnv
   { envSettings :: !Settings
   , envConnectionWindow :: !Int
-  , envSendAll :: !(ByteString -> IO ())
+  , envSendFn :: !SendFn
   , envReadN :: !(Int -> IO ByteString)
   , envTimeoutManager :: !TM.Manager
   , envMySockAddr :: !SockAddr
@@ -119,8 +119,7 @@ runServer env handler = do
 engineTransport :: RunEnv -> Transport
 engineTransport env =
   Transport
-    { tSendAll = envSendAll env
-    , tSendMany = \bss -> envSendAll env (BS.concat bss)
+    { tSendFn = envSendFn env
     , tRecvBuf = \ptr n -> do
         bs <- envReadN env n
         if BS.null bs
@@ -130,13 +129,9 @@ engineTransport env =
             withForeignPtr fp $ \src ->
               BSI.memcpy ptr (src `plusPtr` off) len
             pure len
+    , tShutdownWrite = pure ()
     , tClose = pure ()
     }
-  where
-    -- Avoid touching the ring buffer's recv path for the server
-    -- engine; we drive frames via @pumpFrame@ directly. The
-    -- @tRecvBuf@ hook is here only because 'Connection' demands one.
-    _ = ()
 
 engineSettingsToWire :: Settings -> H2.Settings
 engineSettingsToWire s = H2.defaultSettings

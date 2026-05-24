@@ -1,0 +1,92 @@
+Build profile: -w ghc-9.8.4 -O1
+In order, the following will be built (use -v for more details):
+ - wireform-core-0.1.0.0 (lib) (configuration changed)
+ - wireform-core-0.1.0.0 (bench:send-builder-bench) (configuration changed)
+Configuring library for wireform-core-0.1.0.0...
+Preprocessing library for wireform-core-0.1.0.0...
+Building library for wireform-core-0.1.0.0...
+Configuring benchmark 'send-builder-bench' for wireform-core-0.1.0.0...
+Preprocessing benchmark 'send-builder-bench' for wireform-core-0.1.0.0...
+Building benchmark 'send-builder-bench' for wireform-core-0.1.0.0...
+[1 of 1] Compiling Main             ( bench/SendBuilderBench.hs, /workspace/dist-newstyle/build/x86_64-linux/ghc-9.8.4/wireform-core-0.1.0.0/b/send-builder-bench/opt/build/send-builder-bench/send-builder-bench-tmp/Main.o ) [Source file changed]
+[2 of 2] Linking /workspace/dist-newstyle/build/x86_64-linux/ghc-9.8.4/wireform-core-0.1.0.0/b/send-builder-bench/opt/build/send-builder-bench/send-builder-bench [Objects changed]
+benchmarking 64 B/direct (RingSink)
+time                 31.39 ns   (30.92 ns .. 32.26 ns)
+                     0.996 R²   (0.990 R² .. 1.000 R²)
+mean                 31.13 ns   (30.90 ns .. 32.17 ns)
+std dev              1.355 ns   (167.0 ps .. 3.079 ns)
+variance introduced by outliers: 66% (severely inflated)
+
+benchmarking 64 B/via ByteString (old)
+time                 88.91 ns   (88.78 ns .. 89.14 ns)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 89.60 ns   (89.36 ns .. 89.93 ns)
+std dev              933.6 ps   (722.9 ps .. 1.210 ns)
+
+benchmarking 256 B/direct (RingSink)
+time                 38.45 ns   (38.16 ns .. 38.91 ns)
+                     1.000 R²   (0.999 R² .. 1.000 R²)
+mean                 38.36 ns   (38.27 ns .. 38.58 ns)
+std dev              473.3 ps   (206.6 ps .. 789.9 ps)
+variance introduced by outliers: 13% (moderately inflated)
+
+benchmarking 256 B/via ByteString (old)
+time                 109.5 ns   (108.5 ns .. 110.7 ns)
+                     0.999 R²   (0.999 R² .. 1.000 R²)
+mean                 111.1 ns   (109.9 ns .. 113.4 ns)
+std dev              5.424 ns   (3.382 ns .. 9.189 ns)
+variance introduced by outliers: 69% (severely inflated)
+
+benchmarking 1 KiB/direct (RingSink)
+time                 87.02 ns   (86.72 ns .. 87.40 ns)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 86.97 ns   (86.85 ns .. 87.34 ns)
+std dev              613.9 ps   (307.6 ps .. 1.067 ns)
+
+benchmarking 1 KiB/via ByteString (old)
+time                 202.4 ns   (201.7 ns .. 203.3 ns)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 202.0 ns   (201.5 ns .. 203.4 ns)
+std dev              2.542 ns   (1.404 ns .. 4.821 ns)
+variance introduced by outliers: 12% (moderately inflated)
+
+benchmarking 4 KiB/direct (RingSink)
+time                 297.8 ns   (295.9 ns .. 299.7 ns)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 296.2 ns   (295.6 ns .. 297.3 ns)
+std dev              2.592 ns   (1.373 ns .. 4.027 ns)
+
+benchmarking 4 KiB/via ByteString (old)
+time                 506.9 ns   (505.1 ns .. 510.1 ns)
+                     1.000 R²   (0.999 R² .. 1.000 R²)
+mean                 513.0 ns   (510.4 ns .. 517.5 ns)
+std dev              10.59 ns   (7.421 ns .. 15.65 ns)
+variance introduced by outliers: 26% (moderately inflated)
+
+benchmarking 16 KiB/direct (RingSink)
+time                 881.1 ns   (868.4 ns .. 893.5 ns)
+                     0.999 R²   (0.998 R² .. 1.000 R²)
+mean                 867.5 ns   (863.0 ns .. 875.7 ns)
+std dev              20.60 ns   (13.45 ns .. 29.72 ns)
+variance introduced by outliers: 30% (moderately inflated)
+
+benchmarking 16 KiB/via ByteString (old)
+time                 1.552 μs   (1.535 μs .. 1.576 μs)
+                     0.997 R²   (0.995 R² .. 0.999 R²)
+mean                 1.578 μs   (1.558 μs .. 1.615 μs)
+std dev              89.80 ns   (56.24 ns .. 131.1 ns)
+variance introduced by outliers: 71% (severely inflated)
+
+benchmarking 64 KiB/direct (RingSink)
+time                 3.622 μs   (3.583 μs .. 3.673 μs)
+                     0.999 R²   (0.997 R² .. 1.000 R²)
+mean                 3.629 μs   (3.594 μs .. 3.695 μs)
+std dev              153.1 ns   (95.07 ns .. 249.0 ns)
+variance introduced by outliers: 55% (severely inflated)
+
+benchmarking 64 KiB/via ByteString (old)
+time                 5.859 μs   (5.843 μs .. 5.874 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 5.848 μs   (5.835 μs .. 5.876 μs)
+std dev              61.26 ns   (34.01 ns .. 104.0 ns)
+

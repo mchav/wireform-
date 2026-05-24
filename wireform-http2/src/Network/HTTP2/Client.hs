@@ -40,6 +40,7 @@ import Data.Word (Word32)
 import qualified Network.Socket as NS
 
 import Network.HTTP2.Connection
+import Wireform.Transport.Send (sendByteStringMany)
 import Network.HTTP2.Frame
 import Network.HTTP2.Frame.Types (decodeGoAway, decodeSettings)
 import Network.HTTP2.HPACK
@@ -311,7 +312,7 @@ sendClientPreface conn settings = do
       settingsFrame = Frame
         (FrameHeader (fromIntegral (length params * 6)) FrameSettings 0 0)
         (SettingsFrame params)
-  tSendMany (connTransport conn) [preface, encodeFrame settingsFrame]
+  sendByteStringMany (connSendTransport conn) [preface, encodeFrame settingsFrame]
 
 ------------------------------------------------------------------------
 -- Recv loop

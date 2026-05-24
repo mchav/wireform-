@@ -65,12 +65,11 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.UTF8 as UTF8
 import Data.IORef (readIORef)
-import Data.Word (Word8)
-import Foreign.Ptr (Ptr)
 import qualified Network.HTTP.Types as HTTP
 import Network.Socket (SockAddr)
 import qualified System.TimeManager as TM
 
+import Network.HTTP2.Transport (SendFn)
 import qualified Network.HTTP2.Engine.Run.Server as RunServer
 import Network.HTTP2.Engine.Settings
 import Network.HTTP2.Engine.Types
@@ -171,9 +170,7 @@ pushPromise path r _ = PushPromise path r
 
 -- | HTTP\/2 server-side per-connection plumbing.
 data Config = Config
-  { confWriteBuffer :: !(Ptr Word8)
-  , confBufferSize :: !BufferSize
-  , confSendAll :: !(ByteString -> IO ())
+  { confSendFn :: !SendFn
   , confReadN :: !(Int -> IO ByteString)
   , confPositionReadMaker :: !PositionReadMaker
   , confTimeoutManager :: !TM.Manager
@@ -200,7 +197,7 @@ run sc cfg server =
     RunServer.RunEnv
       { RunServer.envSettings = settings sc
       , RunServer.envConnectionWindow = connectionWindowSize sc
-      , RunServer.envSendAll = confSendAll cfg
+      , RunServer.envSendFn = confSendFn cfg
       , RunServer.envReadN = confReadN cfg
       , RunServer.envTimeoutManager = confTimeoutManager cfg
       , RunServer.envMySockAddr = confMySockAddr cfg

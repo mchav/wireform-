@@ -36,6 +36,7 @@ import Network.Socket (Socket)
 import qualified Network.Socket as NS
 
 import qualified Wireform.Builder as B
+import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
 
 import Network.HTTP1.Chunked (encodeChunk, encodeLastChunk)
 import Network.HTTP1.Connection
@@ -133,11 +134,19 @@ collectBody = \case
 -- be misframed.
 sendRequestOn :: ClientConnection -> Request -> IO (Either ParseError Response)
 sendRequestOn (ClientConnection conn) req = do
-  connectionSendBuilder conn (requestBuilder req)
   case requestBody req of
-    BodyEmpty -> pure ()
-    BodyBytes bs -> if BS.null bs then pure () else connectionSendBytes conn bs
-    BodyStream producer -> streamChunked conn producer
+    BodyEmpty ->
+      connectionSendBuilderDirect conn (requestBuilder req)
+    BodyBytes bs
+      | BS.null bs ->
+          connectionSendBuilderDirect conn (requestBuilder req)
+      | otherwise ->
+          withConnectionCork conn $ \corked -> do
+            sendBuilderDirect corked (requestBuilder req)
+            sendByteString corked bs
+    BodyStream producer -> do
+      connectionSendBuilderDirect conn (requestBuilder req)
+      streamChunked conn producer
     BodyPreEncoded _ -> pure ()
     -- ^ Pre-encoded request bodies are unusual but not nonsensical
     -- (e.g. a pre-built JSON payload). The Body has already been

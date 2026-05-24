@@ -46,6 +46,10 @@ module Wireform.Builder.FastBuilder (
   withStreamTransform,
   runBuilderStreaming,
 
+  -- * Ring-direct sink (zero-copy builder → send ring)
+  RingSinkState (..),
+  finalizeRingSink,
+
   -- * Basic builders
   primBounded,
   primFixed,
@@ -80,6 +84,7 @@ import Data.IORef
 import Data.Semigroup as Sem
 import Data.String
 import Data.Word
+import Data.Bits ((.&.))
 import Foreign.C.String
 import Foreign.C.Types
 import Foreign.ForeignPtr
@@ -173,6 +178,13 @@ data DataSink
   | -- | Bytes are accumulated in a buffer, then fed to a streaming
     -- transform (compression, encryption, etc.) when the buffer fills.
     StreamingSink !Int {-next buffer size-} !(IORef StreamQueue)
+  | -- | Bytes are written directly into a double-mapped magic ring
+    -- buffer (used by 'Wireform.Transport.Send.sendBuilderDirect').
+    -- When the builder overflows, the already-written bytes are
+    -- published to the ring consumer and the builder continues
+    -- writing into newly-available ring space — no intermediate
+    -- 'S.ByteString' allocation or memcpy.
+    RingSink !(IORef RingSinkState)
 
 
 -- | Variable-destination cases.
@@ -206,6 +218,66 @@ data StreamQueue = StreamQueue
   , sqSink :: !StreamSink
   -- ^ The transform callbacks.
   }
+
+
+{- | Mutable state for the ring-direct sink.
+
+The builder writes directly into the ring's double-mapped memory.
+On overflow the handler first checks whether the ring already has
+room (deferred publish).  Only when the ring is actually full does
+it publish ('rsPublishHead') and wait ('rsEnsureRoom').  This
+batches writes so that a single 'sendBuilderDirect' call produces
+at most one 'sendPublishHead' per ring-size worth of data, matching
+the syscall count of the old materialize-then-copy path.
+
+The callbacks are closed over the 'SendTransport' at construction
+time (in "Wireform.Transport.Send"), so 'FastBuilder' does not
+depend on the transport types.
+-}
+data RingSinkState = RingSinkState
+  { rsHead        :: {-# UNPACK #-} !Word64
+  -- ^ Logical head: start of the current buffer region.
+  -- Tracks the builder's logical write position; may be ahead
+  -- of the last published head.
+  , rsPublished   :: {-# UNPACK #-} !Word64
+  -- ^ Last position passed to 'rsPublishHead'.  Everything
+  -- before this has been handed off to the ring consumer.
+  , rsBase        :: {-# UNPACK #-} !(Ptr Word8)
+  -- ^ Ring base address (first mapping).
+  , rsMask        :: {-# UNPACK #-} !Int
+  -- ^ @ringSize - 1@.
+  , rsRingSize    :: {-# UNPACK #-} !Int
+  -- ^ Physical ring size (N, not 2N).
+  , rsChunkSize   :: {-# UNPACK #-} !Int
+  -- ^ Default chunk offered to the builder on overflow.
+  , rsPublishHead :: !(Word64 -> IO ())
+  -- ^ Publish the head position to the ring consumer.
+  , rsEnsureRoom  :: !(Word64 -> IO ())
+  -- ^ Block until the ring has room for head to advance to this
+  -- position.  Throws on transport failure / close.
+  , rsLoadTail    :: !(IO Word64)
+  -- ^ Read the consumer's current tail position.  Used to check
+  -- whether the ring has room without publishing first.
+  }
+
+
+{- | Publish the final bytes written by a builder into the ring.
+
+After 'runBuilder' returns a final cursor, call this to publish
+the last unpublished bytes.  Returns the final head position.
+-}
+finalizeRingSink :: IORef RingSinkState -> Ptr Word8 -> IO Word64
+finalizeRingSink rsRef finalCur = do
+  rs <- readIORef rsRef
+  let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+      !startPtr = rsBase rs `plusPtr` off
+      !written  = finalCur `minusPtr` startPtr
+      !finalHead = rsHead rs + fromIntegral written
+  -- Publish everything from the last-published position to
+  -- the builder's final cursor in a single call.
+  when (finalHead > rsPublished rs) $
+    rsPublishHead rs finalHead
+  pure finalHead
 
 
 {- | A streaming byte transform — middleware that processes chunks
@@ -956,6 +1028,46 @@ byteStringInsert_ bstr = mkBuilder $ do
       -- Reset cur to base — buffer is free after flush
       sq <- io $ readIORef sqRef
       setCur (sqBase sq)
+    RingSink rsRef -> do
+      cur <- getCur
+      rs <- io $ readIORef rsRef
+      let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+          !startPtr = rsBase rs `plusPtr` off
+          !written  = cur `minusPtr` startPtr
+          !newHead  = rsHead rs + fromIntegral written
+          !bsLen    = S.length bstr
+          !ringSz   = rsRingSize rs
+      -- Publish accumulated builder bytes before the BS copy.
+      when (written > 0) $ io $ do
+        when (newHead > rsPublished rs) $
+          rsPublishHead rs newHead
+      -- Copy the BS into the ring, chunking at ringSize if
+      -- the BS is larger than the ring can hold contiguously.
+      io $ S.unsafeUseAsCString bstr $ \src -> do
+        let loop !srcOff !hd !remaining
+              | remaining <= 0 = pure hd
+              | otherwise = do
+                  let !chunk = min remaining ringSz
+                      !wh    = hd + fromIntegral chunk
+                  rsEnsureRoom rs wh
+                  let !dstOff = fromIntegral hd .&. rsMask rs
+                      !dst    = rsBase rs `plusPtr` dstOff
+                  copyBytes dst (castPtr src `plusPtr` srcOff) chunk
+                  rsPublishHead rs wh
+                  loop (srcOff + chunk) wh (remaining - chunk)
+        afterBs <- loop 0 newHead bsLen
+        let !pub = afterBs
+        writeIORef rsRef rs { rsHead = afterBs
+                            , rsPublished = pub }
+      -- Set up a fresh region for subsequent builder writes.
+      rs' <- io $ readIORef rsRef
+      let !contChunk = min ringSz (rsChunkSize rs')
+          !contWant  = rsHead rs' + fromIntegral contChunk
+      io $ rsEnsureRoom rs' contWant
+      let !contOff = fromIntegral (rsHead rs') .&. rsMask rs'
+          !contPtr = rsBase rs' `plusPtr` contOff
+      setCur contPtr
+      setEnd (contPtr `plusPtr` contChunk)
 {-# NOINLINE byteStringInsert_ #-}
 
 
@@ -1049,6 +1161,46 @@ getBytes_ n = mkBuilder $ do
                 }
           setCur newBase
           setEnd (newBase `plusPtr` I# n)
+    RingSink rsRef -> do
+      cur <- getCur
+      rs <- io $ readIORef rsRef
+      -- The ring provides at most ringSize contiguous bytes.
+      -- ensureBytes requests larger than that are a programming
+      -- error — use byteStringInsert (triggered automatically
+      -- by byteString / byteStringThreshold) for large payloads.
+      when (I# n > rsRingSize rs) $
+        io $ error $
+          "Wireform.Builder: RingSink getBytes request ("
+            ++ show (I# n)
+            ++ ") exceeds ring size ("
+            ++ show (rsRingSize rs)
+            ++ "); use byteString/byteStringInsert for large payloads"
+      let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+          !startPtr = rsBase rs `plusPtr` off
+          !written  = cur `minusPtr` startPtr
+          !newHead  = rsHead rs + fromIntegral written
+      -- Try to extend without publishing: the ring may already
+      -- have room beyond what we initially reserved.
+      let !chunkSz = min (rsRingSize rs)
+                         (max (I# n) (rsChunkSize rs))
+          !wantHead = newHead + fromIntegral chunkSz
+      tl <- io $ rsLoadTail rs
+      let !ringCap = fromIntegral (rsRingSize rs) :: Word64
+      published' <- if wantHead - tl <= ringCap
+            then
+              io $ pure (rsPublished rs)
+            else do
+              io $ do
+                when (newHead > rsPublished rs) $
+                  rsPublishHead rs newHead
+                rsEnsureRoom rs wantHead
+              io $ pure newHead
+      let !newOff = fromIntegral newHead .&. rsMask rs
+          !newPtr = rsBase rs `plusPtr` newOff
+      io $ writeIORef rsRef rs { rsHead = newHead
+                                , rsPublished = published' }
+      setCur newPtr
+      setEnd (newPtr `plusPtr` chunkSz)
 {-# NOINLINE getBytes_ #-}
 
 

@@ -39,7 +39,7 @@ import Wireform.Transport.Receive
   , receiveRingMask
   , receiveWaitData
   )
-import Wireform.Transport.Send (sendByteString)
+import Wireform.Transport.Send (sendByteString, sendBuilderDirect)
 
 -- | A live Kafka broker connection.
 data Connection = Connection
@@ -83,7 +83,7 @@ connectionPut conn = sendByteString (duplexSend (connDuplex conn))
 
 connectionPutBuilder :: Connection -> WB.Builder -> IO ()
 connectionPutBuilder conn b =
-  sendByteString (duplexSend (connDuplex conn)) (WB.toStrictByteString b)
+  sendBuilderDirect (duplexSend (connDuplex conn)) b
 
 connectionClose :: Connection -> IO ()
 connectionClose conn = do

@@ -44,6 +44,7 @@ import Network.Socket (Socket)
 import qualified Network.Socket as NS
 
 import qualified Wireform.Builder as B
+import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
 import qualified Network.HTTP1.SendFile as SF
 import Data.Word (Word64)
 import System.IO
@@ -283,23 +284,23 @@ sendResponse conn reqMethod resp = do
       let bs = if mustOmitBody then preEncodedHead pe else peBytes pe
       in connectionSendBytes conn bs
     body -> do
-      let headBs = B.toStrictByteStringWith 1024 (responseBuilder resp)
       if mustOmitBody
-        then connectionSendBytes conn headBs
+        then connectionSendBuilderDirect conn (responseBuilder resp)
         else case body of
-          BodyEmpty -> connectionSendBytes conn headBs
+          BodyEmpty -> connectionSendBuilderDirect conn (responseBuilder resp)
           BodyBytes bs
-            | BS.null bs -> connectionSendBytes conn headBs
+            | BS.null bs -> connectionSendBuilderDirect conn (responseBuilder resp)
             | otherwise  ->
-                -- Stage head + body as one ring reservation, then
-                -- drain in one sendmsg.  Replaces the prior writev
-                -- with a ring-coalesced equivalent.
-                connectionSendMany conn [headBs, bs]
+                -- Cork: headers + body go into the ring without
+                -- publishing; one publish on exit = one sendmsg /
+                -- one io_uring SQE.
+                withConnectionCork conn $ \corked -> do
+                  sendBuilderDirect corked (responseBuilder resp)
+                  sendByteString corked bs
           BodyStream producer -> do
-            -- Streaming bodies need the head out first (handler-driven
-            -- back-pressure) so we don't accumulate the whole body in
-            -- RAM.
-            connectionSendBytes conn headBs
+                -- Streaming: send headers immediately so the client
+                -- sees the status before the first body chunk.
+            connectionSendBuilderDirect conn (responseBuilder resp)
             case responseVersion resp of
               HTTP_1_1 -> do
                 trs <- responseTrailers resp
@@ -307,7 +308,9 @@ sendResponse conn reqMethod resp = do
                   then streamChunked conn producer
                   else streamChunkedWithTrailers conn producer trs
               HTTP_1_0 -> streamRaw conn producer
-          BodyFile fb -> sendFileBody conn headBs fb
+          BodyFile fb -> do
+            let headBs = B.toStrictByteStringWith 1024 (responseBuilder resp)
+            sendFileBody conn headBs fb
 
 -- | Push a file-backed response body.  On plain TCP connections we
 -- use the @sendfile(2)@ fast path with @MSG_MORE@ on the head; on
@@ -478,7 +481,7 @@ sendErrorResponse conn st = do
         , responseBody = BodyEmpty
         , responseTrailers = pure []
         }
-  connectionSendBuilder conn (responseBuilder resp)
+  connectionSendBuilderDirect conn (responseBuilder resp)
     `catch` (\(_ :: SomeException) -> pure ())
 
 errorToStatus :: ParseError -> Status

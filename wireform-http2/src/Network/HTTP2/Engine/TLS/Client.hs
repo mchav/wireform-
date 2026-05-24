@@ -30,10 +30,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Internal as BSI
-import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.IORef as IORef
-import Foreign.Marshal.Alloc (mallocBytes)
-import Foreign.Ptr (castPtr, plusPtr)
 import qualified Network.Socket as NS
 import qualified System.TimeManager as TM
 import Network.Socket (AddrInfo, AddrInfoFlag, PortNumber, Socket, HostName)
@@ -152,8 +149,7 @@ runWithConfig cliCfg Settings{..} serverName port client = do
              then setClientHostnameVerify conn (BS8.pack serverName)
              else pure ()
       recvN <- mkTlsRecvN conn
-      let sendAll = sslSendAll conn
-      cfg <- buildClientConfig sendAll recvN 4096
+      cfg <- buildClientConfig (tlsSendFn conn) recvN
       r <- H2C.run cliCfg cfg client
       E.catch @E.SomeException (freeConn conn >> freeCtx ctx >> pure ())
         (\_ -> pure ())
@@ -181,22 +177,6 @@ buildClientCtxFromSettings _serverName Settings{..} = do
   ctx <- buildClientCtx tlsCfg
   setAlpnClient ctx ["h2"]
   pure ctx
-
--- | OpenSSL send-loop helper.  Loops on short writes; throws on
--- @SSL_write_ex@ returning 0.
-sslSendAll :: SslConn -> ByteString -> IO ()
-sslSendAll conn bs
-  | BS.null bs = pure ()
-  | otherwise  = BSU.unsafeUseAsCStringLen bs $ \(src, len) ->
-      drain (castPtr src) len
-  where
-    fn = tlsSendFn conn
-    drain _ 0 = pure ()
-    drain p n = do
-      k <- fn p n
-      if k <= 0
-        then ioError (userError "Engine.TLS.Client: SSL_write_ex returned 0")
-        else drain (p `plusPtr` k) (n - k)
 
 -- | Build a recvN over the OpenSSL connection with a small leftover
 -- buffer (TLS returns plaintext in chunks of indeterminate size;
@@ -231,17 +211,13 @@ mkTlsRecvN conn = do
                   recvLoop leftoverRef remaining acc
 
 buildClientConfig
-  :: (ByteString -> IO ())
+  :: SendFn
   -> (Int -> IO ByteString)
-  -> Int
   -> IO H2C.Config
-buildClientConfig sendAll readN bufSize = do
-  buf <- mallocBytes bufSize
+buildClientConfig sendFn readN = do
   mgr <- TM.initialize (30 * 1000 * 1000)
   pure H2C.Config
-    { H2C.confWriteBuffer       = buf
-    , H2C.confBufferSize        = bufSize
-    , H2C.confSendAll           = sendAll
+    { H2C.confSendFn            = sendFn
     , H2C.confReadN             = readN
     , H2C.confPositionReadMaker = defaultPositionReadMaker
     , H2C.confTimeoutManager    = mgr
