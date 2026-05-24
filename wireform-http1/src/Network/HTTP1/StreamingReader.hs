@@ -422,12 +422,19 @@ readChunkSizeLineFrom t startPos = do
     loop !ring !base !msk !scanFrom = do
       h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
-      if avail > defaultChunkLineCap
-        then pure (Left (ReadMessageTooLong defaultChunkLineCap))
-        else do
-          mIdx <- findCRLF base msk startPos scanFrom avail
-          case mIdx of
-            Just idx -> do
+      mIdx <- findCRLF base msk startPos scanFrom avail
+      case mIdx of
+        Just idx
+          -- Found the CRLF. The chunk-size line itself is @idx@
+          -- bytes long; that's what the cap is meant to bound,
+          -- not how much was happening to be buffered in the
+          -- ring when we noticed it. (On a fast streaming
+          -- response the ring routinely contains many full
+          -- chunked-transfer chunks beyond the size line we're
+          -- about to read.)
+          | idx > defaultChunkLineCap ->
+              pure (Left (ReadMessageTooLong defaultChunkLineCap))
+          | otherwise -> do
               let !lineLen = idx
                   !line    = ringSlice ring startPos lineLen
                   !nextPos = startPos + fromIntegral (lineLen + 2)
@@ -435,7 +442,13 @@ readChunkSizeLineFrom t startPos = do
               pure $ case Classic.parseChunkSize line of
                 Right n -> Right (n, nextPos)
                 Left e  -> Left (ReadParse e)
-            Nothing -> do
+        Nothing
+          -- No CRLF yet. If we've already buffered more than the
+          -- cap without finding one, the size line is either
+          -- genuinely too long or malformed.
+          | avail > defaultChunkLineCap ->
+              pure (Left (ReadMessageTooLong defaultChunkLineCap))
+          | otherwise -> do
               let !nextScan = max 0 (avail - 1)
               r <- receiveWaitData t h
               case r of
