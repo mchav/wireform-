@@ -65,6 +65,25 @@ library
     wai                  >= 3.2  && < 3.3,
     wireform-http
 
+benchmark wireform-http-wai-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Main.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N2"
+  build-depends:
+    base,
+    bytestring,
+    case-insensitive,
+    criterion          >= 1.5,
+    http-client        >= 0.7,
+    http-types,
+    network,
+    wai,
+    warp               >= 3.3,
+    wireform-http,
+    wireform-http-wai
+
 test-suite wireform-http-wai-test
   import: defaults
   type: exitcode-stdio-1.0
