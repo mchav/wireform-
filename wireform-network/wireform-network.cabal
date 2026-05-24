@@ -90,6 +90,7 @@ test-suite wireform-network-test
   other-modules:
     Wireform.Network.Transport.Receive.Test
     Wireform.Network.TLS.OpenSSL.Test
+    Wireform.Network.Transport.Roundtrip.Test
   build-depends:
     base,
     bytestring,
@@ -97,7 +98,9 @@ test-suite wireform-network-test
     network,
     wireform-core,
     wireform-network,
-    hspec
+    hspec,
+    QuickCheck,
+    stm
 
 benchmark transport-bench
   import: defaults
