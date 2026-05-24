@@ -10,10 +10,9 @@ There are two TLS paths in wireform now:
   TLS record; the per-package buffered-recv bridges memcpy it into
   the magic ring.  One extra copy + one fresh `ByteString` per
   record on top of the in-place AES-GCM `tls` already does
-  internally.  Still used by the vendored grapesy HTTP/2 engine
-  under `Network.HTTP2.Engine.*` and by `wireform-grpc`; no longer
-  used by `wireform-kafka`, the new `wireform-http1` stack, or the
-  new `wireform-http2` stack.
+  internally.  No longer used anywhere in the repo — OpenSSL is
+  the only TLS implementation now (including in the vendored
+  grapesy engine + `wireform-grpc`).
 
 * **Direct OpenSSL bridge** in
   `Wireform.Network.TLS.OpenSSL`.  Calls `libssl`'s `SSL_read_ex`

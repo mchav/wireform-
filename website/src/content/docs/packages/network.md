@@ -130,11 +130,13 @@ The surface mirrors the bits OpenSSL exposes: `newClientCtx` /
 glues it all together: hands you a magic-ring `Transport` that the
 streaming-parser readers in any wireform package can drive.
 
-OpenSSL is now the only TLS implementation in `wireform-kafka`,
-the new `wireform-http1` stack, and the new `wireform-http2` stack
-(the vendored grapesy engine under `Network.HTTP2.Engine.*` still
-uses the pure-Haskell `tls` package, and `wireform-grpc` keeps
-following Engine).  The contrast:
+OpenSSL is the only TLS implementation in the repo: `wireform-kafka`,
+`wireform-http1`, `wireform-http2` (both the new stack and the
+vendored grapesy engine under `Network.HTTP2.Engine.*`), and
+`wireform-grpc` all go through `Wireform.Network.TLS.OpenSSL`.
+The pure-Haskell `tls` package + the `crypton-x509-*` family are
+no longer dependencies anywhere.  The contrast versus the previous
+arrangement:
 
 | Concern | `tls` bridge | OpenSSL direct |
 |---------|--------------|----------------|
