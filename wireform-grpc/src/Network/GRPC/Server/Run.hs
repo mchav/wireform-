@@ -36,7 +36,8 @@ import Network.HTTP2.Engine.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
 import Network.Socket qualified as Socket
-import Network.TLS qualified as TLS
+import Wireform.Network.TLS.OpenSSL (freeCtx)
+import Control.Exception (SomeException, try)
 
 #if MIN_VERSION_network_run(0,4,4)
 import Data.List.NonEmpty qualified as NE
@@ -352,14 +353,28 @@ runSecure ::
   -> Server.Server
   -> IO ()
 runSecure http2 cfg socketTMVar server = do
-    cred :: TLS.Credential <-
-          TLS.credentialLoadX509Chain
-            (securePubCert    cfg)
-            (secureChainCerts cfg)
-            (securePrivKey    cfg)
-      >>= \case
-            Left  err -> throwIO $ CouldNotLoadCredentials err
-            Right res -> return res
+    -- Build the OpenSSL server context once per listener:
+    -- cert chain + private key + ALPN("h2").  The vendored grapesy
+    -- engine no longer takes a 'TLS.Credentials' value; it takes an
+    -- already-configured 'SslCtx' and applies it on every accepted
+    -- connection.
+    --
+    -- 'secureChainCerts' (intermediate CAs that should follow the
+    -- leaf) is honoured by concatenating the PEM files into the
+    -- cert path OpenSSL loads first; if 'secureChainCerts' is
+    -- non-empty the caller is expected to have pre-bundled them
+    -- into 'securePubCert' (OpenSSL's
+    -- SSL_CTX_use_certificate_chain_file reads the whole chain from
+    -- the one file).  An empty 'secureChainCerts' continues to work
+    -- with a leaf-only PEM.
+    ctxResult <- try @SomeException $
+      HTTP2.TLS.buildServerCtxFromPaths
+        (securePubCert cfg)
+        (securePrivKey cfg)
+        ["h2"]
+    ctx <- case ctxResult of
+      Left e  -> throwIO (CouldNotLoadCredentials (show e))
+      Right c -> pure c
 
     keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
     let serverConfig :: HTTP2.ServerConfig
@@ -373,9 +388,10 @@ runSecure http2 cfg socketTMVar server = do
         socketTMVar
         (Just $ secureHost cfg)
         (securePort cfg) $ \listenSock ->
+      flip (`onCleanup` freeCtx ctx) listenSock $ \_ ->
       HTTP2.TLS.runTLSWithSocket
           tlsSettings
-          (TLS.Credentials [cred])
+          ctx
           listenSock
           "h2" $ \mgr backend -> do
         when (http2TcpNoDelay http2) $
@@ -386,6 +402,15 @@ runSecure http2 cfg socketTMVar server = do
             (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
         withConfigForSecure mgr backend $ \config ->
           HTTP2.run serverConfig config server
+  where
+    -- Run @body sock@; free the OpenSSL context after, regardless of
+    -- whether body succeeded.
+    onCleanup body cleanup sock = do
+      r <- try @SomeException (body sock)
+      _ <- try @SomeException cleanup
+      case r of
+        Left  e -> throwIO e
+        Right v -> pure v
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials

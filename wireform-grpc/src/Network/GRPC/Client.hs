@@ -23,7 +23,6 @@ module Network.GRPC.Client (
   , ServerValidation(..)
   , Util.TLS.CertificateStoreSpec
   , Util.TLS.certStoreFromSystem
-  , Util.TLS.certStoreFromCerts
   , Util.TLS.certStoreFromPath
 
     -- * Make RPCs

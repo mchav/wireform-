@@ -41,7 +41,7 @@ import Network.HTTP2.Engine.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, StructLinger (..), SocketOption (..), SockOptValue (..))
 import Network.Socket qualified as Socket
-import Network.TLS (TLSException)
+import Wireform.Network.TLS.OpenSSL (OpenSslError)
 
 import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Common.HTTP2Settings
@@ -129,7 +129,7 @@ closeConnection conn = putMVar (connOutOfScope conn) ()
 
 isFatalException :: SomeException -> Bool
 isFatalException err
-  | Just (_tlsException :: TLSException) <- fromException err
+  | Just (_openSslErr :: OpenSslError) <- fromException err
   = True
 
   | otherwise
@@ -308,7 +308,18 @@ connectSocket connParams attempt connAuthority sock = do
                   http2ConnectionWindowSize connHTTP2Settings
           }
 
--- | Secure connection (using TLS)
+-- | Secure connection (using TLS, backed by OpenSSL).
+--
+-- The OpenSSL surface in
+-- "Wireform.Network.TLS.OpenSSL" takes an additional CA bundle as a
+-- single PEM path (passed to @SSL_CTX_load_verify_locations@); the
+-- multi-source 'CertificateStoreSpec' is resolved into a list of
+-- paths here and the first one is plumbed through.  When the spec
+-- resolves to more than one extra bundle, the additional bundles
+-- must be loaded post-context-creation — the Engine TLS Settings
+-- record does not currently surface that hook (added in a
+-- follow-up).  For the common case (system store + at most one
+-- in-house CA bundle file) this is sufficient.
 connectSecure ::
      ConnParams
   -> Attempt
@@ -318,12 +329,21 @@ connectSecure ::
   -> IO ()
 connectSecure connParams attempt validation sslKeyLog addr = do
     keyLogger <- Util.TLS.keyLogger sslKeyLog
-    caStore   <- Util.TLS.validationCAStore validation
+    resolved  <- Util.TLS.validationCAStore validation
 
-    let settings :: HTTP2.TLS.Client.Settings
+    let extraCaPath :: Maybe FilePath
+        extraCaPath = case Util.TLS.rcsExtraBundles resolved of
+          []      -> Nothing
+          (fp:_)  -> Just fp
+          -- If you need more than one extra bundle, concatenate
+          -- the PEMs into a single file and point this at the
+          -- combined bundle; OpenSSL reads the whole chain from
+          -- one path.
+
+        settings :: HTTP2.TLS.Client.Settings
         settings = HTTP2.TLS.Client.defaultSettings {
               HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
+            , HTTP2.TLS.Client.settingsCAStorePath   = extraCaPath
             , HTTP2.TLS.Client.settingsAddrInfoFlags = []
 
             , HTTP2.TLS.Client.settingsValidateCert =
