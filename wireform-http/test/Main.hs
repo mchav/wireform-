@@ -11,6 +11,7 @@ import qualified Test.AuthChallenge
 import qualified Test.Conditional
 import qualified Test.IDN
 import qualified Test.Negotiation
+import qualified Test.SSE
 import qualified Test.UrlDecode
 import qualified Test.VersionTypes
 import qualified Test.Client
@@ -25,6 +26,7 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.Http2EdgeCases.tests
   , Test.ConcurrencyStress.tests
   , Test.Client.tests
+  , Test.SSE.tests
   , Test.UrlDecode.tests
   , Test.IDN.tests
   , Test.AuthChallenge.tests
