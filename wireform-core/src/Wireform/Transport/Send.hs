@@ -163,6 +163,10 @@ instance Exception SendReservationTooLarge
 -- is complete.
 --
 -- Throws 'SendReservationTooLarge' if @n > sendRingSize@.
+-- Throws the sticky 'SendRingFull' / underlying 'SendFailed'
+-- exception if the transport has been closed (concretely: the
+-- ring's backing mmap may already be gone, so we must not hand
+-- out a pointer into it).
 reserveSend
   :: SendTransport
   -> Int
@@ -261,26 +265,29 @@ sendBuilder t b = sendByteString t (B.toStrictByteStringWith 4096 b)
 -- Internal: wait for room
 ------------------------------------------------------------------------
 
--- | Block on 'sendWaitSpace' until the ring has room for head to
--- advance to @newHead@.  Throws the sticky wire error if the
--- consumer has died.
+-- | Block until the ring has room for head to advance to @newHead@.
+--
+-- Always consults 'sendWaitSpace' once, even when the local cursor
+-- arithmetic says room is already available.  This is what surfaces
+-- a sticky closed state (e.g. after 'sendClose') BEFORE the caller
+-- reaches for the ring's base pointer — without this probe,
+-- 'reserveSend' on a closed inline transport would happily hand out
+-- a pointer into the ring's already-unmapped backing memory.
 ensureRoom :: SendTransport -> Word64 -> IO ()
 ensureRoom t newHead = loop
   where
     sz = fromIntegral (sendRingSize t) :: Word64
     loop = do
-      tl <- sendLoadTail t
-      if newHead - tl <= sz
-        then pure ()
-        else do
-          r <- sendWaitSpace t newHead
-          case r of
-            SendSpaceAvailable _ -> loop
-            SendPeerClosed       ->
-              throwIO (SendRingFull
-                         { sendRingFullSize = sendRingSize t
-                         , sendRingFullHead = newHead
-                         , sendRingFullTail = tl
-                         })
-            SendFailed e         -> throwIO e
+      r <- sendWaitSpace t newHead
+      case r of
+        SendSpaceAvailable tl
+          | newHead - tl <= sz -> pure ()
+          | otherwise          -> loop
+        SendPeerClosed ->
+          throwIO (SendRingFull
+                     { sendRingFullSize = sendRingSize t
+                     , sendRingFullHead = newHead
+                     , sendRingFullTail = newHead   -- unknown; report newHead
+                     })
+        SendFailed e -> throwIO e
 {-# INLINE ensureRoom #-}

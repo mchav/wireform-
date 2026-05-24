@@ -94,10 +94,7 @@ withDuplexBufTransport cfg recvFn sendFn shut action =
       let d = DuplexTransport
                 { duplexReceive = rx
                 , duplexSend    = tx
-                , duplexClose   = do
-                    _ <- try @SomeException (sendClose tx)
-                    _ <- try @SomeException (receiveClose rx)
-                    pure ()
+                , duplexClose   = closeBoth tx rx
                 }
       action d
 
@@ -119,11 +116,22 @@ newDuplexBufTransport cfg recvFn sendFn shut = do
   pure DuplexTransport
     { duplexReceive = rx
     , duplexSend    = tx
-    , duplexClose   = do
-        _ <- try @SomeException (sendClose tx)
-        _ <- try @SomeException (receiveClose rx)
-        pure ()
+    , duplexClose   = closeBoth tx rx
     }
+
+-- | Coordinated tear-down: flush the send ring (sendClose drains
+-- everything published), signal end-of-write to the peer
+-- (sendShutdownWrite fires shutdown(SHUT_WR) / close_notify / sets
+-- the in-memory pipe's WR-closed flag — that's what makes the
+-- peer's next recv return 0 = EOF), then release the receive ring.
+-- Each step is best-effort + idempotent so re-entrancy on a failing
+-- transport doesn't leave half-released state.
+closeBoth :: SendTransport -> ReceiveTransport -> IO ()
+closeBoth tx rx = do
+  _ <- try @SomeException (sendClose tx)
+  _ <- try @SomeException (sendShutdownWrite tx)
+  _ <- try @SomeException (receiveClose rx)
+  pure ()
 
 -- | Synonym for 'duplexClose' (record-field accesses can be awkward
 -- at use sites; the standalone function reads cleaner).
