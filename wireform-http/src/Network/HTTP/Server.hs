@@ -229,8 +229,11 @@ runTlsServer cfg tlsCfg =
     (tlsServerCertPath tlsCfg)
     (tlsServerKeyPath tlsCfg)
     (serverVersionRange cfg)
-    -- HTTP/1.x dispatch over the TLS transport.
-    (\_v transport -> H1.runServerOnTransport (mkH1Config cfg) transport)
+    -- HTTP/1.x dispatch over the TLS connection. The TLS layer
+    -- hands us an 'SslConn' for each accepted-and-handshaked
+    -- connection; the http1 server's 'runServerOnTls' wraps it
+    -- into the usual per-connection request loop.
+    (\_v sslConn -> H1.runServerOnTls (mkH1Config cfg) sslConn)
     -- HTTP/2 ServerConfig factory.
     (\_v -> (mkH2Config cfg) { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg) })
 
@@ -354,19 +357,20 @@ prebufferedH1Connection sock prebuf = do
               (NS.shutdown sock NS.ShutdownSend)
   H1C.newConnectionFromDuplex duplex
 
--- | Build a legacy HTTP\/2 'H2T.Transport' from a 'NS.Socket' with
--- @prebuf@ already pulled.  The new HTTP\/2 stack still threads its
--- recv through a local 'H2T.Transport' record (the magic ring is
--- internal to 'Network.HTTP2.Connection'), so the legacy bridge is
--- still useful here.
+-- | Build a 'H2T.Transport' from a 'NS.Socket' whose first
+-- @prebuf@ bytes have already been pulled off the wire (from the
+-- HTTP\/2 sniff).  The 'H2T.Transport' record is pointer-based
+-- now, so we hand-roll a recv that drains @prebuf@ into the
+-- caller's buffer before falling through to 'NS.recvBuf'.
 prebuffered2 :: NS.Socket -> ByteString -> IO H2T.Transport
 prebuffered2 sock prebuf = do
   ref <- newIORef prebuf
-  H2T.bufferedRecvTransport
-    (NBS.sendAll sock)
-    (NBS.sendMany sock)
-    (drainOrRecv ref sock)
-    (NS.close sock)
+  pure H2T.Transport
+    { H2T.tSendFn        = NS.sendBuf sock
+    , H2T.tRecvBuf       = prefixedRecv ref sock
+    , H2T.tShutdownWrite = NS.shutdown sock NS.ShutdownSend
+    , H2T.tClose         = NS.close sock
+    }
 
 prefixedRecv :: IORef ByteString -> NS.Socket -> Ptr Word8 -> Int -> IO Int
 prefixedRecv ref sock dst want = do
@@ -382,18 +386,6 @@ prefixedRecv ref sock dst want = do
         copyBytes dst (castPtr src) len
       pure take_
 {-# INLINE prefixedRecv #-}
-
--- | Pull the prebuffered bytes once, then fall through to live
--- 'NBS.recv'. The transport's own buffering layer copies them into
--- its ring so we don't have to be precise about chunk boundaries.
-drainOrRecv :: IORef ByteString -> NS.Socket -> IO ByteString
-drainOrRecv ref sock = do
-  buf <- readIORef ref
-  if BS.null buf
-    then NBS.recv sock 32768
-    else do
-      writeIORef ref BS.empty
-      pure buf
 
 wrapHttp1Handler :: ServerConfig -> Handler -> H1.Request -> IO H1.Response
 wrapHttp1Handler cfg handler h1req = do

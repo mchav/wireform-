@@ -45,7 +45,11 @@ import Data.String (IsString (..))
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Short as ST
 
-import FlatParse.Basic (Result (..), runParser)
+-- The parsers in 'Network.HTTP.ContentNegotiation' are built from
+-- hermes's vendored Wireform.Parser, so they need hermes's own
+-- @runParser@ \/ @Result@ shim rather than flatparse's
+-- (otherwise the parser type doesn't unify).
+import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 
 import qualified Network.HTTP.ContentNegotiation as Hermes
 

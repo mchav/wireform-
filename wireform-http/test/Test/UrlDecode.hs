@@ -10,7 +10,12 @@ module Test.UrlDecode (tests) where
 import qualified Data.ByteString as BS
 import Data.Word (Word8)
 
-import qualified FlatParse.Basic as FP
+-- The URL decode parsers in 'Network.HTTP.URL.Decode' are built on
+-- hermes's vendored Wireform.Parser, so they need hermes's own
+-- @runParser@ \/ @Result@ shim. The Hedgehog \/ flatparse-style
+-- combinators (@eof@, @takeRest@, @skipMany@, @skipSatisfyAscii@)
+-- are still flatparse-compatible because hermes re-exports them.
+import qualified Network.HTTP.Headers.Parsing.Util as FP
 
 import Test.Tasty
 import Test.Tasty.HUnit

@@ -62,7 +62,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Short as ST
 
-import FlatParse.Basic (Result (..), runParser)
+import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 
 import qualified Network.HTTP.Headers.Authorization as Hermes
 import qualified Network.HTTP.Headers.Parsing.Util  as Hermes
