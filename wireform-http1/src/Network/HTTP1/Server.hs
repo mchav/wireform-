@@ -54,6 +54,7 @@ import System.Posix.IO (closeFd, defaultFileFlags, openFd, OpenMode (..))
 
 
 import Wireform.Network.TLS.OpenSSL (SslConn)
+import Wireform.Ring.Pool (RingPool)
 
 import Network.HTTP1.Chunked
   (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
@@ -108,6 +109,12 @@ data ServerConfig = ServerConfig
     -- the server into an open proxy and is a known SSRF / port-scan
     -- vector. Set 'True' only if you really do want to terminate
     -- @CONNECT@ tunnels in your application.
+  , serverRingPool :: !(Maybe RingPool)
+    -- ^ Optional pool of pre-allocated magic ring buffers. When
+    -- 'Just', accepted connections acquire rings from the pool
+    -- instead of allocating fresh ones (saving ~6 syscalls per
+    -- ring). Connections return rings to the pool on close.
+    -- Default 'Nothing' (allocate per-connection).
   }
 
 defaultServerConfig :: ServerConfig
@@ -128,6 +135,7 @@ defaultServerConfig = ServerConfig
   , serverListenBacklog = 1024
   , serverTcpDeferAcceptSecs = Nothing
   , serverAllowConnect = False
+  , serverRingPool = Nothing
   }
 
 runServer :: ServerConfig -> IO ()
@@ -171,7 +179,9 @@ acceptLoop cfg listenSock = do
 
 runServerOnSocket :: ServerConfig -> Socket -> IO ()
 runServerOnSocket cfg sock = do
-  conn <- newConnectionFromSocket sock
+  conn <- case serverRingPool cfg of
+    Just pool -> newConnectionFromSocketPooled pool sock
+    Nothing   -> newConnectionFromSocket sock
   handleConnection cfg conn
 
 -- | Drive the server over a TLS-wrapped connection.  The caller is
