@@ -37,7 +37,7 @@ import qualified Network.HTTP.Types.Version as V
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as TB
 import Network.HTTP.Server
-import Network.HTTP.VersionRange (VersionRange, http1Only)
+import Network.HTTP.VersionRange (VersionRange, http1Only, http2Only)
 
 import Network.HTTP.Client
 
@@ -57,6 +57,9 @@ tests = testGroup "SSE end-to-end (HTTP/1.1)"
   , highConcurrency
   , serverError5xx
   , serverWrongContentType
+  , sseOverHttp2
+  , producerCrashGraceful
+  , extremeBackpressure
   ]
 
 -- ---------------------------------------------------------------------------
@@ -467,26 +470,49 @@ withSseServer
   :: (SseChannel -> IO ())
   -> (String -> IO a)
   -> IO a
-withSseServer = withSseServerOn (sseResponseBody . awaitSseEvent)
+withSseServer = withSseServerOn http1Only 64 (sseResponseBody . awaitSseEvent)
 
 withSseFrameServer
   :: (SseChannel -> IO ())
   -> (String -> IO a)
   -> IO a
-withSseFrameServer = withSseServerOn (sseResponseBodyFrames . awaitSseFrame)
+withSseFrameServer =
+  withSseServerOn http1Only 64 (sseResponseBodyFrames . awaitSseFrame)
 
-withSseServerOn
-  :: (SseChannel -> TB.Body)
+withSseServerCap
+  :: Int
   -> (SseChannel -> IO ())
   -> (String -> IO a)
   -> IO a
-withSseServerOn mkBody producer = withTestServer http1Only handler
+withSseServerCap cap =
+  withSseServerOn http1Only cap (sseResponseBody . awaitSseEvent)
+
+withSseServerVersion
+  :: VersionRange
+  -> (SseChannel -> IO ())
+  -> (String -> IO a)
+  -> IO a
+withSseServerVersion ver =
+  withSseServerOn ver 64 (sseResponseBody . awaitSseEvent)
+
+withSseServerOn
+  :: VersionRange
+  -> Int                          -- ^ channel backlog cap
+  -> (SseChannel -> TB.Body)
+  -> (SseChannel -> IO ())
+  -> (String -> IO a)
+  -> IO a
+withSseServerOn ver cap mkBody producer = withTestServer ver handler
   where
     handler _req = do
-      ch <- newSseChannel 64
+      ch <- newSseChannel cap
       _  <- forkIO (producer ch)
       pure Msg.Response
         { Msg.responseStatus     = S.status200
+          -- The HTTP/1.x server mirrors the request version onto
+          -- the response; the HTTP/2 server ignores this field and
+          -- uses its own framing. So HTTP1_1 is fine across both
+          -- backends.
         , Msg.responseVersion    = V.HTTP1_1
         , Msg.responseHeaders    =
             [ (H.hContentType,  "text/event-stream")
@@ -497,6 +523,84 @@ withSseServerOn mkBody producer = withTestServer http1Only handler
         , Msg.responseH2StreamId = 0
         , Msg.responseCancel     = pure ()
         }
+
+-- ---------------------------------------------------------------------------
+-- HTTP/2, producer-crash, max-backpressure
+-- ---------------------------------------------------------------------------
+
+-- | Same basic SSE round-trip as 'basicRoundTrip', but over h2c
+-- (HTTP\/2 cleartext with prior knowledge). The SSE pipeline
+-- doesn't care which version is on the wire — events flow
+-- through 'Body' chunks the same way regardless of whether the
+-- HTTP layer encodes them as chunked-transfer or DATA frames —
+-- but this is the proof point that the high-level SSE API is
+-- in fact version-agnostic.
+sseOverHttp2 :: TestTree
+sseOverHttp2 = testCase "events round-trip over HTTP/2 (h2c)" $ do
+  let evs =
+        [ defaultSseEvent { sseEventType = Just "tick", sseData = "1" }
+        , defaultSseEvent { sseEventType = Just "tick", sseData = "2" }
+        , defaultSseEvent { sseEventType = Just "done", sseData = "ok" }
+        ]
+  withSseServerVersion http2Only (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http2Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    got @?= evs
+
+-- | If a producer throws mid-stream but follows the recommended
+-- pattern of @'finally' 'closeSseChannel'@, the consumer should
+-- see every event that landed before the crash and then a clean
+-- EOF (rather than hanging on @awaitSseEvent@ forever).
+--
+-- This codifies the recommended producer shape — closing the
+-- channel via @finally@ is the documented way to surface
+-- end-of-stream regardless of how the producer exits.
+producerCrashGraceful :: TestTree
+producerCrashGraceful =
+  testCase "producer crash with `finally close` delivers prefix + EOF" $ do
+  let goodEvs = map (\i -> defaultSseEvent { sseData = BS8.pack ("e" <> show i) })
+                    [0 .. 9 :: Int]
+      producer ch =
+        (do forM_ goodEvs (sendSseEvent ch)
+            error "producer goes boom mid-stream")
+        `finally` closeSseChannel ch
+  withSseServer producer $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    got @?= goodEvs
+
+-- | Bounded channel with the smallest possible cap (1): the
+-- producer can only stage a single event at a time, so every send
+-- past the first one blocks until the consumer takes the previous
+-- one off. Catches any deadlock or lost-wakeup in the
+-- producer\/consumer STM dance under maximum backpressure.
+--
+-- Pushing 500 events through a cap-1 queue makes every send round-trip
+-- through the consumer.
+extremeBackpressure :: TestTree
+extremeBackpressure = testCase "channel cap = 1 still delivers all events in order" $ do
+  let evs = map (\i -> defaultSseEvent { sseData = BS8.pack ("e" <> show i) })
+                [0 .. 499 :: Int]
+  withSseServerCap 1 (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    got @?= evs
+
+-- ---------------------------------------------------------------------------
+-- Plumbing
+-- ---------------------------------------------------------------------------
 
 withTestServer
   :: VersionRange
