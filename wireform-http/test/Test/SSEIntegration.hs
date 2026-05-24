@@ -20,7 +20,7 @@ module Test.SSEIntegration (tests) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
   (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (bracket, finally)
+import Control.Exception (bracket, finally, fromException, try, SomeException)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
@@ -53,6 +53,10 @@ tests = testGroup "SSE end-to-end (HTTP/1.1)"
   , earlyCancellation
   , tinyChunkStream
   , backToBackRequests
+  , extremelyLongStream
+  , highConcurrency
+  , serverError5xx
+  , serverWrongContentType
   ]
 
 -- ---------------------------------------------------------------------------
@@ -223,6 +227,113 @@ backToBackRequests = testCase "3 sequential SSE requests against the same server
         drainEvents nextEvent received
       reverse <$> readIORef received
     gotAll @?= runs
+
+-- | Push the envelope: 100,000 events on a single connection.
+-- At ~25 bytes per event ≈ 2.5 MB of streaming response, ~100k
+-- chunk-size lines, ~100k SSE-parser dispatches. If anything in
+-- the pipeline is O(n²) on the event count, this will be where
+-- it finally shows.
+extremelyLongStream :: TestTree
+extremelyLongStream = testCase "100,000 events on one connection" $ do
+  let n   = 100000
+      evs = map mkEvent [0 .. n - 1]
+      mkEvent i = defaultSseEvent
+        { sseEventId = Just (BS8.pack (show i))
+        , sseData    = BS8.pack ("payload-" <> show i)
+        }
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    length got @?= n
+    head got                     @?= head evs
+    last got                     @?= last evs
+    (got !! (n `div` 2))         @?= (evs !! (n `div` 2))
+    (got !! (3 * n `div` 4))     @?= (evs !! (3 * n `div` 4))
+
+-- | 50 concurrent clients each receiving a 1000-event stream
+-- (50,000 events total flowing simultaneously). Catches any
+-- contention or fairness bug in the server's accept loop, the
+-- streamed-transport worker pool, or the per-connection
+-- send-ring publishing.
+highConcurrency :: TestTree
+highConcurrency = testCase "50 concurrent clients x 1000 events each" $ do
+  let perClient  = 1000
+      numClients = 50 :: Int
+      evs        = map (\i -> defaultSseEvent
+                                { sseData = BS8.pack ("e" <> show i) })
+                       [0 .. perClient - 1]
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    slots <- mapM (\_ -> newEmptyMVar) [1 .. numClients]
+    forM_ slots $ \mv -> forkIO $ do
+      received <- newIORef ([] :: [ServerSentEvent])
+      let req       = get (compileURL port "/events")
+          transport = streamedTransport http1Only
+      withSSE transport req $ \nextEvent ->
+        drainEvents nextEvent received
+      got <- reverse <$> readIORef received
+      putMVar mv got
+    results <- mapM takeMVar slots
+    forM_ (zip [0 :: Int ..] results) $ \(i, got) -> do
+      assertEqual ("client " <> show i <> " event count")
+        perClient (length got)
+      assertEqual ("client " <> show i <> " first event")
+        (head evs) (head got)
+      assertEqual ("client " <> show i <> " last event")
+        (last evs) (last got)
+
+-- | A handler that returns 500 should surface as
+-- 'SseUnexpectedStatus' on the client — over a real wire, not
+-- just against a mock.
+serverError5xx :: TestTree
+serverError5xx = testCase "server 500 surfaces as SseUnexpectedStatus" $ do
+  let handler _ = pure Msg.Response
+        { Msg.responseStatus     = S.status500
+        , Msg.responseVersion    = V.HTTP1_1
+        , Msg.responseHeaders    = [(H.hContentType, "text/event-stream")]
+        , Msg.responseBody       = TB.BodyEmpty
+        , Msg.responseTrailers   = pure []
+        , Msg.responseH2StreamId = 0
+        , Msg.responseCancel     = pure ()
+        }
+  withTestServer http1Only handler $ \port -> do
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    result <- try $ withSSE transport req $ \_ -> pure ()
+    case (result :: Either SomeException ()) of
+      Left e -> case fromException e of
+        Just (SseUnexpectedStatus s) -> S.statusCode s @?= 500
+        _ -> assertFailure ("wrong exception: " <> show e)
+      Right _ -> assertFailure "expected SseUnexpectedStatus"
+
+-- | A handler whose @Content-Type@ is not @text/event-stream@
+-- should surface as 'SseUnexpectedContentType' on the client.
+serverWrongContentType :: TestTree
+serverWrongContentType =
+  testCase "server text/plain surfaces as SseUnexpectedContentType" $ do
+  let handler _ = pure Msg.Response
+        { Msg.responseStatus     = S.status200
+        , Msg.responseVersion    = V.HTTP1_1
+        , Msg.responseHeaders    = [(H.hContentType, "text/plain")]
+        , Msg.responseBody       = TB.BodyBytes "not an event stream"
+        , Msg.responseTrailers   = pure []
+        , Msg.responseH2StreamId = 0
+        , Msg.responseCancel     = pure ()
+        }
+  withTestServer http1Only handler $ \port -> do
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    result <- try $ withSSE transport req $ \_ -> pure ()
+    case (result :: Either SomeException ()) of
+      Left e -> case fromException e of
+        Just (SseUnexpectedContentType mt) -> do
+          mtType mt    @?= "text"
+          mtSubType mt @?= "plain"
+        _ -> assertFailure ("wrong exception: " <> show e)
+      Right _ -> assertFailure "expected SseUnexpectedContentType"
 
 -- | Additional regression: a single event whose data payload is large.
 -- Exercises the 'Wireform.Builder' accumulator in 'spDataBuf' across
