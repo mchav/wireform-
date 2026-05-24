@@ -4,14 +4,12 @@
 -- Threading model: per-core accept via forkOn, pinned connection handlers.
 module Main (main) where
 
-import Control.Concurrent (forkIO, forkOn, getNumCapabilities)
+import Control.Concurrent (forkOn, getNumCapabilities)
 import Control.Concurrent.MVar (withMVar)
 import Control.Exception (SomeException, catch, bracket, finally)
-import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import GHC.Conc (numCapabilities)
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NBS
@@ -108,12 +106,12 @@ handleFrameRaw conn hdr payload = case fhType hdr of
   FrameSettings
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrameZeroCopy conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
+        sendFrame conn $ Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
 
   FramePing
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise ->
-        sendFrameZeroCopy conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame payload)
+        sendFrame conn $ Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame payload)
 
   FrameWindowUpdate -> pure ()
 
@@ -127,7 +125,7 @@ handleFrameRaw conn hdr payload = case fhType hdr of
   FrameData -> do
     let len = fhLength hdr
     if len > 0
-      then sendFrameZeroCopy conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
+      then sendFrame conn $ Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
       else pure ()
 
   FrameGoAway -> pure ()
@@ -139,7 +137,7 @@ sendResponse conn sid = do
   headerBlock <- withMVar (connHpackEncoder conn) $ \encoder ->
     encodeHeaderBlock defaultEncodeStrategy encoder
       [(":status", "200"), ("content-type", "text/plain"), ("content-length", "13")]
-  sendFramesZeroCopy conn
+  sendFrames conn
     [ Frame (FrameHeader (fromIntegral (BS.length headerBlock)) FrameHeaders flagEndHeaders sid)
         (HeadersFrame Nothing headerBlock)
     , Frame (FrameHeader 13 FrameData flagEndStream sid)

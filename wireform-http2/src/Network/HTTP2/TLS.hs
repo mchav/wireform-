@@ -27,9 +27,6 @@ module Network.HTTP2.TLS
 import Control.Exception (Exception, throwIO)
 import qualified Control.Exception as E
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
-import Foreign.Ptr (castPtr, plusPtr)
 
 import Wireform.Network.TLS.OpenSSL
   ( SslConn
@@ -67,40 +64,13 @@ assertH2Alpn conn = do
 -- local 'Transport' record.  Caller is responsible for the
 -- handshake (and ALPN assertion via 'assertH2Alpn').
 --
--- The send path uses OpenSSL's @SSL_write_ex@ directly (no
--- intermediate 'ByteString' copy beyond the slice we're handed);
+-- The send path uses OpenSSL's @SSL_write_ex@ directly (pointer-based);
 -- the recv path uses 'SSL_read_ex' to write plaintext straight
--- into the caller-supplied buffer.  This is the OpenSSL analogue
--- of what the vendored Engine does with the pure-Haskell @tls@
--- package.
+-- into the caller-supplied buffer.
 tlsTransport :: SslConn -> IO Transport
 tlsTransport conn = pure Transport
-  { tSendAll  = sendAll
-  , tSendMany = sendMany
-  , tRecvBuf  = recvBuf
-  , tClose    = (freeConn conn) `E.catch` (\(_ :: E.SomeException) -> pure ())
+  { tSendFn = tlsSendFn conn
+  , tRecvBuf = tlsReceiveFn conn
+  , tShutdownWrite = (freeConn conn) `E.catch` (\(_ :: E.SomeException) -> pure ())
+  , tClose = pure ()
   }
-  where
-    sendFn = tlsSendFn conn
-    recvFn = tlsReceiveFn conn
-
-    sendAll bs
-      | BS.null bs = pure ()
-      | otherwise  = BSU.unsafeUseAsCStringLen bs $ \(src, len) ->
-          drain (castPtr src) len
-      where
-        drain _ 0 = pure ()
-        drain p n = do
-          k <- sendFn p n
-          if k <= 0
-            then ioError (userError "tlsTransport: SSL_write_ex returned 0")
-            else drain (p `plusPtr` k) (n - k)
-
-    sendMany [] = pure ()
-    sendMany xs = mapM_ sendAll xs
-    -- ^ OpenSSL doesn't expose a vector-IO write; the underlying
-    -- TLS record framing forces one record per call anyway, so
-    -- writev would offer no syscall saving.  Mirrors the @tls@-
-    -- backed bridge in spirit.
-
-    recvBuf = recvFn

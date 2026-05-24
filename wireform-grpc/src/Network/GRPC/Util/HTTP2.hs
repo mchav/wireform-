@@ -11,14 +11,17 @@ module Network.GRPC.Util.HTTP2 (
 import Network.GRPC.Util.Imports
 
 import Data.ByteString qualified as Strict (ByteString)
-import Foreign (mallocBytes, free)
+import qualified Data.ByteString.Internal as BSI
+import Foreign.Marshal.Utils (copyBytes)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Data.Word (Word8)
 import Network.HTTP2.Engine.Types (BufferSize)
 import Network.HTTP2.Engine.Server qualified as Server
 import Network.HTTP2.Engine.TLS.Server qualified as Server.TLS
+import Network.HTTP2.Transport (SendFn)
 import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
 import Network.Socket.BufferPool qualified as Recv
-import Network.Socket.ByteString qualified as Socket
 
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.TimeManager (TimeManager, disableTimeout)
@@ -38,21 +41,17 @@ withConfigForInsecure ::
   -> (Server.Config -> IO a)
   -> IO a
 withConfigForInsecure mgr sock k = do
-    -- @recv@ does not provide a way to deallocate a buffer pool, and
-    -- @http2-tls@ (in @freeServerConfig@) does not attempt to deallocate it.
-    -- We follow suit here.
     pool   <- Recv.newBufferPool readBufferLowerLimit readBufferSize
     mysa   <- Socket.getSocketName sock
     peersa <- Socket.getPeerName sock
     withConfig
       mgr
-      (Socket.sendAll sock)
+      (Socket.sendBuf sock)
       (Recv.receive sock pool)
       mysa
       peersa
       k
   where
-    -- Use the defaults from @http2-tls@
     readBufferLowerLimit, readBufferSize :: Int
     readBufferLowerLimit = Server.TLS.settingsReadBufferLowerLimit Server.TLS.defaultSettings
     readBufferSize       = Server.TLS.settingsReadBufferSize       Server.TLS.defaultSettings
@@ -69,38 +68,40 @@ withConfigForSecure ::
 withConfigForSecure mgr backend =
     withConfig
       mgr
-      (Server.TLS.send         backend)
+      (bsToSendFn (Server.TLS.send backend))
       (Server.TLS.recv         backend)
       (Server.TLS.mySockAddr   backend)
       (Server.TLS.peerSockAddr backend)
 
+-- | Convert a 'ByteString'-based send to a pointer-based 'SendFn'.
+-- Adds one memcpy per drain call (ring → fresh BS → underlying send),
+-- but the ring still eliminates the builder→ByteString copy on the
+-- encode side.
+bsToSendFn :: (Strict.ByteString -> IO ()) -> SendFn
+bsToSendFn sendAll ptr len = do
+  bs <- BSI.create len (\dst -> copyBytes dst ptr len)
+  sendAll bs
+  pure len
+
 -- | Internal generalization
 withConfig ::
      TimeManager
-  -> (Strict.ByteString -> IO ())
+  -> SendFn
   -> Recv.Recv
   -> SockAddr
   -> SockAddr
   -> (Server.Config -> IO a)
   -> IO a
-withConfig mgr send recv mysa peersa k =
-    bracket (mallocBytes writeBufferSize) free $ \buf -> do
-      recvN <- Recv.makeRecvN mempty recv
-      k Server.Config {
-          confWriteBuffer       = buf
-        , confBufferSize        = writeBufferSize
-        , confSendAll           = send
-        , confReadN             = recvN
-        , confPositionReadMaker = Server.defaultPositionReadMaker
-        , confTimeoutManager    = mgr
-        , confMySockAddr        = mysa
-        , confPeerSockAddr      = peersa
-        }
-  where
-    -- This is the default value for @settingsSendBufferSize@ in @http2-tls@
-    -- and the default value given in the documentation in @http2@.
-    writeBufferSize :: BufferSize
-    writeBufferSize = 4096
+withConfig mgr sendFn recv mysa peersa k = do
+    recvN <- Recv.makeRecvN mempty recv
+    k Server.Config {
+        confSendFn            = sendFn
+      , confReadN             = recvN
+      , confPositionReadMaker = Server.defaultPositionReadMaker
+      , confTimeoutManager    = mgr
+      , confMySockAddr        = mysa
+      , confPeerSockAddr      = peersa
+      }
 
 {-------------------------------------------------------------------------------
   Settings

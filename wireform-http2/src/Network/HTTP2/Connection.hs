@@ -1,15 +1,14 @@
 module Network.HTTP2.Connection
   ( Connection (..)
-  , SendBuffer (..)
   , ConnectionConfig (..)
   , ConnectionRole (..)
   , ConnectionError (..)
   , newConnection
   , newConnectionFromTransport
   , sendFrame
-  , sendFrameZeroCopy
+  , sendFrameUnlocked
   , sendFrames
-  , sendFramesZeroCopy
+  , sendFramesUnlocked
   , sendHeaderBlock
   , recvFrame
   , recvFrameRaw
@@ -28,15 +27,14 @@ import Control.Exception (Exception, catch, SomeException)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
 import Data.IORef
 import Data.Word
-import Foreign.ForeignPtr
-import Foreign.Ptr
 import Network.Socket (Socket)
 
 import qualified Wireform.Transport as WT
+import Wireform.Transport.Send (SendTransport, sendByteString, sendByteStringMany, sendClose)
 import Wireform.Network (newReceiveBufTransport)
+import Wireform.Network.Transport.Send (newSendBufTransport)
 import qualified Wireform.Transport.Config as WC
 import Wireform.Transport.Config (defaultTransportConfig)
 
@@ -44,7 +42,6 @@ import Network.HTTP2.Connection.FlowControl
 import Network.HTTP2.Connection.Settings
 import Network.HTTP2.Connection.StreamTable
 import Network.HTTP2.Frame
-import Network.HTTP2.Frame.Encode (encodeFrameInto)
 import qualified Network.HTTP2.Frame.StreamingReader as SR
 import Network.HTTP2.HPACK
 import Network.HTTP2.Transport
@@ -76,21 +73,6 @@ data ConnectionError = ConnectionError
 
 instance Exception ConnectionError
 
--- | Pre-allocated pinned buffer for zero-copy frame sends.
--- Frames are encoded directly into this buffer, then sent with a single write.
-data SendBuffer = SendBuffer
-  { sbBuffer :: !(ForeignPtr Word8)
-  , sbCapacity :: !Int
-  }
-
-sendBufferSize :: Int
-sendBufferSize = 65536
-
-newSendBuffer :: IO SendBuffer
-newSendBuffer = do
-  fp <- BSI.mallocByteString sendBufferSize
-  pure SendBuffer { sbBuffer = fp, sbCapacity = sendBufferSize }
-
 data Connection = Connection
   { connRole :: !ConnectionRole
   , connTransport :: !Transport
@@ -115,10 +97,13 @@ data Connection = Connection
     -- ^ Position past the last byte consumed by 'recvFrame' /
     -- 'recvFrameRaw'.  Chained through the StreamingReader so we
     -- don't pay a 'receiveLoadHead' round-trip per frame.
+  , connSendTransport :: !SendTransport
+    -- ^ Magic-ring send transport built from @tSendFn connTransport@.
+    -- All frame data flows through the ring and is drained to the
+    -- wire via the inline send loop in the ring.
   , connLastStreamId :: !(IORef StreamId)
   , connClosed :: !(IORef Bool)
   , connOnGoAway :: StreamId -> ErrorCode -> ByteString -> IO ()
-  , connSendBuffer :: !SendBuffer
   }
 
 -- | Build a 'Connection' from either a 'Socket' (the common case) or an
@@ -160,17 +145,12 @@ mkConnection role settings onGoAway transport mSock = do
   encoder <- newDynamicTable 4096 >>= newMVar
   decoder <- newDynamicTable 4096 >>= newMVar
   sendLock <- newMVar ()
-  -- 1 MiB ring: comfortably bigger than the largest single frame
-  -- HTTP/2 can deliver (SETTINGS_MAX_FRAME_SIZE caps at 16 MiB but
-  -- practical deployments stay well under 1 MiB; e.g. nghttp2's
-  -- default is 16 KiB).  The mmap is virtual address space — actual
-  -- pages are only faulted in for bytes the recv path touches.
   let !ringCfg = defaultTransportConfig { WC.ringSizeHint = 1024 * 1024 }
   ringT <- newReceiveBufTransport ringCfg (tRecvBuf transport)
   ringCursor <- newIORef 0
+  sendT <- newSendBufTransport ringCfg (tSendFn transport) (tShutdownWrite transport)
   lastStreamId <- newIORef 0
   closed <- newIORef False
-  sendBuf <- newSendBuffer
   pure Connection
     { connRole = role
     , connTransport = transport
@@ -185,10 +165,10 @@ mkConnection role settings onGoAway transport mSock = do
     , connSendLock = sendLock
     , connRingTransport = ringT
     , connRingCursor = ringCursor
+    , connSendTransport = sendT
     , connLastStreamId = lastStreamId
     , connClosed = closed
     , connOnGoAway = onGoAway
-    , connSendBuffer = sendBuf
     }
 
 -- | Send a frame. Encodes and sends in one operation.
@@ -197,7 +177,7 @@ sendFrame :: Connection -> Frame -> IO ()
 sendFrame conn frame = do
   let bs = encodeFrame frame
   withMVar (connSendLock conn) $ \_ ->
-    tSendAll (connTransport conn) bs
+    sendByteString (connSendTransport conn) bs
 
 -- | Send a frame without acquiring the send lock.
 --
@@ -206,14 +186,15 @@ sendFrame conn frame = do
 -- Production code should use 'sendFrame'.
 {-# INLINE sendFrameUnlocked #-}
 sendFrameUnlocked :: Connection -> Frame -> IO ()
-sendFrameUnlocked conn frame = tSendAll (connTransport conn) (encodeFrame frame)
+sendFrameUnlocked conn frame =
+  sendByteString (connSendTransport conn) (encodeFrame frame)
 
 -- | Send multiple frames in a single write (reduces syscall overhead).
 sendFrames :: Connection -> [Frame] -> IO ()
 sendFrames conn frames = do
   let bss = map encodeFrame frames
   withMVar (connSendLock conn) $ \_ ->
-    tSendMany (connTransport conn) bss
+    sendByteStringMany (connSendTransport conn) bss
 
 -- | Emit an encoded HPACK header block as a HEADERS frame followed
 -- by zero or more CONTINUATION frames, splitting at the peer's
@@ -269,44 +250,13 @@ sendHeaderBlock conn sid endStream extraFlags block maxFrame = do
                 (ContinuationFrame chunk)
           in f : contFrames rest
 
--- | Send multiple frames without the send lock. Combines into one writev.
+-- | Send multiple frames without the send lock. Combines into one write.
 --
 -- __Unsafe__: see 'sendFrameUnlocked'.
 {-# INLINE sendFramesUnlocked #-}
 sendFramesUnlocked :: Connection -> [Frame] -> IO ()
 sendFramesUnlocked conn frames =
-  tSendMany (connTransport conn) (map encodeFrame frames)
-
--- | Zero-copy send: encode a frame directly into the connection's pinned
--- send buffer, then send from that buffer. Avoids per-frame allocation.
--- Acquires the send lock so this is safe for concurrent use.
-{-# INLINE sendFrameZeroCopy #-}
-sendFrameZeroCopy :: Connection -> Frame -> IO ()
-sendFrameZeroCopy conn frame = do
-  let SendBuffer fp _cap = connSendBuffer conn
-  withMVar (connSendLock conn) $ \_ ->
-    withForeignPtr fp $ \ptr -> do
-      written <- encodeFrameInto frame ptr
-      let bs = BSI.fromForeignPtr fp 0 written
-      tSendAll (connTransport conn) bs
-
--- | Zero-copy batch send: encode multiple frames into the send buffer
--- contiguously, then send the whole buffer in one syscall.
--- Acquires the send lock so this is safe for concurrent use.
-{-# INLINE sendFramesZeroCopy #-}
-sendFramesZeroCopy :: Connection -> [Frame] -> IO ()
-sendFramesZeroCopy conn frames = do
-  let SendBuffer fp _cap = connSendBuffer conn
-  withMVar (connSendLock conn) $ \_ ->
-    withForeignPtr fp $ \basePtr -> do
-      totalWritten <- writeFrames basePtr 0 frames
-      let bs = BSI.fromForeignPtr fp 0 totalWritten
-      tSendAll (connTransport conn) bs
-  where
-    writeFrames _ offset [] = pure offset
-    writeFrames ptr offset (f:fs) = do
-      written <- encodeFrameInto f (ptr `plusPtr` offset)
-      writeFrames ptr (offset + written) fs
+  sendByteStringMany (connSendTransport conn) (map encodeFrame frames)
 
 -- | Receive a typed frame off the wire.  Walks the magic ring via
 -- 'Network.HTTP2.Frame.StreamingReader.readFrameFrom' (single
@@ -356,7 +306,10 @@ closeConnection conn code msg = do
             (GoAwayFrame lastId code msg)
       sendFrame conn goaway
         `catch` (\(_ :: SomeException) -> pure ())
-      -- Tear down the magic ring (frees its mmap).  Any frame
+      -- Tear down the send ring (flushes remaining bytes + unmaps).
+      sendClose (connSendTransport conn)
+        `catch` (\(_ :: SomeException) -> pure ())
+      -- Tear down the receive ring (frees its mmap).  Any frame
       -- payload slices the caller still holds become dangling
       -- pointers; they should have been 'BS.copy'd inside the
       -- per-frame handler.

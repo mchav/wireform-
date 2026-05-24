@@ -32,8 +32,10 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Word (Word32)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (plusPtr)
+import Foreign.Ptr (castPtr, plusPtr)
 import qualified Network.HTTP.Types as HTTP
+
+import qualified Data.ByteString.Unsafe as BSU
 
 import Network.HTTP2.Connection (Connection, closeConnection,
   connHpackDecoder, connHpackEncoder, newConnectionFromTransport,
@@ -42,7 +44,7 @@ import qualified Network.HTTP2.Connection as Conn
 import Network.HTTP2.Connection.Settings (encodeSettings)
 import Network.HTTP2.Frame
 import Network.HTTP2.HPACK
-import Network.HTTP2.Transport (Transport (..))
+import Network.HTTP2.Transport (Transport (..), SendFn)
 import Network.HTTP2.Types (FrameType (..))
 import qualified Network.HTTP2.Types as H2
 import qualified Network.HTTP2.Types as Wire
@@ -52,7 +54,7 @@ import Network.HTTP2.Engine.Types
 -- | Connection-scoped configuration for the client engine.
 data RunEnv = RunEnv
   { envAuthority :: !Authority
-  , envSendAll :: !(ByteString -> IO ())
+  , envSendFn :: !SendFn
   , envReadN :: !(Int -> IO ByteString)
   , envConnectionWindow :: !Int
   , envInitialWindowSize :: !Int
@@ -83,7 +85,7 @@ runClient env client = do
             wireSettings
             (\_ _ _ -> pure ())
             transport
-  envSendAll env connectionPreface
+  sendAllRaw (envSendFn env) connectionPreface
   sendClientPrefaceSettings conn wireSettings
   streamsRef <- newIORef Map.empty
   nextSidRef <- newIORef 1
@@ -102,8 +104,7 @@ runClient env client = do
 engineTransport :: RunEnv -> Transport
 engineTransport env =
   Transport
-    { tSendAll = envSendAll env
-    , tSendMany = \bss -> envSendAll env (BS.concat bss)
+    { tSendFn = envSendFn env
     , tRecvBuf = \ptr n -> do
         bs <- envReadN env n
         if BS.null bs
@@ -113,8 +114,21 @@ engineTransport env =
             withForeignPtr fp $ \src ->
               BSI.memcpy ptr (src `plusPtr` off) len
             pure len
+    , tShutdownWrite = pure ()
     , tClose = pure ()
     }
+
+sendAllRaw :: SendFn -> ByteString -> IO ()
+sendAllRaw sf bs
+  | BS.null bs = pure ()
+  | otherwise = BSU.unsafeUseAsCStringLen bs $ \(src, len) ->
+      drainLoop (castPtr src) len
+  where
+    drainLoop _ 0 = pure ()
+    drainLoop p n = do
+      k <- sf p n
+      if k <= 0 then ioError (userError "sendAllRaw: send returned 0")
+      else drainLoop (p `plusPtr` k) (n - k)
 
 sendClientPrefaceSettings :: Connection -> H2.Settings -> IO ()
 sendClientPrefaceSettings conn s = do
