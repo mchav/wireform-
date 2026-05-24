@@ -183,28 +183,14 @@ readHeaderBlockFrom t startPos cap = do
       mIdx <- findCRLFCRLF base msk startPos scanFrom avail
       case mIdx of
         Just idx
-          -- Found the CRLFCRLF terminator. The header block size is
-          -- @idx@; if /that/ exceeds the cap it's a genuine 431.
-          -- We deliberately compare against @idx@ rather than
-          -- @avail@: the ring may legitimately contain body bytes
-          -- pulled in the same recv() as the headers (the kernel
-          -- hands us whatever it has), and the spec's "header
-          -- block too long" bound is about the header block, not
-          -- about how many bytes happened to be buffered when we
-          -- noticed the terminator.
           | idx > cap -> pure (Left (ReadMessageTooLong cap))
           | otherwise -> do
-              -- @idx@ is the offset (from startPos) of the first
-              -- CR of the terminator.  Block is [startPos, startPos+idx).
               let !blockLen   = idx
                   !block      = ringSlice ring startPos blockLen
                   !nextPos    = startPos + fromIntegral (blockLen + 4)
               receiveAdvanceTail t nextPos
               pure (Right (block, nextPos))
         Nothing
-          -- No terminator yet. If we've already buffered more than
-          -- the cap without finding one, the head is either
-          -- genuinely too long or malformed.
           | avail > cap -> pure (Left (ReadMessageTooLong cap))
           | otherwise -> do
               -- Need more bytes; suspend on the IO manager.  On
