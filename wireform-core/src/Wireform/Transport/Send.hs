@@ -334,10 +334,13 @@ defaultDirectChunk = 32768
 -- SQE submission).  On scope exit, a single 'sendPublishHead' covers
 -- everything written.
 --
--- If the ring fills during the corked scope, the cork falls back to
--- a real publish so the consumer can drain and make room — the cork
--- is best-effort, not absolute.  For typical HTTP headers + body
--- (< ringSize), this produces exactly one publish.
+-- The cork is demand-driven: 'sendPublishHead' is a no-op inside the
+-- scope, and the cork only breaks when 'sendWaitSpace' detects the
+-- ring is genuinely full and needs a drain to continue.  This means
+-- the cork batches as much as the ring can hold — for typical HTTP
+-- responses (headers + body < ringSize) that is one publish total.
+-- For payloads larger than ringSize, publishes happen only when
+-- strictly necessary to free ring space.
 --
 -- @
 -- withSendCork transport $ \corked -> do
@@ -350,20 +353,26 @@ withSendCork t action = do
   h0 <- sendLoadHead t
   headRef <- newIORef h0
   publishedRef <- newIORef h0
-  let corkedPublish h = do
-        writeIORef headRef h
-        tl <- sendLoadTail t
-        let !cap = fromIntegral (sendRingSize t) :: Word64
-        -- If the ring is > 3/4 full, force a real publish so the
-        -- consumer can drain and ensureRoom doesn't spin.
-        when (h - tl > cap - (cap `div` 4)) $ do
-          pub <- readIORef publishedRef
-          when (h > pub) $ do
-            sendPublishHead t h
-            writeIORef publishedRef h
+  let corkedPublish h = writeIORef headRef h
+      corkedWaitSpace pos = do
+        r <- sendWaitSpace t pos
+        case r of
+          SendSpaceAvailable tl
+            | pos - tl <= fromIntegral (sendRingSize t) -> pure r
+            | otherwise -> do
+                -- Ring full — publish accumulated bytes to trigger
+                -- drain, then retry.
+                cur <- readIORef headRef
+                pub <- readIORef publishedRef
+                when (cur > pub) $ do
+                  sendPublishHead t cur
+                  writeIORef publishedRef cur
+                sendWaitSpace t pos
+          _ -> pure r
   let corked = t
         { sendPublishHead = corkedPublish
         , sendLoadHead    = readIORef headRef
+        , sendWaitSpace   = corkedWaitSpace
         }
   result <- action corked
   finalHead <- readIORef headRef
