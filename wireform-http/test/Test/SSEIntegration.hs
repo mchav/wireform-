@@ -25,7 +25,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import Data.IORef
-import Control.Monad (forM_)
+import Control.Monad (forM, forM_, replicateM_)
 import qualified Network.Socket as NS
 
 import Test.Tasty
@@ -47,7 +47,117 @@ tests = testGroup "SSE end-to-end (HTTP/1.1)"
   , heartbeatsAndEvents
   , manyEventsOnOneConnection
   , largeDataPayload
+  , veryLongStream
+  , mixedSizeEvents
+  , concurrentClients
+  , earlyCancellation
   ]
+
+-- ---------------------------------------------------------------------------
+-- Stress tests
+-- ---------------------------------------------------------------------------
+
+-- | Push 10,000 events on a single connection. Catches O(n²)
+-- behaviour in the per-event encoder \/ decoder, slow ring
+-- starvation, and any leak in the streamed-transport worker that
+-- only shows up over a long stream.
+veryLongStream :: TestTree
+veryLongStream = testCase "10,000 events on one connection" $ do
+  let n   = 10000
+      evs = map mkEvent [0 .. n - 1]
+      mkEvent i = defaultSseEvent
+        { sseEventId = Just (BS8.pack (show i))
+        , sseData    = BS8.pack ("payload-" <> show i)
+        }
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    length got @?= n
+    -- Don't @?= the full list (the assertion failure would be
+    -- unreadable); spot-check the boundaries instead, which
+    -- catches drift / off-by-one / id-reordering.
+    head got        @?= head evs
+    last got        @?= last evs
+    (got !! 4096)   @?= (evs !! 4096)
+    (got !! 8192)   @?= (evs !! 8192)
+
+-- | Three event sizes interleaved (10 B, 500 B, 10 KiB) to
+-- exercise the chunked-decoder's per-call 16 KiB read boundary
+-- and the SSE parser's @data:@ line accumulator across very
+-- different chunk lengths.
+mixedSizeEvents :: TestTree
+mixedSizeEvents = testCase "mixed-size events round-trip in order" $ do
+  let evs = concatMap one [0 .. 19 :: Int]
+      one i =
+        [ defaultSseEvent { sseData = "s" <> BS8.pack (show i) }
+        , defaultSseEvent { sseData = BS.replicate 500   0x41 <> BS8.pack (show i) }
+        , defaultSseEvent { sseData = BS.replicate 10000 0x42 <> BS8.pack (show i) }
+        ]
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    got @?= evs
+
+-- | Five clients dialing the same handler in parallel; each one
+-- should receive the full event sequence in order. The handler
+-- builds a fresh 'SseChannel' + producer for every request, so
+-- nothing is shared across clients; this is a check that the
+-- streamed-transport worker, the HTTP\/1.x server, and the SSE
+-- parser don't have any cross-connection state pollution.
+concurrentClients :: TestTree
+concurrentClients = testCase "5 concurrent SSE clients each receive the full stream" $ do
+  let perClient   = 200
+      numClients  = 5 :: Int
+      evs         = map (\i -> defaultSseEvent
+                                  { sseData = BS8.pack ("e" <> show i) })
+                        [0 .. perClient - 1]
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    slots <- mapM (\_ -> newEmptyMVar) [1 .. numClients]
+    forM_ slots $ \mv -> forkIO $ do
+      received <- newIORef ([] :: [ServerSentEvent])
+      let req       = get (compileURL port "/events")
+          transport = streamedTransport http1Only
+      withSSE transport req $ \nextEvent ->
+        drainEvents nextEvent received
+      got <- reverse <$> readIORef received
+      putMVar mv got
+    results <- mapM takeMVar slots
+    forM_ (zip [0 :: Int ..] results) $ \(i, got) -> do
+      assertEqual ("client " <> show i <> " event count")
+        perClient (length got)
+      assertEqual ("client " <> show i <> " full sequence")
+        evs got
+
+-- | The 'withSSE' callback returns after reading just a handful of
+-- events. The streamedTransport's worker should observe that EOF
+-- propagates back through the popper (because we cancelled the
+-- response on our way out) and exit cleanly — no hang, no leak.
+-- The test passes if it terminates with the correct partial count.
+earlyCancellation :: TestTree
+earlyCancellation = testCase "early return from withSSE doesn't hang" $ do
+  let evs = map (\i -> defaultSseEvent
+                          { sseData = BS8.pack ("e" <> show i) })
+                [0 .. 999 :: Int]
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      replicateM_ 5 $ do
+        mev <- nextEvent
+        case mev of
+          Just ev -> modifyIORef' received (ev :)
+          Nothing -> pure ()
+    got <- reverse <$> readIORef received
+    length got @?= 5
 
 -- | Additional regression: a single event whose data payload is large.
 -- Exercises the 'Wireform.Builder' accumulator in 'spDataBuf' across
