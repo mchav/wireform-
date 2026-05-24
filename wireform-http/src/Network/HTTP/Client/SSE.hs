@@ -65,6 +65,8 @@ module Network.HTTP.Client.SSE
     -- * Server-side encoder
   , renderSseFrame
   , renderServerSentEvent
+  , buildSseFrame
+  , buildServerSentEvent
   , defaultSseEvent
     -- * Content-type tag
   , EventStream
@@ -75,10 +77,12 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import Data.IORef
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (mapMaybe)
+
+import qualified Wireform.Builder as WB
+import Wireform.Builder (Builder)
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
@@ -159,9 +163,12 @@ data SseParser = SseParser
     --   fold the pair into one terminator (CRLF). This is the
     --   only piece of state that crosses chunk boundaries.
   , spEventType    :: !(Maybe ByteString)
-  , spDataChunks   :: ![ByteString]
-    -- ^ Accumulated @data:@ values in /reverse/ order. Each entry
-    --   is @value <> \"\\n\"@. We concat-and-strip at dispatch.
+  , spDataBuf      :: !Builder
+    -- ^ Accumulated @data:@ values. Each appended chunk is
+    --   @value <> \"\\n\"@. We materialise once at dispatch via
+    --   'WB.toStrictByteString', which is O(total bytes) — using
+    --   'Wireform.Builder' here keeps repeated @data:@ lines in
+    --   one event from going quadratic the way @BS.append@ would.
   , spDataNonEmpty :: !Bool
     -- ^ Whether any @data:@ field at all was seen. The spec
     --   suppresses dispatch if the data buffer is empty; we track
@@ -180,7 +187,7 @@ newSseParser = SseParser
   { spCarry        = BS.empty
   , spJustSawCR    = False
   , spEventType    = Nothing
-  , spDataChunks   = []
+  , spDataBuf      = mempty
   , spDataNonEmpty = False
   , spLastEventId  = Nothing
   , spBomChecked   = False
@@ -379,10 +386,10 @@ instance Decode EventStream [SseFrame] where
   decode = Right . parseEventStream
 
 instance Encode EventStream [ServerSentEvent] where
-  encode = BS.concat . map renderServerSentEvent
+  encode = WB.toStrictByteString . foldMap buildServerSentEvent
 
 instance Encode EventStream [SseFrame] where
-  encode = BS.concat . map renderSseFrame
+  encode = WB.toStrictByteString . foldMap buildSseFrame
 
 -- ---------------------------------------------------------------------------
 -- Server-side rendering
@@ -404,30 +411,47 @@ defaultSseEvent = ServerSentEvent
 -- naive render would produce two events at the consumer);
 -- this function does /not/ check.
 renderServerSentEvent :: ServerSentEvent -> ByteString
-renderServerSentEvent ev =
-  BS.concat (catMaybes parts) <> "\n"
-  where
-    parts =
-      [ fmap (\t -> "event: " <> t <> "\n") (sseEventType ev)
-      , fmap (\i -> "id: "    <> i <> "\n") (sseEventId ev)
-      , Just (renderDataPayload (sseData ev))
-      ]
+renderServerSentEvent = WB.toStrictByteString . buildServerSentEvent
 
 -- | Render any single frame. 'SseDispatch' delegates to
 -- 'renderServerSentEvent'; 'SseRetry' becomes a single @retry:@
 -- line followed by the trailing blank; 'SseComment' becomes a
 -- @:@-prefixed line followed by the trailing blank.
 renderSseFrame :: SseFrame -> ByteString
-renderSseFrame (SseDispatch ev) = renderServerSentEvent ev
-renderSseFrame (SseRetry n)     = "retry: " <> BS8.pack (show n) <> "\n\n"
-renderSseFrame (SseComment c)   = ":" <> c <> "\n\n"
+renderSseFrame = WB.toStrictByteString . buildSseFrame
 
-renderDataPayload :: ByteString -> ByteString
-renderDataPayload d
-  | BS.null d = BS.empty
-  | otherwise = BS.concat (map oneLine (BS.split 0x0A d))
+-- | 'Wireform.Builder' versions of the renderers. The byte-returning
+-- 'renderServerSentEvent' \/ 'renderSseFrame' just materialise these,
+-- but composing many frames stays O(n) when callers stay in
+-- @Builder@-land and only collapse with 'WB.toStrictByteString' (or
+-- 'WB.hPutBuilder') once at the end.
+buildServerSentEvent :: ServerSentEvent -> Builder
+buildServerSentEvent ev =
+  optField "event: " (sseEventType ev)
+    <> optField "id: "    (sseEventId   ev)
+    <> buildDataPayload (sseData ev)
+    <> WB.word8 0x0A
   where
-    oneLine l = "data: " <> l <> "\n"
+    optField _    Nothing  = mempty
+    optField name (Just v) = WB.byteString name <> WB.byteString v <> WB.word8 0x0A
+
+buildSseFrame :: SseFrame -> Builder
+buildSseFrame (SseDispatch ev) = buildServerSentEvent ev
+buildSseFrame (SseRetry n)     =
+  WB.byteString "retry: " <> WB.intDec n <> WB.byteString "\n\n"
+buildSseFrame (SseComment c)   =
+  WB.word8 0x3A <> WB.byteString c <> WB.byteString "\n\n"
+
+-- | One @data: <line>\\n@ per LF-separated chunk in @d@. We split
+-- /once/ here and feed the resulting slices straight into the
+-- builder; each slice is O(1) (strict ByteString slices share the
+-- underlying ForeignPtr), so no per-line copy happens.
+buildDataPayload :: ByteString -> Builder
+buildDataPayload d
+  | BS.null d = mempty
+  | otherwise = foldMap oneLine (BS.split 0x0A d)
+  where
+    oneLine l = WB.byteString "data: " <> WB.byteString l <> WB.word8 0x0A
 
 -- ---------------------------------------------------------------------------
 -- Internal: BOM handling
@@ -562,7 +586,7 @@ applyField p name value = case name of
     let v = if BS.null value then Nothing else Just value
     in (p { spEventType = v }, [])
   "data" ->
-    ( p { spDataChunks   = (value <> "\n") : spDataChunks p
+    ( p { spDataBuf      = spDataBuf p <> WB.byteString value <> WB.word8 0x0A
         , spDataNonEmpty = True
         }
     , []
@@ -583,13 +607,13 @@ dispatch p
   -- event /and/ clear the event-type buffer, but preserve
   -- lastEventId.
   | not (spDataNonEmpty p) =
-      ( p { spEventType   = Nothing
-          , spDataChunks  = []
+      ( p { spEventType = Nothing
+          , spDataBuf   = mempty
           }
       , []
       )
   | otherwise =
-      let raw      = BS.concat (reverse (spDataChunks p))
+      let raw      = WB.toStrictByteString (spDataBuf p)
           payload  = stripTrailingLF raw
           ev       = ServerSentEvent
             { sseEventType = spEventType p
@@ -598,7 +622,7 @@ dispatch p
             }
           p'       = p
             { spEventType    = Nothing
-            , spDataChunks   = []
+            , spDataBuf      = mempty
             , spDataNonEmpty = False
             }
       in (p', [SseDispatch ev])
