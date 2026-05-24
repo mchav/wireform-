@@ -56,6 +56,8 @@ module Network.HTTP.Client
   , module Network.HTTP.Client.Compression
     -- * Send
   , module Network.HTTP.Client.Send
+    -- * Server-Sent Events
+  , module Network.HTTP.Client.SSE
     -- * Cookies
   , module Network.HTTP.Client.Cookies
     -- * Client wiring
@@ -100,6 +102,7 @@ import Network.HTTP.Client.Protocol
 import Network.HTTP.Client.Request
 import Network.HTTP.Client.Response
 import Network.HTTP.Client.Send
+import Network.HTTP.Client.SSE
 import Network.HTTP.Client.Streaming
 import Network.HTTP.Client.TLS
 import Network.HTTP.Client.Test

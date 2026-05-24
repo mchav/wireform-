@@ -38,6 +38,7 @@ tests = testGroup "HTTP/1.x edge cases"
   , streamingLargeBody
   , binaryBodyContent
   , requestWithQueryString
+  , oversizedHeaderBlockRejected
   ]
 
 ------------------------------------------------------------------------
@@ -201,6 +202,26 @@ requestWithQueryString = testCase "request target with query string preserved" $
     body @?= "/path?key=value&foo=bar"
   where
     echoTarget req = pure (resp S.status200 (requestTarget req))
+
+-- | Companion to 'largeBodyRoundTrip'. The header-block cap fix in
+-- 'Network.HTTP1.StreamingReader.readHeaderBlockFrom' was about
+-- not /spuriously/ tripping when the body inflates the ring; this
+-- test confirms the cap still triggers for a header block that is
+-- genuinely too large. The default cap is 32 KiB; a single
+-- header value at ~100 KiB sails well past it and the server must
+-- answer 431 (and close).
+oversizedHeaderBlockRejected :: TestTree
+oversizedHeaderBlockRejected =
+  testCase "request with a 100 KiB header value gets 431" $
+    withTestServer http1Only (\_ -> pure (resp S.status200 "")) $ \port -> do
+      let bigHdr = (CI.mk "X-Huge", BS.replicate (100 * 1024) (asciiByte 'A'))
+      status <- runClient http1Only port $ \c -> do
+        r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [bigHdr])
+        _ <- drainBody (responseBody r)
+        pure (responseStatus r)
+      status @?= S.status431
+  where
+    asciiByte = fromIntegral . fromEnum
 
 ------------------------------------------------------------------------
 -- Plumbing (shared with other integration modules)

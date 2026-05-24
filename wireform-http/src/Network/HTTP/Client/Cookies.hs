@@ -46,7 +46,7 @@ import qualified Data.Text.Encoding.Error as TE
 import qualified Data.Text.Short as ST
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, getCurrentTime)
 
-import FlatParse.Basic (Result (..), runParser)
+import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 import qualified Wireform.Builder as WB
 
 import qualified Network.HTTP.Headers.Cookie as Hermes

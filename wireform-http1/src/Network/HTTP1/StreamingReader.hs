@@ -180,12 +180,20 @@ readHeaderBlockFrom t startPos cap = do
     loop !ring !base !msk !scanFrom = do
       h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
-      if avail > cap
-        then pure (Left (ReadMessageTooLong cap))
-        else do
-          mIdx <- findCRLFCRLF base msk startPos scanFrom avail
-          case mIdx of
-            Just idx -> do
+      mIdx <- findCRLFCRLF base msk startPos scanFrom avail
+      case mIdx of
+        Just idx
+          -- Found the CRLFCRLF terminator. The header block size is
+          -- @idx@; if /that/ exceeds the cap it's a genuine 431.
+          -- We deliberately compare against @idx@ rather than
+          -- @avail@: the ring may legitimately contain body bytes
+          -- pulled in the same recv() as the headers (the kernel
+          -- hands us whatever it has), and the spec's "header
+          -- block too long" bound is about the header block, not
+          -- about how many bytes happened to be buffered when we
+          -- noticed the terminator.
+          | idx > cap -> pure (Left (ReadMessageTooLong cap))
+          | otherwise -> do
               -- @idx@ is the offset (from startPos) of the first
               -- CR of the terminator.  Block is [startPos, startPos+idx).
               let !blockLen   = idx
@@ -193,7 +201,12 @@ readHeaderBlockFrom t startPos cap = do
                   !nextPos    = startPos + fromIntegral (blockLen + 4)
               receiveAdvanceTail t nextPos
               pure (Right (block, nextPos))
-            Nothing -> do
+        Nothing
+          -- No terminator yet. If we've already buffered more than
+          -- the cap without finding one, the head is either
+          -- genuinely too long or malformed.
+          | avail > cap -> pure (Left (ReadMessageTooLong cap))
+          | otherwise -> do
               -- Need more bytes; suspend on the IO manager.  On
               -- the next iteration resume scanning from a small
               -- backstep so a CRLFCR straddling the previous
@@ -409,12 +422,19 @@ readChunkSizeLineFrom t startPos = do
     loop !ring !base !msk !scanFrom = do
       h <- receiveLoadHead t
       let !avail = fromIntegral (h - startPos) :: Int
-      if avail > defaultChunkLineCap
-        then pure (Left (ReadMessageTooLong defaultChunkLineCap))
-        else do
-          mIdx <- findCRLF base msk startPos scanFrom avail
-          case mIdx of
-            Just idx -> do
+      mIdx <- findCRLF base msk startPos scanFrom avail
+      case mIdx of
+        Just idx
+          -- Found the CRLF. The chunk-size line itself is @idx@
+          -- bytes long; that's what the cap is meant to bound,
+          -- not how much was happening to be buffered in the
+          -- ring when we noticed it. (On a fast streaming
+          -- response the ring routinely contains many full
+          -- chunked-transfer chunks beyond the size line we're
+          -- about to read.)
+          | idx > defaultChunkLineCap ->
+              pure (Left (ReadMessageTooLong defaultChunkLineCap))
+          | otherwise -> do
               let !lineLen = idx
                   !line    = ringSlice ring startPos lineLen
                   !nextPos = startPos + fromIntegral (lineLen + 2)
@@ -422,7 +442,13 @@ readChunkSizeLineFrom t startPos = do
               pure $ case Classic.parseChunkSize line of
                 Right n -> Right (n, nextPos)
                 Left e  -> Left (ReadParse e)
-            Nothing -> do
+        Nothing
+          -- No CRLF yet. If we've already buffered more than the
+          -- cap without finding one, the size line is either
+          -- genuinely too long or malformed.
+          | avail > defaultChunkLineCap ->
+              pure (Left (ReadMessageTooLong defaultChunkLineCap))
+          | otherwise -> do
               let !nextScan = max 0 (avail - 1)
               r <- receiveWaitData t h
               case r of

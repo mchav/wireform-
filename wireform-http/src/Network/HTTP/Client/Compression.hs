@@ -86,7 +86,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.List as List
 
-import FlatParse.Basic (Result (..), runParser)
+import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 import qualified Wireform.Builder as WB
 
 import qualified Network.HTTP.ContentCoding as Hermes
