@@ -1,8 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{- | Apples-to-apples benchmark: same WAI apps served over localhost
+TCP via wireform-http's HTTP\/1 server (through the WAI adapter) vs
+Warp, both hit by their respective HTTP\/1 clients.
+
+Both paths do real TCP: bind, accept, parse HTTP\/1, serialize
+response, read on the client side. The only variable is the
+server+client implementation.
+-}
 module Main (main) where
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar
+import Control.Exception (finally)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Char8 as BS8
@@ -21,42 +31,40 @@ import qualified "wireform-http" Network.HTTP.Types.Body as U
 import qualified "wireform-http" Network.HTTP.Types.Header as U
 import qualified "wireform-http" Network.HTTP.Types.Method as U
 import qualified "wireform-http" Network.HTTP.Types.Version as U
-
-import Network.HTTP.WAI
+import Network.HTTP.Connection
+  (ConnectionConfig(..), defaultConnectionConfig, withConnection, sendOn)
+import Network.HTTP.Server
+  (ServerConfig(..), defaultServerConfig, runServerOnListener)
+import Network.HTTP.VersionRange (http1Only)
+import Network.HTTP.WAI (waiToHandler)
 
 main :: IO ()
 main = do
   mgr <- HC.newManager HC.defaultManagerSettings
   defaultMain
-    [ bgroup "hello (GET, 5 B)"
-        [ bench "in-process" $ nfIO (inProcessGet helloApp)
-        , withWarp helloApp mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpGet mgr url)
+    [ bgroup "hello (GET → 5 B)"
+        [ wireformBench "wireform-http1" helloApp doWfGet
+        , warpBench mgr "warp" helloApp doWarpGet
         ]
     , bgroup "echo (POST 1 KiB)"
-        [ bench "in-process" $ nfIO (inProcessPost echoApp payload1k)
-        , withWarp echoApp mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpPost mgr url payload1k)
+        [ wireformBench "wireform-http1" echoApp (`doWfPost` payload1k)
+        , warpBench mgr "warp" echoApp (\m u -> doWarpPost m u payload1k)
         ]
-    , bgroup "echo (POST 64 KiB)"
-        [ bench "in-process" $ nfIO (inProcessPost echoApp payload64k)
-        , withWarp echoApp mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpPost mgr url payload64k)
+    , bgroup "echo (POST 4 KiB)"
+        [ wireformBench "wireform-http1" echoApp (`doWfPost` payload4k)
+        , warpBench mgr "warp" echoApp (\m u -> doWarpPost m u payload4k)
         ]
-    , bgroup "json-ish (GET, ~4 KiB)"
-        [ bench "in-process" $ nfIO (inProcessGet jsonApp)
-        , withWarp jsonApp mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpGet mgr url)
+    , bgroup "json-ish (GET → ~4 KiB)"
+        [ wireformBench "wireform-http1" jsonApp doWfGet
+        , warpBench mgr "warp" jsonApp doWarpGet
         ]
-    , bgroup "stream (GET, 16×4 KiB)"
-        [ bench "in-process" $ nfIO (inProcessGet (streamApp 16 4096))
-        , withWarp (streamApp 16 4096) mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpGet mgr url)
+    , bgroup "stream (GET → 4×1 KiB)"
+        [ wireformBench "wireform-http1" (streamApp 4 1024) doWfGet
+        , warpBench mgr "warp" (streamApp 4 1024) doWarpGet
         ]
-    , bgroup "headers (GET, 20 resp hdrs)"
-        [ bench "in-process" $ nfIO (inProcessGet headersApp)
-        , withWarp headersApp mgr $ \url ->
-            bench "warp+http-client" $ nfIO (warpGet mgr url)
+    , bgroup "headers (GET → 20 hdrs)"
+        [ wireformBench "wireform-http1" headersApp doWfGet
+        , warpBench mgr "warp" headersApp doWarpGet
         ]
     ]
 
@@ -67,8 +75,8 @@ main = do
 payload1k :: BS.ByteString
 payload1k = BS.replicate 1024 0x61
 
-payload64k :: BS.ByteString
-payload64k = BS.replicate (64 * 1024) 0x61
+payload4k :: BS.ByteString
+payload4k = BS.replicate 4096 0x61
 
 ------------------------------------------------------------------------
 -- WAI apps under test
@@ -122,89 +130,112 @@ headersApp _req respond =
     "ok"
 
 ------------------------------------------------------------------------
--- In-process via waiToHandler
+-- wireform-http1 server path (WAI app → waiToHandler → Server → TCP)
+-- wireform Connection client on the other end
 ------------------------------------------------------------------------
 
-inProcessGet :: Wai.Application -> IO BS.ByteString
-inProcessGet app = do
-  let handler = waiToHandler app
-  resp <- handler getReq
-  drainBody resp
+wireformBench :: String -> Wai.Application -> (String -> IO BS.ByteString) -> Benchmark
+wireformBench name app doReq =
+  envWithCleanup (startWireform app) (\_ -> pure ()) $ \port ->
+    bench name $ nfIO (doReq port)
 
-inProcessPost :: Wai.Application -> BS.ByteString -> IO BS.ByteString
-inProcessPost app payload = do
-  let handler = waiToHandler app
-  resp <- handler (postReq payload)
-  drainBody resp
-
-getReq :: U.Request
-getReq = U.Request
-  { U.requestMethod    = U.mGet
-  , U.requestTarget    = "/"
-  , U.requestAuthority = Just "localhost"
-  , U.requestScheme    = U.SchemeHttp
-  , U.requestHeaders   = [(U.hHost, "localhost")]
-  , U.requestBody      = U.BodyEmpty
-  , U.requestVersion   = U.HTTP1_1
-  , U.requestTrailers  = pure []
-  }
-
-postReq :: BS.ByteString -> U.Request
-postReq payload = U.Request
-  { U.requestMethod    = U.mPost
-  , U.requestTarget    = "/"
-  , U.requestAuthority = Just "localhost"
-  , U.requestScheme    = U.SchemeHttp
-  , U.requestHeaders   =
-      [ (U.hHost, "localhost")
-      , (U.hContentType, "application/octet-stream")
-      ]
-  , U.requestBody      = U.BodyBytes payload
-  , U.requestVersion   = U.HTTP1_1
-  , U.requestTrailers  = pure []
-  }
-
-drainBody :: U.Response -> IO BS.ByteString
-drainBody r = case U.responseBody r of
-  U.BodyEmpty      -> pure BS.empty
-  U.BodyBytes bs   -> pure bs
-  U.BodyStream src -> BS.concat <$> go src
-    where
-      go p = do
-        mc <- p
-        case mc of
-          Nothing -> pure []
-          Just c  -> (c :) <$> go p
-
-------------------------------------------------------------------------
--- Warp over TCP via http-client
-------------------------------------------------------------------------
-
-warpGet :: HC.Manager -> String -> IO BS.ByteString
-warpGet mgr url = do
-  req <- HC.parseRequest url
-  resp <- HC.httpLbs req mgr
-  pure $! LBS.toStrict (HC.responseBody resp)
-
-warpPost :: HC.Manager -> String -> BS.ByteString -> IO BS.ByteString
-warpPost mgr url payload = do
-  req0 <- HC.parseRequest url
-  let req = req0
-        { HC.method = "POST"
-        , HC.requestBody = HC.RequestBodyBS payload
-        , HC.requestHeaders = [("Content-Type", "application/octet-stream")]
+startWireform :: Wai.Application -> IO String
+startWireform app = do
+  readyVar <- newEmptyMVar
+  let hints = NS.defaultHints
+        { NS.addrFlags = [NS.AI_PASSIVE]
+        , NS.addrSocketType = NS.Stream
         }
-  resp <- HC.httpLbs req mgr
-  pure $! LBS.toStrict (HC.responseBody resp)
+  addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
+  case addrs of
+    [] -> error "no addr"
+    (addr:_) -> do
+      listenSock <- NS.openSocket addr
+      NS.setSocketOption listenSock NS.ReuseAddr 1
+      NS.bind listenSock (NS.addrAddress addr)
+      NS.listen listenSock 128
+      bound <- NS.getSocketName listenSock
+      let portStr = case bound of
+            NS.SockAddrInet p _ -> show (fromIntegral p :: Int)
+            _ -> "0"
+          handler = waiToHandler app
+          cfg = defaultServerConfig
+            { serverHost = "127.0.0.1"
+            , serverPort = portStr
+            , serverVersionRange = http1Only
+            , serverHandler = handler
+            }
+      _ <- forkIO $ do
+        putMVar readyVar ()
+        runServerOnListener cfg listenSock `finally` NS.close listenSock
+      takeMVar readyVar
+      pure portStr
+
+doWfGet :: String -> IO BS.ByteString
+doWfGet port = do
+  let cfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = port
+        , connectionVersionRange = http1Only
+        , connectionTls = Nothing
+        }
+  withConnection cfg $ \c -> do
+    r <- sendOn c U.Request
+      { U.requestMethod    = U.methodFromBytes "GET"
+      , U.requestTarget    = "/"
+      , U.requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
+      , U.requestScheme    = U.SchemeHttp
+      , U.requestHeaders   = [(U.hHost, BS8.pack ("127.0.0.1:" <> port))]
+      , U.requestBody      = U.BodyEmpty
+      , U.requestVersion   = U.HTTP1_1
+      , U.requestTrailers  = pure []
+      }
+    drainBody (U.responseBody r)
+
+doWfPost :: String -> BS.ByteString -> IO BS.ByteString
+doWfPost port payload = do
+  let cfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = port
+        , connectionVersionRange = http1Only
+        , connectionTls = Nothing
+        }
+  withConnection cfg $ \c -> do
+    r <- sendOn c U.Request
+      { U.requestMethod    = U.methodFromBytes "POST"
+      , U.requestTarget    = "/"
+      , U.requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
+      , U.requestScheme    = U.SchemeHttp
+      , U.requestHeaders   =
+          [ (U.hHost, BS8.pack ("127.0.0.1:" <> port))
+          , (U.hContentType, "application/octet-stream")
+          ]
+      , U.requestBody      = U.BodyBytes payload
+      , U.requestVersion   = U.HTTP1_1
+      , U.requestTrailers  = pure []
+      }
+    drainBody (U.responseBody r)
+
+drainBody :: U.Body -> IO BS.ByteString
+drainBody U.BodyEmpty = pure BS.empty
+drainBody (U.BodyBytes bs) = pure bs
+drainBody (U.BodyStream p) = BS.concat <$> go
+  where
+    go = do
+      mc <- p
+      case mc of
+        Nothing -> pure []
+        Just c  -> (c :) <$> go
 
 ------------------------------------------------------------------------
--- Warp lifecycle
+-- Warp server path (WAI app → Warp → TCP)
+-- http-client on the other end
 ------------------------------------------------------------------------
 
-withWarp :: Wai.Application -> HC.Manager -> (String -> Benchmark) -> Benchmark
-withWarp app _mgr mkBench =
+warpBench :: HC.Manager -> String -> Wai.Application -> (HC.Manager -> String -> IO BS.ByteString) -> Benchmark
+warpBench mgr name app doReq =
   envWithCleanup (startWarp app) (\_ -> pure ()) $ \url ->
-    mkBench url
+    bench name $ nfIO (doReq mgr url)
 
 startWarp :: Wai.Application -> IO String
 startWarp app = do
@@ -230,3 +261,20 @@ startWarp app = do
       _ <- forkIO $ Warp.runSettingsSocket settings sock app
       threadDelay 50000
       pure ("http://127.0.0.1:" <> show port)
+
+doWarpGet :: HC.Manager -> String -> IO BS.ByteString
+doWarpGet mgr url = do
+  req <- HC.parseRequest url
+  resp <- HC.httpLbs req mgr
+  pure $! LBS.toStrict (HC.responseBody resp)
+
+doWarpPost :: HC.Manager -> String -> BS.ByteString -> IO BS.ByteString
+doWarpPost mgr url payload = do
+  req0 <- HC.parseRequest url
+  let req = req0
+        { HC.method = "POST"
+        , HC.requestBody = HC.RequestBodyBS payload
+        , HC.requestHeaders = [("Content-Type", "application/octet-stream")]
+        }
+  resp <- HC.httpLbs req mgr
+  pure $! LBS.toStrict (HC.responseBody resp)

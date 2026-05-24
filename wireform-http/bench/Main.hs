@@ -52,6 +52,8 @@ helloHandler _ = pure Response
   , responseHeaders = []
   , responseBody    = BodyBytes "hello"
   , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
   }
 
 echoHandler :: Handler
@@ -63,6 +65,8 @@ echoHandler req = do
     , responseHeaders = []
     , responseBody    = BodyBytes body
     , responseTrailers = pure []
+    , responseH2StreamId = 0
+    , responseCancel = pure ()
     }
 
 streamHandler :: Int -> Handler
@@ -81,6 +85,8 @@ streamHandler nChunks _ = do
             writeIORef ref (remaining - 1)
             pure (Just chunk)
     , responseTrailers = pure []
+    , responseH2StreamId = 0
+    , responseCancel = pure ()
     }
 
 doGet :: VersionRange -> String -> V.Version -> IO BS.ByteString
