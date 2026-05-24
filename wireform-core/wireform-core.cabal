@@ -76,6 +76,7 @@ library
     -- Magic ring
     Wireform.Ring
     Wireform.Ring.Internal
+    Wireform.Ring.Pool
 
     -- Transport abstraction (symmetric send / receive)
     Wireform.Transport
