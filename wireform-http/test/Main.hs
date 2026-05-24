@@ -12,6 +12,7 @@ import qualified Test.Conditional
 import qualified Test.IDN
 import qualified Test.Negotiation
 import qualified Test.SSE
+import qualified Test.SSEIntegration
 import qualified Test.UrlDecode
 import qualified Test.VersionTypes
 import qualified Test.Client
@@ -27,6 +28,7 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.ConcurrencyStress.tests
   , Test.Client.tests
   , Test.SSE.tests
+  , Test.SSEIntegration.tests
   , Test.UrlDecode.tests
   , Test.IDN.tests
   , Test.AuthChallenge.tests
