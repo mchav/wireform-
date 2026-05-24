@@ -34,8 +34,9 @@ module Network.HTTP.Internal.Convert
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.CaseInsensitive as CI
 import qualified Data.ByteString as BS
+import qualified Data.CaseInsensitive as CI
+import Data.CaseInsensitive.Unsafe (unsafeMk)
 
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Server as H2S
@@ -75,8 +76,13 @@ fromHttp1Version H1.HTTP_1_1 = U.HTTP1_1
 toHttp1Headers :: U.Headers -> H1.Headers
 toHttp1Headers = map $ \(n, v) -> (CI.original n, v)
 
+-- | Wrap HTTP/1 header names in case-insensitive wrappers.
+-- Header names are already lowercased in-place during parsing
+-- (by parseOneHeader's SIMD lowercaseInPlace), so unsafeMk is
+-- correct and avoids any fold allocation. The name ByteStrings
+-- share the same ForeignPtr as the parsed header block.
 fromHttp1Headers :: H1.Headers -> U.Headers
-fromHttp1Headers = map $ \(n, v) -> (CI.mk n, v)
+fromHttp1Headers = map $ \(n, v) -> (unsafeMk n, v)
 
 toHttp1Body :: U.Body -> H1.Body
 toHttp1Body = \case
@@ -164,8 +170,10 @@ fromHttp1Response r = Response
 toHttp2Headers :: U.Headers -> [(ByteString, ByteString)]
 toHttp2Headers = map $ \(n, v) -> (CI.foldedCase n, v)
 
+-- | HTTP/2 header names are already lowercase (HPACK mandates it).
+-- unsafeMk avoids the redundant foldCase allocation.
 fromHttp2Headers :: [(ByteString, ByteString)] -> U.Headers
-fromHttp2Headers = map $ \(n, v) -> (CI.mk n, v)
+fromHttp2Headers = map $ \(n, v) -> (unsafeMk n, v)
 
 toHttp2Request :: Request -> H2S.Request
 toHttp2Request r = H2S.Request
