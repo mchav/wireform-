@@ -45,6 +45,8 @@ module Network.HTTP1.Connection
   , connectionSendBytes
   , connectionSendMany
   , connectionSendBuilder
+  , connectionSendBuilderDirect
+  , withConnectionCork
     -- * Head readers (zero-copy, SIMD on the ring)
   , readRequestHead
   , readResponseHead
@@ -78,8 +80,10 @@ import Wireform.Transport.Receive (ReceiveTransport, receiveAdvanceTail)
 import Wireform.Transport.Send
   ( SendTransport
   , sendBuilder
+  , sendBuilderDirect
   , sendByteString
   , sendByteStringMany
+  , withSendCork
   )
 
 import Wireform.Network.TLS.OpenSSL (SslConn, freeConn, newTlsDuplexTransport, sslConnSocket)
@@ -221,6 +225,21 @@ connectionSendMany conn = sendByteStringMany (connectionSend conn)
 -- | Materialise + stage a 'B.Builder' into the send ring.
 connectionSendBuilder :: Connection -> B.Builder -> IO ()
 connectionSendBuilder conn = sendBuilder (connectionSend conn)
+
+-- | Like 'connectionSendBuilder' but uses 'sendBuilderDirect'
+-- explicitly (writes the builder directly into ring memory).
+connectionSendBuilderDirect :: Connection -> B.Builder -> IO ()
+connectionSendBuilderDirect conn = sendBuilderDirect (connectionSend conn)
+
+-- | Cork the connection's send transport.  Bytes written inside
+-- the callback accumulate in the ring without triggering a drain
+-- (no @sendmsg@ \/ io_uring SQE).  On exit, a single publish
+-- covers everything — one syscall for headers + body.
+--
+-- If the ring fills mid-cork, the cork falls back to a real
+-- publish so the consumer can drain.
+withConnectionCork :: Connection -> (SendTransport -> IO a) -> IO a
+withConnectionCork conn = withSendCork (connectionSend conn)
 
 -- | Tear down the connection.  Order: drain + close the send ring,
 -- close the receive ring, then (for TLS) issue @SSL_shutdown@ and

@@ -31,6 +31,9 @@ module Wireform.Transport.Send
   , sendBuilderDirect
   , sendBuilderViaByteString
 
+    -- * Corking (batch multiple sends into one publish)
+  , withSendCork
+
     -- * Exceptions
   , SendRingFull (..)
   , SendReservationTooLarge (..)
@@ -320,6 +323,53 @@ sendBuilderDirect t b = do
 -- a typical 64-256 KiB ring.
 defaultDirectChunk :: Int
 defaultDirectChunk = 32768
+
+------------------------------------------------------------------------
+-- Corking
+------------------------------------------------------------------------
+
+-- | Run an action with deferred publishing.  Bytes written via
+-- 'sendByteString' \/ 'sendBuilderDirect' \/ etc. accumulate in the
+-- ring without triggering the consumer (no @sendmsg@, no io_uring
+-- SQE submission).  On scope exit, a single 'sendPublishHead' covers
+-- everything written.
+--
+-- If the ring fills during the corked scope, the cork falls back to
+-- a real publish so the consumer can drain and make room — the cork
+-- is best-effort, not absolute.  For typical HTTP headers + body
+-- (< ringSize), this produces exactly one publish.
+--
+-- @
+-- withSendCork transport $ \corked -> do
+--   sendBuilderDirect corked (responseBuilder resp)
+--   sendByteString    corked bodyBytes
+-- -- single publish \/ sendmsg here
+-- @
+withSendCork :: SendTransport -> (SendTransport -> IO a) -> IO a
+withSendCork t action = do
+  h0 <- sendLoadHead t
+  headRef <- newIORef h0
+  publishedRef <- newIORef h0
+  let corkedPublish h = do
+        writeIORef headRef h
+        tl <- sendLoadTail t
+        let !cap = fromIntegral (sendRingSize t) :: Word64
+        -- If the ring is > 3/4 full, force a real publish so the
+        -- consumer can drain and ensureRoom doesn't spin.
+        when (h - tl > cap - (cap `div` 4)) $ do
+          pub <- readIORef publishedRef
+          when (h > pub) $ do
+            sendPublishHead t h
+            writeIORef publishedRef h
+  let corked = t
+        { sendPublishHead = corkedPublish
+        , sendLoadHead    = readIORef headRef
+        }
+  result <- action corked
+  finalHead <- readIORef headRef
+  pub <- readIORef publishedRef
+  when (finalHead > pub) $ sendPublishHead t finalHead
+  pure result
 
 ------------------------------------------------------------------------
 -- Internal: wait for room
