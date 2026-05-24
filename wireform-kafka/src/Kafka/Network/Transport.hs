@@ -112,7 +112,7 @@ mkPipeTransport = do
                  Right () -> pure (Right ())
                  Left  e  -> pure (Left (show e))
            , transportWriteBuilder = \b -> do
-               r <- try (WS.sendByteString tx (WB.toStrictByteString b))
+               r <- try (WS.sendBuilderDirect tx b)
                        :: IO (Either SomeException ())
                case r of
                  Right () -> pure (Right ())
