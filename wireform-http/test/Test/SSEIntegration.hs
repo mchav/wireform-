@@ -51,19 +51,21 @@ tests = testGroup "SSE end-to-end (HTTP/1.1)"
   , mixedSizeEvents
   , concurrentClients
   , earlyCancellation
+  , tinyChunkStream
+  , backToBackRequests
   ]
 
 -- ---------------------------------------------------------------------------
 -- Stress tests
 -- ---------------------------------------------------------------------------
 
--- | Push 10,000 events on a single connection. Catches O(n²)
+-- | Push a /lot/ of events through one connection. Catches O(n²)
 -- behaviour in the per-event encoder \/ decoder, slow ring
 -- starvation, and any leak in the streamed-transport worker that
 -- only shows up over a long stream.
 veryLongStream :: TestTree
-veryLongStream = testCase "10,000 events on one connection" $ do
-  let n   = 10000
+veryLongStream = testCase "50,000 events on one connection" $ do
+  let n   = 50000
       evs = map mkEvent [0 .. n - 1]
       mkEvent i = defaultSseEvent
         { sseEventId = Just (BS8.pack (show i))
@@ -78,12 +80,14 @@ veryLongStream = testCase "10,000 events on one connection" $ do
     got <- reverse <$> readIORef received
     length got @?= n
     -- Don't @?= the full list (the assertion failure would be
-    -- unreadable); spot-check the boundaries instead, which
-    -- catches drift / off-by-one / id-reordering.
-    head got        @?= head evs
-    last got        @?= last evs
-    (got !! 4096)   @?= (evs !! 4096)
-    (got !! 8192)   @?= (evs !! 8192)
+    -- unreadable); spot-check the boundaries + a quartile-grid
+    -- of interior indices instead, which catches drift /
+    -- off-by-one / id-reordering.
+    head got               @?= head evs
+    last got               @?= last evs
+    (got !! (n `div` 4))   @?= (evs !! (n `div` 4))
+    (got !! (n `div` 2))   @?= (evs !! (n `div` 2))
+    (got !! (3 * n `div` 4)) @?= (evs !! (3 * n `div` 4))
 
 -- | Three event sizes interleaved (10 B, 500 B, 10 KiB) to
 -- exercise the chunked-decoder's per-call 16 KiB read boundary
@@ -113,9 +117,9 @@ mixedSizeEvents = testCase "mixed-size events round-trip in order" $ do
 -- streamed-transport worker, the HTTP\/1.x server, and the SSE
 -- parser don't have any cross-connection state pollution.
 concurrentClients :: TestTree
-concurrentClients = testCase "5 concurrent SSE clients each receive the full stream" $ do
-  let perClient   = 200
-      numClients  = 5 :: Int
+concurrentClients = testCase "20 concurrent SSE clients each receive the full stream" $ do
+  let perClient   = 500
+      numClients  = 20 :: Int
       evs         = map (\i -> defaultSseEvent
                                   { sseData = BS8.pack ("e" <> show i) })
                         [0 .. perClient - 1]
@@ -158,6 +162,67 @@ earlyCancellation = testCase "early return from withSSE doesn't hang" $ do
           Nothing -> pure ()
     got <- reverse <$> readIORef received
     length got @?= 5
+
+-- | 5,000 events whose @data:@ payload is a single byte each. Worst
+-- case for the chunk-framing overhead ratio (event is ~12 wire bytes
+-- with @id:@, body is 1) and a hard exercise of the chunk-size-line
+-- reader (~5,000 size lines back-to-back on one connection).
+tinyChunkStream :: TestTree
+tinyChunkStream = testCase "5,000 single-byte-data events" $ do
+  let n   = 5000
+      evs = map mkEvent [0 .. n - 1]
+      mkEvent i = defaultSseEvent
+        { sseEventId = Just (BS8.pack (show i))
+        , sseData    = BS.singleton (fromIntegral (0x21 + (i `mod` 94)))
+                       -- printable ASCII, varying so a byte-for-byte
+                       -- shift would show up.
+        }
+  withSseServer (pushAllAndClose evs) $ \port -> do
+    received <- newIORef ([] :: [ServerSentEvent])
+    let req       = get (compileURL port "/events")
+        transport = streamedTransport http1Only
+    withSSE transport req $ \nextEvent ->
+      drainEvents nextEvent received
+    got <- reverse <$> readIORef received
+    length got @?= n
+    head got        @?= head evs
+    last got        @?= last evs
+    (got !! (n `div` 2)) @?= (evs !! (n `div` 2))
+
+-- | Three SSE responses one after the other against the same
+-- localhost server. Each request gets a fresh 'streamedTransport'
+-- (because that's the lifetime model — each request owns its own
+-- connection), but the server's accept loop is shared. Catches any
+-- state pollution in the server's per-connection handler when a
+-- streaming response goes through.
+backToBackRequests :: TestTree
+backToBackRequests = testCase "3 sequential SSE requests against the same server" $ do
+  let runs =
+        [ map (\i -> defaultSseEvent { sseData = BS8.pack ("a" <> show i) })
+              [0 .. 99  :: Int]
+        , map (\i -> defaultSseEvent { sseData = BS8.pack ("b" <> show i) })
+              [0 .. 199 :: Int]
+        , map (\i -> defaultSseEvent { sseData = BS8.pack ("c" <> show i) })
+              [0 .. 299 :: Int]
+        ]
+  -- We can't easily reconfigure the producer between client
+  -- connections (the handler closure is fixed); instead the
+  -- handler always pushes whichever batch corresponds to the
+  -- current request count.
+  counter <- newIORef (0 :: Int)
+  let producerFor ch = do
+        idx <- atomicModifyIORef' counter (\n -> (n + 1, n))
+        let evs = runs !! min idx (length runs - 1)
+        pushAllAndClose evs ch
+  withSseServer producerFor $ \port -> do
+    gotAll <- forM runs $ \_expected -> do
+      received <- newIORef ([] :: [ServerSentEvent])
+      let req       = get (compileURL port "/events")
+          transport = streamedTransport http1Only
+      withSSE transport req $ \nextEvent ->
+        drainEvents nextEvent received
+      reverse <$> readIORef received
+    gotAll @?= runs
 
 -- | Additional regression: a single event whose data payload is large.
 -- Exercises the 'Wireform.Builder' accumulator in 'spDataBuf' across
