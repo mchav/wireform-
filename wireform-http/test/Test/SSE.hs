@@ -18,12 +18,18 @@
 -- the status \/ Content-Type assertions are covered.
 module Test.SSE (tests) where
 
-import Control.Concurrent.MVar (newMVar, takeMVar, putMVar)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar
+  (newEmptyMVar, newMVar, putMVar, takeMVar)
 import Control.Exception (try, SomeException, fromException)
+import Control.Monad (forM_)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Maybe (mapMaybe)
+
+import qualified Network.HTTP.Types.Body as TB
 
 import qualified Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -124,6 +130,8 @@ tests = testGroup "Network.HTTP.Client.SSE"
   , withSSETests
   , renderTests
   , mediaTypeTests
+  , serverBodyTests
+  , channelTests
   , roundTripProperties
   ]
 
@@ -526,6 +534,177 @@ mediaTypeTests = testGroup "MediaType integration"
         , defaultSseEvent { sseEventType = Just "tick", sseData = "2" }
         ]
   ]
+
+-- ---------------------------------------------------------------------------
+-- Server-side body (sseBodyPopper / sseResponseBody)
+-- ---------------------------------------------------------------------------
+
+serverBodyTests :: TestTree
+serverBodyTests = testGroup "server body"
+  [ testCase "sseBodyPopper renders one event per call" $ do
+      ref <- newIORef
+        [ defaultSseEvent { sseData = "first"  }
+        , defaultSseEvent { sseData = "second" }
+        ]
+      let source = atomicModifyIORef' ref $ \case
+            []       -> ([], Nothing)
+            (x : xs) -> (xs, Just x)
+          popper = sseBodyPopper source
+      c1 <- popper
+      c2 <- popper
+      c3 <- popper
+      c1 @?= Just "data: first\n\n"
+      c2 @?= Just "data: second\n\n"
+      c3 @?= Nothing
+
+  , testCase "sseBodyPopperFrames preserves retry + comment" $ do
+      ref <- newIORef
+        [ SseComment " keepalive"
+        , SseRetry 1000
+        , SseDispatch (defaultSseEvent { sseData = "x" })
+        ]
+      let source = atomicModifyIORef' ref $ \case
+            []       -> ([], Nothing)
+            (x : xs) -> (xs, Just x)
+          popper = sseBodyPopperFrames source
+      chunks <- drainBytePopper popper
+      BS.concat chunks @?=
+        ": keepalive\n\nretry: 1000\n\ndata: x\n\n"
+
+  , testCase "sseResponseBody returns a BodyStream" $ do
+      let body = sseResponseBody (pure Nothing)
+      case body of
+        TB.BodyStream _ -> pure ()
+        TB.BodyEmpty    -> assertFailure "expected BodyStream, got BodyEmpty"
+        TB.BodyBytes _  -> assertFailure "expected BodyStream, got BodyBytes"
+
+  , testCase "round-trip: events sent via popper parse back identically" $ do
+      let evs =
+            [ defaultSseEvent { sseEventType = Just "tick", sseData = "1" }
+            , defaultSseEvent { sseEventType = Just "tick", sseData = "2" }
+            , defaultSseEvent { sseEventType = Just "done", sseData = "ok" }
+            ]
+      ref <- newIORef evs
+      let source = atomicModifyIORef' ref $ \case
+            []       -> ([], Nothing)
+            (x : xs) -> (xs, Just x)
+          popper = sseBodyPopper source
+      wire <- BS.concat <$> drainBytePopper popper
+      parseEventStreamEvents wire @?= evs
+  ]
+
+drainBytePopper :: IO (Maybe ByteString) -> IO [ByteString]
+drainBytePopper p = go []
+  where
+    go acc = p >>= \case
+      Nothing -> pure (reverse acc)
+      Just bs -> go (bs : acc)
+
+-- ---------------------------------------------------------------------------
+-- SseChannel
+-- ---------------------------------------------------------------------------
+
+channelTests :: TestTree
+channelTests = testGroup "SseChannel"
+  [ testCase "FIFO: closed channel drained then signals end" $ do
+      ch <- newSseChannel 4
+      sendSseEvent ch (defaultSseEvent { sseData = "x" })
+      sendSseEvent ch (defaultSseEvent { sseData = "y" })
+      closeSseChannel ch
+      e1 <- awaitSseEvent ch
+      e2 <- awaitSseEvent ch
+      e3 <- awaitSseEvent ch
+      e1 @?= Just (defaultSseEvent { sseData = "x" })
+      e2 @?= Just (defaultSseEvent { sseData = "y" })
+      e3 @?= Nothing
+
+  , testCase "close before send: producer drops silently" $ do
+      ch <- newSseChannel 1
+      closeSseChannel ch
+      sendSseEvent ch (defaultSseEvent { sseData = "ignored" })
+      sendSseEvent ch (defaultSseEvent { sseData = "also ignored" })
+      e <- awaitSseEvent ch
+      e @?= Nothing
+
+  , testCase "isSseChannelClosed reflects state transitions" $ do
+      ch <- newSseChannel 1
+      before <- isSseChannelClosed ch
+      before @?= False
+      closeSseChannel ch
+      after_ <- isSseChannelClosed ch
+      after_ @?= True
+
+  , testCase "awaitSseEvent skips retry + comment frames" $ do
+      ch <- newSseChannel 4
+      sendSseComment ch " heartbeat"
+      sendSseRetry   ch 2500
+      sendSseEvent   ch (defaultSseEvent { sseData = "real" })
+      closeSseChannel ch
+      ev  <- awaitSseEvent ch
+      end <- awaitSseEvent ch
+      ev  @?= Just (defaultSseEvent { sseData = "real" })
+      end @?= Nothing
+
+  , testCase "awaitSseFrame surfaces every frame in order" $ do
+      ch <- newSseChannel 4
+      sendSseComment ch "c"
+      sendSseRetry   ch 100
+      sendSseEvent   ch (defaultSseEvent { sseData = "d" })
+      closeSseChannel ch
+      fs <- drainFramesViaChannel ch
+      fs @?=
+        [ SseComment "c"
+        , SseRetry 100
+        , SseDispatch (defaultSseEvent { sseData = "d" })
+        ]
+
+  , testCase "producer in another thread, bounded backpressure" $ do
+      -- Cap of 2 means the producer will block until the consumer
+      -- drains. We use forkIO + an MVar to coordinate without
+      -- threadDelay; the producer just keeps pushing and the
+      -- bounded queue applies the actual back-pressure.
+      ch <- newSseChannel 2
+      let evs = map (\i -> defaultSseEvent { sseData = BS8.pack ("e" <> show i) })
+                    [0 .. 19 :: Int]
+      doneSending <- newEmptyMVar
+      _ <- forkIO $ do
+        forM_ evs (sendSseEvent ch)
+        closeSseChannel ch
+        putMVar doneSending ()
+      collected <- drainEventsViaChannel ch
+      takeMVar doneSending
+      collected @?= evs
+
+  , testCase "channel feeds sseBodyPopper end-to-end" $ do
+      ch <- newSseChannel 4
+      let evs =
+            [ defaultSseEvent { sseEventType = Just "a", sseData = "1" }
+            , defaultSseEvent { sseEventType = Just "b", sseData = "2" }
+            ]
+      doneSending <- newEmptyMVar
+      _ <- forkIO $ do
+        forM_ evs (sendSseEvent ch)
+        closeSseChannel ch
+        putMVar doneSending ()
+      let popper = sseBodyPopper (awaitSseEvent ch)
+      wire <- BS.concat <$> drainBytePopper popper
+      takeMVar doneSending
+      parseEventStreamEvents wire @?= evs
+  ]
+
+drainFramesViaChannel :: SseChannel -> IO [SseFrame]
+drainFramesViaChannel ch = go []
+  where
+    go acc = awaitSseFrame ch >>= \case
+      Nothing -> pure (reverse acc)
+      Just f  -> go (f : acc)
+
+drainEventsViaChannel :: SseChannel -> IO [ServerSentEvent]
+drainEventsViaChannel ch = go []
+  where
+    go acc = awaitSseEvent ch >>= \case
+      Nothing -> pure (reverse acc)
+      Just ev -> go (ev : acc)
 
 -- ---------------------------------------------------------------------------
 -- Round-trip property

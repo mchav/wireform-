@@ -10,7 +10,7 @@ an incremental parser that can be fed arbitrary chunk boundaries
 (line splits, mid-CRLF, mid-field-name) without losing or
 duplicating events.
 
-The shapes:
+== Shapes
 
 * 'ServerSentEvent' is a dispatched event — what the spec calls a
   @MessageEvent@: a payload, an optional event type, and the
@@ -21,16 +21,61 @@ The shapes:
 * 'SseParser' is the incremental parser state — opaque so the
   carry shape can change.
 
+== Client side
+
 The two consumer popper helpers, 'sseFramePopper' and
 'sseEventPopper', adapt a wire-level 'Popper' to a stream of
 frames or just dispatched events respectively. They return
 'Nothing' on EOF and never re-dispatch.
 
+'withSSE' \/ 'withSSEFrames' are the high-level entrypoints: they
+inject the @Accept@ and @Cache-Control@ headers the EventSource
+spec calls for, run the request, and hand the caller a
+ready-to-drain event popper. The connection lifecycle is bound to
+the callback by the underlying 'Transport' — pair with
+'Network.HTTP.Client.Streaming.streamedTransport' when you want
+connection-per-request lifetime (the recommended posture for SSE).
+
+== Server side
+
+For pushing events from a server handler, 'sseResponseBody' wraps
+an event source (any @IO (Maybe ServerSentEvent)@) into the
+'BodyStream' that 'Network.HTTP.Message.Response' expects. A
+typical handler pairs that with an 'SseChannel' so the worker
+threads producing events are decoupled from the HTTP body popper
+draining them.
+
+=== Flush semantics
+
+Server-Sent Events is real-time: every event the server emits has
+to make it to the wire \"now\", not whenever a buffer happens to
+fill. There's no separate @flush@ primitive in this module
+(or in the underlying 'BodyStream' \/ 'Body' types) because the
+popper contract already gives us that:
+
+* /One popper call returns the bytes for one event./ This is what
+  'sseBodyPopper' (and therefore 'sseResponseBody') guarantee — the
+  caller's event source is invoked once per popper call, the
+  resulting event is rendered, and the bytes are returned as a
+  single chunk.
+* /One returned chunk becomes one wire frame./ The HTTP\/1.1
+  server's 'streamChunked' encoder emits a single chunked-transfer
+  chunk per popper call; the HTTP\/2 server emits a single
+  @DATA@ frame. Both layers stage the chunk into the send ring
+  and the connection's send loop drains it immediately, so each
+  event hits the network as soon as its source action returns.
+
+The upshot: if your event source blocks until an event is
+available, the HTTP layer will sit idle (no spurious flushes,
+no busy-loop); when it returns an event, that one event flushes
+on its own. No explicit flush call, no event coalescing.
+
 The 'EventStream' tag plugs SSE into the existing media-type
 machinery: callers can decode a one-shot body with
 @as \@EventStream \@[ServerSentEvent]@, or encode a list of
 events as a server-side response body. For the (vastly more
-common) streaming case, use 'withSSE' on the client side.
+common) streaming case, use 'withSSE' on the client side and
+'sseResponseBody' on the server side.
 -}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
@@ -68,10 +113,42 @@ module Network.HTTP.Client.SSE
   , buildSseFrame
   , buildServerSentEvent
   , defaultSseEvent
+    -- * Server-side body
+    -- $serverBody
+  , sseBodyPopper
+  , sseBodyPopperFrames
+  , sseResponseBody
+  , sseResponseBodyFrames
+    -- * Server-side push channel
+    -- $serverChannel
+  , SseChannel
+  , newSseChannel
+  , sendSseEvent
+  , sendSseFrame
+  , sendSseRetry
+  , sendSseComment
+  , closeSseChannel
+  , isSseChannelClosed
+  , awaitSseFrame
+  , awaitSseEvent
     -- * Content-type tag
   , EventStream
   ) where
 
+import Control.Concurrent.STM
+  ( STM
+  , TBQueue
+  , TVar
+  , atomically
+  , isEmptyTBQueue
+  , newTBQueueIO
+  , newTVarIO
+  , readTBQueue
+  , readTVar
+  , retry
+  , writeTBQueue
+  , writeTVar
+  )
 import Control.Exception (Exception, throwIO)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
@@ -84,6 +161,7 @@ import Data.Maybe (mapMaybe)
 import qualified Wireform.Builder as WB
 import Wireform.Builder (Builder)
 
+import qualified Network.HTTP.Types.Body   as B
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
 
@@ -452,6 +530,162 @@ buildDataPayload d
   | otherwise = foldMap oneLine (BS.split 0x0A d)
   where
     oneLine l = WB.byteString "data: " <> WB.byteString l <> WB.word8 0x0A
+
+-- ---------------------------------------------------------------------------
+-- Server-side body
+-- ---------------------------------------------------------------------------
+
+-- $serverBody
+-- The body popper expected by 'Network.HTTP.Types.Body.BodyStream' is
+-- @IO (Maybe ByteString)@: produce a chunk, or 'Nothing' for EOF.
+-- 'sseBodyPopper' adapts an event source — any
+-- @IO (Maybe ServerSentEvent)@ — into one of those, materialising
+-- exactly one event per popper call so the underlying HTTP encoder
+-- emits one wire chunk per event (see the module's \"Flush
+-- semantics\" section).
+--
+-- A typical handler looks like:
+--
+-- > handler :: Request -> IO Response
+-- > handler _req = do
+-- >   ch <- newSseChannel 64
+-- >   _  <- forkIO (produce ch)         -- producer pushes events
+-- >   pure Response
+-- >     { responseStatus  = status200
+-- >     , responseHeaders = [ (hContentType,  "text/event-stream")
+-- >                         , (hCacheControl, "no-store")
+-- >                         ]
+-- >     , responseBody    = sseResponseBody (awaitSseEvent ch)
+-- >     , ...
+-- >     }
+
+-- | Adapt an event source into the chunk popper expected by
+-- 'Network.HTTP.Types.Body.BodyStream'. Each popper call pulls
+-- exactly one event from the source and renders it; the encoder
+-- (HTTP\/1.1 chunked or HTTP\/2 DATA) then flushes that single
+-- chunk to the wire.
+sseBodyPopper :: IO (Maybe ServerSentEvent) -> IO (Maybe ByteString)
+sseBodyPopper source = fmap (fmap renderServerSentEvent) source
+
+-- | 'sseBodyPopper' for sources that also want to surface retry
+-- directives and comments (typical for keep-alive heartbeats).
+sseBodyPopperFrames :: IO (Maybe SseFrame) -> IO (Maybe ByteString)
+sseBodyPopperFrames source = fmap (fmap renderSseFrame) source
+
+-- | Build a streaming SSE response body. The 'Content-Type' and
+-- 'Cache-Control' headers still need to be set on the 'Response'
+-- record by the handler — this helper only constructs the body.
+sseResponseBody :: IO (Maybe ServerSentEvent) -> B.Body
+sseResponseBody = B.BodyStream . sseBodyPopper
+
+-- | Frame-aware variant of 'sseResponseBody'.
+sseResponseBodyFrames :: IO (Maybe SseFrame) -> B.Body
+sseResponseBodyFrames = B.BodyStream . sseBodyPopperFrames
+
+-- ---------------------------------------------------------------------------
+-- Server-side push channel
+-- ---------------------------------------------------------------------------
+
+-- $serverChannel
+-- A multi-producer single-consumer event queue with a bounded
+-- backlog. Producers push frames with 'sendSseEvent' \/
+-- 'sendSseFrame'; the HTTP body popper (typically built via
+-- 'awaitSseEvent') drains them in FIFO order. The bound provides
+-- back-pressure: when the queue fills, producers block until the
+-- consumer drains a slot, so a slow client can't OOM the producer.
+--
+-- 'closeSseChannel' is non-blocking and idempotent. The consumer
+-- finishes draining whatever is still in the queue and then
+-- returns 'Nothing'; subsequent sends are silently dropped. This
+-- shape lets a handler signal end-of-stream from any thread
+-- without worrying about queue fullness, races with the
+-- consumer, or running over the cap.
+
+-- | Multi-producer, single-consumer event channel.
+data SseChannel = SseChannel
+  { sseChannelQueue  :: !(TBQueue SseFrame)
+  , sseChannelClosed :: !(TVar Bool)
+  }
+
+-- | Allocate an empty channel with a fixed backlog cap. Producers
+-- block in 'sendSseFrame' \/ 'sendSseEvent' when the queue is full.
+newSseChannel
+  :: Int  -- ^ backlog cap (in frames; @64@ is a reasonable default)
+  -> IO SseChannel
+newSseChannel cap = do
+  q <- newTBQueueIO (fromIntegral (max 1 cap))
+  c <- newTVarIO False
+  pure SseChannel
+    { sseChannelQueue  = q
+    , sseChannelClosed = c
+    }
+
+-- | Push a frame onto the channel. Blocks if the channel is full;
+-- silently drops if the channel has already been closed (which
+-- lets producers fire-and-forget after a 'closeSseChannel').
+sendSseFrame :: SseChannel -> SseFrame -> IO ()
+sendSseFrame ch f = atomically $ do
+  closed <- readTVar (sseChannelClosed ch)
+  unless closed (writeTBQueue (sseChannelQueue ch) f)
+
+-- | 'sendSseFrame' for a dispatched event.
+sendSseEvent :: SseChannel -> ServerSentEvent -> IO ()
+sendSseEvent ch = sendSseFrame ch . SseDispatch
+
+-- | Push a @retry:@ reconnection-time directive.
+sendSseRetry :: SseChannel -> Int -> IO ()
+sendSseRetry ch = sendSseFrame ch . SseRetry
+
+-- | Push a @:@-prefixed comment line. The conventional use is a
+-- periodic keep-alive heartbeat against load balancers that idle
+-- out quiet connections.
+sendSseComment :: SseChannel -> ByteString -> IO ()
+sendSseComment ch = sendSseFrame ch . SseComment
+
+-- | Close the channel. Non-blocking, idempotent. The consumer
+-- continues to see any already-queued frames and then receives
+-- 'Nothing'; subsequent producer sends are silently dropped.
+closeSseChannel :: SseChannel -> IO ()
+closeSseChannel ch =
+  atomically (writeTVar (sseChannelClosed ch) True)
+
+-- | Snapshot of the channel's closed bit. Useful for producers
+-- that want to skip work that's about to be dropped.
+isSseChannelClosed :: SseChannel -> IO Bool
+isSseChannelClosed ch = atomically (readTVar (sseChannelClosed ch))
+
+-- | Block until the next frame is available; return 'Nothing' if
+-- the channel is closed /and/ empty.
+--
+-- The semantics — drain then signal close — match how SSE bodies
+-- want to behave on the wire: any event the handler queued before
+-- shutting down still reaches the client.
+awaitSseFrame :: SseChannel -> IO (Maybe SseFrame)
+awaitSseFrame ch = atomically (awaitFrameSTM ch)
+
+-- | STM-level variant of 'awaitSseFrame' for callers composing
+-- larger 'orElse' choices.
+awaitFrameSTM :: SseChannel -> STM (Maybe SseFrame)
+awaitFrameSTM ch = do
+  empty <- isEmptyTBQueue (sseChannelQueue ch)
+  if not empty
+    then Just <$> readTBQueue (sseChannelQueue ch)
+    else do
+      closed <- readTVar (sseChannelClosed ch)
+      if closed then pure Nothing else retry
+
+-- | 'awaitSseFrame' filtered to dispatched events; comments and
+-- retry directives are passed through to the wire (when used with
+-- 'sseBodyPopperFrames') but skipped here.
+awaitSseEvent :: SseChannel -> IO (Maybe ServerSentEvent)
+awaitSseEvent ch = loop
+  where
+    loop = do
+      m <- awaitSseFrame ch
+      case m of
+        Nothing               -> pure Nothing
+        Just (SseDispatch ev) -> pure (Just ev)
+        Just _                -> loop
 
 -- ---------------------------------------------------------------------------
 -- Internal: BOM handling
