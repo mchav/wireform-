@@ -28,6 +28,8 @@ module Wireform.Transport.Send
   , sendByteString
   , sendByteStringMany
   , sendBuilder
+  , sendBuilderDirect
+  , sendBuilderViaByteString
 
     -- * Exceptions
   , SendRingFull (..)
@@ -35,11 +37,13 @@ module Wireform.Transport.Send
   ) where
 
 import Control.Exception (Exception, SomeException, throwIO)
+import Control.Monad (when)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
+import Data.IORef
 import Data.Typeable (Typeable)
 import Data.Word (Word64, Word8)
 import Foreign.ForeignPtr (withForeignPtr)
@@ -47,6 +51,12 @@ import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 
 import qualified Wireform.Builder as B
+import Wireform.Builder.FastBuilder
+  ( DataSink (RingSink)
+  , RingSinkState (..)
+  , finalizeRingSink
+  , runBuilder
+  )
 import Wireform.Ring.Internal (MagicRing (..))
 
 ------------------------------------------------------------------------
@@ -253,13 +263,61 @@ sendByteStringMany t bss = do
       copyAll (dst `plusPtr` n) bs
 {-# INLINABLE sendByteStringMany #-}
 
--- | Materialise a 'B.Builder' and stage it into the ring.  Uses a
--- 4 KiB initial allocation hint; for typical small HTTP / Kafka
--- frames this is one pinned allocation + one memcpy into the ring.
--- For payloads larger than the hint the builder grows naturally.
+-- | Stage a 'B.Builder' into the send ring.  Equivalent to
+-- 'sendBuilderDirect' -- writes directly into ring memory with
+-- no intermediate 'ByteString'.
 sendBuilder :: SendTransport -> B.Builder -> IO ()
-sendBuilder t b = sendByteString t (B.toStrictByteStringWith 4096 b)
+sendBuilder = sendBuilderDirect
 {-# INLINE sendBuilder #-}
+
+-- | The pre-optimisation path: materialise to a strict
+-- 'ByteString', then memcpy into the ring.  Exported so
+-- benchmarks can compare the two strategies side-by-side.
+sendBuilderViaByteString :: SendTransport -> B.Builder -> IO ()
+sendBuilderViaByteString t b =
+  sendByteString t (B.toStrictByteStringWith 4096 b)
+{-# INLINE sendBuilderViaByteString #-}
+
+-- | Run a 'B.Builder' directly into the send ring with no
+-- intermediate 'ByteString' allocation or copy.
+--
+-- The builder writes into the ring's double-mapped memory.
+-- When the current region fills, the already-written bytes are
+-- published and the builder continues into freshly-available ring
+-- space.  The final bytes are published before this function
+-- returns.
+--
+-- For a typical small frame (< 32 KiB) this is one @runBuilder@
+-- call with zero allocations beyond a single 'IORef'.  For larger
+-- payloads the builder publishes in chunks, keeping memory
+-- pressure proportional to the ring size rather than the payload.
+sendBuilderDirect :: SendTransport -> B.Builder -> IO ()
+sendBuilderDirect t b = do
+  h <- sendLoadHead t
+  let !chunkSz = min (sendRingSize t) defaultDirectChunk
+      !wantHead = h + fromIntegral chunkSz
+  ensureRoom t wantHead
+  let !off = fromIntegral h .&. sendRingMask t
+      !ptr = sendRingBase t `plusPtr` off
+  rsRef <- newIORef RingSinkState
+    { rsHead        = h
+    , rsBase        = sendRingBase t
+    , rsMask        = sendRingMask t
+    , rsRingSize    = sendRingSize t
+    , rsChunkSize   = chunkSz
+    , rsPublishHead = sendPublishHead t
+    , rsEnsureRoom  = ensureRoom t
+    }
+  finalCur <- runBuilder b (RingSink rsRef) ptr (ptr `plusPtr` chunkSz)
+  _ <- finalizeRingSink rsRef finalCur
+  pure ()
+{-# INLINE sendBuilderDirect #-}
+
+-- 32 KiB: large enough that most protocol frames never overflow,
+-- small enough that the initial ensureRoom resolves immediately on
+-- a typical 64-256 KiB ring.
+defaultDirectChunk :: Int
+defaultDirectChunk = 32768
 
 ------------------------------------------------------------------------
 -- Internal: wait for room
