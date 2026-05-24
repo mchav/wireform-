@@ -227,10 +227,7 @@ handleConnection cfg conn0 = loop conn0 `finally` closeConnection conn0
             r <- try @SomeException $ do
               resp0 <- serverHandler cfg req
               let willClose = decideClose cfg req resp0
-                  resp =
-                    if willClose
-                      then addCloseHeader resp0
-                      else resp0
+                  resp = adjustConnectionHeader willClose req resp0
               sendResponse conn (requestMethod req) resp
               drainBody (requestBody req)
               pure willClose
@@ -535,7 +532,18 @@ serverWantsClose hs = case findConnection hs of
   Nothing -> False
   Just v  -> any (== ConnClose) (parseConnection v)
 
-addCloseHeader :: Response -> Response
-addCloseHeader r
+-- | Set the appropriate Connection header based on the keep-alive
+-- decision and the client's protocol version.
+--
+-- - Closing: add @Connection: close@ (unless the handler already set one)
+-- - Keeping alive on HTTP/1.0: echo @Connection: keep-alive@ so the
+--   1.0 client knows the connection persists (RFC 9112 §9.3)
+-- - Keeping alive on HTTP/1.1: no header needed (persistence is default)
+adjustConnectionHeader :: Bool -> Request -> Response -> Response
+adjustConnectionHeader willClose req r
   | hHas "connection" (responseHeaders r) = r
-  | otherwise = r { responseHeaders = responseHeaders r <> [("Connection", "close")] }
+  | willClose =
+      r { responseHeaders = responseHeaders r <> [("Connection", "close")] }
+  | requestVersion req == HTTP_1_0 =
+      r { responseHeaders = responseHeaders r <> [("Connection", "keep-alive")] }
+  | otherwise = r
