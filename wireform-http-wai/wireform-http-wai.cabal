@@ -81,6 +81,7 @@ benchmark wireform-http-wai-bench
     network,
     wai,
     warp               >= 3.3,
+    wireform-core,
     wireform-http,
     wireform-http-wai
 

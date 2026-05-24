@@ -1,25 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
-{- | Apples-to-apples benchmark: same WAI apps served over localhost
-TCP via wireform-http's HTTP\/1 server (through the WAI adapter) vs
-Warp, both hit by their respective HTTP\/1 clients.
+{- | Apples-to-apples benchmark: wireform-http1 vs Warp.
 
-Both sides reuse connections (keep-alive): wireform via a persistent
-'Connection', http-client via its connection pool. Each criterion
-iteration is a single request\/response round-trip on an already-open
-TCP connection.
+Two benchmark groups:
+
+1. __Keep-alive__ — persistent connection, measures steady-state
+   request\/response throughput. Both sides reuse connections.
+
+2. __Connection churn__ — new TCP connection per iteration, measures
+   connection setup cost. Compares: wireform without ring pool,
+   wireform with ring pool, and Warp.
 -}
 module Main (main) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception (finally)
+import Control.Exception (bracket, finally)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as LBS
 import Data.CaseInsensitive (mk)
-import Data.IORef
 import qualified "http-types" Network.HTTP.Types as WAIHttp
 import qualified "http-client" Network.HTTP.Client as HC
 import qualified Network.Socket as NS
@@ -35,54 +36,55 @@ import qualified "wireform-http" Network.HTTP.Types.Method as U
 import qualified "wireform-http" Network.HTTP.Types.Version as U
 import Network.HTTP.Connection
   (Connection, ConnectionConfig(..), defaultConnectionConfig,
-   openConnection, closeConnection, sendOn)
+   openConnection, closeConnection, sendOn, withConnection)
 import Network.HTTP.Server
   (ServerConfig(..), defaultServerConfig, runServerOnListener)
 import Network.HTTP.VersionRange (http1Only)
 import Network.HTTP.WAI (waiToHandler)
+import Wireform.Ring.Pool
+  (RingPool, newRingPool, defaultRingPoolConfig)
 
 main :: IO ()
 main = do
   mgr <- HC.newManager HC.defaultManagerSettings
+  -- Manager that doesn't reuse connections (for churn comparison)
+  mgrNoReuse <- HC.newManager HC.defaultManagerSettings
+    { HC.managerIdleConnectionCount = 0 }
+  ringPool <- newRingPool defaultRingPoolConfig
 
-  -- Set up wireform servers + persistent connections for each app
-  wfHello   <- setupWireform helloApp
-  wfEcho    <- setupWireform echoApp
-  wfJson    <- setupWireform jsonApp
-  wfStream  <- setupWireform (streamApp 16 4096)
-  wfHeaders <- setupWireform headersApp
-
-  -- Set up warp servers
+  -- Keep-alive servers
+  wfHello   <- setupWireform Nothing helloApp
+  wfHeaders <- setupWireform Nothing headersApp
   warpHelloUrl   <- startWarp helloApp
-  warpEchoUrl    <- startWarp echoApp
-  warpJsonUrl    <- startWarp jsonApp
-  warpStreamUrl  <- startWarp (streamApp 16 4096)
   warpHeadersUrl <- startWarp headersApp
 
+  -- Connection-churn servers (one without pool, one with pool)
+  churnNoPoolPort <- startWireformServer Nothing helloApp
+  churnPoolPort   <- startWireformServer (Just ringPool) helloApp
+  warpChurnUrl    <- startWarp helloApp
+
+  churnNoPoolPortH <- startWireformServer Nothing headersApp
+  churnPoolPortH   <- startWireformServer (Just ringPool) headersApp
+  warpChurnUrlH    <- startWarp headersApp
+
   defaultMain
-    [ bgroup "hello (GET → 5 B)"
+    [ bgroup "keep-alive: hello (GET → 5 B)"
         [ bench "wireform-http1" $ nfIO (wfGet wfHello)
         , bench "warp"           $ nfIO (warpGet mgr warpHelloUrl)
         ]
-    , bgroup "echo (POST 1 KiB)"
-        [ bench "wireform-http1" $ nfIO (wfPost wfEcho payload1k)
-        , bench "warp"           $ nfIO (warpPost mgr warpEchoUrl payload1k)
-        ]
-    , bgroup "echo (POST 64 KiB)"
-        [ bench "wireform-http1" $ nfIO (wfPost wfEcho payload64k)
-        , bench "warp"           $ nfIO (warpPost mgr warpEchoUrl payload64k)
-        ]
-    , bgroup "json-ish (GET → ~4 KiB)"
-        [ bench "wireform-http1" $ nfIO (wfGet wfJson)
-        , bench "warp"           $ nfIO (warpGet mgr warpJsonUrl)
-        ]
-    , bgroup "stream (GET → 16×4 KiB)"
-        [ bench "wireform-http1" $ nfIO (wfGet wfStream)
-        , bench "warp"           $ nfIO (warpGet mgr warpStreamUrl)
-        ]
-    , bgroup "headers (GET → 20 hdrs)"
+    , bgroup "keep-alive: headers (GET → 20 hdrs)"
         [ bench "wireform-http1" $ nfIO (wfGet wfHeaders)
         , bench "warp"           $ nfIO (warpGet mgr warpHeadersUrl)
+        ]
+    , bgroup "connection churn: hello (GET → 5 B)"
+        [ bench "wireform (no pool)" $ nfIO (churnGet churnNoPoolPort)
+        , bench "wireform (pooled)"  $ nfIO (churnGet churnPoolPort)
+        , bench "warp"               $ nfIO (warpGet mgrNoReuse warpChurnUrl)
+        ]
+    , bgroup "connection churn: headers (GET → 20 hdrs)"
+        [ bench "wireform (no pool)" $ nfIO (churnGet churnNoPoolPortH)
+        , bench "wireform (pooled)"  $ nfIO (churnGet churnPoolPortH)
+        , bench "warp"               $ nfIO (warpGet mgrNoReuse warpChurnUrlH)
         ]
     ]
 
@@ -93,51 +95,14 @@ main = do
 payload1k :: BS.ByteString
 payload1k = BS.replicate 1024 0x61
 
-payload64k :: BS.ByteString
-payload64k = BS.replicate (64 * 1024) 0x61
-
 ------------------------------------------------------------------------
--- WAI apps under test
+-- WAI apps
 ------------------------------------------------------------------------
 
 helloApp :: Wai.Application
 helloApp _req respond =
   respond $ Wai.responseLBS WAIHttp.status200
     [("Content-Type", "text/plain")] "hello"
-
-echoApp :: Wai.Application
-echoApp req respond = do
-  body <- Wai.consumeRequestBodyStrict req
-  respond $ Wai.responseLBS WAIHttp.status200
-    [("Content-Type", "application/octet-stream")] body
-
-jsonApp :: Wai.Application
-jsonApp _req respond =
-  respond $ Wai.responseLBS WAIHttp.status200
-    [("Content-Type", "application/json")]
-    (LBS.fromStrict jsonPayload)
-
-jsonPayload :: BS.ByteString
-jsonPayload = BS.concat
-  [ "{\"users\":["
-  , BS.intercalate ","
-      [ BS8.pack $ "{\"id\":" <> show i <> ",\"name\":\"user" <> show i
-          <> "\",\"email\":\"user" <> show i <> "@example.com\"}"
-      | i <- [1..20 :: Int]
-      ]
-  , "]}"
-  ]
-
-streamApp :: Int -> Int -> Wai.Application
-streamApp nChunks chunkSize _req respond = do
-  let chunk = BS.replicate chunkSize 0x78
-  respond $ Wai.responseStream WAIHttp.status200
-    [("Content-Type", "application/octet-stream")] $ \write flush -> do
-      let loop 0 = flush
-          loop n = do
-            write (Builder.byteString chunk)
-            loop (n - 1)
-      loop nChunks
 
 headersApp :: Wai.Application
 headersApp _req respond =
@@ -148,7 +113,7 @@ headersApp _req respond =
     "ok"
 
 ------------------------------------------------------------------------
--- wireform-http1: persistent keep-alive connection
+-- wireform keep-alive path (persistent connection)
 ------------------------------------------------------------------------
 
 data WfEnv = WfEnv
@@ -156,8 +121,22 @@ data WfEnv = WfEnv
   , wfPort :: !String
   }
 
-setupWireform :: Wai.Application -> IO WfEnv
-setupWireform app = do
+setupWireform :: Maybe RingPool -> Wai.Application -> IO WfEnv
+setupWireform mPool app = do
+  portStr <- startWireformServer mPool app
+  let connCfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = portStr
+        , connectionVersionRange = http1Only
+        , connectionTls = Nothing
+        }
+  eConn <- openConnection connCfg
+  case eConn of
+    Left err -> error ("openConnection failed: " <> err)
+    Right conn -> pure WfEnv { wfConn = conn, wfPort = portStr }
+
+startWireformServer :: Maybe RingPool -> Wai.Application -> IO String
+startWireformServer mPool app = do
   readyVar <- newEmptyMVar
   let hints = NS.defaultHints
         { NS.addrFlags = [NS.AI_PASSIVE]
@@ -181,21 +160,13 @@ setupWireform app = do
             , serverPort = portStr
             , serverVersionRange = http1Only
             , serverHandler = handler
+            , serverRingPool = mPool
             }
       _ <- forkIO $ do
         putMVar readyVar ()
         runServerOnListener cfg listenSock `finally` NS.close listenSock
       takeMVar readyVar
-      let connCfg = defaultConnectionConfig
-            { connectionHost = "127.0.0.1"
-            , connectionPort = portStr
-            , connectionVersionRange = http1Only
-            , connectionTls = Nothing
-            }
-      eConn <- openConnection connCfg
-      case eConn of
-        Left err -> error ("openConnection failed: " <> err)
-        Right conn -> pure WfEnv { wfConn = conn, wfPort = portStr }
+      pure portStr
 
 wfGet :: WfEnv -> IO BS.ByteString
 wfGet env = do
@@ -212,23 +183,33 @@ wfGet env = do
     }
   drainBody (U.responseBody r)
 
-wfPost :: WfEnv -> BS.ByteString -> IO BS.ByteString
-wfPost env payload = do
-  let port = wfPort env
-  r <- sendOn (wfConn env) U.Request
-    { U.requestMethod    = U.methodFromBytes "POST"
-    , U.requestTarget    = "/"
-    , U.requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
-    , U.requestScheme    = U.SchemeHttp
-    , U.requestHeaders   =
-        [ (U.hHost, BS8.pack ("127.0.0.1:" <> port))
-        , (U.hContentType, "application/octet-stream")
-        ]
-    , U.requestBody      = U.BodyBytes payload
-    , U.requestVersion   = U.HTTP1_1
-    , U.requestTrailers  = pure []
-    }
-  drainBody (U.responseBody r)
+------------------------------------------------------------------------
+-- wireform connection-churn path (new connection per request)
+------------------------------------------------------------------------
+
+churnGet :: String -> IO BS.ByteString
+churnGet port = do
+  let connCfg = defaultConnectionConfig
+        { connectionHost = "127.0.0.1"
+        , connectionPort = port
+        , connectionVersionRange = http1Only
+        , connectionTls = Nothing
+        }
+  withConnection connCfg $ \conn -> do
+    r <- sendOn conn U.Request
+      { U.requestMethod    = U.methodFromBytes "GET"
+      , U.requestTarget    = "/"
+      , U.requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
+      , U.requestScheme    = U.SchemeHttp
+      , U.requestHeaders   =
+          [ (U.hHost, BS8.pack ("127.0.0.1:" <> port))
+          , (U.hConnection, "close")
+          ]
+      , U.requestBody      = U.BodyEmpty
+      , U.requestVersion   = U.HTTP1_1
+      , U.requestTrailers  = pure []
+      }
+    drainBody (U.responseBody r)
 
 drainBody :: U.Body -> IO BS.ByteString
 drainBody U.BodyEmpty = pure BS.empty
@@ -242,7 +223,7 @@ drainBody (U.BodyStream p) = BS.concat <$> go
         Just c  -> (c :) <$> go
 
 ------------------------------------------------------------------------
--- Warp: http-client keeps connections alive via its pool
+-- Warp
 ------------------------------------------------------------------------
 
 startWarp :: Wai.Application -> IO String
@@ -273,16 +254,5 @@ startWarp app = do
 warpGet :: HC.Manager -> String -> IO BS.ByteString
 warpGet mgr url = do
   req <- HC.parseRequest url
-  resp <- HC.httpLbs req mgr
-  pure $! LBS.toStrict (HC.responseBody resp)
-
-warpPost :: HC.Manager -> String -> BS.ByteString -> IO BS.ByteString
-warpPost mgr url payload = do
-  req0 <- HC.parseRequest url
-  let req = req0
-        { HC.method = "POST"
-        , HC.requestBody = HC.RequestBodyBS payload
-        , HC.requestHeaders = [("Content-Type", "application/octet-stream")]
-        }
   resp <- HC.httpLbs req mgr
   pure $! LBS.toStrict (HC.responseBody resp)
