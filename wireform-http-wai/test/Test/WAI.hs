@@ -1,10 +1,12 @@
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Test.WAI (tests) where
 
+import Control.Exception (SomeException, try)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Data.ByteString.Builder (toLazyByteString)
+import Data.ByteString.Builder (byteString, toLazyByteString)
 import qualified Data.ByteString.Lazy as LBS
 import Data.CaseInsensitive (mk)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -34,6 +36,9 @@ tests = testGroup "WAI adapter"
       , testWaiToHandlerBody
       , testWaiToHandlerHeaders
       , testWaiToHandlerQueryString
+      , testWaiToHandlerStreamingResponse
+      , testWaiToHandlerStreamingRequest
+      , testWaiToHandlerAppThrows
       ]
   , testGroup "handlerToWai"
       [ testHandlerToWaiBasic
@@ -42,6 +47,11 @@ tests = testGroup "WAI adapter"
   , testGroup "Request conversions"
       [ testFromWaiRequestPreservesFields
       , testToWaiRequestPreservesFields
+      , testToWaiRequestHostFromAuthority
+      , testToWaiRequestEmptyTarget
+      ]
+  , testGroup "Error handling"
+      [ testWaiAppDidNotRespond
       ]
   ]
 
@@ -172,6 +182,72 @@ testWaiToHandlerQueryString = testCase "query string preserved" $ do
   assertHeaderEq (U.responseHeaders resp) "X-Path" "/search"
   assertHeaderEq (U.responseHeaders resp) "X-Query" "?q=haskell&page=1"
 
+testWaiToHandlerStreamingResponse :: TestTree
+testWaiToHandlerStreamingResponse = testCase "streaming WAI response materialised" $ do
+  let app _req respond =
+        respond $ Wai.responseStream WAIHttp.status200
+          [("Content-Type", "text/plain")] $ \write flush -> do
+            write (byteString "chunk1")
+            write (byteString "chunk2")
+            flush
+      handler = waiToHandler app
+  resp <- handler U.Request
+    { U.requestMethod    = U.mGet
+    , U.requestTarget    = "/"
+    , U.requestAuthority = Nothing
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = []
+    , U.requestBody      = U.BodyEmpty
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  U.responseStatus resp @?= U.status200
+  case U.responseBody resp of
+    U.BodyBytes bs -> bs @?= "chunk1chunk2"
+    other -> assertBool ("expected BodyBytes, got " <> show other) False
+
+testWaiToHandlerStreamingRequest :: TestTree
+testWaiToHandlerStreamingRequest = testCase "streaming request body consumed by WAI app" $ do
+  chunksRef <- newIORef ["part1" :: ByteString, "part2", "part3"]
+  let bodyProducer = do
+        chunks <- readIORef chunksRef
+        case chunks of
+          []     -> pure Nothing
+          (c:cs) -> writeIORef chunksRef cs >> pure (Just c)
+      handler = waiToHandler echoApp
+  resp <- handler U.Request
+    { U.requestMethod    = U.mPost
+    , U.requestTarget    = "/"
+    , U.requestAuthority = Nothing
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = [(U.hContentType, "text/plain")]
+    , U.requestBody      = U.BodyStream bodyProducer
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  case U.responseBody resp of
+    U.BodyBytes bs -> bs @?= "part1part2part3"
+    other -> assertBool ("expected BodyBytes, got " <> show other) False
+
+testWaiToHandlerAppThrows :: TestTree
+testWaiToHandlerAppThrows = testCase "WAI app exception propagates" $ do
+  let app :: Wai.Application
+      app _req _respond = error "deliberate test failure"
+      handler = waiToHandler app
+  result <- try @SomeException $ handler U.Request
+    { U.requestMethod    = U.mGet
+    , U.requestTarget    = "/"
+    , U.requestAuthority = Nothing
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = []
+    , U.requestBody      = U.BodyEmpty
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  case result of
+    Left _  -> pure ()
+    Right _ -> assertBool "expected exception from WAI app" False
+
 ------------------------------------------------------------------------
 -- handlerToWai tests
 ------------------------------------------------------------------------
@@ -290,6 +366,61 @@ testToWaiRequestPreservesFields = testCase "toWaiRequest preserves fields" $ do
   bodyChunk @?= "{\"name\":\"test\"}"
   eof <- Wai.getRequestBodyChunk waiReq
   eof @?= BS.empty
+
+testToWaiRequestHostFromAuthority :: TestTree
+testToWaiRequestHostFromAuthority = testCase "Host synthesised from authority" $ do
+  waiReq <- toWaiRequest U.Request
+    { U.requestMethod    = U.mGet
+    , U.requestTarget    = "/"
+    , U.requestAuthority = Just "example.com"
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = []
+    , U.requestBody      = U.BodyEmpty
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  assertBool "Host header present" $
+    lookup "Host" (Wai.requestHeaders waiReq) == Just "example.com"
+  Wai.requestHeaderHost waiReq @?= Just "example.com"
+
+testToWaiRequestEmptyTarget :: TestTree
+testToWaiRequestEmptyTarget = testCase "empty target → rawPathInfo empty" $ do
+  waiReq <- toWaiRequest U.Request
+    { U.requestMethod    = U.mGet
+    , U.requestTarget    = ""
+    , U.requestAuthority = Nothing
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = []
+    , U.requestBody      = U.BodyEmpty
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  Wai.rawPathInfo waiReq @?= ""
+  Wai.rawQueryString waiReq @?= ""
+
+------------------------------------------------------------------------
+-- Error handling tests
+------------------------------------------------------------------------
+
+testWaiAppDidNotRespond :: TestTree
+testWaiAppDidNotRespond = testCase "WaiAppDidNotRespond on non-responding app" $ do
+  let app :: Wai.Application
+      app _req _respond = pure ResponseReceived
+      handler = waiToHandler app
+  result <- try @WaiAdapterError $ handler U.Request
+    { U.requestMethod    = U.mGet
+    , U.requestTarget    = "/"
+    , U.requestAuthority = Nothing
+    , U.requestScheme    = U.SchemeHttp
+    , U.requestHeaders   = []
+    , U.requestBody      = U.BodyEmpty
+    , U.requestVersion   = U.HTTP1_1
+    , U.requestTrailers  = pure []
+    }
+  case result of
+    Left WaiAppDidNotRespond -> pure ()
+    Left e  -> assertBool ("wrong error: " <> show e) False
+    Right _ -> assertBool "expected WaiAppDidNotRespond" False
 
 ------------------------------------------------------------------------
 -- Helpers

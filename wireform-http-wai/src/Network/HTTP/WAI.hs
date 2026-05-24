@@ -31,6 +31,15 @@ myHandler req = ...
 main :: IO ()
 main = Warp.run 8080 ('handlerToWai' myHandler)
 @
+
+=== Limitations
+
+* WAI 'Network.Wai.responseRaw' (WebSocket upgrade) is not
+  supported. The adapter converts the backup response; use a
+  real TCP server for upgrade testing.
+* 'fromWaiResponse' materialises the entire response body into
+  memory. For large streaming responses, consider testing at the
+  WAI level directly.
 -}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -48,14 +57,18 @@ module Network.HTTP.WAI
     -- * Type conversions: WAI → wireform
   , fromWaiRequest
   , fromWaiResponse
+
+    -- * Errors
+  , WaiAdapterError (..)
   ) where
 
+import Control.Exception (Exception, throwIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (byteString, toLazyByteString)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.CaseInsensitive as CI
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (newIORef, readIORef, writeIORef, atomicModifyIORef')
 import Data.Word (Word16)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -79,6 +92,17 @@ import qualified Network.HTTP.Client.Request as CR
 import qualified Network.HTTP.Client.Response as CResp
 import qualified Network.HTTP.Client.Transport as CT
 import qualified Network.HTTP.Client.URI as URI
+
+------------------------------------------------------------------------
+-- Errors
+------------------------------------------------------------------------
+
+data WaiAdapterError
+  = WaiAppDidNotRespond
+  | WaiInvalidClientURI !String
+  deriving stock (Show)
+
+instance Exception WaiAdapterError
 
 ------------------------------------------------------------------------
 -- Primitive type conversions
@@ -106,7 +130,6 @@ fromWaiVersion v = U.mkVersion
   (fromIntegral (WAIHttp.httpMajor v))
   (fromIntegral (WAIHttp.httpMinor v))
 
--- Headers are structurally identical: both [(CI ByteString, ByteString)].
 toWaiHeaders :: U.Headers -> WAIHttp.ResponseHeaders
 toWaiHeaders = id
 
@@ -122,13 +145,9 @@ mkWaiBodyReader = \case
   U.BodyEmpty -> pure (pure BS.empty)
   U.BodyBytes bs -> do
     ref <- newIORef (Just bs)
-    pure $ do
-      mb <- readIORef ref
-      case mb of
-        Nothing -> pure BS.empty
-        Just b  -> do
-          writeIORef ref Nothing
-          pure b
+    pure $ atomicModifyIORef' ref $ \case
+      Nothing -> (Nothing, BS.empty)
+      Just b  -> (Nothing, b)
   U.BodyStream producer -> pure $ do
     mb <- producer
     case mb of
@@ -147,9 +166,7 @@ waiBodyToBody reader = U.BodyStream $ do
 ------------------------------------------------------------------------
 
 splitTarget :: ByteString -> (ByteString, ByteString)
-splitTarget bs =
-  let (path, rest) = BS.break (== 0x3F) bs
-  in (path, rest)
+splitTarget bs = BS.break (== 0x3F) bs
 
 decodePath :: ByteString -> [T.Text]
 decodePath raw =
@@ -158,24 +175,33 @@ decodePath raw =
        then []
        else map TE.decodeUtf8 (BS.split 0x2F stripped)
 
+-- | Ensure the header list contains a Host entry. If absent and
+-- an authority is available, synthesise one.
+ensureHost :: Maybe ByteString -> U.Headers -> U.Headers
+ensureHost mAuth hdrs
+  | U.hasHeader U.hHost hdrs = hdrs
+  | Just auth <- mAuth = (U.hHost, auth) : hdrs
+  | otherwise = hdrs
+
 -- | Convert a wireform unified 'U.Request' into a WAI 'Wai.Request'.
 --
 -- Fields WAI needs but wireform doesn't carry (vault, remoteHost) are
--- filled with sensible defaults.
+-- filled with sensible defaults.  A @Host@ header is synthesised from
+-- 'U.requestAuthority' if not already present in the header list.
 toWaiRequest :: U.Request -> IO Wai.Request
 toWaiRequest r = do
-  bodyReader <- mkWaiBodyReader (U.requestBody r)
+  let body = U.requestBody r
+  bodyReader <- mkWaiBodyReader body
   let (rawPath, rawQS) = splitTarget (U.requestTarget r)
       secure = case U.requestScheme r of
         U.SchemeHttps -> True
         U.SchemeHttp  -> False
-      bodyLen = case U.requestBody r of
+      bodyLen = case body of
         U.BodyEmpty    -> Wai.KnownLength 0
         U.BodyBytes bs -> Wai.KnownLength (fromIntegral (BS.length bs))
         U.BodyStream _ -> Wai.ChunkedBody
-      waiHdrs = toWaiHeaders (U.requestHeaders r)
-      hostHdr = U.lookupHeader U.hHost (U.requestHeaders r)
-      authority = U.requestAuthority r
+      waiHdrs = toWaiHeaders (ensureHost (U.requestAuthority r) (U.requestHeaders r))
+      hostHdr = U.lookupHeader U.hHost waiHdrs
   pure $ Wai.setRequestBodyChunks bodyReader $ Wai.mapRequestHeaders (const waiHdrs)
     Wai.defaultRequest
       { WaiI.requestMethod = toWaiMethod (U.requestMethod r)
@@ -188,10 +214,10 @@ toWaiRequest r = do
       , WaiI.queryString = WAIHttp.parseQuery rawQS
       , WaiI.vault = Vault.empty
       , WaiI.requestBodyLength = bodyLen
-      , WaiI.requestHeaderHost = firstJust hostHdr authority
-      , WaiI.requestHeaderRange = U.lookupHeader U.hRange (U.requestHeaders r)
-      , WaiI.requestHeaderReferer = lookupCI "Referer" (U.requestHeaders r)
-      , WaiI.requestHeaderUserAgent = U.lookupHeader U.hUserAgent (U.requestHeaders r)
+      , WaiI.requestHeaderHost = hostHdr
+      , WaiI.requestHeaderRange = U.lookupHeader U.hRange waiHdrs
+      , WaiI.requestHeaderReferer = lookupCI "Referer" waiHdrs
+      , WaiI.requestHeaderUserAgent = U.lookupHeader U.hUserAgent waiHdrs
       }
 
 -- | Convert a WAI 'Wai.Request' into a wireform unified 'U.Request'.
@@ -240,24 +266,31 @@ fromWaiResponse resp = do
   pure U.Response
     { U.responseStatus     = fromWaiStatus status
     , U.responseVersion    = U.HTTP1_1
-    , U.responseHeaders    = fromWaiHeaders hdrs
+    , U.responseHeaders    = stripFramingHeaders (fromWaiHeaders hdrs)
     , U.responseBody       = if BS.null body then U.BodyEmpty else U.BodyBytes body
     , U.responseTrailers   = pure []
     , U.responseH2StreamId = 0
     , U.responseCancel     = pure ()
     }
 
+-- | When materializing a streamed response to BodyBytes, the
+-- original Transfer-Encoding header is no longer meaningful.
+-- The wireform encoder will set Content-Length on encode.
+stripFramingHeaders :: U.Headers -> U.Headers
+stripFramingHeaders = U.deleteHeader U.hTransferEncoding
+
+-- | Collect a WAI StreamingBody into a strict ByteString.
+-- Uses a difference-list style accumulator to avoid O(n²) appends.
 collectStreamingBody :: ((WaiI.StreamingBody -> IO ByteString) -> IO ByteString) -> IO ByteString
 collectStreamingBody withBody = withBody $ \streamBody -> do
-  chunksRef <- newIORef []
+  accRef <- newIORef id
   streamBody
     (\builder -> do
-      let bs = LBS.toStrict (toLazyByteString builder)
-      chunks <- readIORef chunksRef
-      writeIORef chunksRef (chunks <> [bs]))
+      let !bs = LBS.toStrict (toLazyByteString builder)
+      atomicModifyIORef' accRef (\dl -> (dl . (bs :), ())))
     (pure ())
-  chunks <- readIORef chunksRef
-  pure (BS.concat chunks)
+  dl <- readIORef accRef
+  pure $! BS.concat (dl [])
 
 ------------------------------------------------------------------------
 -- Server-level adapters
@@ -292,6 +325,9 @@ handlerToWai handler waiReq respond = do
 -- This is the primary entry point for testing existing WAI apps with
 -- wireform-http's client infrastructure (middleware stack, matchers,
 -- assertions, VCR, etc.).
+--
+-- The client request URI is parsed to extract path, query, host, and
+-- scheme; absolute URIs (after 'withBaseURL') are handled correctly.
 waiTransport :: Wai.Application -> CT.Transport IO
 waiTransport app = CT.Transport $ \clientReq -> do
   waiReq <- clientRequestToWai clientReq
@@ -303,31 +339,53 @@ waiTransport app = CT.Transport $ \clientReq -> do
 
 clientRequestToWai :: CR.Request CBS.BodyStream -> IO Wai.Request
 clientRequestToWai req = do
-  let renderedURI = URI.requestURIToText (CR.requestURI req)
-      (rawPath, rawQS) = splitTarget (TE.encodeUtf8 renderedURI)
-      waiHdrs = toWaiHeaders (CR.headers req)
-      hostHdr = U.lookupHeader U.hHost (CR.headers req)
+  let waiHdrs = toWaiHeaders (CR.headers req)
+  (rawPath, rawQS, hostVal, secure) <- case URI.renderRequestURI (CR.requestURI req) of
+    Right uri -> pure
+      ( let p = URI.uriPath uri in if BS.null p then "/" else p
+      , let q = URI.uriQuery uri in if BS.null q then "" else "?" <> q
+      , Just (URI.uriHost uri <> portSuffix uri)
+      , URI.uriScheme uri == URI.SchemeHttps
+      )
+    Left _ ->
+      -- Relative URI (no base URL set) — fall back to text rendering
+      let txt = URI.requestURIToText (CR.requestURI req)
+          bs  = TE.encodeUtf8 txt
+          (p, q) = splitTarget bs
+      in pure (p, q, U.lookupHeader U.hHost (CR.headers req), False)
   bodyReader <- bodyStreamToWaiReader (CR.body req)
   let bodyLen = case CBS.knownSize (CR.body req) of
         Just n  -> Wai.KnownLength (fromIntegral n)
         Nothing -> Wai.ChunkedBody
-  pure $ Wai.setRequestBodyChunks bodyReader $ Wai.mapRequestHeaders (const waiHdrs)
+      allHdrs = case hostVal of
+        Just h | not (U.hasHeader U.hHost (CR.headers req)) ->
+          (U.hHost, h) : waiHdrs
+        _ -> waiHdrs
+  pure $ Wai.setRequestBodyChunks bodyReader $ Wai.mapRequestHeaders (const allHdrs)
     Wai.defaultRequest
       { WaiI.requestMethod = U.fromMethod (CR.method req)
       , WaiI.httpVersion = WAIHttp.http11
       , WaiI.rawPathInfo = rawPath
       , WaiI.rawQueryString = rawQS
-      , WaiI.isSecure = False
+      , WaiI.isSecure = secure
       , WaiI.remoteHost = NS.SockAddrInet 0 0
       , WaiI.pathInfo = decodePath rawPath
       , WaiI.queryString = WAIHttp.parseQuery rawQS
       , WaiI.vault = Vault.empty
       , WaiI.requestBodyLength = bodyLen
-      , WaiI.requestHeaderHost = hostHdr
-      , WaiI.requestHeaderRange = U.lookupHeader U.hRange (CR.headers req)
-      , WaiI.requestHeaderReferer = lookupCI "Referer" (CR.headers req)
-      , WaiI.requestHeaderUserAgent = U.lookupHeader U.hUserAgent (CR.headers req)
+      , WaiI.requestHeaderHost = U.lookupHeader U.hHost allHdrs
+      , WaiI.requestHeaderRange = U.lookupHeader U.hRange allHdrs
+      , WaiI.requestHeaderReferer = lookupCI "Referer" allHdrs
+      , WaiI.requestHeaderUserAgent = U.lookupHeader U.hUserAgent allHdrs
       }
+
+portSuffix :: URI.URI -> ByteString
+portSuffix uri =
+  let p = URI.uriPort uri
+      isDefault = case URI.uriScheme uri of
+        URI.SchemeHttp  -> p == 80
+        URI.SchemeHttps -> p == 443
+  in if isDefault then "" else ":" <> TE.encodeUtf8 (T.pack (show p))
 
 bodyStreamToWaiReader :: CBS.BodyStream -> IO (IO ByteString)
 bodyStreamToWaiReader stream = pure (CBS.pull stream)
@@ -338,20 +396,23 @@ bodyStreamToWaiReader stream = pure (CBS.pull stream)
 
 fromWaiResponseToRaw :: ((Wai.Response -> IO ResponseReceived) -> IO ResponseReceived) -> IO CResp.RawResponse
 fromWaiResponseToRaw withRespond = do
-  resultRef <- newIORef (error "WAI application did not call respond")
+  resultRef <- newIORef Nothing
   _ <- withRespond $ \waiResp -> do
     let (status, hdrs, withBody) = Wai.responseToStream waiResp
     body <- collectStreamingBody withBody
     popper <- CBS.popperFromStrict body
     let raw = CResp.RawResponse
           { CResp.statusCode   = fromWaiStatus status
-          , CResp.headers      = fromWaiHeaders hdrs
+          , CResp.headers      = stripFramingHeaders (fromWaiHeaders hdrs)
           , CResp.bodyPopper   = popper
           , CResp.protocolInfo = P.HTTP1_1
           }
-    writeIORef resultRef raw
+    writeIORef resultRef (Just raw)
     pure ResponseReceived
-  readIORef resultRef
+  mr <- readIORef resultRef
+  case mr of
+    Just raw -> pure raw
+    Nothing  -> throwIO WaiAppDidNotRespond
 
 ------------------------------------------------------------------------
 -- WAI response CPS helper (for waiToHandler)
@@ -359,20 +420,19 @@ fromWaiResponseToRaw withRespond = do
 
 fromWaiResponseCPS :: ((Wai.Response -> IO ResponseReceived) -> IO ResponseReceived) -> IO U.Response
 fromWaiResponseCPS withRespond = do
-  resultRef <- newIORef (error "WAI application did not call respond")
+  resultRef <- newIORef Nothing
   _ <- withRespond $ \waiResp -> do
     r <- fromWaiResponse waiResp
-    writeIORef resultRef r
+    writeIORef resultRef (Just r)
     pure ResponseReceived
-  readIORef resultRef
+  mr <- readIORef resultRef
+  case mr of
+    Just r  -> pure r
+    Nothing -> throwIO WaiAppDidNotRespond
 
 ------------------------------------------------------------------------
 -- Internal helpers
 ------------------------------------------------------------------------
-
-firstJust :: Maybe a -> Maybe a -> Maybe a
-firstJust (Just x) _ = Just x
-firstJust Nothing  y = y
 
 lookupCI :: ByteString -> U.Headers -> Maybe ByteString
 lookupCI name = U.lookupHeader (CI.mk name)
