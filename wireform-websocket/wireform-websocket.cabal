@@ -75,12 +75,22 @@ library
   hs-source-dirs: src
   ghc-options:
     -O2
+  install-includes:
+    wf_pmd.h
+  include-dirs: cbits
+  c-sources:
+    cbits/wf_pmd.c
+  cc-options: -O2
+  pkgconfig-depends:
+    zlib
   exposed-modules:
     Network.WebSocket
     Network.WebSocket.Frame
     Network.WebSocket.Handshake
     Network.WebSocket.Connection
+    Network.WebSocket.Connection.Role
     Network.WebSocket.Message
+    Network.WebSocket.PerMessageDeflate
     Network.WebSocket.Server
     Network.WebSocket.Client
     Network.WebSocket.URI

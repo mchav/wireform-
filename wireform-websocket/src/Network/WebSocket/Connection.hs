@@ -42,7 +42,9 @@ module Network.WebSocket.Connection
   , connectionRole
   , connectionReceive
   , connectionSend
+  , connectionPmd
   , attachCleanup
+  , attachPmd
   , closeConnection
 
     -- * Frame I\/O
@@ -99,20 +101,9 @@ import Wireform.Transport.Send (SendTransport, sendBuilderDirect,
   withSendCork)
 import qualified Wireform.Network as N
 
+import Network.WebSocket.Connection.Role
 import Network.WebSocket.Frame
-
-------------------------------------------------------------------------
--- Role
-------------------------------------------------------------------------
-
--- | Which side of the connection we are.  Determines masking and
--- handshake direction.
-data Role = Server | Client
-  deriving stock (Eq, Show)
-
-peerRole :: Role -> Role
-peerRole Server = Client
-peerRole Client = Server
+import Network.WebSocket.PerMessageDeflate (PmdContext, freePmdContext)
 
 ------------------------------------------------------------------------
 -- Connection
@@ -158,6 +149,12 @@ data Connection = Connection
     -- 'attachCleanup' /prepends/ its action, so callers run in
     -- last-attached-first-executed order at 'closeConnection'
     -- time \u2014 the same shape nested 'bracket's unwind.
+  , connPmd      :: !(IORef (Maybe PmdContext))
+    -- ^ Permessage-deflate context (RFC 7692).  'Nothing' means
+    -- the extension was not negotiated and RSV1 is forbidden.
+    -- Set via 'attachPmd' during the post-handshake setup; the
+    -- matching 'freePmdContext' is queued onto 'connCleanup'
+    -- so 'closeConnection' tears it down.
   , connClosed   :: !(IORef Bool)
   }
 
@@ -207,6 +204,7 @@ buildConnection role lim duplex rLock sLock = do
   posRef    <- newIORef pos0
   closeSent <- newIORef False
   cleanup   <- newIORef (pure ())
+  pmdRef    <- newIORef Nothing
   cref      <- newIORef False
   pure Connection
     { connDuplex    = duplex
@@ -217,6 +215,7 @@ buildConnection role lim duplex rLock sLock = do
     , connRecvPos   = posRef
     , connSentClose = closeSent
     , connCleanup   = cleanup
+    , connPmd       = pmdRef
     , connClosed    = cref
     }
 
@@ -248,6 +247,40 @@ closeConnection conn = mask_ $ do
     runCleanups <- readIORef (connCleanup conn)
     _ <- try @SomeException runCleanups
     pure ()
+
+-- | Permessage-deflate context (RFC 7692) attached to this
+-- connection, or 'Nothing' if the extension was not negotiated.
+-- Reads through an 'IORef' so callers that need to introspect a
+-- live connection (debug tooling, runtime logging) can see the
+-- current state without races against 'attachPmd'.
+connectionPmd :: Connection -> IO (Maybe PmdContext)
+connectionPmd = readIORef . connPmd
+
+-- | Attach a 'PmdContext' to a fresh connection.  Idempotent in
+-- the sense that re-attaching frees the prior context first; in
+-- normal use this is only called once, immediately after the
+-- WebSocket handshake completes and the negotiated parameters are
+-- known.  The cleanup that releases the C-level @z_stream@s is
+-- queued onto 'connCleanup', so 'closeConnection' frees them.
+attachPmd :: Connection -> PmdContext -> IO ()
+attachPmd conn ctx = mask_ $ do
+  -- Replace any prior context.  The only path that re-attaches in
+  -- practice is a test fixture that swaps contexts to verify
+  -- failure modes; freeing the old one keeps that path leak-free.
+  mPrev <- atomicModifyIORef' (connPmd conn) (\old -> (Just ctx, old))
+  case mPrev of
+    Nothing   -> pure ()
+    Just prev -> do
+      _ <- try @SomeException (freePmdContext prev)
+      pure ()
+  -- See 'attachCleanup' for the LIFO ordering note.
+  atomicModifyIORef' (connCleanup conn) $ \prev ->
+    (freePmdContext ctx `safeFinally` prev, ())
+  where
+    safeFinally a b = do
+      _ <- try @SomeException a
+      _ <- try @SomeException b
+      pure ()
 
 -- | Stack a teardown action onto the connection.  Runs at
 -- 'closeConnection' time after the duplex has been released.
@@ -370,14 +403,20 @@ checkInboundMask conn f = case connRole conn of
 
 -- | Validate the incoming frame against the RFC 6455 framing
 -- rules the connection layer is responsible for (the parser
--- already validated the wire format).  No extension is currently
--- negotiated, so any non-zero RSV bit is a protocol error
--- (RFC 6455 \u00a75.2).  Each violation fails the connection with
--- a close frame carrying status 1002 (protocol error) before the
--- exception is raised.
+-- already validated the wire format).  RSV1 is allowed when
+-- @permessage-deflate@ is negotiated (RFC 7692 \u00a76.1) and
+-- the frame is a data frame (RSV1 on control frames is a
+-- protocol error per RFC 7692 \u00a76.1); RSV1 on a continuation
+-- frame is rejected at the message-reassembly layer
+-- ('Network.WebSocket.Message') because that layer knows the
+-- message boundary.  RSV2 and RSV3 are always protocol errors
+-- (no extension in this implementation claims them).
 checkOpcode :: Connection -> Frame -> IO ()
 checkOpcode conn f = do
-  when (frameRsv1 f || frameRsv2 f || frameRsv3 f) $
+  pmd <- readIORef (connPmd conn)
+  let pmdActive = case pmd of { Just _ -> True ; Nothing -> False }
+      rsv1Ok    = pmdActive && isData (frameOpcode f)
+  when ((frameRsv1 f && not rsv1Ok) || frameRsv2 f || frameRsv3 f) $
     failConnection conn protocolError
       "RSV bit set but no extension negotiated"
   case frameOpcode f of

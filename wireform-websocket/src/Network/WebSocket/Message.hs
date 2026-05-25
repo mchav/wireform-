@@ -52,6 +52,10 @@ import Data.Word (Word8, Word16)
 
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame
+import Network.WebSocket.PerMessageDeflate
+  ( PmdContext, Direction (..), compressMessage, decompressMessage
+  , pmdMaybeReset
+  )
 
 ------------------------------------------------------------------------
 -- Message
@@ -94,26 +98,39 @@ receiveMessage = receiveDataMessage
 receiveDataMessage :: Connection -> MessageLimit -> IO Message
 receiveDataMessage conn (MessageLimit lim) = do
   firstFrame <- nextDataFrame conn
-  let !op0 = frameOpcode firstFrame
-      !payload0 = framePayload firstFrame
+  let !op0       = frameOpcode firstFrame
+      !payload0  = framePayload firstFrame
+      !compressed0 = frameRsv1 firstFrame
   -- A continuation frame with no message in progress is a
   -- protocol error.
   case op0 of
     OpContinuation -> failConnection conn protocolError
       "continuation frame with no message in progress"
     _ -> pure ()
+  -- When permessage-deflate is negotiated, RSV1 only marks the
+  -- /first/ frame of a compressed message.  We pre-checked in
+  -- 'Network.WebSocket.Connection.checkOpcode' that RSV1 only
+  -- accompanies data frames; the continuation-frame check below
+  -- rejects RSV1 on continuation frames so the wire framing
+  -- matches RFC 7692 sec 6.1.
+  mPmd <- connectionPmd conn
+  when (compressed0 && case mPmd of { Just _ -> False; Nothing -> True }) $
+    failConnection conn protocolError
+      "RSV1 set on inbound frame but permessage-deflate not negotiated"
   when (BS.length payload0 > lim) tooBig
   if frameFin firstFrame
-    then finalise op0 payload0
+    then finalise mPmd compressed0 op0 payload0
     else do
       buf <- newIORef (BSB.byteString payload0)
       sizeRef <- newIORef (BS.length payload0)
-      go buf sizeRef op0
+      go mPmd compressed0 buf sizeRef op0
   where
     tooBig = failConnection conn messageTooBig
       "message exceeds configured limit"
-    go !buf !sizeRef !op0 = do
+    go !mPmd !compressed !buf !sizeRef !op0 = do
       f <- nextDataFrame conn
+      when (frameRsv1 f) $ failConnection conn protocolError
+        "RSV1 set on continuation frame (RFC 7692 sec 6.1)"
       case frameOpcode f of
         OpContinuation -> do
           let !plen = BS.length (framePayload f)
@@ -125,17 +142,29 @@ receiveDataMessage conn (MessageLimit lim) = do
           if frameFin f
             then do
               b <- readIORef buf
-              finalise op0 (BSL.toStrict (BSB.toLazyByteString b))
-            else go buf sizeRef op0
+              finalise mPmd compressed op0 (BSL.toStrict (BSB.toLazyByteString b))
+            else go mPmd compressed buf sizeRef op0
         other -> failConnection conn protocolError
             ("expected continuation, got " <> show other)
-    finalise OpText   bs = case TE.decodeUtf8' bs of
-      Right t -> pure (TextMessage t)
-      Left _  -> failConnection conn invalidPayload
-        "invalid UTF-8 in text message"
-    finalise OpBinary bs = pure (BinaryMessage bs)
-    finalise other    _  = failConnection conn protocolError
-        ("unexpected data opcode " <> show other)
+    finalise mPmd compressed op bs0 = do
+      bs <- if compressed
+              then case mPmd of
+                     Just ctx -> do
+                       inflated <- decompressMessage ctx bs0
+                       pmdMaybeReset ctx Inbound
+                       when (BS.length inflated > lim) tooBig
+                       pure inflated
+                     Nothing -> failConnection conn protocolError
+                       "RSV1 set but permessage-deflate not negotiated"
+              else pure bs0
+      case op of
+        OpText   -> case TE.decodeUtf8' bs of
+          Right t -> pure (TextMessage t)
+          Left _  -> failConnection conn invalidPayload
+            "invalid UTF-8 in text message"
+        OpBinary -> pure (BinaryMessage bs)
+        other    -> failConnection conn protocolError
+          ("unexpected data opcode " <> show other)
 
 -- | Read frames until a data frame appears, auto-handling ping
 -- and close along the way.
@@ -222,15 +251,46 @@ validCloseCode c
 
 -- | Send a text message as a single non-fragmented frame.
 --
--- Hot-path: goes through 'sendDataFrame' which skips the 'Frame'
--- record allocation entirely.  Use 'sendFrame' directly for
--- fragmented messages or for setting explicit RSV bits (e.g.
--- when a permessage-deflate extension is in play).
+-- Hot-path: when @permessage-deflate@ is /not/ active, the call
+-- goes through 'sendDataFrame' which skips the 'Frame' record
+-- allocation entirely.  When PMD is active, the message is first
+-- compressed via 'compressMessage' (one C-shim call per message)
+-- and sent as a single fragment with @RSV1 = True@.
 sendTextMessage :: Connection -> Text -> IO ()
-sendTextMessage conn t = sendDataFrame conn OpText (TE.encodeUtf8 t)
+sendTextMessage conn t = sendMessageWithPmd conn OpText (TE.encodeUtf8 t)
 
 sendBinaryMessage :: Connection -> ByteString -> IO ()
-sendBinaryMessage conn = sendDataFrame conn OpBinary
+sendBinaryMessage conn = sendMessageWithPmd conn OpBinary
+
+-- | Internal: dispatch on PMD presence.  Common to both text and
+-- binary message sends.
+sendMessageWithPmd :: Connection -> Opcode -> ByteString -> IO ()
+sendMessageWithPmd conn op payload = do
+  mPmd <- connectionPmd conn
+  case mPmd of
+    Nothing  -> sendDataFrame conn op payload
+    Just ctx -> sendCompressed conn ctx op payload
+
+sendCompressed :: Connection -> PmdContext -> Opcode -> ByteString -> IO ()
+sendCompressed conn ctx op payload = do
+  body <- compressMessage ctx payload
+  pmdMaybeReset ctx Outbound
+  -- PMD-marked frame: single-fragment, RSV1=1, opcode unchanged.
+  -- We go through 'sendFrame' so the existing per-direction
+  -- masking + close-idempotency machinery still applies.  The
+  -- 'sendDataFrame' fast path hard-codes RSV1=0 so it can't be
+  -- used here without a flag-passing widening that's not worth
+  -- doing while PMD usage is dwarfed by uncompressed traffic in
+  -- the bench.
+  sendFrame conn Frame
+    { frameFin     = True
+    , frameRsv1    = True
+    , frameRsv2    = False
+    , frameRsv3    = False
+    , frameOpcode  = op
+    , frameMask    = Nothing
+    , framePayload = body
+    }
 
 ------------------------------------------------------------------------
 -- Loops

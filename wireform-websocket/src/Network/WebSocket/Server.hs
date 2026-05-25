@@ -78,6 +78,7 @@ import qualified Wireform.Transport.Config as WC
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame (defaultPayloadLimit)
 import Network.WebSocket.Handshake
+import qualified Network.WebSocket.PerMessageDeflate as PMD
 
 ------------------------------------------------------------------------
 -- Config
@@ -112,6 +113,14 @@ data WebSocketServerConfig = WebSocketServerConfig
     -- 'Network.WebSocket.Client.wcSubProtocols' field; the
     -- client validates that whatever you return here is in the
     -- list it offered.
+  , wscPermessageDeflate :: !(Maybe PMD.PmdParams)
+    -- ^ When 'Just', the server advertises @permessage-deflate@
+    -- (RFC 7692) in its handshake reply and binds a 'PmdContext'
+    -- to the resulting 'Connection'.  The 'PmdParams' acts as a
+    -- ceiling: the server picks the most permissive negotiation
+    -- that fits within these bounds and what the client offered.
+    -- 'Nothing' (the default) declines compression even if the
+    -- client asks.
   , wscSingleThreaded    :: !Bool
     -- ^ When 'True' (default), the handler is the only thread
     -- that ever touches its 'Connection' and the per-direction
@@ -156,6 +165,7 @@ defaultWebSocketServerConfig = WebSocketServerConfig
   , wscForkConnection    = forkIO
   , wscOnHandshakeError  = \_ -> pure ()
   , wscSelectSubProtocol = \_ -> Nothing
+  , wscPermessageDeflate = Nothing
   , wscSingleThreaded    = True
   , wscRingSizeHint      = 256 * 1024
   }
@@ -238,9 +248,11 @@ acceptWebSocketOnSocket cfg sock = act `finally` closeIgnore (NS.close sock)
             wscOnHandshakeError cfg e
             writeBadRequest sock e
           Right wsreq -> do
-            let resp = serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
+            let mPmd = negotiatePmd cfg wsreq
+                resp = augmentResponseForPmd mPmd $
+                  serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
             NSB.sendAll sock (renderResponseHead resp)
-            runHandlerOverDuplex cfg wsreq sock Nothing leftover
+            runHandlerOverDuplex cfg wsreq sock Nothing leftover mPmd
 
 -- | TLS variant: handshake has already happened, we own the
 -- 'TLS.SslConn'.  Reads the HTTP handshake through TLS, validates,
@@ -262,10 +274,35 @@ acceptWebSocketOnTls cfg ssl = do
         _ <- try @SomeException (TLS.tlsSend ssl (renderBadRequest e))
         pure ()
       Right wsreq -> do
-        let resp = serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
+        let mPmd = negotiatePmd cfg wsreq
+            resp = augmentResponseForPmd mPmd $
+              serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
         TLS.tlsSend ssl (renderResponseHead resp)
         runHandlerOverDuplex cfg wsreq (TLS.sslConnSocket ssl)
-          (Just ssl) leftover
+          (Just ssl) leftover mPmd
+
+-- | Server-side PMD negotiation.  Returns 'Nothing' when the
+-- server has declined the extension (either 'wscPermessageDeflate'
+-- is 'Nothing' or no compatible client offer was found).
+negotiatePmd
+  :: WebSocketServerConfig
+  -> WebSocketRequest
+  -> Maybe PMD.PmdParams
+negotiatePmd cfg wsreq = do
+  policy <- wscPermessageDeflate cfg
+  let offers = PMD.parseOffers (wsReqExtensions wsreq)
+  PMD.selectOffer policy offers
+
+-- | If PMD was negotiated, slot the response @Sec-WebSocket-Extensions@
+-- header into the 101 reply.  Otherwise leave the response
+-- untouched.
+augmentResponseForPmd :: Maybe PMD.PmdParams -> Response -> Response
+augmentResponseForPmd Nothing  r = r
+augmentResponseForPmd (Just p) r = r
+  { responseHeaders =
+      responseHeaders r
+        <> [(CI.mk "Sec-WebSocket-Extensions", PMD.responseHeader p)]
+  }
 
 ------------------------------------------------------------------------
 -- Handler driver
@@ -279,8 +316,11 @@ runHandlerOverDuplex
   -> ByteString          -- ^ leftover bytes pulled past the header
                          --   block; must be the first thing the
                          --   parser sees.
+  -> Maybe PMD.PmdParams -- ^ negotiated PMD parameters, or
+                         --   'Nothing' if the extension was not
+                         --   negotiated for this connection.
   -> IO ()
-runHandlerOverDuplex cfg req sock mSsl leftover = do
+runHandlerOverDuplex cfg req sock mSsl leftover mPmd = do
   let tcfg = N.defaultTransportConfig { WC.ringSizeHint = wscRingSizeHint cfg }
   duplex <- case mSsl of
     Nothing  -> prebufferedDuplex tcfg sock leftover
@@ -288,6 +328,11 @@ runHandlerOverDuplex cfg req sock mSsl leftover = do
   conn <- if wscSingleThreaded cfg
             then newConnectionUnlocked Server defaultPayloadLimit duplex
             else newConnection         Server defaultPayloadLimit duplex
+  case mPmd of
+    Nothing -> pure ()
+    Just p  -> do
+      pmdCtx <- PMD.newPmdContext Server p
+      attachPmd conn pmdCtx
   invokeHandler cfg req conn
 
 invokeHandler :: WebSocketServerConfig -> WebSocketRequest -> Connection -> IO ()

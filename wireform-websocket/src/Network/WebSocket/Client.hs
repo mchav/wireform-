@@ -78,6 +78,7 @@ import qualified Wireform.Transport.Config as WC
 
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame (defaultPayloadLimit)
+import qualified Network.WebSocket.PerMessageDeflate as PMD
 
 ------------------------------------------------------------------------
 -- Config
@@ -94,6 +95,15 @@ data WebSocketClientConfig = WebSocketClientConfig
   , wcSubProtocols    :: ![ByteString]
   , wcExtensions      :: ![ByteString]
   , wcExtraHeaders    :: ![H.Header]
+  , wcPermessageDeflate :: !(Maybe PMD.PmdOffer)
+    -- ^ When 'Just', the client offers @permessage-deflate@
+    -- (RFC 7692) in the handshake.  If the server returns the
+    -- extension in its 101 reply we install a 'PmdContext' on the
+    -- resulting 'Connection' before handing it to the caller, and
+    -- 'shrExtensions' will contain the negotiated parameters.
+    -- 'Nothing' (the default) sends no @Sec-WebSocket-Extensions@
+    -- header.  Coexists with 'wcExtensions' — any verbatim
+    -- strings there are concatenated with the PMD offer.
   , wcTls             :: !(Maybe WebSocketClientTls)
   , wcRingSizeHint    :: !Int
   , wcSingleThreaded  :: !Bool
@@ -131,16 +141,17 @@ defaultWebSocketClientConfig
   -> ByteString   -- ^ target
   -> WebSocketClientConfig
 defaultWebSocketClientConfig h p t = WebSocketClientConfig
-  { wcHost           = h
-  , wcPort           = p
-  , wcTarget         = t
-  , wcAuthority      = BS8.pack (h <> ":" <> p)
-  , wcSubProtocols   = []
-  , wcExtensions     = []
-  , wcExtraHeaders   = []
-  , wcTls            = Nothing
-  , wcRingSizeHint   = 256 * 1024
-  , wcSingleThreaded = True
+  { wcHost              = h
+  , wcPort              = p
+  , wcTarget            = t
+  , wcAuthority         = BS8.pack (h <> ":" <> p)
+  , wcSubProtocols      = []
+  , wcExtensions        = []
+  , wcExtraHeaders      = []
+  , wcPermessageDeflate = Nothing
+  , wcTls               = Nothing
+  , wcRingSizeHint      = 256 * 1024
+  , wcSingleThreaded    = True
   }
 
 -- | Build a 'WebSocketClientConfig' from a parsed
@@ -157,16 +168,17 @@ clientConfigFromURI u =
         WssScheme -> Just wsTlsDefault
           { wctServerName = Just (wsuHost u) }
   in WebSocketClientConfig
-       { wcHost           = host
-       , wcPort           = port
-       , wcTarget         = wsuTarget u
-       , wcAuthority      = canonicalAuthority u
-       , wcSubProtocols   = []
-       , wcExtensions     = []
-       , wcExtraHeaders   = []
-       , wcTls            = tls
-       , wcRingSizeHint   = 256 * 1024
-       , wcSingleThreaded = True
+       { wcHost              = host
+       , wcPort              = port
+       , wcTarget            = wsuTarget u
+       , wcAuthority         = canonicalAuthority u
+       , wcSubProtocols      = []
+       , wcExtensions        = []
+       , wcExtraHeaders      = []
+       , wcPermessageDeflate = Nothing
+       , wcTls               = tls
+       , wcRingSizeHint      = 256 * 1024
+       , wcSingleThreaded    = True
        }
   where
     canonicalAuthority WebSocketURI{ wsuScheme = s, wsuHost = h, wsuPort = p }
@@ -303,11 +315,12 @@ openPlain
   -> NS.Socket
   -> IO (ServerHandshakeResult, Connection)
 openPlain cfg sock = do
-  (shr, leftover) <- doHandshake cfg
+  (shr, mPmd, leftover) <- doHandshake cfg
                                  (NSB.sendAll sock)
                                  (NSB.recv sock 4096)
   duplex <- prebufferedDuplex (transportCfg cfg) sock leftover
   conn   <- mkClientConnection cfg duplex
+  attachPmdIfNegotiated conn mPmd
   -- The duplex's close doesn't tear down the raw socket — its
   -- contract is to release the magic ring and half-close the
   -- write side.  Attach an explicit socket close so the imperative
@@ -341,11 +354,12 @@ openTls cfg tlsCfg sock = do
         Just s | wctVerifyPeer tlsCfg ->
           TLS.setClientHostnameVerify ssl s
         _ -> pure ()
-      (shr, leftover) <- doHandshake cfg
+      (shr, mPmd, leftover) <- doHandshake cfg
                                      (TLS.tlsSend ssl)
                                      (recvTlsChunk ssl)
       duplex <- prebufferedDuplexTls (transportCfg cfg) sock ssl leftover
       conn   <- mkClientConnection cfg duplex
+      attachPmdIfNegotiated conn mPmd
       -- The TLS context, the SSL connection, and the raw socket
       -- all outlive the duplex itself; attach a cleanup chain so
       -- 'closeWebSocketClient' tears them down in the right order
@@ -356,6 +370,12 @@ openTls cfg tlsCfg sock = do
         TLS.freeCtx ctx
         NS.close sock
       pure (shr, conn)
+
+attachPmdIfNegotiated :: Connection -> Maybe PMD.PmdParams -> IO ()
+attachPmdIfNegotiated _    Nothing  = pure ()
+attachPmdIfNegotiated conn (Just p) = do
+  ctx <- PMD.newPmdContext Client p
+  attachPmd conn ctx
 
 politeClose :: Connection -> IO ()
 politeClose conn = do
@@ -386,11 +406,15 @@ doHandshake
   :: WebSocketClientConfig
   -> (ByteString -> IO ())                  -- ^ send raw bytes
   -> IO ByteString                           -- ^ recv one chunk
-  -> IO (ServerHandshakeResult, ByteString)  -- ^ (result, leftover)
+  -> IO (ServerHandshakeResult, Maybe PMD.PmdParams, ByteString)
+  -- ^ (result, negotiated PMD, leftover)
 doHandshake cfg send recv = do
-  let opts = (defaultWebSocketHandshakeOpts (wcTarget cfg) (wcAuthority cfg))
+  let pmdExt = case wcPermessageDeflate cfg of
+        Nothing  -> []
+        Just off -> [PMD.offerHeader off]
+      opts = (defaultWebSocketHandshakeOpts (wcTarget cfg) (wcAuthority cfg))
         { wsOptProtocols    = wcSubProtocols cfg
-        , wsOptExtensions   = wcExtensions cfg
+        , wsOptExtensions   = wcExtensions cfg <> pmdExt
         , wsOptExtraHeaders = wcExtraHeaders cfg
         }
   (reqBytes, key) <- buildClientHandshake opts
@@ -403,7 +427,43 @@ doHandshake cfg send recv = do
       Left  e -> throwIO (WebSocketClientError ("handshake rejected: " <> show e))
       Right () -> do
         shr <- validateNegotiation cfg hdrs
-        pure (shr, leftover)
+        mPmd <- validatePmdResponse cfg (shrExtensions shr)
+        pure (shr, mPmd, leftover)
+
+-- | When the client offered @permessage-deflate@, look for the
+-- server's reply.  If the server included @permessage-deflate@ in
+-- its response, parse the negotiated parameters; otherwise return
+-- 'Nothing' (server declined, no extension is active).  Rejects
+-- if the client did /not/ offer PMD but the server returned it.
+validatePmdResponse
+  :: WebSocketClientConfig
+  -> [ByteString]
+  -> IO (Maybe PMD.PmdParams)
+validatePmdResponse cfg exts = do
+  let pmdRespHeaders = filter isPmdExt exts
+  case (wcPermessageDeflate cfg, pmdRespHeaders) of
+    (Nothing, [])    -> pure Nothing
+    (Nothing, _ : _) ->
+      throwIO (WebSocketClientError
+        "server responded with permessage-deflate but client did not offer it")
+    (Just _, [])     -> pure Nothing
+    (Just _, hdr : _) -> case PMD.parseResponseParams hdr of
+      Just p  -> pure (Just p)
+      Nothing -> throwIO (WebSocketClientError
+        ("malformed permessage-deflate response parameters: " <> show hdr))
+  where
+    isPmdExt v = case BS.split 0x3B v of
+      (name : _) -> stripOws name == "permessage-deflate"
+      _          -> False
+    stripOws = BS.dropWhile isWs . trimEnd
+    isWs b = b == 0x20 || b == 0x09
+    trimEnd s =
+      let !n = BS.length s
+          go i
+            | i <= 0           = BS.empty
+            | isWs (BS.index s (i - 1)) = go (i - 1)
+            | otherwise        = BS.take i s
+      in go n
 
 -- | Pull the negotiated sub-protocol and extension list out of
 -- the server's reply, validating that the sub-protocol is one
