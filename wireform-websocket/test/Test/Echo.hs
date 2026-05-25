@@ -31,6 +31,7 @@ import Network.WebSocket.Client
 import Network.WebSocket.Handshake
 import Network.WebSocket.Message
 import Network.WebSocket.Server
+import qualified Network.WebSocket.PerMessageDeflate as PMD
 
 tests :: TestTree
 tests = testGroup "Echo"
@@ -40,6 +41,10 @@ tests = testGroup "Echo"
   , echoViaURI
   , subProtocolNegotiation
   , unofferedSubProtocolRejected
+  , echoDeflate
+  , echoDeflateLargePayload
+  , echoDeflateBackToBack
+  , echoDeflateClientOffersServerDeclines
   ]
 
 ------------------------------------------------------------------------
@@ -284,3 +289,105 @@ echoHandler _req conn = loop
         Right (TextMessage t)    -> sendTextMessage conn t   >> loop
         Right (BinaryMessage bs) -> sendBinaryMessage conn bs >> loop
         Left _                    -> pure ()  -- peer closed
+
+------------------------------------------------------------------------
+-- permessage-deflate round-trips
+------------------------------------------------------------------------
+
+-- | Echo server that advertises @permessage-deflate@ with the
+-- default ceiling.  When the client offers compression, the server
+-- accepts and both sides exchange RSV1-marked frames transparently
+-- to the user-level message API.
+withEchoServerPmd :: (Int -> IO a) -> IO a
+withEchoServerPmd = withServerCfgVariant cfg
+  where
+    cfg = defaultWebSocketServerConfig
+      { wscHandler           = echoHandler
+      , wscPermessageDeflate = Just PMD.defaultPmdParams
+      }
+
+echoDeflate :: TestTree
+echoDeflate = testCase "echoes a short text with permessage-deflate" $ do
+  r <- timeout 10_000_000 $ withEchoServerPmd $ \port -> do
+    let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+          { wcPermessageDeflate = Just PMD.defaultPmdOffer
+          }
+    withWebSocketClient' cfg $ \shr conn -> do
+      shrExtensions shr @?= ["permessage-deflate"]
+      sendTextMessage conn "hello, compressed websocket"
+      msg <- receiveMessage conn defaultMessageLimit
+      case msg of
+        TextMessage t -> t @?= "hello, compressed websocket"
+        other         -> assertFailure ("expected TextMessage, got " <> show other)
+  case r of
+    Just () -> pure ()
+    Nothing -> assertFailure "deflate echo timed out after 10s"
+
+echoDeflateLargePayload :: TestTree
+echoDeflateLargePayload =
+  testCase "echoes a highly compressible 64 KiB payload with permessage-deflate" $ do
+    r <- timeout 20_000_000 $ withEchoServerPmd $ \port -> do
+      let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+            { wcPermessageDeflate = Just PMD.defaultPmdOffer
+            }
+          big = BS.replicate (64 * 1024) (fromIntegral (fromEnum 'X'))
+      withWebSocketClient cfg $ \conn -> do
+        sendBinaryMessage conn big
+        msg <- receiveMessage conn defaultMessageLimit
+        case msg of
+          BinaryMessage bs -> bs @?= big
+          other            -> assertFailure ("expected BinaryMessage, got " <> show other)
+    case r of
+      Just () -> pure ()
+      Nothing -> assertFailure "deflate large-payload echo timed out"
+
+-- | Send a sequence of messages with context-takeover enabled.  Each
+-- subsequent message benefits from the deflate dictionary built up
+-- by previous ones; the round-trip must still recover the input
+-- exactly.
+echoDeflateBackToBack :: TestTree
+echoDeflateBackToBack =
+  testCase "context takeover round-trips a sequence of messages" $ do
+    r <- timeout 20_000_000 $ withEchoServerPmd $ \port -> do
+      let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+            { wcPermessageDeflate = Just PMD.defaultPmdOffer
+            }
+          msgs =
+            [ "first message"
+            , "second message reusing some 'message' tokens"
+            , "third message reusing tokens from the previous messages"
+            , "fourth message even more dictionary hits"
+            ]
+      withWebSocketClient cfg $ \conn -> do
+        mapM_ (oneRound conn) msgs
+    case r of
+      Just () -> pure ()
+      Nothing -> assertFailure "back-to-back deflate echo timed out"
+  where
+    oneRound conn m = do
+      sendTextMessage conn m
+      received <- receiveMessage conn defaultMessageLimit
+      case received of
+        TextMessage t -> t @?= m
+        other         -> assertFailure ("unexpected " <> show other)
+
+-- | Client offers PMD, server is configured not to accept it.  The
+-- handshake must complete normally and the connection must work
+-- without compression.
+echoDeflateClientOffersServerDeclines :: TestTree
+echoDeflateClientOffersServerDeclines =
+  testCase "server declines PMD; uncompressed echo still works" $ do
+    r <- timeout 10_000_000 $ withEchoServer $ \port -> do
+      let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+            { wcPermessageDeflate = Just PMD.defaultPmdOffer
+            }
+      withWebSocketClient' cfg $ \shr conn -> do
+        shrExtensions shr @?= []
+        sendTextMessage conn "no deflate this time"
+        msg <- receiveMessage conn defaultMessageLimit
+        case msg of
+          TextMessage t -> t @?= "no deflate this time"
+          other         -> assertFailure ("expected TextMessage, got " <> show other)
+    case r of
+      Just () -> pure ()
+      Nothing -> assertFailure "fallback echo timed out"

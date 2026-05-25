@@ -34,6 +34,7 @@ module Network.WebSocket.PerMessageDeflate
   , defaultPmdParams
   , PmdOffer (..)
   , defaultPmdOffer
+  , ClientMaxWindowBitsHint (..)
   , offerHeader
   , parseOffers
   , selectOffer

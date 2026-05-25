@@ -114,8 +114,16 @@ int wf_pmd_inflate(wf_pmd_stream *s,
         return WF_PMD_BAD_INPUT;
     }
 
-    s->zs.next_in   = (Bytef *) src;
-    s->zs.avail_in  = (uInt) src_len;
+    /* When @src is NULL the caller is resuming after a previous
+     * WF_PMD_NEEDS_MORE_OUT result.  The z_stream still owns any
+     * remaining input (avail_in / next_in were advanced by the
+     * prior inflate() invocation); overwriting them with NULL/0
+     * would drop that input on the floor.  Touch only the output
+     * side. */
+    if (src != NULL || src_len != 0) {
+        s->zs.next_in  = (Bytef *) src;
+        s->zs.avail_in = (uInt) src_len;
+    }
     s->zs.next_out  = (Bytef *) dst;
     s->zs.avail_out = (uInt) dst_cap;
 
@@ -161,8 +169,12 @@ int wf_pmd_deflate(wf_pmd_stream *s,
         return WF_PMD_BAD_INPUT;
     }
 
-    s->zs.next_in   = (Bytef *) src;
-    s->zs.avail_in  = (uInt) src_len;
+    /* See note on wf_pmd_inflate: on the retry path src==NULL means
+     * "keep the existing next_in / avail_in". */
+    if (src != NULL || src_len != 0) {
+        s->zs.next_in  = (Bytef *) src;
+        s->zs.avail_in = (uInt) src_len;
+    }
     s->zs.next_out  = (Bytef *) dst;
     s->zs.avail_out = (uInt) dst_cap;
 
