@@ -118,6 +118,28 @@ runWebSocketServer defaultWebSocketServerConfig
 cabal test wireform-websocket
 ```
 
-The test suite covers the RFC 6455 §5.7 wire vectors, the §4.2.2
-Sec-WebSocket-Accept vector, masking self-inverse, large payload
-round-trip, and end-to-end echo over both TCP and TLS.
+The unit test suite covers the RFC 6455 §5.7 wire vectors, the
+§4.2.2 Sec-WebSocket-Accept vector, masking self-inverse, large
+payload round-trip, and end-to-end echo over both TCP and TLS.
+
+## Conformance: Autobahn|Testsuite
+
+The package ships with an Autobahn conformance harness that runs
+the upstream Crossbar `crossbario/autobahn-testsuite` Docker image
+against the included echo server. Drive it with:
+
+```
+wireform-websocket/scripts/run-autobahn.sh
+```
+
+The script builds `wireform-websocket-autobahn-echo`, starts it on
+`127.0.0.1:9001`, runs all non-`9.x`/`12.x`/`13.x` cases (`9.x` is
+performance; `12.x`/`13.x` are permessage-deflate, which we do not
+implement), and prints a per-section summary.
+
+Last full run: **247 / 247 passed** across sections 1 (framing),
+2 (ping/pong), 3 (reserved bits), 4 (opcodes), 5 (fragmentation),
+6 (UTF-8 handling), 7 (close handling), and 10 (misc). Excluded
+sections: `9.*` performance (not a conformance check), `12.*` /
+`13.*` permessage-deflate (RFC 7692, not yet wired through the
+RSV1 bit).

@@ -53,11 +53,13 @@ module Network.WebSocket.Connection
   , sendPong
   , sendClose
   , sendCloseWith
+  , failConnection
   , CloseCode (..)
   , normalClosure
   , goingAway
   , protocolError
   , unsupportedData
+  , invalidPayload
   , policyViolation
   , messageTooBig
   , internalError
@@ -68,15 +70,17 @@ module Network.WebSocket.Connection
 
 import Control.Concurrent.MVar
 import Control.Exception (Exception, SomeException, mask_, throwIO, try)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Word (Word16)
+import Data.Word (Word16, Word64)
 
-import Wireform.Parser.Driver (runParser)
+import Wireform.Parser.Driver
+  ( InternalResult (..), runParserInternal )
 import Wireform.Parser.Error (ParseError (..))
+import qualified Wireform.Transport.Receive as TR
 import Wireform.Transport.Receive (ReceiveTransport)
 import Wireform.Transport.Send (SendTransport, sendBuilderDirect,
   sendShutdownWrite)
@@ -114,6 +118,19 @@ data Connection = Connection
     -- ^ Serialise frame sends.  A 'Wireform.Transport.Send'
     -- reservation must be committed before the next reservation
     -- starts, so we lock the send side too.
+  , connRecvPos :: !(IORef Word64)
+    -- ^ Logical consumer position in the recv ring.  Updated
+    -- after every successful frame parse so the next call to
+    -- 'receiveFrame' picks up where the previous one left off.
+    -- Without this, calling 'runParser' twice in succession
+    -- would re-read 'receiveLoadHead' \u2014 which is the
+    -- /producer/ position \u2014 and silently skip any frames
+    -- buffered between the consumer position and the head.
+  , connSentClose :: !(IORef Bool)
+    -- ^ Set after the first close frame goes out.  Subsequent
+    -- 'sendClose' / 'sendCloseWith' calls become no-ops so a
+    -- protocol-error close from the receive path doesn't get
+    -- doubled by the server runner's polite-close path.
   , connClosed   :: !(IORef Bool)
   }
 
@@ -126,16 +143,21 @@ newConnection
   -> N.DuplexTransport
   -> IO Connection
 newConnection role lim duplex = do
-  rLock <- newMVar ()
-  sLock <- newMVar ()
-  cref  <- newIORef False
+  rLock     <- newMVar ()
+  sLock     <- newMVar ()
+  pos0      <- TR.receiveLoadHead (N.duplexReceive duplex)
+  posRef    <- newIORef pos0
+  closeSent <- newIORef False
+  cref      <- newIORef False
   pure Connection
-    { connDuplex   = duplex
-    , connRole     = role
-    , connLimit    = lim
-    , connRecvLock = rLock
-    , connSendLock = sLock
-    , connClosed   = cref
+    { connDuplex    = duplex
+    , connRole      = role
+    , connLimit     = lim
+    , connRecvLock  = rLock
+    , connSendLock  = sLock
+    , connRecvPos   = posRef
+    , connSentClose = closeSent
+    , connClosed    = cref
     }
 
 connectionRole :: Connection -> Role
@@ -190,15 +212,30 @@ instance Exception WebSocketError
 --
 -- A 'Close' frame received here is /not/ acted on; the high-level
 -- "Network.WebSocket.Message" layer drives the close handshake.
+--
+-- Position bookkeeping: each call resumes from where the previous
+-- one left off via 'runParserInternal' + 'connRecvPos', so two
+-- successive frames buffered on the wire are both parsed.  Using
+-- 'runParser' directly here would lose the second frame because it
+-- re-reads the producer head as the start position.
 receiveFrame :: Connection -> IO Frame
 receiveFrame conn = withMVar (connRecvLock conn) $ \_ -> do
-  r <- runParser (connectionReceive conn) (parseFrame (connLimit conn))
+  pos <- readIORef (connRecvPos conn)
+  r   <- runParserInternal (connectionReceive conn)
+                           (parseFrame (connLimit conn))
+                           pos
   case r of
-    Right f -> do
+    IRDone newPos f -> do
+      writeIORef (connRecvPos conn) newPos
       checkInboundMask conn f
       checkOpcode conn f
       pure f
-    Left e -> throwIO (parseErrorToWS e)
+    IRFail _              -> throwIO (parseErrorToWS (ParseFail 0))
+    IRErr  _ e            -> throwIO (parseErrorToWS (ParseErr 0 e))
+    IRUnexpectedEof _ n   -> throwIO (parseErrorToWS (ParseUnexpectedEof 0 n))
+    IRTransportError exc  -> throwIO (parseErrorToWS (ParseTransportError exc))
+    IRCleanEof            -> throwIO (parseErrorToWS (ParseUnexpectedEof 0 0))
+    IRRingOverflow _ n sz -> throwIO (parseErrorToWS (ParseRingOverflow 0 n sz))
 
 parseErrorToWS :: ParseError FrameError -> WebSocketError
 parseErrorToWS = \case
@@ -214,28 +251,41 @@ checkInboundMask :: Connection -> Frame -> IO ()
 checkInboundMask conn f = case connRole conn of
   Server -> case frameMask f of
     Just _  -> pure ()
-    Nothing -> throwIO (WebSocketProtocolError
-                          "client-to-server frame is not masked")
+    Nothing -> failConnection conn protocolError
+                 "client-to-server frame is not masked"
   Client -> case frameMask f of
     Nothing -> pure ()
-    Just _  -> throwIO (WebSocketProtocolError
-                          "server-to-client frame must not be masked")
+    Just _  -> failConnection conn protocolError
+                 "server-to-client frame must not be masked"
 
+-- | Validate the incoming frame against the RFC 6455 framing
+-- rules the connection layer is responsible for (the parser
+-- already validated the wire format).  No extension is currently
+-- negotiated, so any non-zero RSV bit is a protocol error
+-- (RFC 6455 \u00a75.2).  Each violation fails the connection with
+-- a close frame carrying status 1002 (protocol error) before the
+-- exception is raised.
 checkOpcode :: Connection -> Frame -> IO ()
-checkOpcode _ f = case frameOpcode f of
-  OpReservedNonControl w -> throwIO (WebSocketProtocolError
-      ("reserved non-control opcode: " <> show w))
-  OpReservedControl w -> throwIO (WebSocketProtocolError
-      ("reserved control opcode: " <> show w))
-  _ | opcodeIsControl (frameOpcode f) ->
-        if BS.length (framePayload f) > 125
-          then throwIO (WebSocketProtocolError
-                  "control frame payload exceeds 125 bytes")
-          else if not (frameFin f)
-            then throwIO (WebSocketProtocolError
-                    "control frame must have FIN=1")
-            else pure ()
-    | otherwise -> pure ()
+checkOpcode conn f = do
+  when (frameRsv1 f || frameRsv2 f || frameRsv3 f) $
+    failConnection conn protocolError
+      "RSV bit set but no extension negotiated"
+  case frameOpcode f of
+    OpReservedNonControl w ->
+      failConnection conn protocolError
+        ("reserved non-control opcode: " <> show w)
+    OpReservedControl w ->
+      failConnection conn protocolError
+        ("reserved control opcode: " <> show w)
+    _ | opcodeIsControl (frameOpcode f) ->
+          if BS.length (framePayload f) > 125
+            then failConnection conn protocolError
+                   "control frame payload exceeds 125 bytes"
+            else if not (frameFin f)
+              then failConnection conn protocolError
+                     "control frame must have FIN=1"
+              else pure ()
+      | otherwise -> pure ()
 
 ------------------------------------------------------------------------
 -- Send
@@ -248,11 +298,22 @@ checkOpcode _ f = case frameOpcode f of
 --   * Client-role connections always send /masked/ frames; if the
 --     caller did not provide a mask, a fresh one is rolled with
 --     'randomMask'.
+--
+-- @OpClose@ is idempotent: only the first close frame goes out
+-- (RFC 6455 \u00a75.5.1).  Callers can spam @sendClose@ from
+-- multiple cleanup paths without doubling up the close on the
+-- wire.
 sendFrame :: Connection -> Frame -> IO ()
-sendFrame conn f0 = do
-  f <- applyOutboundMask conn f0
-  withMVar (connSendLock conn) $ \_ ->
-    sendBuilderDirect (connectionSend conn) (buildFrame f)
+sendFrame conn f0 = case frameOpcode f0 of
+  OpClose -> do
+    alreadySent <- atomicModifyIORef' (connSentClose conn) (\b -> (True, b))
+    unless alreadySent (dispatch f0)
+  _ -> dispatch f0
+  where
+    dispatch f1 = do
+      f <- applyOutboundMask conn f1
+      withMVar (connSendLock conn) $ \_ ->
+        sendBuilderDirect (connectionSend conn) (buildFrame f)
 
 -- | Non-throwing variant: catches 'IOException's from the
 -- underlying transport (peer reset etc.) and converts them to a
@@ -308,6 +369,16 @@ sendClose conn = sendCloseWith conn normalClosure ""
 -- reason payload (RFC 6455 \u00a75.5.1).  Reason is truncated to
 -- 123 bytes so the close frame stays within the 125-byte control
 -- frame limit.
+-- | Fail the connection per RFC 6455 \u00a77.1.7: best-effort send
+-- a close frame with the supplied status code and reason, then
+-- raise 'WebSocketProtocolError' so the caller's handler unwinds.
+-- The close send is wrapped in 'try' because the peer may have
+-- already torn the wire down.
+failConnection :: Connection -> CloseCode -> String -> IO a
+failConnection conn code reason = do
+  _ <- try @SomeException (sendCloseWith conn code BS.empty)
+  throwIO (WebSocketProtocolError reason)
+
 sendCloseWith :: Connection -> CloseCode -> ByteString -> IO ()
 sendCloseWith conn code reason = do
   let r = BS.take 123 reason
@@ -335,11 +406,13 @@ newtype CloseCode = CloseCode { closeCodeWord :: Word16 }
   deriving stock (Eq, Show)
 
 normalClosure, goingAway, protocolError, unsupportedData,
-  policyViolation, messageTooBig, internalError :: CloseCode
+  invalidPayload, policyViolation, messageTooBig,
+  internalError :: CloseCode
 normalClosure   = CloseCode 1000
 goingAway       = CloseCode 1001
 protocolError   = CloseCode 1002
 unsupportedData = CloseCode 1003
+invalidPayload  = CloseCode 1007
 policyViolation = CloseCode 1008
 messageTooBig   = CloseCode 1009
 internalError   = CloseCode 1011

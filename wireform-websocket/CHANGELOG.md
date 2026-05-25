@@ -37,3 +37,31 @@ Initial release.
   inherits every conformance and smuggling guard the unified HTTP
   stack carries (RFC 9112 §3.2 Host validation, target /
   request-line strictness, etc.).
+* Autobahn|Testsuite conformance: **247 / 247 passing**, covering
+  framing (§1), ping/pong (§2), reserved bits (§3), opcodes (§4),
+  fragmentation (§5), UTF-8 handling (§6), close handling (§7),
+  and miscellaneous (§10). Driven by
+  `wireform-websocket/scripts/run-autobahn.sh` against the
+  `wireform-websocket-autobahn-echo` executable. CI integration in
+  `.github/workflows/wireform-websocket-autobahn.yml`. Performance
+  (§9) and `permessage-deflate` (§12 / §13) are out of scope until
+  the RFC 7692 hook lands.
+* `receiveFrame` now threads the consumer position through
+  `runParserInternal` instead of round-tripping through
+  `receiveLoadHead` between frames — without this, two frames
+  buffered in the recv ring at the time of a frame parse would
+  cause the second frame to be silently skipped (the
+  Autobahn-driven fragmentation tests caught this).
+* Close frames are idempotent at the send path
+  (`Network.WebSocket.Connection.sendFrame` short-circuits on
+  `OpClose` after the first close has gone out) so the protocol-
+  error close sent by the receive validators isn't doubled by the
+  server runner's polite-close path.
+* Receive-side validators now use `failConnection` to emit a
+  close frame with the appropriate RFC 6455 §7.4 status code
+  before raising `WebSocketProtocolError` — 1002 for protocol
+  violations, 1007 for invalid UTF-8, 1009 for messages over the
+  configured limit. The auto-close echo in
+  `Network.WebSocket.Message` validates the peer's close payload
+  (1-byte payload = malformed, out-of-range code, non-UTF-8
+  reason) and downgrades the echo to 1002 on any of these.

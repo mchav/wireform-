@@ -40,6 +40,7 @@ module Network.WebSocket.Message
 
 import Control.Exception (throwIO)
 import Control.Monad (when)
+import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
@@ -47,7 +48,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word16)
+import Data.Word (Word8, Word16)
 
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame
@@ -95,6 +96,12 @@ receiveDataMessage conn (MessageLimit lim) = do
   firstFrame <- nextDataFrame conn
   let !op0 = frameOpcode firstFrame
       !payload0 = framePayload firstFrame
+  -- A continuation frame with no message in progress is a
+  -- protocol error.
+  case op0 of
+    OpContinuation -> failConnection conn protocolError
+      "continuation frame with no message in progress"
+    _ -> pure ()
   when (BS.length payload0 > lim) tooBig
   if frameFin firstFrame
     then finalise op0 payload0
@@ -103,7 +110,8 @@ receiveDataMessage conn (MessageLimit lim) = do
       sizeRef <- newIORef (BS.length payload0)
       go buf sizeRef op0
   where
-    tooBig = throwIO (WebSocketProtocolError "message exceeds limit")
+    tooBig = failConnection conn messageTooBig
+      "message exceeds configured limit"
     go !buf !sizeRef !op0 = do
       f <- nextDataFrame conn
       case frameOpcode f of
@@ -119,15 +127,15 @@ receiveDataMessage conn (MessageLimit lim) = do
               b <- readIORef buf
               finalise op0 (BSL.toStrict (BSB.toLazyByteString b))
             else go buf sizeRef op0
-        other -> throwIO (WebSocketProtocolError
-            ("expected continuation, got " <> show other))
+        other -> failConnection conn protocolError
+            ("expected continuation, got " <> show other)
     finalise OpText   bs = case TE.decodeUtf8' bs of
       Right t -> pure (TextMessage t)
-      Left e  -> throwIO (WebSocketProtocolError
-        ("invalid UTF-8 in text message: " <> show e))
+      Left _  -> failConnection conn invalidPayload
+        "invalid UTF-8 in text message"
     finalise OpBinary bs = pure (BinaryMessage bs)
-    finalise other    _  = throwIO (WebSocketProtocolError
-        ("unexpected data opcode " <> show other))
+    finalise other    _  = failConnection conn protocolError
+        ("unexpected data opcode " <> show other)
 
 -- | Read frames until a data frame appears, auto-handling ping
 -- and close along the way.
@@ -143,9 +151,26 @@ nextDataFrame conn = loop
         OpPong -> loop
         OpClose -> do
           let (mCode, reason) = parseCloseBody (framePayload f)
-              code = maybe normalClosure CloseCode mCode
-          -- Echo (best-effort; ignore failure if peer already
-          -- went away).
+              -- RFC 6455 sec 7.4: a close payload with length 1
+              -- is malformed (status code must be 2 bytes or 0).
+              malformed = BS.length (framePayload f) == 1
+              badCode  = case mCode of
+                Nothing -> False
+                Just c  -> not (validCloseCode c)
+              badReason = case TE.decodeUtf8' reason of
+                Right _ -> False
+                Left  _ -> True
+              echoCode
+                | malformed || badCode || badReason = closeCodeWord protocolError
+                | otherwise = case mCode of
+                    Just c  -> c
+                    Nothing -> closeCodeWord normalClosure
+              echoPayload
+                | malformed || badCode || badReason =
+                    let !hi = fromIntegral (echoCode `shiftR` 8 .&. 0xFF) :: Word8
+                        !lo = fromIntegral (echoCode .&. 0xFF) :: Word8
+                    in BS.pack [hi, lo]
+                | otherwise = framePayload f
           _ <- trySendFrame conn Frame
                  { frameFin     = True
                  , frameRsv1    = False
@@ -153,9 +178,12 @@ nextDataFrame conn = loop
                  , frameRsv3    = False
                  , frameOpcode  = OpClose
                  , frameMask    = Nothing
-                 , framePayload = framePayload f
+                 , framePayload = echoPayload
                  }
-          throwIO (WebSocketPeerClosed (Just code) reason)
+          let returnedCode
+                | malformed || badCode || badReason = Just (closeCodeWord protocolError)
+                | otherwise                          = mCode
+          throwIO (WebSocketPeerClosed (CloseCode <$> returnedCode) reason)
         _ -> pure f
 
 parseCloseBody :: ByteString -> (Maybe Word16, ByteString)
@@ -166,6 +194,27 @@ parseCloseBody bs
           !lo = fromIntegral (BS.index bs 1) :: Word16
           !code = (hi * 256) + lo
       in (Just code, BS.drop 2 bs)
+
+-- | RFC 6455 \u00a77.4: an endpoint MUST NOT send a close status
+-- code that is one of the prohibited reserved values.
+-- Specifically:
+--
+--   * 0\u20131000 are forbidden (the 4-digit space starts at 1000).
+--   * 1004, 1005, 1006 are reserved for protocol-internal use.
+--   * 1014\u20132999 are reserved (1014 was assigned for
+--     bad-gateway in newer drafts but the RFC 6455 wording still
+--     marks it).  The Autobahn suite treats 1015 and 1100\u20132999
+--     as protocol errors.
+--   * 5000+ are forbidden.
+validCloseCode :: Word16 -> Bool
+validCloseCode c
+  | c <  1000             = False
+  | c >= 1000 && c < 1004 = True
+  | c >= 1004 && c < 1007 = False
+  | c >= 1007 && c < 1012 = True
+  | c >= 1012 && c < 3000 = False
+  | c >= 3000 && c < 5000 = True
+  | otherwise             = False
 
 ------------------------------------------------------------------------
 -- Send
