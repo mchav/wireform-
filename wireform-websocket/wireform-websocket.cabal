@@ -95,7 +95,8 @@ library
     text                 >= 2.0  && < 2.2,
     wireform-core,
     wireform-network,
-    wireform-http
+    wireform-http,
+    wireform-http1
 
 test-suite wireform-websocket-test
   import: defaults

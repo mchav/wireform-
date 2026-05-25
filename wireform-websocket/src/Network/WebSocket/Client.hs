@@ -54,6 +54,10 @@ import qualified Network.Socket.ByteString as NSB
 
 import qualified Network.HTTP.Types.Header as H
 
+import qualified Network.HTTP1.Method as H1M
+import qualified Network.HTTP1.Parser as H1P
+import qualified Network.HTTP1.Types  as H1
+
 import qualified Network.WebSocket.Handshake as HS
 import Network.WebSocket.Handshake
   (buildClientHandshake, defaultWebSocketHandshakeOpts, verifyServerHandshake,
@@ -67,7 +71,6 @@ import qualified Wireform.Transport.Config as WC
 
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame (defaultPayloadLimit)
-import Network.WebSocket.Handshake
 
 ------------------------------------------------------------------------
 -- Config
@@ -368,49 +371,20 @@ splitHeaderBlock bs = case BS.breakSubstring "\r\n\r\n" bs of
   (h, t) | BS.null t -> (h, BS.empty)
          | otherwise -> (h, BS.drop 4 t)
 
+-- | Parse the 101 response head via wireform-http1's
+-- 'Network.HTTP1.Parser.parseResponse'.  The handshake is always
+-- a GET request, so we pass 'H1M.mGet' for the framing
+-- computation; the body is always empty on 101 anyway so framing
+-- only matters to keep parseResponse from refusing.
 parseStatusAndHeaders
   :: ByteString
   -> Either String (Int, [H.Header])
-parseStatusAndHeaders block =
-  let ls = splitOn "\r\n" block
-  in case ls of
-       []        -> Left "empty response head"
-       (l0:rest) -> do
-         code <- parseStatusLine l0
-         hdrs <- traverse parseHeaderLine (filter (not . BS.null) rest)
-         Right (code, hdrs)
-
-parseStatusLine :: ByteString -> Either String Int
-parseStatusLine l = case BS.split 0x20 l of
-  (_ver : code : _) -> case BS8.readInt code of
-    Just (n, leftover) | BS.null leftover -> Right n
-    _ -> Left "bad status code"
-  _ -> Left "bad status line"
-
-parseHeaderLine :: ByteString -> Either String H.Header
-parseHeaderLine bs = case BS.break (== 0x3A {- ':' -}) bs of
-  (n, rest) | BS.null rest -> Left "missing colon"
-            | otherwise    ->
-                let v0 = BS.drop 1 rest
-                    v  = BS.dropWhile (\b -> b == 0x20 || b == 0x09) v0
-                    v' = stripTrailingWs v
-                in Right (CI.mk n, v')
-  where
-    stripTrailingWs s =
-      let n = BS.length s
-          go i | i <= 0    = BS.empty
-               | otherwise = case BS.index s (i - 1) of
-                   b | b == 0x20 || b == 0x09 || b == 0x0d -> go (i - 1)
-                     | otherwise -> BS.take i s
-      in go n
-
-splitOn :: ByteString -> ByteString -> [ByteString]
-splitOn sep =
-  let !slen = BS.length sep
-      go acc bs = case BS.breakSubstring sep bs of
-        (h, t) | BS.null t -> reverse (h : acc)
-               | otherwise -> go (h : acc) (BS.drop slen t)
-  in go []
+parseStatusAndHeaders block = case H1P.parseResponse H1M.GET block of
+  Left  e -> Left (show e)
+  Right (resp, _framing) ->
+    Right ( fromIntegral (H1.statusCode (H1.responseStatus resp))
+          , map (\(n, v) -> (CI.mk n, v)) (H1.responseHeaders resp)
+          )
 
 ------------------------------------------------------------------------
 -- Raw TLS recv helper

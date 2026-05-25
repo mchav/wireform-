@@ -63,6 +63,10 @@ import qualified Network.HTTP.Types.Version as V
 import Network.HTTP.Types.Body (Body (..))
 import Network.HTTP.Message (Request (..), Response (..), Scheme (..))
 
+import qualified Network.HTTP1.Encode as H1E
+import qualified Network.HTTP1.Method as H1M
+import qualified Network.HTTP1.Types  as H1
+
 import Wireform.Base64 (decodeBase64, encodeBase64)
 
 ------------------------------------------------------------------------
@@ -260,9 +264,10 @@ generateKey = do
       ]
     byteOf w n = fromIntegral (w `shiftR` (8 * n)) :: Word8
 
--- | Render the client's HTTP\/1.1 request line + header block.
--- Returns the byte string to send and the @Sec-WebSocket-Key@
--- value that the server's reply should round-trip to a matching
+-- | Render the client's HTTP\/1.1 request line + header block via
+-- 'Network.HTTP1.Encode.encodeRequestHead'.  Returns the byte
+-- string to send and the @Sec-WebSocket-Key@ value that the
+-- server's reply should round-trip to a matching
 -- @Sec-WebSocket-Accept@.
 --
 -- This is the raw shape an upgrade-aware low-level client wants;
@@ -272,30 +277,33 @@ buildClientHandshake :: WebSocketHandshakeOpts -> IO (ByteString, ByteString)
 buildClientHandshake opts = do
   key <- generateKey
   let baseHdrs =
-        [ (H.hHost,                wsOptAuthority opts)
-        , (H.hUpgrade,             "websocket")
-        , (H.hConnection,          "Upgrade")
-        , (secWebSocketKeyH,       key)
-        , (secWebSocketVersionH,   "13")
+        [ ("Host",                  wsOptAuthority opts)
+        , ("Upgrade",               "websocket")
+        , ("Connection",            "Upgrade")
+        , ("Sec-WebSocket-Key",     key)
+        , ("Sec-WebSocket-Version", "13")
         ]
       protoHdrs = case wsOptProtocols opts of
         []  -> []
-        xs  -> [(secWebSocketProtocolH, BS.intercalate ", " xs)]
+        xs  -> [("Sec-WebSocket-Protocol", BS.intercalate ", " xs)]
       extHdrs   = case wsOptExtensions opts of
         []  -> []
-        xs  -> [(secWebSocketExtensionsH, BS.intercalate ", " xs)]
+        xs  -> [("Sec-WebSocket-Extensions", BS.intercalate ", " xs)]
       originHdr = case wsOptOrigin opts of
-        Just o  -> [(CI.mk "Origin", o)]
+        Just o  -> [("Origin", o)]
         Nothing -> []
-      hdrs = baseHdrs <> protoHdrs <> extHdrs <> originHdr
-                      <> wsOptExtraHeaders opts
-      reqBytes = BS.concat $
-        [ "GET ", wsOptTarget opts, " HTTP/1.1\r\n" ]
-        <> concatMap renderHeader hdrs
-        <> [ "\r\n" ]
-  pure (reqBytes, key)
-  where
-    renderHeader (n, v) = [CI.original n, ": ", v, "\r\n"]
+      h1Hdrs = baseHdrs <> protoHdrs <> extHdrs <> originHdr
+                        <> map (\(n, v) -> (CI.original n, v))
+                               (wsOptExtraHeaders opts)
+      h1req = H1.Request
+        { H1.requestMethod   = H1M.GET
+        , H1.requestTarget   = wsOptTarget opts
+        , H1.requestVersion  = H1.HTTP_1_1
+        , H1.requestHeaders  = h1Hdrs
+        , H1.requestBody     = H1.BodyEmpty
+        , H1.requestTrailers = pure []
+        }
+  pure (H1E.encodeRequestHead h1req, key)
 
 -- | Validate a server's 101 reply.  @rawHeadBlock@ is the
 -- response head as bytes (without the trailing @\\r\\n@), e.g.

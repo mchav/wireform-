@@ -59,12 +59,16 @@ import Foreign.Ptr (Ptr, castPtr)
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
-import qualified Network.HTTP.Types.Header  as H
-import qualified Network.HTTP.Types.Method  as M
+import qualified Network.HTTP.Types.Method  as U
 import qualified Network.HTTP.Types.Status  as S
 import qualified Network.HTTP.Types.Version as V
 import Network.HTTP.Types.Body (Body (..))
 import Network.HTTP.Message (Request (..), Response (..), Scheme (..))
+
+import qualified Network.HTTP1.Encode as H1E
+import qualified Network.HTTP1.Method as H1M
+import qualified Network.HTTP1.Parser as H1P
+import qualified Network.HTTP1.Types  as H1
 
 import qualified Wireform.Network as N
 import qualified Wireform.Network.TLS.Config as TLSCfg
@@ -379,92 +383,73 @@ readHttpHeadTls ssl cap = loop BS.empty
             pure (got, bs)
 
 ------------------------------------------------------------------------
--- Tiny HTTP/1.1 request parser \u2014 just enough to drive the
--- WebSocket handshake.
+-- HTTP\/1.1 parsing / rendering
+--
+-- Delegates to wireform-http1's SIMD-backed parser
+-- ('Network.HTTP1.Parser.parseRequest') and the chunked-builder-based
+-- encoder ('Network.HTTP1.Encode.encodeResponseHead'); the websocket
+-- layer just adapts between the unified 'Request' \/ 'Response'
+-- shapes that 'Network.WebSocket.Handshake' speaks and the H1
+-- shapes that the parser \/ encoder consume.
 ------------------------------------------------------------------------
 
 parseHandshakeBytes
   :: ByteString
   -> Either HandshakeError (Request, ByteString)
-parseHandshakeBytes block = do
-  let (head_, leftover) = splitHeaderBlock block
-      ls = splitOn "\r\n" head_
-  case ls of
-    []        -> Left (HandshakeBadMethod "")
-    (l0:rest) -> do
-      (method, target, _ver) <- parseRequestLine l0
-      hdrs <- traverse parseHeaderLine
-                (filter (not . BS.null) rest)
-      let authority = lookup H.hHost hdrs
-      pure ( Request
-              { requestMethod    = M.Method method
-              , requestTarget    = target
-              , requestAuthority = authority
-              , requestScheme    = SchemeHttp
-              , requestHeaders   = hdrs
-              , requestBody      = BodyEmpty
-              , requestVersion   = V.HTTP1_1
-              , requestTrailers  = pure []
-              }
-           , leftover
-           )
+parseHandshakeBytes block =
+  let (headBlock, leftover) = splitHttpHeaderBlock block
+  in case H1P.parseRequest headBlock of
+    Left  e               -> Left (httpParseToHandshakeError e)
+    Right (h1req, _frame) -> Right (h1ReqToUnified h1req, leftover)
 
-splitHeaderBlock :: ByteString -> (ByteString, ByteString)
-splitHeaderBlock bs = case BS.breakSubstring "\r\n\r\n" bs of
+-- | Split the on-the-wire header block from any leftover bytes
+-- received past its terminator.  The leftover bytes are the first
+-- frame the client sent right after the handshake.
+splitHttpHeaderBlock :: ByteString -> (ByteString, ByteString)
+splitHttpHeaderBlock bs = case BS.breakSubstring "\r\n\r\n" bs of
   (h, t) | BS.null t -> (h, BS.empty)
          | otherwise -> (h, BS.drop 4 t)
 
-splitOn :: ByteString -> ByteString -> [ByteString]
-splitOn sep =
-  let !slen = BS.length sep
-      go acc bs = case BS.breakSubstring sep bs of
-        (h, t) | BS.null t -> reverse (h : acc)
-               | otherwise -> go (h : acc) (BS.drop slen t)
-  in go []
+-- | Convert wireform-http1's H1.ParseError into a HandshakeError
+-- that the websocket layer can present to the caller.  Lossy on
+-- purpose: H1's error vocabulary is more granular than the
+-- handshake's surface needs.
+httpParseToHandshakeError :: H1P.ParseError -> HandshakeError
+httpParseToHandshakeError e = HandshakeBadMethod (BS8.pack (show e))
 
-parseRequestLine
-  :: ByteString
-  -> Either HandshakeError (ByteString, ByteString, ByteString)
-parseRequestLine l = case BS.split 0x20 l of
-  [m, t, v] -> Right (m, t, v)
-  _         -> Left (HandshakeBadMethod l)
-
-parseHeaderLine :: ByteString -> Either HandshakeError H.Header
-parseHeaderLine bs = case BS.break (== 0x3A {- ':' -}) bs of
-  (n, rest) | BS.null rest -> Left (HandshakeMissingHeader (CI.mk n))
-            | otherwise    ->
-                let v0 = BS.drop 1 rest
-                    v  = BS.dropWhile (\b -> b == 0x20 || b == 0x09) v0
-                    v' = stripTrailingWs v
-                in Right (CI.mk n, v')
-  where
-    stripTrailingWs s =
-      let n = BS.length s
-          go i | i <= 0    = BS.empty
-               | otherwise = case BS.index s (i - 1) of
-                   b | b == 0x20 || b == 0x09 || b == 0x0d -> go (i - 1)
-                     | otherwise -> BS.take i s
-      in go n
+h1ReqToUnified :: H1.Request -> Request
+h1ReqToUnified r =
+  let !hdrs = map (\(n, v) -> (CI.mk n, v)) (H1.requestHeaders r)
+  in Request
+       { requestMethod    = U.methodFromBytes (H1M.methodToBytes (H1.requestMethod r))
+       , requestTarget    = H1.requestTarget r
+       , requestAuthority = lookup (CI.mk "Host") hdrs
+       , requestScheme    = SchemeHttp
+       , requestHeaders   = hdrs
+       , requestBody      = BodyEmpty
+       , requestVersion   = case H1.requestVersion r of
+           H1.HTTP_1_0 -> V.HTTP1_0
+           H1.HTTP_1_1 -> V.HTTP1_1
+       , requestTrailers  = pure []
+       }
 
 ------------------------------------------------------------------------
 -- Response writers
 ------------------------------------------------------------------------
 
 renderResponseHead :: Response -> ByteString
-renderResponseHead r =
-  let status = responseStatus r
-      hdrs   = responseHeaders r
-  in BS.concat $
-        [ "HTTP/1.1 "
-        , BS8.pack (show (S.statusCode status))
-        , " "
-        , S.statusReason status
-        , "\r\n"
-        ]
-        <> concatMap renderHeader hdrs
-        <> ["\r\n"]
-  where
-    renderHeader (n, v) = [CI.original n, ": ", v, "\r\n"]
+renderResponseHead = H1E.encodeResponseHead . unifiedToH1Response
+
+unifiedToH1Response :: Response -> H1.Response
+unifiedToH1Response r = H1.Response
+  { H1.responseStatus   = H1.Status (S.statusCode (responseStatus r))
+  , H1.responseVersion  = case responseVersion r of
+      V.HTTP1_0 -> H1.HTTP_1_0
+      _         -> H1.HTTP_1_1
+  , H1.responseHeaders  = map (\(n, v) -> (CI.original n, v)) (responseHeaders r)
+  , H1.responseBody     = H1.BodyEmpty
+  , H1.responseTrailers = pure []
+  }
 
 writeBadRequest :: NS.Socket -> HandshakeError -> IO ()
 writeBadRequest sock e =
@@ -472,14 +457,17 @@ writeBadRequest sock e =
     `catch` (\(_ :: SomeException) -> pure ())
 
 renderBadRequest :: HandshakeError -> ByteString
-renderBadRequest e = BS.concat
-  [ "HTTP/1.1 400 Bad Request\r\n"
-  , "Connection: close\r\n"
-  , "Content-Type: text/plain; charset=utf-8\r\n"
-  , "Content-Length: ", BS8.pack (show (BS.length body)), "\r\n"
-  , "\r\n"
-  , body
-  ]
+renderBadRequest e = H1E.encodeResponseHead H1.Response
+  { H1.responseStatus   = H1.Status 400
+  , H1.responseVersion  = H1.HTTP_1_1
+  , H1.responseHeaders  =
+      [ ("Connection",     "close")
+      , ("Content-Type",   "text/plain; charset=utf-8")
+      , ("Content-Length", BS8.pack (show (BS.length body)))
+      ]
+  , H1.responseBody     = H1.BodyBytes body
+  , H1.responseTrailers = pure []
+  } <> body
   where
     body = BS8.pack (show e)
 
