@@ -11,7 +11,7 @@ import Wireform.Base64
 
 spec :: Spec
 spec = describe "Wireform.Base64" $ do
-  describe "RFC 4648 \u00a710 test vectors" $ do
+  describe "RFC 4648 sec 10 test vectors" $ do
     it "encodes the canonical vectors" $ do
       encodeBase64 ""       `shouldBe` ""
       encodeBase64 "f"      `shouldBe` "Zg=="

@@ -54,7 +54,6 @@ module Network.WebSocket.Connection
   , sendClose
   , sendCloseWith
   , CloseCode (..)
-  , closeCodeWord
   , normalClosure
   , goingAway
   , protocolError
@@ -76,8 +75,7 @@ import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Word (Word16)
 
-import Wireform.Parser.Driver (runParser, runParserInternal,
-  InternalResult (..))
+import Wireform.Parser.Driver (runParser)
 import Wireform.Parser.Error (ParseError (..))
 import Wireform.Transport.Receive (ReceiveTransport)
 import Wireform.Transport.Send (SendTransport, sendBuilderDirect,
@@ -201,32 +199,6 @@ receiveFrame conn = withMVar (connRecvLock conn) $ \_ -> do
       checkOpcode conn f
       pure f
     Left e -> throwIO (parseErrorToWS e)
-
--- | Variant useful in tight loops: a non-throwing version backed by
--- 'runParserInternal'.  Returns 'Left' on transport errors, parse
--- failures, or 'WebSocketError' protocol violations.
-_receiveFrameTry :: Connection -> IO (Either WebSocketError Frame)
-_receiveFrameTry conn = withMVar (connRecvLock conn) $ \_ -> do
-  pos <- N.receiveLoadHead (connectionReceive conn)
-  r <- runParserInternal
-         (connectionReceive conn)
-         (parseFrame (connLimit conn))
-         pos
-  case r of
-    IRDone _ f -> do
-      either (\err' -> pure (Left err'))
-             (\() -> pure (Right f))
-             =<< try' (checkInboundMask conn f >> checkOpcode conn f)
-    IRFail p              -> pure (Left (WebSocketDecodeError ("frame parse failed at " <> show p)))
-    IRErr  _ e            -> pure (Left (WebSocketFrameError e))
-    IRUnexpectedEof _ _   -> pure (Left (WebSocketTransportError "unexpected EOF"))
-    IRCleanEof            -> pure (Left (WebSocketTransportError "clean EOF before frame"))
-    IRTransportError exc  -> pure (Left (WebSocketTransportError (show exc)))
-    IRRingOverflow _ n sz -> pure (Left (WebSocketProtocolError
-        ("frame larger than receive ring: " <> show n <> " > " <> show sz)))
-  where
-    try' :: IO () -> IO (Either WebSocketError ())
-    try' = try
 
 parseErrorToWS :: ParseError FrameError -> WebSocketError
 parseErrorToWS = \case

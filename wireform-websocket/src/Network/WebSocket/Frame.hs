@@ -55,7 +55,6 @@ import qualified System.Random.Stateful as Rnd
 import qualified Wireform.Builder as B
 import Wireform.Parser
   ( Parser
-  , Stream
   , anyWord16be
   , anyWord64be
   , anyWord8
@@ -63,6 +62,7 @@ import Wireform.Parser
   , takeBs
   , takeBsCopy
   )
+import Wireform.Parser.Internal (ParserMode)
 
 ------------------------------------------------------------------------
 -- Opcode
@@ -198,7 +198,12 @@ defaultPayloadLimit = PayloadLimit (16 * 1024 * 1024)
 -- transport until a complete frame is available; suspends mid-frame
 -- if the transport runs out of data.  Fails with 'FrameError' on
 -- protocol violations the parser can detect locally.
-parseFrame :: PayloadLimit -> Parser Stream FrameError Frame
+--
+-- Polymorphic in the parser mode so callers can drive it with
+-- either 'Wireform.Parser.Driver.runParser' (streaming) or
+-- 'Wireform.Parser.Driver.parseByteString' (whole input \u2014
+-- handy for unit tests against a captured wire trace).
+parseFrame :: ParserMode m => PayloadLimit -> Parser m FrameError Frame
 parseFrame (PayloadLimit limit) = do
   b1 <- anyWord8
   b2 <- anyWord8

@@ -46,7 +46,6 @@ import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word16)
 
@@ -214,6 +213,3 @@ forEachMessage conn lim handler = loop
       handler m
       loop
 
--- Silence -Wunused-imports of T (used only via TE).
-_tUnused :: Text -> Int
-_tUnused = T.length

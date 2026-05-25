@@ -42,6 +42,8 @@ build-type: Simple
 tested-with: GHC == 9.6.4, GHC == 9.8.4
 extra-source-files:
   README.md
+extra-doc-files:
+  CHANGELOG.md
 
 source-repository head
   type:     git
@@ -114,5 +116,6 @@ test-suite wireform-websocket-test
     tasty-hunit      >= 0.10,
     text,
     wireform-core,
+    wireform-http,
     wireform-network,
     wireform-websocket

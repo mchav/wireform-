@@ -49,12 +49,12 @@ import qualified Data.ByteArray as BA
 import Data.Bits (shiftR)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import qualified Data.CaseInsensitive as CI
 import Data.Word (Word64, Word8)
 import qualified System.Random.Stateful as Rnd
 
 import qualified Network.HTTP.Types.Header as H
+import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 import Network.HTTP.Types.Body (Body (..))
@@ -135,9 +135,10 @@ data WebSocketRequest = WebSocketRequest
 -- Returns the digest of header fields the WebSocket layer needs.
 parseWebSocketRequest :: Request -> Either HandshakeError WebSocketRequest
 parseWebSocketRequest req = do
-  case requestMethod req of
-    "GET" -> Right ()
-    m     -> Left (HandshakeBadMethod m)
+  let methodBs = M.fromMethod (requestMethod req)
+  if methodBs /= "GET"
+    then Left (HandshakeBadMethod methodBs)
+    else Right ()
   let hdrs = requestHeaders req
   upg <- requireHeader H.hUpgrade    hdrs
   con <- requireHeader H.hConnection hdrs
@@ -341,6 +342,6 @@ containsToken needle haystack =
       let !n = BS.length bs
           go i
             | i <= 0       = BS.empty
-            | p (BS8.index bs (i - 1)) = go (i - 1)
+            | p (BS.index bs (i - 1)) = go (i - 1)
             | otherwise    = BS.take i bs
       in go n

@@ -385,7 +385,7 @@ parseHandshakeBytes block = do
                 (filter (not . BS.null) rest)
       let authority = lookup H.hHost hdrs
       pure ( Request
-              { requestMethod    = M.toMethod method
+              { requestMethod    = M.Method method
               , requestTarget    = target
               , requestAuthority = authority
               , requestScheme    = SchemeHttp

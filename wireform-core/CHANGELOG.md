@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* `Wireform.Base64` -- RFC 4648 §4 base64 encode / decode.  SSSE3
+  (via simde) inner loop for the encoder (12 input bytes -> 16
+  output chars per iteration) plus an SSE2 pre-scan for the
+  decoder that rejects any 16-byte window containing a high-bit
+  byte before scalar sextet extraction.  Replaces ad-hoc
+  `base64-bytestring` usage in downstream packages — the
+  WebSocket handshake (`wireform-websocket`) is the first
+  consumer.
+
 * `Wireform.Ring` -- gave `MagicRing` a phantom type parameter `s`
   modelled after `Control.Monad.ST.ST`.  `withMagicRing` is now
   rank-2 (`Int -> (forall s. MagicRing s -> IO a) -> IO a`), which

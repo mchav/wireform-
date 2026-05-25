@@ -49,11 +49,15 @@ foreign import ccall unsafe "hs_base64_encoded_length"
 foreign import ccall unsafe "hs_base64_decoded_max_length"
   c_base64_decoded_max_length :: CInt -> CInt
 
+-- | Encoder \/ decoder run as 'IO' so the buffer-mutating side
+-- effect is sequenced; declaring them as pure @CInt@-returning
+-- functions confuses GHC's strictness analysis and the call can
+-- be silently elided.
 foreign import ccall unsafe "hs_base64_encode"
-  c_base64_encode :: Ptr Word8 -> CInt -> Ptr Word8 -> CInt
+  c_base64_encode :: Ptr Word8 -> CInt -> Ptr Word8 -> IO CInt
 
 foreign import ccall unsafe "hs_base64_decode"
-  c_base64_decode :: Ptr Word8 -> CInt -> Ptr Word8 -> CInt
+  c_base64_decode :: Ptr Word8 -> CInt -> Ptr Word8 -> IO CInt
 
 ------------------------------------------------------------------------
 -- Length helpers
@@ -85,7 +89,7 @@ encodeBase64 bs = unsafePerformIO $ do
       !outLen = encodeBase64Length inLen
   BSI.create outLen $ \outPtr ->
     BSU.unsafeUseAsCStringLen bs $ \(inPtr, _) -> do
-      let _ = c_base64_encode (castPtr inPtr) (fromIntegral inLen) outPtr
+      _ <- c_base64_encode (castPtr inPtr) (fromIntegral inLen) outPtr
       pure ()
 {-# NOINLINE encodeBase64 #-}
 
@@ -110,12 +114,12 @@ decodeBase64 bs
           (inFp, inOff, _) = BSI.toForeignPtr bs
       outFp <- BSI.mallocByteString maxOut
       actual <- withForeignPtr inFp $ \inBase ->
-        withForeignPtr outFp $ \outPtr ->
-          pure $ fromIntegral
-            (c_base64_decode
-              (inBase `plusPtr` inOff)
-              (fromIntegral inLen)
-              outPtr)
+        withForeignPtr outFp $ \outPtr -> do
+          n <- c_base64_decode
+                 (inBase `plusPtr` inOff)
+                 (fromIntegral inLen)
+                 outPtr
+          pure (fromIntegral n :: Int)
       if actual < 0
         then pure Nothing
         else pure (Just (BSI.fromForeignPtr outFp 0 actual))
