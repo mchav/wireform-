@@ -1,0 +1,122 @@
+{-# LANGUAGE BangPatterns #-}
+
+{- | RFC 4648 \u00a74 base64 encode / decode.
+
+The implementation lives in @cbits\/base64.c@: an SSSE3 (via
+simde) inner loop encoding 12 input bytes per iteration with a
+scalar prologue \/ epilogue for the tail.  The decoder takes the
+same shape and additionally validates the input alphabet
+character by character; non-alphabet bytes outside the trailing
+@=@ padding produce 'Nothing'.
+
+These primitives are kept here (rather than in a downstream
+package) so every wireform format that needs base64 \u2014
+WebSocket handshakes, BSON binary subtype 0x00, the proto3 JSON
+mapping for @bytes@, the Avro JSON encoding, the Iceberg
+@avro-data-files@ glue \u2014 shares one SIMD implementation
+rather than each pulling its own @base64-bytestring@.
+
+The encoder produces /padded/ standard base64; there is no
+URL-safe variant.  Add one in a separate module if needed.
+-}
+module Wireform.Base64
+  ( -- * Encode
+    encodeBase64
+  , encodeBase64Length
+    -- * Decode
+  , decodeBase64
+  , decodeBase64MaxLength
+  ) where
+
+import Data.Bits ((.&.))
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
+import qualified Data.ByteString.Unsafe as BSU
+import Data.Word (Word8)
+import Foreign.C.Types (CInt (..))
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import System.IO.Unsafe (unsafePerformIO)
+
+------------------------------------------------------------------------
+-- FFI
+------------------------------------------------------------------------
+
+foreign import ccall unsafe "hs_base64_encoded_length"
+  c_base64_encoded_length :: CInt -> CInt
+
+foreign import ccall unsafe "hs_base64_decoded_max_length"
+  c_base64_decoded_max_length :: CInt -> CInt
+
+foreign import ccall unsafe "hs_base64_encode"
+  c_base64_encode :: Ptr Word8 -> CInt -> Ptr Word8 -> CInt
+
+foreign import ccall unsafe "hs_base64_decode"
+  c_base64_decode :: Ptr Word8 -> CInt -> Ptr Word8 -> CInt
+
+------------------------------------------------------------------------
+-- Length helpers
+------------------------------------------------------------------------
+
+-- | Number of base64 characters produced for an input of @n@ bytes
+-- (including @=@ padding).
+encodeBase64Length :: Int -> Int
+encodeBase64Length = fromIntegral . c_base64_encoded_length . fromIntegral
+{-# INLINE encodeBase64Length #-}
+
+-- | Upper bound on the number of bytes produced when decoding @n@
+-- input characters.  The actual decoded length is shorter by the
+-- number of trailing @=@ characters.
+decodeBase64MaxLength :: Int -> Int
+decodeBase64MaxLength = fromIntegral . c_base64_decoded_max_length . fromIntegral
+{-# INLINE decodeBase64MaxLength #-}
+
+------------------------------------------------------------------------
+-- Encode
+------------------------------------------------------------------------
+
+-- | Encode a 'ByteString' to RFC 4648 \u00a74 base64 (with @=@
+-- padding).  One allocation of the exact output length, one
+-- SIMD pass.
+encodeBase64 :: ByteString -> ByteString
+encodeBase64 bs = unsafePerformIO $ do
+  let !inLen  = BS.length bs
+      !outLen = encodeBase64Length inLen
+  BSI.create outLen $ \outPtr ->
+    BSU.unsafeUseAsCStringLen bs $ \(inPtr, _) -> do
+      let _ = c_base64_encode (castPtr inPtr) (fromIntegral inLen) outPtr
+      pure ()
+{-# NOINLINE encodeBase64 #-}
+
+------------------------------------------------------------------------
+-- Decode
+------------------------------------------------------------------------
+
+-- | Decode an RFC 4648 \u00a74 base64 'ByteString'.  Returns
+-- 'Nothing' if the input is malformed: not a multiple of four
+-- characters, contains an out-of-alphabet byte, or uses padding
+-- in an invalid position.
+--
+-- Whitespace is /not/ tolerated; strip it before calling if your
+-- input is line-wrapped (PEM, MIME, etc.).
+decodeBase64 :: ByteString -> Maybe ByteString
+decodeBase64 bs
+  | BS.null bs                = Just BS.empty
+  | (BS.length bs .&. 3) /= 0 = Nothing
+  | otherwise = unsafePerformIO $ do
+      let !inLen  = BS.length bs
+          !maxOut = decodeBase64MaxLength inLen
+          (inFp, inOff, _) = BSI.toForeignPtr bs
+      outFp <- BSI.mallocByteString maxOut
+      actual <- withForeignPtr inFp $ \inBase ->
+        withForeignPtr outFp $ \outPtr ->
+          pure $ fromIntegral
+            (c_base64_decode
+              (inBase `plusPtr` inOff)
+              (fromIntegral inLen)
+              outPtr)
+      if actual < 0
+        then pure Nothing
+        else pure (Just (BSI.fromForeignPtr outFp 0 actual))
+{-# NOINLINE decodeBase64 #-}
