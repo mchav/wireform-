@@ -220,29 +220,17 @@ validCloseCode c
 -- Send
 ------------------------------------------------------------------------
 
--- | Send a text message as a single frame.  Use 'sendFrame'
--- directly for fragmented or interleaved control frames.
+-- | Send a text message as a single non-fragmented frame.
+--
+-- Hot-path: goes through 'sendDataFrame' which skips the 'Frame'
+-- record allocation entirely.  Use 'sendFrame' directly for
+-- fragmented messages or for setting explicit RSV bits (e.g.
+-- when a permessage-deflate extension is in play).
 sendTextMessage :: Connection -> Text -> IO ()
-sendTextMessage conn t = sendFrame conn Frame
-  { frameFin     = True
-  , frameRsv1    = False
-  , frameRsv2    = False
-  , frameRsv3    = False
-  , frameOpcode  = OpText
-  , frameMask    = Nothing
-  , framePayload = TE.encodeUtf8 t
-  }
+sendTextMessage conn t = sendDataFrame conn OpText (TE.encodeUtf8 t)
 
 sendBinaryMessage :: Connection -> ByteString -> IO ()
-sendBinaryMessage conn bs = sendFrame conn Frame
-  { frameFin     = True
-  , frameRsv1    = False
-  , frameRsv2    = False
-  , frameRsv3    = False
-  , frameOpcode  = OpBinary
-  , frameMask    = Nothing
-  , framePayload = bs
-  }
+sendBinaryMessage conn = sendDataFrame conn OpBinary
 
 ------------------------------------------------------------------------
 -- Loops

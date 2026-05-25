@@ -97,3 +97,33 @@ Initial release.
   `openWebSocketClient`'s TLS path to chain the
   `SSL_shutdown` + `SSL_CTX_free` + raw-socket close that the
   layered bracket form used to handle implicitly.
+* Allocation-free message send fast path.
+  `sendTextMessage` and `sendBinaryMessage` now route through a
+  new `sendDataFrame :: Connection -> Opcode -> ByteString -> IO ()`
+  that skips the `Frame` record allocation, the
+  `applyOutboundMask` dispatch, and the `frameHeaderBytes`
+  intermediate `ByteString`.  Internal worker
+  `sendDataFrameBytes` pokes header bytes straight into the
+  send-ring reservation.
+* Per-connection mask cache.  Client-role connections refill a
+  buffer of 64 pre-rolled per-frame masking keys in one trip
+  through the global splitmix generator; subsequent sends pull
+  off the cache without touching the global @MVar@.
+* Opt-in lock-free connections.  `WebSocketClientConfig` and
+  `WebSocketServerConfig` now expose `wcSingleThreaded` /
+  `wscSingleThreaded` (default 'True').  When set, the
+  per-direction `MVar` locks on the `Connection` are absent and
+  `sendFrame` / `receiveFrame` skip the `takeMVar` / `putMVar`
+  round-trip entirely.  Use the default for the typical one
+  thread-per-connection pattern; flip to 'False' for
+  broadcast / fan-out shapes that share a 'Connection' across
+  threads.
+* `newConnectionUnlocked` constructs a lock-free 'Connection'
+  directly.  `newConnection` continues to provide locking
+  semantics.
+* `withFrameBatch :: Connection -> (Connection -> IO a) -> IO a`
+  exposes the magic-ring send cork at the WebSocket layer.
+  Frames sent inside the callback accumulate in the send ring
+  without triggering per-frame `sendmsg` / `SSL_write`; one
+  publish covers everything written.  Throughput optimisation
+  for fan-out and large-batch workloads.

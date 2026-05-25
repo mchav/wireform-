@@ -21,6 +21,7 @@ module Network.WebSocket.Frame
   (     -- * Frame ADT
     Frame (..)
   , Opcode (..)
+  , opcodeToWord
   , Mask (..)
   , mkMask
   , randomMask

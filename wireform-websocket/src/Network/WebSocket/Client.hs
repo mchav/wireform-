@@ -71,6 +71,7 @@ import Network.WebSocket.Handshake
 import Network.WebSocket.URI
 
 import qualified Wireform.Network as N
+import qualified Wireform.Network.Transport.Duplex as N (DuplexTransport)
 import qualified Wireform.Network.TLS.Config as TLSCfg
 import qualified Wireform.Network.TLS.OpenSSL as TLS
 import qualified Wireform.Transport.Config as WC
@@ -95,6 +96,12 @@ data WebSocketClientConfig = WebSocketClientConfig
   , wcExtraHeaders    :: ![H.Header]
   , wcTls             :: !(Maybe WebSocketClientTls)
   , wcRingSizeHint    :: !Int
+  , wcSingleThreaded  :: !Bool
+    -- ^ Whether the resulting 'Connection' will only ever be used
+    -- by one thread at a time.  Default 'True'.  See the matching
+    -- 'Network.WebSocket.Server.wscSingleThreaded' for the
+    -- semantics; the cost saved on the round-trip hot path is
+    -- ~1.4 \u00b5s.
   }
 
 data WebSocketClientTls = WebSocketClientTls
@@ -133,6 +140,7 @@ defaultWebSocketClientConfig h p t = WebSocketClientConfig
   , wcExtraHeaders   = []
   , wcTls            = Nothing
   , wcRingSizeHint   = 256 * 1024
+  , wcSingleThreaded = True
   }
 
 -- | Build a 'WebSocketClientConfig' from a parsed
@@ -158,6 +166,7 @@ clientConfigFromURI u =
        , wcExtraHeaders   = []
        , wcTls            = tls
        , wcRingSizeHint   = 256 * 1024
+       , wcSingleThreaded = True
        }
   where
     canonicalAuthority WebSocketURI{ wsuScheme = s, wsuHost = h, wsuPort = p }
@@ -298,7 +307,7 @@ openPlain cfg sock = do
                                  (NSB.sendAll sock)
                                  (NSB.recv sock 4096)
   duplex <- prebufferedDuplex (transportCfg cfg) sock leftover
-  conn   <- newConnection Client defaultPayloadLimit duplex
+  conn   <- mkClientConnection cfg duplex
   -- The duplex's close doesn't tear down the raw socket — its
   -- contract is to release the magic ring and half-close the
   -- write side.  Attach an explicit socket close so the imperative
@@ -336,7 +345,7 @@ openTls cfg tlsCfg sock = do
                                      (TLS.tlsSend ssl)
                                      (recvTlsChunk ssl)
       duplex <- prebufferedDuplexTls (transportCfg cfg) sock ssl leftover
-      conn   <- newConnection Client defaultPayloadLimit duplex
+      conn   <- mkClientConnection cfg duplex
       -- The TLS context, the SSL connection, and the raw socket
       -- all outlive the duplex itself; attach a cleanup chain so
       -- 'closeWebSocketClient' tears them down in the right order
@@ -352,6 +361,14 @@ politeClose :: Connection -> IO ()
 politeClose conn = do
   _ <- try @SomeException (sendClose conn)
   closeConnection conn
+
+mkClientConnection
+  :: WebSocketClientConfig
+  -> N.DuplexTransport
+  -> IO Connection
+mkClientConnection cfg duplex
+  | wcSingleThreaded cfg = newConnectionUnlocked Client defaultPayloadLimit duplex
+  | otherwise            = newConnection         Client defaultPayloadLimit duplex
 
 ------------------------------------------------------------------------
 -- Handshake driver (raw bytes)

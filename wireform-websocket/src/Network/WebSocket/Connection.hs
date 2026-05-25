@@ -38,6 +38,7 @@ module Network.WebSocket.Connection
     -- * Connection
   , Connection
   , newConnection
+  , newConnectionUnlocked
   , connectionRole
   , connectionReceive
   , connectionSend
@@ -47,7 +48,11 @@ module Network.WebSocket.Connection
     -- * Frame I\/O
   , receiveFrame
   , sendFrame
+  , sendDataFrame
   , trySendFrame
+
+    -- * Send batching
+  , withFrameBatch
 
     -- * Control frames
   , sendPing
@@ -71,15 +76,16 @@ module Network.WebSocket.Connection
 
 import Control.Concurrent.MVar
 import Control.Exception (Exception, SomeException, mask_, throwIO, try)
-import Control.Monad (unless, when)
-import Data.Bits (shiftR, (.&.))
+import Control.Monad (replicateM, unless, when)
+import Data.Bits (shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Word (Word16, Word64)
+import Data.Word (Word8, Word16, Word64)
 
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (castPtr, plusPtr)
+import Foreign.Storable (pokeByteOff)
 import qualified Data.ByteString.Unsafe as BSU
 
 import qualified Wireform.FFI as FFI
@@ -89,7 +95,8 @@ import Wireform.Parser.Error (ParseError (..))
 import qualified Wireform.Transport.Receive as TR
 import Wireform.Transport.Receive (ReceiveTransport)
 import Wireform.Transport.Send (SendTransport, sendBuilderDirect,
-  sendPublishHead, sendRingSize, sendShutdownWrite, reserveSend)
+  sendPublishHead, sendRingSize, sendShutdownWrite, reserveSend,
+  withSendCork)
 import qualified Wireform.Network as N
 
 import Network.WebSocket.Frame
@@ -115,15 +122,22 @@ data Connection = Connection
   { connDuplex :: !N.DuplexTransport
   , connRole   :: !Role
   , connLimit  :: !PayloadLimit
-  , connRecvLock :: !(MVar ())
+  , connRecvLock :: !(Maybe (MVar ()))
     -- ^ Serialise frame receives.  The wireform parser is
     -- inherently single-threaded per ring; the lock ensures a
     -- concurrent 'receiveFrame' from two threads doesn't trample
     -- each other's parse state.
-  , connSendLock :: !(MVar ())
+    --
+    -- 'Nothing' means /single-threaded use/: the caller has
+    -- promised no other thread will call 'receiveFrame' on this
+    -- connection.  The hot path then skips the @MVar@
+    -- take \/ put round-trip (~700 ns on Linux per direction).
+    -- Use 'newConnectionUnlocked' to construct such a connection.
+  , connSendLock :: !(Maybe (MVar ()))
     -- ^ Serialise frame sends.  A 'Wireform.Transport.Send'
     -- reservation must be committed before the next reservation
-    -- starts, so we lock the send side too.
+    -- starts, so we lock the send side too.  'Nothing' has the
+    -- same meaning as on 'connRecvLock'.
   , connRecvPos :: !(IORef Word64)
     -- ^ Logical consumer position in the recv ring.  Updated
     -- after every successful frame parse so the next call to
@@ -137,6 +151,13 @@ data Connection = Connection
     -- 'sendClose' / 'sendCloseWith' calls become no-ops so a
     -- protocol-error close from the receive path doesn't get
     -- doubled by the server runner's polite-close path.
+  , connMaskCache :: !(IORef (Int, [Mask]))
+    -- ^ Pre-rolled per-frame masking keys for client-role
+    -- connections.  Refilled in batches of 'maskCacheBatch'
+    -- by 'nextMask' so the hot send path doesn't hit the
+    -- 'System.Random.Stateful.globalStdGen' MVar on every frame.
+    -- Server-role connections never touch this.  The pair is
+    -- @(remaining-count, mask-list)@.
   , connCleanup  :: !(IORef (IO ()))
     -- ^ Extra teardown actions queued by the connection's
     -- builder (e.g. OpenSSL 'SslConn' \/ 'SslCtx' release, the
@@ -149,19 +170,51 @@ data Connection = Connection
 
 -- | Build a 'Connection' from a duplex transport and the role this
 -- side plays.  Takes ownership of the duplex; 'closeConnection'
--- releases it.
+-- releases it.  Installs the per-direction locks so it is safe to
+-- call 'sendFrame' and 'receiveFrame' from different threads.
 newConnection
   :: Role
   -> PayloadLimit
   -> N.DuplexTransport
   -> IO Connection
 newConnection role lim duplex = do
-  rLock     <- newMVar ()
-  sLock     <- newMVar ()
+  rLock <- newMVar ()
+  sLock <- newMVar ()
+  buildConnection role lim duplex (Just rLock) (Just sLock)
+
+-- | Variant of 'newConnection' that skips the per-direction
+-- 'MVar' locks.  The caller promises that no two threads ever
+-- concurrently call 'sendFrame' or 'receiveFrame' (or any of the
+-- higher-level helpers built on them) on the same 'Connection'.
+-- In return, the hot path on each side saves the ~700 ns
+-- 'takeMVar' \/ 'putMVar' round-trip per frame.
+--
+-- The typical chat-server pattern \u2014 one thread per
+-- connection, alternating recv \/ send in a loop \u2014 is
+-- already single-threaded and benefits unconditionally.  For
+-- broadcast \/ fan-out shapes where one thread sends and a
+-- different thread reads, use 'newConnection' instead.
+newConnectionUnlocked
+  :: Role
+  -> PayloadLimit
+  -> N.DuplexTransport
+  -> IO Connection
+newConnectionUnlocked role lim duplex =
+  buildConnection role lim duplex Nothing Nothing
+
+buildConnection
+  :: Role
+  -> PayloadLimit
+  -> N.DuplexTransport
+  -> Maybe (MVar ())
+  -> Maybe (MVar ())
+  -> IO Connection
+buildConnection role lim duplex rLock sLock = do
   pos0      <- TR.receiveLoadHead (N.duplexReceive duplex)
   posRef    <- newIORef pos0
   closeSent <- newIORef False
   cleanup   <- newIORef (pure ())
+  masks     <- newIORef (0, [])
   cref      <- newIORef False
   pure Connection
     { connDuplex    = duplex
@@ -171,9 +224,35 @@ newConnection role lim duplex = do
     , connSendLock  = sLock
     , connRecvPos   = posRef
     , connSentClose = closeSent
+    , connMaskCache = masks
     , connCleanup   = cleanup
     , connClosed    = cref
     }
+
+-- | How many per-frame mask keys we roll per refill.  Each cache
+-- miss costs one @MVar@ trip on the global splitmix generator;
+-- batching by 64 brings the amortised cost per frame down to
+-- almost zero.
+maskCacheBatch :: Int
+maskCacheBatch = 64
+
+-- | Pull the next pre-rolled per-frame masking key.  Refills the
+-- cache in batches of 'maskCacheBatch' so the hot send path
+-- doesn't hit the global splitmix generator on every frame.
+nextMask :: Connection -> IO Mask
+nextMask conn = do
+  (n, ms) <- readIORef (connMaskCache conn)
+  case ms of
+    (m:rest) -> do
+      writeIORef (connMaskCache conn) (n - 1, rest)
+      pure m
+    [] -> do
+      ws <- replicateM maskCacheBatch randomMask
+      case ws of
+        []     -> randomMask  -- never reached; maskCacheBatch > 0
+        (m:rs) -> do
+          writeIORef (connMaskCache conn) (maskCacheBatch - 1, rs)
+          pure m
 
 connectionRole :: Connection -> Role
 connectionRole = connRole
@@ -255,8 +334,22 @@ instance Exception WebSocketError
 -- successive frames buffered on the wire are both parsed.  Using
 -- 'runParser' directly here would lose the second frame because it
 -- re-reads the producer head as the start position.
+-- | Run @act@ holding the connection's recv lock, or directly
+-- when the connection was constructed lock-free.
+withRecvLock :: Connection -> IO a -> IO a
+withRecvLock conn act = case connRecvLock conn of
+  Nothing -> act
+  Just mv -> withMVar mv (\_ -> act)
+{-# INLINE withRecvLock #-}
+
+withSendLock :: Connection -> IO a -> IO a
+withSendLock conn act = case connSendLock conn of
+  Nothing -> act
+  Just mv -> withMVar mv (\_ -> act)
+{-# INLINE withSendLock #-}
+
 receiveFrame :: Connection -> IO Frame
-receiveFrame conn = withMVar (connRecvLock conn) $ \_ -> do
+receiveFrame conn = withRecvLock conn $ do
   pos <- readIORef (connRecvPos conn)
   r   <- runParserInternal (connectionReceive conn)
                            (parseFrame (connLimit conn))
@@ -349,8 +442,107 @@ sendFrame conn f0 = case frameOpcode f0 of
   where
     dispatch f1 = do
       f <- applyOutboundMask conn f1
-      withMVar (connSendLock conn) $ \_ ->
+      withSendLock conn $
         sendOneFrame (connectionSend conn) f
+
+-- | Allocation-free fast path for the common case: a single
+-- non-fragmented, RSV-zero, non-control frame with the given
+-- opcode and payload.  Skips the 'Frame' record allocation and
+-- the 'applyOutboundMask' dispatch.
+--
+-- Used by 'Network.WebSocket.Message.sendTextMessage' /
+-- 'sendBinaryMessage' so the per-message hot path doesn't touch
+-- the 'Frame' record at all.  Falls through to 'sendFrame' for
+-- control opcodes (close idempotency etc. still applies).
+sendDataFrame :: Connection -> Opcode -> ByteString -> IO ()
+sendDataFrame conn op payload
+  | opcodeIsControl op =
+      -- Build a Frame only for control opcodes — sendFrame
+      -- handles the idempotency check and validation.
+      sendFrame conn Frame
+        { frameFin     = True
+        , frameRsv1    = False
+        , frameRsv2    = False
+        , frameRsv3    = False
+        , frameOpcode  = op
+        , frameMask    = Nothing
+        , framePayload = payload
+        }
+  | otherwise = do
+      -- Roll a mask (client side) or skip it (server side)
+      -- without touching the Frame record.
+      mMask <- case connRole conn of
+        Server -> pure Nothing
+        Client -> Just <$> nextMask conn
+      withSendLock conn $
+        sendDataFrameBytes (connectionSend conn) op mMask payload
+
+-- | Inner worker for 'sendDataFrame'.  All Frame fields are
+-- baked in (FIN=1, RSV=0).  This is the function the message
+-- API's hot path compiles down to.
+sendDataFrameBytes
+  :: SendTransport
+  -> Opcode
+  -> Maybe Mask
+  -> ByteString
+  -> IO ()
+sendDataFrameBytes t op mMask payload = do
+  let !plen   = BS.length payload
+      !maskBit = case mMask of { Just _ -> 0x80 ; Nothing -> 0x00 } :: Word8
+      !maskLen = case mMask of { Just _ -> 4    ; Nothing -> 0    } :: Int
+      !lenField
+        | plen <= 125     = 1
+        | plen <= 0xFFFF  = 3
+        | otherwise       = 9
+      !hdrLen = 1 + lenField + maskLen
+      !needed = hdrLen + plen
+      !b1     = 0x80 .|. (opcodeToWord op .&. 0x0F)  -- FIN=1, RSV=0
+  if needed > sendRingSize t
+    then sendBuilderDirect t (buildFrame Frame
+           { frameFin     = True
+           , frameRsv1    = False
+           , frameRsv2    = False
+           , frameRsv3    = False
+           , frameOpcode  = op
+           , frameMask    = mMask
+           , framePayload = payload
+           })
+    else do
+      (p, newHead) <- reserveSend t needed
+      pokeByteOff p 0 b1
+      case lenField of
+        1 -> pokeByteOff p 1 (maskBit .|. fromIntegral plen :: Word8)
+        3 -> do
+          pokeByteOff p 1 (maskBit .|. 126 :: Word8)
+          pokeByteOff p 2 (fromIntegral (plen `shiftR` 8) :: Word8)
+          pokeByteOff p 3 (fromIntegral  plen             :: Word8)
+        _ -> do
+          let !plen64 = fromIntegral plen :: Word64
+          pokeByteOff p 1 (maskBit .|. 127 :: Word8)
+          pokeByteOff p 2 (fromIntegral (plen64 `shiftR` 56) :: Word8)
+          pokeByteOff p 3 (fromIntegral (plen64 `shiftR` 48) :: Word8)
+          pokeByteOff p 4 (fromIntegral (plen64 `shiftR` 40) :: Word8)
+          pokeByteOff p 5 (fromIntegral (plen64 `shiftR` 32) :: Word8)
+          pokeByteOff p 6 (fromIntegral (plen64 `shiftR` 24) :: Word8)
+          pokeByteOff p 7 (fromIntegral (plen64 `shiftR` 16) :: Word8)
+          pokeByteOff p 8 (fromIntegral (plen64 `shiftR`  8) :: Word8)
+          pokeByteOff p 9 (fromIntegral  plen64              :: Word8)
+      case mMask of
+        Nothing -> pure ()
+        Just (Mask w) -> do
+          let !moff = 1 + lenField
+          pokeByteOff p  moff      (fromIntegral (w `shiftR` 24) :: Word8)
+          pokeByteOff p (moff + 1) (fromIntegral (w `shiftR` 16) :: Word8)
+          pokeByteOff p (moff + 2) (fromIntegral (w `shiftR`  8) :: Word8)
+          pokeByteOff p (moff + 3) (fromIntegral  w              :: Word8)
+      BSU.unsafeUseAsCStringLen payload $ \(src, _) ->
+        copyBytes (p `plusPtr` hdrLen) (castPtr src) plen
+      case mMask of
+        Nothing       -> pure ()
+        Just (Mask w) ->
+          FFI.xorRepeatingKey (p `plusPtr` hdrLen) plen w
+      sendPublishHead t newHead
+{-# INLINE sendDataFrameBytes #-}
 
 -- | Write a frame to the send ring in one shot when the frame
 -- fits.  Falls back to 'sendBuilderDirect' for frames larger than
@@ -386,6 +578,28 @@ sendOneFrame t f = do
       -- path.  This is the only correctness-preserving option
       -- because no single ring reservation can hold the frame.
       sendBuilderDirect t (buildFrame f)
+
+-- | Batch all frame sends inside @action@ into one underlying
+-- 'sendmsg' / 'SSL_write' syscall (or as few as possible \u2014
+-- the cork breaks when the ring genuinely fills).  RFC 6455
+-- doesn't say anything about this; it's a pure throughput
+-- optimisation for applications that emit multiple frames in
+-- one logical operation (chat broadcasts, market-data fan-out,
+-- file uploads emitted as a sequence of binary frames).
+--
+-- Drives 'Wireform.Transport.Send.withSendCork' under the hood;
+-- a single publish covers everything written inside the
+-- callback.  No correctness change: control frames inside the
+-- batch are still delivered in order, the close-idempotency
+-- check still runs, masking still applies.
+withFrameBatch :: Connection -> (Connection -> IO a) -> IO a
+withFrameBatch conn action =
+  withSendCork (connectionSend conn) $ \corkedSend ->
+    -- Splice the corked SendTransport back onto the connection
+    -- so the user's nested 'sendFrame' / 'sendDataFrame' calls
+    -- pick it up.  The duplex receive side is untouched.
+    let corkedDuplex = (connDuplex conn) { N.duplexSend = corkedSend }
+    in action conn { connDuplex = corkedDuplex }
 
 -- | Non-throwing variant: catches 'IOException's from the
 -- underlying transport (peer reset etc.) and converts them to a
