@@ -59,6 +59,47 @@ main = do
     print reply
 ```
 
+#### From a URL
+
+```haskell
+withWebSocketClientURI "wss://echo.example/echo" $ \conn -> do
+  sendTextMessage conn "hi"
+  TextMessage reply <- receiveMessage conn defaultMessageLimit
+  print reply
+```
+
+#### Sub-protocol negotiation
+
+The client offers a list of sub-protocols and reads back which one the
+server selected. The handshake fails (`WebSocketClientError`) if the
+server picks something the client didn't offer.
+
+```haskell
+let cfg = (defaultWebSocketClientConfig "chat.example" "443" "/ws")
+            { wcTls          = Just wsTlsDefault
+            , wcSubProtocols = ["chat.v2", "chat.v1"]
+            }
+withWebSocketClient' cfg $ \shr conn ->
+  case shrSelectedProtocol shr of
+    Just "chat.v2" -> runV2 conn
+    Just "chat.v1" -> runV1 conn
+    Just other     -> error ("server selected unexpected: " <> show other)
+    Nothing        -> error "server declined to negotiate"
+```
+
+The server side mirrors this through `wscSelectSubProtocol`:
+
+```haskell
+runWebSocketServer defaultWebSocketServerConfig
+  { wscHandler           = chatHandler
+  , wscSelectSubProtocol = \req ->
+      -- Prefer "chat.v2" if the client offered it; else fall back.
+      pick ["chat.v2", "chat.v1"] (wsReqProtocols req)
+  }
+  where
+    pick prefs offered = lookup () [((), p) | p <- prefs, p `elem` offered]
+```
+
 ## Modules
 
 | Module | Purpose |
@@ -68,7 +109,8 @@ main = do
 | `Network.WebSocket.Connection` | `Connection` over `SendTransport` / `ReceiveTransport`; frame I/O, ping/pong, close. |
 | `Network.WebSocket.Message` | Reassembled text / binary messages across continuation frames. |
 | `Network.WebSocket.Server` | Standalone TCP / TLS listener + per-connection hand-off. |
-| `Network.WebSocket.Client` | Client connect over `ws://` / `wss://`. |
+| `Network.WebSocket.Client` | Client connect over `ws://` / `wss://`. `withWebSocketClient` for the simple case, `withWebSocketClient'` to inspect the server's `ServerHandshakeResult` (selected sub-protocol, extensions, full response headers). |
+| `Network.WebSocket.URI` | `parseWebSocketURI` / `renderWebSocketURI` and `clientConfigFromURI` so callers can plug a URL string straight into the client. |
 
 ## Tests
 

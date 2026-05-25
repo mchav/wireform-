@@ -24,9 +24,18 @@ module Network.WebSocket.Client
   , defaultWebSocketClientConfig
   , WebSocketClientTls (..)
   , wsTlsDefault
+  , clientConfigFromURI
 
     -- * Connecting
   , withWebSocketClient
+  , withWebSocketClient'
+  , withWebSocketClientURI
+
+    -- * Handshake result
+  , ServerHandshakeResult (..)
+
+    -- * Errors
+  , WebSocketClientError (..)
   ) where
 
 import Control.Exception
@@ -44,6 +53,12 @@ import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
 import qualified Network.HTTP.Types.Header as H
+
+import qualified Network.WebSocket.Handshake as HS
+import Network.WebSocket.Handshake
+  (buildClientHandshake, defaultWebSocketHandshakeOpts, verifyServerHandshake,
+   wsOptExtensions, wsOptExtraHeaders, wsOptProtocols)
+import Network.WebSocket.URI
 
 import qualified Wireform.Network as N
 import qualified Wireform.Network.TLS.Config as TLSCfg
@@ -111,6 +126,35 @@ defaultWebSocketClientConfig h p t = WebSocketClientConfig
   , wcRingSizeHint   = 256 * 1024
   }
 
+-- | Build a 'WebSocketClientConfig' from a parsed
+-- 'Network.WebSocket.URI.WebSocketURI'.  TLS is selected
+-- automatically for @wss:@ URIs; the SNI hostname defaults to the
+-- URI's host.  Callers that need a custom CA bundle, mTLS, etc.
+-- can post-process the returned record's 'wcTls' field.
+clientConfigFromURI :: WebSocketURI -> WebSocketClientConfig
+clientConfigFromURI u =
+  let host = BS8.unpack (wsuHost u)
+      port = show (wsuPort u)
+      tls = case wsuScheme u of
+        WsScheme  -> Nothing
+        WssScheme -> Just wsTlsDefault
+          { wctServerName = Just (wsuHost u) }
+  in WebSocketClientConfig
+       { wcHost           = host
+       , wcPort           = port
+       , wcTarget         = wsuTarget u
+       , wcAuthority      = canonicalAuthority u
+       , wcSubProtocols   = []
+       , wcExtensions     = []
+       , wcExtraHeaders   = []
+       , wcTls            = tls
+       , wcRingSizeHint   = 256 * 1024
+       }
+  where
+    canonicalAuthority WebSocketURI{ wsuScheme = s, wsuHost = h, wsuPort = p }
+      | p == case s of WsScheme -> 80 ; WssScheme -> 443 = h
+      | otherwise = h <> ":" <> BS8.pack (show p)
+
 ------------------------------------------------------------------------
 -- Errors
 ------------------------------------------------------------------------
@@ -120,6 +164,27 @@ newtype WebSocketClientError = WebSocketClientError String
 
 instance Exception WebSocketClientError
 
+-- | What the server returned alongside the 101 reply.  Lets the
+-- caller see which sub-protocol the server selected (if any) and
+-- inspect any extension negotiation, cookies, or custom auth
+-- headers the server set on the response.
+data ServerHandshakeResult = ServerHandshakeResult
+  { shrSelectedProtocol :: !(Maybe ByteString)
+    -- ^ @Sec-WebSocket-Protocol@ from the response.  Must be one
+    -- of the values the client advertised in 'wcSubProtocols';
+    -- if the server returned something else, the handshake is
+    -- rejected with a 'WebSocketClientError' before this record
+    -- is constructed.
+  , shrExtensions       :: ![ByteString]
+    -- ^ @Sec-WebSocket-Extensions@ values from the response, in
+    -- order.  No extension is interpreted by this layer; callers
+    -- that wired permessage-deflate (etc.) into 'wcExtensions'
+    -- inspect this field to confirm what the server agreed to.
+  , shrHeaders          :: ![H.Header]
+    -- ^ Full response header block.  Useful for cookies, custom
+    -- auth, @Server@ identification.
+  } deriving stock (Show)
+
 ------------------------------------------------------------------------
 -- Connect
 ------------------------------------------------------------------------
@@ -127,11 +192,32 @@ instance Exception WebSocketClientError
 -- | Connect, complete the handshake, hand the live 'Connection' to
 -- @action@.  Tears down the connection (polite close + ring
 -- release) on exit.
+--
+-- Discards the server's 'ServerHandshakeResult'.  Use
+-- 'withWebSocketClient'' if you need the server-selected
+-- sub-protocol or the response headers.
 withWebSocketClient
   :: WebSocketClientConfig
   -> (Connection -> IO a)
   -> IO a
-withWebSocketClient cfg action = do
+withWebSocketClient cfg action =
+  withWebSocketClient' cfg (\_ conn -> action conn)
+
+-- | Variant of 'withWebSocketClient' that exposes the server's
+-- handshake reply.  Use this when:
+--
+--   * the client offered multiple sub-protocols in
+--     'wcSubProtocols' and needs to know which one the server
+--     selected,
+--   * the server sets cookies or other headers on the 101 reply
+--     that the application needs to read,
+--   * the application negotiated extensions through
+--     'wcExtensions' and needs to confirm the server-side choice.
+withWebSocketClient'
+  :: WebSocketClientConfig
+  -> (ServerHandshakeResult -> Connection -> IO a)
+  -> IO a
+withWebSocketClient' cfg action = do
   let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
   addrs <- NS.getAddrInfo (Just hints) (Just (wcHost cfg)) (Just (wcPort cfg))
   case addrs of
@@ -143,26 +229,39 @@ withWebSocketClient cfg action = do
         Nothing  -> connectPlain cfg sock action
         Just tls -> connectTls   cfg tls sock action
 
+-- | Convenience: parse @"ws:\/\/..."@ or @"wss:\/\/..."@ and
+-- connect with default settings.  Mirrors the server-side
+-- 'Network.WebSocket.Server.runWebSocketServer' /
+-- 'WebSocketServerConfig' split for the client.
+withWebSocketClientURI
+  :: ByteString
+  -> (Connection -> IO a)
+  -> IO a
+withWebSocketClientURI uri action =
+  case parseWebSocketURI uri of
+    Left e   -> throwIO (WebSocketClientError ("bad URI: " <> show e))
+    Right u  -> withWebSocketClient (clientConfigFromURI u) action
+
 connectPlain
   :: WebSocketClientConfig
   -> NS.Socket
-  -> (Connection -> IO a)
+  -> (ServerHandshakeResult -> Connection -> IO a)
   -> IO a
 connectPlain cfg sock action = do
-  (_key, leftover) <- doHandshake cfg
-                                  (NSB.sendAll sock)
-                                  (NSB.recv sock 4096)
+  (shr, leftover) <- doHandshake cfg
+                                 (NSB.sendAll sock)
+                                 (NSB.recv sock 4096)
   duplex <- prebufferedDuplex (transportCfg cfg) sock leftover
   bracket
     (newConnection Client defaultPayloadLimit duplex)
     politeClose
-    action
+    (action shr)
 
 connectTls
   :: WebSocketClientConfig
   -> WebSocketClientTls
   -> NS.Socket
-  -> (Connection -> IO a)
+  -> (ServerHandshakeResult -> Connection -> IO a)
   -> IO a
 connectTls cfg tlsCfg sock action = do
   let alpn = wctAlpn tlsCfg
@@ -183,14 +282,14 @@ connectTls cfg tlsCfg sock action = do
           Just s | wctVerifyPeer tlsCfg ->
             TLS.setClientHostnameVerify ssl s
           _ -> pure ()
-        (_key, leftover) <- doHandshake cfg
-                                        (TLS.tlsSend ssl)
-                                        (recvTlsChunk ssl)
+        (shr, leftover) <- doHandshake cfg
+                                       (TLS.tlsSend ssl)
+                                       (recvTlsChunk ssl)
         duplex <- prebufferedDuplexTls (transportCfg cfg) sock ssl leftover
         bracket
           (newConnection Client defaultPayloadLimit duplex)
           politeClose
-          action
+          (action shr)
 
 politeClose :: Connection -> IO ()
 politeClose conn = do
@@ -202,14 +301,18 @@ politeClose conn = do
 ------------------------------------------------------------------------
 
 -- | Roll a request, send it, drain the response head, validate the
--- 101 reply, and return both the @Sec-WebSocket-Key@ we used and
--- any bytes already received past the @\\r\\n\\r\\n@ terminator
--- (which become the first frame bytes).
+-- 101 reply, and return the parsed 'ServerHandshakeResult'
+-- alongside any bytes already received past the @\\r\\n\\r\\n@
+-- terminator (which become the first frame bytes).
+--
+-- Verifies that any 'wcSubProtocols' selection the server made
+-- was actually one we offered; rejects with a
+-- 'WebSocketClientError' otherwise.
 doHandshake
   :: WebSocketClientConfig
-  -> (ByteString -> IO ())                -- ^ send raw bytes
-  -> IO ByteString                         -- ^ recv one chunk
-  -> IO (ByteString, ByteString)           -- ^ (key, leftover)
+  -> (ByteString -> IO ())                  -- ^ send raw bytes
+  -> IO ByteString                           -- ^ recv one chunk
+  -> IO (ServerHandshakeResult, ByteString)  -- ^ (result, leftover)
 doHandshake cfg send recv = do
   let opts = (defaultWebSocketHandshakeOpts (wcTarget cfg) (wcAuthority cfg))
         { wsOptProtocols    = wcSubProtocols cfg
@@ -224,7 +327,31 @@ doHandshake cfg send recv = do
     Left e  -> throwIO (WebSocketClientError ("malformed 101 response: " <> e))
     Right (code, hdrs) -> case verifyServerHandshake key code hdrs of
       Left  e -> throwIO (WebSocketClientError ("handshake rejected: " <> show e))
-      Right () -> pure (key, leftover)
+      Right () -> do
+        shr <- validateNegotiation cfg hdrs
+        pure (shr, leftover)
+
+-- | Pull the negotiated sub-protocol and extension list out of
+-- the server's reply, validating that the sub-protocol is one
+-- the client actually offered.
+validateNegotiation
+  :: WebSocketClientConfig
+  -> [H.Header]
+  -> IO ServerHandshakeResult
+validateNegotiation cfg hdrs = do
+  let selProto = H.lookupHeader  (CI.mk "Sec-WebSocket-Protocol")   hdrs
+      exts     = HS.splitTokenList
+                   (H.lookupHeaders (CI.mk "Sec-WebSocket-Extensions") hdrs)
+  case selProto of
+    Just p | not (any (== p) (wcSubProtocols cfg)) ->
+      throwIO (WebSocketClientError
+        ("server selected an unoffered sub-protocol: " <> show p))
+    _ -> pure ()
+  pure ServerHandshakeResult
+    { shrSelectedProtocol = selProto
+    , shrExtensions       = exts
+    , shrHeaders          = hdrs
+    }
 
 drainHttpHead :: IO ByteString -> ByteString -> Int -> IO ByteString
 drainHttpHead recv acc cap

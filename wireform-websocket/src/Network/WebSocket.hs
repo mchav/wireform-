@@ -30,6 +30,7 @@ module Network.WebSocket
   , module Network.WebSocket.Message
   , module Network.WebSocket.Server
   , module Network.WebSocket.Client
+  , module Network.WebSocket.URI
   ) where
 
 import Network.WebSocket.Client
@@ -38,3 +39,4 @@ import Network.WebSocket.Frame
 import Network.WebSocket.Handshake
 import Network.WebSocket.Message
 import Network.WebSocket.Server
+import Network.WebSocket.URI

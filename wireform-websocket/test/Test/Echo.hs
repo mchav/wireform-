@@ -20,6 +20,7 @@ import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, bracket, try)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Network.Socket as NS
 import System.Timeout (timeout)
 
@@ -27,6 +28,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.WebSocket.Client
+import Network.WebSocket.Handshake
 import Network.WebSocket.Message
 import Network.WebSocket.Server
 
@@ -35,6 +37,9 @@ tests = testGroup "Echo"
   [ echoText
   , echoBinary
   , echoTextTls
+  , echoViaURI
+  , subProtocolNegotiation
+  , unofferedSubProtocolRejected
   ]
 
 ------------------------------------------------------------------------
@@ -92,6 +97,112 @@ echoTextTls = testCase "wss:// client <-> echo server: text message" $ do
     Just () -> pure ()
     Nothing -> assertFailure "TLS echo test timed out after 20s"
 
+------------------------------------------------------------------------
+-- URI-based connect
+------------------------------------------------------------------------
+
+echoViaURI :: TestTree
+echoViaURI = testCase "withWebSocketClientURI: ws:// round-trip" $ do
+  r <- timeout 10_000_000 $ withEchoServer $ \port -> do
+    let uri = "ws://127.0.0.1:" <> BS8.pack (show port) <> "/echo"
+    withWebSocketClientURI uri $ \conn -> do
+      sendTextMessage conn "uri-routed"
+      msg <- receiveMessage conn defaultMessageLimit
+      case msg of
+        TextMessage t -> t @?= "uri-routed"
+        other         -> assertFailure ("expected TextMessage, got " <> show other)
+  case r of
+    Just () -> pure ()
+    Nothing -> assertFailure "URI echo timed out"
+
+------------------------------------------------------------------------
+-- Sub-protocol negotiation
+------------------------------------------------------------------------
+
+subProtocolNegotiation :: TestTree
+subProtocolNegotiation =
+  testCase "client sees the sub-protocol the server selected" $ do
+    r <- timeout 10_000_000 $
+      withEchoServerProto $ \port -> do
+        let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+              { wcSubProtocols = ["chat.v2", "chat.v1"]
+              }
+        withWebSocketClient' cfg $ \shr _conn ->
+          shrSelectedProtocol shr @?= Just "chat.v2"
+    case r of
+      Just () -> pure ()
+      Nothing -> assertFailure "sub-protocol test timed out"
+
+unofferedSubProtocolRejected :: TestTree
+unofferedSubProtocolRejected =
+  testCase "client rejects a server-selected protocol it did not offer" $ do
+    -- Server config forces the selection regardless of what the
+    -- client offered — emulates a misbehaving server.
+    r <- timeout 10_000_000 $
+      withForcedProtoServer "imposed-protocol" $ \port -> do
+        let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
+              { wcSubProtocols = ["something-else"]
+              }
+        result <- try $ withWebSocketClient cfg $ \_ -> pure ()
+        case result :: Either SomeException () of
+          Left _  -> pure ()  -- handshake validation throws
+          Right _ -> assertFailure
+            "expected client to reject server's unoffered sub-protocol"
+    case r of
+      Just () -> pure ()
+      Nothing -> assertFailure "rejection test timed out"
+
+-- | Echo server that picks the first offered sub-protocol via the
+-- 'wscSelectSubProtocol' callback.
+withEchoServerProto :: (Int -> IO a) -> IO a
+withEchoServerProto = withServerCfgVariant cfg
+  where
+    cfg = defaultWebSocketServerConfig
+      { wscHandler           = echoHandler
+      , wscSelectSubProtocol = \req ->
+          case wsReqProtocols req of
+            (p:_) -> Just p
+            []    -> Nothing
+      }
+
+-- | Echo server that always selects @forced@ as the sub-protocol,
+-- regardless of what the client offered.  Lets us drive the
+-- client's negative-path validation.
+withForcedProtoServer :: BS.ByteString -> (Int -> IO a) -> IO a
+withForcedProtoServer forced = withServerCfgVariant cfg
+  where
+    cfg = defaultWebSocketServerConfig
+      { wscHandler           = echoHandler
+      , wscSelectSubProtocol = \_ -> Just forced
+      }
+
+-- | Plumbing shared by the proto-server fixtures.
+withServerCfgVariant
+  :: WebSocketServerConfig
+  -> (Int -> IO a)
+  -> IO a
+withServerCfgVariant cfg action = do
+  let hints = NS.defaultHints
+        { NS.addrFlags = [NS.AI_PASSIVE]
+        , NS.addrSocketType = NS.Stream
+        }
+  addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
+  let addr = case addrs of
+        []    -> error "no addr"
+        (a:_) -> a
+  bracket (NS.openSocket addr) NS.close $ \sock -> do
+    NS.setSocketOption sock NS.ReuseAddr 1
+    NS.bind sock (NS.addrAddress addr)
+    NS.listen sock 16
+    boundAddr <- NS.getSocketName sock
+    port <- case boundAddr of
+      NS.SockAddrInet p _      -> pure (fromIntegral p :: Int)
+      NS.SockAddrInet6 p _ _ _ -> pure (fromIntegral p :: Int)
+      _ -> error "unexpected sockaddr"
+    tid <- forkIO $ runWebSocketServerOnListener cfg sock
+    a <- action port
+    killThread tid
+    pure a
 withEchoServerTls :: (Int -> IO a) -> IO a
 withEchoServerTls action = do
   let hints = NS.defaultHints

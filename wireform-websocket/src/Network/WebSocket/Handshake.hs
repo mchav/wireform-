@@ -41,6 +41,9 @@ module Network.WebSocket.Handshake
   , buildClientHandshake
   , verifyServerHandshake
   , generateKey
+
+    -- * Header helpers
+  , splitTokenList
   ) where
 
 import Control.Exception (Exception)
@@ -161,8 +164,10 @@ parseWebSocketRequest req = do
     , wsReqAuthority  = requestAuthority req
     , wsReqKey        = key
     , wsReqVersion    = ver
-    , wsReqProtocols  = H.lookupHeaders secWebSocketProtocolH   hdrs
-    , wsReqExtensions = H.lookupHeaders secWebSocketExtensionsH hdrs
+    , wsReqProtocols  = splitTokenList
+                          (H.lookupHeaders secWebSocketProtocolH hdrs)
+    , wsReqExtensions = splitTokenList
+                          (H.lookupHeaders secWebSocketExtensionsH hdrs)
     , wsReqOrigin     = H.lookupHeader (CI.mk "Origin") hdrs
     }
   where
@@ -171,19 +176,21 @@ parseWebSocketRequest req = do
       Nothing -> Left (HandshakeMissingHeader name)
 
 -- | Build the 101 'Response' that completes the server side of the
--- handshake.  Optionally select a sub-protocol from the client's
--- offered list (validated against 'wsReqProtocols').
+-- handshake.  The selected sub-protocol (if any) is written
+-- verbatim into the response @Sec-WebSocket-Protocol@ header;
+-- callers are responsible for ensuring the choice came from the
+-- client's offered list ('wsReqProtocols') \u2014 the standalone
+-- server's 'wscSelectSubProtocol' callback is the typical
+-- choosing site.
 serverAccept
   :: WebSocketRequest
-  -> Maybe ByteString        -- ^ selected sub-protocol, must appear
-                             --   in 'wsReqProtocols' to be honoured.
+  -> Maybe ByteString        -- ^ selected sub-protocol.
   -> Response
 serverAccept req mSelectedProto =
   let acceptVal = computeAccept (wsReqKey req)
       protoHdr  = case mSelectedProto of
-        Just p | p `elem` wsReqProtocols req
-                  -> [(secWebSocketProtocolH, p)]
-        _         -> []
+        Just p  -> [(secWebSocketProtocolH, p)]
+        Nothing -> []
   in Response
        { responseStatus     = S.status101
        , responseVersion    = V.HTTP1_1
@@ -326,6 +333,23 @@ secWebSocketExtensionsH = CI.mk "Sec-WebSocket-Extensions"
 ------------------------------------------------------------------------
 -- Header value helpers
 ------------------------------------------------------------------------
+
+-- | Flatten one or more header values that each carry a
+-- comma-separated token list into a single concatenated list of
+-- trimmed tokens.  RFC 9110 \u00a75.6.1 / RFC 6455 \u00a74.1.
+splitTokenList :: [ByteString] -> [ByteString]
+splitTokenList = concatMap splitOne
+  where
+    splitOne v = filter (not . BS.null) (map stripOws (BS.split 0x2C v))
+    stripOws = BS.dropWhile isOws . dropTrailingOws
+    isOws b = b == 0x20 || b == 0x09
+    dropTrailingOws s =
+      let !n = BS.length s
+          go i
+            | i <= 0       = BS.empty
+            | isOws (BS.index s (i - 1)) = go (i - 1)
+            | otherwise    = BS.take i s
+      in go n
 
 -- | Case-insensitive comma-separated token membership.  RFC 9110
 -- \u00a75.6.1 grammar (with the OWS-stripping that 6.1 says

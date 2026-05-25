@@ -96,7 +96,18 @@ data WebSocketServerConfig = WebSocketServerConfig
   , wscForkConnection   :: !(IO () -> IO ThreadId)
   , wscOnHandshakeError :: !(HandshakeError -> IO ())
     -- ^ Logging callback when the client's request fails the RFC
-    -- 6455 \u00a74 checks.  Default is a no-op.
+    -- 6455 sec 4 checks.  Default is a no-op.
+  , wscSelectSubProtocol :: !(WebSocketRequest -> Maybe ByteString)
+    -- ^ Choose a sub-protocol from those the client offered, or
+    -- 'Nothing' to decline.  RFC 6455 sec 4.2.2 says the server
+    -- may select 0 or 1 of the client's offered protocols.  The
+    -- default declines (returns 'Nothing'), which works fine for
+    -- the typical chat-app shape where one app == one protocol.
+    --
+    -- This is the server-side counterpart of the client's
+    -- 'Network.WebSocket.Client.wcSubProtocols' field; the
+    -- client validates that whatever you return here is in the
+    -- list it offered.
   , wscRingSizeHint     :: !Int
     -- ^ Magic-ring buffer size for both directions.  Default 256 KiB,
     -- which leaves enough headroom for the WebSocket handshake
@@ -126,15 +137,16 @@ defaultWebSocketServerLimits = WebSocketServerLimits
 
 defaultWebSocketServerConfig :: WebSocketServerConfig
 defaultWebSocketServerConfig = WebSocketServerConfig
-  { wscHost             = "0.0.0.0"
-  , wscPort             = "8080"
-  , wscHandler          = \_ _ -> pure ()
-  , wscTls              = Nothing
-  , wscLimits           = defaultWebSocketServerLimits
-  , wscOnException      = \_ _ -> pure ()
-  , wscForkConnection   = forkIO
-  , wscOnHandshakeError = \_ -> pure ()
-  , wscRingSizeHint     = 256 * 1024
+  { wscHost              = "0.0.0.0"
+  , wscPort              = "8080"
+  , wscHandler           = \_ _ -> pure ()
+  , wscTls               = Nothing
+  , wscLimits            = defaultWebSocketServerLimits
+  , wscOnException       = \_ _ -> pure ()
+  , wscForkConnection    = forkIO
+  , wscOnHandshakeError  = \_ -> pure ()
+  , wscSelectSubProtocol = \_ -> Nothing
+  , wscRingSizeHint      = 256 * 1024
   }
 
 ------------------------------------------------------------------------
@@ -215,7 +227,7 @@ acceptWebSocketOnSocket cfg sock = act `finally` closeIgnore (NS.close sock)
             wscOnHandshakeError cfg e
             writeBadRequest sock e
           Right wsreq -> do
-            let resp = serverAccept wsreq Nothing
+            let resp = serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
             NSB.sendAll sock (renderResponseHead resp)
             runHandlerOverDuplex cfg wsreq sock Nothing leftover
 
@@ -239,7 +251,7 @@ acceptWebSocketOnTls cfg ssl = do
         _ <- try @SomeException (TLS.tlsSend ssl (renderBadRequest e))
         pure ()
       Right wsreq -> do
-        let resp = serverAccept wsreq Nothing
+        let resp = serverAccept wsreq (wscSelectSubProtocol cfg wsreq)
         TLS.tlsSend ssl (renderResponseHead resp)
         runHandlerOverDuplex cfg wsreq (TLS.sslConnSocket ssl)
           (Just ssl) leftover
