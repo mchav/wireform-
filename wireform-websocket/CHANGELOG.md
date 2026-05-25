@@ -81,3 +81,19 @@ Initial release.
     Haskell `websockets` package on every payload size benched
     and beats `tungstenite-rs` on large frames (33 % faster on
     128 KiB binary).
+* Imperative client API: `openWebSocketClient` /
+  `openWebSocketClient'` / `openWebSocketClientURI` /
+  `closeWebSocketClient`.  The bracketed `withWebSocketClient*`
+  variants are now thin wrappers over the imperative pair —
+  same code path, no separate handshake / TLS / socket setup.
+  This unblocks call sites that need a `Connection` whose
+  lifetime is longer than any single function call (benchmark
+  harnesses, supervisor-managed worker pools, REPL exploration);
+  previously they had to fork a thread that called
+  `withWebSocketClient` and parked inside the action so the
+  bracket would never unwind.
+* `attachCleanup :: Connection -> IO () -> IO ()` lets callers
+  register finalizers on a 'Connection' — used by
+  `openWebSocketClient`'s TLS path to chain the
+  `SSL_shutdown` + `SSL_CTX_free` + raw-socket close that the
+  layered bracket form used to handle implicitly.

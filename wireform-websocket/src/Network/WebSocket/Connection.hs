@@ -41,6 +41,7 @@ module Network.WebSocket.Connection
   , connectionRole
   , connectionReceive
   , connectionSend
+  , attachCleanup
   , closeConnection
 
     -- * Frame I\/O
@@ -136,6 +137,13 @@ data Connection = Connection
     -- 'sendClose' / 'sendCloseWith' calls become no-ops so a
     -- protocol-error close from the receive path doesn't get
     -- doubled by the server runner's polite-close path.
+  , connCleanup  :: !(IORef (IO ()))
+    -- ^ Extra teardown actions queued by the connection's
+    -- builder (e.g. OpenSSL 'SslConn' \/ 'SslCtx' release, the
+    -- raw socket close on the client side).  Each
+    -- 'attachCleanup' /prepends/ its action, so callers run in
+    -- last-attached-first-executed order at 'closeConnection'
+    -- time \u2014 the same shape nested 'bracket's unwind.
   , connClosed   :: !(IORef Bool)
   }
 
@@ -153,6 +161,7 @@ newConnection role lim duplex = do
   pos0      <- TR.receiveLoadHead (N.duplexReceive duplex)
   posRef    <- newIORef pos0
   closeSent <- newIORef False
+  cleanup   <- newIORef (pure ())
   cref      <- newIORef False
   pure Connection
     { connDuplex    = duplex
@@ -162,6 +171,7 @@ newConnection role lim duplex = do
     , connSendLock  = sLock
     , connRecvPos   = posRef
     , connSentClose = closeSent
+    , connCleanup   = cleanup
     , connClosed    = cref
     }
 
@@ -177,17 +187,39 @@ connectionSend = N.duplexSend . connDuplex
 -- | Tear down the connection.  Idempotent.  Half-closes the
 -- underlying transport (the receive side stays open so the peer's
 -- close frame can still arrive); 'N.closeDuplexTransport' releases
--- the rings.  Callers that already issued an application-level
--- 'sendClose' need not call this immediately \u2014 keep reading
--- until 'receiveFrame' raises 'WebSocketPeerClosed' first to drain
--- a polite shutdown.
+-- the rings.  Then any cleanups attached with 'attachCleanup' run
+-- in last-attached-first order \u2014 matching how nested
+-- 'bracket's would unwind.  Callers that already issued an
+-- application-level 'sendClose' need not call this immediately
+-- \u2014 keep reading until 'receiveFrame' raises
+-- 'WebSocketPeerClosed' first to drain a polite shutdown.
 closeConnection :: Connection -> IO ()
 closeConnection conn = mask_ $ do
   wasClosed <- atomicModifyIORef' (connClosed conn) (\b -> (True, b))
   unless wasClosed $ do
     _ <- try @SomeException $
       sendShutdownWrite (connectionSend conn)
-    N.closeDuplexTransport (connDuplex conn)
+    _ <- try @SomeException $ N.closeDuplexTransport (connDuplex conn)
+    runCleanups <- readIORef (connCleanup conn)
+    _ <- try @SomeException runCleanups
+    pure ()
+
+-- | Stack a teardown action onto the connection.  Runs at
+-- 'closeConnection' time after the duplex has been released.
+-- Use this to release any transport \/ TLS state that lives
+-- /outside/ the duplex transport (e.g. an OpenSSL @SSL_CTX@ that
+-- the client connect path allocated).
+attachCleanup :: Connection -> IO () -> IO ()
+attachCleanup conn act = atomicModifyIORef' (connCleanup conn) $ \prev ->
+  (act `safeFinally` prev, ())
+  where
+    -- Run @a@; whether it succeeds or throws, also run @b@.  Both
+    -- exceptions are best-effort swallowed because we are in the
+    -- cleanup path.
+    safeFinally a b = do
+      _ <- try @SomeException a
+      _ <- try @SomeException b
+      pure ()
 
 ------------------------------------------------------------------------
 -- Errors

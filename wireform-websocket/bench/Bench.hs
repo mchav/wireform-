@@ -153,18 +153,9 @@ echoHandler _ conn = loop
         Left _                    -> pure ()
 
 openWireformClient :: Int -> IO Connection
-openWireformClient port = do
-  -- 'withWebSocketClient' is bracketed; we hold the connection
-  -- across iterations, so we manually park it on an MVar inside a
-  -- forked action.  When the bench group finishes, criterion's
-  -- 'release' callback closes the underlying socket; the parked
-  -- thread is then orphaned and reaped at process exit.
-  mv <- newEmptyMVar
-  let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/")
-        { wcRingSizeHint = 1024 * 1024 }
-  _ <- forkIO $ withWebSocketClient cfg
-    (\c -> putMVar mv c >> blockForever)
-  takeMVar mv
+openWireformClient port = openWebSocketClient
+  (defaultWebSocketClientConfig "127.0.0.1" (show port) "/")
+    { wcRingSizeHint = 1024 * 1024 }
 
 ------------------------------------------------------------------------
 -- websockets fixture
@@ -230,6 +221,11 @@ runWebSocketsServer listenSock = acceptLoop
           WS.sendDataMessage conn (WS.Binary bs)
           serveLoop conn
 
+-- | The 'websockets' library only ships a bracketed 'WS.runClient',
+-- so the comparison side keeps the fork-and-park dance.  Documented
+-- so the asymmetry with our 'openWireformClient' is obvious: the
+-- wireform-websocket API exposes a non-bracketed
+-- 'openWebSocketClient' which we use directly above.
 openWebsocketsClient :: Int -> IO WS.Connection
 openWebsocketsClient port = do
   mv <- newEmptyMVar

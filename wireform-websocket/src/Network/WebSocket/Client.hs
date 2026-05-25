@@ -26,10 +26,16 @@ module Network.WebSocket.Client
   , wsTlsDefault
   , clientConfigFromURI
 
-    -- * Connecting
+    -- * Connecting (bracketed)
   , withWebSocketClient
   , withWebSocketClient'
   , withWebSocketClientURI
+
+    -- * Connecting (imperative)
+  , openWebSocketClient
+  , openWebSocketClient'
+  , openWebSocketClientURI
+  , closeWebSocketClient
 
     -- * Handshake result
   , ServerHandshakeResult (..)
@@ -39,7 +45,7 @@ module Network.WebSocket.Client
   ) where
 
 import Control.Exception
-  (Exception, SomeException, bracket, throwIO, try)
+  (Exception, SomeException, bracket, onException, throwIO, try)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
@@ -189,22 +195,65 @@ data ServerHandshakeResult = ServerHandshakeResult
   } deriving stock (Show)
 
 ------------------------------------------------------------------------
--- Connect
+-- Connect: imperative
+------------------------------------------------------------------------
+
+-- | Open a 'Connection' to the WebSocket server described by @cfg@.
+-- The connection is owned by the caller and must be released with
+-- 'closeWebSocketClient' (or 'withWebSocketClient', which does that
+-- in a bracket).  Discards the server's handshake reply; use
+-- 'openWebSocketClient'' to keep it.
+openWebSocketClient :: WebSocketClientConfig -> IO Connection
+openWebSocketClient cfg = snd <$> openWebSocketClient' cfg
+
+-- | Variant of 'openWebSocketClient' that also returns the server's
+-- 'ServerHandshakeResult' (selected sub-protocol, agreed extensions,
+-- full response header block).
+openWebSocketClient'
+  :: WebSocketClientConfig
+  -> IO (ServerHandshakeResult, Connection)
+openWebSocketClient' cfg = do
+  let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
+  addrs <- NS.getAddrInfo (Just hints) (Just (wcHost cfg)) (Just (wcPort cfg))
+  case addrs of
+    []       -> throwIO (WebSocketClientError "no addresses for host")
+    (addr:_) -> do
+      sock <- NS.openSocket addr
+      flip onException (NS.close sock) $ do
+        NS.connect sock (NS.addrAddress addr)
+        NS.setSocketOption sock NS.NoDelay 1
+        case wcTls cfg of
+          Nothing  -> openPlain cfg sock
+          Just tls -> openTls   cfg tls sock
+
+-- | URI-driven variant.  Parses @ws:\/\/@ \/ @wss:\/\/@ and opens
+-- the connection with default settings.
+openWebSocketClientURI :: ByteString -> IO Connection
+openWebSocketClientURI uri = case parseWebSocketURI uri of
+  Left e  -> throwIO (WebSocketClientError ("bad URI: " <> show e))
+  Right u -> openWebSocketClient (clientConfigFromURI u)
+
+-- | Polite RFC 6455 close: send a 1000 close frame (best effort,
+-- ignored if the peer already went away), then release the
+-- connection's magic ring + underlying socket / TLS state.
+-- Idempotent — calling twice is safe.
+closeWebSocketClient :: Connection -> IO ()
+closeWebSocketClient = politeClose
+
+------------------------------------------------------------------------
+-- Connect: bracketed
 ------------------------------------------------------------------------
 
 -- | Connect, complete the handshake, hand the live 'Connection' to
 -- @action@.  Tears down the connection (polite close + ring
--- release) on exit.
---
--- Discards the server's 'ServerHandshakeResult'.  Use
--- 'withWebSocketClient'' if you need the server-selected
--- sub-protocol or the response headers.
+-- release) on exit.  Equivalent to 'bracket' over
+-- 'openWebSocketClient' + 'closeWebSocketClient'.
 withWebSocketClient
   :: WebSocketClientConfig
   -> (Connection -> IO a)
   -> IO a
 withWebSocketClient cfg action =
-  withWebSocketClient' cfg (\_ conn -> action conn)
+  bracket (openWebSocketClient cfg) closeWebSocketClient action
 
 -- | Variant of 'withWebSocketClient' that exposes the server's
 -- handshake reply.  Use this when:
@@ -220,17 +269,10 @@ withWebSocketClient'
   :: WebSocketClientConfig
   -> (ServerHandshakeResult -> Connection -> IO a)
   -> IO a
-withWebSocketClient' cfg action = do
-  let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
-  addrs <- NS.getAddrInfo (Just hints) (Just (wcHost cfg)) (Just (wcPort cfg))
-  case addrs of
-    []        -> throwIO (WebSocketClientError "no addresses for host")
-    (addr:_)  -> bracket (NS.openSocket addr) NS.close $ \sock -> do
-      NS.connect sock (NS.addrAddress addr)
-      NS.setSocketOption sock NS.NoDelay 1
-      case wcTls cfg of
-        Nothing  -> connectPlain cfg sock action
-        Just tls -> connectTls   cfg tls sock action
+withWebSocketClient' cfg action = bracket
+  (openWebSocketClient' cfg)
+  (\(_, conn) -> closeWebSocketClient conn)
+  (\(shr, conn) -> action shr conn)
 
 -- | Convenience: parse @"ws:\/\/..."@ or @"wss:\/\/..."@ and
 -- connect with default settings.  Mirrors the server-side
@@ -240,59 +282,71 @@ withWebSocketClientURI
   :: ByteString
   -> (Connection -> IO a)
   -> IO a
-withWebSocketClientURI uri action =
-  case parseWebSocketURI uri of
-    Left e   -> throwIO (WebSocketClientError ("bad URI: " <> show e))
-    Right u  -> withWebSocketClient (clientConfigFromURI u) action
+withWebSocketClientURI uri action = bracket
+  (openWebSocketClientURI uri) closeWebSocketClient action
 
-connectPlain
+------------------------------------------------------------------------
+-- Internals
+------------------------------------------------------------------------
+
+openPlain
   :: WebSocketClientConfig
   -> NS.Socket
-  -> (ServerHandshakeResult -> Connection -> IO a)
-  -> IO a
-connectPlain cfg sock action = do
+  -> IO (ServerHandshakeResult, Connection)
+openPlain cfg sock = do
   (shr, leftover) <- doHandshake cfg
                                  (NSB.sendAll sock)
                                  (NSB.recv sock 4096)
   duplex <- prebufferedDuplex (transportCfg cfg) sock leftover
-  bracket
-    (newConnection Client defaultPayloadLimit duplex)
-    politeClose
-    (action shr)
+  conn   <- newConnection Client defaultPayloadLimit duplex
+  -- The duplex's close doesn't tear down the raw socket — its
+  -- contract is to release the magic ring and half-close the
+  -- write side.  Attach an explicit socket close so the imperative
+  -- open\/close pair fully releases everything.
+  attachCleanup conn (NS.close sock)
+  pure (shr, conn)
 
-connectTls
+openTls
   :: WebSocketClientConfig
   -> WebSocketClientTls
   -> NS.Socket
-  -> (ServerHandshakeResult -> Connection -> IO a)
-  -> IO a
-connectTls cfg tlsCfg sock action = do
-  let alpn = wctAlpn tlsCfg
-      tcsf = TLSCfg.defaultTlsClientConfig
+  -> IO (ServerHandshakeResult, Connection)
+openTls cfg tlsCfg sock = do
+  let tcsf = TLSCfg.defaultTlsClientConfig
         { TLSCfg.tlsClientVerifyPeer = wctVerifyPeer tlsCfg
         , TLSCfg.tlsClientCaBundle   = wctCaBundle tlsCfg
-        , TLSCfg.tlsClientAlpn       = alpn
+        , TLSCfg.tlsClientAlpn       = wctAlpn tlsCfg
         }
-  bracket (TLSCfg.buildClientCtx tcsf) TLS.freeCtx $ \ctx -> do
-    let serverName = case wctServerName tlsCfg of
-          Just s  -> Just s
-          Nothing -> Just (BS8.pack (wcHost cfg))
-    bracket
-      (TLS.newClient ctx sock serverName)
-      TLS.freeConn
-      $ \ssl -> do
-        case wctServerName tlsCfg of
-          Just s | wctVerifyPeer tlsCfg ->
-            TLS.setClientHostnameVerify ssl s
-          _ -> pure ()
-        (shr, leftover) <- doHandshake cfg
-                                       (TLS.tlsSend ssl)
-                                       (recvTlsChunk ssl)
-        duplex <- prebufferedDuplexTls (transportCfg cfg) sock ssl leftover
-        bracket
-          (newConnection Client defaultPayloadLimit duplex)
-          politeClose
-          (action shr)
+      serverName = case wctServerName tlsCfg of
+        Just s  -> Just s
+        Nothing -> Just (BS8.pack (wcHost cfg))
+  ctx <- TLSCfg.buildClientCtx tcsf
+  -- Hand off ownership of @ctx@ to the TLS connection.  We free
+  -- both ssl and ctx together in 'closeWebSocketClient' via the
+  -- connection's cleanup; if the handshake throws before then,
+  -- the bracket-style 'onException' covers it.
+  flip onException (TLS.freeCtx ctx) $ do
+    ssl <- TLS.newClient ctx sock serverName
+    flip onException (TLS.freeConn ssl >> TLS.freeCtx ctx) $ do
+      case wctServerName tlsCfg of
+        Just s | wctVerifyPeer tlsCfg ->
+          TLS.setClientHostnameVerify ssl s
+        _ -> pure ()
+      (shr, leftover) <- doHandshake cfg
+                                     (TLS.tlsSend ssl)
+                                     (recvTlsChunk ssl)
+      duplex <- prebufferedDuplexTls (transportCfg cfg) sock ssl leftover
+      conn   <- newConnection Client defaultPayloadLimit duplex
+      -- The TLS context, the SSL connection, and the raw socket
+      -- all outlive the duplex itself; attach a cleanup chain so
+      -- 'closeWebSocketClient' tears them down in the right order
+      -- (SSL_shutdown + SSL_free first, then SSL_CTX_free, then
+      -- the socket).
+      attachCleanup conn $ do
+        TLS.freeConn ssl
+        TLS.freeCtx ctx
+        NS.close sock
+      pure (shr, conn)
 
 politeClose :: Connection -> IO ()
 politeClose conn = do
