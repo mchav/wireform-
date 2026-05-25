@@ -50,6 +50,11 @@ module Wireform.FFI (
   findByte,
   findByteBS,
 
+  -- * SIMD 4-byte repeating-key XOR (WebSocket masking,
+  --   RFC 6455 sec 5.3)
+  xorRepeatingKey,
+  xorRepeatingKeyBS,
+
   -- * SIMD ASCII check (general purpose)
   isAscii,
   isAsciiBS,
@@ -309,6 +314,40 @@ findByteBS bs off target = unsafePerformIO $
   BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
     pure $! findByte (castPtr ptr) off len target
 {-# INLINE findByteBS #-}
+
+
+------------------------------------------------------------------------
+-- 4-byte repeating-key XOR (WebSocket masking)
+------------------------------------------------------------------------
+
+foreign import ccall unsafe "hs_ws_mask"
+  c_ws_mask :: Ptr Word8 -> CInt -> Word32 -> IO ()
+
+{- | In-place XOR of the 4-byte repeating @key@ over @buf[0..len)@.
+
+The key is interpreted in network byte order: byte 0 of the
+key sits in the high byte of @key@.  This matches RFC 6455 sec
+5.3's masking-key layout.
+
+Used by 'wireform-websocket' for frame masking; exposed
+generically because the same primitive shows up in any protocol
+that masks with a periodic 4-byte key.  Implemented in
+@cbits\/fast_scan.c@ as an SSE2 (via simde) loop processing
+16 bytes per iteration with a tiled mask vector.
+-}
+xorRepeatingKey :: Ptr Word8 -> Int -> Word32 -> IO ()
+xorRepeatingKey ptr len key = c_ws_mask ptr (fromIntegral len) key
+{-# INLINE xorRepeatingKey #-}
+
+-- | 'ByteString' variant: XOR the 4-byte repeating key in-place
+-- over the bytes the 'ByteString' references.  The 'ByteString'
+-- itself is shared with the caller, so the mutation is visible to
+-- everyone else holding the same 'ByteString'.  Callers must own
+-- the backing memory exclusively at this point.
+xorRepeatingKeyBS :: ByteString -> Word32 -> IO ()
+xorRepeatingKeyBS bs key = BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
+  c_ws_mask (castPtr ptr) (fromIntegral len) key
+{-# INLINE xorRepeatingKeyBS #-}
 
 
 ------------------------------------------------------------------------

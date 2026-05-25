@@ -49,3 +49,61 @@ int hs_find_byte(const uint8_t *buf, int offset, int len, uint8_t target_byte)
 
     return len;
 }
+
+/*
+ * In-place XOR of a 4-byte repeating mask over @buf[0..len).
+ * Used by wireform-websocket for RFC 6455 sec 5.3 frame masking
+ * (both directions: the parser un-masks an inbound payload; the
+ * builder masks an outbound client payload).
+ *
+ * The mask repeats in 4-byte network-order chunks; for the SSE2
+ * inner loop we broadcast that 32-bit pattern into a 16-byte
+ * vector once and XOR 16 bytes per iteration.  Scalar prologue +
+ * epilogue handle any sub-16-byte head / tail.
+ *
+ * @mask is a uint32_t with the four mask bytes in NETWORK ORDER,
+ * i.e. byte 0 of the mask in the high byte.  The same byte
+ * ordering the wire format uses.
+ */
+void hs_ws_mask(uint8_t *buf, int len, uint32_t mask)
+{
+    /* Build the byte ordering the loop needs: mask[0] at offset 0,
+     * mask[1] at offset 1, …  Easiest done by re-laying the bytes. */
+    uint8_t mb[4];
+    mb[0] = (uint8_t)(mask >> 24);
+    mb[1] = (uint8_t)(mask >> 16);
+    mb[2] = (uint8_t)(mask >>  8);
+    mb[3] = (uint8_t) mask;
+
+    int i = 0;
+
+    /* Align the scalar prologue so the main loop can use 'movdqa'
+     * once we hit a 16-byte boundary.  The mask byte at offset i
+     * is mb[i & 3] because the mask repeats every 4 bytes. */
+    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
+        buf[i] ^= mb[i & 3];
+        i++;
+    }
+
+    /* SSE2 main loop: 16 bytes per iteration.  The 4-byte mask
+     * tiled into a 16-byte vector once.  If i hit alignment at an
+     * offset where i & 3 != 0, the tile rotates accordingly. */
+    if (i + 16 <= len) {
+        int phase = i & 3;
+        uint8_t tile[16];
+        for (int k = 0; k < 16; k++) {
+            tile[k] = mb[(phase + k) & 3];
+        }
+        simde__m128i v = simde_mm_loadu_si128((const simde__m128i *)tile);
+        for (; i + 16 <= len; i += 16) {
+            simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
+            chunk = simde_mm_xor_si128(chunk, v);
+            simde_mm_store_si128((simde__m128i *)(buf + i), chunk);
+        }
+    }
+
+    /* Scalar epilogue for the trailing <16 bytes. */
+    for (; i < len; i++) {
+        buf[i] ^= mb[i & 3];
+    }
+}

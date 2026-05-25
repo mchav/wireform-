@@ -47,6 +47,9 @@ wireform-yaml-bench.prof
 # wireform-websocket/scripts/run-autobahn.sh).
 wireform-websocket/test-conformance/reports/
 
+# Rust bench build artefacts.
+wireform-websocket/bench-rust/target/
+
 # bench artefacts: per-run html/json/csv reports stay local.
 benchmark/results/
 wireform-kafka/benchmark/results/

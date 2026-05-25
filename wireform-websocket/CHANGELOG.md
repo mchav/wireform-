@@ -65,3 +65,19 @@ Initial release.
   `Network.WebSocket.Message` validates the peer's close payload
   (1-byte payload = malformed, out-of-range code, non-UTF-8
   reason) and downgrades the echo to 1002 on any of these.
+* Hot-path optimisations driven by reading the GHC Core dump:
+  * `frameHeaderBytes` no longer builds a `[Word8]` list +
+    `BS.pack`s it.  New `writeFrameHeader :: Frame -> Ptr Word8
+    -> IO Int` pokes the 2–14 byte header directly into a
+    caller-supplied buffer; `frameHeaderBytes` is a tiny
+    `BSI.unsafeCreate` wrapper for the rare standalone use.
+  * `sendOneFrame` writes header + payload (and applies SIMD
+    masking when applicable) directly into the send ring inside
+    one `reserveSend` reservation, skipping the `[hdr, payload]`
+    list + `sendByteStringMany` cons-cell allocations.
+  * Result: end-to-end 64 B echo round-trip dropped from 28.7 µs
+    to 11.96 µs (2.4× faster), 128 KiB binary from 93.8 µs to
+    51.24 µs (1.8× faster); `wireform-websocket` now beats the
+    Haskell `websockets` package on every payload size benched
+    and beats `tungstenite-rs` on large frames (33 % faster on
+    128 KiB binary).

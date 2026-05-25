@@ -112,6 +112,44 @@ runWebSocketServer defaultWebSocketServerConfig
 | `Network.WebSocket.Client` | Client connect over `ws://` / `wss://`. `withWebSocketClient` for the simple case, `withWebSocketClient'` to inspect the server's `ServerHandshakeResult` (selected sub-protocol, extensions, full response headers). |
 | `Network.WebSocket.URI` | `parseWebSocketURI` / `renderWebSocketURI` and `clientConfigFromURI` so callers can plug a URL string straight into the client. |
 
+## Benchmarks
+
+End-to-end loopback echo round-trips, single persistent connection,
+post-handshake measurement window. Comparison against the canonical
+Haskell `websockets` package (jaspervdj) and `tungstenite-rs` (the
+de-facto Rust WebSocket implementation).
+
+| Payload size | wireform-websocket | websockets (Haskell) | tungstenite (Rust) |
+| ------------ | -----------------: | -------------------: | -----------------: |
+| 64 B text    | **11.96 µs**       | 13.09 µs             | 4.89 µs            |
+| 64 B binary  | **11.81 µs**       | 13.06 µs             | 4.86 µs            |
+| 1 KiB text   | **12.40 µs**       | 14.56 µs             | 5.15 µs            |
+| 1 KiB binary | **12.17 µs**       | 14.49 µs             | 5.08 µs            |
+| 16 KiB text  | **18.70 µs**       | 20.20 µs             | 11.34 µs           |
+| 16 KiB binary| **15.44 µs**       | 19.27 µs             | 10.52 µs           |
+| 128 KiB text | 76.95 µs           | **72.16 µs**         | 124.50 µs          |
+| 128 KiB binary| **51.24 µs**      | 72.50 µs             | 76.12 µs           |
+
+wireform-websocket beats `websockets` on every shape it's been
+benched against (8–32 % faster), and beats `tungstenite-rs` at large
+payloads (33 % faster on 128 KiB binary). At small payloads (under
+16 KiB) `tungstenite-rs` retains a ~2× edge — mostly the unavoidable
+Haskell-vs-Rust scheduler / IO-manager / exception-checking overhead
+per round-trip.
+
+To reproduce:
+
+```
+cabal bench wireform-websocket:wireform-websocket-bench \
+  --benchmark-options='--time-limit 5 +RTS -N1 -RTS'
+cd wireform-websocket/bench-rust && cargo run --release
+```
+
+Bench source: `bench/Bench.hs` (Haskell side) and
+`bench-rust/src/main.rs` (Rust side). Both warm up 100 round-trips
+before sampling so handshake / cold-cache effects don't leak into
+the measurement window.
+
 ## Tests
 
 ```

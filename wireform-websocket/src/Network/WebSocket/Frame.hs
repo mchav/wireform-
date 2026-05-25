@@ -36,23 +36,26 @@ module Network.WebSocket.Frame
     -- * Encoding
   , buildFrame
   , buildFrameMasked
+  , frameHeaderBytes
+  , frameHeaderLength
+  , writeFrameHeader
     -- * Masking
   , maskPayload
   ) where
 
 import Control.Exception (Exception)
-import Data.Bits (shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.Bits (shiftL, shiftR, testBit, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Word (Word32, Word64, Word8)
-import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr)
-import Foreign.Storable (peekByteOff, pokeByteOff)
+import Foreign.Ptr (Ptr)
+import Foreign.Storable (pokeByteOff)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified System.Random.Stateful as Rnd
 
 import qualified Wireform.Builder as B
+import qualified Wireform.FFI as FFI
 import Wireform.Parser
   ( Parser
   , anyWord16be
@@ -60,7 +63,6 @@ import Wireform.Parser
   , anyWord8
   , err
   , takeBs
-  , takeBsCopy
   )
 import Wireform.Parser.Internal (ParserMode)
 
@@ -230,16 +232,19 @@ parseFrame (PayloadLimit limit) = do
                    pure (Just (mkMask m0 m1 m2 m3))
                  else pure Nothing
       let !len = fromIntegral len64 :: Int
-      payload <- if masked
-                   then do
-                     -- Always copy when we have to apply the mask;
-                     -- the in-place xor would otherwise corrupt the
-                     -- ring's backing memory.
-                     raw <- takeBsCopy len
-                     case mMask of
-                       Just m  -> pure (maskInPlace m raw)
-                       Nothing -> pure raw
-                   else takeBs len
+      payload <- case mMask of
+        Just m  -> do
+          -- Zero-copy slice into the recv ring, then XOR the
+          -- masking key over those bytes in place.  Mutating ring
+          -- memory is safe because the slice the caller receives
+          -- references the same bytes \u2014 nothing else is
+          -- reading them, and the driver does not advance the
+          -- consumer tail past the frame until the caller has
+          -- finished with the slice.  Saves a 'BS.copy' of the
+          -- payload over the previous takeBsCopy-then-XOR path.
+          raw <- takeBs len
+          pure (maskInPlace m raw)
+        Nothing -> takeBs len
       pure Frame
         { frameFin     = fin
         , frameRsv1    = rsv1
@@ -309,6 +314,81 @@ buildFrame f =
 buildFrameMasked :: Mask -> Frame -> B.Builder
 buildFrameMasked m f = buildFrame f { frameMask = Just m }
 
+-- | Length in bytes of @frame@'s wire header (FIN \/ RSV \/ opcode
+-- byte + length encoding + optional 4-byte mask key).  No
+-- allocation; straight-line case dispatch on the payload size.
+frameHeaderLength :: Frame -> Int
+frameHeaderLength f =
+  let !plen = BS.length (framePayload f)
+      !lenField
+        | plen <= 125     = 1
+        | plen <= 0xFFFF  = 3
+        | otherwise       = 9
+      !maskLen = case frameMask f of { Just _ -> 4 ; Nothing -> 0 }
+  in 1 + lenField + maskLen
+{-# INLINE frameHeaderLength #-}
+
+-- | Write @frame@'s wire header into @dst@.  The caller must have
+-- already reserved at least 'frameHeaderLength' bytes at @dst@
+-- (e.g. via 'Wireform.Transport.Send.reserveSend').  Returns the
+-- number of bytes written, i.e. 'frameHeaderLength'.
+writeFrameHeader :: Frame -> Ptr Word8 -> IO Int
+writeFrameHeader f p = do
+  let !b1 = bit7 (frameFin f)
+        .|. bit6 (frameRsv1 f)
+        .|. bit5 (frameRsv2 f)
+        .|. bit4 (frameRsv3 f)
+        .|. (opcodeToWord (frameOpcode f) .&. 0x0F)
+      !plen = fromIntegral (BS.length (framePayload f)) :: Word64
+      !mMask    = frameMask f
+      !maskBit  = case mMask of { Just _ -> 0x80 ; Nothing -> 0x00 } :: Word8
+      !lenField
+        | plen <= 125     = 1
+        | plen <= 0xFFFF  = 3
+        | otherwise       = 9
+  pokeByteOff p 0 b1
+  case lenField of
+    1 -> pokeByteOff p 1 (maskBit .|. fromIntegral plen :: Word8)
+    3 -> do
+      pokeByteOff p 1 (maskBit .|. 126 :: Word8)
+      pokeByteOff p 2 (fromIntegral (plen `shiftR` 8) :: Word8)
+      pokeByteOff p 3 (fromIntegral  plen             :: Word8)
+    _ -> do
+      pokeByteOff p 1 (maskBit .|. 127 :: Word8)
+      pokeByteOff p 2 (fromIntegral (plen `shiftR` 56) :: Word8)
+      pokeByteOff p 3 (fromIntegral (plen `shiftR` 48) :: Word8)
+      pokeByteOff p 4 (fromIntegral (plen `shiftR` 40) :: Word8)
+      pokeByteOff p 5 (fromIntegral (plen `shiftR` 32) :: Word8)
+      pokeByteOff p 6 (fromIntegral (plen `shiftR` 24) :: Word8)
+      pokeByteOff p 7 (fromIntegral (plen `shiftR` 16) :: Word8)
+      pokeByteOff p 8 (fromIntegral (plen `shiftR`  8) :: Word8)
+      pokeByteOff p 9 (fromIntegral  plen              :: Word8)
+  case mMask of
+    Nothing -> pure ()
+    Just (Mask w) -> do
+      let !off = 1 + lenField
+      pokeByteOff p  off          (fromIntegral (w `shiftR` 24) :: Word8)
+      pokeByteOff p (off + 1)     (fromIntegral (w `shiftR` 16) :: Word8)
+      pokeByteOff p (off + 2)     (fromIntegral (w `shiftR`  8) :: Word8)
+      pokeByteOff p (off + 3)     (fromIntegral  w              :: Word8)
+  pure $! (1 + lenField + case mMask of { Just _ -> 4 ; Nothing -> 0 })
+{-# INLINE writeFrameHeader #-}
+
+-- | Render just the on-wire frame header (FIN \/ RSV \/ opcode byte,
+-- the length encoding, and the optional masking key) into a fresh
+-- pinned 'ByteString'.  The payload is /not/ included.
+--
+-- Wrapper around 'writeFrameHeader' for callers that need a
+-- standalone 'ByteString'.  The hot send path in
+-- 'Network.WebSocket.Connection.sendFrame' uses
+-- 'writeFrameHeader' directly against the send ring instead.
+frameHeaderBytes :: Frame -> ByteString
+frameHeaderBytes f =
+  BSI.unsafeCreate (frameHeaderLength f) $ \p -> do
+    _ <- writeFrameHeader f p
+    pure ()
+{-# INLINE frameHeaderBytes #-}
+
 maskAndPayload :: Maybe Mask -> ByteString -> B.Builder
 maskAndPayload Nothing  payload = B.byteString payload
 maskAndPayload (Just m) payload =
@@ -339,39 +419,19 @@ bit4 True = 0x10 ; bit4 False = 0
 maskPayload :: Mask -> ByteString -> ByteString
 maskPayload m bs = maskInPlace m (BS.copy bs)
 
--- | XOR the mask bytes over @bs@ in place.  /Caller-owned/ memory:
--- 'bs' must not alias the ring's backing storage \u2014 use 'BS.copy'
--- first if in doubt.  The parser only calls this on a freshly
--- 'takeBsCopy'-ed slice.
+-- | XOR the mask bytes over @bs@ in place via the SIMD masker in
+-- "Wireform.FFI" ('Wireform.FFI.xorRepeatingKeyBS').
+--
+-- /Caller-owned/ memory: @bs@ must not be shared with any other
+-- reader \u2014 the mutation is visible to anyone holding the
+-- same backing.  The parser calls this on a freshly-sliced
+-- payload immediately before handing it to the user; the user is
+-- expected to consume the bytes before the next 'receiveFrame',
+-- after which the recv ring may reuse the storage.
+--
+-- Returns the input 'ByteString' for chaining.
 maskInPlace :: Mask -> ByteString -> ByteString
 maskInPlace (Mask w) bs = unsafePerformIO $ do
-  let (fp, off, len) = BSI.toForeignPtr bs
-      !m0 = fromIntegral (w `shiftR` 24) :: Word8
-      !m1 = fromIntegral (w `shiftR` 16) :: Word8
-      !m2 = fromIntegral (w `shiftR` 8)  :: Word8
-      !m3 = fromIntegral  w              :: Word8
-  withForeignPtr fp $ \p -> do
-    let !base = p `plusPtr` off
-    go base 0 len m0 m1 m2 m3
+  FFI.xorRepeatingKeyBS bs w
   pure bs
-  where
-    go :: Ptr Word8 -> Int -> Int -> Word8 -> Word8 -> Word8 -> Word8 -> IO ()
-    go p !i !n a b c d
-      | i >= n = pure ()
-      | otherwise = do
-          x <- peekByteOff p i :: IO Word8
-          pokeByteOff p i (x `xor` a)
-          let i1 = i + 1
-          if i1 >= n then pure () else do
-            y <- peekByteOff p i1 :: IO Word8
-            pokeByteOff p i1 (y `xor` b)
-            let i2 = i + 2
-            if i2 >= n then pure () else do
-              z <- peekByteOff p i2 :: IO Word8
-              pokeByteOff p i2 (z `xor` c)
-              let i3 = i + 3
-              if i3 >= n then pure () else do
-                u <- peekByteOff p i3 :: IO Word8
-                pokeByteOff p i3 (u `xor` d)
-                go p (i + 4) n a b c d
 {-# NOINLINE maskInPlace #-}

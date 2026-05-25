@@ -77,13 +77,18 @@ import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Word (Word16, Word64)
 
+import Foreign.Marshal.Utils (copyBytes)
+import Foreign.Ptr (castPtr, plusPtr)
+import qualified Data.ByteString.Unsafe as BSU
+
+import qualified Wireform.FFI as FFI
 import Wireform.Parser.Driver
   ( InternalResult (..), runParserInternal )
 import Wireform.Parser.Error (ParseError (..))
 import qualified Wireform.Transport.Receive as TR
 import Wireform.Transport.Receive (ReceiveTransport)
 import Wireform.Transport.Send (SendTransport, sendBuilderDirect,
-  sendShutdownWrite)
+  sendPublishHead, sendRingSize, sendShutdownWrite, reserveSend)
 import qualified Wireform.Network as N
 
 import Network.WebSocket.Frame
@@ -313,7 +318,42 @@ sendFrame conn f0 = case frameOpcode f0 of
     dispatch f1 = do
       f <- applyOutboundMask conn f1
       withMVar (connSendLock conn) $ \_ ->
-        sendBuilderDirect (connectionSend conn) (buildFrame f)
+        sendOneFrame (connectionSend conn) f
+
+-- | Write a frame to the send ring in one shot when the frame
+-- fits.  Falls back to 'sendBuilderDirect' for frames larger than
+-- the ring (where chunked publishes are unavoidable).
+--
+-- The fits-in-ring path issues one ring reservation, pokes the
+-- header bytes directly into the reserved span, copies the
+-- payload right after, then publishes.  No intermediate
+-- 'ByteString' list, no @[hdr, payload]@ cons cells.  For
+-- unmasked server frames the payload @memcpy@ is the only
+-- per-byte cost in user space; the masked client path additionally
+-- runs the SIMD XOR (via 'Wireform.FFI.xorRepeatingKey') while
+-- copying into the ring.
+sendOneFrame :: SendTransport -> Frame -> IO ()
+sendOneFrame t f = do
+  let !payloadBS = framePayload f
+      !plen      = BS.length payloadBS
+      !hdrLen    = frameHeaderLength f
+      !needed    = hdrLen + plen
+  if needed <= sendRingSize t
+    then do
+      (ringPtr, newHead) <- reserveSend t needed
+      _ <- writeFrameHeader f ringPtr
+      BSU.unsafeUseAsCStringLen payloadBS $ \(src, _) ->
+        copyBytes (ringPtr `plusPtr` hdrLen) (castPtr src) plen
+      case frameMask f of
+        Nothing       -> pure ()
+        Just (Mask w) ->
+          FFI.xorRepeatingKey (ringPtr `plusPtr` hdrLen) plen w
+      sendPublishHead t newHead
+    else
+      -- Larger than the ring; fall through the chunked builder
+      -- path.  This is the only correctness-preserving option
+      -- because no single ring reservation can hold the frame.
+      sendBuilderDirect t (buildFrame f)
 
 -- | Non-throwing variant: catches 'IOException's from the
 -- underlying transport (peer reset etc.) and converts them to a
