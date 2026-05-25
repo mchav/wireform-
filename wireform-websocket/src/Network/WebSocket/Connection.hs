@@ -301,7 +301,9 @@ instance Exception WebSocketError
 -- 'runParser' directly here would lose the second frame because it
 -- re-reads the producer head as the start position.
 -- | Run @act@ holding the connection's recv lock, or directly
--- when the connection was constructed lock-free.
+-- when the connection was constructed lock-free.  Inlined at the
+-- call site so the unlocked path doesn't allocate a closure for
+-- the action argument.
 withRecvLock :: Connection -> IO a -> IO a
 withRecvLock conn act = case connRecvLock conn of
   Nothing -> act
@@ -315,7 +317,19 @@ withSendLock conn act = case connSendLock conn of
 {-# INLINE withSendLock #-}
 
 receiveFrame :: Connection -> IO Frame
-receiveFrame conn = withRecvLock conn $ do
+receiveFrame conn = case connRecvLock conn of
+  Nothing -> receiveFrameRaw conn
+  Just mv -> withMVar mv (\_ -> receiveFrameRaw conn)
+{-# INLINE receiveFrame #-}
+
+-- | The lock-free receive body.  Kept in its own top-level
+-- binding so the locked and unlocked entry points in
+-- 'receiveFrame' share it without each duplicating the parser
+-- machinery; the @case connRecvLock@ dispatch is local to
+-- 'receiveFrame' and does not allocate a closure that captures
+-- this body.
+receiveFrameRaw :: Connection -> IO Frame
+receiveFrameRaw conn = do
   pos <- readIORef (connRecvPos conn)
   r   <- runParserInternal (connectionReceive conn)
                            (parseFrame (connLimit conn))
@@ -408,8 +422,9 @@ sendFrame conn f0 = case frameOpcode f0 of
   where
     dispatch f1 = do
       f <- applyOutboundMask conn f1
-      withSendLock conn $
-        sendOneFrame (connectionSend conn) f
+      case connSendLock conn of
+        Nothing -> sendOneFrame (connectionSend conn) f
+        Just mv -> withMVar mv (\_ -> sendOneFrame (connectionSend conn) f)
 
 -- | Allocation-free fast path for the common case: a single
 -- non-fragmented, RSV-zero, non-control frame with the given
@@ -439,9 +454,11 @@ sendDataFrame conn op payload
       -- without touching the Frame record.
       mMask <- case connRole conn of
         Server -> pure Nothing
-        Client -> Just <$> randomMask
-      withSendLock conn $
-        sendDataFrameBytes (connectionSend conn) op mMask payload
+        Client -> Just <$> randomMask  -- one xoshiro256++ FFI call
+      case connSendLock conn of
+        Nothing -> sendDataFrameBytes (connectionSend conn) op mMask payload
+        Just mv -> withMVar mv (\_ ->
+          sendDataFrameBytes (connectionSend conn) op mMask payload)
 
 -- | Inner worker for 'sendDataFrame'.  All Frame fields are
 -- baked in (FIN=1, RSV=0).  This is the function the message

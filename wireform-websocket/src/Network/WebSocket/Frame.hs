@@ -205,6 +205,13 @@ defaultPayloadLimit = PayloadLimit (16 * 1024 * 1024)
 -- either 'Wireform.Parser.Driver.runParser' (streaming) or
 -- 'Wireform.Parser.Driver.parseByteString' (whole input \u2014
 -- handy for unit tests against a captured wire trace).
+-- | INLINEd so the receive-side caller's 'PayloadLimit' value
+-- can be unwrapped in place and the @Word64@ stays in registers.
+-- Without the pragma GHC ships @parseFrame@ as a function that
+-- takes a boxed @PayloadLimit@; the caller then has to allocate
+-- a @W64#@ box per call to bridge from the unboxed @Word64#@
+-- field of 'Connection'.
+{-# INLINE parseFrame #-}
 parseFrame :: ParserMode m => PayloadLimit -> Parser m FrameError Frame
 parseFrame (PayloadLimit limit) = do
   b1 <- anyWord8

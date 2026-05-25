@@ -135,3 +135,22 @@ Initial release.
   cache line, one FFI call (~1 ns) per frame.  Per-connection
   pre-roll cache retired \u2014 the FFI path is now cheaper
   than the cache's IORef accounting.
+* Lock-check inline in `sendFrame` / `sendDataFrame` /
+  `receiveFrame`.  Previously `withSendLock` / `withRecvLock`
+  took the body as an `IO a` argument; GHC could not eliminate
+  the closure for the body even when the lock was 'Nothing'.
+  The lock dispatch is now a direct `case connSendLock conn of`
+  at the call site, with the action inlined in each branch \u2014
+  no per-call closure allocation on the unlocked path.
+* `{-# INLINE parseFrame #-}` so the caller's `PayloadLimit`
+  newtype unwrap happens at the receive site instead of forcing
+  GHC to box the unboxed `Word64#` field of 'Connection' into a
+  `W64#` heap value per call.
+* Hot-path allocation rate dropped from ~10 KB to ~7.7 KB per
+  round-trip (~25 % less garbage).  Time per round-trip stable
+  within run-to-run noise; the remaining allocation lives in
+  `wireform-core`'s `Wireform.Parser.Driver.runParserInternal`
+  (per-call `ParserEnv`, `newPromptTag#`, `IORef` for high-water
+  marks) and the boxed `InternalResult` sum.  Squeezing those
+  requires changes to `wireform-core`'s API and is out of scope
+  for this package.
