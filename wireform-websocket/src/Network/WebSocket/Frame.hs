@@ -53,7 +53,6 @@ import Data.Word (Word32, Word64, Word8)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (pokeByteOff)
 import System.IO.Unsafe (unsafePerformIO)
-import qualified System.Random.Stateful as Rnd
 
 import qualified Wireform.Builder as B
 import qualified Wireform.FFI as FFI
@@ -266,13 +265,22 @@ mkMask m0 m1 m2 m3 = Mask $
   .|. (fromIntegral m2 `shiftL` 8)
   .|.  fromIntegral m3
 
--- | Draw a fresh per-frame masking key from the global splitmix
--- generator.  Clients should call this once per frame; the
--- 'Mask' need not be cryptographically random per RFC 6455
--- \u00a75.3, but should be unpredictable to a network observer
--- on the same connection \u2014 splitmix is sufficient.
+-- | Draw a fresh per-frame masking key from the calling OS
+-- thread's xoshiro256++ generator (see
+-- 'Wireform.FFI.fastRandomWord64').  Single FFI call, no global
+-- @MVar@ contention, no per-connection cache.  The upper 32 bits
+-- of the 64-bit value are discarded; RFC 6455 \u00a75.3 needs
+-- a 32-bit mask and we never need more than one per frame on
+-- the hot path.
+--
+-- The key need not be cryptographically random, only
+-- unpredictable to a network observer on the same connection.
+-- xoshiro256++ comfortably clears that bar.
 randomMask :: IO Mask
-randomMask = Mask <$> Rnd.uniformM Rnd.globalStdGen
+randomMask = do
+  w <- FFI.fastRandomWord64
+  pure $! Mask (fromIntegral w)
+{-# INLINE randomMask #-}
 
 ------------------------------------------------------------------------
 -- Builder

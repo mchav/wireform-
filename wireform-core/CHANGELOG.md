@@ -11,6 +11,19 @@
   WebSocket handshake (`wireform-websocket`) is the first
   consumer.
 
+* `Wireform.FFI.fastRandomWord64` -- thread-local xoshiro256++
+  PRNG implemented in `cbits/fast_rng.c`.  Per-OS-thread 256-bit
+  state stored in `__thread` storage, seeded on first use from
+  `getrandom(2)` (`arc4random_buf` on BSDs, `/dev/urandom`
+  elsewhere).  Each call is a single FFI trip + a handful of
+  register-only XOR / rotate ops — typically ~1 ns including the
+  FFI boundary, versus ~50 ns for the global `splitmix` `MVar`
+  generator.  Caveat: because Haskell threads are multiplexed
+  across OS threads, the per-Haskell-thread sequence is not
+  reproducible; use `System.Random.Stateful` for that. The
+  intended uses are non-deterministic-randomness needs on hot
+  paths — WebSocket frame masks, retry jitter, etc.
+
 * `Wireform.Ring` -- gave `MagicRing` a phantom type parameter `s`
   modelled after `Control.Monad.ST.ST`.  `withMagicRing` is now
   rank-2 (`Int -> (forall s. MagicRing s -> IO a) -> IO a`), which

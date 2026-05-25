@@ -105,6 +105,7 @@ library
              cbits/fast_scan.c
              cbits/wireform_hash_simd.c
              cbits/base64.c
+             cbits/fast_rng.c
   include-dirs: include/simde
                 include
   cc-options: -O3

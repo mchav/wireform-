@@ -76,7 +76,7 @@ module Network.WebSocket.Connection
 
 import Control.Concurrent.MVar
 import Control.Exception (Exception, SomeException, mask_, throwIO, try)
-import Control.Monad (replicateM, unless, when)
+import Control.Monad (unless, when)
 import Data.Bits (shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -151,13 +151,6 @@ data Connection = Connection
     -- 'sendClose' / 'sendCloseWith' calls become no-ops so a
     -- protocol-error close from the receive path doesn't get
     -- doubled by the server runner's polite-close path.
-  , connMaskCache :: !(IORef (Int, [Mask]))
-    -- ^ Pre-rolled per-frame masking keys for client-role
-    -- connections.  Refilled in batches of 'maskCacheBatch'
-    -- by 'nextMask' so the hot send path doesn't hit the
-    -- 'System.Random.Stateful.globalStdGen' MVar on every frame.
-    -- Server-role connections never touch this.  The pair is
-    -- @(remaining-count, mask-list)@.
   , connCleanup  :: !(IORef (IO ()))
     -- ^ Extra teardown actions queued by the connection's
     -- builder (e.g. OpenSSL 'SslConn' \/ 'SslCtx' release, the
@@ -214,7 +207,6 @@ buildConnection role lim duplex rLock sLock = do
   posRef    <- newIORef pos0
   closeSent <- newIORef False
   cleanup   <- newIORef (pure ())
-  masks     <- newIORef (0, [])
   cref      <- newIORef False
   pure Connection
     { connDuplex    = duplex
@@ -224,35 +216,9 @@ buildConnection role lim duplex rLock sLock = do
     , connSendLock  = sLock
     , connRecvPos   = posRef
     , connSentClose = closeSent
-    , connMaskCache = masks
     , connCleanup   = cleanup
     , connClosed    = cref
     }
-
--- | How many per-frame mask keys we roll per refill.  Each cache
--- miss costs one @MVar@ trip on the global splitmix generator;
--- batching by 64 brings the amortised cost per frame down to
--- almost zero.
-maskCacheBatch :: Int
-maskCacheBatch = 64
-
--- | Pull the next pre-rolled per-frame masking key.  Refills the
--- cache in batches of 'maskCacheBatch' so the hot send path
--- doesn't hit the global splitmix generator on every frame.
-nextMask :: Connection -> IO Mask
-nextMask conn = do
-  (n, ms) <- readIORef (connMaskCache conn)
-  case ms of
-    (m:rest) -> do
-      writeIORef (connMaskCache conn) (n - 1, rest)
-      pure m
-    [] -> do
-      ws <- replicateM maskCacheBatch randomMask
-      case ws of
-        []     -> randomMask  -- never reached; maskCacheBatch > 0
-        (m:rs) -> do
-          writeIORef (connMaskCache conn) (maskCacheBatch - 1, rs)
-          pure m
 
 connectionRole :: Connection -> Role
 connectionRole = connRole
@@ -473,7 +439,7 @@ sendDataFrame conn op payload
       -- without touching the Frame record.
       mMask <- case connRole conn of
         Server -> pure Nothing
-        Client -> Just <$> nextMask conn
+        Client -> Just <$> randomMask
       withSendLock conn $
         sendDataFrameBytes (connectionSend conn) op mMask payload
 
@@ -617,7 +583,7 @@ applyOutboundMask conn f = case connRole conn of
   Client -> case frameMask f of
     Just _  -> pure f
     Nothing -> do
-      m <- randomMask
+      m <- randomMask  -- one xoshiro256++ FFI call, thread-local
       pure f { frameMask = Just m }
 
 ------------------------------------------------------------------------

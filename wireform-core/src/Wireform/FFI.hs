@@ -55,6 +55,9 @@ module Wireform.FFI (
   xorRepeatingKey,
   xorRepeatingKeyBS,
 
+  -- * Thread-local xoshiro256++ PRNG
+  fastRandomWord64,
+
   -- * SIMD ASCII check (general purpose)
   isAscii,
   isAsciiBS,
@@ -348,6 +351,37 @@ xorRepeatingKeyBS :: ByteString -> Word32 -> IO ()
 xorRepeatingKeyBS bs key = BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
   c_ws_mask (castPtr ptr) (fromIntegral len) key
 {-# INLINE xorRepeatingKeyBS #-}
+
+
+------------------------------------------------------------------------
+-- Thread-local xoshiro256++ PRNG
+------------------------------------------------------------------------
+
+foreign import ccall unsafe "hs_xoshiro256pp_next"
+  c_xoshiro256pp_next :: IO Word64
+
+{- | Pull a non-cryptographically-random 'Word64' from the calling
+OS thread's xoshiro256++ generator.
+
+State is per-OS-thread (@__thread@), seeded from @getrandom(2)@
+(@arc4random_buf@ on BSDs, @\/dev\/urandom@ everywhere else) on
+first use.  Once seeded, each call is a handful of register-only
+arithmetic ops — typically ~1 ns including the FFI boundary,
+versus ~50 ns for the global @splitmix@ generator that takes an
+@MVar@ on every call.
+
+Caveat: because Haskell threads are multiplexed across OS
+threads, the per-Haskell-thread sequence is not reproducible
+(an HS thread may resume on a different capability and draw
+from a different RNG stream).  This is the right trade-off for
+the non-deterministic-randomness needs that motivated the helper
+(WebSocket frame masking, retry jitter, …); for reproducible
+streams use a 'System.Random.Stateful' generator the caller
+owns.
+-}
+fastRandomWord64 :: IO Word64
+fastRandomWord64 = c_xoshiro256pp_next
+{-# INLINE fastRandomWord64 #-}
 
 
 ------------------------------------------------------------------------

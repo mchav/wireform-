@@ -127,3 +127,11 @@ Initial release.
   without triggering per-frame `sendmsg` / `SSL_write`; one
   publish covers everything written.  Throughput optimisation
   for fan-out and large-batch workloads.
+* Per-frame masking key rolled from a thread-local
+  xoshiro256++ generator (`Wireform.FFI.fastRandomWord64`).
+  Replaces the previous `splitmix` / global `MVar`-protected
+  generator with a `__thread`-stored 256-bit state, seeded
+  once per OS thread from `getrandom(2)`.  No lock, no shared
+  cache line, one FFI call (~1 ns) per frame.  Per-connection
+  pre-roll cache retired \u2014 the FFI path is now cheaper
+  than the cache's IORef accounting.

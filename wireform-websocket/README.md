@@ -121,14 +121,14 @@ de-facto Rust WebSocket implementation).
 
 | Payload size | wireform-websocket | websockets (Haskell) | tungstenite (Rust) |
 | ------------ | -----------------: | -------------------: | -----------------: |
-| 64 B text    | **11.96 µs**       | 13.09 µs             | 4.89 µs            |
-| 64 B binary  | **11.81 µs**       | 13.06 µs             | 4.86 µs            |
-| 1 KiB text   | **12.40 µs**       | 14.56 µs             | 5.15 µs            |
-| 1 KiB binary | **12.17 µs**       | 14.49 µs             | 5.08 µs            |
-| 16 KiB text  | **18.70 µs**       | 20.20 µs             | 11.34 µs           |
-| 16 KiB binary| **15.44 µs**       | 19.27 µs             | 10.52 µs           |
-| 128 KiB text | 76.95 µs           | **72.16 µs**         | 124.50 µs          |
-| 128 KiB binary| **51.24 µs**      | 72.50 µs             | 76.12 µs           |
+| 64 B text    | **11.68 µs**       | 13.07 µs             | 4.90 µs            |
+| 64 B binary  | **11.53 µs**       | 13.06 µs             | 4.92 µs            |
+| 1 KiB text   | **13.34 µs**       | 13.73 µs             | 5.17 µs            |
+| 1 KiB binary | **11.78 µs**       | 14.61 µs             | 5.12 µs            |
+| 16 KiB text  | **17.88 µs**       | 20.29 µs             | 11.53 µs           |
+| 16 KiB binary| **15.24 µs**       | 20.37 µs             | 10.59 µs           |
+| 128 KiB text | **71.74 µs**       | 74.21 µs             | 120.41 µs          |
+| 128 KiB binary| **51.60 µs**      | 73.81 µs             | 68.04 µs           |
 
 wireform-websocket beats `websockets` on every shape it's been
 benched against (8–32 % faster), and beats `tungstenite-rs` at large
