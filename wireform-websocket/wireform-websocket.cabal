@@ -1,0 +1,163 @@
+cabal-version: 3.0
+name: wireform-websocket
+version: 0.1.0.0
+synopsis: RFC 6455 WebSocket implementation on the wireform parser / builder stack
+description:
+  Native WebSocket (RFC 6455) implementation built on wireform-core's
+  streaming 'Wireform.Parser.Parser' and 'Wireform.Builder.Builder'
+  primitives.  Integrates with wireform-http for serving the
+  WebSocket API: a wireform-http handler can validate the
+  @Sec-WebSocket-Key@ header and the standalone listener uses the
+  same TLS / ALPN machinery as 'Network.HTTP.Server' so @wss:\/\/@
+  works out of the box.
+  .
+  Modules:
+  .
+  * @"Network.WebSocket"@ - umbrella re-export.
+  * @"Network.WebSocket.Frame"@ - frame ADT, streaming
+    'Wireform.Parser' decoder and 'Wireform.Builder' encoder.
+  * @"Network.WebSocket.Handshake"@ - RFC 6455 \u00a74 handshake
+    (Sec-WebSocket-Key \/ Accept, header validation, 101 response
+    rendering, client request rendering).
+  * @"Network.WebSocket.Connection"@ - 'Connection' abstraction
+    on top of 'Wireform.Transport.Send.SendTransport' \/
+    'Wireform.Transport.Receive.ReceiveTransport'; ping \/ pong \/
+    close frame handling.
+  * @"Network.WebSocket.Message"@ - higher-level
+    text \/ binary message API; reassembles continuation frames.
+  * @"Network.WebSocket.Server"@ - standalone listener (TCP \/ TLS)
+    plus 'acceptWebSocket' for handing off an already-accepted
+    socket from a wireform-http upgrade handler.
+  * @"Network.WebSocket.Client"@ - client connect (TCP and TLS).
+
+homepage: https://github.com/iand675/wireform-
+bug-reports: https://github.com/iand675/wireform-/issues
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Network, Web
+build-type: Simple
+tested-with: GHC == 9.6.4, GHC == 9.8.4
+extra-source-files:
+  README.md
+extra-doc-files:
+  CHANGELOG.md
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
+
+common defaults
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    OverloadedStrings
+    LambdaCase
+    BangPatterns
+    BlockArguments
+    ScopedTypeVariables
+
+library
+  import: defaults
+  hs-source-dirs: src
+  ghc-options:
+    -O2
+  install-includes:
+    wf_pmd.h
+  include-dirs: cbits
+  c-sources:
+    cbits/wf_pmd.c
+  cc-options: -O2
+  pkgconfig-depends:
+    zlib
+  exposed-modules:
+    Network.WebSocket
+    Network.WebSocket.Frame
+    Network.WebSocket.Handshake
+    Network.WebSocket.Connection
+    Network.WebSocket.Connection.Role
+    Network.WebSocket.Message
+    Network.WebSocket.PerMessageDeflate
+    Network.WebSocket.Server
+    Network.WebSocket.Client
+    Network.WebSocket.URI
+  build-depends:
+    base                 >= 4.16 && < 5,
+    bytestring           >= 0.11 && < 0.13,
+    case-insensitive     >= 1.2  && < 1.3,
+    crypton              >= 0.7  && < 1.2,
+    deepseq              >= 1.4  && < 1.6,
+    memory               >= 0.18 && < 0.19,
+    network              >= 3.1  && < 3.3,
+    random               >= 1.2  && < 1.4,
+    stm                  >= 2.5  && < 2.6,
+    text                 >= 2.0  && < 2.2,
+    wireform-core,
+    wireform-network,
+    wireform-http,
+    wireform-http1
+
+benchmark wireform-websocket-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    criterion        >= 1.5  && < 1.7,
+    deepseq          >= 1.4  && < 1.6,
+    network,
+    text,
+    websockets       >= 0.12 && < 0.14,
+    wireform-websocket
+
+executable wireform-websocket-autobahn-echo
+  import: defaults
+  hs-source-dirs: test-conformance/echo-server
+  main-is: Main.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    wireform-websocket
+
+test-suite wireform-websocket-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  other-modules:
+    Test.Frame
+    Test.Handshake
+    Test.URI
+    Test.Echo
+    Test.PerMessageDeflate
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+    base,
+    bytestring,
+    case-insensitive,
+    network,
+    random,
+    tasty            >= 1.4,
+    tasty-hunit      >= 0.10,
+    text,
+    wireform-core,
+    wireform-http,
+    wireform-network,
+    wireform-websocket

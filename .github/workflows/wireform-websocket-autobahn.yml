@@ -1,0 +1,92 @@
+name: wireform-websocket Autobahn conformance
+
+on:
+  push:
+    paths:
+      - 'wireform-websocket/**'
+      - 'wireform-core/**'
+      - 'wireform-http/**'
+      - 'wireform-http1/**'
+      - 'wireform-network/**'
+      - '.github/workflows/wireform-websocket-autobahn.yml'
+  pull_request:
+    paths:
+      - 'wireform-websocket/**'
+      - 'wireform-core/**'
+      - 'wireform-http/**'
+      - 'wireform-http1/**'
+      - 'wireform-network/**'
+
+jobs:
+  autobahn:
+    name: Autobahn|Testsuite fuzzingclient
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libgmp-dev libffi-dev libffi8 \
+            libncurses-dev libtinfo6 zlib1g-dev libssl-dev \
+            libbrotli-dev libzstd-dev liblz4-dev libsnappy-dev \
+            libxml2-dev pkg-config
+
+      - name: Set up Haskell toolchain
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: 9.6.4
+          cabal-version: 3.10.3.0
+
+      - name: Cabal cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('**/*.cabal', 'cabal.project') }}
+
+      - name: cabal update
+        run: cabal update
+
+      - name: Build autobahn echo server
+        run: |
+          cabal build \
+            wireform-websocket:exe:wireform-websocket-autobahn-echo
+
+      - name: Pull Autobahn|Testsuite image
+        run: docker pull crossbario/autobahn-testsuite
+
+      - name: Start echo server
+        run: |
+          ECHO_BIN=$(cabal list-bin \
+            wireform-websocket:exe:wireform-websocket-autobahn-echo)
+          nohup "$ECHO_BIN" > echo-server.log 2>&1 &
+          # Wait for the port to come up.
+          for i in $(seq 1 50); do
+            if (echo > /dev/tcp/127.0.0.1/9001) 2>/dev/null; then break; fi
+            sleep 0.1
+          done
+
+      - name: Run Autobahn fuzzingclient
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/wireform-websocket/test-conformance/config:/config" \
+            -v "$PWD/wireform-websocket/test-conformance/reports:/reports" \
+            crossbario/autobahn-testsuite \
+            wstest -m fuzzingclient -s /config/fuzzingclient.json
+
+      - name: Parse Autobahn report
+        run: |
+          python3 wireform-websocket/scripts/autobahn-summary.py \
+            wireform-websocket/test-conformance/reports/servers/index.json
+
+      - name: Upload Autobahn report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autobahn-report
+          path: wireform-websocket/test-conformance/reports/

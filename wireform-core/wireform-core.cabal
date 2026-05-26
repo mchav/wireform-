@@ -72,6 +72,7 @@ library
     Wireform.FFI
     Wireform.Encode.Direct
     Wireform.Hash
+    Wireform.Base64
 
     -- Magic ring
     Wireform.Ring
@@ -103,6 +104,8 @@ library
   c-sources: cbits/fast_decode.c
              cbits/fast_scan.c
              cbits/wireform_hash_simd.c
+             cbits/base64.c
+             cbits/fast_rng.c
   include-dirs: include/simde
                 include
   cc-options: -O3
@@ -133,6 +136,7 @@ test-suite wireform-core-test
     Wireform.Ring.Test
     Wireform.Parser.Test
     Wireform.Transport.SendTest
+    Wireform.Base64.Test
   build-depends:
     base,
     bytestring,

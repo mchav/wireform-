@@ -1,0 +1,24 @@
+[package]
+name = "wireform-websocket-bench-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Cross-language comparison harness for wireform-websocket.
+# Mirrors the Haskell criterion benchmark in ../bench/Bench.hs as
+# closely as possible: same payload sizes, same single-connection
+# echo loop, manual wall-clock timing with a tight inner loop.
+
+[[bin]]
+name = "tungstenite-bench"
+path = "src/main.rs"
+
+[dependencies]
+tungstenite = "0.24"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
