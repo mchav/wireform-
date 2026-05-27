@@ -106,7 +106,13 @@ module Network.HTTP.Client.SSE
     -- * High-level client entry point
   , withSSE
   , withSSEFrames
+    -- * Reconnecting EventSource client
+  , ReconnectPolicy (..)
+  , defaultReconnectPolicy
+  , withReconnectingSSE
+  , withReconnectingSSEFrames
   , SseError (..)
+  , SseStopReason (..)
     -- * Server-side encoder
   , renderSseFrame
   , renderServerSentEvent
@@ -135,6 +141,7 @@ module Network.HTTP.Client.SSE
   , EventStream
   ) where
 
+import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.STM
   ( STM
   , TBQueue
@@ -149,10 +156,11 @@ import Control.Concurrent.STM
   , writeTBQueue
   , writeTVar
   )
-import Control.Exception (Exception, throwIO)
-import Control.Monad (unless)
+import qualified Control.Exception
+import Control.Exception (Exception, SomeException, bracket, throwIO, try)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.IO.Unlift (MonadUnliftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.IORef
@@ -442,6 +450,211 @@ assertSseResponse raw = do
   let ct = contentTypeOf (headers raw)
   unless (mtType ct == "text" && mtSubType ct == "event-stream") $
     throwIO (SseUnexpectedContentType ct)
+
+-- ---------------------------------------------------------------------------
+-- Reconnecting EventSource client
+-- ---------------------------------------------------------------------------
+
+-- | Reconnection knobs for 'withReconnectingSSE'. Mirrors the
+-- behaviour of the WHATWG EventSource interface: on disconnect
+-- (or non-fatal status), sleep and reissue the request with a
+-- @Last-Event-ID@ header echoing the most recent dispatched id.
+data ReconnectPolicy = ReconnectPolicy
+  { rpInitialRetryMs :: !Int
+    -- ^ Default reconnection delay in milliseconds, used until
+    --   the server overrides it via an @SseRetry@ directive.
+    --   Default 3000 ms (the EventSource spec's recommendation).
+  , rpMaxRetryMs     :: !Int
+    -- ^ Clamp on retry intervals (both initial and
+    --   server-supplied) so a buggy or malicious server can't
+    --   pin a client for hours. Default 60 000 ms.
+  , rpMaxAttempts    :: !(Maybe Int)
+    -- ^ When 'Just', give up after this many consecutive failed
+    --   attempts (a connection that returns at least one event
+    --   resets the counter). 'Nothing' = retry indefinitely.
+    --   Default 'Nothing'.
+  , rpRetryOnException :: !Bool
+    -- ^ When 'True' (default), transport-layer exceptions
+    --   (DNS, TLS, RST, etc.) also trigger a reconnect; when
+    --   'False' they surface immediately as an exception out of
+    --   'withReconnectingSSE'.
+  }
+  deriving stock (Eq, Show)
+
+defaultReconnectPolicy :: ReconnectPolicy
+defaultReconnectPolicy = ReconnectPolicy
+  { rpInitialRetryMs   = 3000
+  , rpMaxRetryMs       = 60000
+  , rpMaxAttempts      = Nothing
+  , rpRetryOnException = True
+  }
+
+-- | Why the reconnecting loop stopped. Carried inside the queue's
+-- terminal sentinel so the consumer popper can distinguish
+-- normal end-of-stream from giving-up-after-N-failures.
+data SseStopReason
+  = SseStopServerEnded
+    -- ^ Server returned @204 No Content@ ("don't reconnect").
+  | SseStopMaxAttempts
+    -- ^ 'rpMaxAttempts' exhausted without a successful event.
+  | SseStopException !SomeException
+    -- ^ A transport exception escaped (only when
+    --   'rpRetryOnException' is 'False').
+  deriving stock (Show)
+
+-- | Reconnecting EventSource client. Behaves like 'withSSE' but
+-- reissues the request when the server hangs up, sending
+-- @Last-Event-ID@ with the most recent dispatched id and honoring
+-- the server's @retry:@ directives.
+--
+-- The callback's popper returns 'Nothing' only when the loop has
+-- given up (server sent @204 No Content@, max attempts hit, or a
+-- fatal exception); ordinary disconnects are transparent.
+withReconnectingSSE
+  :: forall m body a. (MonadUnliftIO m, Body body)
+  => Transport IO
+  -> Request body
+  -> ReconnectPolicy
+  -> (IO (Maybe ServerSentEvent) -> m a)
+  -> m a
+withReconnectingSSE t req policy k =
+  withReconnectingSSEFrames t req policy $ \fp ->
+    k (filterToEvents fp)
+  where
+    filterToEvents fp = do
+      mf <- fp
+      case mf of
+        Nothing               -> pure Nothing
+        Just (SseDispatch ev) -> pure (Just ev)
+        Just _                -> filterToEvents fp
+
+-- | Like 'withReconnectingSSE' but the callback sees every parsed
+-- frame, including 'SseRetry' and 'SseComment'. Heartbeats and
+-- the server-supplied reconnect interval are observable here.
+withReconnectingSSEFrames
+  :: forall m body a. (MonadUnliftIO m, Body body)
+  => Transport IO
+  -> Request body
+  -> ReconnectPolicy
+  -> (IO (Maybe SseFrame) -> m a)
+  -> m a
+withReconnectingSSEFrames transport req0 policy k = withRunInIO $ \runInIO -> do
+  -- Bounded queue between the reconnect worker and the consumer's
+  -- popper. The size is small on purpose: SSE is real-time so a
+  -- big buffer adds latency without adding value, and the worker
+  -- is happy to block when the consumer is slow.
+  q       <- newTBQueueIO 16
+  lastId  <- newIORef Nothing
+  retryMs <- newIORef (clampRetry (rpInitialRetryMs policy))
+  stopRef <- newIORef (Nothing :: Maybe SseStopReason)
+  -- A flag the consumer flips when its callback exits so the
+  -- worker stops trying to reconnect.
+  done    <- newIORef False
+
+  let consumer = do
+        d <- readIORef done
+        if d
+          then pure Nothing
+          else do
+            item <- atomically (readTBQueue q)
+            case item of
+              Just f  -> pure (Just f)
+              Nothing -> do
+                writeIORef done True
+                pure Nothing
+
+  bracket
+    (forkIO (reconnectLoop q lastId retryMs stopRef done))
+    (\tid -> do
+        writeIORef done True
+        killThread tid)
+    (\_ -> runInIO (k consumer))
+  where
+    clampRetry n = max 0 (min n (rpMaxRetryMs policy))
+
+    -- Reconnect loop runs in the worker thread.
+    reconnectLoop q lastId retryMs stopRef done = go 0
+      where
+        go failCount = do
+          d <- readIORef done
+          if d
+            then pure ()
+            else do
+              -- Build the per-attempt request, injecting
+              -- Last-Event-ID if we have one.
+              mLast <- readIORef lastId
+              let req = case mLast of
+                    Nothing -> req0
+                    Just lid -> setHeader H.hLastEventID lid req0
+              -- Reset the failure counter on a connection that
+              -- dispatches at least one event.
+              succeededRef <- newIORef False
+              outcome :: Either SomeException () <-
+                try $
+                  withSSEFrames transport req $ \fp ->
+                    pumpFrames fp q lastId retryMs succeededRef done
+              succeeded <- readIORef succeededRef
+              let newFailCount = if succeeded then 0 else failCount + 1
+              case outcome of
+                Right () ->
+                  case rpMaxAttempts policy of
+                    Just n | newFailCount >= n -> stopWith SseStopMaxAttempts
+                    _ -> sleepThenRetry newFailCount
+                Left err ->
+                  case Control.Exception.fromException err :: Maybe SseError of
+                    Just (SseUnexpectedStatus s)
+                      | S.statusCode s == 204 ->
+                          stopWith SseStopServerEnded
+                      | otherwise ->
+                          -- Any other non-2xx is a permanent
+                          -- failure per the EventSource spec.
+                          stopWith (SseStopException err)
+                    Just _ -> stopWith (SseStopException err)
+                    Nothing
+                      | rpRetryOnException policy ->
+                          case rpMaxAttempts policy of
+                            Just n | newFailCount >= n -> stopWith SseStopMaxAttempts
+                            _ -> sleepThenRetry newFailCount
+                      | otherwise ->
+                          stopWith (SseStopException err)
+          where
+            sleepThenRetry n = do
+              d <- readIORef done
+              if d
+                then pure ()
+                else do
+                  ms <- readIORef retryMs
+                  threadDelay (ms * 1000)
+                  go n
+            stopWith reason = do
+              writeIORef stopRef (Just reason)
+              atomically (writeTBQueue q Nothing)
+
+    -- Pump frames from the popper into the queue, updating
+    -- last-event-id and retry as we go.
+    pumpFrames fp q lastId retryMs succeededRef done = loop
+      where
+        loop = do
+          mf <- fp
+          case mf of
+            Nothing -> pure ()
+            Just f  -> do
+              case f of
+                SseDispatch ev -> do
+                  case sseEventId ev of
+                    Just lid -> writeIORef lastId (Just lid)
+                    Nothing  -> pure ()
+                  writeIORef succeededRef True
+                SseRetry ms -> do
+                  let clamped = max 0 (min ms (rpMaxRetryMs policy))
+                  writeIORef retryMs clamped
+                SseComment _ -> pure ()
+              atomically (writeTBQueue q (Just f))
+              -- Bail early if the consumer signalled done.
+              d <- readIORef done
+              when (not d) loop
+
+
 
 -- ---------------------------------------------------------------------------
 -- Content-type tag and instances
