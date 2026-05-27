@@ -21,6 +21,9 @@ module Network.HTTP.Client.Conditional
   , weakETag
   , parseETag
   , renderETag
+    -- * Validator comparison (RFC 9110 §8.8.3)
+  , strongMatch
+  , weakMatch
     -- * If-Match / If-None-Match
   , ifMatchHeader
   , ifNoneMatchHeader

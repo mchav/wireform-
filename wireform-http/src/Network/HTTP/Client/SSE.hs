@@ -445,7 +445,13 @@ assertSseResponse :: RawResponse -> IO ()
 assertSseResponse raw = do
   let s    = statusCode raw
       code = S.statusCode s
-  unless (code >= 200 && code < 300) $
+  -- Per the WHATWG EventSource spec, 204 No Content is the
+  -- server's signal to stop reconnecting. For a non-reconnecting
+  -- 'withSSE' caller that's a "no events; give up" outcome —
+  -- the same surface as any other non-success status. The
+  -- reconnecting client ('withReconnectingSSE') catches this
+  -- specific case via the 'SseStopServerEnded' branch.
+  unless (code >= 200 && code < 300 && code /= 204) $
     throwIO (SseUnexpectedStatus s)
   let ct = contentTypeOf (headers raw)
   unless (mtType ct == "text" && mtSubType ct == "event-stream") $

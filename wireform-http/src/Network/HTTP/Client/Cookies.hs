@@ -31,6 +31,10 @@ module Network.HTTP.Client.Cookies
   , validateCookieValue
   , PublicSuffixCheck
   , noPublicSuffix
+    -- * Limits
+  , CookieJarLimits (..)
+  , defaultCookieJarLimits
+  , newCookieJarWith
   ) where
 
 import Control.Concurrent.STM
@@ -102,19 +106,43 @@ type PublicSuffixCheck = ByteString -> Bool
 noPublicSuffix :: PublicSuffixCheck
 noPublicSuffix = const False
 
+-- | Per-cookie size limits applied at ingest. The defaults match
+-- the browser-ecosystem convergence point; override for backends
+-- that need to exceed them.
+data CookieJarLimits = CookieJarLimits
+  { cjlMaxNameValueBytes :: !Int
+    -- ^ Max combined byte size of @name=value@. Default 4096.
+  , cjlMaxAttributeBytes :: !Int
+    -- ^ Max byte size of any single attribute (Domain, Path, …).
+    --   Default 1024.
+  }
+  deriving stock (Eq, Show)
+
+defaultCookieJarLimits :: CookieJarLimits
+defaultCookieJarLimits = CookieJarLimits
+  { cjlMaxNameValueBytes = 4096
+  , cjlMaxAttributeBytes = 1024
+  }
+
 data CookieJar = CookieJar
-  { cjStore :: !(TVar (Map CookieKey Cookie))
-  , cjPSL   :: !PublicSuffixCheck
+  { cjStore  :: !(TVar (Map CookieKey Cookie))
+  , cjPSL    :: !PublicSuffixCheck
+  , cjLimits :: !CookieJarLimits
   }
 
 newCookieJar :: IO CookieJar
-newCookieJar = newCookieJarWithPSL noPublicSuffix
+newCookieJar = newCookieJarWith noPublicSuffix defaultCookieJarLimits
 
 -- | Allocate a 'CookieJar' with a custom public-suffix check.
 newCookieJarWithPSL :: PublicSuffixCheck -> IO CookieJar
-newCookieJarWithPSL psl = do
+newCookieJarWithPSL psl = newCookieJarWith psl defaultCookieJarLimits
+
+-- | Allocate a 'CookieJar' with both a custom PSL check and size
+-- limits.
+newCookieJarWith :: PublicSuffixCheck -> CookieJarLimits -> IO CookieJar
+newCookieJarWith psl limits = do
   s <- newTVarIO Map.empty
-  pure CookieJar { cjStore = s, cjPSL = psl }
+  pure CookieJar { cjStore = s, cjPSL = psl, cjLimits = limits }
 
 cookieKey :: Cookie -> CookieKey
 cookieKey c = (cookieDomain c, cookiePath c, cookieName c)
@@ -150,6 +178,20 @@ data CookieError
   = CookieNameInvalid !ByteString
   | CookieValueInvalid !ByteString
   | CookieDomainIsPublicSuffix !ByteString
+  | CookieDomainNotMatching !ByteString !ByteString
+    -- ^ @Domain=…@ is not a parent of the request host. First
+    --   field is the request host; second is the offending
+    --   attribute value.
+  | CookieSameSiteNoneRequiresSecure !ByteString
+    -- ^ @SameSite=None@ without @Secure@ is rejected by every
+    --   modern UA; the field carries the cookie's name.
+  | CookieSecurePrefixWithoutSecure !ByteString
+    -- ^ @__Secure-@-prefixed cookie without the @Secure@ flag.
+  | CookieHostPrefixViolation !ByteString
+    -- ^ @__Host-@-prefixed cookie missing one of the constraints
+    --   (must have @Secure@, no @Domain@, @Path=\/@).
+  | CookieTooLarge !Int !Int
+    -- ^ Cookie size exceeds the configured limit (size, limit).
   deriving stock (Eq, Show)
 
 -- | RFC 6265bis cookie-name grammar: a token (RFC 9110 \u00a75.6.2).
@@ -189,9 +231,41 @@ validateCookie :: CookieJar -> Cookie -> Either CookieError ()
 validateCookie jar c = do
   validateCookieName  (cookieName  c)
   validateCookieValue (cookieValue c)
+  validateSize jar c
+  validatePrefixes c
+  validateSameSite c
   if cjPSL jar (cookieDomain c)
     then Left (CookieDomainIsPublicSuffix (cookieDomain c))
     else Right ()
+
+-- | RFC 6265bis: the @__Secure-@ prefix requires @Secure@; the
+-- @__Host-@ prefix additionally requires no @Domain@ and
+-- @Path=\/@.
+validatePrefixes :: Cookie -> Either CookieError ()
+validatePrefixes c
+  | "__Host-" `BS.isPrefixOf` cookieName c =
+      if cookieSecure c
+         && cookiePath c == "/"
+         && not (cookieDomainExplicit c)
+        then Right ()
+        else Left (CookieHostPrefixViolation (cookieName c))
+  | "__Secure-" `BS.isPrefixOf` cookieName c =
+      if cookieSecure c
+        then Right ()
+        else Left (CookieSecurePrefixWithoutSecure (cookieName c))
+  | otherwise = Right ()
+
+validateSameSite :: Cookie -> Either CookieError ()
+validateSameSite c = case cookieSameSite c of
+  SameSiteNone | not (cookieSecure c) ->
+    Left (CookieSameSiteNoneRequiresSecure (cookieName c))
+  _ -> Right ()
+
+validateSize :: CookieJar -> Cookie -> Either CookieError ()
+validateSize jar c =
+  let nv  = BS.length (cookieName c) + 1 + BS.length (cookieValue c)
+      lim = cjlMaxNameValueBytes (cjLimits jar)
+  in if nv > lim then Left (CookieTooLarge nv lim) else Right ()
 
 notExpired :: UTCTime -> Cookie -> Bool
 notExpired now c = case cookieExpires c of

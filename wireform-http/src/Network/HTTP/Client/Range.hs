@@ -233,7 +233,8 @@ parseMultipartByteranges boundary body = do
     []      -> Nothing
     (_pre : rest) ->
       let parts = takeWhile (not . isClosing closing) rest
-      in traverse parseOnePart (map stripCRLFEdges parts)
+          kept  = mapMaybe parseOnePart (map stripCRLFEdges parts)
+      in Just kept
   where
     isClosing close chunk =
       "--" `BS.isPrefixOf` BS.dropWhile (\w -> w == 0x0D || w == 0x0A) chunk
@@ -274,7 +275,9 @@ parseOnePart raw = do
       (n, rest)
         | BS.null rest -> Nothing
         | otherwise    ->
-            let v = BS.dropWhile (\w -> w == 0x20 || w == 0x09) (BS.drop 1 rest)
+            let trimOws  = BS.dropWhile  isOws . BS.dropWhileEnd isOws
+                isOws w  = w == 0x20 || w == 0x09
+                v        = trimOws (BS.drop 1 rest)
             in Just (BS.map asciiToLower n, v)
     asciiToLower w
       | w >= 0x41 && w <= 0x5A = w + 0x20
