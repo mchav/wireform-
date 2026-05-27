@@ -23,6 +23,7 @@ module Network.HTTP.PercentEncoding
   , encodePathSegment
   , encodePath
   , encodeQueryComponent
+  , encodeFragment
   , encodeFormComponent
   , decodeQueryString
   , decodeQueryStringStrict
@@ -136,6 +137,19 @@ encodePath = percentEncodeWith isPathSafe
 encodeQueryComponent :: ByteString -> ByteString
 encodeQueryComponent =
   percentEncodeWith (\w -> isQuerySafe w && w /= 0x26 && w /= 0x3D && w /= 0x2B)
+
+-- | Encode a URI fragment per RFC 3986 §3.5.  The fragment set
+-- is @pchar \/ \"\/\" \/ \"?\"@, i.e. the same as a query
+-- (minus the @&@ \/ @=@ \/ @+@ reservation that's
+-- query-specific).  Use this when assembling a URI from a
+-- user-supplied anchor string — passing the raw bytes through
+-- would smuggle @#@ characters into the rendered URI.
+encodeFragment :: ByteString -> ByteString
+encodeFragment = percentEncodeWith isFragmentSafe
+  where
+    isFragmentSafe w =
+      isQuerySafe w || w == 0x26 || w == 0x3D || w == 0x2B
+      -- &, =, + are not reserved inside a fragment.
 
 -- | Encode for @application\/x-www-form-urlencoded@: like
 -- 'encodeQueryComponent' but spaces become @+@ instead of @%20@.

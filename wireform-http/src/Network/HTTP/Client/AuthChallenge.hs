@@ -55,6 +55,9 @@ module Network.HTTP.Client.AuthChallenge
     -- * Built-in responders
   , basicChallengeResponder
   , bearerChallengeResponder
+    -- * Request-aware variants
+  , RequestChallengeResponder
+  , withRequestChallengeAuth
   ) where
 
 import qualified Data.ByteString as BS
@@ -77,7 +80,7 @@ import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Client.Request   as WReq
 import qualified Network.HTTP.Client.Response  as Resp
 import           Network.HTTP.Client.Transport
-import           Network.HTTP.Client.BodyStream (drainPopper)
+import           Network.HTTP.Client.BodyStream (BodyStream, drainPopper)
 
 -- ---------------------------------------------------------------------------
 -- Challenge data
@@ -190,6 +193,54 @@ challengeAuth triggerCode authHdr challengeHdr responder inner = Transport $ \re
               let req' = req
                     { WReq.headers =
                         H.insertHeader authHdr header (WReq.headers req)
+                    }
+              sendRaw inner req'
+
+-- ---------------------------------------------------------------------------
+-- Request-aware variant
+-- ---------------------------------------------------------------------------
+
+-- | Like 'ChallengeResponder' but sees the outgoing request, so it
+-- can read the method, request-target, body length, etc. when
+-- constructing the auth header.  This is what Digest needs
+-- (RFC 7616 §3.4 — the @response@ digest is keyed on the request
+-- method + URI), and is the right shape for any other scheme
+-- whose answer is request-specific.
+--
+-- The body type is fixed to 'BodyStream' because that's the body
+-- shape the middleware layer sees (per 'Transport'); responders
+-- that don't care about the body should pattern-match on it as
+-- @_@.
+type RequestChallengeResponder
+  =  WReq.Request BodyStream
+  -> [AuthChallenge]
+  -> IO (Maybe ByteString)
+
+-- | Middleware variant of 'withChallengeAuth' that hands the
+-- responder the request being retried.  Wire your Digest
+-- responder up through this; for Basic \/ Bearer the simpler
+-- 'withChallengeAuth' is enough.
+withRequestChallengeAuth :: RequestChallengeResponder -> Middleware IO
+withRequestChallengeAuth responder inner = Transport $ \req -> do
+  raw <- sendRaw inner req
+  let code = fromIntegral (S.statusCode (Resp.statusCode raw)) :: Int
+  if code /= 401
+    then pure raw
+    else do
+      let challenges =
+            concatMap parseAuthChallenges
+              (H.lookupHeaders H.hWWWAuthenticate (Resp.headers raw))
+      case challenges of
+        [] -> pure raw
+        cs -> do
+          mAuth <- responder req cs
+          case mAuth of
+            Nothing     -> pure raw
+            Just header -> do
+              drainPopper (Resp.bodyPopper raw)
+              let req' = req
+                    { WReq.headers =
+                        H.insertHeader H.hAuthorization header (WReq.headers req)
                     }
               sendRaw inner req'
 
