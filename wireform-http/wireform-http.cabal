@@ -91,6 +91,7 @@ library
     Network.HTTP.Client.Send
     Network.HTTP.Client.SSE
     Network.HTTP.Client.Streaming
+    Network.HTTP.Client.TLS
     Network.HTTP.Client.Test
     Network.HTTP.Client.Tracing
     Network.HTTP.Client.Transport
@@ -142,6 +143,7 @@ library
     wireform-core,
     wireform-network,
     zlib                 >= 0.6  && < 0.8,
+    zstd                 >= 0.1  && < 0.2,
     wireform-http1,
     wireform-http2,
     wireform-yaml

@@ -137,7 +137,7 @@ statusReason (Status n) = case n of
   508 -> "Loop Detected"
   510 -> "Not Extended"
   511 -> "Network Authentication Required"
-  _   -> case statusCategory s of
+  _   -> case statusCategory theStatus of
     Informational    -> "Informational"
     Successful       -> "OK"
     Redirection      -> "Redirection"

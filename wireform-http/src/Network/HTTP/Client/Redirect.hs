@@ -163,23 +163,25 @@ withRedirects policy inner = Transport $ \req0 -> do
       , WURI.uriFragment      = ""
       }
 
--- | Resolve a redirect Location against the request URI.
+-- | Resolve a redirect Location against the request URI per RFC
+-- 3986 §5.2 \"Transform References\".
 --
 -- * Absolute Locations win outright.
 -- * Network-relative (@\/\/host\/path@) inherits the scheme.
--- * Path-relative inherits scheme and authority.
+-- * Path-relative inherits scheme and authority and is resolved
+--   against the base path with dot-segment removal.
 resolveLocation :: WURI.URI -> ByteString -> WURI.URI
 resolveLocation base loc
   | "http://"  `BS.isPrefixOf` loc || "https://" `BS.isPrefixOf` loc =
       case WURI.parseURI loc of
-        Right u -> u
+        Right u -> u { WURI.uriPath = WURI.removeDotSegments (WURI.uriPath u) }
         Left _  -> base
   | "//" `BS.isPrefixOf` loc =
       let withScheme = case WURI.uriScheme base of
             WURI.SchemeHttp  -> "http:"  <> loc
             WURI.SchemeHttps -> "https:" <> loc
       in case WURI.parseURI withScheme of
-           Right u -> u
+           Right u -> u { WURI.uriPath = WURI.removeDotSegments (WURI.uriPath u) }
            Left _  -> base
   | "/" `BS.isPrefixOf` loc =
       let (path, rest) = BS.break (\b -> b == 0x3F || b == 0x23) loc
@@ -189,9 +191,15 @@ resolveLocation base loc
               in (q', dropHash f)
             Just (0x23, f) -> (BS.empty, f)
             _              -> (BS.empty, BS.empty)
-      in base { WURI.uriPath = path, WURI.uriQuery = qry, WURI.uriFragment = frag }
+      in base
+           { WURI.uriPath     = WURI.removeDotSegments path
+           , WURI.uriQuery    = qry
+           , WURI.uriFragment = frag
+           }
   | otherwise =
-      -- Path-relative: replace the last segment of base path with @loc@.
+      -- Path-relative: merge against the base path's directory and
+      -- run the result through removeDotSegments so @..@ / @.@
+      -- collapse correctly.
       let basePath  = WURI.uriPath base
           stripped  = BS.reverse (BS.dropWhile (/= 0x2F) (BS.reverse basePath))
           basePath' = if BS.null stripped then "/" else stripped
@@ -203,7 +211,7 @@ resolveLocation base loc
             Just (0x23, f) -> (BS.empty, f)
             _              -> (BS.empty, BS.empty)
       in base
-           { WURI.uriPath     = basePath' <> path
+           { WURI.uriPath     = WURI.removeDotSegments (basePath' <> path)
            , WURI.uriQuery    = qry
            , WURI.uriFragment = frag
            }

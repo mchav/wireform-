@@ -90,3 +90,59 @@ charset = Charset
 
 acceptCharsetValue :: [(Charset, Quality)] -> ByteString
 acceptCharsetValue = renderQList . map (\(Charset c, q) -> (c, q))
+
+-- ---------------------------------------------------------------------------
+-- Quality + parsing helpers
+-- ---------------------------------------------------------------------------
+
+-- | Clamping smart constructor for 'Quality': anything outside
+-- @[0,1]@ gets pinned to the boundary. Use this rather than the
+-- 'Quality' constructor when the value comes from caller code or
+-- the network — the quality grammar (RFC 9110 §12.4.2) only
+-- admits values in that range.
+mkQuality :: Double -> Quality
+mkQuality d
+  | d <= 0    = Quality 0
+  | d >= 1    = Quality 1
+  | otherwise = Quality d
+
+-- | Parse a comma-separated quality-weighted list of opaque tokens.
+-- Each entry is @token *(OWS \";\" OWS attrs) [;q=Q]@; we only
+-- look at the leading token and the final @q=@ if present, which
+-- is what every Accept* header in RFC 9110 §12.4 wants.
+--
+-- Bytes inside parameters are passed through; malformed entries
+-- are dropped.
+parseQList :: ByteString -> [(ByteString, Quality)]
+parseQList raw = mapMaybe one (BS.split 0x2C raw)
+  where
+    isWS w = w == 0x20 || w == 0x09
+    trim = BS.dropWhile isWS . BS.dropWhileEnd isWS
+    one entryRaw =
+      let entry = trim entryRaw
+      in if BS.null entry
+           then Nothing
+           else case BS.split 0x3B entry of
+             (tok : params) ->
+               let q = case mapMaybe parseQ params of
+                         (qv : _) -> qv
+                         []       -> Quality 1
+               in Just (trim tok, q)
+             [] -> Nothing
+    parseQ rawParam =
+      let p = trim rawParam
+      in if BS.length p >= 2 && BS8.take 2 p `elem` ["q=", "Q="]
+           then case BS8.readSigned BS8.readDouble (BS.drop 2 p) of
+             Just (d, leftover) | BS.null (trim leftover) -> Just (mkQuality d)
+             _ -> Nothing
+           else Nothing
+
+-- | Parse an @Accept-Language@ value (RFC 9110 §12.5.4) into a
+-- list of @(language tag, quality)@ pairs.
+parseAcceptLanguage :: ByteString -> [(Language, Quality)]
+parseAcceptLanguage = map (\(t, q) -> (Language t, q)) . parseQList
+
+-- | Parse an @Accept-Charset@ value (RFC 9110 §12.5.2 — obsolete
+-- but still seen on legacy services).
+parseAcceptCharset :: ByteString -> [(Charset, Quality)]
+parseAcceptCharset = map (\(t, q) -> (Charset t, q)) . parseQList

@@ -228,12 +228,17 @@ asCompressor = EncodingHandler
   , ehRun    = compressBytes @tag
   }
 
--- | The default decompressor set, in preference order. Brotli first
--- (smallest payloads on the modern web), then gzip (most compatible),
--- then deflate (legacy).
+-- | The default decompressor set, in preference order:
+--
+-- * 'Zstd' — strong compression with cheap decompression, supported
+--   by every recent client and server stack worth caring about.
+-- * 'Brotli' — smallest payloads on the modern web.
+-- * 'Gzip' — universally supported.
+-- * 'Deflate' — legacy.
 defaultDecompressors :: [EncodingHandler]
 defaultDecompressors =
-  [ asDecompressor @Brotli
+  [ asDecompressor @Zstd
+  , asDecompressor @Brotli
   , asDecompressor @Gzip
   , asDecompressor @Deflate
   ]

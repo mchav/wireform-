@@ -65,7 +65,7 @@ module Network.HTTP.Client.Middleware
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception (Exception, throwIO)
+import Control.Exception (Exception, SomeException, throwIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -74,9 +74,11 @@ import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Read as T
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import Data.Word (Word64)
 import qualified System.Timeout
+import qualified UnliftIO.Exception as U
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
