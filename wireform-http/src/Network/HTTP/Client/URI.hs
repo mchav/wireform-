@@ -318,6 +318,146 @@ stripPrefixBS p bs
   | otherwise            = Nothing
 
 -- ---------------------------------------------------------------------------
+-- Normalization (RFC 3986 §6)
+-- ---------------------------------------------------------------------------
+
+-- | RFC 3986 §6 syntax-based normalization. Idempotent.
+--
+-- * Scheme and host are already lowercased at parse time.
+-- * Default ports collapse to 'Nothing'.
+-- * The path is run through 'removeDotSegments'.
+-- * Percent-escapes have their hex digits uppercased and their
+--   unreserved-set bytes decoded ('normalizePercentEncoding').
+normalizeURI :: URI -> URI
+normalizeURI u =
+  let auth   = uriAuthority u
+      port'  = case authPort auth of
+        Just p  | p == defaultPort (uriScheme u) -> Nothing
+        other                                    -> other
+      path0  = if BS.null (uriPath u) then "/" else uriPath u
+      path1  = removeDotSegments path0
+      pathN  = normalizePercentEncoding path1
+      queryN = normalizePercentEncoding (uriQuery u)
+      fragN  = normalizePercentEncoding (uriFragment u)
+  in u
+       { uriAuthority = auth { authPort = port' }
+       , uriPath      = pathN
+       , uriQuery     = queryN
+       , uriFragment  = fragN
+       }
+
+-- | RFC 3986 §5.2.4 \"Remove Dot Segments\". Takes a path like
+-- @\/a\/b\/..\/c\/.\/d@ and returns @\/a\/c\/d@.
+--
+-- Implemented as a forward-walking segment stack rather than the
+-- spec's input/output buffer — same fixpoint, simpler proof of
+-- termination.
+removeDotSegments :: ByteString -> ByteString
+removeDotSegments path
+  | BS.null path = path
+  | otherwise =
+      let absolute = "/" `BS.isPrefixOf` path
+          segs     = BS.split 0x2F (if absolute then BS.drop 1 path else path)
+          go acc [] = reverse acc
+          go acc (s : ss)
+            | s == "."  = go acc                              ss
+            | s == ".." = go (drop 1 acc)                     ss
+            | otherwise = go (s : acc)                        ss
+          out = go [] segs
+          joined = BS.intercalate "/" out
+      in if absolute
+           then "/" <> joined
+           else joined
+
+-- | RFC 3986 §6.2.2.1 \/ §6.2.2.2: uppercase the hex digits of
+-- percent-escapes, and decode any escape that names a byte from the
+-- unreserved set (those escapes are gratuitous). Other escapes are
+-- preserved as-is.
+normalizePercentEncoding :: ByteString -> ByteString
+normalizePercentEncoding bs0 = BS.pack (go (BS.unpack bs0))
+  where
+    isUnreservedByte w =
+         (w >= 0x41 && w <= 0x5A)   -- A-Z
+      || (w >= 0x61 && w <= 0x7A)   -- a-z
+      || (w >= 0x30 && w <= 0x39)   -- 0-9
+      || w == 0x2D                   -- '-'
+      || w == 0x2E                   -- '.'
+      || w == 0x5F                   -- '_'
+      || w == 0x7E                   -- '~'
+    upperHex w
+      | w >= 0x61 && w <= 0x66 = w - 0x20
+      | otherwise              = w
+    go [] = []
+    go (0x25 : a : b : rest)
+      | Just hi <- hexVal a, Just lo <- hexVal b =
+          let byte = hi * 16 + lo
+          in if isUnreservedByte byte
+               then byte : go rest
+               else 0x25 : upperHex a : upperHex b : go rest
+    go (w : ws) = w : go ws
+    hexVal w
+      | w >= 0x30 && w <= 0x39 = Just (w - 0x30)
+      | w >= 0x41 && w <= 0x46 = Just (w - 0x41 + 10)
+      | w >= 0x61 && w <= 0x66 = Just (w - 0x61 + 10)
+      | otherwise              = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Reference resolution (RFC 3986 §5)
+-- ---------------------------------------------------------------------------
+
+-- | RFC 3986 §5.2 \"Transform References\" given a base URI and a
+-- reference (parsed as a URI for convenience; only its non-empty
+-- fields are consulted, mirroring the algorithm in §5.2.2).
+--
+-- This handles all four reference forms: absolute URI (reference
+-- has its own authority), network-path, absolute-path, and
+-- relative-path. The dot-segment fixup runs on the resolved path.
+resolveReference
+  :: URI                -- ^ base URI (must be absolute)
+  -> URI                -- ^ reference (treated structurally)
+  -> URI
+resolveReference base ref =
+  -- The "ref has its own scheme" form is impossible here because
+  -- @URI@ always has a scheme; we treat that as "ref overrides
+  -- base entirely".
+  let refHost = authHost (uriAuthority ref)
+  in if not (BS.null refHost)
+       then ref { uriPath = removeDotSegments (uriPath ref) }
+       else
+         let path' = case uriPath ref of
+               p | BS.null p ->
+                     if BS.null (uriQuery ref)
+                       then uriPath base
+                       else uriPath base
+                 | "/" `BS.isPrefixOf` p ->
+                     removeDotSegments p
+                 | otherwise ->
+                     removeDotSegments (mergePath base p)
+             query' = if BS.null (uriPath ref) && BS.null (uriQuery ref)
+                        then uriQuery base
+                        else uriQuery ref
+         in URI
+              { uriScheme        = uriScheme base
+              , uriAuthority     = uriAuthority base
+              , uriUserinfoBytes = uriUserinfoBytes base
+              , uriPath          = path'
+              , uriQuery         = query'
+              , uriFragment      = uriFragment ref
+              }
+  where
+    mergePath b p
+      -- §5.2.3: if the base authority is non-empty and the base
+      -- path is empty, the merged path is "/" + ref-path.
+      | BS.null (uriPath b) = "/" <> p
+      | otherwise =
+          let bp = uriPath b
+              -- Drop everything after the last '/' in the base
+              -- path; that's the directory portion to which the
+              -- relative ref attaches.
+              prefix = BS.reverse (BS.dropWhile (/= 0x2F) (BS.reverse bp))
+          in prefix <> p
+
+-- ---------------------------------------------------------------------------
 -- BaseURL
 -- ---------------------------------------------------------------------------
 
