@@ -55,6 +55,10 @@ module Network.HTTP.Client.Middleware
     -- * Header validation
   , withHeaderValidation
   , HeaderValidationFailed (..)
+    -- * Expect: 100-continue
+  , ExpectContinuePolicy (..)
+  , defaultExpectContinuePolicy
+  , withExpectContinue
     -- * URI rewriting
   , withBaseURL
     -- * Rate limiting
@@ -79,6 +83,7 @@ import Control.Exception (Exception, SomeException, throwIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base64 as B64
 import Data.IORef
 import qualified Data.Text as T
@@ -424,6 +429,85 @@ withHeaderValidation inner = Transport $ \req -> do
         Left err -> throwIO HeaderValidationFailed
           { hvName = name, hvValue = value, hvKind = err }
         Right _  -> pure ()
+
+-- ---------------------------------------------------------------------------
+-- Expect: 100-continue
+-- ---------------------------------------------------------------------------
+
+-- | When to attach @Expect: 100-continue@ to an outgoing
+-- request.  The point of the header is to let the server reject
+-- a body (auth failure, 413, …) before the client has streamed
+-- the bytes; it only makes sense if the body is large enough
+-- that paying the round-trip is cheaper than uploading and
+-- discarding.
+data ExpectContinuePolicy = ExpectContinuePolicy
+  { ecMinBodyBytes :: !(Maybe Int)
+    -- ^ Skip Expect on requests whose 'Content-Length' is below
+    --   this many bytes.  Defaults to 1 MiB.  'Nothing' means
+    --   always attach (or, equivalently, threshold 0).
+  , ecSkipMethods  :: ![M.Method]
+    -- ^ Methods that are always exempt.  Defaults to GET / HEAD
+    --   / DELETE (which by RFC 9110 §9.3 don't carry a body
+    --   that the server can usefully reject pre-upload).
+  }
+
+defaultExpectContinuePolicy :: ExpectContinuePolicy
+defaultExpectContinuePolicy = ExpectContinuePolicy
+  { ecMinBodyBytes = Just (1024 * 1024)
+  , ecSkipMethods  = [M.mGet, M.mHead, M.mDelete]
+  }
+
+-- | Attach @Expect: 100-continue@ to outgoing requests when the
+-- policy says it's worthwhile.  The 100 Continue interim
+-- response is silently absorbed by the HTTP\/1 client's
+-- existing 1xx loop in 'Network.HTTP1.Client.sendRequestOn'
+-- (which keeps reading past informational responses until it
+-- sees the final one), so an @Expect@ here gives the server
+-- the chance to short-circuit with a 4xx before the body lands
+-- on the wire.
+--
+-- /Caveat (RFC 9110 §10.1.1 strict reading)./ A full two-stage
+-- @Expect: 100-continue@ — send headers, /pause/ until the 1xx
+-- arrives or a short timeout elapses, then send the body — is
+-- not yet implemented at the connection layer.  Doing so
+-- safely requires a non-blocking recv primitive in
+-- @wireform-http1@'s 'ClientConnection' that's not yet
+-- available; tracking it as follow-up work for §1.2.  In
+-- practice the header still has value: servers that pre-check
+-- (e.g. @413 Payload Too Large@, @401 Unauthorized@,
+-- @415 Unsupported Media Type@) can return the rejection ahead
+-- of the body and the existing 1xx-absorbing client code
+-- handles the 100 itself; what this middleware /can't/ yet do
+-- is /delay/ the body until the 100 arrives.
+withExpectContinue :: ExpectContinuePolicy -> Middleware IO
+withExpectContinue policy inner = Transport $ \req -> do
+  let req' = if shouldAttach req then attach req else req
+  sendRaw inner req'
+  where
+    shouldAttach req =
+      let meth        = Network.HTTP.Client.Request.method req
+          hdrs        = Network.HTTP.Client.Request.headers req
+          alreadyHas  = H.hasHeader H.hExpect hdrs
+          contentLen  = parseCL =<< H.lookupHeader H.hContentLength hdrs
+      in not alreadyHas
+            && meth `notElem` ecSkipMethods policy
+            && passesThreshold contentLen
+
+    passesThreshold len = case (ecMinBodyBytes policy, len) of
+      (Nothing, _)            -> True
+      (Just thr, Just n)      -> n >= thr
+      (Just _,   Nothing)     -> True
+      -- ^ Unknown body length is conservative: assume it's
+      --   large enough to warrant the round-trip.
+
+    attach req =
+      let hdrs  = Network.HTTP.Client.Request.headers req
+          hdrs' = H.insertHeader H.hExpect "100-continue" hdrs
+      in req { Network.HTTP.Client.Request.headers = hdrs' }
+
+    parseCL bs = case BS8.readInt bs of
+      Just (n, leftover) | BS.null leftover && n >= 0 -> Just n
+      _                                               -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- URI rewriting / base URL

@@ -38,7 +38,8 @@ import qualified Network.Socket as NS
 import qualified Wireform.Builder as B
 import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
 
-import Network.HTTP1.Chunked (encodeChunk, encodeLastChunk)
+import Network.HTTP1.Chunked
+  (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
 import Network.HTTP1.Connection
 import Network.HTTP1.Encode (requestBuilder)
 import Network.HTTP1.Parser
@@ -146,7 +147,7 @@ sendRequestOn (ClientConnection conn) req = do
             sendByteString corked bs
     BodyStream producer -> do
       connectionSendBuilderDirect conn (requestBuilder req)
-      streamChunked conn producer
+      streamChunked conn producer (requestTrailers req)
     BodyPreEncoded _ -> pure ()
     -- ^ Pre-encoded request bodies are unusual but not nonsensical
     -- (e.g. a pre-built JSON payload). The Body has already been
@@ -178,13 +179,26 @@ sendRequestOn (ClientConnection conn) req = do
                 }
     is1xx (Status code) = code >= 100 && code < 200
 
-streamChunked :: Connection -> IO (Maybe ByteString) -> IO ()
-streamChunked conn producer = loop
+-- | Stream a chunked body, then emit the terminating zero-size
+-- chunk.  If the request supplies a non-empty trailer block
+-- ('requestTrailers'), they are emitted in the trailer-fields
+-- section of the final chunk per RFC 9112 §7.1.2; otherwise the
+-- final chunk is a bare @\"0\\r\\n\\r\\n\"@.
+--
+-- The trailers action is run lazily — after the producer has
+-- returned 'Nothing' — so callers can compute trailers from
+-- streaming-body state (e.g. content digests, row counts).
+streamChunked :: Connection -> IO (Maybe ByteString) -> IO Headers -> IO ()
+streamChunked conn producer trailersIO = loop
   where
     loop = do
       mc <- producer
       case mc of
-        Nothing -> connectionSendBuilder conn encodeLastChunk
+        Nothing -> do
+          trls <- trailersIO
+          if null trls
+            then connectionSendBuilder conn encodeLastChunk
+            else connectionSendBuilder conn (encodeLastChunkWithTrailers trls)
         Just bs
           | BS.null bs -> loop
-          | otherwise -> connectionSendBuilder conn (encodeChunk bs) >> loop
+          | otherwise  -> connectionSendBuilder conn (encodeChunk bs) >> loop
