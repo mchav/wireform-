@@ -7,19 +7,25 @@
   the de-facto convention used by curl, wget, requests, reqwest.
 * 'shouldBypass' \u2014 same matching rules as @NO_PROXY@.
 
-== Wiring caveat
+== Routing
 
-This module supplies the configuration vocabulary; the actual proxy
-routing still needs the connection layer to be told to dial the
-proxy host \/ port instead of the target. The shipped
-'baseTransport' \/ 'pooledTransport' don't yet read 'ProxyConfig'.
-The 'withProxy' middleware here rewrites outgoing request URIs to
-absolute form (RFC 9112 \u00a73.2.2), which is what a downstream proxy
-expects on the request line; pair it with a connection layer that
-honours 'ProxyConfig' for the dial step.
+The connection layer now reads 'ProxyConfig' end-to-end:
 
-CONNECT tunnelling for HTTPS-via-proxy is a separate concern
-covered by "Network.HTTP.Client.Proxy.Connect".
+* HTTP targets are dialled at the proxy directly; this middleware
+  rewrites the request line to absolute form
+  (RFC 9112 \u00a73.2.2) so the proxy can route it.
+* HTTPS targets go through a @CONNECT@ tunnel set up by
+  'Network.HTTP.Client.Proxy.Connect.connectThroughProxy', after
+  which the TLS handshake runs over the tunnel.
+* 'shouldBypass' is consulted before either path; matches skip
+  the proxy entirely.
+
+Both the pooled transport ('Network.HTTP.Client.Pool.pooledTransport')
+and the one-shot base transport
+('Network.HTTP.Client.Base.baseTransportVia') route through the
+proxy when the surrounding 'Network.HTTP.Client.Config.ClientConfig'
+sets 'ccProxyConfig'. The pool keys its idle connections on the
+resolved proxy so different proxies do not share a pool.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}

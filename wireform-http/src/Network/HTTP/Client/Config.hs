@@ -21,12 +21,14 @@ import Control.Exception (bracket)
 
 import qualified Network.HTTP.VersionRange as VR
 
-import Network.HTTP.Client.Base
+import Network.HTTP.Client.Base (baseTransportVia)
 import Network.HTTP.Client.Compression (withDecompression)
 import Network.HTTP.Client.Cookies (CookieJar, withCookies)
 import Network.HTTP.Client.Middleware
 import Network.HTTP.Client.Pool (ConnectionPool, PoolConfig, newPool, closePool, pooledTransport)
 import qualified Network.HTTP.Client.Pool as Pool
+import Network.HTTP.Client.Proxy (ProxyConfig)
+import qualified Network.HTTP.Client.Proxy as Pxy
 import Network.HTTP.Client.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
 import Network.HTTP.Client.Transport
 
@@ -51,6 +53,14 @@ data ClientConfig = ClientConfig
     --   the duration of the action and routes the base transport
     --   through it. Defaults to a sensible 'PoolConfig'; pass
     --   'Nothing' to bypass pooling entirely.
+  , ccProxyConfig  :: !ProxyConfig
+    -- ^ Proxy selection. Defaults to 'Pxy.noProxyConfig'.  When set,
+    --   the base \/ pooled transport routes every request through
+    --   the configured proxy (HTTP-via-proxy rewrites the
+    --   request-line via 'Network.HTTP.Client.Proxy.withProxy';
+    --   HTTPS-via-proxy uses a CONNECT tunnel). If you want to
+    --   resolve this from the environment, call
+    --   'Pxy.resolveProxyFromEnv' before building the config.
   , ccExtra        :: !([Transport IO -> Transport IO])
     -- ^ Escape hatch for additional middleware to wrap the stack with.
     -- Applied outermost-first, after the standard set below.
@@ -67,6 +77,7 @@ defaultClientConfig = ClientConfig
   , ccTracing      = defaultTracingConfig
   , ccDecompress   = True
   , ccPoolConfig   = Just Pool.defaultPoolConfig
+  , ccProxyConfig  = Pxy.noProxyConfig
   , ccExtra        = []
   }
 
@@ -78,14 +89,20 @@ withClient :: ClientConfig -> (Transport IO -> IO a) -> IO a
 withClient cfg action = case ccPoolConfig cfg of
   Nothing       -> action (assemble cfg Nothing)
   Just poolCfg  ->
-    bracket (newPool poolCfg) closePool $ \pool ->
+    -- Plumb the client-level ProxyConfig into the pool so its
+    -- connection routing and target-keying see the same proxy
+    -- decisions as the non-pooled path.
+    let poolCfg' = poolCfg { Pool.proxyConfig = ccProxyConfig cfg }
+    in bracket (newPool poolCfg') closePool $ \pool ->
       action (assemble cfg (Just pool))
 
 assemble :: ClientConfig -> Maybe ConnectionPool -> Transport IO
 assemble cfg mPool =
   let base       = case mPool of
         Just pool -> pooledTransport pool
-        Nothing   -> baseTransport (ccVersionRange cfg)
+        Nothing   -> baseTransportVia
+                       (ccVersionRange cfg)
+                       (ccProxyConfig cfg)
       decompress = if ccDecompress cfg then withDecompression else id
       cookies    = maybe id withCookies   (ccCookieJar cfg)
       retry_     = maybe id withRetry     (ccRetryPolicy cfg)
@@ -94,6 +111,7 @@ assemble cfg mPool =
       logger     = maybe id withLogging   (ccLogger cfg)
       tracing    = withTracing (ccTracing cfg)
       extras     = foldr (.) id (ccExtra cfg)
+      proxy_     = Pxy.withProxy (ccProxyConfig cfg)
   -- Tracing sits outermost so the span covers retries, the timeout,
   -- auth header injection, and cookie processing. Decompression
   -- sits closest to the base transport so cookies / retry / etc.
@@ -107,4 +125,5 @@ assemble cfg mPool =
      . timeout_
      . auth
      . decompress
+     . proxy_
      $ base

@@ -44,7 +44,9 @@ module Network.HTTP.Connection
   , Connection
   , negotiatedVersion
   , withConnection
+  , withConnectionVia
   , openConnection
+  , openConnectionVia
   , closeConnection
   , isPlaintextHttp1
     -- * Sending requests
@@ -54,11 +56,12 @@ module Network.HTTP.Connection
   , ConnectionError (..)
   ) where
 
-import Control.Exception (Exception, throwIO)
+import Control.Exception (Exception, bracketOnError, throwIO)
 import qualified Network.HTTP1.Client as H1
 import qualified Network.HTTP1.Parser as H1
 import qualified Network.HTTP1.Types as H1
 import qualified Network.HTTP2.Client as H2
+import qualified Network.Socket as NS
 
 import Network.HTTP.Message
 import qualified Network.HTTP.TLS as TLS
@@ -68,6 +71,12 @@ import qualified Network.HTTP.Types.Body as U
 import qualified Network.HTTP.Types.Method as U
 import qualified Network.HTTP.Types.Status as U
 import qualified Network.HTTP.Types.Version as U
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS8
+
+import Network.HTTP.Client.Proxy (Proxy (..))
+import Network.HTTP.Client.Proxy.Connect (connectThroughProxy)
 
 data ConnectionConfig = ConnectionConfig
   { connectionHost         :: !String
@@ -122,13 +131,36 @@ negotiatedVersion = \case
 -- fails with 'VersionOutOfRange'); plaintext picks the preferred
 -- version in the range.
 withConnection :: ConnectionConfig -> (Connection -> IO a) -> IO a
-withConnection cfg action = case connectionTls cfg of
-  Just tlsCfg -> withTlsConnection cfg tlsCfg action
-  Nothing ->
-    let preferred = preferredVersion (connectionVersionRange cfg)
-    in if preferred == U.HTTP2
-         then withPlaintextHttp2 cfg action
-         else withPlaintextHttp1 cfg action
+withConnection cfg = withConnectionVia cfg Nothing Nothing
+
+-- | Variant of 'withConnection' that routes through an explicit
+-- 'Proxy' (with optional @Proxy-Authorization@ header value on the
+-- 'CONNECT' exchange).
+--
+-- * HTTPS target + proxy: dial the proxy, issue
+--   @CONNECT host:port@, then layer TLS on the resulting tunnel.
+-- * HTTP target + proxy: dial the proxy directly. The HTTP request
+--   line is expected to be in absolute form
+--   (the 'Network.HTTP.Client.Proxy.withProxy' middleware rewrites
+--   it).
+-- * 'Nothing' for the proxy argument: identical to 'withConnection'.
+withConnectionVia
+  :: ConnectionConfig
+  -> Maybe Proxy
+  -> Maybe ByteString  -- ^ Proxy-Authorization header value (CONNECT only)
+  -> (Connection -> IO a)
+  -> IO a
+withConnectionVia cfg mProxy mAuth action = case connectionTls cfg of
+  Just tlsCfg -> case mProxy of
+    Just prx -> withTlsConnectionThroughProxy cfg tlsCfg prx mAuth action
+    Nothing  -> withTlsConnection cfg tlsCfg action
+  Nothing -> case mProxy of
+    Just prx -> withPlaintextHttp1Via prx cfg action
+    Nothing  ->
+      let preferred = preferredVersion (connectionVersionRange cfg)
+      in if preferred == U.HTTP2
+           then withPlaintextHttp2 cfg action
+           else withPlaintextHttp1 cfg action
 
 withTlsConnection :: ConnectionConfig -> TlsConnectionConfig -> (Connection -> IO a) -> IO a
 withTlsConnection cfg tlsCfg action =
@@ -142,11 +174,70 @@ withTlsConnection cfg tlsCfg action =
         TLS.TlsClientHttp2 handle -> action (Http2Connection handle U.HTTP2)
         TLS.TlsClientHttp1 conn   -> action (Http1Connection conn U.HTTP1_1)
 
+-- | Dial @proxy@, run @CONNECT target:port@, and then drive the
+-- caller-supplied TLS handshake over the established tunnel via
+-- 'TLS.withTlsClientOnSocket'.  Socket lifetime is bracketed by
+-- this helper.
+withTlsConnectionThroughProxy
+  :: ConnectionConfig
+  -> TlsConnectionConfig
+  -> Proxy
+  -> Maybe ByteString
+  -> (Connection -> IO a)
+  -> IO a
+withTlsConnectionThroughProxy cfg tlsCfg prx mAuth action =
+  bracketOnError
+    (connectThroughProxy prx targetHostBs targetPort mAuth)
+    NS.close
+    $ \sock -> do
+        let host = connectionHost cfg
+            port = connectionPort cfg
+        result <-
+          TLS.withTlsClientOnSocket
+            sock
+            host
+            port
+            (tlsServerName tlsCfg)
+            (tlsValidateCert tlsCfg)
+            (connectionVersionRange cfg)
+            $ \case
+                TLS.TlsClientHttp2 handle ->
+                  action (Http2Connection handle U.HTTP2)
+                TLS.TlsClientHttp1 conn   ->
+                  action (Http1Connection conn U.HTTP1_1)
+        NS.close sock
+        pure result
+  where
+    targetHostBs = BS8.pack (connectionHost cfg)
+    targetPort   = case reads (connectionPort cfg) :: [(Int, String)] of
+      [(n, "")] -> n
+      _         -> 443
+
 withPlaintextHttp1 :: ConnectionConfig -> (Connection -> IO a) -> IO a
-withPlaintextHttp1 cfg action = do
+withPlaintextHttp1 cfg = withPlaintextHttp1Dial (connectionHost cfg) (connectionPort cfg) cfg
+
+-- | Same as 'withPlaintextHttp1' but dials the supplied proxy host
+-- \/ port instead of the URI's target. Used for HTTP-via-HTTP-proxy
+-- (the request line is already in absolute form via the
+-- 'withProxy' middleware).
+withPlaintextHttp1Via
+  :: Proxy
+  -> ConnectionConfig
+  -> (Connection -> IO a)
+  -> IO a
+withPlaintextHttp1Via prx cfg =
+  withPlaintextHttp1Dial (BS8.unpack (proxyHost prx)) (show (proxyPort prx)) cfg
+
+withPlaintextHttp1Dial
+  :: String
+  -> String
+  -> ConnectionConfig
+  -> (Connection -> IO a)
+  -> IO a
+withPlaintextHttp1Dial host port cfg action = do
   let h1cfg = H1.defaultClientConfig
-        { H1.clientHost = connectionHost cfg
-        , H1.clientPort = connectionPort cfg
+        { H1.clientHost = host
+        , H1.clientPort = port
         }
       ver = case preferredVersion (connectionVersionRange cfg) of
         U.HTTP1_0 -> U.HTTP1_0
@@ -170,14 +261,27 @@ isPlaintextHttp1 = \case
 -- 'withConnection' path (TLS or HTTP\/2-preferred). Pair with
 -- 'closeConnection' for proper teardown.
 openConnection :: ConnectionConfig -> IO (Either String Connection)
-openConnection cfg = case connectionTls cfg of
-  Just _  -> pure (Left "openConnection: TLS connections require the bracketed withConnection API")
+openConnection cfg = openConnectionVia cfg Nothing
+
+-- | Variant of 'openConnection' that dials through an explicit
+-- proxy when supplied. Only valid for plaintext HTTP\/1.x
+-- targets — TLS \/ HTTP\/2 paths still need the bracketed
+-- 'withConnectionVia' API.
+openConnectionVia
+  :: ConnectionConfig
+  -> Maybe Proxy
+  -> IO (Either String Connection)
+openConnectionVia cfg mProxy = case connectionTls cfg of
+  Just _  -> pure (Left "openConnectionVia: TLS connections require the bracketed withConnectionVia API")
   Nothing -> case preferredVersion (connectionVersionRange cfg) of
-    U.HTTP2 -> pure (Left "openConnection: HTTP/2 connections require the bracketed withConnection API")
+    U.HTTP2 -> pure (Left "openConnectionVia: HTTP/2 connections require the bracketed withConnectionVia API")
     ver -> do
-        let h1cfg = H1.defaultClientConfig
-              { H1.clientHost = connectionHost cfg
-              , H1.clientPort = connectionPort cfg
+        let (dialHost, dialPort) = case mProxy of
+              Just prx -> (BS8.unpack (proxyHost prx), show (proxyPort prx))
+              Nothing  -> (connectionHost cfg, connectionPort cfg)
+            h1cfg = H1.defaultClientConfig
+              { H1.clientHost = dialHost
+              , H1.clientPort = dialPort
               }
             usedVer = case ver of
               U.HTTP1_0 -> U.HTTP1_0

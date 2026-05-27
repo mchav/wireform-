@@ -76,6 +76,8 @@ import qualified Network.HTTP.Client.Request   as WReq
 import           Network.HTTP.Client.Response
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI       as WURI
+import qualified Network.HTTP.Client.Proxy     as Pxy
+import           Network.HTTP.Client.Proxy     (Proxy, ProxyConfig)
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -84,14 +86,20 @@ import qualified Network.HTTP.Client.URI       as WURI
 data PoolConfig = PoolConfig
   { maxConnectionsPerHost :: !Int
     -- ^ Cap on simultaneously open connections per
-    --   @(scheme, host, port)@. Requests that exceed the cap block
-    --   until a slot frees up.
+    --   @(scheme, host, port, proxy)@. Requests that exceed the
+    --   cap block until a slot frees up.
   , maxIdleSeconds        :: !Double
     -- ^ Idle connections older than this are closed by the reaper.
   , reaperIntervalSeconds :: !Double
     -- ^ Reaper sweep cadence.
   , versionRange          :: !VR.VersionRange
     -- ^ Negotiated version range for newly opened connections.
+  , proxyConfig           :: !ProxyConfig
+    -- ^ Proxy selection. Defaults to 'Pxy.noProxyConfig'; when set
+    --   the pool routes each request through the configured proxy
+    --   (CONNECT-tunnelled for HTTPS, request-line-rewritten for
+    --   HTTP). The 'Target' key includes the resolved proxy so
+    --   different proxies do not share idle connections.
   }
 
 defaultPoolConfig :: PoolConfig
@@ -100,6 +108,7 @@ defaultPoolConfig = PoolConfig
   , maxIdleSeconds        = 60
   , reaperIntervalSeconds = 5
   , versionRange          = VR.preferHttp1
+  , proxyConfig           = Pxy.noProxyConfig
   }
 
 -- ---------------------------------------------------------------------------
@@ -110,6 +119,9 @@ data Target = Target
   { tgtScheme :: !TargetScheme
   , tgtHost   :: !ByteString
   , tgtPort   :: !Int
+  , tgtProxy  :: !(Maybe (ByteString, Int))
+    -- ^ Resolved proxy authority for this request, if any. Part of
+    --   the hash key so different proxies maintain distinct pools.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
@@ -260,11 +272,11 @@ releaseDead pool target = atomically $ do
 -- TLS\/HTTP\/2 where reuse isn't supported yet).
 pooledTransport :: ConnectionPool -> Transport IO
 pooledTransport pool = Transport $ \req -> do
-  target <- targetForRequest req
+  (target, mProxy) <- targetForRequest (proxyConfig (poolConfig pool)) req
   let cfg = connectionConfigFor pool target
   if reuseOK cfg
-    then runWithSlot pool target cfg req
-    else runOneShot cfg req
+    then runWithSlot pool target cfg mProxy req
+    else runOneShot cfg mProxy req
 
 -- | True iff a connection for this config can be opened \/ closed
 -- out of bracket scope (HTTP\/1.x plaintext only, today).
@@ -280,14 +292,15 @@ runWithSlot
   :: ConnectionPool
   -> Target
   -> Conn.ConnectionConfig
+  -> Maybe Proxy
   -> WReq.Request BodyStream
   -> IO RawResponse
-runWithSlot pool target cfg req = mask $ \restore -> do
+runWithSlot pool target cfg mProxy req = mask $ \restore -> do
   acquired <- atomically (acquireSTM pool target)
   conn <- case acquired of
     ReuseIdle slot -> pure (slotConn slot)
     NeedNew        -> do
-      result <- restore (Conn.openConnection cfg)
+      result <- restore (Conn.openConnectionVia cfg mProxy)
       case result of
         Right c  -> pure c
         Left err -> do
@@ -315,10 +328,12 @@ runWithSlot pool target cfg req = mask $ \restore -> do
 -- bracket a fresh 'Conn.withConnection' for each request.
 runOneShot
   :: Conn.ConnectionConfig
+  -> Maybe Proxy
   -> WReq.Request BodyStream
   -> IO RawResponse
-runOneShot cfg req = Conn.withConnection cfg $ \conn ->
-  sendAndMaterialise conn req
+runOneShot cfg mProxy req =
+  Conn.withConnectionVia cfg mProxy Nothing $ \conn ->
+    sendAndMaterialise conn req
 
 sendAndMaterialise
   :: Conn.Connection
@@ -410,16 +425,29 @@ connectionConfigFor pool tgt =
        , Conn.connectionTls          = tls
        }
 
-targetForRequest :: WReq.Request BodyStream -> IO Target
-targetForRequest req = case WURI.renderRequestURI (WReq.requestURI req) of
+targetForRequest
+  :: ProxyConfig
+  -> WReq.Request BodyStream
+  -> IO (Target, Maybe Proxy)
+targetForRequest pcfg req = case WURI.renderRequestURI (WReq.requestURI req) of
   Left err -> throwIO (PoolInvalidURI err)
-  Right u  -> pure Target
-    { tgtScheme = case WURI.uriScheme u of
-        WURI.SchemeHttps -> TargetHttps
-        WURI.SchemeHttp  -> TargetHttp
-    , tgtHost = WURI.uriHost u
-    , tgtPort = WURI.uriPort u
-    }
+  Right u  ->
+    let scheme = case WURI.uriScheme u of
+          WURI.SchemeHttps -> TargetHttps
+          WURI.SchemeHttp  -> TargetHttp
+        host = WURI.uriHost u
+        port = WURI.uriPort u
+        mProxy
+          | Pxy.shouldBypass pcfg host = Nothing
+          | otherwise = case WURI.uriScheme u of
+              WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+              WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
+        proxyKey = fmap (\p -> (Pxy.proxyHost p, Pxy.proxyPort p)) mProxy
+    in pure (Target { tgtScheme = scheme
+                    , tgtHost   = host
+                    , tgtPort   = port
+                    , tgtProxy  = proxyKey
+                    }, mProxy)
 
 -- ---------------------------------------------------------------------------
 -- Errors
