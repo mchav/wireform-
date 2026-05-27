@@ -16,6 +16,12 @@ module Network.HTTP.Types.Status
   , StatusCategory (..)
   , statusCategory
   , statusReason
+    -- * Category predicates (RFC 9110 §15)
+  , statusIsInformational
+  , statusIsSuccessful
+  , statusIsRedirection
+  , statusIsClientError
+  , statusIsServerError
     -- * 1xx informational
   , status100, status101, status102, status103
     -- * 2xx success
@@ -70,80 +76,104 @@ statusCategory (Status n)
   | n >= 500 && n < 600 = ServerError
   | otherwise           = UnknownCategory
 
--- | The canonical IANA reason phrase for a known status. Returns an
--- empty 'ByteString' for unknown codes; callers that need to fill in
--- their own phrase can branch on 'BS.null'.
+-- | True for 1xx codes.
+statusIsInformational :: Status -> Bool
+statusIsInformational s = let n = statusCode s in n >= 100 && n < 200
+
+-- | True for 2xx codes.
+statusIsSuccessful :: Status -> Bool
+statusIsSuccessful s = let n = statusCode s in n >= 200 && n < 300
+
+-- | True for 3xx codes.
+statusIsRedirection :: Status -> Bool
+statusIsRedirection s = let n = statusCode s in n >= 300 && n < 400
+
+-- | True for 4xx codes.
+statusIsClientError :: Status -> Bool
+statusIsClientError s = let n = statusCode s in n >= 400 && n < 500
+
+-- | True for 5xx codes.
+statusIsServerError :: Status -> Bool
+statusIsServerError s = let n = statusCode s in n >= 500 && n < 600
+
+-- | The canonical IANA reason phrase for a known status. Falls back
+-- to a generic category phrase for unknown codes inside a known
+-- range (e.g. 599 → @"Server Error"@), and an empty
+-- 'ByteString' for codes outside 100–599.
 statusReason :: Status -> ByteString
-statusReason (Status n) = case n of
-  100 -> "Continue"
-  101 -> "Switching Protocols"
-  102 -> "Processing"
-  103 -> "Early Hints"
-  200 -> "OK"
-  201 -> "Created"
-  202 -> "Accepted"
-  203 -> "Non-Authoritative Information"
-  204 -> "No Content"
-  205 -> "Reset Content"
-  206 -> "Partial Content"
-  207 -> "Multi-Status"
-  208 -> "Already Reported"
-  226 -> "IM Used"
-  300 -> "Multiple Choices"
-  301 -> "Moved Permanently"
-  302 -> "Found"
-  303 -> "See Other"
-  304 -> "Not Modified"
-  305 -> "Use Proxy"
-  307 -> "Temporary Redirect"
-  308 -> "Permanent Redirect"
-  400 -> "Bad Request"
-  401 -> "Unauthorized"
-  402 -> "Payment Required"
-  403 -> "Forbidden"
-  404 -> "Not Found"
-  405 -> "Method Not Allowed"
-  406 -> "Not Acceptable"
-  407 -> "Proxy Authentication Required"
-  408 -> "Request Timeout"
-  409 -> "Conflict"
-  410 -> "Gone"
-  411 -> "Length Required"
-  412 -> "Precondition Failed"
-  413 -> "Content Too Large"
-  414 -> "URI Too Long"
-  415 -> "Unsupported Media Type"
-  416 -> "Range Not Satisfiable"
-  417 -> "Expectation Failed"
-  418 -> "I'm a teapot"
-  421 -> "Misdirected Request"
-  422 -> "Unprocessable Content"
-  423 -> "Locked"
-  424 -> "Failed Dependency"
-  425 -> "Too Early"
-  426 -> "Upgrade Required"
-  428 -> "Precondition Required"
-  429 -> "Too Many Requests"
-  431 -> "Request Header Fields Too Large"
-  451 -> "Unavailable For Legal Reasons"
-  500 -> "Internal Server Error"
-  501 -> "Not Implemented"
-  502 -> "Bad Gateway"
-  503 -> "Service Unavailable"
-  504 -> "Gateway Timeout"
-  505 -> "HTTP Version Not Supported"
-  506 -> "Variant Also Negotiates"
-  507 -> "Insufficient Storage"
-  508 -> "Loop Detected"
-  510 -> "Not Extended"
-  511 -> "Network Authentication Required"
-  _   -> case statusCategory theStatus of
-    Informational    -> "Informational"
-    Successful       -> "OK"
-    Redirection      -> "Redirection"
-    ClientError      -> "Client Error"
-    ServerError      -> "Server Error"
-    UnknownCategory  -> ""
+statusReason s =
+  let n  = statusCode s
+      fallback = case statusCategory s of
+        Informational    -> "Informational"
+        Successful       -> "OK"
+        Redirection      -> "Redirection"
+        ClientError      -> "Client Error"
+        ServerError      -> "Server Error"
+        UnknownCategory  -> ""
+  in case n of
+       100 -> "Continue"
+       101 -> "Switching Protocols"
+       102 -> "Processing"
+       103 -> "Early Hints"
+       200 -> "OK"
+       201 -> "Created"
+       202 -> "Accepted"
+       203 -> "Non-Authoritative Information"
+       204 -> "No Content"
+       205 -> "Reset Content"
+       206 -> "Partial Content"
+       207 -> "Multi-Status"
+       208 -> "Already Reported"
+       226 -> "IM Used"
+       300 -> "Multiple Choices"
+       301 -> "Moved Permanently"
+       302 -> "Found"
+       303 -> "See Other"
+       304 -> "Not Modified"
+       305 -> "Use Proxy"
+       307 -> "Temporary Redirect"
+       308 -> "Permanent Redirect"
+       400 -> "Bad Request"
+       401 -> "Unauthorized"
+       402 -> "Payment Required"
+       403 -> "Forbidden"
+       404 -> "Not Found"
+       405 -> "Method Not Allowed"
+       406 -> "Not Acceptable"
+       407 -> "Proxy Authentication Required"
+       408 -> "Request Timeout"
+       409 -> "Conflict"
+       410 -> "Gone"
+       411 -> "Length Required"
+       412 -> "Precondition Failed"
+       413 -> "Content Too Large"
+       414 -> "URI Too Long"
+       415 -> "Unsupported Media Type"
+       416 -> "Range Not Satisfiable"
+       417 -> "Expectation Failed"
+       418 -> "I'm a teapot"
+       421 -> "Misdirected Request"
+       422 -> "Unprocessable Content"
+       423 -> "Locked"
+       424 -> "Failed Dependency"
+       425 -> "Too Early"
+       426 -> "Upgrade Required"
+       428 -> "Precondition Required"
+       429 -> "Too Many Requests"
+       431 -> "Request Header Fields Too Large"
+       451 -> "Unavailable For Legal Reasons"
+       500 -> "Internal Server Error"
+       501 -> "Not Implemented"
+       502 -> "Bad Gateway"
+       503 -> "Service Unavailable"
+       504 -> "Gateway Timeout"
+       505 -> "HTTP Version Not Supported"
+       506 -> "Variant Also Negotiates"
+       507 -> "Insufficient Storage"
+       508 -> "Loop Detected"
+       510 -> "Not Extended"
+       511 -> "Network Authentication Required"
+       _   -> fallback
 
 status100, status101, status102, status103 :: Status
 status100 = Status 100
