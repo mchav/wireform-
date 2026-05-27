@@ -65,6 +65,7 @@ library
       Network.HTTP.Headers.Parsing.Util
       Network.HTTP.Headers.PingFrom
       Network.HTTP.Headers.PingTo
+      Network.HTTP.Headers.ProxyAuthenticate
       Network.HTTP.Headers.ProxyAuthorization
       Network.HTTP.Headers.Referer
       Network.HTTP.Headers.Rendering.Util

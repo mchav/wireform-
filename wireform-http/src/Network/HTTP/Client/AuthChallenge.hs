@@ -29,15 +29,18 @@ anyone wants to write one.
 
 == Multi-challenge values
 
-A single @WWW-Authenticate@ header value can in principle carry
-several challenges separated by commas, but the grammar is
-ambiguous without scheme-aware lookahead because the comma between
-challenges is indistinguishable from the comma between auth-params
-of the same challenge. hermes's 'credentialsParser' parses one
-challenge per header value; we run it per @WWW-Authenticate@ \/
-@Proxy-Authenticate@ header line and concatenate the results, which
-is the right behaviour for the much more common case of a server
-emitting one challenge per header line.
+A single @WWW-Authenticate@ header value can carry several
+challenges separated by commas. The grammar is ambiguous without
+scheme-aware look-ahead because the comma between challenges is
+indistinguishable from the comma between auth-params of the same
+challenge. The scheme-aware splitter lives in hermes as
+'Hermes.WWWAuthenticate.challengesParser'; this module is a thin
+projection over its output into the case-insensitive 'ByteString'
+vocabulary the rest of the client uses.
+
+Multiple header lines are still concatenated per RFC 9110 §5.3:
+@parseAuthChallenges@ runs the hermes parser on each header value
+and joins the resulting challenge lists.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -51,6 +54,7 @@ module Network.HTTP.Client.AuthChallenge
   , withProxyChallengeAuth
     -- * Built-in responders
   , basicChallengeResponder
+  , bearerChallengeResponder
   ) where
 
 import qualified Data.ByteString as BS
@@ -58,14 +62,14 @@ import qualified Data.ByteString.Base64 as B64
 import Data.ByteString (ByteString)
 import qualified Data.CaseInsensitive as CI
 import Data.CaseInsensitive (CI)
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Short as ST
 
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 
-import qualified Network.HTTP.Headers.Authorization as Hermes
-import qualified Network.HTTP.Headers.Parsing.Util  as Hermes
+import qualified Network.HTTP.Headers.Authorization     as HAuth
+import qualified Network.HTTP.Headers.Parsing.Util        as Hermes
+import qualified Network.HTTP.Headers.WWWAuthenticate     as HWA
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Status as S
@@ -97,36 +101,41 @@ data AuthChallenge = AuthChallenge
   }
   deriving stock (Eq, Show)
 
--- | Parse a single header value into one challenge. Returns @[]@ if
--- the input doesn't parse as a challenge / credentials production.
+-- | Parse a single @WWW-Authenticate@ \/ @Proxy-Authenticate@
+-- header value into the list of challenges it carries. Multiple
+-- challenges in the same value are disambiguated from
+-- intra-challenge auth-param commas by
+-- 'Hermes.WWWAuthenticate.challengesParser' (RFC 9110 §11.6.1).
+-- Returns @[]@ if the value doesn't parse.
 parseAuthChallenges :: ByteString -> [AuthChallenge]
 parseAuthChallenges raw =
-  let trimmed = BS.dropWhile isWS (BS.dropWhileEnd isWS raw)
-  in case runParser Hermes.credentialsParser trimmed of
-       OK creds leftover
-         | BS.null (BS.dropWhile isWS leftover) ->
-             [fromHermesCredentials creds]
-       _ -> []
+  case runParser HWA.challengesParser raw of
+    OK cs leftover
+      | BS.null (BS.dropWhile isWS leftover) ->
+          map fromHermesChallenge cs
+    _ -> []
   where
     isWS w = w == 0x20 || w == 0x09
 
--- | Project hermes's 'Credentials' onto the wireform 'AuthChallenge'.
-fromHermesCredentials :: Hermes.Credentials -> AuthChallenge
-fromHermesCredentials creds = AuthChallenge
-  { acScheme  = CI.mk (schemeBytes (Hermes.scheme creds))
-  , acParams  = case Hermes.contents creds of
-      Hermes.CredentialToken _ -> []
-      Hermes.CredentialParams ps ->
-        [ (CI.mk (shortToBytes k), paramValueBytes v) | (k, v) <- NE.toList ps ]
-  , acToken68 = case Hermes.contents creds of
-      Hermes.CredentialToken bs -> Just bs
-      Hermes.CredentialParams _ -> Nothing
+-- | Project hermes's structured 'HWA.AuthChallenge' onto the
+-- wireform shape (case-insensitive scheme \/ param names, raw
+-- bytes for values).
+fromHermesChallenge :: HWA.AuthChallenge -> AuthChallenge
+fromHermesChallenge ch = AuthChallenge
+  { acScheme  = CI.mk (schemeBytes (HWA.challengeScheme ch))
+  , acParams  = case HWA.challengeContents ch of
+      HWA.ChallengeParams ps ->
+        [ (CI.mk (shortToBytes k), paramValueBytes v) | (k, v) <- ps ]
+      _ -> []
+  , acToken68 = case HWA.challengeContents ch of
+      HWA.ChallengeToken68 bs -> Just bs
+      _ -> Nothing
   }
   where
-    schemeBytes (Hermes.AuthScheme s) = shortToBytes s
+    schemeBytes (HAuth.AuthScheme s) = shortToBytes s
     paramValueBytes = \case
-      Hermes.CredentialParamToken t  -> shortToBytes t
-      Hermes.CredentialParamString s ->
+      HAuth.CredentialParamToken t  -> shortToBytes t
+      HAuth.CredentialParamString s ->
         shortToBytes (Hermes.unsafeToRFC8941String s)
     shortToBytes = TE.encodeUtf8 . ST.toText
 
@@ -214,3 +223,35 @@ firstJust = go
     go []           = Nothing
     go (Just x : _) = Just x
     go (Nothing : r) = go r
+
+-- ---------------------------------------------------------------------------
+-- Bearer (RFC 6750)
+-- ---------------------------------------------------------------------------
+
+-- | A 'ChallengeResponder' for RFC 6750 @Bearer@ challenges. The
+-- callback is consulted with each challenge's @realm@ (empty
+-- 'ByteString' if absent) and is expected to return the
+-- caller's access token; the responder then emits
+-- @Authorization: Bearer \<token\>@.
+--
+-- Pass @const Nothing@ to refuse all Bearer challenges (useful
+-- when stacking multiple responders so a Bearer-then-Basic
+-- combination falls through to Basic when no token is provisioned
+-- for a given realm).
+bearerChallengeResponder
+  :: (ByteString -> Maybe ByteString)
+    -- ^ realm → access token.
+  -> ChallengeResponder
+bearerChallengeResponder lookupToken challenges =
+  pure $ firstJust
+    [ case lookupToken realm of
+        Just tok -> Just ("Bearer " <> tok)
+        Nothing  -> Nothing
+    | ch <- challenges
+    , acScheme ch == bearer
+    , let realm = case lookup (CI.mk "realm") (acParams ch) of
+            Just r  -> r
+            Nothing -> ""
+    ]
+  where
+    bearer = CI.mk "Bearer"
