@@ -28,6 +28,8 @@ module Wireform.Parser.Switch
   , switchFailed
   , switchBranch
   , switchAnyWord8Unsafe
+  , switchPeekWord8Unsafe
+  , switchSkip1
   ) where
 
 import Control.Monad (forM)
@@ -62,6 +64,31 @@ switchAnyWord8Unsafe = Parser \env eob s st ->
   case indexWord8OffAddr# s 0# of
     w# -> (# st, OK# (W8# w#) (plusAddr# s 1#) #)
 {-# INLINE switchAnyWord8Unsafe #-}
+
+-- | Peek the next byte without consuming. Used by the trie code
+-- generator so that a wildcard-branch falling back to the
+-- current node's terminal action does not eat a byte that
+-- belongs to whatever runs after the switch.
+--
+-- (Previously the generator used 'switchAnyWord8Unsafe' for the
+-- byte dispatch, which consumed the byte and then ran the
+-- terminal action /past/ that byte. For input like @\"1,…\"@ on a
+-- switch with literals @\"1\", \"1.0\", \"1.00\"@, that meant the
+-- @\"1\"@ terminal action ran from after the comma — silently
+-- breaking every quality-weighted Accept-* parser whose first
+-- entry used @q=1@.)
+switchPeekWord8Unsafe :: Parser m e Word8
+switchPeekWord8Unsafe = Parser \_env _eob s st ->
+  case indexWord8OffAddr# s 0# of
+    w# -> (# st, OK# (W8# w#) s #)
+{-# INLINE switchPeekWord8Unsafe #-}
+
+-- | Skip one byte (used after 'switchPeekWord8Unsafe' has
+-- decided a child branch matches).
+switchSkip1 :: Parser m e ()
+switchSkip1 = Parser \_env _eob s st ->
+  (# st, OK# () (plusAddr# s 1#) #)
+{-# INLINE switchSkip1 #-}
 
 -- | Branch on an ensure check: if enough bytes, run @t@; else @f@.
 switchBranch :: Int -> Parser m e a -> Parser m e a -> Parser m e a
@@ -176,13 +203,19 @@ genTrieCode names = go 0 where
     | M.null ts = pure (VarE (ruleName rule))
     | otherwise = do
         let need = ensured < 1
+        -- Each child's action is preceded by a 'switchSkip1'
+        -- because we peeked the dispatch byte rather than
+        -- consumed it. The wildcard branch (which runs the
+        -- current node's terminal action or 'switchFailed')
+        -- intentionally does NOT skip the byte — that's what
+        -- the previous generator got wrong.
         branches <- forM (M.toList ts) \(w, sub) -> do
           e <- go (if need then depth - 1 else ensured - 1) sub
-          pure (w, e)
+          pure (w, InfixE (Just (VarE 'switchSkip1)) (VarE '(>>)) (Just e))
 
         let defE = VarE (ruleName rule)
             body = mkDoE
-              [ BindS (VarP (mkName "c")) (VarE 'switchAnyWord8Unsafe)
+              [ BindS (VarP (mkName "c")) (VarE 'switchPeekWord8Unsafe)
               , NoBindS (CaseE (VarE (mkName "c"))
                   (  [Match (LitP (IntegerL (fromIntegral w))) (NormalB e) []
                      | (w, e) <- branches]

@@ -62,7 +62,14 @@ acceptCharsetParser = AcceptCharset <$> (weightedCharsetParser `sepBy` $(char ',
   where
     weightedCharsetParser = do
       ows
-      tag <- $(char '*') *> pure (ST.fromString "*") <|> rfc9110Token
+      tag <-     ($(char '*') *> pure (ST.fromString "*"))
+             <|> rfc9110Token
+      -- ^ The parens around the @*>@ are mandatory.  Wireform's
+      -- 'Wireform.Parser.(<|>)' is @infixr 6@ while 'Applicative.(*>)'
+      -- is @infixl 4@; without the parens this would group as
+      -- @$(char '*') *> (pure \"*\" \<|\> rfc9110Token)@, which
+      -- requires @*@ to match before the alternative is even
+      -- considered.
       w   <- weightParser
       ows
       pure $ WeightedCharset tag w
