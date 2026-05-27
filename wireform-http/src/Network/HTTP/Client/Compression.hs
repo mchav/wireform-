@@ -75,11 +75,12 @@ module Network.HTTP.Client.Compression
   , withCompressionUsing
   ) where
 
-import Control.Exception (SomeException, try, evaluate)
+import Control.Exception (SomeException, throwIO, try, evaluate)
 import qualified Codec.Compression.Brotli as Brotli
 import qualified Codec.Compression.GZip   as GZip
 import qualified Codec.Compression.Zlib   as Zlib
 import qualified Codec.Compression.Zlib.Raw as ZlibRaw
+import qualified Codec.Compression.Zstd as Zstd
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -187,6 +188,21 @@ instance Compress Deflate where
   compressBytes bs =
     evaluate (BSL.toStrict (Zlib.compress (BSL.fromStrict bs)))
 
+-- | Zstandard (@zstd@), via the @zstd@ Haskell binding to libzstd.
+data Zstd
+
+instance HasContentEncoding Zstd where
+  contentEncoding = Hermes.ZStd
+
+instance Decompress Zstd where
+  decompressBytes bs = case Zstd.decompress bs of
+    Zstd.Decompress out -> evaluate out
+    Zstd.Skip           -> pure BS.empty
+    Zstd.Error msg      -> throwIO (userError ("zstd decompress: " <> msg))
+
+instance Compress Zstd where
+  compressBytes bs = evaluate (Zstd.compress 3 bs)
+
 -- ---------------------------------------------------------------------------
 -- Type-erased handlers
 -- ---------------------------------------------------------------------------
@@ -228,17 +244,12 @@ asCompressor = EncodingHandler
   , ehRun    = compressBytes @tag
   }
 
--- | The default decompressor set, in preference order:
---
--- * 'Zstd' — strong compression with cheap decompression, supported
---   by every recent client and server stack worth caring about.
--- * 'Brotli' — smallest payloads on the modern web.
--- * 'Gzip' — universally supported.
--- * 'Deflate' — legacy.
+-- | The default decompressor set, in preference order. Brotli first
+-- (smallest payloads on the modern web), then gzip (most compatible),
+-- then deflate (legacy).
 defaultDecompressors :: [EncodingHandler]
 defaultDecompressors =
-  [ asDecompressor @Zstd
-  , asDecompressor @Brotli
+  [ asDecompressor @Brotli
   , asDecompressor @Gzip
   , asDecompressor @Deflate
   ]

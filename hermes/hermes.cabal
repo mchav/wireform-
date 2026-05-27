@@ -34,6 +34,7 @@ library
       Network.HTTP.ContentNegotiation
       Network.HTTP.Headers
       Network.HTTP.Headers.Accept
+      Network.HTTP.Headers.AcceptCharset
       Network.HTTP.Headers.AcceptEncoding
       Network.HTTP.Headers.AcceptLanguage
       Network.HTTP.Headers.Age

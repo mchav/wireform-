@@ -74,6 +74,7 @@ import qualified OpenTelemetry.Propagator as Prop
 import qualified OpenTelemetry.Trace.Core as Trace
 
 import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Protocol (ProtocolInfo (..))
 import qualified Network.HTTP.Client.Request as Req
 import Network.HTTP.Client.Response (RawResponse (..))
 import Network.HTTP.Client.Response
@@ -249,27 +250,13 @@ addResponseAttributes
   -> RawResponse
   -> IO ()
 addResponseAttributes opts span_ raw = do
-  let codeInt = fromIntegral (WS.statusCode (statusCode raw)) :: Int
-      statusAttr =
+  let statusAttr =
         ( "http.response.status_code"
-        , Trace.toAttribute codeInt
+        , Trace.toAttribute (fromIntegral (WS.statusCode (statusCode raw)) :: Int)
         )
-      protoAttr =
-        let v = case protocolInfo raw of
-              HTTP1_1   -> "1.1" :: Text
-              HTTP2 _   -> "2"
-              HTTP3 _   -> "3"
-        in [("network.protocol.version", Trace.toAttribute v)]
-      -- Per OTel semconv: 4xx and 5xx populate `error.type` with
-      -- the status code so error-rate dashboards can group cleanly.
-      errAttr
-        | codeInt >= 400 =
-            [("error.type", Trace.toAttribute (T.pack (show codeInt)))]
-        | otherwise = []
       hdrs = captureHeaders (responseHeaderAllowlist opts) "http.response.header"
                             (Network.HTTP.Client.Response.headers raw)
-  Trace.addAttributes span_
-    (HashMap.fromList (statusAttr : protoAttr <> errAttr <> hdrs))
+  Trace.addAttributes span_ (HashMap.fromList (statusAttr : hdrs))
 
 -- ---------------------------------------------------------------------------
 -- Header capture (semconv-compliant)

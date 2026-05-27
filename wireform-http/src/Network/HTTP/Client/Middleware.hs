@@ -45,6 +45,13 @@ module Network.HTTP.Client.Middleware
   , defaultRetryPolicy
   , exponentialBackoff
   , withRetry
+    -- * Circuit breaker
+  , CircuitBreaker
+  , CircuitBreakerConfig (..)
+  , defaultCircuitBreakerConfig
+  , newCircuitBreaker
+  , withCircuitBreaker
+  , CircuitBreakerOpen (..)
     -- * URI rewriting
   , withBaseURL
     -- * Rate limiting
@@ -81,7 +88,9 @@ import qualified System.Timeout
 import qualified UnliftIO.Exception as U
 
 import qualified Network.HTTP.Types.Header as H
+import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
+import qualified Network.HTTP.HttpDate as HttpDate
 
 import Network.HTTP.Client.BodyStream
 import Network.HTTP.Client.Request
@@ -172,6 +181,18 @@ data RetryPolicy = RetryPolicy
   , maxDelay      :: !Duration
   , backoffFactor :: !Double
   , retryOn       :: !(S.Status -> Bool)
+  , retrySafeMethodsOnly :: !Bool
+    -- ^ When 'True', retry only requests whose method is idempotent
+    --   per RFC 9110 §9.2.2 (GET, HEAD, OPTIONS, TRACE, PUT, DELETE
+    --   — POST and PATCH are excluded). 'True' by default. Set to
+    --   'False' for systems whose POSTs are explicitly opted into
+    --   replay safety (e.g. server-side @Idempotency-Key@).
+  , honorRetryAfter :: !Bool
+    -- ^ Honor the response's @Retry-After@ header (RFC 9110 §10.2.3)
+    --   on 429 / 503. The header may be either delta-seconds or an
+    --   HTTP-date; both are parsed. The reported delay is clamped
+    --   to 'maxDelay' so a malicious or buggy server can't pin a
+    --   client for hours. 'True' by default.
   }
 
 defaultRetryPolicy :: RetryPolicy
@@ -180,7 +201,10 @@ defaultRetryPolicy = RetryPolicy
   , initialDelay  = millis 100
   , maxDelay      = seconds 5
   , backoffFactor = 2.0
-  , retryOn       = \s -> let c = S.statusCode s in c >= 500 && c < 600
+  , retryOn       =
+      \s -> let c = S.statusCode s in c == 429 || (c >= 500 && c < 600)
+  , retrySafeMethodsOnly = True
+  , honorRetryAfter = True
   }
 
 exponentialBackoff :: Int -> RetryPolicy
@@ -193,13 +217,26 @@ exponentialBackoff n = defaultRetryPolicy { maxAttempts = n }
 withRetry :: RetryPolicy -> Middleware IO
 withRetry policy inner = Transport $ \req -> do
   buffered <- bodyStreamBytes (body req)
-  let attempt n delay = do
+  let methodIsSafe = M.isIdempotent (method req)
+      attempt n delay = do
         bs <- streamFromStrict buffered
         let attemptReq = req { Network.HTTP.Client.Request.body = bs }
         raw <- sendRaw inner attemptReq
-        if retryOn policy (statusCode raw) && n < maxAttempts policy
+        let shouldRetry = retryOn policy (statusCode raw)
+                           && n < maxAttempts policy
+                           && (not (retrySafeMethodsOnly policy) || methodIsSafe)
+        if shouldRetry
           then do
-            threadDelay (toMicros delay)
+            now <- getCurrentTime
+            let raDelay = if honorRetryAfter policy
+                            then retryAfterDelay now (Network.HTTP.Client.Response.headers raw)
+                            else Nothing
+                effective = case raDelay of
+                  Nothing -> delay
+                  Just d  -> Duration (max (toMicros delay)
+                                            (min (toMicros d)
+                                                 (toMicros (maxDelay policy))))
+            threadDelay (toMicros effective)
             let next = scaleDuration delay (backoffFactor policy)
                                             (maxDelay policy)
             -- Flush the body of this failed attempt so the
@@ -210,10 +247,132 @@ withRetry policy inner = Transport $ \req -> do
           else pure raw
   attempt 1 (initialDelay policy)
 
+-- | Parse the response's @Retry-After@ header (RFC 9110 §10.2.3),
+-- which may be either delta-seconds or an HTTP-date. Returns the
+-- server-requested delay relative to @now@, or 'Nothing' if the
+-- header is absent or malformed.
+retryAfterDelay :: UTCTime -> H.Headers -> Maybe Duration
+retryAfterDelay now hdrs = do
+  raw <- H.lookupHeader H.hRetryAfter hdrs
+  let trimmed = BS.dropWhile isWS (BS.dropWhileEnd isWS raw)
+  if BS.null trimmed
+    then Nothing
+    else
+      -- delta-seconds first; fall back to HTTP-date.
+      case parseInt trimmed of
+        Just n | n >= 0 -> Just (seconds n)
+        _ -> case HttpDate.parseHttpDateMaybe trimmed of
+          Just t ->
+            let diff = realToFrac (diffUTCTime t now) :: Double
+                us   = max 0 (round (diff * 1_000_000) :: Int)
+            in Just (Duration us)
+          Nothing -> Nothing
+  where
+    isWS w = w == 0x20 || w == 0x09
+    parseInt b = case TE.decodeUtf8' b of
+      Right t -> case T.signed T.decimal t of
+        Right (n, rest) | T.null rest -> Just (n :: Int)
+        _ -> Nothing
+      Left _ -> Nothing
+
 scaleDuration :: Duration -> Double -> Duration -> Duration
 scaleDuration (Duration us) factor (Duration cap) =
   let scaled = round (fromIntegral us * factor :: Double)
   in Duration (min scaled cap)
+
+-- ---------------------------------------------------------------------------
+-- Circuit breaker
+-- ---------------------------------------------------------------------------
+
+-- | A simple closed/open/half-open circuit breaker. The closed
+-- state lets every request through; once @cbFailureThreshold@
+-- consecutive failures accumulate, the breaker opens and rejects
+-- further calls with 'CircuitBreakerOpen' until @cbResetAfter@
+-- seconds have elapsed, at which point it goes half-open and lets
+-- one trial request through. A successful trial closes the breaker
+-- again; a failure re-opens it.
+data CircuitBreaker = CircuitBreaker
+  { cbState  :: !(MVar CircuitState)
+  , cbConfig :: !CircuitBreakerConfig
+  }
+
+data CircuitBreakerConfig = CircuitBreakerConfig
+  { cbFailureThreshold :: !Int
+    -- ^ Consecutive failures that flip the breaker open. Default 5.
+  , cbResetAfter       :: !NominalDiffTime
+    -- ^ Time the breaker stays open before going half-open and
+    --   admitting a trial request. Default 30 seconds.
+  , cbFailureOn        :: !(S.Status -> Bool)
+    -- ^ Status predicate that counts as a failure for breaker
+    --   accounting. Default: 5xx.
+  }
+
+defaultCircuitBreakerConfig :: CircuitBreakerConfig
+defaultCircuitBreakerConfig = CircuitBreakerConfig
+  { cbFailureThreshold = 5
+  , cbResetAfter       = 30
+  , cbFailureOn        = S.statusIsServerError
+  }
+
+data CircuitState
+  = CircuitClosed     !Int          -- ^ consecutive failure count
+  | CircuitOpen       !UTCTime      -- ^ open until this point in time
+  | CircuitHalfOpen
+
+-- | Thrown by 'withCircuitBreaker' when the breaker is open. Wraps
+-- the time at which it'll go half-open so callers can surface a
+-- useful retry hint.
+data CircuitBreakerOpen = CircuitBreakerOpen { cboOpenUntil :: !UTCTime }
+  deriving stock (Show)
+
+instance Exception CircuitBreakerOpen
+
+newCircuitBreaker :: CircuitBreakerConfig -> IO CircuitBreaker
+newCircuitBreaker cfg = do
+  m <- newMVar (CircuitClosed 0)
+  pure CircuitBreaker { cbState = m, cbConfig = cfg }
+
+-- | Wrap a transport in a circuit breaker. Failures (per
+-- 'cbFailureOn') and IO exceptions count toward the threshold; a
+-- successful response in either the closed or half-open state
+-- resets the failure counter.
+withCircuitBreaker :: CircuitBreaker -> Middleware IO
+withCircuitBreaker cb inner = Transport $ \req -> do
+  admit <- modifyMVar (cbState cb) $ \st -> do
+    now <- getCurrentTime
+    case st of
+      CircuitClosed _ -> pure (st, Right ())
+      CircuitOpen until_
+        | now >= until_ -> pure (CircuitHalfOpen, Right ())
+        | otherwise     -> pure (st, Left until_)
+      CircuitHalfOpen   -> pure (st, Right ())
+  case admit of
+    Left until_ -> throwIO (CircuitBreakerOpen until_)
+    Right () ->
+      U.try (sendRaw inner req) >>= \case
+        Left (e :: SomeException) -> do
+          recordFailure
+          U.throwIO e
+        Right raw -> do
+          if cbFailureOn (cbConfig cb) (statusCode raw)
+            then recordFailure
+            else recordSuccess
+          pure raw
+  where
+    recordSuccess =
+      modifyMVar_ (cbState cb) $ \_ -> pure (CircuitClosed 0)
+    recordFailure =
+      modifyMVar_ (cbState cb) $ \st -> do
+        now <- getCurrentTime
+        let cfg     = cbConfig cb
+            openAt  = addUTCTime (cbResetAfter cfg) now
+            tripped = CircuitOpen openAt
+        case st of
+          CircuitClosed n
+            | n + 1 >= cbFailureThreshold cfg -> pure tripped
+            | otherwise                       -> pure (CircuitClosed (n + 1))
+          CircuitHalfOpen -> pure tripped
+          CircuitOpen{}   -> pure st
 
 -- ---------------------------------------------------------------------------
 -- URI rewriting / base URL

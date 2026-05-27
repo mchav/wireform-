@@ -65,15 +65,6 @@ module Network.HTTP.Client
   , module Network.HTTP.Client.Base
   , module Network.HTTP.Client.Pool
   , module Network.HTTP.Client.Streaming
-  , TLSBackend (..)
-  , TLSConnection
-  , defaultTLSBackend
-  , noTLSBackend
-  , TLSSettings (TLSSettings, alpnProtocols, certificateVerify, clientCertificate)
-  , defaultTLSSettings
-  , CertVerifyMode (..)
-  , ClientCert (..)
-  , TLSVersionRange (..)
     -- * Protocol metadata
   , module Network.HTTP.Client.Protocol
     -- * Tracing (OpenTelemetry)

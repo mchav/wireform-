@@ -90,6 +90,8 @@ module Network.HTTP.Types.Header
   , hIfRange
   , hVary
   , hCacheControl
+  , hAge
+  , hRetryAfter
   , hVia
   , hForwarded
   ) where
@@ -195,7 +197,7 @@ hHost, hContentLength, hContentType, hContentEncoding, hContentLanguage,
   hProxyAuthorization, hCookie, hSetCookie, hTE, hTrailer, hAllow,
   hDate, hLastModified, hExpires, hETag, hIfMatch, hIfNoneMatch,
   hIfModifiedSince, hIfUnmodifiedSince, hIfRange, hVary, hCacheControl,
-  hVia, hForwarded
+  hVia, hForwarded, hAge, hRetryAfter
   :: HeaderName
 hHost                = mk "Host"
 hContentLength       = mk "Content-Length"
@@ -238,5 +240,7 @@ hIfUnmodifiedSince   = mk "If-Unmodified-Since"
 hIfRange             = mk "If-Range"
 hVary                = mk "Vary"
 hCacheControl        = mk "Cache-Control"
+hAge                 = mk "Age"
+hRetryAfter          = mk "Retry-After"
 hVia                 = mk "Via"
 hForwarded           = mk "Forwarded"

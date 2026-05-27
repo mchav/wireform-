@@ -50,6 +50,7 @@ module Wireform.Network.TLS.OpenSSL
   , SslConn
   , sslConnSocket
   , newClient
+  , newClientVerified
   , newServer
   , setClientHostnameVerify
   , freeConn
@@ -412,6 +413,42 @@ newClient (SslCtx ctx) sock mHost = do
           BSU.unsafeUseAsCString (h `BS.snoc` 0) $ \cstr -> do
             _ <- c_ssl_set_sni ssl cstr
             pure ()
+        Nothing -> pure ()
+      retryHandshake sock c_ssl_connect ssl `catchAndFree` ssl
+      pure (SslConn ssl sock)
+
+-- | Like 'newClient' but additionally pins the server's certificate
+-- CN \/ SAN to the supplied hostname, applied /before/ the
+-- handshake.  That is the only point at which OpenSSL’s
+-- @SSL_set1_host@ \/ @X509_VERIFY_PARAM_set1_host@ takes effect;
+-- calling 'setClientHostnameVerify' /after/ 'newClient' returned
+-- would be after @SSL_connect@ and so a no-op.
+newClientVerified
+  :: SslCtx
+  -> Socket
+  -> Maybe BS.ByteString  -- ^ SNI hostname
+  -> Maybe BS.ByteString  -- ^ certificate verify hostname
+  -> IO SslConn
+newClientVerified (SslCtx ctx) sock mHost mVerifyHost = do
+  ssl <- withFdSocket sock $ \fd -> c_ssl_new_for_fd ctx (fromIntegral fd)
+  if ssl == nullPtr
+    then throwSsl "newClientVerified: SSL_new"
+    else do
+      case mHost of
+        Just h ->
+          BSU.unsafeUseAsCString (h `BS.snoc` 0) $ \cstr -> do
+            _ <- c_ssl_set_sni ssl cstr
+            pure ()
+        Nothing -> pure ()
+      case mVerifyHost of
+        Just vh ->
+          BSU.unsafeUseAsCString (vh `BS.snoc` 0) $ \cstr -> do
+            rc <- c_ssl_set_verify_hostname ssl cstr
+            if rc /= 0
+              then do
+                _ <- c_ssl_free ssl
+                throwSsl "newClientVerified: set_verify_hostname"
+              else pure ()
         Nothing -> pure ()
       retryHandshake sock c_ssl_connect ssl `catchAndFree` ssl
       pure (SslConn ssl sock)

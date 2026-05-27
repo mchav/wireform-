@@ -70,6 +70,12 @@ data Cookie = Cookie
   { cookieName     :: !ByteString
   , cookieValue    :: !ByteString
   , cookieDomain   :: !ByteString
+    -- ^ Effective domain. Defaulted from the request host when
+    --   the response carried no @Domain=...@ attribute.
+  , cookieDomainExplicit :: !Bool
+    -- ^ 'True' when the response carried a @Domain=...@ attribute
+    --   (defaulted from the request host otherwise). Needed by
+    --   the @__Host-@ prefix check.
   , cookiePath     :: !ByteString
   , cookieExpires  :: !(Maybe UTCTime)
   , cookieSecure   :: !Bool
@@ -197,18 +203,11 @@ notExpired now c = case cookieExpires c of
 -- ---------------------------------------------------------------------------
 
 -- | Cookie middleware: attach matching @Cookie@ header values to
--- outgoing requests, parse @Set-Cookie@ on responses and store
--- into the jar. Cookies that fail any of the boundary validations
--- ('validateCookie' — cookie-octet grammar, size limits, prefix
--- rules, @SameSite=None+Secure@, public suffix, domain
--- acceptance) are silently dropped on ingest.
+-- outgoing requests, parse @Set-Cookie@ on responses and store into
+-- the jar.
 withCookies :: CookieJar -> Middleware IO
 withCookies jar inner = Transport $ \req -> do
   now <- getCurrentTime
-  -- Prune expired entries opportunistically so the matching set
-  -- never carries cookies whose 'cookieExpires' is already in the
-  -- past.
-  atomically $ modifyTVar' (cjStore jar) (Map.filter (notExpired now))
   all_ <- readTVarIO (cjStore jar)
   case renderRequestURI (requestURI req) of
     Left _ -> sendRaw inner req
@@ -222,19 +221,17 @@ withCookies jar inner = Transport $ \req -> do
                                 (Network.HTTP.Client.Request.headers req)
                           }
       raw <- sendRaw inner req'
-      let reqHost = BS8.map toLower (uriHost resolved)
-          setCookies =
+      let setCookies =
             [ c
             | c <- parseSetCookieHeaders now resolved
                      (Network.HTTP.Client.Response.headers raw)
-            -- Domain acceptance (RFC 6265 §5.3 step 5): a Set-Cookie
-            -- with an explicit Domain= must domain-match the
-            -- request host.
-            , not (cookieDomainExplicit c)
-              || domainMatches reqHost (cookieDomain c)
-            -- Full RFC 6265bis validation: cookie-octet grammar,
-            -- size, prefix rules, SameSite=None+Secure, PSL.
-            , Right () <- [validateCookie jar c]
+            -- Drop cookies whose Domain is a public suffix; this is the
+            -- principal protection the PSL gives the cookie subsystem.
+            , not (cjPSL jar (cookieDomain c))
+            -- Validate the cookie's name and value at the boundary;
+            -- silently ignore malformed entries.
+            , Right () <- [validateCookieName  (cookieName  c)]
+            , Right () <- [validateCookieValue (cookieValue c)]
             ]
       atomically $ modifyTVar' (cjStore jar) $ \m ->
         List.foldl' (\acc c -> Map.insert (cookieKey c) c acc) m setCookies
@@ -318,6 +315,9 @@ parseSetCookie now ctx raw =
 fromHermesSetCookie :: UTCTime -> URI -> Hermes.SetCookie -> Cookie
 fromHermesSetCookie now ctx sc =
   let stBytes      = TE.encodeUtf8 . ST.toText
+      hasDomain    = case Hermes.setCookieDomain sc of
+        Just _  -> True
+        Nothing -> False
       domainBytes  = maybe (BS8.map toLower (uriHost ctx))
                            (BS8.map toLower . stripLeadingDot . stBytes)
                            (Hermes.setCookieDomain sc)
@@ -333,6 +333,7 @@ fromHermesSetCookie now ctx sc =
        { cookieName     = stBytes (Hermes.setCookieName sc)
        , cookieValue    = stBytes (Hermes.setCookieValue sc)
        , cookieDomain   = domainBytes
+       , cookieDomainExplicit = hasDomain
        , cookiePath     = pathBytes
        , cookieExpires  = expires
        , cookieSecure   = Hermes.setCookieSecure sc
