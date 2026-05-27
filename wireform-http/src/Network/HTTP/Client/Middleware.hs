@@ -52,6 +52,9 @@ module Network.HTTP.Client.Middleware
   , newCircuitBreaker
   , withCircuitBreaker
   , CircuitBreakerOpen (..)
+    -- * Header validation
+  , withHeaderValidation
+  , HeaderValidationFailed (..)
     -- * URI rewriting
   , withBaseURL
     -- * Rate limiting
@@ -91,6 +94,8 @@ import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.HttpDate as HttpDate
+import qualified Network.HTTP.Internal.Validation as V
+import qualified Data.CaseInsensitive as CI
 
 import Network.HTTP.Client.BodyStream
 import Network.HTTP.Client.Request
@@ -373,6 +378,52 @@ withCircuitBreaker cb inner = Transport $ \req -> do
             | otherwise                       -> pure (CircuitClosed (n + 1))
           CircuitHalfOpen -> pure tripped
           CircuitOpen{}   -> pure st
+
+-- ---------------------------------------------------------------------------
+-- Header validation
+-- ---------------------------------------------------------------------------
+
+-- | Thrown by 'withHeaderValidation' when an outgoing request
+-- carries a header that doesn't satisfy the RFC 9110 field-name
+-- (token) or field-value (no CR \/ LF \/ NUL) grammar. Carries
+-- the offending name + value so the caller can route the
+-- exception sensibly (and decide whether to retry, error out, or
+-- log).
+data HeaderValidationFailed = HeaderValidationFailed
+  { hvName  :: !H.HeaderName
+  , hvValue :: !H.HeaderValue
+  , hvKind  :: !V.HeaderError
+  }
+  deriving stock (Show)
+
+instance Exception HeaderValidationFailed
+
+-- | Middleware that asserts the RFC 9110 grammar on every
+-- outgoing request header.  The fast-path header constructors
+-- ('insertHeader', 'addHeader', etc.) intentionally skip
+-- validation because the cost is hot-path-sensitive and the
+-- shipped middleware uses only constants that are valid by
+-- construction.  When external input might land in the header
+-- list (URL-derived names, user-provided headers, …), compose
+-- 'withHeaderValidation' near the outermost edge of your stack
+-- so any malformed entry fails fast with
+-- 'HeaderValidationFailed' instead of going to the wire.
+withHeaderValidation :: Middleware IO
+withHeaderValidation inner = Transport $ \req -> do
+  let hs = Network.HTTP.Client.Request.headers req
+  mapM_ check hs
+  sendRaw inner req
+  where
+    check (name, value) = do
+      let nameBytes = CI.original name
+      case V.validateHeaderName nameBytes of
+        Left err -> throwIO HeaderValidationFailed
+          { hvName = name, hvValue = value, hvKind = err }
+        Right _  -> pure ()
+      case V.validateHeaderValue value of
+        Left err -> throwIO HeaderValidationFailed
+          { hvName = name, hvValue = value, hvKind = err }
+        Right _  -> pure ()
 
 -- ---------------------------------------------------------------------------
 -- URI rewriting / base URL
