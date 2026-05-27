@@ -37,6 +37,7 @@ library
       Network.HTTP.Headers.AcceptCharset
       Network.HTTP.Headers.AcceptEncoding
       Network.HTTP.Headers.AcceptLanguage
+      Network.HTTP.Headers.AcceptRanges
       Network.HTTP.Headers.Age
       Network.HTTP.Headers.Allow
       Network.HTTP.Headers.Authorization
@@ -46,6 +47,7 @@ library
       Network.HTTP.Headers.ContentDisposition
       Network.HTTP.Headers.ContentEncoding
       Network.HTTP.Headers.ContentLength
+      Network.HTTP.Headers.ContentRange
       Network.HTTP.Headers.ContentType
       Network.HTTP.Headers.Cookie
       Network.HTTP.Headers.Date
@@ -62,6 +64,7 @@ library
       Network.HTTP.Headers.LastModified
       Network.HTTP.Headers.Location
       Network.HTTP.Headers.Origin
+      Network.HTTP.Headers.Range
       Network.HTTP.Headers.Parsing.Util
       Network.HTTP.Headers.PingFrom
       Network.HTTP.Headers.PingTo
