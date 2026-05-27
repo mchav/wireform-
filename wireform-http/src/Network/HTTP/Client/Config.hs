@@ -17,11 +17,9 @@ module Network.HTTP.Client.Config
   , withClient
   ) where
 
-import Control.Exception (bracket_)
+import Control.Exception (bracket)
 
 import qualified Network.HTTP.VersionRange as VR
-
-import Control.Exception (bracket)
 
 import Network.HTTP.Client.Base
 import Network.HTTP.Client.Compression (withDecompression)
@@ -29,7 +27,6 @@ import Network.HTTP.Client.Cookies (CookieJar, withCookies)
 import Network.HTTP.Client.Middleware
 import Network.HTTP.Client.Pool (ConnectionPool, PoolConfig, newPool, closePool, pooledTransport)
 import qualified Network.HTTP.Client.Pool as Pool
-import Network.HTTP.Client.TLS (TLSBackend, defaultTLSBackend)
 import Network.HTTP.Client.Tracing (TracingConfig (..), defaultTracingConfig, withTracing)
 import Network.HTTP.Client.Transport
 
@@ -54,11 +51,6 @@ data ClientConfig = ClientConfig
     --   the duration of the action and routes the base transport
     --   through it. Defaults to a sensible 'PoolConfig'; pass
     --   'Nothing' to bypass pooling entirely.
-  , ccTlsBackend   :: !TLSBackend
-    -- ^ Selects the TLS implementation for HTTPS connections.
-    --   Defaults to 'defaultTLSBackend'; swap for e.g.
-    --   @opensslBackend@ (from @wireform-http-openssl@) without
-    --   changing application code.
   , ccExtra        :: !([Transport IO -> Transport IO])
     -- ^ Escape hatch for additional middleware to wrap the stack with.
     -- Applied outermost-first, after the standard set below.
@@ -75,7 +67,6 @@ defaultClientConfig = ClientConfig
   , ccTracing      = defaultTracingConfig
   , ccDecompress   = True
   , ccPoolConfig   = Just Pool.defaultPoolConfig
-  , ccTlsBackend   = defaultTLSBackend
   , ccExtra        = []
   }
 

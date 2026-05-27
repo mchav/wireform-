@@ -104,7 +104,6 @@ import Network.HTTP.Client.Response
 import Network.HTTP.Client.Send
 import Network.HTTP.Client.SSE
 import Network.HTTP.Client.Streaming
-import Network.HTTP.Client.TLS
 import Network.HTTP.Client.Test
 import Network.HTTP.Client.Tracing
 import Network.HTTP.Client.Transport
