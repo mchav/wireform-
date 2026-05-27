@@ -67,6 +67,7 @@ library
     Network.HTTP.Client.Base
     Network.HTTP.Client.Body
     Network.HTTP.Client.BodyStream
+    Network.HTTP.Client.Cache
     Network.HTTP.Client.Compression
     Network.HTTP.Client.Conditional
     Network.HTTP.Client.Config
