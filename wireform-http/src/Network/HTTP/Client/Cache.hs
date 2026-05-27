@@ -25,6 +25,29 @@ for the per-client use case. @Vary@-keyed secondary cache keys
 are also not implemented yet — multi-variant responses fall
 through to a single cache slot. Both are tracked as follow-ups.
 
+== Pluggable storage
+
+The cache decouples its decision logic (what's cacheable, when to
+revalidate, how to apply Cache-Control) from its persistence
+('CacheStore'). 'CacheStore' is a record-of-functions over
+'CacheKey' and 'CacheEntry':
+
+@
+data 'CacheStore' = 'CacheStore'
+  { 'csLookup' :: 'CacheKey' -> IO (Maybe 'CacheEntry')
+  , 'csInsert' :: 'CacheKey' -> 'CacheEntry' -> IO ()
+  , 'csDelete' :: 'CacheKey' -> IO ()
+  , 'csClear'  :: IO ()
+  , 'csSize'   :: IO Int
+  }
+@
+
+The shipped 'newInMemoryStore' is a 'TVar'-backed 'HashMap' with
+soft entry-count eviction. Custom backends (Redis, on-disk,
+SQLite, …) just supply their own 'CacheStore'. Use
+'newCacheWith' to plug one in; 'newCache' is the convenience
+wrapper that allocates the in-memory store.
+
 == Usage
 
 @
@@ -50,7 +73,14 @@ module Network.HTTP.Client.Cache
   , CacheConfig (..)
   , defaultCacheConfig
   , newCache
+  , newCacheWith
   , clearCache
+    -- * Storage backend
+  , CacheStore (..)
+  , newInMemoryStore
+    -- * Cache primitives (for custom stores)
+  , CacheKey (..)
+  , CacheEntry (..)
     -- * Middleware
   , withCache
     -- * Inspection
@@ -66,7 +96,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.Hashable (Hashable, hashWithSalt)
 import qualified Data.List.NonEmpty as NE
 import Data.Time.Clock
-  ( NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime
+  ( NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime
   )
 
 import qualified Network.HTTP.Headers.CacheControl as HCC
@@ -90,8 +120,9 @@ import qualified Network.HTTP.Client.URI        as WURI
 
 data CacheConfig = CacheConfig
   { ccMaxEntries :: !Int
-    -- ^ Soft cap on the number of stored entries. When exceeded,
-    --   the oldest entries are evicted on the next insert. Default
+    -- ^ Soft cap on the number of stored entries, honoured by
+    --   'newInMemoryStore'. Custom 'CacheStore' backends decide
+    --   their own eviction policy and may ignore this. Default
     --   1024.
   , ccMaxBodyBytes :: !Int
     -- ^ Maximum size of a response body the cache will store, in
@@ -107,9 +138,11 @@ defaultCacheConfig = CacheConfig
   }
 
 -- ---------------------------------------------------------------------------
--- Storage
+-- Primitives (exposed so custom CacheStores can serialise them)
 -- ---------------------------------------------------------------------------
 
+-- | The cache key. Currently the primary key only — no
+-- 'Vary'-derived secondary keys yet (RFC 9111 §4.1 second-step).
 data CacheKey = CacheKey
   { ckScheme :: !WURI.Scheme
   , ckHost   :: !ByteString
@@ -117,7 +150,7 @@ data CacheKey = CacheKey
   , ckMethod :: !M.Method
   , ckPath   :: !ByteString
   }
-  deriving stock (Eq)
+  deriving stock (Eq, Show)
 
 instance Hashable CacheKey where
   hashWithSalt s k =
@@ -148,21 +181,92 @@ data CacheEntry = CacheEntry
   }
   deriving stock (Show)
 
+-- ---------------------------------------------------------------------------
+-- Pluggable storage backend
+-- ---------------------------------------------------------------------------
+
+-- | A record-of-functions abstraction over the cache's
+-- persistence layer.  Bundled implementations:
+--
+-- * 'newInMemoryStore' — 'TVar' + 'Data.HashMap.Strict.HashMap'
+--   with a soft entry-count cap.
+--
+-- Custom backends (Redis, disk, SQLite, …) implement their own
+-- 'CacheStore' and pass it to 'newCacheWith'. The 'IO' actions
+-- must be safe to call concurrently from multiple threads —
+-- this module makes no internal locking attempt.
+data CacheStore = CacheStore
+  { csLookup :: !(CacheKey -> IO (Maybe CacheEntry))
+    -- ^ Return the entry for @key@, or 'Nothing' if absent.
+  , csInsert :: !(CacheKey -> CacheEntry -> IO ())
+    -- ^ Store the entry, replacing any existing one for @key@.
+    --   The store is responsible for any eviction needed to
+    --   stay within its configured limits.
+  , csDelete :: !(CacheKey -> IO ())
+    -- ^ Remove @key@ if present. No-op when absent.
+  , csClear  :: !(IO ())
+    -- ^ Drop all stored entries.
+  , csSize   :: !(IO Int)
+    -- ^ Current entry count. Used by 'cacheSize' for
+    --   diagnostics; cheap if possible but not required to be
+    --   constant-time.
+  }
+
+-- | Allocate the bundled 'TVar' \/ 'HashMap' store with a soft
+-- cap on the entry count. When the cap is exceeded, the
+-- 'csInsert' implementation drops enough entries to bring it
+-- back to the limit; the dropped set is unspecified (effectively
+-- 'HashMap' iteration order), which is acceptable for a
+-- best-effort fast-path cache.
+newInMemoryStore :: Int -> IO CacheStore
+newInMemoryStore cap = do
+  ref <- newTVarIO HM.empty
+  pure CacheStore
+    { csLookup = \k -> HM.lookup k <$> readTVarIO ref
+    , csInsert = \k v -> atomically $ modifyTVar' ref $ \m ->
+        let m1 = HM.insert k v m
+        in if HM.size m1 > cap
+             -- Drop down to the cap. The eviction is
+             -- HashMap-iteration-order, intentionally
+             -- unspecified — a tighter LRU/LFU policy is the
+             -- next refinement once a workload that needs it
+             -- shows up.
+             then HM.fromList (drop (HM.size m1 - cap) (HM.toList m1))
+             else m1
+    , csDelete = \k -> atomically $ modifyTVar' ref (HM.delete k)
+    , csClear  = atomically $ writeTVar ref HM.empty
+    , csSize   = HM.size <$> readTVarIO ref
+    }
+
+-- ---------------------------------------------------------------------------
+-- Cache
+-- ---------------------------------------------------------------------------
+
 data Cache = Cache
-  { cacheStore  :: !(TVar (HashMap CacheKey CacheEntry))
+  { cacheStore  :: !CacheStore
   , cacheConfig :: !CacheConfig
   }
 
+-- | Allocate a 'Cache' backed by the bundled in-memory store
+-- sized via 'ccMaxEntries'.
 newCache :: CacheConfig -> IO Cache
 newCache cfg = do
-  store <- newTVarIO HM.empty
-  pure Cache { cacheStore = store, cacheConfig = cfg }
+  store <- newInMemoryStore (ccMaxEntries cfg)
+  pure (newCacheWith store cfg)
+
+-- | Build a 'Cache' from a caller-supplied 'CacheStore'. The
+-- 'CacheConfig' still controls cache-level policy
+-- ('ccMaxBodyBytes' bounds the body size accepted on store);
+-- 'ccMaxEntries' is up to the backend to honour (the bundled
+-- 'newInMemoryStore' does, third-party stores may not).
+newCacheWith :: CacheStore -> CacheConfig -> Cache
+newCacheWith store cfg = Cache { cacheStore = store, cacheConfig = cfg }
 
 clearCache :: Cache -> IO ()
-clearCache cache = atomically $ writeTVar (cacheStore cache) HM.empty
+clearCache cache = csClear (cacheStore cache)
 
 cacheSize :: Cache -> IO Int
-cacheSize cache = HM.size <$> readTVarIO (cacheStore cache)
+cacheSize cache = csSize (cacheStore cache)
 
 -- ---------------------------------------------------------------------------
 -- Middleware
@@ -235,7 +339,7 @@ revalidateOrReplace cache inner req key entry = do
       -- 304 carries refreshed validators and Cache-Control).
       let mergedHeaders = mergeHeadersOn304 (ceHeaders entry) (Resp.headers raw)
           freshened     = freshenEntry now entry { ceHeaders = mergedHeaders }
-      storeEntry cache key freshened
+      csInsert (cacheStore cache) key freshened
       -- Drain the 304's (empty) body so the connection can advance.
       BSm.drainPopper (Resp.bodyPopper raw)
       replayHit now freshened
@@ -278,7 +382,7 @@ maybeStoreAndReturn cache key raw now = do
           pure raw { Resp.bodyPopper = newPopper }
         else do
           let entry = buildEntry now raw bodyBs
-          storeEntry cache key entry
+          csInsert (cacheStore cache) key entry
           newPopper <- BSm.popperFromStrict bodyBs
           pure raw { Resp.bodyPopper = newPopper }
 
@@ -292,9 +396,7 @@ lookupEntry
   -> IO (Maybe (CacheKey, CacheEntry))
 lookupEntry cache req = case keyOfRequest req of
   Nothing -> pure Nothing
-  Just k  -> do
-    m <- readTVarIO (cacheStore cache)
-    pure (fmap (k,) (HM.lookup k m))
+  Just k  -> fmap (k,) <$> csLookup (cacheStore cache) k
 
 keyOfRequest :: WReq.Request BSm.BodyStream -> Maybe CacheKey
 keyOfRequest req = case WURI.renderRequestURI (WReq.requestURI req) of
@@ -306,19 +408,6 @@ keyOfRequest req = case WURI.renderRequestURI (WReq.requestURI req) of
     , ckMethod = WReq.method req
     , ckPath   = WURI.uriPathAndQuery u
     }
-
-storeEntry :: Cache -> CacheKey -> CacheEntry -> IO ()
-storeEntry cache key entry = atomically $ do
-  m <- readTVar (cacheStore cache)
-  let cap = ccMaxEntries (cacheConfig cache)
-      m1  = HM.insert key entry m
-      m2 | HM.size m1 > cap =
-            -- Drop ~10% of entries when over cap. The eviction
-            -- order is HashMap order (effectively unspecified);
-            -- that's fine for a soft cap.
-            HM.fromList (drop (HM.size m1 - cap) (HM.toList m1))
-         | otherwise = m1
-  writeTVar (cacheStore cache) m2
 
 buildEntry :: UTCTime -> RawResponse -> ByteString -> CacheEntry
 buildEntry now raw bodyBs =
@@ -352,7 +441,7 @@ buildEntry now raw bodyBs =
 
 freshenEntry :: UTCTime -> CacheEntry -> CacheEntry
 freshenEntry now e =
-  -- 304 means \"these validators are still good\" — bump
+  -- 304 means "these validators are still good" — bump
   -- response time so freshness computations restart now.
   e { ceResponseTime = now, ceRequestTime = now }
 
@@ -447,4 +536,3 @@ mergeHeadersOn304 cached fresh =
   let freshNames = map fst fresh
       kept = filter (\(n, _) -> n `notElem` freshNames) cached
   in kept <> fresh
-

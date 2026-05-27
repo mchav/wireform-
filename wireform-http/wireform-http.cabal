@@ -172,6 +172,7 @@ test-suite wireform-http-test
   main-is: Main.hs
   other-modules:
     Test.AuthChallenge
+    Test.Cache
     Test.Client
     Test.ConcurrencyStress
     Test.Conditional

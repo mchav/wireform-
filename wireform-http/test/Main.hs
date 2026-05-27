@@ -8,6 +8,7 @@ import qualified Test.Http2Integration
 import qualified Test.Http2EdgeCases
 import qualified Test.ConcurrencyStress
 import qualified Test.AuthChallenge
+import qualified Test.Cache
 import qualified Test.Conditional
 import qualified Test.IDN
 import qualified Test.Negotiation
@@ -32,5 +33,6 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.UrlDecode.tests
   , Test.IDN.tests
   , Test.AuthChallenge.tests
+  , Test.Cache.tests
   , Test.Conditional.tests
   ]
