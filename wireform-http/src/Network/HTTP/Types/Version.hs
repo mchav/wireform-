@@ -54,11 +54,24 @@ instance Ord Version where
     other -> other
 
 -- | Build a 'Version' from its @major.minor@ digits. Each component
--- must fit in 4 bits (0..15); larger values are silently truncated.
+-- must fit in 4 bits (0..15); larger values are saturated to 15.
+--
+-- For a non-saturating constructor that signals out-of-range
+-- inputs, see 'mkVersionMaybe'.
 {-# INLINE mkVersion #-}
 mkVersion :: Word8 -> Word8 -> Version
-mkVersion major minor =
-  Version $ ((major .&. 0x0F) `shiftL` 4) .|. (minor .&. 0x0F)
+mkVersion major minor = Version (sat major `shiftL` 4 .|. sat minor)
+  where
+    sat w = if w > 15 then 15 else w
+
+-- | Total constructor: returns 'Nothing' if either component is
+-- larger than 15 (the wire grammar only encodes a single digit).
+{-# INLINE mkVersionMaybe #-}
+mkVersionMaybe :: Word8 -> Word8 -> Maybe Version
+mkVersionMaybe major minor
+  | major <= 15 && minor <= 15 =
+      Just (Version (major `shiftL` 4 .|. minor))
+  | otherwise = Nothing
 
 {-# INLINE versionMajor #-}
 versionMajor :: Version -> Word8

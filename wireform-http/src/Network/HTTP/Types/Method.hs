@@ -125,15 +125,15 @@ isSafe m = m == mGet || m == mHead || m == mOptions || m == mTrace
 isIdempotent :: Method -> Bool
 isIdempotent m = isSafe m || m == mPut || m == mDelete
 
--- | Whether RFC 9110 § 9 says a request body is meaningful for this
--- method. GET / HEAD / DELETE may carry bodies in principle but
--- servers are not required to look at them.
+-- | Whether RFC 9110 §9 forbids sending content for this method.
+-- Only @CONNECT@ (§9.3.6) and @TRACE@ (§9.3.8) are forbidden;
+-- every other method may carry content (subject to server
+-- interpretation, which is a separate concern from the framing
+-- layer's "is it legal to send"). This replaces the older,
+-- narrower predicate that only returned 'True' for
+-- POST\/PUT\/PATCH and a handful of WebDAV methods.
 bodyAllowedInRequest :: Method -> Bool
-bodyAllowedInRequest m =
-  m == mPost
-    || m == mPut
-    || m == mPatch
-    || m `elem` [mPropFind, mPropPatch, mMkCol, mReport, mSearch, mLock]
+bodyAllowedInRequest m = m /= mConnect && m /= mTrace
 
 -- Standard methods --------------------------------------------------------
 

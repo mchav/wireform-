@@ -137,7 +137,13 @@ statusReason (Status n) = case n of
   508 -> "Loop Detected"
   510 -> "Not Extended"
   511 -> "Network Authentication Required"
-  _   -> ""
+  _   -> case statusCategory s of
+    Informational    -> "Informational"
+    Successful       -> "OK"
+    Redirection      -> "Redirection"
+    ClientError      -> "Client Error"
+    ServerError      -> "Server Error"
+    UnknownCategory  -> ""
 
 status100, status101, status102, status103 :: Status
 status100 = Status 100
