@@ -34,8 +34,10 @@ library
       Network.HTTP.ContentNegotiation
       Network.HTTP.Headers
       Network.HTTP.Headers.Accept
+      Network.HTTP.Headers.AcceptCharset
       Network.HTTP.Headers.AcceptEncoding
       Network.HTTP.Headers.AcceptLanguage
+      Network.HTTP.Headers.AcceptRanges
       Network.HTTP.Headers.Age
       Network.HTTP.Headers.Allow
       Network.HTTP.Headers.Authorization
@@ -45,6 +47,7 @@ library
       Network.HTTP.Headers.ContentDisposition
       Network.HTTP.Headers.ContentEncoding
       Network.HTTP.Headers.ContentLength
+      Network.HTTP.Headers.ContentRange
       Network.HTTP.Headers.ContentType
       Network.HTTP.Headers.Cookie
       Network.HTTP.Headers.Date
@@ -61,9 +64,11 @@ library
       Network.HTTP.Headers.LastModified
       Network.HTTP.Headers.Location
       Network.HTTP.Headers.Origin
+      Network.HTTP.Headers.Range
       Network.HTTP.Headers.Parsing.Util
       Network.HTTP.Headers.PingFrom
       Network.HTTP.Headers.PingTo
+      Network.HTTP.Headers.ProxyAuthenticate
       Network.HTTP.Headers.ProxyAuthorization
       Network.HTTP.Headers.Referer
       Network.HTTP.Headers.Rendering.Util
@@ -130,4 +135,38 @@ library
     , validation
     , vector
     , wireform-core
+  default-language: Haskell2010
+
+test-suite hermes-tests
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  other-modules:
+      Test.Hermes.AcceptCharset
+      Test.Hermes.AcceptEncoding
+      Test.Hermes.AcceptRanges
+      Test.Hermes.ContentRange
+      Test.Hermes.ProxyAuthenticate
+      Test.Hermes.Range
+      Test.Hermes.RenderingUtil
+      Test.Hermes.WWWAuthenticate
+  default-extensions:
+      DataKinds
+      DerivingStrategies
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      RankNTypes
+      ScopedTypeVariables
+      TypeApplications
+  ghc-options: -Wall -Wno-unused-imports -Wno-unused-do-bind -threaded -rtsopts "-with-rtsopts=-N"
+  build-depends:
+      base
+    , bytestring
+    , hedgehog          >= 1.0 && < 1.8
+    , hermes
+    , tasty             >= 1.4
+    , tasty-hedgehog    >= 1.0 && < 1.8
+    , tasty-hunit       >= 0.10
+    , text-short
   default-language: Haskell2010

@@ -22,6 +22,7 @@ module Network.HTTP.FramingRules
     -- * Validation
   , FramingError (..)
   , validateResponseFraming
+  , validateResponseFramingStrict
     -- * Middleware
   , withFramingRules
   ) where
@@ -88,35 +89,79 @@ validateResponseFraming
   -> S.Status
   -> H.Headers
   -> Maybe FramingError
-validateResponseFraming _meth _status hdrs
-  | hasCL && hasTE = Just ConflictingFraming
+validateResponseFraming meth status hdrs
+  -- CL + TE handling has to agree with the HTTP\/1.x parser
+  -- (which accepts it and lets TE win when TE is chunked, per
+  -- RFC 9112 §6.3; both layers used to disagree, with the
+  -- middleware throwing while the parser silently re-framed).
+  --
+  -- Behaviour now:
+  --   * If TE ends in @chunked@, we accept CL + TE and the
+  --     popper uses the chunked framing.  Caller can opt into
+  --     RFC-strict rejection via 'validateResponseFramingStrict'.
+  --   * Otherwise (TE present but not finally-chunked, plus
+  --     CL), still treat as 'ConflictingFraming' because the
+  --     parser would also refuse to frame this unambiguously.
+  | hasCL && hasTE && not teEndsChunked = Just ConflictingFraming
   | otherwise = checkContentLengths clValues
+  where
+    _ = (meth, status)  -- reserved for method-specific rules
+    hasCL          = not (null clValues)
+    hasTE          = H.hasHeader H.hTransferEncoding hdrs
+    teValues       = concatMap splitCommas (H.lookupHeaders H.hTransferEncoding hdrs)
+    teEndsChunked  = case reverse teValues of
+      (t : _) -> BS.map asciiToLower t == "chunked"
+      []      -> False
+    clValues = concatMap splitCommas (H.lookupHeaders H.hContentLength hdrs)
+    asciiToLower w
+      | w >= 0x41 && w <= 0x5A = w + 0x20
+      | otherwise              = w
+
+-- | RFC 9112 §6.3 strict reading: any combination of
+-- @Content-Length@ and @Transfer-Encoding@ on a response is a
+-- 'ConflictingFraming' error, period. Use this on the security
+-- boundary in front of caches or intermediaries you don't fully
+-- trust.
+validateResponseFramingStrict
+  :: M.Method
+  -> S.Status
+  -> H.Headers
+  -> Maybe FramingError
+validateResponseFramingStrict _meth _status hdrs
+  | hasCL && hasTE = Just ConflictingFraming
+  | otherwise      = checkContentLengths clValues
   where
     hasCL    = not (null clValues)
     hasTE    = H.hasHeader H.hTransferEncoding hdrs
     clValues = concatMap splitCommas (H.lookupHeaders H.hContentLength hdrs)
-    splitCommas bs =
-      filter (not . BS.null) [ trim t | t <- BS.split 0x2C bs ]
-    trim = BS.dropWhile isWS . BS.dropWhileEnd isWS
+
+splitCommas :: ByteString -> [ByteString]
+splitCommas bs =
+  filter (not . BS.null) [ trim t | t <- BS.split 0x2C bs ]
+  where
+    trim   = BS.dropWhile isWS . BS.dropWhileEnd isWS
     isWS w = w == 0x20 || w == 0x09
 
-    checkContentLengths [] = Nothing
-    checkContentLengths vs = case traverse parseCL vs of
-      Nothing -> Just (InvalidContentLength (firstBad vs))
-      Just (n : ns)
-        | all (== n) ns -> Nothing
-        | otherwise     -> Just (ConflictingContentLengths vs)
-      Just []           -> Nothing
-
+checkContentLengths :: [ByteString] -> Maybe FramingError
+checkContentLengths [] = Nothing
+checkContentLengths vs = case traverse parseCL vs of
+  Nothing -> Just (InvalidContentLength (firstBad vs))
+  Just (n : ns)
+    | all (== n) ns -> Nothing
+    | otherwise     -> Just (ConflictingContentLengths vs)
+  Just []           -> Nothing
+  where
     firstBad []       = BS.empty
-    firstBad (v : vs) = case parseCL v of
-      Just _  -> firstBad vs
+    firstBad (v : vs') = case parseCL v of
+      Just _  -> firstBad vs'
       Nothing -> v
 
     parseCL :: ByteString -> Maybe Integer
-    parseCL v = case BS8.readInteger (trim v) of
+    parseCL v = case BS8.readInteger (trimCL v) of
       Just (n, leftover) | BS.null leftover && n >= 0 -> Just n
       _ -> Nothing
+    trimCL = BS.dropWhile isWS . BS.dropWhileEnd isWS
+    isWS w = w == 0x20 || w == 0x09
 
 -- ---------------------------------------------------------------------------
 -- Middleware

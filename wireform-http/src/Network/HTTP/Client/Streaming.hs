@@ -45,7 +45,9 @@ the two transports back into one.
 {-# LANGUAGE ScopedTypeVariables #-}
 module Network.HTTP.Client.Streaming
   ( streamedTransport
+  , streamedTransportVia
   , streamedTransportWith
+  , streamedTransportWithVia
   , StreamingError (..)
   ) where
 
@@ -71,6 +73,8 @@ import qualified Network.HTTP.Client.Request   as WReq
 import           Network.HTTP.Client.Response
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI       as WURI
+import qualified Network.HTTP.Client.Proxy     as Pxy
+import           Network.HTTP.Client.Proxy     (Proxy, ProxyConfig)
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -91,16 +95,35 @@ instance Exception StreamingError
 streamedTransport :: VR.VersionRange -> Transport IO
 streamedTransport = streamedTransportWith 32
 
+-- | Proxy-aware variant of 'streamedTransport'. See
+-- 'streamedTransportWithVia' for the routing rules.
+streamedTransportVia :: VR.VersionRange -> ProxyConfig -> Transport IO
+streamedTransportVia = streamedTransportWithVia 32
+
 -- | Streaming base transport with explicit chunk-queue capacity. A
 -- small queue applies natural back-pressure to the producer when
 -- the consumer is slow; a large queue smooths over jittery
 -- consumers at the cost of more buffering.
 streamedTransportWith :: Int -> VR.VersionRange -> Transport IO
-streamedTransportWith qcap versionRange = Transport $ \req -> do
+streamedTransportWith qcap versionRange =
+  streamedTransportWithVia qcap versionRange Pxy.noProxyConfig
+
+-- | Proxy-aware variant of 'streamedTransportWith'. Routes HTTPS
+-- targets through @CONNECT@ when an HTTPS proxy is configured;
+-- HTTP targets dial the proxy directly (the absolute-form request
+-- line is the responsibility of the
+-- 'Network.HTTP.Client.Proxy.withProxy' middleware).
+streamedTransportWithVia :: Int -> VR.VersionRange -> ProxyConfig -> Transport IO
+streamedTransportWithVia qcap versionRange pcfg = Transport $ \req -> do
   cfg <- connectionConfigForRequest versionRange req
   uri_ <- case WURI.renderRequestURI (WReq.requestURI req) of
     Right u  -> pure u
     Left err -> throwIO (StreamingInvalidURI err)
+  let mProxy
+        | Pxy.shouldBypass pcfg (WURI.uriHost uri_) = Nothing
+        | otherwise = case WURI.uriScheme uri_ of
+            WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+            WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
   bodyBytes <- bodyStreamBytes (WReq.body req)
   let lowReq = toLowLevelRequest uri_ bodyBytes req
 
@@ -112,7 +135,7 @@ streamedTransportWith qcap versionRange = Transport $ \req -> do
   -- Worker holds the bracketed connection for the lifetime of the
   -- response body. It produces chunks into 'chunks' and blocks on
   -- 'doneVar' until the consumer signals EOF.
-  _wtid <- forkIO $ workerLoop cfg lowReq chunks rawVar doneVar finished
+  _wtid <- forkIO $ workerLoop cfg mProxy lowReq chunks rawVar doneVar finished
   result <- takeMVar rawVar
   case result of
     Left e    -> throwIO e
@@ -124,14 +147,15 @@ streamedTransportWith qcap versionRange = Transport $ \req -> do
 
 workerLoop
   :: Conn.ConnectionConfig
+  -> Maybe Proxy
   -> Msg.Request
   -> TBQueue (Maybe ByteString)
   -> MVar (Either SomeException RawResponse)
   -> MVar ()
   -> IORef Bool
   -> IO ()
-workerLoop cfg lowReq chunks rawVar doneVar finished = do
-  outcome <- try $ Conn.withConnection cfg $ \conn ->
+workerLoop cfg mProxy lowReq chunks rawVar doneVar finished = do
+  outcome <- try $ Conn.withConnectionVia cfg mProxy Nothing $ \conn ->
     Conn.withResponseOn conn lowReq $ \resp -> do
       -- 1. Hand a 'RawResponse' back to the caller. Its popper
       --    drains 'chunks'. We have to deliver the raw response

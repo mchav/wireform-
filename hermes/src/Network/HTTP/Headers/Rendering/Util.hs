@@ -35,18 +35,22 @@ rfc8941Binary bs = M.char7 ':' <> M.byteString (convertToBase Base64 bs)
 {-# INLINE rfc8941Binary #-}
 
 rfc8941String :: RFC8941String -> M.Builder
-rfc8941String (RFC8941String t) = M.char7 '"' <> shortText t <> M.char7 '"'
+rfc8941String (RFC8941String t) =
+  M.char7 '"' <> escapedChars <> M.char7 '"'
   where
-    -- NOTE: Upstream hermes computes 'escapedChars' here and then
-    -- discards it. We keep the body byte-identical (no escaping)
-    -- to preserve behaviour during the builder migration; the
-    -- escaping logic is left in place for the next pass that wires
-    -- it in deliberately.
-    _escapedChars :: M.Builder
-    _escapedChars = TS.foldl' (\b c -> case c of
-      '"' -> b <> M.char7 '\\' <> M.char7 '"'
-      '\\' -> b <> M.char7 '\\' <> M.char7 '\\'
-      c' -> b <> M.char7 c') mempty t
+    -- RFC 8941 §4.1.5 and RFC 9110 §5.6.4 both require that
+    -- DQUOTE and backslash inside the body be escaped with a
+    -- leading backslash. The unescaped variant that lived here
+    -- previously round-tripped values like @realm=\"foo\\\"bar\"@
+    -- as @realm=\"foo\"bar\"@, which is a parse error on the wire.
+    escapedChars :: M.Builder
+    escapedChars = TS.foldl'
+      (\b c -> case c of
+         '"'  -> b <> M.char7 '\\' <> M.char7 '"'
+         '\\' -> b <> M.char7 '\\' <> M.char7 '\\'
+         c'   -> b <> M.char7 c')
+      mempty
+      t
 {-# INLINE rfc8941String #-}
 
 rfc8941Token :: RFC8941Token -> M.Builder

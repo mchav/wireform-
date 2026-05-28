@@ -53,7 +53,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Internal as BSI
 import Data.Time.Clock (UTCTime, getCurrentTime)
-import Data.Time.Format (defaultTimeLocale, formatTime)
+import qualified Network.HTTP.Headers.Date as HDate
+import qualified Network.HTTP.Headers.Mason as M
 import qualified Data.Vector.Mutable as MV
 import Data.Word (Word8)
 import Foreign.ForeignPtr (withForeignPtr)
@@ -371,10 +372,15 @@ cachedHttpDate _ = unsafePerformIO $ do
   MV.unsafeRead dateSlots i
 {-# NOINLINE cachedHttpDate #-}
 
--- | IMF-fixdate per RFC 9110 § 5.6.7, e.g.
+-- | IMF-fixdate per RFC 9110 §5.6.7, e.g.
 -- @Sun, 06 Nov 1994 08:49:37 GMT@.
+--
+-- Delegated to hermes's 'HDate.renderDate' so the wire format
+-- is byte-identical to every other date header rendered through
+-- the wireform stack ('Network.HTTP.HttpDate.formatHttpDate' goes
+-- through the same renderer).
 formatHttpDate :: UTCTime -> BS.ByteString
-formatHttpDate t = BSC.pack (formatTime defaultTimeLocale "%a, %d %b %Y %H:%M:%S GMT" t)
+formatHttpDate = M.toStrictByteString . HDate.renderDate
 
 ------------------------------------------------------------------------
 -- Small builders

@@ -376,3 +376,95 @@ constructor to `Wireform.Derive.Modifier.Modifier`:
 Backend-specific payloads that should not pollute the core ADT use
 the `Wireform.Derive.Extension.BackendModifier` typeclass — see
 `XmlFieldOpt`, `HtmlFieldOpt`, and `Asn1Tag` for examples.
+
+## HTTP wire-format libraries (`hermes`)
+
+The `hermes/` package is the **canonical home for HTTP header
+parsing and rendering** in this monorepo. It is vendored from
+`MercuryTechnologies/hermes` and rebranded under the wireform
+umbrella, but it has not been forked in spirit: when the wire
+grammar of an HTTP construct needs to be touched, the change goes
+in `hermes`, not in a downstream `wireform-http*` module.
+
+### What hermes owns
+
+| Concern | Module(s) |
+| --- | --- |
+| Per-header `KnownHeader` instances (parse + render + cardinality) | `Network.HTTP.Headers.{Accept, AcceptEncoding, AcceptLanguage, Age, Allow, Authorization, CacheControl, CacheStatus, Connection, ContentDisposition, ContentEncoding, ContentLength, ContentType, Cookie, Date, ETag, Expires, From, Host, IfMatch, IfModifiedSince, IfNoneMatch, IfUnmodifiedSince, KeepAlive, LastModified, Location, Origin, ProxyAuthorization, Referer, RetryAfter, Server, SetCookie, Settings, Sunset, TransferEncoding, UserAgent, Vary, WWWAuthenticate}` |
+| IANA registries (codings, methods-via-Allow, header-field-name CI strings) | `Network.HTTP.{ContentCoding, ContentNegotiation}`, `Network.HTTP.Headers.HeaderFieldName` |
+| Quality-weighted lists (`q=` parsing, `WeightedMediaRange`, `WeightedLanguage`) | `Network.HTTP.ContentNegotiation`, `Network.HTTP.Headers.AcceptLanguage` |
+| HTTP-date (IMF-fixdate, RFC 850, asctime) | `Network.HTTP.Headers.Date` |
+| Percent-decoding (RFC 3986 + the C fast path) | `Network.HTTP.URL.Decode` (+ `cbits/url_decode.c`) |
+| Builder primitives shared by every header renderer | `Network.HTTP.Headers.Mason`, `Network.HTTP.Headers.Rendering.Util` |
+| Parser primitives (`rfc9110Token`, `quotedString`, `weightParser`, `ows`) shared by every header parser | `Network.HTTP.Headers.Parsing.Util` |
+
+If a header you need is in that list, **call into hermes**. Do not
+hand-roll a `BS.split 0x3B` / `BS.break (== 0x2C)` parser that
+duplicates a `KnownHeader` instance — those will drift, miss
+quoted-string escaping, miss obs-fold, and surprise the next
+person who reads the code.
+
+### When to extend hermes vs. when to wrap it
+
+Pick the option that matches the kind of change you're making.
+**Default to extending hermes.**
+
+1. **Wire grammar / RFC compliance change** → `hermes/`. New
+   header? New parameter? Bug in the q-value parser? Tightening a
+   token check? That's a `KnownHeader` change. Add (or update) the
+   instance in `Network.HTTP.Headers.<Name>`, including
+   `parseFromHeaders` and `renderToHeaders`. Don't redefine the
+   parser in `wireform-http`.
+
+2. **Smart-constructor / domain wrapper / IsString instance** →
+   `wireform-http*`. Hermes intentionally stays close to the wire
+   types (often `ShortText` or `[Word8]` shaped); the
+   ergonomic API that callers actually consume — newtypes,
+   `IsString`, request combinators like `withRange` or
+   `ifNoneMatch`, default values — lives in
+   `Network.HTTP.Client.<Topic>`.
+
+3. **Cross-cutting client / server policy** → `wireform-http*`.
+   Cache freshness (RFC 9111), redirect following, retry, cookie
+   jar, content-encoding registry of decompressors, the
+   middleware stack, the connection pool. Hermes parses the
+   `Cache-Control` directive list; *deciding what to cache* is a
+   client concern that lives in `wireform-http`.
+
+4. **A header that hermes simply doesn't have yet** → add it to
+   hermes. Mirror the closest existing instance (e.g. `RetryAfter`
+   for delta-or-date shapes, `Accept` for q-weighted lists,
+   `SetCookie` for attribute-bag shapes), wire the
+   `KnownHeader` cardinality / direction correctly, and
+   re-export through the appropriate downstream module.
+
+When you do extend hermes, **also** check whether the new parser
+should be wired into a `wireform-http` middleware (e.g. retry
+honoring `Retry-After`, conditional revalidation honoring `Vary`,
+proxy honoring `Proxy-Authenticate`).
+
+### Heuristics for spotting "this should call hermes"
+
+If you find yourself writing one of the following patterns in
+`wireform-http*` or `wireform-grpc`, stop and check whether the
+hermes module above already covers the same ground:
+
+* Splitting on `0x2C` / `0x3B` to peel apart a header value.
+* A bespoke `parseQuality` / `parseQ` / weight-list parser.
+* A copy of the IMF-fixdate format string.
+* A `case BS.elemIndex 0x3D bs of` dance to extract an `auth-param`.
+* A new `data MyChallenge = MyChallenge { realm :: …, nonce :: … }`
+  when `Network.HTTP.Headers.Authorization.Credentials` already
+  models the same shape.
+* A handwritten `case rendered of "gzip" -> …; "br" -> …` dispatch
+  on `Content-Encoding` (use `Network.HTTP.ContentCoding` instead).
+
+### Rule of thumb
+
+> Wire grammar lives in hermes. Domain modeling and policy live
+> in `wireform-http*`. If you can't make a change cleanly because
+> the grammar in hermes is missing a piece, **add it to hermes
+> first**, then build the wrapper.
+
+Touching hermes is fine — it ships from this monorepo. Avoid
+forking grammars across packages.

@@ -8,11 +8,19 @@ import qualified Test.Http2Integration
 import qualified Test.Http2EdgeCases
 import qualified Test.ConcurrencyStress
 import qualified Test.AuthChallenge
+import qualified Test.Cache
 import qualified Test.Conditional
+import qualified Test.Cookies
+import qualified Test.Digest
 import qualified Test.IDN
 import qualified Test.Negotiation
+import qualified Test.Proxy
+import qualified Test.Range
+import qualified Test.Redirect
+import qualified Test.Retry
 import qualified Test.SSE
 import qualified Test.SSEIntegration
+import qualified Test.SSEReconnect
 import qualified Test.UrlDecode
 import qualified Test.VersionTypes
 import qualified Test.Client
@@ -32,5 +40,13 @@ main = defaultMain $ testGroup "wireform-http"
   , Test.UrlDecode.tests
   , Test.IDN.tests
   , Test.AuthChallenge.tests
+  , Test.Cache.tests
   , Test.Conditional.tests
+  , Test.Cookies.tests
+  , Test.Digest.tests
+  , Test.Proxy.tests
+  , Test.Range.tests
+  , Test.Redirect.tests
+  , Test.Retry.tests
+  , Test.SSEReconnect.tests
   ]

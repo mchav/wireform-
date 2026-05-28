@@ -26,9 +26,11 @@ module Network.HTTP.Client.Redirect
   , withRedirects
     -- * Errors
   , TooManyRedirects (..)
+  , RedirectLoop (..)
   ) where
 
 import Control.Exception (Exception, throwIO)
+import Control.Monad (when)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.Text.Encoding as TE
@@ -62,6 +64,17 @@ data RedirectPolicy = RedirectPolicy
     -- ^ Drop @Authorization@ on cross-origin hops. @True@ by default
     --   (it's how curl behaves with @--location@; sttp, requests,
     --   and reqwest all do the same).
+  , rpStripCookieCrossOrigin :: !Bool
+    -- ^ Drop the request-side @Cookie@ header on cross-origin hops.
+    --   @True@ by default. Cross-origin cookie leakage is at least
+    --   as severe as 'Authorization', and the cookie jar
+    --   middleware re-attaches the right cookies for the new
+    --   target on the next hop anyway.
+  , rpDetectLoops :: !Bool
+    -- ^ Reject redirect loops (the resolved target URI was already
+    --   visited on this request). @True@ by default — this catches
+    --   misconfigured servers that bounce indefinitely between two
+    --   URIs without ever exceeding 'rpMaxRedirects'.
   , rpFollowOn       :: !(S.Status -> Bool)
     -- ^ Which statuses to follow. Defaults to 301\/302\/303\/307\/308;
     --   override to e.g. include 300 (Multiple Choices) when the
@@ -73,6 +86,8 @@ defaultRedirectPolicy = RedirectPolicy
   { rpMaxRedirects = 10
   , rpRewriteToGet = True
   , rpStripAuthCrossOrigin = True
+  , rpStripCookieCrossOrigin = True
+  , rpDetectLoops = True
   , rpFollowOn = isRedirectStatus
   }
 
@@ -98,6 +113,15 @@ data TooManyRedirects = TooManyRedirects
 
 instance Exception TooManyRedirects
 
+-- | Thrown when 'rpDetectLoops' spots a 'Location' that the
+-- middleware has already resolved to within the current redirect
+-- chain. The @rlVisited@ list is the chain in visit order; the
+-- last entry is the one that closed the loop.
+data RedirectLoop = RedirectLoop { rlVisited :: ![ByteString] }
+  deriving stock (Show)
+
+instance Exception RedirectLoop
+
 -- ---------------------------------------------------------------------------
 -- Middleware
 -- ---------------------------------------------------------------------------
@@ -121,14 +145,15 @@ withRedirects policy inner = Transport $ \req0 -> do
               currentURI <- case WURI.renderRequestURI (WReq.requestURI req) of
                 Right u  -> pure u
                 Left _   -> pure dummyURI
-              let resolved   = resolveLocation currentURI loc
-                  origin0    = origin currentURI
-                  origin1    = origin resolved
-                  crossOrig  = origin0 /= origin1
-                  rewriteGet = rpRewriteToGet policy
-                                && (S.statusCode (statusCode raw) `elem` [301, 302])
-                  toGet      = rewriteGet
-                                || S.statusCode (statusCode raw) == 303
+              let resolved     = resolveLocation currentURI loc
+                  resolvedKey  = WURI.renderURI (WURI.normalizeURI resolved)
+                  origin0      = origin currentURI
+                  origin1      = origin resolved
+                  crossOrig    = origin0 /= origin1
+                  rewriteGet   = rpRewriteToGet policy
+                                  && (S.statusCode (statusCode raw) `elem` [301, 302])
+                  toGet        = rewriteGet
+                                  || S.statusCode (statusCode raw) == 303
                   newMethod
                     | toGet     = M.mGet
                     | otherwise = WReq.method req
@@ -139,19 +164,25 @@ withRedirects policy inner = Transport $ \req0 -> do
                     | crossOrig && rpStripAuthCrossOrigin policy
                                 = H.deleteHeader H.hAuthorization (WReq.headers req)
                     | otherwise = WReq.headers req
+                  newHeaders0a
+                    | crossOrig && rpStripCookieCrossOrigin policy
+                                = H.deleteHeader H.hCookie newHeaders0
+                    | otherwise = newHeaders0
                   -- If we just demoted to GET, drop body-related headers.
                   newHeaders1
                     | toGet =
                         H.deleteHeader H.hContentLength
                           (H.deleteHeader H.hContentType
-                             (H.deleteHeader H.hContentEncoding newHeaders0))
-                    | otherwise = newHeaders0
+                             (H.deleteHeader H.hContentEncoding newHeaders0a))
+                    | otherwise = newHeaders0a
+              when (rpDetectLoops policy && resolvedKey `elem` visited) $
+                throwIO (RedirectLoop (reverse (resolvedKey : visited)))
               let req' = req
                     { WReq.requestURI = WURI.staticURI (TE.decodeUtf8 (WURI.renderURI resolved))
                     , WReq.method     = newMethod
                     , WReq.headers    = newHeaders1
                     }
-              go (loc : visited) (n - 1) req' newBody
+              go (resolvedKey : visited) (n - 1) req' newBody
   go [] (rpMaxRedirects policy) req0 buffered
   where
     dummyURI = WURI.URI
@@ -163,23 +194,25 @@ withRedirects policy inner = Transport $ \req0 -> do
       , WURI.uriFragment      = ""
       }
 
--- | Resolve a redirect Location against the request URI.
+-- | Resolve a redirect Location against the request URI per RFC
+-- 3986 §5.2 \"Transform References\".
 --
 -- * Absolute Locations win outright.
 -- * Network-relative (@\/\/host\/path@) inherits the scheme.
--- * Path-relative inherits scheme and authority.
+-- * Path-relative inherits scheme and authority and is resolved
+--   against the base path with dot-segment removal.
 resolveLocation :: WURI.URI -> ByteString -> WURI.URI
 resolveLocation base loc
   | "http://"  `BS.isPrefixOf` loc || "https://" `BS.isPrefixOf` loc =
       case WURI.parseURI loc of
-        Right u -> u
+        Right u -> u { WURI.uriPath = WURI.removeDotSegments (WURI.uriPath u) }
         Left _  -> base
   | "//" `BS.isPrefixOf` loc =
       let withScheme = case WURI.uriScheme base of
             WURI.SchemeHttp  -> "http:"  <> loc
             WURI.SchemeHttps -> "https:" <> loc
       in case WURI.parseURI withScheme of
-           Right u -> u
+           Right u -> u { WURI.uriPath = WURI.removeDotSegments (WURI.uriPath u) }
            Left _  -> base
   | "/" `BS.isPrefixOf` loc =
       let (path, rest) = BS.break (\b -> b == 0x3F || b == 0x23) loc
@@ -189,9 +222,15 @@ resolveLocation base loc
               in (q', dropHash f)
             Just (0x23, f) -> (BS.empty, f)
             _              -> (BS.empty, BS.empty)
-      in base { WURI.uriPath = path, WURI.uriQuery = qry, WURI.uriFragment = frag }
+      in base
+           { WURI.uriPath     = WURI.removeDotSegments path
+           , WURI.uriQuery    = qry
+           , WURI.uriFragment = frag
+           }
   | otherwise =
-      -- Path-relative: replace the last segment of base path with @loc@.
+      -- Path-relative: merge against the base path's directory and
+      -- run the result through removeDotSegments so @..@ / @.@
+      -- collapse correctly.
       let basePath  = WURI.uriPath base
           stripped  = BS.reverse (BS.dropWhile (/= 0x2F) (BS.reverse basePath))
           basePath' = if BS.null stripped then "/" else stripped
@@ -203,7 +242,7 @@ resolveLocation base loc
             Just (0x23, f) -> (BS.empty, f)
             _              -> (BS.empty, BS.empty)
       in base
-           { WURI.uriPath     = basePath' <> path
+           { WURI.uriPath     = WURI.removeDotSegments (basePath' <> path)
            , WURI.uriQuery    = qry
            , WURI.uriFragment = frag
            }

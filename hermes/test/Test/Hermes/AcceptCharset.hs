@@ -1,0 +1,60 @@
+{-# LANGUAGE OverloadedStrings #-}
+module Test.Hermes.AcceptCharset (tests) where
+
+import qualified Data.ByteString as BS
+import Data.ByteString (ByteString)
+import qualified Data.Text.Short as ST
+
+import qualified Network.HTTP.Headers.AcceptCharset as AC
+import qualified Network.HTTP.Headers.Mason as M
+import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertEqual, testCase)
+
+parseOk :: ByteString -> Either String AC.AcceptCharset
+parseOk bs = case runParser AC.acceptCharsetParser bs of
+  OK ac leftover
+    | BS.null (BS.dropWhile (\w -> w == 0x20 || w == 0x09) leftover) ->
+        Right ac
+    | otherwise -> Left ("unconsumed: " <> show leftover)
+  Fail    -> Left "parse failed"
+  Err err -> Left err
+
+render :: AC.AcceptCharset -> ByteString
+render = M.toStrictByteString . AC.renderAcceptCharset
+
+unit_simple :: TestTree
+unit_simple = testCase "single charset" $
+  case parseOk "utf-8" of
+    Right (AC.AcceptCharset [AC.WeightedCharset c 1]) ->
+      assertEqual "tag" (ST.fromString "utf-8") c
+    other -> error ("unexpected parse: " <> show other)
+
+unit_weighted_list :: TestTree
+unit_weighted_list = testCase "weighted list with wildcard" $
+  case parseOk "utf-8;q=1, iso-8859-1;q=0.5, *;q=0" of
+    Right (AC.AcceptCharset
+            [ AC.WeightedCharset _ 1
+            , AC.WeightedCharset _ 0.5
+            , AC.WeightedCharset star 0
+            ]) ->
+      assertEqual "star tag" (ST.fromString "*") star
+    other -> error ("unexpected parse: " <> show other)
+
+unit_round_trip :: TestTree
+unit_round_trip = testCase "render → parse round-trip" $
+  let v = AC.AcceptCharset
+        [ AC.WeightedCharset (ST.fromString "utf-8") 1
+        , AC.WeightedCharset (ST.fromString "iso-8859-1") 0.5
+        ]
+      bs = render v
+  in case parseOk bs of
+       Right v' -> assertEqual "round-trip" v v'
+       Left err -> error err
+
+tests :: TestTree
+tests = testGroup "AcceptCharset"
+  [ unit_simple
+  , unit_weighted_list
+  , unit_round_trip
+  ]

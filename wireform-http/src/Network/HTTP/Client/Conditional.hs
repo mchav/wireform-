@@ -21,6 +21,9 @@ module Network.HTTP.Client.Conditional
   , weakETag
   , parseETag
   , renderETag
+    -- * Validator comparison (RFC 9110 §8.8.3)
+  , strongMatch
+  , weakMatch
     -- * If-Match / If-None-Match
   , ifMatchHeader
   , ifNoneMatchHeader
@@ -86,6 +89,31 @@ shortFromBytes :: ByteString -> ST.ShortText
 shortFromBytes bs = case ST.fromByteString bs of
   Just t  -> t
   Nothing -> ST.fromText (TE.decodeUtf8With TE.lenientDecode bs)
+
+-- ---------------------------------------------------------------------------
+-- Validator comparison (RFC 9110 §8.8.3)
+-- ---------------------------------------------------------------------------
+
+-- | Strong validator comparison (RFC 9110 §8.8.3.2): both tags must
+-- be 'StrongETag's and their opaque bytes must match.
+--
+-- Used for 'If-Match' and 'If-Range' (which require the strong
+-- form).
+strongMatch :: EntityTag -> EntityTag -> Bool
+strongMatch a b = case (a, b) of
+  (StrongETag x, StrongETag y) -> x == y
+  _                            -> False
+
+-- | Weak validator comparison (RFC 9110 §8.8.3.2): the opaque bytes
+-- must match, regardless of whether either tag is weak.
+--
+-- Used for 'If-None-Match' (cache revalidation, where weak tags
+-- are explicitly permitted).
+weakMatch :: EntityTag -> EntityTag -> Bool
+weakMatch a b = opaque a == opaque b
+  where
+    opaque (StrongETag x) = x
+    opaque (WeakETag   x) = x
 
 -- ---------------------------------------------------------------------------
 -- If-Match / If-None-Match

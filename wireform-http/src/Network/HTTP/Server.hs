@@ -47,6 +47,7 @@ module Network.HTTP.Server
 import Control.Concurrent (ThreadId, forkIO)
 import Control.Exception (SomeException, catch)
 import qualified Data.ByteString as BS
+import qualified Data.CaseInsensitive as CI
 import Data.ByteString (ByteString)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import qualified Data.List as List
@@ -119,7 +120,17 @@ data ServerLimits = ServerLimits
   { limitMaxHeaderBytes    :: !Int
     -- ^ Cap on the cumulative header block size, including request
     --   line. Default: 64 KiB. RFC 9112 has no fixed value but the
-    --   common practice cap is 8\u201364 KiB.
+    --   common practice cap is 8\u201364 KiB. The unified server
+    --   enforces this against the sum of @name + \": \" + value + 2@
+    --   bytes of every parsed header (a close proxy for the
+    --   raw block size; the parser layer has already discarded the
+    --   exact byte count by the time we get here). Violations
+    --   short-circuit the handler and emit a @431 Request Header
+    --   Fields Too Large@ response per RFC 6585 §5.
+  , limitMaxRequestTargetBytes :: !Int
+    -- ^ Cap on the @request-target@ size (path + query). Default:
+    --   8 KiB. Violations short-circuit the handler and emit a
+    --   @414 URI Too Long@ response per RFC 9110 §15.5.15.
   , limitMaxRequestBody    :: !(Maybe Int)
     -- ^ Cap on inbound request body length. 'Nothing' = unlimited.
     --   Enforcement currently delegates to user middleware that
@@ -133,10 +144,11 @@ data ServerLimits = ServerLimits
 
 defaultServerLimits :: ServerLimits
 defaultServerLimits = ServerLimits
-  { limitMaxHeaderBytes    = 64 * 1024
-  , limitMaxRequestBody    = Just (32 * 1024 * 1024)  -- 32 MiB
-  , limitReadTimeoutSecs   = Just 30
-  , limitWriteTimeoutSecs  = Just 30
+  { limitMaxHeaderBytes        = 64 * 1024
+  , limitMaxRequestTargetBytes = 8 * 1024
+  , limitMaxRequestBody        = Just (32 * 1024 * 1024)  -- 32 MiB
+  , limitReadTimeoutSecs       = Just 30
+  , limitWriteTimeoutSecs      = Just 30
   }
 
 data TlsServerConfig = TlsServerConfig
@@ -411,10 +423,10 @@ prefixedRecv ref sock dst want = do
 wrapHttp1Handler :: ServerConfig -> Handler -> H1.Request -> IO H1.Response
 wrapHttp1Handler cfg handler h1req = do
   let req = Conv.fromHttp1Request SchemeHttp h1req
-  resp0 <- handler req
+  resp0 <- case enforceLimits cfg req of
+    Just bad -> pure bad
+    Nothing  -> handler req
   resp  <- addServerDefaults cfg resp0
-  -- Mirror the request's version on the response, matching the
-  -- behaviour the http1 server's own defaultServerConfig has.
   let h1resp = Conv.toHttp1Response resp
   pure h1resp { H1.responseVersion = H1.requestVersion h1req }
 
@@ -428,7 +440,47 @@ runHttp2 cfg = H2.runServer h2cfg
 wrapHttp2Handler :: ServerConfig -> Handler -> H2.Request -> (H2.Response -> IO ()) -> IO ()
 wrapHttp2Handler cfg handler h2req respond = do
   let req = Conv.fromHttp2Request h2req
-  resp0 <- handler req
+  resp0 <- case enforceLimits cfg req of
+    Just bad -> pure bad
+    Nothing  -> handler req
   resp  <- addServerDefaults cfg resp0
   h2resp <- Conv.toHttp2Response resp
   respond h2resp
+
+-- | Pre-handler check for 'limitMaxHeaderBytes' and
+-- 'limitMaxRequestTargetBytes'. Returns 'Nothing' when the
+-- request fits both limits; otherwise returns the canonical
+-- 414 \/ 431 response so the handler is skipped entirely.
+enforceLimits :: ServerConfig -> Request -> Maybe Response
+enforceLimits cfg req
+  | targetSize > limitMaxRequestTargetBytes lims = Just uriTooLong
+  | headerSize > limitMaxHeaderBytes        lims = Just headerFieldsTooLarge
+  | otherwise = Nothing
+  where
+    lims        = serverLimits cfg
+    targetSize  = BS.length (requestTarget req)
+    -- "name: value\r\n" → +4 bytes of overhead per entry.
+    headerSize  = sum (map onePair (requestHeaders req))
+    onePair (n, v) = BS.length (CI.original n) + BS.length v + 4
+
+uriTooLong :: Response
+uriTooLong = Response
+  { responseStatus  = U.status414
+  , responseVersion = U.HTTP1_1
+  , responseHeaders = [(U.hContentLength, "0"), (U.hConnection, "close")]
+  , responseBody    = U.BodyEmpty
+  , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
+  }
+
+headerFieldsTooLarge :: Response
+headerFieldsTooLarge = Response
+  { responseStatus  = U.status431
+  , responseVersion = U.HTTP1_1
+  , responseHeaders = [(U.hContentLength, "0"), (U.hConnection, "close")]
+  , responseBody    = U.BodyEmpty
+  , responseTrailers = pure []
+  , responseH2StreamId = 0
+  , responseCancel = pure ()
+  }

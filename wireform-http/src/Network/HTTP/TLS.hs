@@ -19,6 +19,7 @@ module Network.HTTP.TLS
   ( -- * Client
     TlsClient (..)
   , withTlsClient
+  , withTlsClientOnSocket
     -- * Server
   , runTlsServer
     -- * Errors
@@ -39,10 +40,11 @@ import Wireform.Network.TLS.OpenSSL
   , freeCtx
   , getAlpn
   , newClient
+  , newClientVerified
+  , setClientHostnameVerify
   , newServer
   , setAlpnClient
   , setAlpnServer
-  , setClientHostnameVerify
   )
 import Wireform.Network.TLS.Config
   ( TlsClientConfig (..)
@@ -71,6 +73,9 @@ data TlsHandshakeError
     -- peer-selected protocol, if any, is in the first field).
   | TlsCertNotFound !FilePath
   | TlsHostnameMismatch !String !String
+  | TlsNoAddress !String
+    -- ^ DNS / address-resolution returned an empty set for the
+    --   target host.
   deriving stock (Show)
 
 instance Exception TlsHandshakeError
@@ -97,23 +102,44 @@ withTlsClient
   -> IO a
 withTlsClient host port serverName validateCert range action = do
   let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
-      alpnList = versionAlpnProtocols range
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
-    [] -> error "Network.HTTP.TLS.withTlsClient: no addresses for host"
+    [] -> throwIO (TlsNoAddress (host <> ":" <> port))
     (addr:_) -> bracket
       (NS.openSocket addr)
       NS.close
       $ \sock -> do
         NS.connect sock (NS.addrAddress addr)
         NS.setSocketOption sock NS.NoDelay 1
-        bracket (buildCtxClient validateCert alpnList) freeCtx $ \ctx -> do
-          conn <- newClient ctx sock (Just (BS8.pack serverName))
-          _ <- if validateCert
-                 then setClientHostnameVerify conn (BS8.pack serverName)
-                 else pure ()
-          neg <- getAlpn conn
-          dispatch host port range conn neg sock action
+        withTlsClientOnSocket sock host port serverName validateCert range action
+
+-- | Variant of 'withTlsClient' that takes an already-connected
+-- socket, leaving DNS \/ TCP dial to the caller. The socket is
+-- /not/ closed by this function — the caller owns its lifetime.
+-- The proxy code path uses this: it dials the proxy itself, runs
+-- the @CONNECT@ exchange, and then layers TLS on the resulting
+-- tunnel.
+withTlsClientOnSocket
+  :: NS.Socket
+  -> String        -- ^ host (used only to populate HTTP\/2 client config)
+  -> String        -- ^ port (same)
+  -> String        -- ^ TLS server name (SNI \/ X.509)
+  -> Bool          -- ^ validate cert
+  -> VersionRange
+  -> (TlsClient -> IO a)
+  -> IO a
+withTlsClientOnSocket sock host port serverName validateCert range action = do
+  let alpnList = versionAlpnProtocols range
+  bracket (buildCtxClient validateCert alpnList) freeCtx $ \ctx -> do
+    let serverNameBs = BS8.pack serverName
+        verifyHost   = if validateCert then Just serverNameBs else Nothing
+    -- Hostname verification must be pinned /before/ the handshake;
+    -- newClientVerified does that internally before driving
+    -- SSL_connect (the post-connect setClientHostnameVerify path
+    -- is too late to take effect).
+    conn <- newClientVerified ctx sock (Just serverNameBs) verifyHost
+    neg  <- getAlpn conn
+    dispatch host port range conn neg sock action
 
 dispatch
   :: String -> String -> VersionRange
@@ -193,7 +219,7 @@ runTlsServer host port certPath keyPath range http1Handler http2CfgFor = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
-    [] -> error "Network.HTTP.TLS.runTlsServer: no bind address"
+    [] -> throwIO (TlsNoAddress (host <> ":" <> port))
     (addr:_) -> bracket (NS.openSocket addr) NS.close $ \listenSock -> do
       NS.setSocketOption listenSock NS.ReuseAddr 1
       NS.setSocketOption listenSock NS.NoDelay 1

@@ -74,6 +74,7 @@ import qualified OpenTelemetry.Propagator as Prop
 import qualified OpenTelemetry.Trace.Core as Trace
 
 import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Protocol (ProtocolInfo (..))
 import qualified Network.HTTP.Client.Request as Req
 import Network.HTTP.Client.Response (RawResponse (..))
 import Network.HTTP.Client.Response

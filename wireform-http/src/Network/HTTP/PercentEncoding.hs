@@ -23,8 +23,10 @@ module Network.HTTP.PercentEncoding
   , encodePathSegment
   , encodePath
   , encodeQueryComponent
+  , encodeFragment
   , encodeFormComponent
   , decodeQueryString
+  , decodeQueryStringStrict
     -- * Query strings
   , renderQueryString
   , renderFormBody
@@ -136,6 +138,19 @@ encodeQueryComponent :: ByteString -> ByteString
 encodeQueryComponent =
   percentEncodeWith (\w -> isQuerySafe w && w /= 0x26 && w /= 0x3D && w /= 0x2B)
 
+-- | Encode a URI fragment per RFC 3986 §3.5.  The fragment set
+-- is @pchar \/ \"\/\" \/ \"?\"@, i.e. the same as a query
+-- (minus the @&@ \/ @=@ \/ @+@ reservation that's
+-- query-specific).  Use this when assembling a URI from a
+-- user-supplied anchor string — passing the raw bytes through
+-- would smuggle @#@ characters into the rendered URI.
+encodeFragment :: ByteString -> ByteString
+encodeFragment = percentEncodeWith isFragmentSafe
+  where
+    isFragmentSafe w =
+      isQuerySafe w || w == 0x26 || w == 0x3D || w == 0x2B
+      -- &, =, + are not reserved inside a fragment.
+
 -- | Encode for @application\/x-www-form-urlencoded@: like
 -- 'encodeQueryComponent' but spaces become @+@ instead of @%20@.
 encodeFormComponent :: ByteString -> ByteString
@@ -171,8 +186,13 @@ renderQS enc = BS.intercalate "&" . map one
 
 -- | Decode a query string into @(key, value)@ pairs. Decodes both
 -- @+@ and @%xx@ on the value side (so it works for both query
--- strings and form bodies). Pairs with no @=@ are surfaced with an
--- empty value.
+-- strings and form bodies). Pairs with no @=@ are surfaced with
+-- an empty value.
+--
+-- This variant is lenient: a malformed percent-escape leaves the
+-- raw bytes untouched in the returned key or value. Use
+-- 'decodeQueryStringStrict' if you want a 'Nothing' on malformed
+-- input.
 decodeQueryString :: ByteString -> [(ByteString, ByteString)]
 decodeQueryString bs =
   [ (decodeOrRaw k, decodeOrRaw v)
@@ -188,4 +208,24 @@ decodeQueryString bs =
       in case percentDecode plusToSpace of
            Just out -> out
            Nothing  -> bs0
+
+-- | Strict variant of 'decodeQueryString': returns 'Nothing' if
+-- /any/ percent-escape in the input is malformed. Use this when
+-- you want input validation rather than best-effort parsing
+-- (e.g. when feeding the result into a route table or a SQL
+-- query).
+decodeQueryStringStrict :: ByteString -> Maybe [(ByteString, ByteString)]
+decodeQueryStringStrict bs =
+  traverse decodePair
+    [ pair
+    | pair <- filter (not . BS.null) (BS.split 0x26 bs)
+    ]
+  where
+    decodePair pair =
+      let (k, eqV) = BS.break (== 0x3D) pair
+          v = case BS.uncons eqV of
+                Just (0x3D, r) -> r
+                _              -> BS.empty
+      in (,) <$> decodeStrict k <*> decodeStrict v
+    decodeStrict bs0 = percentDecode (BS.map (\w -> if w == 0x2B then 0x20 else w) bs0)
 

@@ -22,6 +22,7 @@ yet.
 {-# LANGUAGE OverloadedStrings #-}
 module Network.HTTP.Client.Base
   ( baseTransport
+  , baseTransportVia
   , BaseTransportError (..)
   ) where
 
@@ -38,6 +39,8 @@ import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
 import           Network.HTTP.Client.BodyStream
+import qualified Network.HTTP.Client.Proxy     as Pxy
+import           Network.HTTP.Client.Proxy     (ProxyConfig)
 import qualified Network.HTTP.Client.Request   as WReq
 import           Network.HTTP.Client.Protocol
 import           Network.HTTP.Client.Response
@@ -54,9 +57,21 @@ instance Exception BaseTransportError
 
 -- | The default base transport. Each call opens a connection, ships
 -- the request, drains the response, and closes the connection. Use
--- TLS if the URI scheme is @https@.
+-- TLS if the URI scheme is @https@. No proxy is consulted; for
+-- proxy-aware routing use 'baseTransportVia'.
 baseTransport :: VR.VersionRange -> Transport IO
-baseTransport versionRange = Transport $ \req -> do
+baseTransport versionRange = baseTransportVia versionRange Pxy.noProxyConfig
+
+-- | Proxy-aware variant of 'baseTransport'. The supplied
+-- 'ProxyConfig' picks a per-request proxy:
+--
+-- * HTTPS targets through an HTTPS proxy go via @CONNECT@ +
+--   in-tunnel TLS handshake.
+-- * HTTP targets through an HTTP proxy dial the proxy directly;
+--   the absolute-form request line is the responsibility of the
+--   'Network.HTTP.Client.Proxy.withProxy' middleware.
+baseTransportVia :: VR.VersionRange -> ProxyConfig -> Transport IO
+baseTransportVia versionRange pcfg = Transport $ \req -> do
   uri_ <- case WURI.renderRequestURI (WReq.requestURI req) of
     Right u  -> pure u
     Left err -> throwIO (BaseTransportInvalidURI err)
@@ -75,6 +90,11 @@ baseTransport versionRange = Transport $ \req -> do
         , Conn.connectionVersionRange = versionRange
         , Conn.connectionTls          = tls
         }
+      mProxy
+        | Pxy.shouldBypass pcfg (WURI.uriHost uri_) = Nothing
+        | otherwise = case scheme of
+            WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+            WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
       target = WURI.uriPathAndQuery uri_
       authority = Just (WURI.uriHost uri_ <> case BS8.readInt (BS8.pack port) of
                           Just (p, _)
@@ -94,7 +114,7 @@ baseTransport versionRange = Transport $ \req -> do
         , Msg.requestTrailers  = pure []
         }
 
-  Conn.withConnection connCfg $ \conn -> do
+  Conn.withConnectionVia connCfg mProxy Nothing $ \conn -> do
     resp <- Conn.sendOn conn lowReq
     materialised <- lowLevelBodyBytes (Msg.responseBody resp)
     newPopper <- popperFromStrict materialised

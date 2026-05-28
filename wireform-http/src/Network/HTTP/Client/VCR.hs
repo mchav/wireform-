@@ -387,24 +387,65 @@ byMethodAndURI = MatchStrategy "byMethodAndURI" $ \req interactions -> do
   pure (extractFirst pred_ interactions)
 
 -- | Like 'byMethodAndURI' but additionally requires that the given
--- header names match in value.
+-- header names match in value. Header-name comparison is
+-- case-insensitive (RFC 9110 §5.1); header /values/ compare
+-- byte-for-byte.
 byMethodURIAndHeaders :: [H.HeaderName] -> MatchStrategy
 byMethodURIAndHeaders names = MatchStrategy "byMethodURIAndHeaders" $ \req interactions -> do
   bodyBs <- bodyStreamBytes (WReq.body req)
   let rec' = toRecordedRequest req bodyBs
-      headersOf rs =
-        [ (TE.encodeUtf8 (rhName h), TE.encodeUtf8 (rhValue h))
-        | h <- rs
-        ]
       pred_ i =
         rrqMethod (interactionRequest i) == rrqMethod rec'
         && rrqURI (interactionRequest i) == rrqURI rec'
-        && all (\n ->
-                 let want = lookup (CI.original n) (headersOf (rrqHeaders rec'))
-                     have = lookup (CI.original n) (headersOf (rrqHeaders (interactionRequest i)))
-                 in want == have)
-               names
+        && headersAgreeOn names (rrqHeaders rec')
+                               (rrqHeaders (interactionRequest i))
   pure (extractFirst pred_ interactions)
+
+-- | Match by method + URI + request body. Body comparison is
+-- byte-exact; for binary bodies that's the recorded base64
+-- payload, for text bodies it's the UTF-8 round-trip. Use this for
+-- POST\/PATCH-heavy cassettes where the URI alone is ambiguous.
+byMethodURIAndBody :: MatchStrategy
+byMethodURIAndBody = MatchStrategy "byMethodURIAndBody" $ \req interactions -> do
+  bodyBs <- bodyStreamBytes (WReq.body req)
+  let rec' = toRecordedRequest req bodyBs
+      pred_ i = let r = interactionRequest i
+                in rrqMethod r == rrqMethod rec'
+                   && rrqURI r == rrqURI rec'
+                   && rrqBodyBinary r == rrqBodyBinary rec'
+                   && rrqBody r == rrqBody rec'
+  pure (extractFirst pred_ interactions)
+
+-- | Match by method + URI + body + a set of header names.
+byMethodURIBodyAndHeaders :: [H.HeaderName] -> MatchStrategy
+byMethodURIBodyAndHeaders names = MatchStrategy "byMethodURIBodyAndHeaders" $ \req interactions -> do
+  bodyBs <- bodyStreamBytes (WReq.body req)
+  let rec' = toRecordedRequest req bodyBs
+      pred_ i = let r = interactionRequest i
+                in rrqMethod r == rrqMethod rec'
+                   && rrqURI r == rrqURI rec'
+                   && rrqBodyBinary r == rrqBodyBinary rec'
+                   && rrqBody r == rrqBody rec'
+                   && headersAgreeOn names (rrqHeaders rec') (rrqHeaders r)
+  pure (extractFirst pred_ interactions)
+
+-- | Internal helper: does every name in @names@ have the same
+-- value list in both header bags? Names compared
+-- case-insensitively; values byte-exact.
+headersAgreeOn
+  :: [H.HeaderName]
+  -> [RecordedHeader]
+  -> [RecordedHeader]
+  -> Bool
+headersAgreeOn names left right =
+  all (\n ->
+        let key  = CI.foldedCase n
+            sel  = filter (\h -> T.toCaseFold (rhName h) == TE.decodeUtf8 key)
+            ls   = sel left
+            rs   = sel right
+            vals = map rhValue
+        in vals ls == vals rs)
+      names
 
 -- | Build a custom strategy.
 customStrategy
