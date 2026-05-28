@@ -431,16 +431,13 @@ runOneShot cfg mProxy req =
 
 -- | Convert a 'Msg.ResponsePushPromise' to the protocol-level
 -- 'PushPromise'.  The promised request is synthesised from the push
--- promise's pseudo-headers; 'pushFulfil' is not yet wired to the
--- promised-stream response (follow-up: expose promised-stream inboxes
--- through the Connection layer).
+-- promise's pseudo-headers; 'pushFulfil' delegates to the
+-- 'Msg.rppFulfil' action which blocks until the server sends the
+-- pushed response and returns it fully materialised.
 toPushPromise :: Msg.ResponsePushPromise -> PushPromise WReq.Request RawResponse
 toPushPromise pp = PushPromise
   { pushPromisedRequest = pushedRequestFromPseudoHeaders (Msg.rppHeaders pp)
-  , pushFulfil = ioError (userError
-      ("h2PushPromises: push stream "
-       <> show (Msg.rppPromisedStreamId pp)
-       <> ": fulfil path not yet wired; inspect pushPromisedRequest for headers"))
+  , pushFulfil          = Msg.rppFulfil pp
   }
 
 -- | Build a 'WReq.Request Void' for a push-promised resource from the

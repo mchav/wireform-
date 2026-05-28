@@ -79,6 +79,12 @@ import qualified Network.HTTP2.Client as H2
 import qualified Network.Socket as NS
 
 import Network.HTTP.Message
+import qualified Data.ByteString as BS
+import Network.HTTP.Client.BodyStream (popperFromStrict)
+import Network.HTTP.Client.Protocol
+  (Http2Info (..), ProtocolInfo (..), PushPromise (..))
+import Network.HTTP.Client.Request (Request)
+import Network.HTTP.Client.Response (RawResponse (..))
 import qualified Network.HTTP.TLS as TLS
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Internal.Convert as Conv
@@ -408,6 +414,41 @@ requestToH2 req = H2.ClientRequest
       U.BodyStream p -> H2.ReqBodyStream p
   }
 
+-- | Drain a 'U.Body' to a strict 'ByteString'.
+drainUnifiedBody :: U.Body -> IO BS.ByteString
+drainUnifiedBody body = case body of
+  U.BodyEmpty    -> pure BS.empty
+  U.BodyBytes b  -> pure b
+  U.BodyStream p -> go []
+    where
+      go acc = p >>= \case
+        Nothing -> pure $! BS.concat (reverse acc)
+        Just b  -> go (b : acc)
+
+-- | Materialise a server-pushed 'H2.ClientResponse' into a 'RawResponse'
+-- with a fully-drained body.  The push body is consumed before returning
+-- so the caller does not need to manage the H/2 stream lifetime.
+materializePushResponse :: H2.ClientResponse -> IO RawResponse
+materializePushResponse cr = do
+  let resp = h2ResponseToUnified cr
+  bodyBs <- drainUnifiedBody (responseBody resp)
+  popper  <- popperFromStrict bodyBs
+  pure RawResponse
+    { statusCode   = responseStatus resp
+    , headers      = responseHeaders resp
+    , bodyPopper   = popper
+    , protocolInfo = case responseVersion resp of
+        U.HTTP2 -> HTTP2 Http2Info
+          { h2StreamId     = responseH2StreamId resp
+            -- Nested push promises on a pushed response are not
+            -- followed recursively (extremely rare in practice and
+            -- structurally unsound with a finite value).
+          , h2PushPromises = pure []
+          , h2CancelStream = responseCancel resp
+          }
+        _ -> HTTP1_1
+    }
+
 h2ResponseToUnified :: H2.ClientResponse -> Response
 h2ResponseToUnified h2resp = Response
   { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
@@ -426,4 +467,5 @@ h2ResponseToUnified h2resp = Response
     toPushPromise pp = ResponsePushPromise
       { rppPromisedStreamId = H2.pprPromisedStreamId pp
       , rppHeaders = Conv.fromHttp2Headers (H2.pprHeaders pp)
+      , rppFulfil  = materializePushResponse =<< H2.pprFulfil pp
       }
