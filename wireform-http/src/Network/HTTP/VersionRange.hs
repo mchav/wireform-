@@ -8,15 +8,29 @@ server uses it as the tiebreaker when the peer offers several.
 
 A small set of named ranges covers the common cases:
 
-* 'anyVersion'   — anything we know how to speak
+* 'anyVersion'   — anything we know how to speak (HTTP\/1.0 — HTTP\/2;
+                   HTTP\/3 requires a QUIC transport and is not yet
+                   included here)
 * 'http2Only'    — strict HTTP\/2; fail otherwise. This is the right
                    setting for gRPC, which assumes HTTP\/2 framing.
 * 'http1Only'    — strict HTTP\/1.x.
 * 'preferHttp2'  — try HTTP\/2 first, fall back to HTTP\/1.1.
 * 'preferHttp1'  — invert that.
+* 'http3Only'    — HTTP\/3 over QUIC only; requires a QUIC transport
+                   that is not yet shipped. Useful to declare intent
+                   and for testing ALPN plumbing.
 
 The result of negotiation is checked against the range; a peer that
 forces us off-range raises 'VersionOutOfRange'.
+
+== HTTP\/3 (§4.5 audit note)
+
+'HTTP3' is a valid 'Version' constant and 'alpnForVersion HTTP3'
+returns @Just \"h3\"@ (RFC 9114 §3.2).  However, HTTP\/3 runs over
+QUIC, not TLS, so including it in the ALPN list for a TLS
+connection will confuse peers.  Use 'http3Only' only when a QUIC
+transport is available; the TLS dispatch layer raises
+'TlsNoAlpnOverlap' if the server negotiates @h3@ over TLS.
 -}
 module Network.HTTP.VersionRange
   ( VersionRange
@@ -32,10 +46,12 @@ module Network.HTTP.VersionRange
   , preferHttp2
   , preferHttp1
   , http2OrHttp11
+  , http3Only
     -- * ALPN identifiers
   , alpnH2
   , alpnHttp11
   , alpnHttp10
+  , alpnH3
   , alpnForVersion
   , versionForAlpn
     -- * Errors
@@ -82,7 +98,9 @@ versionAlpnProtocols :: VersionRange -> [ByteString]
 versionAlpnProtocols (VersionRange vs) =
   [p | v <- NE.toList vs, Just p <- [alpnForVersion v]]
 
--- | Anything we know how to speak: HTTP\/2 first, then 1.1, then 1.0.
+-- | Anything we know how to speak over TLS: HTTP\/2 first, then
+-- 1.1, then 1.0.  HTTP\/3 is omitted because it runs over QUIC, not
+-- TLS; add 'http3Only' ranges only with a QUIC transport.
 anyVersion :: VersionRange
 anyVersion = VersionRange (HTTP2 :| [HTTP1_1, HTTP1_0])
 
@@ -107,6 +125,15 @@ preferHttp1 = VersionRange (HTTP1_1 :| [HTTP2, HTTP1_0])
 http2OrHttp11 :: VersionRange
 http2OrHttp11 = VersionRange (HTTP2 :| [HTTP1_1])
 
+-- | HTTP\/3 over QUIC only.  The ALPN token is @h3@ (RFC 9114
+-- §3.2).  No wireform-http QUIC transport exists yet; this range
+-- is provided so that callers can declare intent and so that ALPN
+-- plumbing can be tested.  Using this range with the TLS client
+-- transport will raise 'TlsHandshakeError' at runtime if the peer
+-- unexpectedly negotiates @h3@ over TLS.
+http3Only :: VersionRange
+http3Only = VersionRange (HTTP3 :| [])
+
 -- ALPN identifiers ----------------------------------------------------
 
 -- | The ALPN protocol identifier for HTTP\/2 over TLS (RFC 7540 § 3.1).
@@ -122,8 +149,17 @@ alpnHttp11 = "http/1.1"
 alpnHttp10 :: ByteString
 alpnHttp10 = "http/1.0"
 
+-- | The ALPN protocol identifier for HTTP\/3 over QUIC (RFC 9114 §3.2).
+-- This token is returned by 'alpnForVersion' for 'HTTP3' and is
+-- recognised by 'versionForAlpn'.  Include it in a 'VersionRange'
+-- only when a QUIC transport is available; TLS connections do not
+-- support HTTP\/3.
+alpnH3 :: ByteString
+alpnH3 = "h3"
+
 alpnForVersion :: Version -> Maybe ByteString
 alpnForVersion v
+  | v == HTTP3   = Just alpnH3
   | v == HTTP2   = Just alpnH2
   | v == HTTP1_1 = Just alpnHttp11
   | v == HTTP1_0 = Just alpnHttp10
@@ -131,6 +167,7 @@ alpnForVersion v
 
 versionForAlpn :: ByteString -> Maybe Version
 versionForAlpn bs
+  | bs == alpnH3     = Just HTTP3
   | bs == alpnH2     = Just HTTP2
   | bs == alpnHttp11 = Just HTTP1_1
   | bs == alpnHttp10 = Just HTTP1_0

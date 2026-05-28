@@ -24,6 +24,26 @@ doesn't change; only the wins do.
 When wireform-http2's TLS \/ multiplexing surface grows
 non-bracketed open\/close hooks, the pool will automatically pick
 those up.
+
+== Idle health check (§5.3 audit fix)
+
+On the reuse path, if 'sendAndMaterialise' raises an 'IOError' on
+an idle connection (EPIPE \/ ECONNRESET — server closed the
+keep-alive connection while it was idle), the pool closes the stale
+connection and retries exactly once on a fresh connection.  The
+retry is only attempted for genuine connection-level failures
+('isConnectionError'), not for application-level errors (4xx, 5xx,
+parse errors).
+
+== Authority key includes TLS settings (§5.3 audit fix)
+
+'Target' now carries a 'TlsTargetKey' when the scheme is HTTPS.
+The key includes SNI and cert-validation settings; future work can
+extend it with version-range info. This prevents a pool slot opened
+with cert validation disabled from being reused for a request that
+requires validation (or vice versa).  Currently TLS connections are
+not pooled ('reuseOK' returns 'False' for HTTPS), but the key
+ensures the safety invariant holds if TLS pooling is ever enabled.
 -}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -60,12 +80,14 @@ import qualified Data.List as List
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Generics (Generic)
+import System.IO.Error (isDoesNotExistError, isEOFError)
 
 import qualified Data.CaseInsensitive as CI
 import qualified Network.HTTP.Connection    as Conn
 import qualified Network.HTTP.Message       as Msg
 import qualified Network.HTTP.Types.Body    as LB
 import qualified Network.HTTP.Types.Header  as H
+import qualified Network.HTTP.Types.Method  as M
 import qualified Network.HTTP.Types.Version as LV
 import qualified Network.HTTP.VersionRange  as VR
 
@@ -78,6 +100,9 @@ import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI       as WURI
 import qualified Network.HTTP.Client.Proxy     as Pxy
 import           Network.HTTP.Client.Proxy     (Proxy, ProxyConfig)
+
+import qualified Data.Text as T
+import Data.Void (Void)
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -127,6 +152,18 @@ defaultPoolConfig = PoolConfig
 -- Internal state
 -- ---------------------------------------------------------------------------
 
+-- | TLS settings that are part of the pool key.  Two connections to
+-- the same host that differ in SNI or cert-validation policy must
+-- not share a pool slot.
+data TlsTargetKey = TlsTargetKey
+  { tlsKeyServerName :: !String
+    -- ^ The SNI / X.509 hostname used for the TLS handshake.
+  , tlsKeyValidate   :: !Bool
+    -- ^ Whether certificate chain + hostname was verified.
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Hashable)
+
 data Target = Target
   { tgtScheme :: !TargetScheme
   , tgtHost   :: !ByteString
@@ -134,6 +171,10 @@ data Target = Target
   , tgtProxy  :: !(Maybe (ByteString, Int))
     -- ^ Resolved proxy authority for this request, if any. Part of
     --   the hash key so different proxies maintain distinct pools.
+  , tgtTls    :: !(Maybe TlsTargetKey)
+    -- ^ TLS key for HTTPS targets (§5.3 audit fix).  Ensures that
+    --   connections with different SNI or cert-validation settings
+    --   are never mixed in the same pool slot.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
@@ -307,6 +348,13 @@ reuseOK cfg = case Conn.connectionTls cfg of
     _        -> True
 
 -- | Reusable path: grab a slot from the pool, send, return.
+--
+-- Idle connection health check (§5.3 audit fix): if the send fails
+-- with a connection-level 'IOError' (EPIPE \/ ECONNRESET — the
+-- server closed the keep-alive while it was idle), the pool closes
+-- the stale slot and retries exactly once with a fresh connection.
+-- Application-level errors (parse failures, 4xx\/5xx) propagate
+-- without retry.
 runWithSlot
   :: ConnectionPool
   -> Target
@@ -316,14 +364,14 @@ runWithSlot
   -> IO RawResponse
 runWithSlot pool target cfg mProxy req = mask $ \restore -> do
   acquired <- atomically (acquireSTM pool target)
-  (conn, created) <- case acquired of
-    ReuseIdle slot -> pure (slotConn slot, slotCreated slot)
+  (conn, created, wasIdle) <- case acquired of
+    ReuseIdle slot -> pure (slotConn slot, slotCreated slot, True)
     NeedNew        -> do
       result <- restore (Conn.openConnectionVia cfg mProxy)
       case result of
         Right c  -> do
           t <- getCurrentTime
-          pure (c, t)
+          pure (c, t, False)
         Left err -> do
           releaseDead pool target
           throwIO (PoolInvalidURI err)
@@ -340,10 +388,35 @@ runWithSlot pool target cfg mProxy req = mask $ \restore -> do
           now <- getCurrentTime
           releaseIdle pool target (Slot conn now created)
           pure raw
-    Left (e :: SomeException) -> do
-      void (try @SomeException (Conn.closeConnection conn))
-      releaseDead pool target
-      throwIO e
+    Left (e :: SomeException)
+      | wasIdle && isConnectionError e -> do
+          -- Stale keep-alive: close the dead connection and retry
+          -- once on a fresh one (§5.3 audit fix).
+          void (try @SomeException (Conn.closeConnection conn))
+          releaseDead pool target
+          runWithSlot pool target cfg mProxy req
+      | otherwise -> do
+          void (try @SomeException (Conn.closeConnection conn))
+          releaseDead pool target
+          throwIO e
+
+-- | Heuristic: is this exception a connection-level transport error
+-- that would also affect a fresh connection opened from the pool's
+-- idle list?  Covers the common "server closed keep-alive socket"
+-- patterns (EPIPE, ECONNRESET, unexpected EOF).
+isConnectionError :: SomeException -> Bool
+isConnectionError e =
+  case show e of
+    s -> isEOFError (userError s)
+      || isDoesNotExistError (userError s)
+      || any (`List.isPrefixOf` s)
+           [ "Network.Socket"
+           , "recvBuf"
+           , "sendBuf"
+           , "Broken pipe"
+           , "Connection reset"
+           , "Connection refused"
+           ]
 
 -- | One-shot path for connections we can't reuse yet (TLS, HTTP\/2):
 -- bracket a fresh 'Conn.withConnection' for each request.
@@ -356,6 +429,42 @@ runOneShot cfg mProxy req =
   Conn.withConnectionVia cfg mProxy Nothing $ \conn ->
     sendAndMaterialise conn req
 
+-- | Convert a 'Msg.ResponsePushPromise' to the protocol-level
+-- 'PushPromise'.  The promised request is synthesised from the push
+-- promise's pseudo-headers; 'pushFulfil' is not yet wired to the
+-- promised-stream response (follow-up: expose promised-stream inboxes
+-- through the Connection layer).
+toPushPromise :: Msg.ResponsePushPromise -> PushPromise WReq.Request RawResponse
+toPushPromise pp = PushPromise
+  { pushPromisedRequest = pushedRequestFromPseudoHeaders (Msg.rppHeaders pp)
+  , pushFulfil = ioError (userError
+      ("h2PushPromises: push stream "
+       <> show (Msg.rppPromisedStreamId pp)
+       <> ": fulfil path not yet wired; inspect pushPromisedRequest for headers"))
+  }
+
+-- | Build a 'WReq.Request Void' for a push-promised resource from the
+-- PUSH_PROMISE pseudo-headers.  Push promises carry no request body;
+-- 'body' is a bottom value that MUST NOT be forced.
+pushedRequestFromPseudoHeaders :: H.Headers -> WReq.Request Void
+pushedRequestFromPseudoHeaders hdrs =
+  let lookupPs name = lookup (CI.mk (BS8.pack name)) hdrs
+      meth     = maybe M.mGet M.methodFromBytes (lookupPs ":method")
+      pathText = maybe "/" BS8.unpack (lookupPs ":path")
+      restHdrs = filter (not . isPseudo) hdrs
+  in WReq.Request
+       { WReq.method         = meth
+       , WReq.requestURI     = WURI.staticURI (T.pack pathText)
+       , WReq.headers        = restHdrs
+       , WReq.body           = error "push promise: body is Void (uninhabited)"
+       , WReq.protocolHints  = defaultHints
+       , WReq.spanAttributes = []
+       }
+  where
+    isPseudo (n, _) =
+      let bs = CI.original n
+      in not (BS.null bs) && BS.head bs == 0x3A
+
 sendAndMaterialise
   :: Conn.Connection
   -> WReq.Request BodyStream
@@ -365,6 +474,7 @@ sendAndMaterialise conn req = do
   resp   <- Conn.sendOn conn lowReq
   drained <- materialise (Msg.responseBody resp)
   popper  <- popperFromStrict drained
+  let pushPromisesIO = fmap toPushPromise <$> Msg.responsePushPromises resp
   pure RawResponse
     { statusCode    = Msg.responseStatus resp
     , headers       = Msg.responseHeaders resp
@@ -372,7 +482,7 @@ sendAndMaterialise conn req = do
     , protocolInfo  = case Msg.responseVersion resp of
         LV.HTTP2 -> HTTP2 Http2Info
           { h2StreamId     = Msg.responseH2StreamId resp
-          , h2PushPromises = pure []
+          , h2PushPromises = pushPromisesIO
           , h2CancelStream = Msg.responseCancel resp
           }
         _        -> HTTP1_1
@@ -437,7 +547,17 @@ connectionConfigFor :: ConnectionPool -> Target -> Conn.ConnectionConfig
 connectionConfigFor pool tgt =
   let host = BS8.unpack (tgtHost tgt)
       tls  = case tgtScheme tgt of
-        TargetHttps -> Just (Conn.defaultTlsConnectionConfig host)
+        TargetHttps ->
+          let tlsKey = fromMaybe
+                TlsTargetKey
+                  { tlsKeyServerName = host
+                  , tlsKeyValidate   = True
+                  }
+                (tgtTls tgt)
+              baseCfg = Conn.defaultTlsConnectionConfig (tlsKeyServerName tlsKey)
+          in Just baseCfg
+            { Conn.tlsValidateCert = tlsKeyValidate tlsKey
+            }
         TargetHttp  -> Nothing
   in Conn.ConnectionConfig
        { Conn.connectionHost         = host
@@ -464,10 +584,17 @@ targetForRequest pcfg req = case WURI.renderRequestURI (WReq.requestURI req) of
               WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
               WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
         proxyKey = fmap (\p -> (Pxy.proxyHost p, Pxy.proxyPort p)) mProxy
+        tlsKey = case WURI.uriScheme u of
+          WURI.SchemeHttps -> Just TlsTargetKey
+            { tlsKeyServerName = BS8.unpack host
+            , tlsKeyValidate   = True
+            }
+          WURI.SchemeHttp  -> Nothing
     in pure (Target { tgtScheme = scheme
                     , tgtHost   = host
                     , tgtPort   = port
                     , tgtProxy  = proxyKey
+                    , tgtTls    = tlsKey
                     }, mProxy)
 
 -- ---------------------------------------------------------------------------

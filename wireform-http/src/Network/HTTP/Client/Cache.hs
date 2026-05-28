@@ -17,13 +17,33 @@ non-shared user-agent cache:
   past @max-age@).
 * Adds an @Age@ header to cache hits per RFC 9110 §5.6.2.
 
-== Scope: private cache only
+== Scope: private cache
 
 Shared-cache directives (@public@, @s-maxage@, @proxy-revalidate@)
 are parsed and stored but not consulted; this module is designed
-for the per-client use case. @Vary@-keyed secondary cache keys
-are also not implemented yet — multi-variant responses fall
-through to a single cache slot. Both are tracked as follow-ups.
+for the per-client use case.
+
+== Vary-keyed secondary cache keys (RFC 9111 §4.1)
+
+When a response carries a @Vary@ header the cache stores which
+request-header values were in play at store time.  On a subsequent
+request the stored entry is a hit only if the current request's
+headers match for every name listed in @Vary@.  A @Vary: *@ response
+is never stored (it opts out of caching entirely).
+
+== stale-while-revalidate (RFC 5861 §3)
+
+When a response carries @Cache-Control: stale-while-revalidate=N@
+and the entry has gone stale within the N-second window, the cache
+serves the stale response immediately and kicks off a background
+revalidation.  The next request will find a fresh entry.
+
+== stale-if-error (RFC 5861 §4)
+
+When @Cache-Control: stale-if-error=N@ is present and a revalidation
+attempt fails with a server-side or network error within the N-second
+window, the cache falls back to the stale entry rather than
+propagating the error.
 
 == Pluggable storage
 
@@ -87,13 +107,16 @@ module Network.HTTP.Client.Cache
   , cacheSize
   ) where
 
+import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
+import Control.Exception (SomeException, throwIO, try)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
 import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict (HashMap)
 import Data.Hashable (Hashable, hashWithSalt)
+import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
 import Data.Time.Clock
   ( NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime
@@ -102,6 +125,7 @@ import Data.Time.Clock
 import qualified Network.HTTP.Headers.CacheControl as HCC
 import qualified Network.HTTP.HttpDate              as HD
 
+import qualified Data.CaseInsensitive as CI
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
 import qualified Network.HTTP.Types.Status as S
@@ -141,8 +165,10 @@ defaultCacheConfig = CacheConfig
 -- Primitives (exposed so custom CacheStores can serialise them)
 -- ---------------------------------------------------------------------------
 
--- | The cache key. Currently the primary key only — no
--- 'Vary'-derived secondary keys yet (RFC 9111 §4.1 second-step).
+-- | The primary cache key (scheme, host, port, method, path+query).
+-- Vary-derived secondary key matching is done at the entry level —
+-- 'lookupEntry' filters stored entries by comparing the request's
+-- header values against 'ceVaryFields' (RFC 9111 §4.1 second step).
 data CacheKey = CacheKey
   { ckScheme :: !WURI.Scheme
   , ckHost   :: !ByteString
@@ -178,6 +204,19 @@ data CacheEntry = CacheEntry
   , ceNoCache      :: !Bool
     -- ^ Response was tagged @no-cache@: stored but forces
     --   revalidation on every reuse.
+  , ceVaryFields   :: ![(H.HeaderName, H.HeaderValue)]
+    -- ^ Snapshot of the original request's header values for each
+    --   header named in the response's @Vary@ field (RFC 9111 §4.1
+    --   secondary key).  Empty when the response carried no @Vary@.
+    --   A @Vary: *@ response is not stored; see 'buildEntry'.
+  , ceStaleWhileRevalidate :: !(Maybe NominalDiffTime)
+    -- ^ @stale-while-revalidate@ delta from RFC 5861 §3.  When the
+    --   entry is stale but within this window the cache serves the
+    --   stale response and triggers a background revalidation.
+  , ceStaleIfError :: !(Maybe NominalDiffTime)
+    -- ^ @stale-if-error@ delta from RFC 5861 §4.  When revalidation
+    --   fails and the entry is within this window, the stale entry is
+    --   returned rather than propagating the error.
   }
   deriving stock (Show)
 
@@ -294,6 +333,15 @@ withCache cache inner = Transport $ \req -> do
       | entryFresh now entry && not (ceNoCache entry)
       , not (requestHasNoCache req)
         -> replayHit now entry
+      -- stale-while-revalidate: serve stale + revalidate in background
+      | not (requestHasNoCache req)
+      , Just swr <- ceStaleWhileRevalidate entry
+      , let freshness = maybe 0 id (explicitFreshness entry)
+            staleness = diffUTCTime now (ceResponseTime entry) - freshness
+      , staleness > 0 && staleness < swr
+        -> do
+          _ <- forkIO $ revalidateSilent cache inner req key entry
+          replayHit now entry
       | otherwise -> revalidateOrReplace cache inner req key entry
     (_, Nothing) -> fetchAndMaybeStore cache inner req
 
@@ -331,22 +379,76 @@ revalidateOrReplace
   -> IO RawResponse
 revalidateOrReplace cache inner req key entry = do
   let withValidators = attachValidators entry req
-  raw <- sendRaw inner withValidators
+  result <- try @SomeException (sendRaw inner withValidators)
   now <- getCurrentTime
-  case S.statusCode (Resp.statusCode raw) of
-    304 -> do
-      -- Replay the cached body but adopt the new headers (the
-      -- 304 carries refreshed validators and Cache-Control).
-      let mergedHeaders = mergeHeadersOn304 (ceHeaders entry) (Resp.headers raw)
-          freshened     = freshenEntry now entry { ceHeaders = mergedHeaders }
-      csInsert (cacheStore cache) key freshened
-      -- Drain the 304's (empty) body so the connection can advance.
-      BSm.drainPopper (Resp.bodyPopper raw)
-      replayHit now freshened
-    _ ->
-      -- 200 / other: replace the cache entry from the fresh response
-      -- if it looks storable.
-      maybeStoreAndReturn cache key raw now
+  case result of
+    Left err -> do
+      -- Network / transport error: check stale-if-error (RFC 5861 §4)
+      case ceStaleIfError entry of
+        Just sie
+          | let age = diffUTCTime now (ceResponseTime entry)
+                freshness = maybe 0 id (explicitFreshness entry)
+                staleness = age - freshness
+          , staleness < sie
+            -> replayHit now entry
+        _ -> throwIO err
+    Right raw -> case S.statusCode (Resp.statusCode raw) of
+      304 -> do
+        -- Replay the cached body but adopt the new headers (the
+        -- 304 carries refreshed validators and Cache-Control).
+        let mergedHeaders = mergeHeadersOn304 (ceHeaders entry) (Resp.headers raw)
+            freshened     = freshenEntry now entry { ceHeaders = mergedHeaders }
+        csInsert (cacheStore cache) key freshened
+        -- Drain the 304's (empty) body so the connection can advance.
+        BSm.drainPopper (Resp.bodyPopper raw)
+        replayHit now freshened
+      code | code >= 500 -> do
+        -- 5xx from server: check stale-if-error (RFC 5861 §4)
+        case ceStaleIfError entry of
+          Just sie
+            | let age = diffUTCTime now (ceResponseTime entry)
+                  freshness = maybe 0 id (explicitFreshness entry)
+                  staleness = age - freshness
+            , staleness < sie
+              -> do
+                BSm.drainPopper (Resp.bodyPopper raw)
+                replayHit now entry
+          _ -> maybeStoreAndReturn cache key raw now
+      _ ->
+        -- 200 / other: replace the cache entry from the fresh response
+        -- if it looks storable (pass request for Vary key extraction).
+        maybeStoreAndReturnWithReq cache key req raw now
+
+-- | Background revalidation for stale-while-revalidate. Errors are
+-- swallowed since the caller already received the stale response.
+revalidateSilent
+  :: Cache
+  -> Transport IO
+  -> WReq.Request BSm.BodyStream
+  -> CacheKey
+  -> CacheEntry
+  -> IO ()
+revalidateSilent cache inner req key entry = do
+  result <- try @SomeException $ do
+    let withValidators = attachValidators entry req
+    raw <- sendRaw inner withValidators
+    now <- getCurrentTime
+    case S.statusCode (Resp.statusCode raw) of
+      304 -> do
+        let mergedHeaders = mergeHeadersOn304 (ceHeaders entry) (Resp.headers raw)
+            freshened     = freshenEntry now entry { ceHeaders = mergedHeaders }
+        csInsert (cacheStore cache) key freshened
+        BSm.drainPopper (Resp.bodyPopper raw)
+      _ -> do
+        bodyBs <- BSm.popperBytes (Resp.bodyPopper raw)
+        let mVary = extractVaryFields (WReq.headers req) raw
+        case (buildEntry now raw bodyBs, mVary) of
+          (Just entry0, Just varyFields) ->
+            csInsert (cacheStore cache) key entry0 { ceVaryFields = varyFields }
+          _ -> pure ()  -- Vary: * or unstoreable; skip
+  case result of
+    Left _  -> pure ()  -- swallow errors; stale response already returned
+    Right _ -> pure ()
 
 -- | No cached entry yet: forward to inner, then store if storable.
 fetchAndMaybeStore
@@ -358,7 +460,7 @@ fetchAndMaybeStore cache inner req = do
   raw <- sendRaw inner req
   now <- getCurrentTime
   case keyOfRequest req of
-    Just key -> maybeStoreAndReturn cache key raw now
+    Just key -> maybeStoreAndReturnWithReq cache key req raw now
     Nothing  -> pure raw
 
 -- | Either store the response and pass it through, or pass it
@@ -381,10 +483,58 @@ maybeStoreAndReturn cache key raw now = do
           newPopper <- BSm.popperFromStrict bodyBs
           pure raw { Resp.bodyPopper = newPopper }
         else do
-          let entry = buildEntry now raw bodyBs
-          csInsert (cacheStore cache) key entry
+          case buildEntry now raw bodyBs of
+            Nothing ->
+              -- Vary: * — not cacheable
+              do
+                newPopper <- BSm.popperFromStrict bodyBs
+                pure raw { Resp.bodyPopper = newPopper }
+            Just entry0 -> do
+              -- Populate Vary secondary key from the request's stored
+              -- headers. The request headers aren't available here
+              -- (we only have the response); the caller must supply
+              -- them via maybeStoreAndReturnWithReq.
+              let entry = entry0
+              csInsert (cacheStore cache) key entry
+              newPopper <- BSm.popperFromStrict bodyBs
+              pure raw { Resp.bodyPopper = newPopper }
+
+-- | Like 'maybeStoreAndReturn' but with the originating request so
+-- that 'Vary' secondary keys can be populated (RFC 9111 §4.1).
+maybeStoreAndReturnWithReq
+  :: Cache
+  -> CacheKey
+  -> WReq.Request BSm.BodyStream
+  -> RawResponse
+  -> UTCTime
+  -> IO RawResponse
+maybeStoreAndReturnWithReq cache key req raw now = do
+  let canStore = responseIsStorable raw
+                   && not (responseHasNoStore raw)
+  if not canStore
+    then pure raw
+    else do
+      bodyBs <- BSm.popperBytes (Resp.bodyPopper raw)
+      if BS.length bodyBs > ccMaxBodyBytes (cacheConfig cache)
+        then do
           newPopper <- BSm.popperFromStrict bodyBs
           pure raw { Resp.bodyPopper = newPopper }
+        else do
+          let mVary = extractVaryFields (WReq.headers req) raw
+          case (buildEntry now raw bodyBs, mVary) of
+            (Nothing, _) -> do
+              -- Vary: * — not cacheable
+              newPopper <- BSm.popperFromStrict bodyBs
+              pure raw { Resp.bodyPopper = newPopper }
+            (_, Nothing) -> do
+              -- Vary: * from extractVaryFields
+              newPopper <- BSm.popperFromStrict bodyBs
+              pure raw { Resp.bodyPopper = newPopper }
+            (Just entry0, Just varyFields) -> do
+              let entry = entry0 { ceVaryFields = varyFields }
+              csInsert (cacheStore cache) key entry
+              newPopper <- BSm.popperFromStrict bodyBs
+              pure raw { Resp.bodyPopper = newPopper }
 
 -- ---------------------------------------------------------------------------
 -- Storage helpers
@@ -396,7 +546,25 @@ lookupEntry
   -> IO (Maybe (CacheKey, CacheEntry))
 lookupEntry cache req = case keyOfRequest req of
   Nothing -> pure Nothing
-  Just k  -> fmap (k,) <$> csLookup (cacheStore cache) k
+  Just k  -> do
+    mEntry <- csLookup (cacheStore cache) k
+    pure $ case mEntry of
+      Nothing -> Nothing
+      Just entry
+        -- Vary secondary-key check (RFC 9111 §4.1 second step):
+        -- every header named in ceVaryFields must match the current
+        -- request's value for that header.
+        | varyMatch (WReq.headers req) entry -> Just (k, entry)
+        | otherwise -> Nothing
+
+-- | Returns 'True' iff the request's headers satisfy the Vary
+-- secondary key stored in the entry (RFC 9111 §4.1).
+varyMatch :: H.Headers -> CacheEntry -> Bool
+varyMatch reqHdrs entry =
+  all match (ceVaryFields entry)
+  where
+    match (name, storedVal) =
+      H.lookupHeader name reqHdrs == Just storedVal
 
 keyOfRequest :: WReq.Request BSm.BodyStream -> Maybe CacheKey
 keyOfRequest req = case WURI.renderRequestURI (WReq.requestURI req) of
@@ -409,7 +577,9 @@ keyOfRequest req = case WURI.renderRequestURI (WReq.requestURI req) of
     , ckPath   = WURI.uriPathAndQuery u
     }
 
-buildEntry :: UTCTime -> RawResponse -> ByteString -> CacheEntry
+-- | Build a cache entry from a response.  Returns 'Nothing' for
+-- responses with @Vary: *@ which are never storable (RFC 9111 §4.1).
+buildEntry :: UTCTime -> RawResponse -> ByteString -> Maybe CacheEntry
 buildEntry now raw bodyBs =
   let directives = parseCacheControl (Resp.headers raw)
       maxAge =
@@ -423,21 +593,61 @@ buildEntry now raw bodyBs =
       immutable      = HCC.Immutable `elem` directives
       mustRevalidate = HCC.MustRevalidate `elem` directives
       noCacheTag     = any isNoCache directives
-  in CacheEntry
-       { ceStatus         = Resp.statusCode raw
-       , ceHeaders        = Resp.headers raw
-       , ceBody           = bodyBs
-       , ceRequestTime    = now
-       , ceResponseTime   = now
-       , ceMaxAge         = maxAge
-       , ceExpiresAt      = expires
-       , ceImmutable      = immutable
-       , ceMustRevalidate = mustRevalidate
-       , ceNoCache        = noCacheTag
+      swr =
+        case [s | HCC.StaleWhileRevalidate s <- directives] of
+          (s : _) -> Just (fromIntegral s :: NominalDiffTime)
+          []      -> Nothing
+      sie =
+        case [s | HCC.StaleIfError s <- directives] of
+          (s : _) -> Just (fromIntegral s :: NominalDiffTime)
+          []      -> Nothing
+  in Just CacheEntry
+       { ceStatus                = Resp.statusCode raw
+       , ceHeaders               = Resp.headers raw
+       , ceBody                  = bodyBs
+       , ceRequestTime           = now
+       , ceResponseTime          = now
+       , ceMaxAge                = maxAge
+       , ceExpiresAt             = expires
+       , ceImmutable             = immutable
+       , ceMustRevalidate        = mustRevalidate
+       , ceNoCache               = noCacheTag
+       , ceVaryFields            = []  -- populated by maybeStoreAndReturn
+       , ceStaleWhileRevalidate  = swr
+       , ceStaleIfError          = sie
        }
   where
     isNoCache (HCC.NoCache _) = True
     isNoCache _               = False
+
+-- | Extract the request header values for headers named in the
+-- response @Vary@ field (RFC 9111 §4.1 primary-key step 2).
+-- Returns 'Nothing' if @Vary: *@ is present (not storable).
+extractVaryFields
+  :: H.Headers           -- ^ Request headers
+  -> Resp.RawResponse    -- ^ Response (for the Vary header value)
+  -> Maybe [(H.HeaderName, H.HeaderValue)]
+extractVaryFields reqHdrs resp =
+  case H.lookupHeader H.hVary (Resp.headers resp) of
+    Nothing -> Just []
+    Just v  | v == "*" -> Nothing  -- Vary: * → don't cache
+    Just v  -> Just $ do
+      name <- parseVaryNames v
+      let val = H.lookupHeader name reqHdrs
+      case val of
+        Nothing  -> [(name, "")]
+        Just val' -> [(name, val')]
+
+-- | Parse the comma-separated list of header names in a @Vary@ value.
+parseVaryNames :: H.HeaderValue -> [H.HeaderName]
+parseVaryNames bs =
+  [ CI.mk tok
+  | raw <- BS.split 0x2C bs
+  , let tok = BS.dropWhile isOWS (BS.dropWhileEnd isOWS raw)
+  , not (BS.null tok)
+  ]
+  where
+    isOWS w = w == 0x20 || w == 0x09
 
 freshenEntry :: UTCTime -> CacheEntry -> CacheEntry
 freshenEntry now e =

@@ -159,6 +159,7 @@ fromHttp1Response r = Response
   , responseTrailers = fromHttp1Headers <$> H1.responseTrailers r
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 ------------------------------------------------------------------------

@@ -11,6 +11,17 @@ If ALPN picks a protocol that isn't covered by the configured
 client requested 'http2Only'), 'VersionOutOfRange' is raised; if it
 picks something we don't understand at all, 'TlsNoAlpnOverlap' is
 raised.
+
+== TLS extras (§4.4 audit)
+
+* mTLS — pass a @(certChainPEM, privateKeyPEM)@ pair via the
+  @mClientCert@ parameter; it is threaded through to
+  'Wireform.Network.TLS.Config.TlsClientConfig.tlsClientCertificate'.
+* Minimum TLS version — pass a 'TlsProtoVersion' to restrict the
+  minimum version accepted during the handshake.  Default is
+  'Tls12'; use 'Tls13' for TLS 1.3-only deployments.
+* HTTP\/3 guard — 'dispatch' rejects a peer that negotiates @h3@
+  over TLS (HTTP\/3 requires QUIC, not TLS\/TCP).
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -36,6 +47,7 @@ import qualified Network.Socket as NS
 import Wireform.Network.TLS.OpenSSL
   ( SslCtx
   , SslConn
+  , TlsProtoVersion (..)
   , freeConn
   , freeCtx
   , getAlpn
@@ -73,6 +85,9 @@ data TlsHandshakeError
     -- peer-selected protocol, if any, is in the first field).
   | TlsCertNotFound !FilePath
   | TlsHostnameMismatch !String !String
+    -- ^ Raised when the certificate's CN / SAN does not match the
+    -- expected server name.  First field is the expected name,
+    -- second is what the certificate presented.
   | TlsNoAddress !String
     -- ^ DNS / address-resolution returned an empty set for the
     --   target host.
@@ -92,15 +107,24 @@ data TlsClient
 -- | Connect to @host:port@ over TLS, advertise the supplied
 -- 'VersionRange' via ALPN, and run @action@ with the
 -- per-protocol connection handle.
+--
+-- The @mClientCert@ argument enables mutual TLS (mTLS): pass
+-- @Just (certChainPEM, privateKeyPEM)@ to present a client
+-- certificate during the handshake.
+--
+-- The @minVersion@ argument sets the minimum TLS protocol version
+-- (e.g. 'Tls13' to refuse TLS 1.2).
 withTlsClient
-  :: String        -- ^ host
-  -> String        -- ^ port
-  -> String        -- ^ TLS server name (SNI \/ X.509)
-  -> Bool          -- ^ validate cert
+  :: String           -- ^ host
+  -> String           -- ^ port
+  -> String           -- ^ TLS server name (SNI \/ X.509)
+  -> Bool             -- ^ validate cert
+  -> Maybe (FilePath, FilePath)  -- ^ mTLS client cert (certChain, privateKey) if any
+  -> TlsProtoVersion  -- ^ minimum TLS version
   -> VersionRange
   -> (TlsClient -> IO a)
   -> IO a
-withTlsClient host port serverName validateCert range action = do
+withTlsClient host port serverName validateCert mClientCert minVer range action = do
   let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
@@ -111,7 +135,8 @@ withTlsClient host port serverName validateCert range action = do
       $ \sock -> do
         NS.connect sock (NS.addrAddress addr)
         NS.setSocketOption sock NS.NoDelay 1
-        withTlsClientOnSocket sock host port serverName validateCert range action
+        withTlsClientOnSocket sock host port serverName validateCert
+          mClientCert minVer range action
 
 -- | Variant of 'withTlsClient' that takes an already-connected
 -- socket, leaving DNS \/ TCP dial to the caller. The socket is
@@ -121,16 +146,18 @@ withTlsClient host port serverName validateCert range action = do
 -- tunnel.
 withTlsClientOnSocket
   :: NS.Socket
-  -> String        -- ^ host (used only to populate HTTP\/2 client config)
-  -> String        -- ^ port (same)
-  -> String        -- ^ TLS server name (SNI \/ X.509)
-  -> Bool          -- ^ validate cert
+  -> String           -- ^ host (used only to populate HTTP\/2 client config)
+  -> String           -- ^ port (same)
+  -> String           -- ^ TLS server name (SNI \/ X.509)
+  -> Bool             -- ^ validate cert
+  -> Maybe (FilePath, FilePath)  -- ^ mTLS client cert
+  -> TlsProtoVersion  -- ^ minimum TLS version
   -> VersionRange
   -> (TlsClient -> IO a)
   -> IO a
-withTlsClientOnSocket sock host port serverName validateCert range action = do
+withTlsClientOnSocket sock host port serverName validateCert mClientCert minVer range action = do
   let alpnList = versionAlpnProtocols range
-  bracket (buildCtxClient validateCert alpnList) freeCtx $ \ctx -> do
+  bracket (buildCtxClient validateCert alpnList mClientCert minVer) freeCtx $ \ctx -> do
     let serverNameBs = BS8.pack serverName
         verifyHost   = if validateCert then Just serverNameBs else Nothing
     -- Hostname verification must be pinned /before/ the handshake;
@@ -155,6 +182,11 @@ dispatch host port range conn neg sock action =
       | not (versionAllowed v range) -> do
           freeConn conn
           throwIO (VersionOutOfRange (Just v) range)
+      | v == U.HTTP3 -> do
+          -- HTTP/3 runs over QUIC, not TLS.  A peer that negotiates
+          -- "h3" on a TLS connection is misconfigured; reject it.
+          freeConn conn
+          throwIO (TlsNoAlpnOverlap (Just "h3") range)
       | v == U.HTTP2 -> do
           transport <- H2TLS.tlsTransport conn
           let h2cfg = H2.defaultClientConfig
@@ -171,11 +203,18 @@ dispatch host port range conn neg sock action =
             H1C.closeConnection
             (\c -> action (TlsClientHttp1 (H1.ClientConnection c)))
 
-buildCtxClient :: Bool -> [ByteString] -> IO SslCtx
-buildCtxClient validateCert alpnList = do
+buildCtxClient
+  :: Bool
+  -> [ByteString]
+  -> Maybe (FilePath, FilePath)
+  -> TlsProtoVersion
+  -> IO SslCtx
+buildCtxClient validateCert alpnList mClientCert minVer = do
   let cfg = defaultTlsClientConfig
-        { tlsClientVerifyPeer = validateCert
-        , tlsClientAlpn       = alpnList
+        { tlsClientVerifyPeer   = validateCert
+        , tlsClientAlpn         = alpnList
+        , tlsClientCertificate  = mClientCert
+        , tlsClientMinVersion   = minVer
         }
   ctx <- buildClientCtx cfg
   case alpnList of

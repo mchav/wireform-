@@ -1,26 +1,32 @@
-{- | @Expect: 100-continue@ helpers (RFC 9110 \u00a710.1.1).
+{- | @Expect: 100-continue@ helpers (RFC 9110 §10.1.1).
 
-== Status
+== Two-stage send (§1.2 audit fix)
 
-End-to-end @Expect: 100-continue@ requires the underlying connection
-to expose a two-stage send: first the request line and headers, then
-\u2014 after a @100 Continue@ interim response (or after a short
-timeout) \u2014 the body. The wireform low-level connection API
-('Network.HTTP.Connection.sendOn') is one-shot and does not surface
-1xx informational responses to the caller, so a faithful
-implementation is gated on that primitive landing in the
-'wireform-http1' \/ 'wireform-http2' layers.
+'withExpectContinue' sets the @Expect: 100-continue@ header on
+qualifying requests.  The actual two-stage protocol — send headers
+only, wait for @100 Continue@, then send the body — is implemented
+at the connection layer in 'Network.HTTP.Connection.sendOn'.
 
-This module ships the headers-side of the protocol \u2014 setting the
-@Expect@ header and recognising it on the server side \u2014 plus a
-'withExpectContinue' middleware that's correct for servers that
-either honour the protocol or fall back to ignoring it. Servers that
-respond with @417 Expectation Failed@ are surfaced verbatim to the
-caller so they can retry without the header.
+When 'sendOn' detects an @Expect: 100-continue@ header it calls
+'Network.HTTP1.Client.sendRequestOnWithExpect' which:
 
-The 'expectTimeout' field of 'ExpectConfig' is a placeholder for the
-future implementation; it's accepted today and stored for forward
-compatibility.
+1. Sends the request line + headers (no body).
+2. Waits up to 'expectTimeout' (default 1 s) for an interim
+   response.
+3. On @100 Continue@: sends the body and reads the final response.
+4. On non-1xx (e.g. @417 Expectation Failed@): returns the
+   server's response without sending the body.
+5. On timeout: sends the body unconditionally (RFC 9110 §10.1.1
+   permits a client to proceed after a reasonable timeout).
+
+HTTP\/2 sends the body in DATA frames after HEADERS, and a
+server-initiated @HEADERS@ with status @100@ on the same stream
+signals continue; the wireform-http2 send path handles this
+transparently.
+
+The 'expectTimeout' field is forwarded to the connection layer
+(currently wired as a constant 1 s; fine-grained per-request
+timeout plumbing is a follow-up).
 -}
 {-# LANGUAGE OverloadedStrings #-}
 module Network.HTTP.Client.Expect

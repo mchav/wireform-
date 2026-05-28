@@ -16,6 +16,8 @@ module Network.HTTP2.Client
   , drainResponseBody
     -- * Errors
   , ClientStreamError (..)
+    -- * Push promises (RFC 9113 §6.6)
+  , PushPromiseReceived (..)
     -- * Low-level pieces, re-used by TLS bring-up
   , sendClientPreface
   , clientRecvLoop
@@ -115,6 +117,12 @@ data ClientResponse = ClientResponse
     -- recv loop is also free to remove the inbox first). For
     -- streams started by 'sendRequest' this is fire-and-forget; for
     -- 'withResponse' the bracket already calls it on exit.
+  , crPushPromises :: !(IO [PushPromiseReceived])
+    -- ^ Push promises the server sent on this stream so far.
+    -- Returns the list in arrival order; may be called multiple
+    -- times; new items appear once 'crResponseBody' has been
+    -- partially or fully consumed (the recv loop delivers
+    -- PUSH_PROMISE frames interleaved with DATA frames).
   }
 
 -- | Per-stream inbox the recv loop pushes into.
@@ -146,6 +154,11 @@ data StreamInbox = StreamInbox
     -- Decremented by DATA bytes the peer sends; replenished when we
     -- emit a @WINDOW_UPDATE@.  Goes negative ⇒ peer overflowed our
     -- advertised window ⇒ stream-level @FLOW_CONTROL_ERROR@.
+  , siPushPromises :: !(TVar [PushPromiseReceived])
+    -- ^ Push promises received on this stream (RFC 9113 §6.6).
+    -- Accumulated in LIFO order by the recv loop as PUSH_PROMISE
+    -- frames arrive; exposed via 'crPushPromises'.  Reversed on
+    -- read so callers see promises in arrival order.
   }
 
 data ResponseHead = ResponseHead
@@ -173,6 +186,25 @@ data ClientStreamError
   deriving stock (Eq, Show)
 
 instance Exception ClientStreamError
+
+-- | A push promise received from the server (RFC 9113 §6.6).  The
+-- server may announce these on any open client-initiated stream to
+-- indicate that it will proactively push the named resource.
+--
+-- @pprHeaders@ contains the HPACK-decoded pseudo-headers and regular
+-- headers that describe the pushed request (same shape as a normal
+-- request HEADERS block).  The wireform HTTP/2 client does not
+-- currently fulfil push responses end-to-end; see
+-- 'Network.HTTP.Client.Protocol.PushPromise' for the higher-level
+-- wrapper.
+data PushPromiseReceived = PushPromiseReceived
+  { pprPromisedStreamId :: !StreamId
+    -- ^ The server-assigned stream ID that will carry the pushed
+    --   response DATA / HEADERS frames.
+  , pprHeaders          :: ![(ByteString, ByteString)]
+    -- ^ Decoded push-promise request headers.
+  }
+  deriving stock (Show)
 
 -- | A live client connection plus the bookkeeping needed to collect
 -- per-stream responses. Acquire with 'withConnection' or
@@ -556,6 +588,38 @@ handleClientFrame handle (Frame hdr (FramePayloadRaw body)) = case fhType hdr of
                       closeStream handle sid
                     pure True
 
+  FramePushPromise -> do
+    -- RFC 9113 §6.6: PUSH_PROMISE carries the promised stream ID
+    -- and a HPACK-encoded request header block in the payload.
+    -- We decode the headers and record the promise on the
+    -- associated request stream's inbox.  The wireform client does
+    -- not currently consume push responses end-to-end; the caller
+    -- can inspect push-promise headers via 'crPushPromises'.
+    let sid = fhStreamId hdr
+    case stripPushPromisePayload (fhFlags hdr) body of
+      Nothing -> pure True  -- malformed: ignore
+      Just (promisedSid, block) -> do
+        copied <- forceCopyBS block
+        res <- withMVar (connHpackDecoder (chConnection handle)) $ \decoder ->
+          decodeHeaderBlock decoder copied
+        case res of
+          Left _ -> do
+            closeConnection (chConnection handle) CompressionError
+              "HPACK decode failed in PUSH_PROMISE"
+            pure False
+          Right headers -> do
+            hdrs <- forceCopyHeaders headers
+            inboxes <- readIORef (chStreams handle)
+            case Map.lookup sid inboxes of
+              Nothing -> pure True
+              Just inbox -> do
+                let pp = PushPromiseReceived
+                      { pprPromisedStreamId = promisedSid
+                      , pprHeaders = hdrs
+                      }
+                atomically $ modifyTVar' (siPushPromises inbox) (pp :)
+                pure True
+
   _ -> pure True
 
 -- | Decode a HEADERS block and route it as either the initial
@@ -720,6 +784,7 @@ sendRequest handle req = do
       , crResponseTrailers = readMVar (siTrailers inbox)
       , crCancel = sendRstStream handle sid Cancel
                      `catch` (\(_ :: SomeException) -> pure ())
+      , crPushPromises = reverse <$> readTVarIO (siPushPromises inbox)
       }
 
 -- | Bracket-style request that cancels the stream if the action is
@@ -763,6 +828,7 @@ withResponse handle req action = mask $ \restore -> do
         , crResponseBody = nextBodyChunk handle sid inbox
         , crResponseTrailers = readMVar (siTrailers inbox)
         , crCancel = cancelIfOpen ClientStreamConnectionClosed
+        , crPushPromises = reverse <$> readTVarIO (siPushPromises inbox)
         }
   cancelIfOpen ClientStreamConnectionClosed
   case result of
@@ -935,7 +1001,8 @@ registerAndSend handle req = do
     sw <- atomically $ newFlowControl (fromIntegral remoteInitial)
     ru <- newIORef 0
     rw <- newIORef (fromIntegral ourInitial)
-    pure $ StreamInbox h q t sw ru rw
+    pp <- atomically (newTVar [])
+    pure $ StreamInbox h q t sw ru rw pp
   atomicModifyIORef' (chStreams handle) (\m -> (Map.insert sid inbox m, ()))
   let pseudoHeaders =
         [ (":method", crMethod req)
@@ -1093,6 +1160,17 @@ stripHeaderPadding flags bs0 = do
   if testFlag flags flagPriority
     then if BS.length bs1 >= 5 then Just (BS.drop 5 bs1) else Nothing
     else Just bs1
+
+-- | Decode a PUSH_PROMISE payload into (promisedStreamId, headerBlock).
+-- Strips optional padding (RFC 9113 §6.6).
+stripPushPromisePayload :: FrameFlags -> ByteString -> Maybe (StreamId, ByteString)
+stripPushPromisePayload flags bs0 = do
+  bs1 <- stripDataPadding flags bs0
+  if BS.length bs1 < 4
+    then Nothing
+    else Just ( readWord32 bs1 .&. 0x7FFFFFFF
+              , BS.drop 4 bs1
+              )
 
 readWord32 :: ByteString -> Word32
 readWord32 bs =
