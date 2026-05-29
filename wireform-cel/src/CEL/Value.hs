@@ -258,17 +258,24 @@ cmpIntUint x y
   | x < 0 = LT
   | otherwise = compare (fromIntegral x :: Word64) y
 
+-- Cross-type comparison follows reference CEL (cel-go): the value with the
+-- larger magnitude type is bounds-checked first, then the integer is converted
+-- to 'Double' and compared. This is intentionally lossy at the extreme ends of
+-- the @int64@ / @uint64@ range (e.g. @9223372036854775807@ compares equal to
+-- @9223372036854775808.0@), matching every conformant runtime.
 cmpIntDouble :: Int64 -> Double -> Maybe Ordering
 cmpIntDouble x y
   | isNaN y = Nothing
-  | isInfinite y = Just (if y > 0 then LT else GT)
-  | otherwise = Just (compare (toRational x) (toRational y))
+  | y < fromIntegral (minBound :: Int64) = Just GT
+  | y > fromIntegral (maxBound :: Int64) = Just LT
+  | otherwise = Just (compare (fromIntegral x) y)
 
 cmpUintDouble :: Word64 -> Double -> Maybe Ordering
 cmpUintDouble x y
   | isNaN y = Nothing
-  | isInfinite y = Just (if y > 0 then LT else GT)
-  | otherwise = Just (compare (toRational (toInteger x)) (toRational y))
+  | y < 0 = Just GT
+  | y > fromIntegral (maxBound :: Word64) = Just LT
+  | otherwise = Just (compare (fromIntegral x) y)
 
 -- | Heterogeneous CEL equality. Always total: differing non-numeric types
 -- compare unequal rather than erroring. @NaN@ is unequal to everything.

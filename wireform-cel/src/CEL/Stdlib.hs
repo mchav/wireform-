@@ -26,8 +26,10 @@ module CEL.Stdlib
   ) where
 
 import qualified Data.ByteString as BS
-import Data.Char (isDigit)
+import Data.Char (intToDigit, isDigit)
 import Data.Int (Int64)
+import Data.Ratio ((%))
+import Numeric (floatToDigits)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -40,6 +42,9 @@ import Data.Time.Calendar.OrdinalDate (toOrdinalDate)
 import Data.Time.Clock (UTCTime (..), diffTimeToPicoseconds)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, formatTime, parseTimeM)
+import Data.Time.LocalTime (timeZoneMinutes)
+import Data.Time.Zones (timeZoneForUTCTime)
+import Data.Time.Zones.All (fromTZName, tzByLabel)
 import qualified Data.Vector as V
 import Data.Word (Word64)
 import Text.Regex.TDFA (Regex, makeRegexM, matchTest)
@@ -314,6 +319,7 @@ callFunction name args = case (name, args) of
   ("duration", [VString s]) -> parseDurationText s
   ("timestamp", [VTimestamp t]) -> Right (VTimestamp t)
   ("timestamp", [VString s]) -> parseTimestampText s
+  ("timestamp", [VInt i]) -> mkTimestampNanos (toInteger i * 1000000000)
   -- String functions
   ("contains", [VString s, VString needle]) -> Right (VBool (needle `T.isInfixOf` s))
   ("startsWith", [VString s, VString p]) -> Right (VBool (p `T.isPrefixOf` s))
@@ -350,14 +356,50 @@ parseBoolText s
 parseDoubleText :: Text -> Either CelError Value
 parseDoubleText s0 =
   let s = T.strip s0
-   in case TR.signed TR.double s of
-        Right (d, rest) | T.null rest -> Right (VDouble d)
-        _ -> case s of
-          "Infinity" -> Right (VDouble (1 / 0))
-          "+Infinity" -> Right (VDouble (1 / 0))
-          "-Infinity" -> Right (VDouble (-1 / 0))
-          "NaN" -> Right (VDouble (0 / 0))
-          _ -> Left (conversion ("cannot convert string to double: " <> s0))
+   in case s of
+        "Infinity" -> Right (VDouble (1 / 0))
+        "+Infinity" -> Right (VDouble (1 / 0))
+        "-Infinity" -> Right (VDouble (-1 / 0))
+        "NaN" -> Right (VDouble (0 / 0))
+        _ -> case parseDecimalRational s of
+          Just r -> Right (VDouble (fromRational r))
+          Nothing -> Left (conversion ("cannot convert string to double: " <> s0))
+
+-- Parse a decimal string @[sign] digits [. digits] [(e|E) [sign] digits]@ into
+-- an exact 'Rational', so the subsequent 'fromRational' is correctly rounded.
+parseDecimalRational :: Text -> Maybe Rational
+parseDecimalRational t0 =
+  let (sign, t1) = case T.uncons t0 of
+        Just ('-', r) -> (-1, r)
+        Just ('+', r) -> (1, r)
+        _ -> (1, t0)
+      (intPart, t2) = T.span isDigit t1
+      (fracPart, t3) = case T.uncons t2 of
+        Just ('.', r) -> T.span isDigit r
+        _ -> (T.empty, t2)
+      (expVal, t4) = parseExp t3
+   in if not (T.null intPart && T.null fracPart) && T.null t4
+        then
+          let digits = intPart <> fracPart
+              mantissa = readIntegerText digits
+              scale = toInteger (T.length fracPart)
+              value = (mantissa % 1) * (10 ^^ (expVal - scale))
+           in Just (sign * value)
+        else Nothing
+  where
+    parseExp t = case T.uncons t of
+      Just (e, r)
+        | e == 'e' || e == 'E' ->
+            let (s', r') = case T.uncons r of
+                  Just ('-', rr) -> (-1, rr)
+                  Just ('+', rr) -> (1, rr)
+                  _ -> (1, r)
+                (ds, r'') = T.span isDigit r'
+             in if T.null ds then (0, t) else (s' * fromIntegral (readIntegerText ds), r'')
+      _ -> (0, t)
+
+readIntegerText :: Text -> Integer
+readIntegerText t = T.foldl' (\acc c -> acc * 10 + toInteger (fromEnum c - fromEnum '0')) 0 t
 
 parseIntText :: Text -> Either CelError Value
 parseIntText s0 =
@@ -378,8 +420,10 @@ parseUintText s0 =
 doubleToInt :: Double -> Either CelError Value
 doubleToInt d
   | isNaN d || isInfinite d = Left (conversion "cannot convert double to int")
+  -- The valid range is (minInt, maxInt) non-inclusive (the conservative
+  -- round-trip bound from the spec), so exactly +-2^63 is also out of range.
   | d >= 9223372036854775808.0 = Left (overflow "integer")
-  | d < -9223372036854775808.0 = Left (overflow "integer")
+  | d <= -9223372036854775808.0 = Left (overflow "integer")
   | otherwise = Right (VInt (truncate d))
 
 doubleToUint :: Double -> Either CelError Value
@@ -395,9 +439,11 @@ bytesToString b = case TE.decodeUtf8' b of
   Left _ -> Left (conversion "invalid UTF-8 in bytes to string conversion")
 
 matchesRegex :: Text -> Text -> Either CelError Value
-matchesRegex s p = case makeRegexM (T.unpack p) :: Maybe Regex of
-  Nothing -> Left (invalidArg ("invalid regular expression: " <> p))
-  Just re -> Right (VBool (matchTest re (T.unpack s)))
+matchesRegex s p
+  | T.null p = Right (VBool True) -- the empty pattern matches at any position
+  | otherwise = case makeRegexM (T.unpack p) :: Maybe Regex of
+      Nothing -> Left (invalidArg ("invalid regular expression: " <> p))
+      Just re -> Right (VBool (matchTest re (T.unpack s)))
 
 ----------------------------------------------------------------------
 -- Text formatting helpers
@@ -406,20 +452,31 @@ matchesRegex s p = case makeRegexM (T.unpack p) :: Maybe Regex of
 intToText :: Integral a => a -> Text
 intToText = TL.toStrict . TB.toLazyText . TBI.decimal
 
--- | Format a double broadly compatibly with reference CEL: integral finite
--- values lose the trailing @.0@, special values render as @NaN@ / @+Inf@ /
--- @-Inf@.
+-- | Format a double the way reference CEL (Go's @strconv.FormatFloat(_, 'g',
+-- -1, 64)@) does: shortest round-tripping decimal, switching to scientific
+-- notation when the decimal exponent is @< -4@ or @>= 21@.
 doubleToText :: Double -> Text
 doubleToText d
   | isNaN d = "NaN"
   | isInfinite d = if d > 0 then "+Inf" else "-Inf"
+  | d == 0 = if isNegativeZero d then "-0" else "0"
   | otherwise =
-      let s = show d
-       in T.pack (stripDotZero s)
+      let sign = if d < 0 then "-" else ""
+          (ds, n) = floatToDigits 10 (abs d)
+          digits = map intToDigit ds
+          expo = n - 1 -- power of ten of the leading digit
+       in T.pack (sign ++ if expo < -4 || expo >= 21 then sci digits expo else fixed digits n)
   where
-    stripDotZero str = case break (== '.') str of
-      (intPart, ".0") -> intPart
-      _ -> str
+    sci [] _ = "0"
+    sci (d1 : rest) expo =
+      let mant = d1 : (if null rest then "" else '.' : rest)
+       in mant ++ "e" ++ expSign expo ++ pad2 (abs expo)
+    expSign e = if e < 0 then "-" else "+"
+    pad2 e = let s = show e in if length s < 2 then replicate (2 - length s) '0' ++ s else s
+    fixed digits n
+      | n <= 0 = "0." ++ replicate (negate n) '0' ++ digits
+      | n >= length digits = digits ++ replicate (n - length digits) '0'
+      | otherwise = let (a, b) = splitAt n digits in a ++ "." ++ b
 
 ----------------------------------------------------------------------
 -- Duration parsing / formatting
@@ -547,7 +604,7 @@ tsAccessor :: [Value] -> (TsParts -> Int) -> Either CelError Value
 tsAccessor args sel = case args of
   [VTimestamp t] -> withParts t 0
   [VTimestamp t, VString tz] -> do
-    off <- parseTimezone tz
+    off <- resolveOffset tz t
     withParts t off
   _ -> Left (noOverload "timestamp accessor")
   where
@@ -566,23 +623,33 @@ timestampParts (Timestamp secs _) off =
       dow = fromEnum (dayOfWeek day) `mod` 7
    in (fromInteger y, mo, d, hh, mm, ss, ord - 1, dow)
 
--- | Parse a timezone into an offset in seconds. Supports @UTC@, the empty
--- string (UTC), and fixed @±HH:MM@ offsets. Named zones are not supported.
-parseTimezone :: Text -> Either CelError Int
-parseTimezone tz
+-- | Resolve a timezone to its offset in seconds /at the given instant/.
+-- Supports @UTC@, the empty string (UTC), fixed @±HH:MM@ offsets (the sign is
+-- optional), and named IANA/Joda zones (with their DST rules applied at the
+-- instant in question) via the bundled zone database.
+resolveOffset :: Text -> Timestamp -> Either CelError Int
+resolveOffset tz ts
   | tz == "" || tz == "UTC" = Right 0
   | Just off <- fixedOffset tz = Right off
-  | otherwise = Left (invalidArg ("unsupported timezone: " <> tz))
+  | otherwise = case fromTZName (TE.encodeUtf8 tz) of
+      Just label ->
+        let zone = tzByLabel label
+            utct = posixSecondsToUTCTime (fromIntegral (tsSeconds ts))
+         in Right (timeZoneMinutes (timeZoneForUTCTime zone utct) * 60)
+      Nothing -> Left (invalidArg ("unsupported timezone: " <> tz))
 
 fixedOffset :: Text -> Maybe Int
-fixedOffset t = case T.uncons t of
-  Just (sign, rest)
-    | sign == '+' || sign == '-'
-    , [hh, mm] <- T.splitOn ":" rest
-    , Right (h, hr) <- TR.decimal hh
-    , T.null hr
-    , Right (m, mr) <- TR.decimal mm
-    , T.null mr ->
-        let off = h * 3600 + m * 60
-         in Just (if sign == '-' then negate off else off)
-  _ -> Nothing
+fixedOffset t0 =
+  let (neg, t) = case T.uncons t0 of
+        Just ('+', r) -> (False, r)
+        Just ('-', r) -> (True, r)
+        _ -> (False, t0)
+   in case T.splitOn ":" t of
+        [hh, mm]
+          | Right (h, hr) <- TR.decimal hh
+          , T.null hr
+          , Right (m, mr) <- TR.decimal mm
+          , T.null mr ->
+              let off = h * 3600 + m * 60
+               in Just (if neg then negate off else off)
+        _ -> Nothing

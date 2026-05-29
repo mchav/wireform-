@@ -174,6 +174,18 @@ comprehensionMacro env recv name args = case (name, args) of
   ("filter", [EIdent _ var, p]) -> Just (macroFilter env recv var p)
   ("map", [EIdent _ var, t]) -> Just (macroMap env recv var Nothing t)
   ("map", [EIdent _ var, p, t]) -> Just (macroMap env recv var (Just p) t)
+  -- Two-variable comprehension macros (cel-spec "macros2"). For lists the
+  -- first variable is the 0-based index and the second the element; for maps
+  -- they are the key and the value.
+  ("existsOne", [EIdent _ var, p]) -> Just (macroExistsOne env recv var p)
+  ("all", [EIdent _ a, EIdent _ b, p]) -> Just (macroAll2 env recv a b p)
+  ("exists", [EIdent _ a, EIdent _ b, p]) -> Just (macroExists2 env recv a b p)
+  ("exists_one", [EIdent _ a, EIdent _ b, p]) -> Just (macroExistsOne2 env recv a b p)
+  ("existsOne", [EIdent _ a, EIdent _ b, p]) -> Just (macroExistsOne2 env recv a b p)
+  ("transformList", [EIdent _ a, EIdent _ b, t]) -> Just (macroTransformList env recv a b Nothing t)
+  ("transformList", [EIdent _ a, EIdent _ b, p, t]) -> Just (macroTransformList env recv a b (Just p) t)
+  ("transformMap", [EIdent _ a, EIdent _ b, t]) -> Just (macroTransformMap env recv a b Nothing t)
+  ("transformMap", [EIdent _ a, EIdent _ b, p, t]) -> Just (macroTransformMap env recv a b (Just p) t)
   _ -> Nothing
 
 -- | Extract the elements a comprehension iterates over: list elements, or the
@@ -183,8 +195,18 @@ rangeElems (VList v) = Right (V.toList v)
 rangeElems (VMap m) = Right (map fst (celMapEntries m))
 rangeElems v = Left (noOverload ("comprehension over " <> typeNameText (typeOf v)))
 
+-- | Two-variable iteration: @(index, element)@ for lists, @(key, value)@ for
+-- maps.
+rangeElems2 :: Value -> Either CelError [(Value, Value)]
+rangeElems2 (VList v) = Right (zipWith (\i x -> (VInt (fromIntegral (i :: Int)), x)) [0 ..] (V.toList v))
+rangeElems2 (VMap m) = Right (celMapEntries m)
+rangeElems2 v = Left (noOverload ("comprehension over " <> typeNameText (typeOf v)))
+
 evalPred :: Env -> Text -> Expr -> Value -> Either CelError Value
-evalPred env var p el = evalIn (bind var el env) p
+evalPred env var p el = evalIn (bindLocal var el env) p
+
+evalPred2 :: Env -> Text -> Text -> Expr -> Value -> Value -> Either CelError Value
+evalPred2 env v1 v2 p a b = evalIn (bindLocal v2 b (bindLocal v1 a env)) p
 
 macroAll :: Env -> Expr -> Text -> Expr -> Either CelError Value
 macroAll env recv var p = do
@@ -256,11 +278,89 @@ macroMap env recv var mFilter t = do
         Right False -> go rest
         Left e -> Left e
 
+macroAll2 :: Env -> Expr -> Text -> Text -> Expr -> Either CelError Value
+macroAll2 env recv v1 v2 p = do
+  v <- evalIn env recv
+  pairs <- rangeElems2 v
+  go pairs Nothing
+  where
+    go [] mErr = maybe (Right (VBool True)) Left mErr
+    go ((a, b) : rest) mErr = case asBool (evalPred2 env v1 v2 p a b) of
+      Right False -> Right (VBool False)
+      Right True -> go rest mErr
+      Left e -> go rest (Just (maybe e id mErr))
+
+macroExists2 :: Env -> Expr -> Text -> Text -> Expr -> Either CelError Value
+macroExists2 env recv v1 v2 p = do
+  v <- evalIn env recv
+  pairs <- rangeElems2 v
+  go pairs Nothing
+  where
+    go [] mErr = maybe (Right (VBool False)) Left mErr
+    go ((a, b) : rest) mErr = case asBool (evalPred2 env v1 v2 p a b) of
+      Right True -> Right (VBool True)
+      Right False -> go rest mErr
+      Left e -> go rest (Just (maybe e id mErr))
+
+macroExistsOne2 :: Env -> Expr -> Text -> Text -> Expr -> Either CelError Value
+macroExistsOne2 env recv v1 v2 p = do
+  v <- evalIn env recv
+  pairs <- rangeElems2 v
+  go pairs (0 :: Int)
+  where
+    go [] n = Right (VBool (n == 1))
+    go ((a, b) : rest) n = case asBool (evalPred2 env v1 v2 p a b) of
+      Right True -> go rest (n + 1)
+      Right False -> go rest n
+      Left e -> Left e
+
+macroTransformList :: Env -> Expr -> Text -> Text -> Maybe Expr -> Expr -> Either CelError Value
+macroTransformList env recv v1 v2 mFilter t = do
+  v <- evalIn env recv
+  pairs <- rangeElems2 v
+  out <- go pairs
+  Right (VList (V.fromList out))
+  where
+    go [] = Right []
+    go ((a, b) : rest) = case mFilter of
+      Nothing -> do r <- evalPred2 env v1 v2 t a b; (r :) <$> go rest
+      Just p -> case asBool (evalPred2 env v1 v2 p a b) of
+        Right True -> do r <- evalPred2 env v1 v2 t a b; (r :) <$> go rest
+        Right False -> go rest
+        Left e -> Left e
+
+macroTransformMap :: Env -> Expr -> Text -> Text -> Maybe Expr -> Expr -> Either CelError Value
+macroTransformMap env recv kVar vVar mFilter t = do
+  v <- evalIn env recv
+  case v of
+    VMap m -> do
+      out <- go (celMapEntries m)
+      case celMap out of
+        Left msg -> Left (invalidArg msg)
+        Right cm -> Right (VMap cm)
+    _ -> Left (noOverload ("transformMap over " <> typeNameText (typeOf v)))
+  where
+    go [] = Right []
+    go ((k, val) : rest) = case mFilter of
+      Nothing -> do nv <- evalPred2 env kVar vVar t k val; ((k, nv) :) <$> go rest
+      Just p -> case asBool (evalPred2 env kVar vVar p k val) of
+        Right True -> do nv <- evalPred2 env kVar vVar t k val; ((k, nv) :) <$> go rest
+        Right False -> go rest
+        Left e -> Left e
+
 ----------------------------------------------------------------------
 -- Name resolution
 ----------------------------------------------------------------------
 
 resolveName :: Env -> Bool -> [Text] -> Either CelError Value
+resolveName env root segs
+  -- Comprehension-local variables take precedence over all package-based
+  -- resolution, matched on the leading identifier. A leading '.' (root) skips
+  -- locals and resolves in the global/package scope.
+  | not root
+  , (s0 : rest) <- segs
+  , Just v <- lookupLocal s0 env =
+      foldM selectField v rest
 resolveName env root segs =
   case findVarPrefix of
     Just (val, rest) -> foldM selectField val rest

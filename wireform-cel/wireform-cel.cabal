@@ -52,6 +52,7 @@ library
     containers >= 0.6 && < 0.9,
     deepseq >= 1.4 && < 1.6,
     time >= 1.11 && < 1.15,
+    tz >= 0.0 && < 0.2,
     regex-tdfa >= 1.3 && < 1.4
 
 test-suite wireform-cel-test
@@ -73,3 +74,20 @@ test-suite wireform-cel-test
     tasty-hunit,
     tasty-hedgehog,
     hedgehog
+
+-- Opt-in runner for the upstream cel-spec conformance suite. Set
+-- CEL_SPEC_DIR to a cel-spec checkout (or its tests/simple/testdata dir).
+test-suite wireform-cel-conformance
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: conformance
+  main-is: Main.hs
+  build-depends:
+    base,
+    wireform-cel,
+    text,
+    bytestring,
+    vector,
+    containers,
+    directory,
+    filepath

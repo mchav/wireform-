@@ -51,6 +51,7 @@ data Tok
   | TkBool !Bool
   | TkNull
   | TkIdent !Text
+  | TkEscIdent !Text
   | TkLParen
   | TkRParen
   | TkLBracket
@@ -128,6 +129,7 @@ lexer = go
       | c == '|' = Left "unexpected '|' (did you mean '||'?)"
       | c == '&' = Left "unexpected '&' (did you mean '&&'?)"
       | c == '"' || c == '\'' = lexStringWith False False (c : cs)
+      | c == '\x60' = lexBacktick cs
       | isStrPrefix c = lexPrefixed (c : cs)
       | isIdentStart c =
           let (name, rest) = span isIdentChar (c : cs)
@@ -160,6 +162,12 @@ lexer = go
     lexNumber input = do
       (t, rest) <- scanNumber input
       (t :) <$> go rest
+
+    -- Backtick-quoted (escaped) identifier, e.g. @`content-type`@.
+    lexBacktick input =
+      case break (== '\x60') input of
+        (_, []) -> Left "unterminated backtick-quoted identifier"
+        (name, _ : rest) -> (TkEscIdent (T.pack name) :) <$> go rest
 
 identTok :: Text -> Tok
 identTok t = case t of
@@ -448,8 +456,8 @@ expectTok expected = do
 parseError :: String -> P a
 parseError msg = P $ \_ -> Left msg
 
--- | Consume an identifier name (used for selectors, field names, function
--- names) rejecting reserved words.
+-- | Consume an identifier in a position where it names a variable / function:
+-- reserved words are rejected, but backtick-escaped identifiers are accepted.
 identName :: P Text
 identName = do
   t <- advance
@@ -457,7 +465,20 @@ identName = do
     TkIdent n
       | Set.member n reservedWords -> parseError ("reserved word used as name: " ++ T.unpack n)
       | otherwise -> pure n
+    TkEscIdent n -> pure n
     _ -> parseError ("expected identifier but found " ++ show t)
+
+-- | Consume a selector / field-init name. Per the grammar @SELECTOR@ only
+-- excludes the keyword tokens (@true@/@false@/@null@/@in@, which are not
+-- 'TkIdent's), so reserved words such as @as@ or @for@ /are/ valid here.
+-- Backtick-escaped identifiers are also accepted.
+selectorName :: P Text
+selectorName = do
+  t <- advance
+  case t of
+    TkIdent n -> pure n
+    TkEscIdent n -> pure n
+    _ -> parseError ("expected selector but found " ++ show t)
 
 ----------------------------------------------------------------------
 -- Grammar
@@ -611,7 +632,7 @@ parseMemberSuffix e = do
   case t of
     TkDot -> do
       _ <- advance
-      sel <- identName
+      sel <- selectorName
       t2 <- peek
       case t2 of
         TkLParen -> do
@@ -763,7 +784,7 @@ parseFieldInits = do
         TkRBrace -> advance >> pure (reverse acc)
         _ -> parseError ("expected ',' or '}' in struct but found " ++ show t)
     parseField = do
-      name <- identName
+      name <- selectorName
       expectTok TkColon
       v <- parseExpr
       pure (name, v)

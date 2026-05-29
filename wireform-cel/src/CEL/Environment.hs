@@ -6,9 +6,11 @@ module CEL.Environment
   , emptyEnv
   , bind
   , bindAll
+  , bindLocal
   , withContainer
   , addFunction
   , lookupVar
+  , lookupLocal
   , lookupFunction
   ) where
 
@@ -28,6 +30,10 @@ type Overload = [Value] -> Maybe (Either CelError Value)
 data Env = Env
   { envVars :: !(Map Text Value)
   -- ^ Bound variables keyed by their (possibly qualified) name.
+  , envLocals :: !(Map Text Value)
+  -- ^ Comprehension-local variables. These take precedence over every
+  -- package-based resolution rule (see the name-resolution rules in the spec),
+  -- so they are resolved before 'envVars' and before container qualification.
   , envContainer :: !Text
   -- ^ The container / package used for relative name resolution. Empty for
   -- the root scope.
@@ -37,7 +43,7 @@ data Env = Env
 
 -- | An environment with no bindings, no container, and no extension functions.
 emptyEnv :: Env
-emptyEnv = Env Map.empty "" Map.empty
+emptyEnv = Env Map.empty Map.empty "" Map.empty
 
 -- | Bind a single variable.
 bind :: Text -> Value -> Env -> Env
@@ -46,6 +52,11 @@ bind k v env = env {envVars = Map.insert k v (envVars env)}
 -- | Bind several variables at once.
 bindAll :: [(Text, Value)] -> Env -> Env
 bindAll kvs env = env {envVars = Map.union (Map.fromList kvs) (envVars env)}
+
+-- | Bind a comprehension-local variable. Locals shadow both globals and the
+-- package namespace when resolving simple names.
+bindLocal :: Text -> Value -> Env -> Env
+bindLocal k v env = env {envLocals = Map.insert k v (envLocals env)}
 
 -- | Set the resolution container (protobuf package scope).
 withContainer :: Text -> Env -> Env
@@ -59,6 +70,10 @@ addFunction name ov env =
 -- | Look up a bound variable by exact name.
 lookupVar :: Text -> Env -> Maybe Value
 lookupVar k env = Map.lookup k (envVars env)
+
+-- | Look up a comprehension-local variable by exact name.
+lookupLocal :: Text -> Env -> Maybe Value
+lookupLocal k env = Map.lookup k (envLocals env)
 
 -- | Try the registered extension functions for a name against the arguments.
 lookupFunction :: Text -> [Value] -> Env -> Maybe (Either CelError Value)
