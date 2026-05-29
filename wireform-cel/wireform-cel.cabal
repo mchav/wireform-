@@ -1,0 +1,75 @@
+cabal-version: 3.0
+name: wireform-cel
+version: 0.1.0.0
+synopsis: Common Expression Language (CEL) parser and evaluator
+description:
+  A conformant implementation of Google's Common Expression Language (CEL):
+  lexer, parser, dynamic value model, and an evaluator with the full standard
+  library of operators, conversions, functions, and comprehension macros.
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    CEL
+    CEL.Environment
+    CEL.Error
+    CEL.Eval
+    CEL.Parser
+    CEL.Stdlib
+    CEL.Syntax
+    CEL.Value
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    containers >= 0.6 && < 0.9,
+    deepseq >= 1.4 && < 1.6,
+    time >= 1.11 && < 1.15,
+    regex-tdfa >= 1.3 && < 1.4
+
+test-suite wireform-cel-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.CEL.Conformance
+    Test.CEL.Properties
+  ghc-options: -threaded
+  build-depends:
+    base,
+    wireform-cel,
+    text,
+    bytestring,
+    vector,
+    tasty,
+    tasty-hunit,
+    tasty-hedgehog,
+    hedgehog
