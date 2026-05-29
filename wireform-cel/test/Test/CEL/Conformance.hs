@@ -412,5 +412,6 @@ parseErrors =
     , err "for"
     , err "1 2"
     , err "'\\q'"
-    , err "'\\u2FE0'"
+    , -- UTF-16 surrogate code points are invalid even when escaped
+      err "'\\uD83D'"
     ]
