@@ -1,0 +1,75 @@
+cabal-version: 3.0
+name: wireform-protovalidate
+version: 0.1.0.0
+synopsis: protovalidate (CEL-based Protobuf validation) for wireform-proto
+description:
+  A companion to @wireform-proto@ implementing
+  [protovalidate](https://protovalidate.com/): protobuf message validation
+  expressed in CEL (via @wireform-cel@). Provides the protovalidate CEL
+  extension library, the standard rules as CEL, a validation engine that
+  collects violations, and a bridge from @wireform-proto@ dynamic messages.
+license: BSD-3-Clause
+license-file: LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    Protovalidate
+    Protovalidate.Constraint
+    Protovalidate.Eval
+    Protovalidate.Format
+    Protovalidate.Library
+    Protovalidate.Proto
+    Protovalidate.Rules
+    Protovalidate.Violation
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-cel,
+    wireform-proto,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    containers >= 0.6 && < 0.9,
+    deepseq >= 1.4 && < 1.6
+
+test-suite wireform-protovalidate-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Protovalidate.Format
+    Test.Protovalidate.Validation
+  build-depends:
+    base,
+    wireform-protovalidate,
+    wireform-cel,
+    text,
+    bytestring,
+    vector,
+    tasty,
+    tasty-hunit

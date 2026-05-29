@@ -46,6 +46,7 @@ packages:
   wireform-kafka/
   wireform-stats/
   wireform-cel/
+  wireform-protovalidate/
 
 package *
   optimization: 1
