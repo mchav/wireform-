@@ -82,7 +82,35 @@ cabal build wireform-cel
 cabal test  wireform-cel
 ```
 
-The test suite (`test/`) has two parts: `Test.CEL.Conformance` (example-based
-tests taken directly from the worked examples in the language definition) and
-`Test.CEL.Properties` (Hedgehog properties for arithmetic, ordering, and
-`size`).
+The default test suite (`test/`) has two parts: `Test.CEL.Conformance`
+(example-based tests taken directly from the worked examples in the language
+definition) and `Test.CEL.Properties` (Hedgehog properties for arithmetic,
+ordering, and `size`).
+
+### Upstream conformance suite
+
+A second, opt-in test suite (`wireform-cel-conformance`) runs the official
+[`cel-spec`](https://github.com/google/cel-spec) `tests/simple/testdata/*.textproto`
+suite (matching the monorepo's `TOML_TEST_SUITE` / `YAML_TEST_SUITE` pattern).
+Point `CEL_SPEC_DIR` at a checkout and run it:
+
+```
+git clone https://github.com/google/cel-spec
+CEL_SPEC_DIR=$PWD/cel-spec cabal test wireform-cel:wireform-cel-conformance
+```
+
+It parses the textproto suites, evaluates each case, and compares the result
+against the expected `cel.expr.Value` (or expected error). Tests that need
+features this library does not implement — protocol-buffer message values and
+the CEL extension libraries (`string_ext`, `math_ext`, optionals, …) — are
+reported as *skipped*, not failed.
+
+Current result over the core language files (everything except the extension
+libraries, the protobuf-enum file, the type-deduction/unknown-tracking files):
+
+```
+TOTAL  pass=1124  skip=128  fail=0
+```
+
+All 128 skips are protocol-buffer-message cases (construction, field access,
+wrapper/`Any`/`Struct` conversions) — the one documented gap below.
