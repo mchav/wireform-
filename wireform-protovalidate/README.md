@@ -226,20 +226,45 @@ Covered standard rules:
   `ipv6_with_prefixlen`/`uri`/`uri_ref`/`address`/`host_and_port`/`uuid`/`tuuid`;
 - `bytes`: `const`, `len`/`min_len`/`max_len`, `prefix`/`suffix`/`contains`,
   `in`/`not_in`, `ip`/`ipv4`/`ipv6`;
+- numeric `timestamp`/`duration`: `const`, `lt`/`lte`/`gt`/`gte`, `in`/`not_in`;
+  plus the time-relative timestamp rules `lt_now`/`gt_now`/`within` (see below);
 - `repeated`: `min_items`/`max_items`/`unique` (+ per-element `items` rules);
-- `map`: `min_pairs`/`max_pairs`;
+- `map`: `min_pairs`/`max_pairs`, plus per-key `map.keys` and per-value
+  `map.values` sub-rules (built with `mapKeys`/`mapValues`, or extracted from a
+  `.proto` map field). Violations are reported at `field[key]`;
+- `enum.defined_only` via the `definedOnly` builder (you supply the enum's
+  declared numbers);
+- oneof `required` via the `oneofRequired` builder (a message-level
+  `has(this.f1) || …` constraint), also extracted from `(buf.validate.oneof)`;
+- `string.well_known_regex` via the `wellKnownRegex` builder (HTTP header
+  name/value, RE2/POSIX-compatible);
+- `(buf.validate.predefined)` reusable constraints via `frPredefined`: a CEL
+  constraint plus the `rule` value bound for it (so the expression can reference
+  both `this` and `rule`);
 - field `required` and `ignore` (skip-on-empty); field- and message-level
   custom `cel`; nested-message recursion.
 
-Not yet implemented:
+### Time-relative timestamps
 
-- Time-relative timestamp rules (`lt_now`/`gt_now`/`within`) — they need a
-  `now` binding in the environment;
-- `map.keys`/`map.values` sub-rules, `enum.defined_only`, `well_known_regex`,
-  and `(buf.validate.predefined)` reusable constraints;
-- duration/timestamp literal bounds read from a `.proto`/descriptor (the
-  options encode them as messages); supply them programmatically as
-  `VDuration`/`VTimestamp` instead.
+`lt_now`/`gt_now`/`within` reference a `now` binding, so the engine cannot
+evaluate them without a clock. Use `validateAt :: Timestamp -> Value ->
+MessageRules -> [Violation]`, which binds `now` to the supplied timestamp; the
+plain `validate` leaves `now` unbound (those rules then surface as evaluation
+errors). `within` compares `this - now` and `now - this` against the configured
+`VDuration`.
+
+Extraction caveats:
+
+- `enum.defined_only` and `string.well_known_regex` are fully supported at the
+  engine/builder level; `.proto`/descriptor extraction currently emits them only
+  via the builders shown above (it does not yet resolve enum value sets or the
+  `well_known_regex` enum from the source automatically);
+- duration/timestamp literal bounds (`lt`/`gt`/etc. on `timestamp`/`duration`)
+  are supplied programmatically as `VDuration`/`VTimestamp`; they are not yet
+  decoded from the message-valued option in `.proto`/descriptor form;
+- compile-time validators (`Protovalidate.TH`) and `refined` reification cover
+  the flat/standard rules; the now-relative, map-key/value, and predefined
+  rules are handled by the interpreted engine.
 
 ## Building and testing
 
