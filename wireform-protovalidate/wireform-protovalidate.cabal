@@ -69,6 +69,7 @@ test-suite wireform-protovalidate-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.Protovalidate.Advanced
     Test.Protovalidate.Descriptor
     Test.Protovalidate.Format
     Test.Protovalidate.Refined

@@ -42,6 +42,7 @@
 module Protovalidate
   (     -- * Validating
     validate
+  , validateAt
   , validateIn
   , Violation (..)
 
@@ -98,6 +99,13 @@ module Protovalidate
   , uri
   , uuid
   , unique
+  , finite
+  , definedOnly
+  , oneofRequired
+  , wellKnownRegex
+  , mapKeys
+  , mapValues
+  , predefined
 
     -- * Constraints
   , Constraint (..)
@@ -126,7 +134,7 @@ import Protovalidate.Class
   )
 import Protovalidate.Constraint (Constraint (..), mkConstraint)
 import Protovalidate.Descriptor (fileRulesFromDescriptor, messageRulesFromDescriptor)
-import Protovalidate.Eval (validate, validateIn)
+import Protovalidate.Eval (validate, validateAt, validateIn)
 import Protovalidate.Library (libraryEnv, withLibrary)
 import Protovalidate.Proto
   ( FieldSchema (..)

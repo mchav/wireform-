@@ -39,9 +39,18 @@ module Protovalidate.Rules
   , minItems
   , maxItems
   , unique
+  , finite
+    -- * Constraint builders for rules that need extra context
+  , definedOnly
+  , oneofRequired
+  , wellKnownRegex
+  , mapKeys
+  , mapValues
+  , predefined
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import CEL.Value (Value (..))
 import qualified Data.Vector as V
@@ -86,6 +95,13 @@ data FieldRules = FieldRules
   -- ^ Field-level custom CEL constraints (@(buf.validate.field).cel@).
   , frItems :: !(Maybe FieldRules)
   -- ^ Rules applied to each element of a repeated field.
+  , frMapKeys :: !(Maybe FieldRules)
+  -- ^ Rules applied to each key of a map field (@(buf.validate.field).map.keys@).
+  , frMapValues :: !(Maybe FieldRules)
+  -- ^ Rules applied to each value of a map field (@…map.values@).
+  , frPredefined :: ![(Constraint, Value)]
+  -- ^ Predefined constraints: a CEL constraint plus the @rule@ value bound for
+  -- it (@(buf.validate.predefined)@).
   , frMessage :: !(Maybe MessageRules)
   -- ^ Rules applied to a (possibly repeated) message-typed field, recursively.
   }
@@ -109,6 +125,9 @@ emptyFieldRules =
     , frRules = []
     , frCustom = []
     , frItems = Nothing
+    , frMapKeys = Nothing
+    , frMapValues = Nothing
+    , frPredefined = []
     , frMessage = Nothing
     }
 
@@ -150,16 +169,69 @@ suffix s = ("suffix", VString s)
 contains s = ("contains", VString s)
 pattern s = ("pattern", VString s)
 
-email, hostname, uri, uuid, unique :: (Text, Value)
+email, hostname, uri, uuid, unique, finite :: (Text, Value)
 email = ("email", VBool True)
 hostname = ("hostname", VBool True)
 uri = ("uri", VBool True)
 uuid = ("uuid", VBool True)
 unique = ("unique", VBool True)
+finite = ("finite", VBool True)
 
 -- | @ip@ / @ipv4@ / @ipv6@ format selector. Use @ip@ for any version.
 ip :: (Text, Value)
 ip = ("ip", VBool True)
+
+----------------------------------------------------------------------
+-- Constraint builders for rules needing extra context
+----------------------------------------------------------------------
+
+-- | @enum.defined_only@: the value must be one of the enum's declared numbers.
+-- Pass the enum's values (the validator can't know them otherwise).
+definedOnly :: [Integer] -> Constraint
+definedOnly vals =
+  unsafeConstraint
+    "enum.defined_only"
+    "value must be a defined enum value"
+    ("this in [" <> T.intercalate ", " (map (T.pack . show) vals) <> "]")
+
+-- | @(buf.validate.oneof).required@: at least one of the named oneof member
+-- fields must be set. The first argument is the oneof name (used as the
+-- constraint id).
+oneofRequired :: Text -> [Text] -> Constraint
+oneofRequired name fields =
+  unsafeConstraint
+    name
+    ("at least one field of oneof " <> name <> " must be set")
+    (T.intercalate " || " (map (\f -> "has(this." <> f <> ")") fields))
+
+-- | @string.well_known_regex@: @kind@ is 1 (@HEADER_NAME@) or 2
+-- (@HEADER_VALUE@); @strict@ is accepted for API compatibility. The pattern is
+-- a raw CEL string (so regex backslashes are not consumed by CEL) and uses
+-- RE2/POSIX-compatible syntax.
+wellKnownRegex :: Int -> Bool -> Constraint
+wellKnownRegex kind strict =
+  unsafeConstraint
+    "string.well_known_regex"
+    "value must match the well-known regex"
+    ("this.matches(r\"" <> regex <> "\")")
+  where
+    _ = strict
+    regex = case kind of
+      1 -> "^:?[0-9a-zA-Z!#$%&'*+.^_|~`-]+$" -- HTTP header name
+      _ -> "^[[:print:][:blank:]]*$" -- HTTP header value (printable)
+
+-- | Apply rules to each key of a map field.
+mapKeys :: FieldRules -> FieldRules -> FieldRules
+mapKeys keyRules fr = fr {frMapKeys = Just keyRules}
+
+-- | Apply rules to each value of a map field.
+mapValues :: FieldRules -> FieldRules -> FieldRules
+mapValues valRules fr = fr {frMapValues = Just valRules}
+
+-- | A predefined constraint: a CEL constraint plus the @rule@ value bound for
+-- it. Add to 'frPredefined'.
+predefined :: Constraint -> Value -> (Constraint, Value)
+predefined = (,)
 
 ----------------------------------------------------------------------
 -- Standard constraint table
@@ -190,7 +262,7 @@ standardConstraints = \case
   KSfixed32 -> numericConstraints "sfixed32"
   KSfixed64 -> numericConstraints "sfixed64"
   KDuration -> numericConstraints "duration"
-  KTimestamp -> numericConstraints "timestamp"
+  KTimestamp -> timestampConstraints
 
 -- A constraint with the given id / message / CEL source.
 c :: Text -> Text -> Text -> Constraint
@@ -212,6 +284,21 @@ floatConstraints :: Text -> [(Text, Constraint)]
 floatConstraints kind =
   numericConstraints kind
     ++ [("finite", c (kind <> ".finite") "value must be finite" "!isInf(this) && !isNan(this)")]
+
+-- Timestamps add the time-relative rules (which reference the @now@ binding;
+-- see 'Protovalidate.Eval.validateAt').
+timestampConstraints :: [(Text, Constraint)]
+timestampConstraints =
+  numericConstraints "timestamp"
+    ++ [ ("lt_now", c "timestamp.lt_now" "value must be in the past" "this < now")
+       , ("gt_now", c "timestamp.gt_now" "value must be in the future" "this > now")
+       , ( "within"
+         , c
+             "timestamp.within"
+             "value must be within the configured duration of now"
+             "this - now <= rules.within && now - this <= rules.within"
+         )
+       ]
 
 stringConstraints :: [(Text, Constraint)]
 stringConstraints =

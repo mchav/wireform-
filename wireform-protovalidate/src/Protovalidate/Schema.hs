@@ -41,7 +41,7 @@ import qualified Data.Text.Encoding as TE
 
 import CEL.Error (errMsg)
 import Proto.IDL.AST
-import Proto.IDL.Inspect (fieldOptionsOf, messageFields, messageOptions)
+import Proto.IDL.Inspect (fieldOptionsOf, messageFields, messageMapFields, messageOneofs, messageOptions)
 import Proto.IDL.Parser (parseProtoFile)
 import Protovalidate.Constraint (Constraint, mkConstraint)
 import Protovalidate.Rules
@@ -66,9 +66,67 @@ fileMessageRules pf =
 -- expanded (cycle guard).
 extractMessageRules :: [MessageDef] -> Set Text -> MessageDef -> Either Text MessageRules
 extractMessageRules msgs visiting msg = do
-  fields <- traverse (extractField msgs (Set.insert (msgName msg) visiting)) (messageFields msg)
+  let vis = Set.insert (msgName msg) visiting
+  fields <- traverse (extractField msgs vis) (messageFields msg)
+  mapFields <- traverse extractMapField (messageMapFields msg)
   customs <- traverse constraintFromAggregate (messageCelOptions msg)
-  Right (messageRules fields customs)
+  Right (messageRules (fields ++ mapFields) (customs ++ oneofConstraints msg))
+
+-- | A @(buf.validate.oneof).required@ constraint for each oneof so annotated.
+oneofConstraints :: MessageDef -> [Constraint]
+oneofConstraints msg =
+  [ oneofRequired (oneofName od) (map oneofFieldName (oneofFields od))
+  | od <- messageOneofs msg
+  , any isOneofRequired (oneofOptions od)
+  ]
+  where
+    isOneofRequired od = case optNameParts (optName od) of
+      [ExtensionOption "buf.validate.oneof", SimpleOption "required"] -> isTrue (optValue od)
+      _ -> False
+
+-- | Extract rules for a @map@ field (which is a distinct AST element), including
+-- @map.keys@ / @map.values@ sub-rules.
+extractMapField :: MapField -> Either Text (Text, FieldRules)
+extractMapField mf = do
+  items <- traverse classify (mapMaybe withParts (mapOptions mf))
+  let mapRs = mergeRuleValues [(f, v) | IMapRule f v <- items]
+      keyTyped = [(k, f, v) | IMapKeyTyped k f v <- items]
+      keyCustoms = [con | IMapKeyCustom con <- items]
+      valTyped = [(k, f, v) | IMapValueTyped k f v <- items]
+      valCustoms = [con | IMapValueCustom con <- items]
+      customs = [con | ICustom con <- items]
+      subRules tps cs
+        | null tps && null cs = Nothing
+        | otherwise =
+            Just
+              emptyFieldRules
+                { frKind = firstKindOf tps
+                , frRules = mergeRuleValues [(f, v) | (_, f, v) <- tps]
+                , frCustom = cs
+                }
+  Right
+    ( mapFieldName mf
+    , emptyFieldRules
+        { frKind = Just KMap
+        , frRules = mapRs
+        , frMapKeys = subRules keyTyped keyCustoms
+        , frMapValues = subRules valTyped valCustoms
+        , frCustom = customs
+        , frRequired = any isReqItem items
+        , frIgnoreEmpty = any isIgnItem items
+        }
+    )
+
+firstKindOf :: [(RuleKind, Text, Value)] -> Maybe RuleKind
+firstKindOf ts = case ts of ((k, _, _) : _) -> Just k; _ -> Nothing
+
+isReqItem :: Item -> Bool
+isReqItem IRequired = True
+isReqItem _ = False
+
+isIgnItem :: Item -> Bool
+isIgnItem IIgnoreEmpty = True
+isIgnItem _ = False
 
 ----------------------------------------------------------------------
 -- Message-level CEL
@@ -97,6 +155,10 @@ data Item
   | IItemTyped !RuleKind !Text !Value
   | IItemCustom !Constraint
   | IMapRule !Text !Value
+  | IMapKeyTyped !RuleKind !Text !Value
+  | IMapKeyCustom !Constraint
+  | IMapValueTyped !RuleKind !Text !Value
+  | IMapValueCustom !Constraint
   | ISkip
 
 extractField :: [MessageDef] -> Set Text -> FieldDef -> Either Text (Text, FieldRules)
@@ -185,6 +247,12 @@ classify (parts, value) = case parts of
     | Just kind <- kindFromName k -> Right (maybe ISkip (IItemTyped kind f) (ruleValue kind f value))
   ["repeated", f]
     | f `elem` repeatedRuleFields -> Right (maybe ISkip (IRepeatedRule f) (repeatedRuleValue f value))
+  ["map", "keys", "cel"] -> IMapKeyCustom <$> constraintFromAggregate value
+  ["map", "keys", k, f]
+    | Just kind <- kindFromName k -> Right (maybe ISkip (IMapKeyTyped kind f) (ruleValue kind f value))
+  ["map", "values", "cel"] -> IMapValueCustom <$> constraintFromAggregate value
+  ["map", "values", k, f]
+    | Just kind <- kindFromName k -> Right (maybe ISkip (IMapValueTyped kind f) (ruleValue kind f value))
   ["map", f]
     | f `elem` ["min_pairs", "max_pairs"] -> Right (maybe ISkip (IMapRule f) (asUInt value))
   [k, f]
@@ -270,6 +338,7 @@ formatFlagFields =
   , "ipv4_prefix", "ipv6_prefix", "ip_with_prefixlen"
   , "ipv4_with_prefixlen", "ipv6_with_prefixlen"
   , "uri", "uri_ref", "address", "host_and_port", "uuid", "tuuid", "finite"
+  , "lt_now", "gt_now"
   ]
 
 -- Interpret a rule value given the rule kind and the rule field name.

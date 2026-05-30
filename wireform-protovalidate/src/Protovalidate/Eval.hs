@@ -11,6 +11,7 @@
 -- produces a violation.
 module Protovalidate.Eval
   ( validate
+  , validateAt
   , validateIn
   , evalConstraint
   ) where
@@ -25,7 +26,9 @@ import CEL.Environment (Env, bind)
 import CEL.Error (CelError, errMsg, invalidArg)
 import CEL.Value
   ( CelMap
+  , Timestamp
   , Value (..)
+  , celMapEntries
   , celMapFromList
   , celMapLookup
   , celMapSize
@@ -40,6 +43,12 @@ import Protovalidate.Violation (Violation (..))
 -- plus the protovalidate extension library).
 validate :: Value -> MessageRules -> [Violation]
 validate = validateIn libraryEnv
+
+-- | As 'validate', but with @now@ bound to the given timestamp, so the
+-- time-relative timestamp rules (@lt_now@ / @gt_now@ / @within@) can be
+-- evaluated deterministically.
+validateAt :: Timestamp -> Value -> MessageRules -> [Violation]
+validateAt now = validateIn (bind "now" (VTimestamp now) libraryEnv)
 
 -- | As 'validate', but with a caller-supplied base environment (e.g. with
 -- additional custom functions or variables registered).
@@ -80,7 +89,7 @@ lookupField _ _ = Nothing
 validateFieldValue :: Env -> Text -> Value -> FieldRules -> [Violation]
 validateFieldValue env path v fr
   | frIgnoreEmpty fr && isZeroValue v = []
-  | otherwise = stdViols ++ customViols ++ itemViols ++ nestedViols
+  | otherwise = stdViols ++ customViols ++ predefViols ++ itemViols ++ mapViols ++ nestedViols
   where
     rulesMap = VMap (rulesAsMap (frRules fr))
     env' = bind "rules" rulesMap (bind "this" v env)
@@ -93,9 +102,27 @@ validateFieldValue env path v fr
     stdViols = runConstraints env' path applicable
     customViols = runConstraints env' path (frCustom fr)
 
+    -- Predefined constraints additionally bind @rule@ to their value.
+    predefViols =
+      concatMap
+        (\(con, ruleVal) -> runConstraints (bind "rule" ruleVal env') path [con])
+        (frPredefined fr)
+
     itemViols = case (frItems fr, v) of
       (Just ifr, VList xs) ->
         concat (zipWith (\i x -> validateFieldValue env (indexed path i) x ifr) [0 ..] (V.toList xs))
+      _ -> []
+
+    mapViols = case v of
+      VMap m ->
+        let entries = celMapEntries m
+            keyViols = case frMapKeys fr of
+              Just kr -> concatMap (\(k, _) -> validateFieldValue env (keyed path k) k kr) entries
+              Nothing -> []
+            valViols = case frMapValues fr of
+              Just vr -> concatMap (\(k, val) -> validateFieldValue env (keyed path k) val vr) entries
+              Nothing -> []
+         in keyViols ++ valViols
       _ -> []
 
     nestedViols = case (frMessage fr, v) of
@@ -106,6 +133,17 @@ validateFieldValue env path v fr
 
 indexed :: Text -> Int -> Text
 indexed path i = path <> "[" <> T.pack (show i) <> "]"
+
+keyed :: Text -> Value -> Text
+keyed path k = path <> "[" <> renderKeyText k <> "]"
+
+renderKeyText :: Value -> Text
+renderKeyText = \case
+  VString s -> s
+  VInt n -> T.pack (show n)
+  VUInt n -> T.pack (show n)
+  VBool b -> if b then "true" else "false"
+  other -> T.pack (show other)
 
 rulesAsMap :: [(Text, Value)] -> CelMap
 rulesAsMap rs = celMapFromList [(VString k, v) | (k, v) <- rs]
