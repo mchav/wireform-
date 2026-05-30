@@ -63,6 +63,10 @@ module Protovalidate
   , fileRulesFromDescriptor
   , messageRulesFromDescriptor
 
+    -- * Reifying rules as refinement types (refined)
+  , refinedFieldType
+  , refinedPredicate
+
     -- * Rules
   , RuleKind (..)
   , FieldRules (..)
@@ -131,6 +135,7 @@ import Protovalidate.Proto
   , dynamicMessageToCel
   , dynamicValueToCel
   )
+import Protovalidate.Refined (refinedFieldType, refinedPredicate)
 import Protovalidate.Rules
 import Protovalidate.Schema (extractMessageRules, fileMessageRules, parseProtoRules)
 import Protovalidate.Violation (Violation (..))

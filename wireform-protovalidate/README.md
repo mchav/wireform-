@@ -142,6 +142,26 @@ check = validateValue userValidator
 `Protovalidate.Proto.dynamicMessageToCel` remains available for when you only
 have a schemaless `wireform-proto` `DynamicMessage`.
 
+## Refinement types
+
+`Protovalidate.Refined` reifies the common rules as
+[`refined`](https://hackage.haskell.org/package/refined) refinement types, so a
+field's constraints can show up in its type. It provides predicate aliases
+(`MinLen`, `MaxLen`, `LenEq`, `Gt`, `Gte`, `Lt`, `Lte`, `ConstEq`) and
+`refinedFieldType`, which turns a `FieldRules` into the type expression a code
+generator would emit:
+
+```haskell
+refinedFieldType (fieldRules KString [minLen 3, maxLen 64])
+-- Just "Refined (And (MinLen 3) (MaxLen 64)) Text"
+
+-- The aliases are real refined predicates:
+refine "abc" :: Either RefineException (Refined (MinLen 3) Text)  -- Right
+```
+
+Only length/count bounds and non-negative integer comparisons are reifiable as
+type-level naturals; the rest stay value-level (`Protovalidate.Eval`).
+
 ## Scope
 
 This package implements the CEL-driven core of protovalidate: the extension
