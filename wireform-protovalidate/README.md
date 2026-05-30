@@ -144,23 +144,42 @@ have a schemaless `wireform-proto` `DynamicMessage`.
 
 ## Refinement types
 
-`Protovalidate.Refined` reifies the common rules as
+`Protovalidate.Refined` reifies rules as
 [`refined`](https://hackage.haskell.org/package/refined) refinement types, so a
-field's constraints can show up in its type. It provides predicate aliases
-(`MinLen`, `MaxLen`, `LenEq`, `Gt`, `Gte`, `Lt`, `Lte`, `ConstEq`) and
-`refinedFieldType`, which turns a `FieldRules` into the type expression a code
-generator would emit:
+field's constraints can show up in its type. `refinedFieldType` turns a
+`FieldRules` into the type expression a code generator would emit:
 
 ```haskell
 refinedFieldType (fieldRules KString [minLen 3, maxLen 64])
 -- Just "Refined (And (MinLen 3) (MaxLen 64)) Text"
-
--- The aliases are real refined predicates:
-refine "abc" :: Either RefineException (Refined (MinLen 3) Text)  -- Right
 ```
 
-Only length/count bounds and non-negative integer comparisons are reifiable as
-type-level naturals; the rest stay value-level (`Protovalidate.Eval`).
+Two flavors of predicate are produced:
+
+- **Native predicates** for length/count/comparison rules, via the aliases
+  `MinLen`, `MaxLen`, `LenEq`, `Gt`, `Gte`, `Lt`, `Lte`, `ConstEq` (type-level
+  naturals). These are ordinary `refined` predicates:
+
+  ```haskell
+  refine "abc" :: Either RefineException (Refined (MinLen 3) Text)  -- Right
+  ```
+
+- **CEL-backed predicates** for everything else — the well-known string
+  formats, regex patterns, and arbitrary `(buf.validate.field).cel`
+  expressions — via the `Cel` predicate, which carries the CEL source at the
+  type level and runs it at validation time. This is how **custom predicates
+  also become refinement types**:
+
+  ```haskell
+  refinedFieldType (fieldRules KString [email])
+  -- Just "Refined (Cel \"this.isEmail()\") Text"
+
+  refine "a@b.com" :: Either RefineException (Refined (Cel "this.isEmail()") Text)  -- Right
+  ```
+
+  `CelWith tag expr` (with a `CelEnvironment tag` instance) runs in a
+  caller-supplied environment, so custom CEL *functions* can back a refinement
+  predicate too.
 
 ## Scope
 
