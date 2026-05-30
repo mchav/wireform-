@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveLift #-}
+
 -- | Abstract syntax tree for CEL expressions.
 --
 -- The tree closely mirrors the grammar in the CEL language definition. Binary
@@ -18,6 +20,7 @@ import Data.ByteString (ByteString)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word64)
+import Language.Haskell.TH.Syntax (Lift)
 
 -- | Literal constants. Integer literals are always non-negative as produced by
 -- the lexer; negation is a separate unary operator per the spec.
@@ -29,15 +32,15 @@ data Literal
   | LDouble !Double
   | LString !Text
   | LBytes  !ByteString
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Lift)
 
 -- | Arithmetic operators (precedence 3 and 4).
 data ArithOp = Add | Sub | Mul | Div | Mod
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Lift)
 
 -- | Relational / membership operators (precedence 5).
 data RelOp = Eq | Ne | Lt | Le | Gt | Ge | In
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Lift)
 
 data Expr
   = -- | A literal constant.
@@ -73,7 +76,7 @@ data Expr
     EArith !ArithOp !Expr !Expr
   | -- | Relational / membership.
     ERel !RelOp !Expr !Expr
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Lift)
 
 -- | If an expression is a (possibly dotted) plain identifier chain such as
 -- @a.b.c@, return its leading-dot flag and the segments. Used by name

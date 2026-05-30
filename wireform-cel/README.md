@@ -42,6 +42,24 @@ main = do
 `run` is the parse-and-evaluate convenience. Errors are returned as
 `Left CelError`.
 
+### Compile-time compilation
+
+For static CEL (known at compile time) there's no need to parse at runtime.
+`CEL.TH` parses the expression at compile time and splices the resulting
+`Expr` in as an ordinary baked-in constant (a CEL syntax error becomes a
+compile error):
+
+```haskell
+{-# LANGUAGE QuasiQuotes #-}
+import CEL
+import CEL.TH (cel)
+
+program :: Expr
+program = [cel| [1, 2, 3].map(x, x * x) |]   -- parsed at compile time
+
+main = print (evaluate emptyEnv program)
+```
+
 ## What's supported
 
 - **Syntax**: the complete grammar — ternary `?:`, `||`/`&&`, relations and
