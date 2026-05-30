@@ -45,20 +45,33 @@ main = do
 ### Compile-time compilation
 
 For static CEL (known at compile time) there's no need to parse at runtime.
-`CEL.TH` parses the expression at compile time and splices the resulting
-`Expr` in as an ordinary baked-in constant (a CEL syntax error becomes a
-compile error):
+`CEL.TH` offers two levels (a CEL syntax error becomes a compile error in both):
+
+- `[cel| … |]` / `compileCel` parse at compile time and splice the resulting
+  `Expr` as a baked-in constant — no runtime parse; `evaluate` walks the AST
+  once.
+- `[celFn| … |]` / `compileCelFn` go further and emit the program as
+  **Haskell**: every CEL node becomes a direct call to a `CEL.Eval`
+  combinator, producing an `Env -> Either CelError Value` closure with no AST
+  walk and no per-node dispatch at runtime — GHC optimizes it like any other
+  Haskell.
 
 ```haskell
 {-# LANGUAGE QuasiQuotes #-}
 import CEL
-import CEL.TH (cel)
+import CEL.TH (cel, celFn)
 
 program :: Expr
 program = [cel| [1, 2, 3].map(x, x * x) |]   -- parsed at compile time
 
-main = print (evaluate emptyEnv program)
+-- fully compiled to Haskell; reads variables from the environment:
+predicate :: Env -> Either CelError Value
+predicate = [celFn| this.size() >= 3 && this.startsWith('x') |]
 ```
+
+The runtime evaluator is built from the same combinators, so `compileExpr`
+(reusable `Expr -> Env -> Either CelError Value`) and the compile-time path
+share one definition of the language semantics.
 
 ## What's supported
 
