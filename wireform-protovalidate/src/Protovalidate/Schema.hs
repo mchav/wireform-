@@ -262,12 +262,14 @@ kindFromName = \case
   _ -> Nothing
 
 countFields :: [Text]
-countFields = ["min_len", "max_len", "len", "min_bytes", "max_bytes"]
+countFields = ["min_len", "max_len", "len", "min_bytes", "max_bytes", "len_bytes"]
 
 formatFlagFields :: [Text]
 formatFlagFields =
   [ "email", "hostname", "ip", "ipv4", "ipv6", "ip_prefix"
-  , "uri", "uri_ref", "address", "host_and_port", "uuid"
+  , "ipv4_prefix", "ipv6_prefix", "ip_with_prefixlen"
+  , "ipv4_with_prefixlen", "ipv6_with_prefixlen"
+  , "uri", "uri_ref", "address", "host_and_port", "uuid", "tuuid", "finite"
   ]
 
 -- Interpret a rule value given the rule kind and the rule field name.

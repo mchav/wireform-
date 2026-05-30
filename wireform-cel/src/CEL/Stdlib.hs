@@ -324,6 +324,9 @@ callFunction name args = case (name, args) of
   ("contains", [VString s, VString needle]) -> Right (VBool (needle `T.isInfixOf` s))
   ("startsWith", [VString s, VString p]) -> Right (VBool (p `T.isPrefixOf` s))
   ("endsWith", [VString s, VString p]) -> Right (VBool (p `T.isSuffixOf` s))
+  ("contains", [VBytes s, VBytes needle]) -> Right (VBool (needle `BS.isInfixOf` s))
+  ("startsWith", [VBytes s, VBytes p]) -> Right (VBool (p `BS.isPrefixOf` s))
+  ("endsWith", [VBytes s, VBytes p]) -> Right (VBool (p `BS.isSuffixOf` s))
   ("matches", [VString s, VString p]) -> matchesRegex s p
   -- Timestamp accessors
   ("getFullYear", _) -> tsAccessor args (\(y, _, _, _, _, _, _, _) -> y)

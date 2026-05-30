@@ -95,6 +95,19 @@ tests =
     , testCase "ip / hostname formats" $
         validate (msg [("host", VString "192.168.0.1"), ("name", VString "example.com")]) hostRules
           @?= []
+    , testCase "bytes prefix rule" $
+        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesPrefixRules) @?= ["bytes.prefix"]
+    , testCase "bytes ip rule (4 or 16 bytes)" $ do
+        validate (msg [("b", VBytes "\x7f\x00\x00\x01")]) bytesIpRules @?= []
+        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesIpRules) @?= ["bytes.ip"]
+    , testCase "double finite rule" $ do
+        validate (msg [("d", VDouble 1.5)]) finiteRules @?= []
+        ids (validate (msg [("d", VDouble (1 / 0))]) finiteRules) @?= ["double.finite"]
+    , testCase "string len_bytes rule" $
+        ids (validate (msg [("s", VString "ab")]) lenBytesRules) @?= ["string.len_bytes"]
+    , testCase "string tuuid rule" $ do
+        validate (msg [("s", VString "0123456789abcdef0123456789abcdef")]) tuuidRules @?= []
+        ids (validate (msg [("s", VString "nope")]) tuuidRules) @?= ["string.tuuid"]
     ]
   where
     lenRules = messageRules [("name", fieldRules KString [minLen 3, maxLen 10])] []
@@ -121,3 +134,8 @@ tests =
         , ("name", fieldRules KString [hostname])
         ]
         []
+    bytesPrefixRules = messageRules [("b", fieldRules KBytes [("prefix", VBytes "\xde\xad")])] []
+    bytesIpRules = messageRules [("b", fieldRules KBytes [("ip", VBool True)])] []
+    finiteRules = messageRules [("d", fieldRules KDouble [("finite", VBool True)])] []
+    lenBytesRules = messageRules [("s", fieldRules KString [("len_bytes", VUInt 3)])] []
+    tuuidRules = messageRules [("s", fieldRules KString [("tuuid", VBool True)])] []

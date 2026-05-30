@@ -14,6 +14,7 @@ module Protovalidate.Format
   , isIpv4
   , isIpv6
   , isIp
+  , isIpBytes
   , isIpPrefix
   , isHostAndPort
   , isUri
@@ -21,6 +22,7 @@ module Protovalidate.Format
   ) where
 
 import Data.Bits (shiftL, (.|.))
+import qualified Data.ByteString as BS
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isHexDigit, ord, toLower)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -159,6 +161,17 @@ isIp Nothing t = isIpv4 t || isIpv6 t
 isIp (Just 4) t = isIpv4 t
 isIp (Just 6) t = isIpv6 t
 isIp _ _ = False
+
+-- | Test whether a byte sequence is an IP address in network-byte-order form:
+-- 4 bytes (IPv4) or 16 bytes (IPv6). @version@ restricts as in 'isIp'.
+isIpBytes :: Maybe Int -> BS.ByteString -> Bool
+isIpBytes version b = case version of
+  Nothing -> n == 4 || n == 16
+  Just 4 -> n == 4
+  Just 6 -> n == 16
+  _ -> False
+  where
+    n = BS.length b
 
 ----------------------------------------------------------------------
 -- IP prefix (CIDR)

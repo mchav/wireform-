@@ -177,8 +177,8 @@ standardConstraints = \case
   KRepeated -> repeatedConstraints
   KMap -> mapConstraints
   KEnum -> numericConstraints "enum"
-  KFloat -> numericConstraints "float"
-  KDouble -> numericConstraints "double"
+  KFloat -> floatConstraints "float"
+  KDouble -> floatConstraints "double"
   KInt32 -> numericConstraints "int32"
   KInt64 -> numericConstraints "int64"
   KUint32 -> numericConstraints "uint32"
@@ -207,6 +207,12 @@ numericConstraints kind =
   , ("not_in", c (kind <> ".not_in") "value must not be in the forbidden set" "!(this in rules.not_in)")
   ]
 
+-- Floating-point kinds add the @finite@ rule on top of the numeric rules.
+floatConstraints :: Text -> [(Text, Constraint)]
+floatConstraints kind =
+  numericConstraints kind
+    ++ [("finite", c (kind <> ".finite") "value must be finite" "!isInf(this) && !isNan(this)")]
+
 stringConstraints :: [(Text, Constraint)]
 stringConstraints =
   [ ("const", c "string.const" "value must equal the configured constant" "this == rules.const")
@@ -215,6 +221,7 @@ stringConstraints =
   , ("max_len", c "string.max_len" "value is too long" "uint(size(this)) <= rules.max_len")
   , ("min_bytes", c "string.min_bytes" "value has too few bytes" "uint(size(bytes(this))) >= rules.min_bytes")
   , ("max_bytes", c "string.max_bytes" "value has too many bytes" "uint(size(bytes(this))) <= rules.max_bytes")
+  , ("len_bytes", c "string.len_bytes" "value must be the configured number of bytes" "uint(size(bytes(this))) == rules.len_bytes")
   , ("pattern", c "string.pattern" "value does not match the required pattern" "this.matches(rules.pattern)")
   , ("prefix", c "string.prefix" "value does not have the required prefix" "this.startsWith(rules.prefix)")
   , ("suffix", c "string.suffix" "value does not have the required suffix" "this.endsWith(rules.suffix)")
@@ -228,11 +235,17 @@ stringConstraints =
   , ("ipv4", c "string.ipv4" "value must be a valid IPv4 address" "this.isIp(4)")
   , ("ipv6", c "string.ipv6" "value must be a valid IPv6 address" "this.isIp(6)")
   , ("ip_prefix", c "string.ip_prefix" "value must be a valid IP prefix" "this.isIpPrefix()")
+  , ("ipv4_prefix", c "string.ipv4_prefix" "value must be a valid IPv4 network prefix" "this.isIpPrefix(4, true)")
+  , ("ipv6_prefix", c "string.ipv6_prefix" "value must be a valid IPv6 network prefix" "this.isIpPrefix(6, true)")
+  , ("ip_with_prefixlen", c "string.ip_with_prefixlen" "value must be a valid IP with prefix length" "this.isIpPrefix()")
+  , ("ipv4_with_prefixlen", c "string.ipv4_with_prefixlen" "value must be a valid IPv4 with prefix length" "this.isIpPrefix(4)")
+  , ("ipv6_with_prefixlen", c "string.ipv6_with_prefixlen" "value must be a valid IPv6 with prefix length" "this.isIpPrefix(6)")
   , ("uri", c "string.uri" "value must be a valid URI" "this.isUri()")
   , ("uri_ref", c "string.uri_ref" "value must be a valid URI reference" "this.isUriRef()")
   , ("address", c "string.address" "value must be a valid hostname or IP address" "this.isIp() || this.isHostname()")
   , ("host_and_port", c "string.host_and_port" "value must be a valid host and port" "this.isHostAndPort(true)")
   , ("uuid", c "string.uuid" "value must be a valid UUID" "this == '' || this.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')")
+  , ("tuuid", c "string.tuuid" "value must be a valid trimmed UUID" "this == '' || this.matches('^[0-9a-fA-F]{32}$')")
   ]
 
 bytesConstraints :: [(Text, Constraint)]
@@ -241,8 +254,14 @@ bytesConstraints =
   , ("len", c "bytes.len" "value must be the configured number of bytes" "uint(size(this)) == rules.len")
   , ("min_len", c "bytes.min_len" "value has too few bytes" "uint(size(this)) >= rules.min_len")
   , ("max_len", c "bytes.max_len" "value has too many bytes" "uint(size(this)) <= rules.max_len")
+  , ("prefix", c "bytes.prefix" "value does not have the required prefix" "this.startsWith(rules.prefix)")
+  , ("suffix", c "bytes.suffix" "value does not have the required suffix" "this.endsWith(rules.suffix)")
+  , ("contains", c "bytes.contains" "value does not contain the required subsequence" "this.contains(rules.contains)")
   , ("in", c "bytes.in" "value must be in the allowed set" "this in rules.`in`")
   , ("not_in", c "bytes.not_in" "value must not be in the forbidden set" "!(this in rules.not_in)")
+  , ("ip", c "bytes.ip" "value must be a valid IP address" "this.isIp()")
+  , ("ipv4", c "bytes.ipv4" "value must be a valid IPv4 address" "this.isIp(4)")
+  , ("ipv6", c "bytes.ipv6" "value must be a valid IPv6 address" "this.isIp(6)")
   ]
 
 repeatedConstraints :: [(Text, Constraint)]

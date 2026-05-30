@@ -56,6 +56,7 @@ module Protovalidate.Refined
   , R.RefineException
   ) where
 
+import qualified Data.ByteString as BS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -238,11 +239,22 @@ inlineRuleExpr kind (name, value) = case name of
   "ip" -> Just "this.isIp()"
   "ipv4" -> Just "this.isIp(4)"
   "ipv6" -> Just "this.isIp(6)"
+  "ip_prefix" -> Just "this.isIpPrefix()"
+  "ipv4_prefix" -> Just "this.isIpPrefix(4, true)"
+  "ipv6_prefix" -> Just "this.isIpPrefix(6, true)"
+  "ip_with_prefixlen" -> Just "this.isIpPrefix()"
+  "ipv4_with_prefixlen" -> Just "this.isIpPrefix(4)"
+  "ipv6_with_prefixlen" -> Just "this.isIpPrefix(6)"
   "uri" -> Just "this.isUri()"
   "uri_ref" -> Just "this.isUriRef()"
   "address" -> Just "this.isIp() || this.isHostname()"
   "host_and_port" -> Just "this.isHostAndPort(true)"
   "uuid" -> Just "this.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')"
+  "tuuid" -> Just "this.matches('^[0-9a-fA-F]{32}$')"
+  "finite" -> Just "!isInf(this) && !isNan(this)"
+  "min_bytes" -> Just ("uint(size(bytes(this))) >= " <> celLit value)
+  "max_bytes" -> Just ("uint(size(bytes(this))) <= " <> celLit value)
+  "len_bytes" -> Just ("uint(size(bytes(this))) == " <> celLit value)
   "pattern" -> celMethod "matches"
   "prefix" -> celMethod "startsWith"
   "suffix" -> celMethod "endsWith"
@@ -277,13 +289,19 @@ celLit = \case
   VUInt n -> T.pack (show n) <> "u"
   VDouble d -> T.pack (show d)
   VString s -> celString s
-  VBytes _ -> "b''"
+  VBytes b -> celBytes b
   VList xs -> "[" <> T.intercalate ", " (map celLit (V.toList xs)) <> "]"
   VNull -> "null"
   _ -> "null"
 
 celString :: Text -> Text
 celString s = "'" <> T.replace "'" "\\'" (T.replace "\\" "\\\\" s) <> "'"
+
+celBytes :: BS.ByteString -> Text
+celBytes b = "b'" <> T.concat (map hexEsc (BS.unpack b)) <> "'"
+  where
+    hexEsc w = "\\x" <> T.pack [hexDigit (w `div` 16), hexDigit (w `mod` 16)]
+    hexDigit n = "0123456789abcdef" !! fromIntegral n
 
 numeric :: RuleKind -> Bool
 numeric = \case

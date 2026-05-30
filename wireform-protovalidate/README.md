@@ -214,12 +214,32 @@ function library, the standard rules as CEL, the violation-collecting engine
 (with custom field- and message-level CEL), annotation extraction from `.proto`
 sources, and a compile-once typed validation path.
 
+Covered standard rules:
+
+- numeric (`float`/`double`/`int*`/`uint*`/`sint*`/`fixed*`/`sfixed*`): `const`,
+  `lt`/`lte`/`gt`/`gte`, `in`/`not_in`, and `finite` (float/double);
+- `bool`: `const`;
+- `string`: `const`, `len`/`min_len`/`max_len`/`min_bytes`/`max_bytes`/`len_bytes`,
+  `pattern`/`prefix`/`suffix`/`contains`/`not_contains`, `in`/`not_in`, and the
+  well-known formats `email`/`hostname`/`ip`/`ipv4`/`ipv6`/`ip_prefix`/
+  `ipv4_prefix`/`ipv6_prefix`/`ip_with_prefixlen`/`ipv4_with_prefixlen`/
+  `ipv6_with_prefixlen`/`uri`/`uri_ref`/`address`/`host_and_port`/`uuid`/`tuuid`;
+- `bytes`: `const`, `len`/`min_len`/`max_len`, `prefix`/`suffix`/`contains`,
+  `in`/`not_in`, `ip`/`ipv4`/`ipv6`;
+- `repeated`: `min_items`/`max_items`/`unique` (+ per-element `items` rules);
+- `map`: `min_pairs`/`max_pairs`;
+- field `required` and `ignore` (skip-on-empty); field- and message-level
+  custom `cel`; nested-message recursion.
+
 Not yet implemented:
 
-- A handful of less-common standard rules (e.g. bytes `prefix`/`suffix`,
-  `well_known_regex`, duration/timestamp literal bounds) and the full `ignore`
-  matrix; the common rules across string / numeric / bool / bytes / repeated /
-  map are covered, from both `.proto` annotations and compiled descriptors.
+- Time-relative timestamp rules (`lt_now`/`gt_now`/`within`) — they need a
+  `now` binding in the environment;
+- `map.keys`/`map.values` sub-rules, `enum.defined_only`, `well_known_regex`,
+  and `(buf.validate.predefined)` reusable constraints;
+- duration/timestamp literal bounds read from a `.proto`/descriptor (the
+  options encode them as messages); supply them programmatically as
+  `VDuration`/`VTimestamp` instead.
 
 ## Building and testing
 

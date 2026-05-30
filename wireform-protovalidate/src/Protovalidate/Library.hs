@@ -91,6 +91,8 @@ ovIsIp :: Overload
 ovIsIp args = case args of
   [VString s] -> ok (F.isIp Nothing s)
   [VString s, VInt v] -> ok (F.isIp (Just (fromIntegral v)) s)
+  [VBytes b] -> ok (F.isIpBytes Nothing b)
+  [VBytes b, VInt v] -> ok (F.isIpBytes (Just (fromIntegral v)) b)
   _ -> Nothing
 
 ovIsIpPrefix :: Overload

@@ -32,6 +32,7 @@ module Protovalidate.TH
   , CompiledConstraint
   ) where
 
+import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -161,6 +162,7 @@ inlineRuleCel rf value = case rf of
   "max_len" -> Just ("uint(size(this)) <= " <> celLit value)
   "min_bytes" -> Just ("uint(size(bytes(this))) >= " <> celLit value)
   "max_bytes" -> Just ("uint(size(bytes(this))) <= " <> celLit value)
+  "len_bytes" -> Just ("uint(size(bytes(this))) == " <> celLit value)
   "min_items" -> Just ("uint(size(this)) >= " <> celLit value)
   "max_items" -> Just ("uint(size(this)) <= " <> celLit value)
   "min_pairs" -> Just ("uint(size(this)) >= " <> celLit value)
@@ -176,12 +178,19 @@ inlineRuleCel rf value = case rf of
   "ipv4" -> Just "this.isIp(4)"
   "ipv6" -> Just "this.isIp(6)"
   "ip_prefix" -> Just "this.isIpPrefix()"
+  "ipv4_prefix" -> Just "this.isIpPrefix(4, true)"
+  "ipv6_prefix" -> Just "this.isIpPrefix(6, true)"
+  "ip_with_prefixlen" -> Just "this.isIpPrefix()"
+  "ipv4_with_prefixlen" -> Just "this.isIpPrefix(4)"
+  "ipv6_with_prefixlen" -> Just "this.isIpPrefix(6)"
   "uri" -> Just "this.isUri()"
   "uri_ref" -> Just "this.isUriRef()"
   "address" -> Just "this.isIp() || this.isHostname()"
   "host_and_port" -> Just "this.isHostAndPort(true)"
   "uuid" -> Just "this.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')"
+  "tuuid" -> Just "this.matches('^[0-9a-fA-F]{32}$')"
   "unique" -> Just "unique(this)"
+  "finite" -> Just "!isInf(this) && !isNan(this)"
   _ -> Nothing
 
 celLit :: Value -> Text
@@ -191,7 +200,7 @@ celLit = \case
   VUInt n -> tshow n <> "u"
   VDouble d -> tshow d
   VString s -> celString s
-  VBytes _ -> "b''"
+  VBytes b -> celBytes b
   VList xs -> "[" <> T.intercalate ", " (map celLit (V.toList xs)) <> "]"
   VNull -> "null"
   _ -> "null"
@@ -201,3 +210,10 @@ celLit = \case
 
 celString :: Text -> Text
 celString s = "'" <> T.replace "'" "\\'" (T.replace "\\" "\\\\" s) <> "'"
+
+-- A CEL bytes literal: every octet as a @\\xHH@ escape inside @b'…'@.
+celBytes :: BS.ByteString -> Text
+celBytes b = "b'" <> T.concat (map hexEsc (BS.unpack b)) <> "'"
+  where
+    hexEsc w = "\\x" <> T.pack [hexDigit (w `div` 16), hexDigit (w `mod` 16)]
+    hexDigit n = "0123456789abcdef" !! fromIntegral n
