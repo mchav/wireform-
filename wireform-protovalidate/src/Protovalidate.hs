@@ -59,6 +59,10 @@ module Protovalidate
   , fileMessageRules
   , extractMessageRules
 
+    -- * Reading rules from a compiled descriptor (buf.validate extension #1159)
+  , fileRulesFromDescriptor
+  , messageRulesFromDescriptor
+
     -- * Rules
   , RuleKind (..)
   , FieldRules (..)
@@ -117,6 +121,7 @@ import Protovalidate.Class
   , validateValue
   )
 import Protovalidate.Constraint (Constraint (..), mkConstraint)
+import Protovalidate.Descriptor (fileRulesFromDescriptor, messageRulesFromDescriptor)
 import Protovalidate.Eval (validate, validateIn)
 import Protovalidate.Library (libraryEnv, withLibrary)
 import Protovalidate.Proto

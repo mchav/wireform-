@@ -41,6 +41,7 @@ library
     Protovalidate
     Protovalidate.Class
     Protovalidate.Constraint
+    Protovalidate.Descriptor
     Protovalidate.Eval
     Protovalidate.Format
     Protovalidate.Library
@@ -64,6 +65,7 @@ test-suite wireform-protovalidate-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.Protovalidate.Descriptor
     Test.Protovalidate.Format
     Test.Protovalidate.Schema
     Test.Protovalidate.Validation
@@ -71,6 +73,7 @@ test-suite wireform-protovalidate-test
     base,
     wireform-protovalidate,
     wireform-cel,
+    wireform-proto,
     text,
     bytestring,
     vector,

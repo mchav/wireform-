@@ -102,6 +102,25 @@ timestamp rules, `repeated` (incl. `repeated.items.*`) and `map` rules,
 validation. (`fileMessageRules` / `extractMessageRules` work on an
 already-parsed `ProtoFile` / `MessageDef`.)
 
+### …or from a compiled descriptor
+
+protovalidate stores its rules as option *extensions* — extension #1159 on
+`google.protobuf.FieldOptions` / `MessageOptions`. Because `wireform-proto`'s
+`descriptor.proto` now preserves unknown fields, those extension bytes survive
+decoding, so rules can be read straight from a `FileDescriptorProto` (e.g. a
+`protoc`-produced `FileDescriptorSet`):
+
+```haskell
+case messageRulesFromDescriptor fileDescriptorProto "acme.user.v1.User" of
+  Right userRules -> validate userMsg userRules
+  Left err        -> error (show err)
+```
+
+`fileRulesFromDescriptor` returns rules for every message in the file. Custom
+`cel`, `required`, and `ignore` are always read; the standard rule sets are
+mapped for the common kinds (string / numeric / bool / bytes / repeated / map)
+using the buf.validate v1 field numbers.
+
 ## Validating typed messages (no dynamic round trip)
 
 `compileValidator` compiles a `MessageRules` once — the CEL expressions and
@@ -132,14 +151,10 @@ sources, and a compile-once typed validation path.
 
 Not yet implemented:
 
-- Reading `buf.validate` options from a compiled binary `FileDescriptorSet`
-  (extension #1159 on `FieldOptions`/`MessageOptions`). `wireform-proto`'s
-  descriptor subset drops options, so the `.proto` AST (via `parseProtoRules`)
-  is the annotation source of truth here.
 - A handful of less-common standard rules (e.g. bytes `prefix`/`suffix`,
-  `well_known_regex`, duration/timestamp literal bounds in option syntax) and
-  the full `ignore` matrix; the common rules across string / numeric / bool /
-  bytes / repeated / map are covered.
+  `well_known_regex`, duration/timestamp literal bounds) and the full `ignore`
+  matrix; the common rules across string / numeric / bool / bytes / repeated /
+  map are covered, from both `.proto` annotations and compiled descriptors.
 
 ## Building and testing
 
