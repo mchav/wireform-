@@ -40,10 +40,24 @@
 -- validateUser msg = validate msg userRules
 -- @
 module Protovalidate
-  ( -- * Validating
+  (     -- * Validating
     validate
   , validateIn
   , Violation (..)
+
+    -- * Compiled / typed validation
+  , Validator
+  , compileValidator
+  , compileValidatorIn
+  , runValidator
+  , validateValue
+  , ToCel (..)
+  , genericToCel
+
+    -- * Reading rules from a @.proto@ (buf.validate annotations)
+  , parseProtoRules
+  , fileMessageRules
+  , extractMessageRules
 
     -- * Rules
   , RuleKind (..)
@@ -93,6 +107,15 @@ module Protovalidate
   , dynamicValueToCel
   ) where
 
+import Protovalidate.Class
+  ( ToCel (..)
+  , Validator
+  , compileValidator
+  , compileValidatorIn
+  , genericToCel
+  , runValidator
+  , validateValue
+  )
 import Protovalidate.Constraint (Constraint (..), mkConstraint)
 import Protovalidate.Eval (validate, validateIn)
 import Protovalidate.Library (libraryEnv, withLibrary)
@@ -104,4 +127,5 @@ import Protovalidate.Proto
   , dynamicValueToCel
   )
 import Protovalidate.Rules
+import Protovalidate.Schema (extractMessageRules, fileMessageRules, parseProtoRules)
 import Protovalidate.Violation (Violation (..))

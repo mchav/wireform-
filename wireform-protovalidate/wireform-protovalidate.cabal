@@ -39,12 +39,14 @@ library
   hs-source-dirs: src
   exposed-modules:
     Protovalidate
+    Protovalidate.Class
     Protovalidate.Constraint
     Protovalidate.Eval
     Protovalidate.Format
     Protovalidate.Library
     Protovalidate.Proto
     Protovalidate.Rules
+    Protovalidate.Schema
     Protovalidate.Violation
   build-depends:
     base >= 4.16 && < 5,
@@ -63,6 +65,7 @@ test-suite wireform-protovalidate-test
   main-is: Main.hs
   other-modules:
     Test.Protovalidate.Format
+    Test.Protovalidate.Schema
     Test.Protovalidate.Validation
   build-depends:
     base,

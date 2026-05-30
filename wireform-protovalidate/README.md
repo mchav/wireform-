@@ -83,23 +83,63 @@ A message is represented as a CEL map from field name to value. `validate`
 uses the standard protovalidate CEL environment (base CEL plus the extension
 library); `validateIn` lets you supply your own base environment.
 
+## Reading rules from annotations
+
+Instead of writing `MessageRules` by hand, read them straight from a
+`buf.validate`-annotated `.proto` (via `wireform-proto`'s IDL parser):
+
+```haskell
+case parseProtoRules protoSource of
+  Right rulesByMessage ->
+    let Just userRules = lookup "User" rulesByMessage
+     in validate userMsg userRules
+  Left err -> error (show err)
+```
+
+`parseProtoRules` understands the scalar/numeric/bool/bytes/enum/duration/
+timestamp rules, `repeated` (incl. `repeated.items.*`) and `map` rules,
+`required` / `ignore`, field- and message-level `cel`, and nested-message
+validation. (`fileMessageRules` / `extractMessageRules` work on an
+already-parsed `ProtoFile` / `MessageDef`.)
+
+## Validating typed messages (no dynamic round trip)
+
+`compileValidator` compiles a `MessageRules` once — the CEL expressions and
+base environment are captured up front — and the resulting `Validator` can be
+reused across many messages. `ToCel` converts a typed Haskell record directly
+into CEL, so validation never decodes to a schemaless `DynamicMessage`:
+
+```haskell
+data User = User { id :: Text, age :: Word32, email :: Text }
+  deriving stock (Generic) deriving anyclass (ToCel)
+
+userValidator :: Validator
+userValidator = compileValidator userRules
+
+check :: User -> [Violation]
+check = validateValue userValidator
+```
+
+`Protovalidate.Proto.dynamicMessageToCel` remains available for when you only
+have a schemaless `wireform-proto` `DynamicMessage`.
+
 ## Scope
 
 This package implements the CEL-driven core of protovalidate: the extension
-function library, the standard rules as CEL, and the violation-collecting
-engine, with custom field- and message-level CEL fully supported.
+function library, the standard rules as CEL, the violation-collecting engine
+(with custom field- and message-level CEL), annotation extraction from `.proto`
+sources, and a compile-once typed validation path.
 
 Not yet implemented:
 
-- Reading `buf.validate` options directly from compiled protobuf descriptors
-  (the `FieldOptions`/`MessageOptions` extension #1159). `wireform-proto`'s
-  descriptor subset drops options today; until that lands, construct
-  `MessageRules` programmatically (or from the parsed `.proto` AST) and bridge
-  message values with `Protovalidate.Proto`.
+- Reading `buf.validate` options from a compiled binary `FileDescriptorSet`
+  (extension #1159 on `FieldOptions`/`MessageOptions`). `wireform-proto`'s
+  descriptor subset drops options, so the `.proto` AST (via `parseProtoRules`)
+  is the annotation source of truth here.
 - A handful of less-common standard rules (e.g. bytes `prefix`/`suffix`,
-  `well_known_regex`) and the full set of `ignore` modes; the common rules
-  across string / numeric / bool / bytes / repeated / map / duration /
-  timestamp are covered.
+  `well_known_regex`, duration/timestamp literal bounds in option syntax) and
+  the full `ignore` matrix; the common rules across string / numeric / bool /
+  bytes / repeated / map are covered.
 
 ## Building and testing
 
