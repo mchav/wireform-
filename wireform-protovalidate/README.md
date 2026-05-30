@@ -181,6 +181,11 @@ Two flavors of predicate are produced:
   caller-supplied environment, so custom CEL *functions* can back a refinement
   predicate too.
 
+  The `Cel`/`CelWith` predicates compile their CEL at most once per process
+  (memoized by the expression text), not on every `refine`. For CEL known at
+  compile time, prefer `CEL.TH`'s `[cel| … |]`, which compiles it at compile
+  time into a baked-in constant.
+
 ## Scope
 
 This package implements the CEL-driven core of protovalidate: the extension

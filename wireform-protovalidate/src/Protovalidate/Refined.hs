@@ -56,7 +56,9 @@ module Protovalidate.Refined
   , R.RefineException
   ) where
 
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Kind (Type)
+import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -64,10 +66,11 @@ import Data.Typeable (TypeRep, Typeable, typeRep)
 import qualified Data.Vector as V
 import GHC.TypeLits (KnownSymbol, Nat, Symbol, symbolVal)
 import qualified Refined as R
+import System.IO.Unsafe (unsafePerformIO)
 
-import CEL (compile, evaluate)
+import CEL (Expr, compile, evaluate)
 import CEL.Environment (Env, bind)
-import CEL.Error (errMsg)
+import CEL.Error (CelError, errMsg)
 import CEL.Value (Value (..))
 import Protovalidate.Class (ToCel (..))
 import Protovalidate.Constraint (constraintSource)
@@ -135,10 +138,28 @@ instance
   validate p value =
     celValidate (typeRep p) (celEnvironment (Proxy :: Proxy tag)) (symbolVal (Proxy :: Proxy expr)) value
 
+-- A process-wide cache so a given CEL expression (e.g. one coming from a
+-- type-level 'Symbol' that can't be compiled with Template Haskell) is parsed
+-- and compiled at most once, not on every 'R.refine'. For statically-known CEL
+-- prefer "CEL.TH" (@[cel| … |]@), which compiles it at compile time.
+{-# NOINLINE celCache #-}
+celCache :: IORef (Map.Map Text (Either CelError Expr))
+celCache = unsafePerformIO (newIORef Map.empty)
+
+compileCached :: Text -> Either CelError Expr
+compileCached src = unsafePerformIO $ do
+  cache <- readIORef celCache
+  case Map.lookup src cache of
+    Just r -> pure r
+    Nothing -> do
+      let r = compile src
+      atomicModifyIORef' celCache (\m -> (Map.insert src r m, ()))
+      pure r
+
 -- Shared evaluation for the CEL-backed predicates.
 celValidate :: ToCel x => TypeRep -> Env -> String -> x -> Maybe R.RefineException
 celValidate tr env src value =
-  case compile (T.pack src) of
+  case compileCached (T.pack src) of
     Left e -> fault ("invalid CEL: " <> errMsg e)
     Right expr -> case evaluate (bind "this" (toCel value) env) expr of
       Right (VBool True) -> Nothing
