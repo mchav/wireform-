@@ -121,6 +121,27 @@ case messageRulesFromDescriptor fileDescriptorProto "acme.user.v1.User" of
 mapped for the common kinds (string / numeric / bool / bytes / repeated / map)
 using the buf.validate v1 field numbers.
 
+## Compile-time validators
+
+`Protovalidate.TH.compileMessageValidator` reads a `.proto`'s `buf.validate`
+rules at compile time and emits a `Value -> [Violation]` in which every
+predicate — the standard rules (inlined to self-contained CEL) and any custom
+`(buf.validate.field).cel` — is compiled to Haskell via `CEL.TH`. No runtime
+parsing, no AST walk:
+
+```haskell
+{-# LANGUAGE TemplateHaskell #-}
+import Protovalidate
+import Protovalidate.TH (compileMessageValidator)
+import MyProtoSource (userProto)   -- a separate module (TH stage restriction)
+
+validateUser :: Value -> [Violation]
+validateUser = $(compileMessageValidator userProto "User")
+```
+
+(Current generator covers the message's own fields + message-level CEL;
+nested-message/repeated recursion isn't emitted yet.)
+
 ## Validating typed messages (no dynamic round trip)
 
 `compileValidator` compiles a `MessageRules` once — the CEL expressions and

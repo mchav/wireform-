@@ -49,6 +49,7 @@ library
     Protovalidate.Refined
     Protovalidate.Rules
     Protovalidate.Schema
+    Protovalidate.TH
     Protovalidate.Violation
   build-depends:
     base >= 4.16 && < 5,
@@ -59,6 +60,7 @@ library
     vector >= 0.13 && < 0.14,
     containers >= 0.6 && < 0.9,
     deepseq >= 1.4 && < 1.6,
+    template-haskell >= 2.18 && < 2.24,
     refined >= 0.8 && < 0.9
 
 test-suite wireform-protovalidate-test
@@ -71,6 +73,8 @@ test-suite wireform-protovalidate-test
     Test.Protovalidate.Format
     Test.Protovalidate.Refined
     Test.Protovalidate.Schema
+    Test.Protovalidate.TH
+    Test.Protovalidate.UserProto
     Test.Protovalidate.Validation
   build-depends:
     base,
