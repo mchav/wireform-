@@ -15,7 +15,14 @@
 --     @(buf.validate.field).int32.gt = 0@;
 --   * @repeated@ rules (@min_items@, @max_items@, @unique@) and per-element
 --     @repeated.items.<type>.<rule>@ rules;
---   * @map@ rules (@min_pairs@, @max_pairs@);
+--   * @map@ rules (@min_pairs@, @max_pairs@) plus @map.keys@ / @map.values@
+--     sub-rules;
+--   * @enum.defined_only@ (resolving the enum's declared values) and
+--     @string.well_known_regex@ (resolving the @KnownRegex@ enum + @strict@),
+--     both scalar and @repeated.items@;
+--   * @timestamp@ / @duration@ bounds whose option value is a
+--     @{seconds:.., nanos:..}@ message literal (and @timestamp.within@, a span);
+--   * oneof @required@ (@(buf.validate.oneof).required@);
 --   * @required@ and @ignore@ / @ignore_empty@;
 --   * field-level and message-level custom CEL
 --     (@(buf.validate.field).cel@ / @(buf.validate.message).cel@);
@@ -45,7 +52,7 @@ import Proto.IDL.Inspect (fieldOptionsOf, messageFields, messageMapFields, messa
 import Proto.IDL.Parser (parseProtoFile)
 import Protovalidate.Constraint (Constraint, mkConstraint)
 import Protovalidate.Rules
-import CEL.Value (Value (..))
+import CEL.Value (Duration (..), Timestamp (..), Value (..))
 import qualified Data.Vector as V
 
 -- | Parse @.proto@ source text and extract validation rules for every message
@@ -59,15 +66,16 @@ parseProtoRules src = case parseProtoFile "<protovalidate>" src of
 fileMessageRules :: ProtoFile -> Either Text [(Text, MessageRules)]
 fileMessageRules pf =
   let msgs = collectMessages pf
-   in traverse (\m -> (,) (msgName m) <$> extractMessageRules msgs Set.empty m) msgs
+      enums = collectEnums pf
+   in traverse (\m -> (,) (msgName m) <$> extractMessageRules enums msgs Set.empty m) msgs
 
--- | Extract the rules for a single message, given the file's message table
--- (for nested-message resolution) and the set of messages currently being
--- expanded (cycle guard).
-extractMessageRules :: [MessageDef] -> Set Text -> MessageDef -> Either Text MessageRules
-extractMessageRules msgs visiting msg = do
+-- | Extract the rules for a single message, given the file's enum + message
+-- tables (for enum-value and nested-message resolution) and the set of messages
+-- currently being expanded (cycle guard).
+extractMessageRules :: [EnumDef] -> [MessageDef] -> Set Text -> MessageDef -> Either Text MessageRules
+extractMessageRules enums msgs visiting msg = do
   let vis = Set.insert (msgName msg) visiting
-  fields <- traverse (extractField msgs vis) (messageFields msg)
+  fields <- traverse (extractField enums msgs vis) (messageFields msg)
   mapFields <- traverse extractMapField (messageMapFields msg)
   customs <- traverse constraintFromAggregate (messageCelOptions msg)
   Right (messageRules (fields ++ mapFields) (customs ++ oneofConstraints msg))
@@ -159,21 +167,38 @@ data Item
   | IMapKeyCustom !Constraint
   | IMapValueTyped !RuleKind !Text !Value
   | IMapValueCustom !Constraint
+  | IDefinedOnly
+  | IWellKnownRegex !Int
+  | IStrict !Bool
+  | IItemDefinedOnly
+  | IItemWellKnownRegex !Int
+  | IItemStrict !Bool
   | ISkip
 
-extractField :: [MessageDef] -> Set Text -> FieldDef -> Either Text (Text, FieldRules)
-extractField msgs visiting fd = do
+extractField :: [EnumDef] -> [MessageDef] -> Set Text -> FieldDef -> Either Text (Text, FieldRules)
+extractField enums msgs visiting fd = do
   items <- traverse classify (mapMaybe withParts (fieldOptionsOf fd))
   let typed = [(k, f, v) | ITyped k f v <- items]
       repeatedRs = mergeRuleValues [(f, v) | IRepeatedRule f v <- items]
       itemTyped = [(k, f, v) | IItemTyped k f v <- items]
       mapRs = mergeRuleValues [(f, v) | IMapRule f v <- items]
-      customs = [c | ICustom c <- items]
-      itemCustoms = [c | IItemCustom c <- items]
+      customs = [c | ICustom c <- items] ++ contextCustoms
+      itemCustoms = [c | IItemCustom c <- items] ++ itemContextCustoms
       isRequired = any isReq items
       isIgnoreEmpty = any isIgn items
       isRepeated = fieldLabel fd == Just Repeated
-      namedMsg = resolveMessage msgs visiting (fieldType fd)
+      namedMsg = resolveMessage enums msgs visiting (fieldType fd)
+
+      -- Constraints needing the field's declared type (enum values for
+      -- @defined_only@) or paired options (@well_known_regex@ + @strict@).
+      strictFlag = case [b | IStrict b <- items] of (b : _) -> b; [] -> True
+      itemStrictFlag = case [b | IItemStrict b <- items] of (b : _) -> b; [] -> True
+      contextCustoms =
+        [definedOnly nums | IDefinedOnly <- items, Just nums <- [enumValuesFor enums (fieldType fd)]]
+          ++ [wellKnownRegex k strictFlag | IWellKnownRegex k <- items]
+      itemContextCustoms =
+        [definedOnly nums | IItemDefinedOnly <- items, Just nums <- [enumValuesFor enums (fieldType fd)]]
+          ++ [wellKnownRegex k itemStrictFlag | IItemWellKnownRegex k <- items]
 
       scalarKind = firstKind typed
       scalarRules = mergeRuleValues [(f, v) | (_, f, v) <- typed]
@@ -243,6 +268,12 @@ classify (parts, value) = case parts of
   ["ignore_empty"] -> Right (if isTrue value then IIgnoreEmpty else ISkip)
   ["ignore"] -> Right (if ignoresEmpty value then IIgnoreEmpty else ISkip)
   ["repeated", "items", "cel"] -> IItemCustom <$> constraintFromAggregate value
+  ["repeated", "items", "enum", "defined_only"] ->
+    Right (if isTrue value then IItemDefinedOnly else ISkip)
+  ["repeated", "items", "string", "well_known_regex"] ->
+    Right (maybe ISkip IItemWellKnownRegex (wellKnownRegexCode value))
+  ["repeated", "items", "string", "strict"] ->
+    Right (maybe ISkip IItemStrict (asBoolMaybe value))
   ["repeated", "items", k, f]
     | Just kind <- kindFromName k -> Right (maybe ISkip (IItemTyped kind f) (ruleValue kind f value))
   ["repeated", f]
@@ -255,9 +286,25 @@ classify (parts, value) = case parts of
     | Just kind <- kindFromName k -> Right (maybe ISkip (IMapValueTyped kind f) (ruleValue kind f value))
   ["map", f]
     | f `elem` ["min_pairs", "max_pairs"] -> Right (maybe ISkip (IMapRule f) (asUInt value))
+  ["enum", "defined_only"] -> Right (if isTrue value then IDefinedOnly else ISkip)
+  ["string", "well_known_regex"] -> Right (maybe ISkip IWellKnownRegex (wellKnownRegexCode value))
+  ["string", "strict"] -> Right (maybe ISkip IStrict (asBoolMaybe value))
   [k, f]
     | Just kind <- kindFromName k -> Right (maybe ISkip (ITyped kind f) (ruleValue kind f value))
   _ -> Right ISkip
+
+-- The @buf.validate.KnownRegex@ enum: HTTP header name = 1, header value = 2.
+wellKnownRegexCode :: Constant -> Maybe Int
+wellKnownRegexCode = \case
+  CIdent "KNOWN_REGEX_HTTP_HEADER_NAME" -> Just 1
+  CIdent "KNOWN_REGEX_HTTP_HEADER_VALUE" -> Just 2
+  CInt 1 -> Just 1
+  CInt 2 -> Just 2
+  _ -> Nothing
+
+asBoolMaybe :: Constant -> Maybe Bool
+asBoolMaybe (CBool b) = Just b
+asBoolMaybe _ = Nothing
 
 repeatedRuleFields :: [Text]
 repeatedRuleFields = ["min_items", "max_items", "unique"]
@@ -270,14 +317,14 @@ repeatedRuleValue _ v = asUInt v -- min_items / max_items
 -- Nested message resolution
 ----------------------------------------------------------------------
 
-resolveMessage :: [MessageDef] -> Set Text -> FieldType -> Maybe MessageRules
-resolveMessage msgs visiting ft = case ft of
+resolveMessage :: [EnumDef] -> [MessageDef] -> Set Text -> FieldType -> Maybe MessageRules
+resolveMessage enums msgs visiting ft = case ft of
   FTNamed n ->
     let simple = last (T.splitOn "." n)
      in if Set.member simple visiting
           then Nothing -- break recursion on self-referential messages
           else case [m | m <- msgs, msgName m == simple] of
-            (m : _) -> either (const Nothing) Just (extractMessageRules msgs visiting m)
+            (m : _) -> either (const Nothing) Just (extractMessageRules enums msgs visiting m)
             [] -> Nothing
   _ -> Nothing
 
@@ -289,6 +336,29 @@ collectMessages pf = concatMap fromTop (protoTopLevels pf)
     nested m = concatMap go (msgElements m)
     go (MEMessage m) = m : nested m
     go _ = []
+
+-- All enum definitions in the file, top-level and nested in any message.
+collectEnums :: ProtoFile -> [EnumDef]
+collectEnums pf = concatMap fromTop (protoTopLevels pf)
+  where
+    fromTop (TLEnum e) = [e]
+    fromTop (TLMessage m) = nested m
+    fromTop _ = []
+    nested m = concatMap go (msgElements m)
+    go (MEEnum e) = [e]
+    go (MEMessage m) = nested m
+    go _ = []
+
+-- The declared value numbers of the enum a field refers to (if its type names
+-- one of the file's enums).
+enumValuesFor :: [EnumDef] -> FieldType -> Maybe [Integer]
+enumValuesFor enums ft = case ft of
+  FTNamed n ->
+    let simple = last (T.splitOn "." n)
+     in case [e | e <- enums, enumName e == simple] of
+          (e : _) -> Just (map (fromIntegral . evNumber) (enumValues e))
+          [] -> Nothing
+  _ -> Nothing
 
 ----------------------------------------------------------------------
 -- Value / constant helpers
@@ -354,8 +424,12 @@ ruleValue kind field con
       KBytes -> case field of
         _ -> asBytes con
       KBool -> asBool con
-      KDuration -> Nothing -- duration literals in options are messages; unsupported here
-      KTimestamp -> Nothing
+      -- Duration / timestamp bounds are message literals (@{seconds:.., nanos:..}@).
+      KDuration -> uncurry mkDuration <$> secondsNanos con
+      KTimestamp
+        -- @within@ on a timestamp is itself a duration span.
+        | field == "within" -> uncurry mkDuration <$> secondsNanos con
+        | otherwise -> uncurry mkTimestamp <$> secondsNanos con
       _
         | isUnsigned kind -> asUInt con
         | isFloat kind -> asDouble con
@@ -387,6 +461,20 @@ asBool _ = Nothing
 asBytes :: Constant -> Maybe Value
 asBytes (CString s) = Just (VBytes (TE.encodeUtf8 s))
 asBytes _ = Nothing
+
+-- Read @{seconds: .., nanos: ..}@ (either component optional, default 0) from a
+-- @google.protobuf.Duration@ / @Timestamp@ message literal.
+secondsNanos :: Constant -> Maybe (Integer, Integer)
+secondsNanos (CAggregate kvs) =
+  let intAt k = case lookup k kvs of Just (CInt i) -> Just i; Nothing -> Just 0; _ -> Nothing
+   in (,) <$> intAt "seconds" <*> intAt "nanos"
+secondsNanos _ = Nothing
+
+mkDuration :: Integer -> Integer -> Value
+mkDuration s n = VDuration (Duration (fromInteger s) (fromInteger n))
+
+mkTimestamp :: Integer -> Integer -> Value
+mkTimestamp s n = VTimestamp (Timestamp (fromInteger s) (fromInteger n))
 
 isTrue :: Constant -> Bool
 isTrue (CBool b) = b

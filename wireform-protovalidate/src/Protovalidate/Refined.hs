@@ -72,7 +72,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import CEL (Expr, compile, evaluate)
 import CEL.Environment (Env, bind)
 import CEL.Error (CelError, errMsg)
-import CEL.Value (Value (..))
+import CEL.Value (Duration (..), Timestamp (..), Value (..))
 import Protovalidate.Class (ToCel (..))
 import Protovalidate.Constraint (constraintSource)
 import Protovalidate.Library (libraryEnv)
@@ -291,6 +291,19 @@ celLit = \case
   VString s -> celString s
   VBytes b -> celBytes b
   VList xs -> "[" <> T.intercalate ", " (map celLit (V.toList xs)) <> "]"
+  VTimestamp (Timestamp s _) -> "timestamp(" <> T.pack (show s) <> ")"
+  VDuration (Duration s n)
+    | n == 0 -> "duration(\"" <> T.pack (show s) <> "s\")"
+    | otherwise ->
+        "duration(\""
+          <> (if s < 0 || n < 0 then "-" else "")
+          <> T.pack (show (abs s))
+          <> "."
+          <> ( case T.dropWhileEnd (== '0') (T.justifyRight 9 '0' (T.pack (show (abs (fromIntegral n :: Integer))))) of
+                 "" -> "0"
+                 t -> t
+             )
+          <> "s\")"
   VNull -> "null"
   _ -> "null"
 

@@ -95,6 +95,21 @@ tests =
             validate (msg [("scores", cmap [(VString "ab", VInt 5)]), ("a", VString "x")]) extractedMapRules @?= []
             ids (validate (msg [("scores", cmap [(VString "ab", VInt 5)])]) extractedMapRules) @?= ["choice"]
         ]
+    , testGroup
+        "schema extraction of enum/regex/time bounds"
+        [ testCase "enum.defined_only resolves declared values" $ do
+            validate (msg [("c", VInt 1)]) (rulesFor "E" enumProto) @?= []
+            ids (validate (msg [("c", VInt 5)]) (rulesFor "E" enumProto)) @?= ["enum.defined_only"]
+        , testCase "well_known_regex resolves the header-name pattern" $ do
+            validate (msg [("name", VString "Content-Type")]) (rulesFor "H" enumProto) @?= []
+            ids (validate (msg [("name", VString "bad name")]) (rulesFor "H" enumProto))
+              @?= ["string.well_known_regex"]
+        , testCase "timestamp.gt / duration.lte message-literal bounds" $ do
+            validate (msg [("t", VTimestamp (Timestamp 2000 0)), ("d", VDuration (Duration 5 0))]) (rulesFor "T" enumProto)
+              @?= []
+            ids (validate (msg [("t", VTimestamp (Timestamp 500 0)), ("d", VDuration (Duration 9 0))]) (rulesFor "T" enumProto))
+              @?= sort ["timestamp.gt", "duration.lte"]
+        ]
     ]
   where
     now = Timestamp 1000 0
@@ -114,10 +129,25 @@ tests =
       messageRules
         [("n", emptyFieldRules {frKind = Just KInt32, frPredefined = [predefined (mustC "n.min_rule" "too small" "this >= rule") (VInt 10)]})]
         []
-    extractedMapRules =
-      case parseProtoRules mapProto of
+    rulesFor name src =
+      case parseProtoRules src of
         Left e -> error (show e)
-        Right rs -> maybe (error "no message M") id (lookup "M" rs)
+        Right rs -> maybe (error ("no message " <> show name)) id (lookup name rs)
+    extractedMapRules = rulesFor "M" mapProto
+    enumProto =
+      "syntax = \"proto3\";\n\
+      \package t;\n\
+      \enum Color { RED = 0; GREEN = 1; BLUE = 2; }\n\
+      \message E {\n\
+      \  Color c = 1 [(buf.validate.field).enum.defined_only = true];\n\
+      \}\n\
+      \message H {\n\
+      \  string name = 1 [(buf.validate.field).string.well_known_regex = KNOWN_REGEX_HTTP_HEADER_NAME];\n\
+      \}\n\
+      \message T {\n\
+      \  google.protobuf.Timestamp t = 1 [(buf.validate.field).timestamp.gt = { seconds: 1000 }];\n\
+      \  google.protobuf.Duration d = 2 [(buf.validate.field).duration.lte = { seconds: 5 }];\n\
+      \}\n"
     mapProto =
       "syntax = \"proto3\";\n\
       \package t;\n\

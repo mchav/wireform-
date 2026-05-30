@@ -43,7 +43,7 @@ import CEL.Environment (bind)
 import CEL.Error (errMsg)
 import CEL.Eval (Compiled)
 import CEL.TH (compileCelFn)
-import CEL.Value (Value (..), celMapLookup)
+import CEL.Value (Duration (..), Timestamp (..), Value (..), celMapLookup)
 import Protovalidate.Constraint (Constraint (..))
 import Protovalidate.Library (libraryEnv)
 import Protovalidate.Rules
@@ -202,11 +202,29 @@ celLit = \case
   VString s -> celString s
   VBytes b -> celBytes b
   VList xs -> "[" <> T.intercalate ", " (map celLit (V.toList xs)) <> "]"
+  VTimestamp (Timestamp s _) -> "timestamp(" <> tshow s <> ")"
+  VDuration d -> celDuration d
   VNull -> "null"
   _ -> "null"
   where
     tshow :: Show a => a -> Text
     tshow = T.pack . show
+
+-- A CEL @duration("…s")@ literal. Seconds plus a 9-digit fractional part for
+-- any nanoseconds (trailing zeros trimmed).
+celDuration :: Duration -> Text
+celDuration (Duration s n)
+  | n == 0 = "duration(\"" <> tshow s <> "s\")"
+  | otherwise = "duration(\"" <> sign <> tshow (abs s) <> "." <> frac <> "s\")"
+  where
+    tshow :: Show a => a -> Text
+    tshow = T.pack . show
+    sign = if s < 0 || n < 0 then "-" else ""
+    frac =
+      let padded = T.justifyRight 9 '0' (tshow (abs (fromIntegral n :: Integer)))
+       in case T.dropWhileEnd (== '0') padded of
+            "" -> "0"
+            t -> t
 
 celString :: Text -> Text
 celString s = "'" <> T.replace "'" "\\'" (T.replace "\\" "\\\\" s) <> "'"

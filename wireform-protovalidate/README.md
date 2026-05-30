@@ -253,18 +253,27 @@ plain `validate` leaves `now` unbound (those rules then surface as evaluation
 errors). `within` compares `this - now` and `now - this` against the configured
 `VDuration`.
 
-Extraction caveats:
+`.proto` extraction (`parseProtoRules`) now covers the advanced rules too:
 
-- `enum.defined_only` and `string.well_known_regex` are fully supported at the
-  engine/builder level; `.proto`/descriptor extraction currently emits them only
-  via the builders shown above (it does not yet resolve enum value sets or the
-  `well_known_regex` enum from the source automatically);
-- duration/timestamp literal bounds (`lt`/`gt`/etc. on `timestamp`/`duration`)
-  are supplied programmatically as `VDuration`/`VTimestamp`; they are not yet
-  decoded from the message-valued option in `.proto`/descriptor form;
-- compile-time validators (`Protovalidate.TH`) and `refined` reification cover
-  the flat/standard rules; the now-relative, map-key/value, and predefined
-  rules are handled by the interpreted engine.
+- `enum.defined_only` resolves the enum's declared value numbers from the file
+  (top-level or nested) and emits `this in [...]` — scalar and `repeated.items`;
+- `string.well_known_regex` resolves the `KnownRegex` enum (+ `strict`), scalar
+  and `repeated.items`;
+- `timestamp`/`duration` `const`/`lt`/`lte`/`gt`/`gte` (and `timestamp.within`)
+  bounds are decoded from their `{seconds:.., nanos:..}` message literals;
+- `map.keys`/`map.values` sub-rules and oneof `required`.
+
+Remaining caveats:
+
+- the now-relative timestamp rules still need a clock, so use `validateAt`;
+- compile-time validators (`Protovalidate.TH`) inline the standard rules
+  (including the `timestamp`/`duration` literal bounds, rendered as
+  `timestamp(..)`/`duration("..s")`) and all custom constraints (so
+  `defined_only`/`well_known_regex` ride along), but the now-relative,
+  map-key/value, and predefined rules run through the interpreted engine;
+- the compiled-`FileDescriptorProto` path (`Protovalidate.Descriptor`) extracts
+  the standard #1159 rules; the `.proto` AST is the source of truth for the
+  advanced extraction above.
 
 ## Building and testing
 

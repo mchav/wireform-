@@ -10,14 +10,18 @@ import Data.Text (Text)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import CEL (Value (..), celMapFromList)
+import CEL (Duration (..), Timestamp (..), Value (..), celMapFromList)
 import Protovalidate
 import Protovalidate.TH (compileMessageValidator)
-import Test.Protovalidate.UserProto (userProto)
+import Test.Protovalidate.UserProto (eventProto, userProto)
 
 -- Generated at compile time; each rule's CEL is compiled to Haskell.
 userValidator :: Value -> [Violation]
 userValidator = $(compileMessageValidator userProto "User")
+
+-- Exercises compiled timestamp/duration literal bounds and enum defined_only.
+eventValidator :: Value -> [Violation]
+eventValidator = $(compileMessageValidator eventProto "Event")
 
 msg :: [(Text, Value)] -> Value
 msg fs = VMap (celMapFromList [(VString k, v) | (k, v) <- fs])
@@ -49,4 +53,24 @@ tests =
               )
           )
           @?= sort ["string.min_len", "uint32.lte", "string.email", "id_required_with_age"]
+    , testCase "compiled time bounds + enum defined_only: valid" $
+        eventValidator
+          ( msg
+              [ ("at", VTimestamp (Timestamp 2000 0))
+              , ("ttl", VDuration (Duration 30 0))
+              , ("kind", VInt 1)
+              ]
+          )
+          @?= []
+    , testCase "compiled time bounds + enum defined_only: violations" $
+        ids
+          ( eventValidator
+              ( msg
+                  [ ("at", VTimestamp (Timestamp 500 0))
+                  , ("ttl", VDuration (Duration 90 0))
+                  , ("kind", VInt 9)
+                  ]
+              )
+          )
+          @?= sort ["timestamp.gt", "duration.lte", "enum.defined_only"]
     ]
