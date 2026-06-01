@@ -16,10 +16,10 @@ module CEL.Parser
   , parseExpr
   ) where
 
-import Control.Applicative (Alternative (..))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.Char (chr, digitToInt, isDigit, ord)
+import Data.Char (chr, digitToInt, ord)
+import Data.Functor (($>))
 import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Text (Text)
@@ -28,14 +28,18 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word64, Word8)
 import qualified Data.Set as Set
 
+import Wireform.Parser
+import Wireform.Parser.Driver (parseByteString)
+import Wireform.Parser.Internal (Pure)
+
 import CEL.Syntax
 
 -- | Parse CEL source text into an 'Expr', or return a human-readable error.
 parse :: Text -> Either String Expr
 parse src = do
-  toks <- lexer (T.unpack src)
+  toks <- tokenize src
   case runP (parseExpr <* expectTok TkEOF) toks of
-    Left err -> Left err
+    Left msg -> Left msg
     Right (e, _) -> Right e
 
 ----------------------------------------------------------------------
@@ -94,80 +98,250 @@ reservedWords =
 -- Lexer
 ----------------------------------------------------------------------
 
-lexer :: String -> Either String [Tok]
-lexer = go
+-- The lexer is a 'Wireform.Parser' tokenizer over the UTF-8 bytes of the
+-- source. Whitespace and @//@ line comments are skipped between tokens; the
+-- delicate parts (escape interpretation, numeric value parsing) are delegated
+-- to the pure helpers further below.
+type L = Parser Pure String
+
+-- | Tokenize CEL source text into the token stream consumed by the grammar.
+tokenize :: Text -> Either String [Tok]
+tokenize src = case parseByteString lexTokens (TE.encodeUtf8 src) of
+  Right toks -> Right toks
+  Left perr -> Left (renderParseError perr)
+
+renderParseError :: ParseError String -> String
+renderParseError = \case
+  ParseErr _ e -> e
+  ParseUnexpectedEof _ _ -> "unexpected end of input"
+  _ -> "lexical error"
+
+lexTokens :: L [Tok]
+lexTokens = skipTrivia *> loop []
   where
-    go [] = Right [TkEOF]
-    go (c : cs)
-      | c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' = go cs
-      | c == '/' , ('/' : rest) <- cs = go (dropWhile (/= '\n') rest)
-      | c == '(' = (TkLParen :) <$> go cs
-      | c == ')' = (TkRParen :) <$> go cs
-      | c == '[' = (TkLBracket :) <$> go cs
-      | c == ']' = (TkRBracket :) <$> go cs
-      | c == '{' = (TkLBrace :) <$> go cs
-      | c == '}' = (TkRBrace :) <$> go cs
-      | c == ',' = (TkComma :) <$> go cs
-      | c == ':' = (TkColon :) <$> go cs
-      | c == '?' = (TkQuestion :) <$> go cs
-      | c == '+' = (TkPlus :) <$> go cs
-      | c == '-' = (TkMinus :) <$> go cs
-      | c == '*' = (TkStar :) <$> go cs
-      | c == '/' = (TkSlash :) <$> go cs
-      | c == '%' = (TkPercent :) <$> go cs
-      | c == '.' , (d : _) <- cs, isDigit d = lexNumber (c : cs)
-      | c == '.' = (TkDot :) <$> go cs
-      | c == '|' , ('|' : rest) <- cs = (TkOr :) <$> go rest
-      | c == '&' , ('&' : rest) <- cs = (TkAnd :) <$> go rest
-      | c == '=' , ('=' : rest) <- cs = (TkEq :) <$> go rest
-      | c == '!' , ('=' : rest) <- cs = (TkNe :) <$> go rest
-      | c == '!' = (TkNot :) <$> go cs
-      | c == '<' , ('=' : rest) <- cs = (TkLe :) <$> go rest
-      | c == '<' = (TkLt :) <$> go cs
-      | c == '>' , ('=' : rest) <- cs = (TkGe :) <$> go rest
-      | c == '>' = (TkGt :) <$> go cs
-      | c == '|' = Left "unexpected '|' (did you mean '||'?)"
-      | c == '&' = Left "unexpected '&' (did you mean '&&'?)"
-      | c == '"' || c == '\'' = lexStringWith False False (c : cs)
-      | c == '\x60' = lexBacktick cs
-      | isStrPrefix c = lexPrefixed (c : cs)
-      | isIdentStart c =
-          let (name, rest) = span isIdentChar (c : cs)
-           in (identTok (T.pack name) :) <$> go rest
-      | isDigit c = lexNumber (c : cs)
-      | otherwise = Left ("unexpected character: " ++ show c)
+    loop acc = do
+      end <- atEnd
+      if end
+        then pure (reverse (TkEOF : acc))
+        else do
+          t <- lexToken
+          skipTrivia
+          loop (t : acc)
 
-    -- A string/bytes prefix letter followed eventually by a quote.
-    lexPrefixed input =
-      case scanPrefix input of
-        Just (raw, bytes, rest@(q : _))
-          | q == '"' || q == '\'' ->
-              if bytes
-                then lexBytesWith raw rest
-                else lexStringWith raw True rest
-        _ ->
-          let (name, rest) = span isIdentChar input
-           in (identTok (T.pack name) :) <$> go rest
+-- Skip whitespace and @//@ line comments.
+skipTrivia :: L ()
+skipTrivia = skipMany (skipWhitespace <|> skipLineComment)
+  where
+    skipWhitespace = skipSatisfyAscii isSpaceChar
+    isSpaceChar c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+    skipLineComment = (word8 slash *> word8 slash) *> skipMany (satisfy (/= '\n'))
 
-    lexStringWith raw _consumedPrefix input = do
-      (content, rest) <- scanQuoted raw input
-      t <- processString raw content
-      (TkStringLit t :) <$> go rest
+-- One token. The driver loop guarantees we are not at end-of-input.
+lexToken :: L Tok
+lexToken = do
+  c <- lookahead anyChar
+  case c of
+    '(' -> consume TkLParen
+    ')' -> consume TkRParen
+    '[' -> consume TkLBracket
+    ']' -> consume TkRBracket
+    '{' -> consume TkLBrace
+    '}' -> consume TkRBrace
+    ',' -> consume TkComma
+    ':' -> consume TkColon
+    '?' -> consume TkQuestion
+    '+' -> consume TkPlus
+    '-' -> consume TkMinus
+    '*' -> consume TkStar
+    '/' -> consume TkSlash
+    '%' -> consume TkPercent
+    '.' -> branch (lookahead (word8 dot *> satisfyAscii isDigit)) lexNumber (consume TkDot)
+    '|' -> (byteString "||" $> TkOr) <|> err "unexpected '|' (did you mean '||'?)"
+    '&' -> (byteString "&&" $> TkAnd) <|> err "unexpected '&' (did you mean '&&'?)"
+    '=' -> (byteString "==" $> TkEq) <|> err "unexpected character: '='"
+    '!' -> (byteString "!=" $> TkNe) <|> consume TkNot
+    '<' -> (byteString "<=" $> TkLe) <|> consume TkLt
+    '>' -> (byteString ">=" $> TkGe) <|> consume TkGt
+    '"' -> lexString False
+    '\'' -> lexString False
+    '\x60' -> lexBacktick
+    _
+      | isStrPrefix c -> lexPrefixedOrIdent
+      | isIdentStart c -> lexIdent
+      | isDigit c -> lexNumber
+      | otherwise -> err ("unexpected character: " ++ show c)
+  where
+    consume t = anyChar_ $> t
 
-    lexBytesWith raw input = do
-      (content, rest) <- scanQuoted raw input
-      b <- processBytes raw content
-      (TkBytesLit b :) <$> go rest
+-- Identifier (or a keyword, classified by 'identTok').
+lexIdent :: L Tok
+lexIdent = do
+  name <- byteStringOf (satisfy isIdentStart *> skipMany (satisfy isIdentChar))
+  pure (identTok (TE.decodeUtf8 name))
 
-    lexNumber input = do
-      (t, rest) <- scanNumber input
-      (t :) <$> go rest
+-- A string/bytes prefix (@r@/@b@) directly followed by a quote, otherwise an
+-- identifier that happens to start with that letter.
+lexPrefixedOrIdent :: L Tok
+lexPrefixedOrIdent = stringWithPrefix <|> lexIdent
+  where
+    stringWithPrefix = do
+      (raw, bytes) <- scanPrefix
+      if bytes then lexBytes raw else lexString raw
 
-    -- Backtick-quoted (escaped) identifier, e.g. @`content-type`@.
-    lexBacktick input =
-      case break (== '\x60') input of
-        (_, []) -> Left "unterminated backtick-quoted identifier"
-        (name, _ : rest) -> (TkEscIdent (T.pack name) :) <$> go rest
+-- Consume a run of @r@/@R@/@b@/@B@ prefix letters (at most one of each),
+-- succeeding only when directly followed by a quote.
+scanPrefix :: L (Bool, Bool)
+scanPrefix = go False False
+  where
+    go raw bytes =
+      withOption
+        (satisfyAscii isPrefixLetter)
+        ( \c ->
+            if c == 'r' || c == 'R'
+              then if raw then empty else go True bytes
+              else if bytes then empty else go raw True
+        )
+        (lookahead (satisfyAscii isQuote) $> (raw, bytes))
+    isPrefixLetter c = c == 'r' || c == 'R' || c == 'b' || c == 'B'
+
+-- Backtick-quoted (escaped) identifier, e.g. @`content-type`@.
+lexBacktick :: L Tok
+lexBacktick = do
+  _ <- word8 backtick
+  name <- byteStringOf (skipMany (satisfy (/= '\x60')))
+  word8 backtick `cut` "unterminated backtick-quoted identifier"
+  pure (TkEscIdent (TE.decodeUtf8 name))
+
+----------------------------------------------------------------------
+-- String / bytes literals
+----------------------------------------------------------------------
+
+lexString :: Bool -> L Tok
+lexString raw = do
+  content <- scanQuoted raw
+  either err (pure . TkStringLit) (processString raw content)
+
+lexBytes :: Bool -> L Tok
+lexBytes raw = do
+  content <- scanQuoted raw
+  either err (pure . TkBytesLit) (processBytes raw content)
+
+-- Read a quoted literal (single- or triple-quoted), returning the raw,
+-- still-escaped content as a 'String'.
+scanQuoted :: Bool -> L String
+scanQuoted raw = do
+  q <- satisfyAscii isQuote
+  let qb = byteOf q
+  branch
+    (lookahead (word8 qb *> word8 qb))
+    (skip 2 *> scanTriple raw q qb)
+    (scanSingle raw q)
+
+scanSingle :: Bool -> Char -> L String
+scanSingle raw q = do
+  content <- byteStringOf (skipMany singleChar)
+  word8 (byteOf q) `cut` "unterminated string literal"
+  pure (decodeBytes content)
+  where
+    singleChar
+      | raw = normalChar
+      | otherwise =
+          branch (word8 backslash) (anyChar_ `cut` "unterminated escape in string literal") normalChar
+    normalChar =
+      withOption
+        (lookahead anyChar)
+        ( \c ->
+            if c == '\n' || c == '\r'
+              then err "newline in single-quoted string literal"
+              else if c == q then empty else anyChar_
+        )
+        empty
+
+scanTriple :: Bool -> Char -> Word8 -> L String
+scanTriple raw _q qb = do
+  content <- byteStringOf (skipMany tripleChar)
+  (word8 qb *> word8 qb *> word8 qb) `cut` "unterminated triple-quoted string literal"
+  pure (decodeBytes content)
+  where
+    tripleChar = branch (lookahead (word8 qb *> word8 qb *> word8 qb)) empty body
+    body
+      | raw = anyChar_
+      | otherwise =
+          branch (word8 backslash) (anyChar_ `cut` "unterminated escape in string literal") anyChar_
+
+----------------------------------------------------------------------
+-- Numeric literals
+----------------------------------------------------------------------
+
+lexNumber :: L Tok
+lexNumber = hexLiteral <|> decimalLiteral
+
+hexLiteral :: L Tok
+hexLiteral = do
+  _ <- byteString "0x" <|> byteString "0X"
+  digits <- byteStringOf (skipSome (satisfyAscii isHexDigit)) `cut` "malformed hex literal"
+  let n = foldl' (\acc d -> acc * 16 + toInteger (digitToInt d)) 0 (decodeBytes digits)
+  withUintSuffix (TkUIntLit n) (TkIntLit n)
+
+decimalLiteral :: L Tok
+decimalLiteral = do
+  intPart <- byteStringOf (skipMany (satisfyAscii isDigit))
+  mFrac <- optional fraction
+  mExp <- optional exponentPart
+  case (mFrac, mExp) of
+    (Nothing, Nothing)
+      | BS.null intPart -> empty -- a lone '.' is not a number
+      | otherwise ->
+          let n = readInteger (decodeBytes intPart)
+           in withUintSuffix (TkUIntLit n) (TkIntLit n)
+    _ ->
+      let lexeme =
+            (if BS.null intPart then "0" else decodeBytes intPart)
+              ++ maybe "" id mFrac
+              ++ maybe "" id mExp
+       in case readDoubleMaybe lexeme of
+            Just d -> pure (TkDoubleLit d)
+            Nothing -> err ("malformed float literal: " ++ lexeme)
+
+-- A fraction @.digits@ — the dot is only consumed when a digit follows.
+fraction :: L String
+fraction = decodeBytes <$> byteStringOf (word8 dot *> skipSome (satisfyAscii isDigit))
+
+-- An exponent @e[+-]?digits@.
+exponentPart :: L String
+exponentPart =
+  decodeBytes
+    <$> byteStringOf
+      ( satisfyAscii (\c -> c == 'e' || c == 'E')
+          *> optional_ (satisfyAscii (\c -> c == '+' || c == '-'))
+          *> skipSome (satisfyAscii isDigit)
+      )
+
+-- Optionally consume a @u@/@U@ suffix, choosing the unsigned vs signed token.
+withUintSuffix :: Tok -> Tok -> L Tok
+withUintSuffix uintTok intTok =
+  withOption (satisfyAscii (\c -> c == 'u' || c == 'U')) (const (pure uintTok)) (pure intTok)
+
+----------------------------------------------------------------------
+-- Small lexing helpers
+----------------------------------------------------------------------
+
+isQuote :: Char -> Bool
+isQuote c = c == '"' || c == '\''
+
+-- Bytes captured by the tokenizer are always slices of valid UTF-8 (the source
+-- is decoded from 'Text'), taken on character boundaries.
+decodeBytes :: ByteString -> String
+decodeBytes = T.unpack . TE.decodeUtf8
+
+byteOf :: Char -> Word8
+byteOf = fromIntegral . ord
+
+dot, slash, backslash, backtick :: Word8
+dot = byteOf '.'
+slash = byteOf '/'
+backslash = byteOf '\\'
+backtick = byteOf '\x60'
 
 identTok :: Text -> Tok
 identTok t = case t of
@@ -180,18 +354,6 @@ identTok t = case t of
 isStrPrefix :: Char -> Bool
 isStrPrefix c = c == 'r' || c == 'R' || c == 'b' || c == 'B'
 
--- | Examine a run of prefix letters; succeed only if it is a valid string /
--- bytes prefix (at most one r/R, at most one b/B) directly followed by a
--- quote character. Returns (raw, bytes, remainder-including-quote).
-scanPrefix :: String -> Maybe (Bool, Bool, String)
-scanPrefix = goP False False
-  where
-    goP raw bytes (c : cs)
-      | c == 'r' || c == 'R' = if raw then Nothing else goP True bytes cs
-      | c == 'b' || c == 'B' = if bytes then Nothing else goP raw True cs
-      | c == '"' || c == '\'' = Just (raw, bytes, c : cs)
-    goP _ _ _ = Nothing
-
 isIdentStart :: Char -> Bool
 isIdentStart c = c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
@@ -199,53 +361,8 @@ isIdentChar :: Char -> Bool
 isIdentChar c = isIdentStart c || (c >= '0' && c <= '9')
 
 ----------------------------------------------------------------------
--- Number lexing
+-- Numeric value helpers
 ----------------------------------------------------------------------
-
-scanNumber :: String -> Either String (Tok, String)
-scanNumber input
-  | ('0' : x : rest) <- input
-  , x == 'x' || x == 'X' =
-      let (hexDigits, rest') = span isHexDigit rest
-       in if null hexDigits
-            then Left "malformed hex literal"
-            else
-              let n = foldl' (\acc d -> acc * 16 + toInteger (digitToInt d)) 0 hexDigits
-               in case rest' of
-                    (u : r2) | u == 'u' || u == 'U' -> Right (TkUIntLit n, r2)
-                    _ -> Right (TkIntLit n, rest')
-  | otherwise =
-      let (intPart, r1) = span isDigit input
-          -- fraction: '.' followed by at least one digit
-          (fracPart, r2) = case r1 of
-            ('.' : d : ds) | isDigit d ->
-              let (more, r) = span isDigit ds in ('.' : d : more, r)
-            _ -> ("", r1)
-          (expPart, r3) = scanExponent r2
-       in if null fracPart && null expPart
-            then case r1 of
-              (u : r) | u == 'u' || u == 'U' -> Right (TkUIntLit (readInteger intPart), r)
-              _ ->
-                if null intPart
-                  then Left "malformed number"
-                  else Right (TkIntLit (readInteger intPart), r1)
-            else
-              let lexeme = (if null intPart then "0" else intPart) ++ fracPart ++ expPart
-               in case readDoubleMaybe lexeme of
-                    Just d -> Right (TkDoubleLit d, r3)
-                    Nothing -> Left ("malformed float literal: " ++ lexeme)
-
-scanExponent :: String -> (String, String)
-scanExponent (e : cs)
-  | e == 'e' || e == 'E' =
-      case cs of
-        (s : ds) | s == '+' || s == '-' ->
-          let (digs, r) = span isDigit ds
-           in if null digs then ("", e : cs) else (e : s : digs, r)
-        _ ->
-          let (digs, r) = span isDigit cs
-           in if null digs then ("", e : cs) else (e : digs, r)
-scanExponent cs = ("", cs)
 
 readInteger :: String -> Integer
 readInteger = foldl' (\acc d -> acc * 10 + toInteger (digitToInt d)) 0
@@ -259,47 +376,8 @@ isHexDigit :: Char -> Bool
 isHexDigit c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
 ----------------------------------------------------------------------
--- String / bytes scanning and escape processing
+-- String / bytes escape processing
 ----------------------------------------------------------------------
-
--- | Read a quoted literal starting at the opening delimiter. Returns the raw
--- (still-escaped, for non-raw) content and the remaining input. For non-raw
--- strings a backslash escapes the following character so it cannot terminate
--- the string prematurely.
-scanQuoted :: Bool -> String -> Either String (String, String)
-scanQuoted raw (q : rest)
-  | q == '"' || q == '\'' =
-      case rest of
-        (a : b : cs) | a == q && b == q -> scanTriple raw q cs
-        _ -> scanSingle raw q rest
-scanQuoted _ _ = Left "expected string delimiter"
-
-scanSingle :: Bool -> Char -> String -> Either String (String, String)
-scanSingle raw q = go id
-  where
-    go _ [] = Left "unterminated string literal"
-    go acc (c : cs)
-      | c == q = Right (acc [], cs)
-      | c == '\n' || c == '\r' = Left "newline in single-quoted string literal"
-      | not raw && c == '\\' =
-          case cs of
-            (e : cs') -> go (acc . (c :) . (e :)) cs'
-            [] -> Left "unterminated escape in string literal"
-      | otherwise = go (acc . (c :)) cs
-
-scanTriple :: Bool -> Char -> String -> Either String (String, String)
-scanTriple raw q = go id
-  where
-    go _ [] = Left "unterminated triple-quoted string literal"
-    go acc (c : cs)
-      | c == q
-      , (a : b : cs') <- cs
-      , a == q && b == q = Right (acc [], cs')
-      | not raw && c == '\\' =
-          case cs of
-            (e : cs') -> go (acc . (c :) . (e :)) cs'
-            [] -> Left "unterminated escape in string literal"
-      | otherwise = go (acc . (c :)) cs
 
 -- | Process the content of a string literal, interpreting escapes (unless
 -- raw) and validating Unicode code points.
@@ -429,12 +507,6 @@ instance Monad P where
   P g >>= f = P $ \ts -> case g ts of
     Left e -> Left e
     Right (a, ts') -> runP (f a) ts'
-
-instance Alternative P where
-  empty = P $ \_ -> Left "parse error"
-  P f <|> P g = P $ \ts -> case f ts of
-    Left _ -> g ts
-    r -> r
 
 peek :: P Tok
 peek = P $ \ts -> case ts of
