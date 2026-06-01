@@ -30,6 +30,21 @@ Transport matrix:
   per-version runtime.  Both HTTP\/2 and HTTP\/1.x over TLS work
   end-to-end.  If ALPN ends up picking a version that isn't in the
   range, 'VersionOutOfRange' is raised.
+
+== TLS configuration (§4.4 audit)
+
+'TlsConnectionConfig' exposes:
+
+* 'tlsServerName' — SNI / X.509 hostname (defaults to
+  'connectionHost').
+* 'tlsValidateCert' — certificate chain + hostname verification
+  (default 'True').
+* 'tlsClientCertificate' — @(certChainPEM, privateKeyPEM)@ file
+  paths for mutual TLS (mTLS). Corresponds to
+  'Wireform.Network.TLS.Config.tlsClientCertificate'.
+* 'tlsMinVersion' — minimum acceptable TLS protocol version.
+  Defaults to 'Wireform.Network.TLS.OpenSSL.Tls12'. Set to 'Tls13'
+  to require TLS 1.3.
 -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -64,6 +79,12 @@ import qualified Network.HTTP2.Client as H2
 import qualified Network.Socket as NS
 
 import Network.HTTP.Message
+import qualified Data.ByteString as BS
+import Network.HTTP.Client.BodyStream (popperFromStrict)
+import Network.HTTP.Client.Protocol
+  (Http2Info (..), ProtocolInfo (..), PushPromise (..))
+import Network.HTTP.Client.Request (Request)
+import Network.HTTP.Client.Response (RawResponse (..))
 import qualified Network.HTTP.TLS as TLS
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Internal.Convert as Conv
@@ -77,6 +98,9 @@ import qualified Data.ByteString.Char8 as BS8
 
 import Network.HTTP.Client.Proxy (Proxy (..))
 import Network.HTTP.Client.Proxy.Connect (connectThroughProxy)
+import Wireform.Network.TLS.OpenSSL (TlsProtoVersion (..))
+import qualified Data.CaseInsensitive as CI
+import qualified Network.HTTP.Types.Header as H
 
 data ConnectionConfig = ConnectionConfig
   { connectionHost         :: !String
@@ -88,9 +112,21 @@ data ConnectionConfig = ConnectionConfig
   }
 
 data TlsConnectionConfig = TlsConnectionConfig
-  { tlsServerName    :: !String
+  { tlsServerName       :: !String
     -- ^ SNI \/ X.509 hostname (defaults to 'connectionHost').
-  , tlsValidateCert  :: !Bool
+  , tlsValidateCert     :: !Bool
+    -- ^ When 'True' (default), the server certificate chain and
+    --   hostname are verified against the system trust store.
+  , tlsClientCertificate :: !(Maybe (FilePath, FilePath))
+    -- ^ @(certChainPEM, privateKeyPEM)@ for mutual TLS (mTLS).
+    --   'Nothing' means no client cert is presented (the common
+    --   case). Corresponds to
+    --   'Wireform.Network.TLS.Config.tlsClientCertificate'.
+  , tlsMinVersion       :: !TlsProtoVersion
+    -- ^ Minimum acceptable TLS protocol version.  Defaults to
+    --   'Tls12'.  Set to 'Tls13' to reject TLS 1.2 handshakes
+    --   (recommended for new deployments where the peer is known
+    --   to support TLS 1.3).
   }
 
 defaultConnectionConfig :: ConnectionConfig
@@ -103,8 +139,10 @@ defaultConnectionConfig = ConnectionConfig
 
 defaultTlsConnectionConfig :: String -> TlsConnectionConfig
 defaultTlsConnectionConfig serverName = TlsConnectionConfig
-  { tlsServerName = serverName
-  , tlsValidateCert = True
+  { tlsServerName        = serverName
+  , tlsValidateCert      = True
+  , tlsClientCertificate = Nothing
+  , tlsMinVersion        = Tls12
   }
 
 data ConnectionError
@@ -169,6 +207,8 @@ withTlsConnection cfg tlsCfg action =
     (connectionPort cfg)
     (tlsServerName tlsCfg)
     (tlsValidateCert tlsCfg)
+    (tlsClientCertificate tlsCfg)
+    (tlsMinVersion tlsCfg)
     (connectionVersionRange cfg)
     $ \case
         TLS.TlsClientHttp2 handle -> action (Http2Connection handle U.HTTP2)
@@ -199,6 +239,8 @@ withTlsConnectionThroughProxy cfg tlsCfg prx mAuth action =
             port
             (tlsServerName tlsCfg)
             (tlsValidateCert tlsCfg)
+            (tlsClientCertificate tlsCfg)
+            (tlsMinVersion tlsCfg)
             (connectionVersionRange cfg)
             $ \case
                 TLS.TlsClientHttp2 handle ->
@@ -317,10 +359,19 @@ withPlaintextHttp2 cfg action = do
 sendOn :: Connection -> Request -> IO Response
 sendOn (Http1Connection conn ver) req = do
   let req1 = (Conv.toHttp1Request req) { H1.requestVersion = Conv.toHttp1Version ver }
-  result <- H1.sendRequestOn conn req1
+  -- When the request carries @Expect: 100-continue@, use the
+  -- two-stage send: headers first, wait for 100, then body.
+  -- 1-second default timeout per RFC 9110 §10.1.1.
+  result <- if hasExpect100Continue (requestHeaders req)
+    then H1.sendRequestOnWithExpect conn req1 1_000_000
+    else H1.sendRequestOn conn req1
   case result of
     Left err   -> throwIO (ConnectionParseError err)
     Right resp -> pure (Conv.fromHttp1Response resp)
+  where
+    hasExpect100Continue hdrs = case H.lookupHeader H.hExpect hdrs of
+      Nothing -> False
+      Just v  -> CI.mk v == CI.mk "100-continue"
 
 sendOn (Http2Connection handle _) req = do
   h2resp <- H2.sendRequest handle (requestToH2 req)
@@ -363,6 +414,41 @@ requestToH2 req = H2.ClientRequest
       U.BodyStream p -> H2.ReqBodyStream p
   }
 
+-- | Drain a 'U.Body' to a strict 'ByteString'.
+drainUnifiedBody :: U.Body -> IO BS.ByteString
+drainUnifiedBody body = case body of
+  U.BodyEmpty    -> pure BS.empty
+  U.BodyBytes b  -> pure b
+  U.BodyStream p -> go []
+    where
+      go acc = p >>= \case
+        Nothing -> pure $! BS.concat (reverse acc)
+        Just b  -> go (b : acc)
+
+-- | Materialise a server-pushed 'H2.ClientResponse' into a 'RawResponse'
+-- with a fully-drained body.  The push body is consumed before returning
+-- so the caller does not need to manage the H/2 stream lifetime.
+materializePushResponse :: H2.ClientResponse -> IO RawResponse
+materializePushResponse cr = do
+  let resp = h2ResponseToUnified cr
+  bodyBs <- drainUnifiedBody (responseBody resp)
+  popper  <- popperFromStrict bodyBs
+  pure RawResponse
+    { statusCode   = responseStatus resp
+    , headers      = responseHeaders resp
+    , bodyPopper   = popper
+    , protocolInfo = case responseVersion resp of
+        U.HTTP2 -> HTTP2 Http2Info
+          { h2StreamId     = responseH2StreamId resp
+            -- Nested push promises on a pushed response are not
+            -- followed recursively (extremely rare in practice and
+            -- structurally unsound with a finite value).
+          , h2PushPromises = pure []
+          , h2CancelStream = responseCancel resp
+          }
+        _ -> HTTP1_1
+    }
+
 h2ResponseToUnified :: H2.ClientResponse -> Response
 h2ResponseToUnified h2resp = Response
   { responseStatus  = U.Status (fromIntegral (H2.crStatus h2resp))
@@ -375,4 +461,11 @@ h2ResponseToUnified h2resp = Response
       -- consume them before exiting.
   , responseH2StreamId = fromIntegral (H2.crStreamId h2resp)
   , responseCancel = H2.crCancel h2resp
+  , responsePushPromises = fmap toPushPromise <$> H2.crPushPromises h2resp
   }
+  where
+    toPushPromise pp = ResponsePushPromise
+      { rppPromisedStreamId = H2.pprPromisedStreamId pp
+      , rppHeaders = Conv.fromHttp2Headers (H2.pprHeaders pp)
+      , rppFulfil  = materializePushResponse =<< H2.pprFulfil pp
+      }

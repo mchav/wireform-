@@ -25,6 +25,7 @@ module Network.HTTP1.Client
     -- * Per-request API
   , sendRequest
   , sendRequestOn
+  , sendRequestOnWithExpect
     -- * Connection introspection
   , clientConnectionSocket
   ) where
@@ -34,6 +35,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Network.Socket (Socket)
 import qualified Network.Socket as NS
+import System.Timeout (timeout)
 
 import qualified Wireform.Builder as B
 import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
@@ -160,23 +162,88 @@ sendRequestOn (ClientConnection conn) req = do
   -- (informational) responses are interim — keep reading until we
   -- see the final one.  This is how an @Expect: 100-continue@ on
   -- the request gets its 100 acknowledgement transparently absorbed.
-  readFinal
+  readFinal conn (requestMethod req)
+
+-- | Two-stage @Expect: 100-continue@ send (RFC 9110 §10.1.1).
+--
+-- Sends the request headers first, then waits up to @timeoutUs@
+-- microseconds for an interim response from the server:
+--
+-- * If the server sends @100 Continue@ (or any other 1xx), the
+--   request body is sent and the final response is read.
+-- * If the server sends a non-1xx response (e.g. @417 Expectation
+--   Failed@) before the body is transmitted, the body is /not/
+--   sent and the server's response is returned verbatim.  The
+--   caller should inspect the status and retry without @Expect@ if
+--   appropriate.
+-- * If @timeoutUs@ elapses with no interim response, the body is
+--   sent unconditionally, as permitted by RFC 9110 §10.1.1.
+--
+-- This function is called automatically by 'Network.HTTP.Connection.sendOn'
+-- when the request carries an @Expect: 100-continue@ header.
+sendRequestOnWithExpect
+  :: ClientConnection
+  -> Request
+  -> Int             -- ^ timeout in microseconds (e.g. 1_000_000 for 1 s)
+  -> IO (Either ParseError Response)
+sendRequestOnWithExpect (ClientConnection conn) req timeoutUs = do
+  -- Step 1: send request headers (no body).
+  connectionSendBuilderDirect conn (requestBuilder req)
+  -- Step 2: wait up to timeoutUs for an interim response.
+  mInterim <- timeout timeoutUs (readResponseHead conn (requestMethod req))
+  case mInterim of
+    Nothing ->
+      -- Timeout: proceed with body (RFC 9110 §10.1.1 permits this).
+      sendBodyAndReadFinal
+    Just (Left _) ->
+      -- Read error on interim wait: proceed optimistically.
+      sendBodyAndReadFinal
+    Just (Right (resp0, framing))
+      | is1xx (responseStatus resp0) ->
+          -- 100 Continue (or other 1xx): proceed with body.
+          sendBodyAndReadFinal
+      | otherwise -> do
+          -- Non-1xx before body was sent (e.g. 417): return the
+          -- server's response and skip the body.
+          (body, trailersIO) <- readBodyAndTrailers conn framing
+          pure $ Right resp0
+            { responseBody     = body
+            , responseTrailers = trailersIO
+            }
   where
-    readFinal = do
-      hE <- readResponseHead conn (requestMethod req)
-      case hE of
-        Left SR.ReadUnexpectedEof    -> pure (Left ParseUnexpectedEof)
-        Left (SR.ReadMessageTooLong _) -> pure (Left ParseMessageTooLong)
-        Left (SR.ReadTransportError _) -> pure (Left ParseUnexpectedEof)
-        Left (SR.ReadParse e)          -> pure (Left e)
-        Right (resp0, framing)
-          | is1xx (responseStatus resp0) -> readFinal
-          | otherwise -> do
-              (body, trailersIO) <- readBodyAndTrailers conn framing
-              pure $ Right resp0
-                { responseBody     = body
-                , responseTrailers = trailersIO
-                }
+    is1xx (Status code) = code >= 100 && code < 200
+
+    sendBodyAndReadFinal = do
+      sendBody
+      readFinal conn (requestMethod req)
+
+    sendBody = case requestBody req of
+      BodyEmpty    -> pure ()
+      BodyBytes bs
+        | BS.null bs -> pure ()
+        | otherwise  -> connectionSendBytes conn bs
+      BodyStream producer -> streamChunked conn producer (requestTrailers req)
+      BodyPreEncoded _ -> pure ()
+      BodyFile _ -> pure ()
+
+-- | Read response heads, skipping 1xx interim responses.
+readFinal :: Connection -> Method -> IO (Either ParseError Response)
+readFinal conn method = do
+  hE <- readResponseHead conn method
+  case hE of
+    Left SR.ReadUnexpectedEof      -> pure (Left ParseUnexpectedEof)
+    Left (SR.ReadMessageTooLong _) -> pure (Left ParseMessageTooLong)
+    Left (SR.ReadTransportError _) -> pure (Left ParseUnexpectedEof)
+    Left (SR.ReadParse e)          -> pure (Left e)
+    Right (resp0, framing)
+      | is1xx (responseStatus resp0) -> readFinal conn method
+      | otherwise -> do
+          (body, trailersIO) <- readBodyAndTrailers conn framing
+          pure $ Right resp0
+            { responseBody     = body
+            , responseTrailers = trailersIO
+            }
+  where
     is1xx (Status code) = code >= 100 && code < 200
 
 -- | Stream a chunked body, then emit the terminating zero-size

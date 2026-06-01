@@ -11,6 +11,7 @@ generally only need these unified types.
 module Network.HTTP.Message
   ( Request (..)
   , Response (..)
+  , ResponsePushPromise (..)
   , Scheme (..)
   ) where
 
@@ -18,6 +19,10 @@ import Control.DeepSeq (NFData (..))
 import Data.ByteString (ByteString)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
+
+-- RawResponse is defined in the same package; no circular dependency.
+-- Message.hs does not import Client.Response transitively.
+import Network.HTTP.Client.Response (RawResponse)
 
 import Network.HTTP.Types.Body
 import Network.HTTP.Types.Header
@@ -103,7 +108,31 @@ data Response = Response
     --   @RST_STREAM(CANCEL)@ to the peer. On HTTP\/1.x and on
     --   transports that have already drained the body, it's a
     --   no-op. Idempotent.
+  , responsePushPromises :: !(IO [ResponsePushPromise])
+    -- ^ Push promises delivered on this HTTP\/2 stream, in arrival
+    --   order. Always @pure []@ for HTTP\/1.x responses. The list
+    --   may grow as the body is consumed (push promises can arrive
+    --   interleaved with DATA frames).
   }
+
+-- | A push promise announced by the server on this HTTP\/2 stream.
+data ResponsePushPromise = ResponsePushPromise
+  { rppPromisedStreamId :: !Word32
+    -- ^ The server-assigned promised stream ID.
+  , rppHeaders          :: ![(HeaderName, HeaderValue)]
+    -- ^ Decoded push-promise request headers.
+  , rppFulfil           :: !(IO RawResponse)
+    -- ^ Block until the pushed response arrives and return it
+    --   fully materialised.  The body is drained before returning
+    --   so callers do not need to manage the underlying HTTP\/2
+    --   stream lifetime.  Only valid for the lifetime of the
+    --   surrounding HTTP\/2 connection.
+  }
+
+instance Show ResponsePushPromise where
+  show pp = "ResponsePushPromise "
+         <> show (rppPromisedStreamId pp)
+         <> " " <> show (map fst (rppHeaders pp))
 
 instance Show Response where
   show r =
