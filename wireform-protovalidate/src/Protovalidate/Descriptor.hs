@@ -24,7 +24,7 @@ module Protovalidate.Descriptor
   ) where
 
 import qualified Data.ByteString as BS
-import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
+import Data.Bits (shiftR, xor, (.&.))
 import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
@@ -37,7 +37,18 @@ import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 
 import CEL.Value (Value (..))
-import Proto.Decode (UnknownField (..))
+import Proto.Decode
+  ( DecodeError (..)
+  , Decoder
+  , UnknownField (..)
+  , decodeFail
+  , getFixed32
+  , getFixed64
+  , getLengthDelimited
+  , getVarint
+  , runDecoder
+  , withTagM
+  )
 import Proto.Google.Protobuf.Descriptor
 import Protovalidate.Constraint (Constraint, mkConstraint)
 import Protovalidate.Rules
@@ -144,51 +155,54 @@ resolveMessage msgs visiting typeName fieldType
               [] -> Nothing
 
 ----------------------------------------------------------------------
--- buf.validate message decoding (via a self-contained wire scanner so that
--- repeated fields such as `cel` are preserved)
+-- buf.validate message decoding (via the wireform-proto wire decoder, so
+-- that repeated fields such as `cel` are preserved and malformed wire data is
+-- reported rather than silently truncated)
 ----------------------------------------------------------------------
 
 -- Decode a FieldConstraints message into FieldRules.
 fieldConstraints :: BS.ByteString -> Either Text FieldRules
 fieldConstraints bytes = do
-  let fs = scanFields bytes
+  fs <- scanMessage bytes
   customs <- traverse constraintFromBytes [b | (23, WLen b) <- fs]
   let required = any (\(n, v) -> n == 25 && wvTrue v) fs
       ignored = any (\(n, v) -> n == 27 && wvNonZero v) fs
       ruleEntry = firstJust [(,) k b | (n, WLen b) <- fs, Just k <- [ruleKindOf n]]
-  pure $ case ruleEntry of
-    Just (kind, sub) ->
-      let rules = decodeRuleMessage kind sub
-       in emptyFieldRules
-            { frRequired = required
-            , frIgnoreEmpty = ignored
-            , frCustom = customs
-            , frKind = Just kind
-            , frRules = rules
-            }
+  case ruleEntry of
+    Just (kind, sub) -> do
+      rules <- decodeRuleMessage kind sub
+      pure
+        emptyFieldRules
+          { frRequired = required
+          , frIgnoreEmpty = ignored
+          , frCustom = customs
+          , frKind = Just kind
+          , frRules = rules
+          }
     Nothing ->
-      emptyFieldRules {frRequired = required, frIgnoreEmpty = ignored, frCustom = customs}
+      pure emptyFieldRules {frRequired = required, frIgnoreEmpty = ignored, frCustom = customs}
   where
     firstJust xs = case xs of (x : _) -> Just x; [] -> Nothing
 
 -- Decode the `cel` repeated Constraint of a MessageConstraints message (field 3).
 messageConstraintsCel :: BS.ByteString -> Either Text [Constraint]
-messageConstraintsCel bytes =
-  traverse constraintFromBytes [b | (3, WLen b) <- scanFields bytes]
+messageConstraintsCel bytes = do
+  fs <- scanMessage bytes
+  traverse constraintFromBytes [b | (3, WLen b) <- fs]
 
 -- Constraint { id=1 string, message=2 string, expression=3 string }
 constraintFromBytes :: BS.ByteString -> Either Text Constraint
-constraintFromBytes bytes =
-  let fs = scanFields bytes
-      str n = fromMaybe "" (firstStr n fs)
+constraintFromBytes bytes = do
+  fs <- scanMessage bytes
+  let str n = fromMaybe "" (firstStr n fs)
       cid = str 1
       msg = str 2
       expr = str 3
-   in if T.null expr
-        then Left "buf.validate constraint missing expression"
-        else case mkConstraint cid msg expr of
-          Left e -> Left ("invalid CEL in constraint '" <> cid <> "': " <> T.pack (show e))
-          Right c -> Right c
+  if T.null expr
+    then Left "buf.validate constraint missing expression"
+    else case mkConstraint cid msg expr of
+      Left e -> Left ("invalid CEL in constraint '" <> cid <> "': " <> T.pack (show e))
+      Right c -> Right c
 
 firstStr :: Int -> [(Int, WV)] -> Maybe Text
 firstStr n fs = case [b | (m, WLen b) <- fs, m == n] of
@@ -221,10 +235,10 @@ ruleKindOf = \case
   _ -> Nothing
 
 -- Decode a rule submessage (e.g. StringRules) into (ruleName, value) pairs.
-decodeRuleMessage :: RuleKind -> BS.ByteString -> [(Text, Value)]
-decodeRuleMessage kind bytes =
-  let fs = scanFields bytes
-   in mergeIn [(name, ruleVal kind name wv) | (n, wv) <- fs, Just name <- [ruleName kind n]]
+decodeRuleMessage :: RuleKind -> BS.ByteString -> Either Text [(Text, Value)]
+decodeRuleMessage kind bytes = do
+  fs <- scanMessage bytes
+  pure (mergeIn [(name, ruleVal kind name wv) | (n, wv) <- fs, Just name <- [ruleName kind n]])
   where
     -- Merge repeated in/not_in entries into a single list value.
     mergeIn entries =
@@ -300,7 +314,7 @@ numericVal kind wv = case kind of
   _ -> VInt (fromIntegral (wvWord wv) :: Int64) -- int32/int64/sfixed/enum
 
 ----------------------------------------------------------------------
--- Minimal protobuf wire scanner
+-- Protobuf wire scanning via the wireform-proto decoder
 ----------------------------------------------------------------------
 
 data WV = WVarint !Word64 | WI64 !Word64 | WI32 !Word32 | WLen !BS.ByteString
@@ -334,51 +348,27 @@ zigzag :: Word64 -> Int64
 zigzag w = fromIntegral ((w `shiftR` 1) `xor` negate (w .&. 1))
 
 -- | Scan a protobuf message into @(fieldNumber, value)@ pairs, preserving
--- repeated fields. Malformed tails are ignored.
-scanFields :: BS.ByteString -> [(Int, WV)]
-scanFields = go
+-- repeated fields, using the @wireform-proto@ wire decoder. Unlike a hand-rolled
+-- scanner, malformed wire data surfaces as a 'DecodeError' rather than a
+-- silently truncated field list, and group wire types are rejected.
+scanMessage :: BS.ByteString -> Either Text [(Int, WV)]
+scanMessage bytes = case runDecoder scanLoop bytes of
+  Right fs -> Right fs
+  Left e -> Left ("malformed buf.validate wire data: " <> T.pack (show e))
+
+-- A field loop built on the decoder's tag dispatch.
+scanLoop :: Decoder [(Int, WV)]
+scanLoop = go []
   where
-    go bs
-      | BS.null bs = []
-      | otherwise = case readVarint bs of
-          Nothing -> []
-          Just (tag, rest) ->
-            let fn = fromIntegral (tag `shiftR` 3)
-                wt = tag .&. 7
-             in case wt of
-                  0 -> case readVarint rest of
-                    Just (v, r) -> (fn, WVarint v) : go r
-                    Nothing -> []
-                  1 ->
-                    if BS.length rest >= 8
-                      then (fn, WI64 (leWord64 (BS.take 8 rest))) : go (BS.drop 8 rest)
-                      else []
-                  5 ->
-                    if BS.length rest >= 4
-                      then (fn, WI32 (leWord32 (BS.take 4 rest))) : go (BS.drop 4 rest)
-                      else []
-                  2 -> case readVarint rest of
-                    Just (len, r) ->
-                      let n = fromIntegral len
-                       in if BS.length r >= n
-                            then (fn, WLen (BS.take n r)) : go (BS.drop n r)
-                            else []
-                    Nothing -> []
-                  _ -> [] -- groups (3/4) unsupported; stop
+    go acc =
+      withTagM (pure (reverse acc)) $ \fn wt -> do
+        wv <- readWireValue wt
+        go ((fn, wv) : acc)
 
-readVarint :: BS.ByteString -> Maybe (Word64, BS.ByteString)
-readVarint = goV 0 0
-  where
-    goV !shift !acc bs = case BS.uncons bs of
-      Nothing -> Nothing
-      Just (b, rest) ->
-        let acc' = acc .|. (fromIntegral (b .&. 0x7F) `shiftL` shift)
-         in if b .&. 0x80 /= 0
-              then if shift >= 63 then Nothing else goV (shift + 7) acc' rest
-              else Just (acc', rest)
-
-leWord64 :: BS.ByteString -> Word64
-leWord64 = BS.foldr (\b acc -> acc `shiftL` 8 .|. fromIntegral b) 0
-
-leWord32 :: BS.ByteString -> Word32
-leWord32 = BS.foldr (\b acc -> acc `shiftL` 8 .|. fromIntegral b) 0
+readWireValue :: Int -> Decoder WV
+readWireValue = \case
+  0 -> WVarint <$> getVarint
+  1 -> WI64 <$> getFixed64
+  5 -> WI32 <$> getFixed32
+  2 -> WLen <$> getLengthDelimited
+  wt -> decodeFail (InvalidWireType wt)
