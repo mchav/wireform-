@@ -82,7 +82,7 @@ astToDescriptor msg =
     extractEnum (MEEnum ed) = [astToEnumDescriptor ed]
     extractEnum _ = []
 
-    extractOneof (MEOneof od) = [OneofDescriptorProto (oneofName od)]
+    extractOneof (MEOneof od) = [defaultOneofDescriptorProto {odpName = oneofName od}]
     extractOneof _ = []
 
 
@@ -132,7 +132,7 @@ astToEnumDescriptor ed =
     , edpValue = V.fromList (fmap toEVDP (enumValues ed))
     }
   where
-    toEVDP ev = EnumValueDescriptorProto (evName ev) (fromIntegral (evNumber ev))
+    toEVDP ev = defaultEnumValueDescriptorProto {evdpName = evName ev, evdpNumber = fromIntegral (evNumber ev)}
 
 
 -- | Convert a ServiceDef to a ServiceDescriptorProto.
@@ -144,7 +144,7 @@ astToServiceDescriptor svc =
     }
   where
     toMDP rpc =
-      MethodDescriptorProto
+      defaultMethodDescriptorProto
         { mdpName = rpcName rpc
         , mdpInputType = rpcInput rpc
         , mdpOutputType = rpcOutput rpc

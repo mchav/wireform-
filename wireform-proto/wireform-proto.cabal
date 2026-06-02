@@ -80,6 +80,7 @@ library
     -- Encoding & decoding
     Proto.Encode
     Proto.Decode
+    Proto.Decode.Collect
     Proto.Decode.Stream
 
     -- Internal wire format primitives (for generated code & advanced use)
@@ -206,6 +207,7 @@ test-suite wireform-proto-test
   other-modules:
     Test.Wire
     Test.Roundtrip
+    Test.Collect
     Test.StreamCodec
     Test.TDP
     Test.JSON

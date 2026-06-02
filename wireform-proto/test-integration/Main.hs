@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Test.CodeGen (codeGenTests)
+import Test.Collect (collectTests)
 import Test.Compat (compatTests)
 import Test.Hooks (hooksTests)
 import Test.JSON (jsonTests)
@@ -40,4 +41,5 @@ main =
       , hooksTests
       , dynamicSchemaTests
       , resolverTests
+      , collectTests
       ]

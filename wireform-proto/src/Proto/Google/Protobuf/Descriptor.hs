@@ -1,311 +1,519 @@
 {-# LANGUAGE BangPatterns #-}
--- | Haskell types for @google/protobuf/descriptor.proto@.
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Haskell types for the full @google/protobuf/descriptor.proto@.
 --
--- These are the core descriptor types used by protoc and other protobuf tools.
--- They represent the parsed form of .proto files and are used for:
+-- These are the core descriptor types used by protoc and other protobuf tools:
+-- @FileDescriptorProto@ and friends, the per-element @*Options@ messages, the
+-- @SourceCodeInfo@ / @GeneratedCodeInfo@ side tables, and @UninterpretedOption@.
 --
--- * protoc plugin communication (CodeGeneratorRequest/Response)
--- * Runtime reflection and descriptor pools
--- * Dynamic message construction
-module Proto.Google.Protobuf.Descriptor
-  ( -- * File descriptor
-    FileDescriptorProto (..)
-  , defaultFileDescriptorProto
+-- This module is deliberately hand-written rather than produced by the
+-- @regen-wkt@ code generator: it is the bootstrap type that the generator
+-- itself uses to embed a serialized @FileDescriptorProto@ in every generated
+-- module, so it cannot depend on generated output.
+--
+-- Every message preserves __unknown fields__ on decode and re-emits them on
+-- encode (the @*UnknownFields@ accessor + 'Proto.Decode.captureUnknownField' /
+-- 'Proto.Decode.encodeUnknownFields'). This is what lets custom options —
+-- most importantly protobuf option /extensions/ such as @buf.validate@'s
+-- extension #1159 on 'FieldOptions' / 'MessageOptions' — survive a
+-- decode/encode round trip even though they are not modeled as typed fields.
+-- See "Proto.IDL.Descriptor" for AST conversion and (downstream)
+-- @Protovalidate.Descriptor@ for reading @buf.validate@ rules out of a
+-- 'FileDescriptorSet'.
+--
+-- Field numbers and types follow @descriptor.proto@. The classic
+-- packed-repeated @int32@ side fields (@public_dependency@, @weak_dependency@,
+-- @SourceCodeInfo.Location.path/span@) are not given typed accessors; they are
+-- preserved losslessly as unknown fields.
+module Proto.Google.Protobuf.Descriptor where
 
-    -- * Message descriptor
-  , DescriptorProto (..)
-  , defaultDescriptorProto
-
-    -- * Field descriptor
-  , FieldDescriptorProto (..)
-  , defaultFieldDescriptorProto
-  , FieldDescriptorType (..)
-  , FieldDescriptorLabel (..)
-
-    -- * Enum descriptor
-  , EnumDescriptorProto (..)
-  , defaultEnumDescriptorProto
-  , EnumValueDescriptorProto (..)
-  , defaultEnumValueDescriptorProto
-
-    -- * Service descriptor
-  , ServiceDescriptorProto (..)
-  , defaultServiceDescriptorProto
-  , MethodDescriptorProto (..)
-  , defaultMethodDescriptorProto
-
-    -- * Oneof descriptor
-  , OneofDescriptorProto (..)
-  , defaultOneofDescriptorProto
-
-    -- * File descriptor set
-  , FileDescriptorSet (..)
-  , defaultFileDescriptorSet
-  ) where
-
+import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import Data.Int (Int32)
+import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 import GHC.Generics (Generic)
-import Control.DeepSeq (NFData)
 
-import Proto.Encode
 import Proto.Decode
-import Proto.Internal.Wire (Tag(..))
-import Proto.Internal.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize, fieldBoolSize)
+import Proto.Encode
+import Proto.Internal.Wire (Tag (..))
 
-newtype FileDescriptorSet = FileDescriptorSet
-  { fdsFile :: V.Vector FileDescriptorProto
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+----------------------------------------------------------------------
+-- FileDescriptorSet
+----------------------------------------------------------------------
+
+data FileDescriptorSet = FileDescriptorSet
+  { fdsFile :: !(V.Vector FileDescriptorProto)
+  , fdsUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultFileDescriptorSet :: FileDescriptorSet
-defaultFileDescriptorSet = FileDescriptorSet V.empty
+defaultFileDescriptorSet = FileDescriptorSet V.empty []
 
 instance MessageEncode FileDescriptorSet where
-  buildMessage (FileDescriptorSet fs) =
-    V.foldl' (\acc f -> acc <> encodeFieldMessage 1 f) mempty fs
+  buildMessage m =
+    V.foldl' (\a f -> a <> encodeFieldMessage 1 f) mempty (fdsFile m)
+      <> encodeUnknownFields (fdsUnknownFields m)
 
 instance MessageDecode FileDescriptorSet where
-  messageDecoder = loop V.empty
+  messageDecoder = loop defaultFileDescriptorSet
     where
-      loop !fs = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure (FileDescriptorSet fs)
-          UJust (Tag 1 _) -> do f <- decodeFieldMessage; loop (V.snoc fs f)
-          UJust (Tag _ wt) -> skipField wt >> loop fs
+          UNothing -> pure m {fdsUnknownFields = reverse (fdsUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldMessage; loop m {fdsFile = V.snoc (fdsFile m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {fdsUnknownFields = uf : fdsUnknownFields m}
+
+----------------------------------------------------------------------
+-- FileDescriptorProto
+----------------------------------------------------------------------
 
 data FileDescriptorProto = FileDescriptorProto
-  { fdpName            :: !Text
-  , fdpPackage         :: !Text
-  , fdpDependency      :: !(V.Vector Text)
-  , fdpMessageType     :: !(V.Vector DescriptorProto)
-  , fdpEnumType        :: !(V.Vector EnumDescriptorProto)
-  , fdpService         :: !(V.Vector ServiceDescriptorProto)
-  , fdpSourceCodeInfo  :: !ByteString
-  , fdpSyntax          :: !Text
-  , fdpEdition         :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  { fdpName :: !Text
+  , fdpPackage :: !Text
+  , fdpDependency :: !(V.Vector Text)
+  , fdpMessageType :: !(V.Vector DescriptorProto)
+  , fdpEnumType :: !(V.Vector EnumDescriptorProto)
+  , fdpService :: !(V.Vector ServiceDescriptorProto)
+  , fdpExtension :: !(V.Vector FieldDescriptorProto)
+  , fdpOptions :: !(Maybe FileOptions)
+  , fdpSourceCodeInfo :: !(Maybe SourceCodeInfo)
+  , fdpSyntax :: !Text
+  , fdpEdition :: !Text
+  , fdpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultFileDescriptorProto :: FileDescriptorProto
-defaultFileDescriptorProto = FileDescriptorProto "" "" V.empty V.empty V.empty V.empty "" "" ""
+defaultFileDescriptorProto =
+  FileDescriptorProto "" "" V.empty V.empty V.empty V.empty V.empty Nothing Nothing "" "" []
 
 instance MessageEncode FileDescriptorProto where
-  buildMessage fdp =
-    (if fdpName fdp == "" then mempty else encodeFieldString 1 (fdpName fdp)) <>
-    (if fdpPackage fdp == "" then mempty else encodeFieldString 2 (fdpPackage fdp)) <>
-    V.foldl' (\a d -> a <> encodeFieldString 3 d) mempty (fdpDependency fdp) <>
-    V.foldl' (\a m -> a <> encodeFieldMessage 4 m) mempty (fdpMessageType fdp) <>
-    V.foldl' (\a e -> a <> encodeFieldMessage 5 e) mempty (fdpEnumType fdp) <>
-    V.foldl' (\a s -> a <> encodeFieldMessage 6 s) mempty (fdpService fdp) <>
-    (if fdpSyntax fdp == "" then mempty else encodeFieldString 12 (fdpSyntax fdp)) <>
-    (if fdpEdition fdp == "" then mempty else encodeFieldString 14 (fdpEdition fdp))
+  buildMessage m =
+    encStr 1 (fdpName m)
+      <> encStr 2 (fdpPackage m)
+      <> V.foldl' (\a d -> a <> encodeFieldString 3 d) mempty (fdpDependency m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 4 x) mempty (fdpMessageType m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 5 x) mempty (fdpEnumType m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 6 x) mempty (fdpService m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 7 x) mempty (fdpExtension m)
+      <> encMsg 8 (fdpOptions m)
+      <> encMsg 9 (fdpSourceCodeInfo m)
+      <> encStr 12 (fdpSyntax m)
+      <> encStr 14 (fdpEdition m)
+      <> encodeUnknownFields (fdpUnknownFields m)
 
 instance MessageDecode FileDescriptorProto where
   messageDecoder = loop defaultFileDescriptorProto
     where
-      loop !fdp = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure fdp
-          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop fdp { fdpName = v }
-          UJust (Tag 2 _)  -> do v <- decodeFieldString; loop fdp { fdpPackage = v }
-          UJust (Tag 3 _)  -> do v <- decodeFieldString; loop fdp { fdpDependency = V.snoc (fdpDependency fdp) v }
-          UJust (Tag 4 _)  -> do v <- decodeFieldMessage; loop fdp { fdpMessageType = V.snoc (fdpMessageType fdp) v }
-          UJust (Tag 5 _)  -> do v <- decodeFieldMessage; loop fdp { fdpEnumType = V.snoc (fdpEnumType fdp) v }
-          UJust (Tag 6 _)  -> do v <- decodeFieldMessage; loop fdp { fdpService = V.snoc (fdpService fdp) v }
-          UJust (Tag 12 _) -> do v <- decodeFieldString; loop fdp { fdpSyntax = v }
-          UJust (Tag 14 _) -> do v <- decodeFieldString; loop fdp { fdpEdition = v }
-          UJust (Tag _ wt) -> skipField wt >> loop fdp
+          UNothing -> pure m {fdpUnknownFields = reverse (fdpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {fdpName = v}
+            2 -> do v <- decodeFieldString; loop m {fdpPackage = v}
+            3 -> do v <- decodeFieldString; loop m {fdpDependency = V.snoc (fdpDependency m) v}
+            4 -> do v <- decodeFieldMessage; loop m {fdpMessageType = V.snoc (fdpMessageType m) v}
+            5 -> do v <- decodeFieldMessage; loop m {fdpEnumType = V.snoc (fdpEnumType m) v}
+            6 -> do v <- decodeFieldMessage; loop m {fdpService = V.snoc (fdpService m) v}
+            7 -> do v <- decodeFieldMessage; loop m {fdpExtension = V.snoc (fdpExtension m) v}
+            8 -> do v <- decodeFieldMessage; loop m {fdpOptions = Just v}
+            9 -> do v <- decodeFieldMessage; loop m {fdpSourceCodeInfo = Just v}
+            12 -> do v <- decodeFieldString; loop m {fdpSyntax = v}
+            14 -> do v <- decodeFieldString; loop m {fdpEdition = v}
+            _ -> do uf <- captureUnknownField n wt; loop m {fdpUnknownFields = uf : fdpUnknownFields m}
+
+----------------------------------------------------------------------
+-- DescriptorProto (+ ExtensionRange, ReservedRange)
+----------------------------------------------------------------------
 
 data DescriptorProto = DescriptorProto
-  { dpName           :: !Text
-  , dpField          :: !(V.Vector FieldDescriptorProto)
-  , dpNestedType     :: !(V.Vector DescriptorProto)
-  , dpEnumType       :: !(V.Vector EnumDescriptorProto)
-  , dpOneofDecl      :: !(V.Vector OneofDescriptorProto)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  { dpName :: !Text
+  , dpField :: !(V.Vector FieldDescriptorProto)
+  , dpNestedType :: !(V.Vector DescriptorProto)
+  , dpEnumType :: !(V.Vector EnumDescriptorProto)
+  , dpExtensionRange :: !(V.Vector DescriptorProtoExtensionRange)
+  , dpExtension :: !(V.Vector FieldDescriptorProto)
+  , dpOptions :: !(Maybe MessageOptions)
+  , dpOneofDecl :: !(V.Vector OneofDescriptorProto)
+  , dpReservedRange :: !(V.Vector DescriptorProtoReservedRange)
+  , dpReservedName :: !(V.Vector Text)
+  , dpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultDescriptorProto :: DescriptorProto
-defaultDescriptorProto = DescriptorProto "" V.empty V.empty V.empty V.empty
+defaultDescriptorProto =
+  DescriptorProto "" V.empty V.empty V.empty V.empty V.empty Nothing V.empty V.empty V.empty []
 
 instance MessageEncode DescriptorProto where
-  buildMessage dp =
-    (if dpName dp == "" then mempty else encodeFieldString 1 (dpName dp)) <>
-    V.foldl' (\a f -> a <> encodeFieldMessage 2 f) mempty (dpField dp) <>
-    V.foldl' (\a n -> a <> encodeFieldMessage 3 n) mempty (dpNestedType dp) <>
-    V.foldl' (\a e -> a <> encodeFieldMessage 4 e) mempty (dpEnumType dp) <>
-    V.foldl' (\a o -> a <> encodeFieldMessage 8 o) mempty (dpOneofDecl dp)
+  buildMessage m =
+    encStr 1 (dpName m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 2 x) mempty (dpField m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 3 x) mempty (dpNestedType m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 4 x) mempty (dpEnumType m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 5 x) mempty (dpExtensionRange m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 6 x) mempty (dpExtension m)
+      <> encMsg 7 (dpOptions m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 8 x) mempty (dpOneofDecl m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 9 x) mempty (dpReservedRange m)
+      <> V.foldl' (\a x -> a <> encodeFieldString 10 x) mempty (dpReservedName m)
+      <> encodeUnknownFields (dpUnknownFields m)
 
 instance MessageDecode DescriptorProto where
   messageDecoder = loop defaultDescriptorProto
     where
-      loop !dp = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure dp
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop dp { dpName = v }
-          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop dp { dpField = V.snoc (dpField dp) v }
-          UJust (Tag 3 _) -> do v <- decodeFieldMessage; loop dp { dpNestedType = V.snoc (dpNestedType dp) v }
-          UJust (Tag 4 _) -> do v <- decodeFieldMessage; loop dp { dpEnumType = V.snoc (dpEnumType dp) v }
-          UJust (Tag 8 _) -> do v <- decodeFieldMessage; loop dp { dpOneofDecl = V.snoc (dpOneofDecl dp) v }
-          UJust (Tag _ wt) -> skipField wt >> loop dp
+          UNothing -> pure m {dpUnknownFields = reverse (dpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {dpName = v}
+            2 -> do v <- decodeFieldMessage; loop m {dpField = V.snoc (dpField m) v}
+            3 -> do v <- decodeFieldMessage; loop m {dpNestedType = V.snoc (dpNestedType m) v}
+            4 -> do v <- decodeFieldMessage; loop m {dpEnumType = V.snoc (dpEnumType m) v}
+            5 -> do v <- decodeFieldMessage; loop m {dpExtensionRange = V.snoc (dpExtensionRange m) v}
+            6 -> do v <- decodeFieldMessage; loop m {dpExtension = V.snoc (dpExtension m) v}
+            7 -> do v <- decodeFieldMessage; loop m {dpOptions = Just v}
+            8 -> do v <- decodeFieldMessage; loop m {dpOneofDecl = V.snoc (dpOneofDecl m) v}
+            9 -> do v <- decodeFieldMessage; loop m {dpReservedRange = V.snoc (dpReservedRange m) v}
+            10 -> do v <- decodeFieldString; loop m {dpReservedName = V.snoc (dpReservedName m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {dpUnknownFields = uf : dpUnknownFields m}
 
+data DescriptorProtoExtensionRange = DescriptorProtoExtensionRange
+  { dperStart :: !Int32
+  , dperEnd :: !Int32
+  , dperOptions :: !(Maybe ExtensionRangeOptions)
+  , dperUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultDescriptorProtoExtensionRange :: DescriptorProtoExtensionRange
+defaultDescriptorProtoExtensionRange = DescriptorProtoExtensionRange 0 0 Nothing []
+
+instance MessageEncode DescriptorProtoExtensionRange where
+  buildMessage m =
+    encI32 1 (dperStart m) <> encI32 2 (dperEnd m) <> encMsg 3 (dperOptions m)
+      <> encodeUnknownFields (dperUnknownFields m)
+
+instance MessageDecode DescriptorProtoExtensionRange where
+  messageDecoder = loop defaultDescriptorProtoExtensionRange
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {dperUnknownFields = reverse (dperUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldVarint; loop m {dperStart = fromIntegral v}
+            2 -> do v <- decodeFieldVarint; loop m {dperEnd = fromIntegral v}
+            3 -> do v <- decodeFieldMessage; loop m {dperOptions = Just v}
+            _ -> do uf <- captureUnknownField n wt; loop m {dperUnknownFields = uf : dperUnknownFields m}
+
+data DescriptorProtoReservedRange = DescriptorProtoReservedRange
+  { dprrStart :: !Int32
+  , dprrEnd :: !Int32
+  , dprrUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultDescriptorProtoReservedRange :: DescriptorProtoReservedRange
+defaultDescriptorProtoReservedRange = DescriptorProtoReservedRange 0 0 []
+
+instance MessageEncode DescriptorProtoReservedRange where
+  buildMessage m =
+    encI32 1 (dprrStart m) <> encI32 2 (dprrEnd m) <> encodeUnknownFields (dprrUnknownFields m)
+
+instance MessageDecode DescriptorProtoReservedRange where
+  messageDecoder = loop defaultDescriptorProtoReservedRange
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {dprrUnknownFields = reverse (dprrUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldVarint; loop m {dprrStart = fromIntegral v}
+            2 -> do v <- decodeFieldVarint; loop m {dprrEnd = fromIntegral v}
+            _ -> do uf <- captureUnknownField n wt; loop m {dprrUnknownFields = uf : dprrUnknownFields m}
+
+----------------------------------------------------------------------
+-- FieldDescriptorProto
+----------------------------------------------------------------------
+
+-- | The wire @type@ codes (field 5 of 'FieldDescriptorProto').
 data FieldDescriptorType
   = TYPE_DOUBLE | TYPE_FLOAT | TYPE_INT64 | TYPE_UINT64 | TYPE_INT32
   | TYPE_FIXED64 | TYPE_FIXED32 | TYPE_BOOL | TYPE_STRING | TYPE_GROUP
   | TYPE_MESSAGE | TYPE_BYTES | TYPE_UINT32 | TYPE_ENUM | TYPE_SFIXED32
   | TYPE_SFIXED64 | TYPE_SINT32 | TYPE_SINT64
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
-  deriving anyclass NFData
+  deriving anyclass (NFData)
 
+-- | The @label@ codes (field 4 of 'FieldDescriptorProto').
 data FieldDescriptorLabel
   = LABEL_OPTIONAL | LABEL_REQUIRED | LABEL_REPEATED
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
-  deriving anyclass NFData
+  deriving anyclass (NFData)
 
 data FieldDescriptorProto = FieldDescriptorProto
-  { fdpFieldName     :: !Text
-  , fdpFieldNumber   :: !Int32
-  , fdpFieldLabel    :: !Int32
-  , fdpFieldType     :: !Int32
+  { fdpFieldName :: !Text
+  , fdpFieldExtendee :: !Text
+  , fdpFieldNumber :: !Int32
+  , fdpFieldLabel :: !Int32
+  , fdpFieldType :: !Int32
   , fdpFieldTypeName :: !Text
-  , fdpFieldDefault  :: !Text
+  , fdpFieldDefault :: !Text
+  , fdpFieldOptions :: !(Maybe FieldOptions)
   , fdpFieldOneofIdx :: !Int32
   , fdpFieldJsonName :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  , fdpFieldProto3Optional :: !Bool
+  , fdpFieldUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultFieldDescriptorProto :: FieldDescriptorProto
-defaultFieldDescriptorProto = FieldDescriptorProto "" 0 0 0 "" "" (-1) ""
+defaultFieldDescriptorProto =
+  FieldDescriptorProto "" "" 0 0 0 "" "" Nothing (-1) "" False []
 
 instance MessageEncode FieldDescriptorProto where
-  buildMessage f =
-    (if fdpFieldName f == "" then mempty else encodeFieldString 1 (fdpFieldName f)) <>
-    (if fdpFieldNumber f == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fdpFieldNumber f))) <>
-    (if fdpFieldLabel f == 0 then mempty else encodeFieldVarint 4 (fromIntegral (fdpFieldLabel f))) <>
-    (if fdpFieldType f == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fdpFieldType f))) <>
-    (if fdpFieldTypeName f == "" then mempty else encodeFieldString 6 (fdpFieldTypeName f)) <>
-    (if fdpFieldDefault f == "" then mempty else encodeFieldString 7 (fdpFieldDefault f)) <>
-    (if fdpFieldOneofIdx f < 0 then mempty else encodeFieldVarint 9 (fromIntegral (fdpFieldOneofIdx f))) <>
-    (if fdpFieldJsonName f == "" then mempty else encodeFieldString 10 (fdpFieldJsonName f))
+  buildMessage m =
+    encStr 1 (fdpFieldName m)
+      <> encStr 2 (fdpFieldExtendee m)
+      <> encI32 3 (fdpFieldNumber m)
+      <> encI32 4 (fdpFieldLabel m)
+      <> encI32 5 (fdpFieldType m)
+      <> encStr 6 (fdpFieldTypeName m)
+      <> encStr 7 (fdpFieldDefault m)
+      <> encMsg 8 (fdpFieldOptions m)
+      <> (if fdpFieldOneofIdx m < 0 then mempty else encodeFieldVarint 9 (fromIntegral (fdpFieldOneofIdx m)))
+      <> encStr 10 (fdpFieldJsonName m)
+      <> (if fdpFieldProto3Optional m then encodeFieldBool 17 True else mempty)
+      <> encodeUnknownFields (fdpFieldUnknownFields m)
 
 instance MessageDecode FieldDescriptorProto where
   messageDecoder = loop defaultFieldDescriptorProto
     where
-      loop !f = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure f
-          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop f { fdpFieldName = v }
-          UJust (Tag 3 _)  -> do v <- getVarint; loop f { fdpFieldNumber = fromIntegral v }
-          UJust (Tag 4 _)  -> do v <- getVarint; loop f { fdpFieldLabel = fromIntegral v }
-          UJust (Tag 5 _)  -> do v <- getVarint; loop f { fdpFieldType = fromIntegral v }
-          UJust (Tag 6 _)  -> do v <- decodeFieldString; loop f { fdpFieldTypeName = v }
-          UJust (Tag 7 _)  -> do v <- decodeFieldString; loop f { fdpFieldDefault = v }
-          UJust (Tag 9 _)  -> do v <- getVarint; loop f { fdpFieldOneofIdx = fromIntegral v }
-          UJust (Tag 10 _) -> do v <- decodeFieldString; loop f { fdpFieldJsonName = v }
-          UJust (Tag _ wt) -> skipField wt >> loop f
+          UNothing -> pure m {fdpFieldUnknownFields = reverse (fdpFieldUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {fdpFieldName = v}
+            2 -> do v <- decodeFieldString; loop m {fdpFieldExtendee = v}
+            3 -> do v <- decodeFieldVarint; loop m {fdpFieldNumber = fromIntegral v}
+            4 -> do v <- decodeFieldVarint; loop m {fdpFieldLabel = fromIntegral v}
+            5 -> do v <- decodeFieldVarint; loop m {fdpFieldType = fromIntegral v}
+            6 -> do v <- decodeFieldString; loop m {fdpFieldTypeName = v}
+            7 -> do v <- decodeFieldString; loop m {fdpFieldDefault = v}
+            8 -> do v <- decodeFieldMessage; loop m {fdpFieldOptions = Just v}
+            9 -> do v <- decodeFieldVarint; loop m {fdpFieldOneofIdx = fromIntegral v}
+            10 -> do v <- decodeFieldString; loop m {fdpFieldJsonName = v}
+            17 -> do v <- decodeFieldBool; loop m {fdpFieldProto3Optional = v}
+            _ -> do uf <- captureUnknownField n wt; loop m {fdpFieldUnknownFields = uf : fdpFieldUnknownFields m}
+
+----------------------------------------------------------------------
+-- OneofDescriptorProto
+----------------------------------------------------------------------
+
+data OneofDescriptorProto = OneofDescriptorProto
+  { odpName :: !Text
+  , odpOptions :: !(Maybe OneofOptions)
+  , odpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultOneofDescriptorProto :: OneofDescriptorProto
+defaultOneofDescriptorProto = OneofDescriptorProto "" Nothing []
+
+instance MessageEncode OneofDescriptorProto where
+  buildMessage m =
+    encStr 1 (odpName m) <> encMsg 2 (odpOptions m) <> encodeUnknownFields (odpUnknownFields m)
+
+instance MessageDecode OneofDescriptorProto where
+  messageDecoder = loop defaultOneofDescriptorProto
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {odpUnknownFields = reverse (odpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {odpName = v}
+            2 -> do v <- decodeFieldMessage; loop m {odpOptions = Just v}
+            _ -> do uf <- captureUnknownField n wt; loop m {odpUnknownFields = uf : odpUnknownFields m}
+
+----------------------------------------------------------------------
+-- EnumDescriptorProto (+ EnumReservedRange) / EnumValueDescriptorProto
+----------------------------------------------------------------------
 
 data EnumDescriptorProto = EnumDescriptorProto
-  { edpName  :: !Text
+  { edpName :: !Text
   , edpValue :: !(V.Vector EnumValueDescriptorProto)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  , edpOptions :: !(Maybe EnumOptions)
+  , edpReservedRange :: !(V.Vector EnumDescriptorProtoEnumReservedRange)
+  , edpReservedName :: !(V.Vector Text)
+  , edpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultEnumDescriptorProto :: EnumDescriptorProto
-defaultEnumDescriptorProto = EnumDescriptorProto "" V.empty
+defaultEnumDescriptorProto = EnumDescriptorProto "" V.empty Nothing V.empty V.empty []
 
 instance MessageEncode EnumDescriptorProto where
-  buildMessage e =
-    (if edpName e == "" then mempty else encodeFieldString 1 (edpName e)) <>
-    V.foldl' (\a v -> a <> encodeFieldMessage 2 v) mempty (edpValue e)
+  buildMessage m =
+    encStr 1 (edpName m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 2 x) mempty (edpValue m)
+      <> encMsg 3 (edpOptions m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 4 x) mempty (edpReservedRange m)
+      <> V.foldl' (\a x -> a <> encodeFieldString 5 x) mempty (edpReservedName m)
+      <> encodeUnknownFields (edpUnknownFields m)
 
 instance MessageDecode EnumDescriptorProto where
   messageDecoder = loop defaultEnumDescriptorProto
     where
-      loop !e = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure e
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop e { edpName = v }
-          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop e { edpValue = V.snoc (edpValue e) v }
-          UJust (Tag _ wt) -> skipField wt >> loop e
+          UNothing -> pure m {edpUnknownFields = reverse (edpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {edpName = v}
+            2 -> do v <- decodeFieldMessage; loop m {edpValue = V.snoc (edpValue m) v}
+            3 -> do v <- decodeFieldMessage; loop m {edpOptions = Just v}
+            4 -> do v <- decodeFieldMessage; loop m {edpReservedRange = V.snoc (edpReservedRange m) v}
+            5 -> do v <- decodeFieldString; loop m {edpReservedName = V.snoc (edpReservedName m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {edpUnknownFields = uf : edpUnknownFields m}
+
+data EnumDescriptorProtoEnumReservedRange = EnumDescriptorProtoEnumReservedRange
+  { edprrStart :: !Int32
+  , edprrEnd :: !Int32
+  , edprrUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultEnumDescriptorProtoEnumReservedRange :: EnumDescriptorProtoEnumReservedRange
+defaultEnumDescriptorProtoEnumReservedRange = EnumDescriptorProtoEnumReservedRange 0 0 []
+
+instance MessageEncode EnumDescriptorProtoEnumReservedRange where
+  buildMessage m =
+    encI32 1 (edprrStart m) <> encI32 2 (edprrEnd m) <> encodeUnknownFields (edprrUnknownFields m)
+
+instance MessageDecode EnumDescriptorProtoEnumReservedRange where
+  messageDecoder = loop defaultEnumDescriptorProtoEnumReservedRange
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {edprrUnknownFields = reverse (edprrUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldVarint; loop m {edprrStart = fromIntegral v}
+            2 -> do v <- decodeFieldVarint; loop m {edprrEnd = fromIntegral v}
+            _ -> do uf <- captureUnknownField n wt; loop m {edprrUnknownFields = uf : edprrUnknownFields m}
 
 data EnumValueDescriptorProto = EnumValueDescriptorProto
-  { evdpName   :: !Text
+  { evdpName :: !Text
   , evdpNumber :: !Int32
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  , evdpOptions :: !(Maybe EnumValueOptions)
+  , evdpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultEnumValueDescriptorProto :: EnumValueDescriptorProto
-defaultEnumValueDescriptorProto = EnumValueDescriptorProto "" 0
+defaultEnumValueDescriptorProto = EnumValueDescriptorProto "" 0 Nothing []
 
 instance MessageEncode EnumValueDescriptorProto where
-  buildMessage ev =
-    (if evdpName ev == "" then mempty else encodeFieldString 1 (evdpName ev)) <>
-    (if evdpNumber ev == 0 then mempty else encodeFieldVarint 2 (fromIntegral (evdpNumber ev)))
+  buildMessage m =
+    encStr 1 (evdpName m)
+      <> encI32 2 (evdpNumber m)
+      <> encMsg 3 (evdpOptions m)
+      <> encodeUnknownFields (evdpUnknownFields m)
 
 instance MessageDecode EnumValueDescriptorProto where
   messageDecoder = loop defaultEnumValueDescriptorProto
     where
-      loop !ev = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure ev
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop ev { evdpName = v }
-          UJust (Tag 2 _) -> do v <- getVarint; loop ev { evdpNumber = fromIntegral v }
-          UJust (Tag _ wt) -> skipField wt >> loop ev
+          UNothing -> pure m {evdpUnknownFields = reverse (evdpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {evdpName = v}
+            2 -> do v <- decodeFieldVarint; loop m {evdpNumber = fromIntegral v}
+            3 -> do v <- decodeFieldMessage; loop m {evdpOptions = Just v}
+            _ -> do uf <- captureUnknownField n wt; loop m {evdpUnknownFields = uf : evdpUnknownFields m}
+
+----------------------------------------------------------------------
+-- ServiceDescriptorProto / MethodDescriptorProto
+----------------------------------------------------------------------
 
 data ServiceDescriptorProto = ServiceDescriptorProto
-  { sdpName   :: !Text
+  { sdpName :: !Text
   , sdpMethod :: !(V.Vector MethodDescriptorProto)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  , sdpOptions :: !(Maybe ServiceOptions)
+  , sdpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultServiceDescriptorProto :: ServiceDescriptorProto
-defaultServiceDescriptorProto = ServiceDescriptorProto "" V.empty
+defaultServiceDescriptorProto = ServiceDescriptorProto "" V.empty Nothing []
 
 instance MessageEncode ServiceDescriptorProto where
-  buildMessage s =
-    (if sdpName s == "" then mempty else encodeFieldString 1 (sdpName s)) <>
-    V.foldl' (\a m -> a <> encodeFieldMessage 2 m) mempty (sdpMethod s)
+  buildMessage m =
+    encStr 1 (sdpName m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 2 x) mempty (sdpMethod m)
+      <> encMsg 3 (sdpOptions m)
+      <> encodeUnknownFields (sdpUnknownFields m)
 
 instance MessageDecode ServiceDescriptorProto where
   messageDecoder = loop defaultServiceDescriptorProto
     where
-      loop !s = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure s
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop s { sdpName = v }
-          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop s { sdpMethod = V.snoc (sdpMethod s) v }
-          UJust (Tag _ wt) -> skipField wt >> loop s
+          UNothing -> pure m {sdpUnknownFields = reverse (sdpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {sdpName = v}
+            2 -> do v <- decodeFieldMessage; loop m {sdpMethod = V.snoc (sdpMethod m) v}
+            3 -> do v <- decodeFieldMessage; loop m {sdpOptions = Just v}
+            _ -> do uf <- captureUnknownField n wt; loop m {sdpUnknownFields = uf : sdpUnknownFields m}
 
 data MethodDescriptorProto = MethodDescriptorProto
-  { mdpName            :: !Text
-  , mdpInputType       :: !Text
-  , mdpOutputType      :: !Text
-  , mdpClientStreaming  :: !Bool
-  , mdpServerStreaming  :: !Bool
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+  { mdpName :: !Text
+  , mdpInputType :: !Text
+  , mdpOutputType :: !Text
+  , mdpOptions :: !(Maybe MethodOptions)
+  , mdpClientStreaming :: !Bool
+  , mdpServerStreaming :: !Bool
+  , mdpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 defaultMethodDescriptorProto :: MethodDescriptorProto
-defaultMethodDescriptorProto = MethodDescriptorProto "" "" "" False False
+defaultMethodDescriptorProto = MethodDescriptorProto "" "" "" Nothing False False []
 
 instance MessageEncode MethodDescriptorProto where
   buildMessage m =
-    (if mdpName m == "" then mempty else encodeFieldString 1 (mdpName m)) <>
-    (if mdpInputType m == "" then mempty else encodeFieldString 2 (mdpInputType m)) <>
-    (if mdpOutputType m == "" then mempty else encodeFieldString 3 (mdpOutputType m)) <>
-    (if not (mdpClientStreaming m) then mempty else encodeFieldBool 5 True) <>
-    (if not (mdpServerStreaming m) then mempty else encodeFieldBool 6 True)
+    encStr 1 (mdpName m)
+      <> encStr 2 (mdpInputType m)
+      <> encStr 3 (mdpOutputType m)
+      <> encMsg 4 (mdpOptions m)
+      <> (if mdpClientStreaming m then encodeFieldBool 5 True else mempty)
+      <> (if mdpServerStreaming m then encodeFieldBool 6 True else mempty)
+      <> encodeUnknownFields (mdpUnknownFields m)
 
 instance MessageDecode MethodDescriptorProto where
   messageDecoder = loop defaultMethodDescriptorProto
@@ -313,31 +521,462 @@ instance MessageDecode MethodDescriptorProto where
       loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure m
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop m { mdpName = v }
-          UJust (Tag 2 _) -> do v <- decodeFieldString; loop m { mdpInputType = v }
-          UJust (Tag 3 _) -> do v <- decodeFieldString; loop m { mdpOutputType = v }
-          UJust (Tag 5 _) -> do v <- decodeFieldBool; loop m { mdpClientStreaming = v }
-          UJust (Tag 6 _) -> do v <- decodeFieldBool; loop m { mdpServerStreaming = v }
-          UJust (Tag _ wt) -> skipField wt >> loop m
+          UNothing -> pure m {mdpUnknownFields = reverse (mdpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {mdpName = v}
+            2 -> do v <- decodeFieldString; loop m {mdpInputType = v}
+            3 -> do v <- decodeFieldString; loop m {mdpOutputType = v}
+            4 -> do v <- decodeFieldMessage; loop m {mdpOptions = Just v}
+            5 -> do v <- decodeFieldBool; loop m {mdpClientStreaming = v}
+            6 -> do v <- decodeFieldBool; loop m {mdpServerStreaming = v}
+            _ -> do uf <- captureUnknownField n wt; loop m {mdpUnknownFields = uf : mdpUnknownFields m}
 
-newtype OneofDescriptorProto = OneofDescriptorProto
-  { odpName :: Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass NFData
+----------------------------------------------------------------------
+-- Options messages
+--
+-- The common standard fields are modeled; every other set field (including
+-- option /extensions/ such as buf.validate) is preserved as an unknown field.
+----------------------------------------------------------------------
 
-defaultOneofDescriptorProto :: OneofDescriptorProto
-defaultOneofDescriptorProto = OneofDescriptorProto ""
+data FileOptions = FileOptions
+  { foJavaPackage :: !Text
+  , foGoPackage :: !Text
+  , foDeprecated :: !Bool
+  , foUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , foUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
-instance MessageEncode OneofDescriptorProto where
-  buildMessage o = if odpName o == "" then mempty else encodeFieldString 1 (odpName o)
+defaultFileOptions :: FileOptions
+defaultFileOptions = FileOptions "" "" False V.empty []
 
-instance MessageDecode OneofDescriptorProto where
-  messageDecoder = loop defaultOneofDescriptorProto
+instance MessageEncode FileOptions where
+  buildMessage m =
+    encStr 1 (foJavaPackage m)
+      <> encStr 11 (foGoPackage m)
+      <> (if foDeprecated m then encodeFieldBool 23 True else mempty)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (foUninterpretedOption m)
+      <> encodeUnknownFields (foUnknownFields m)
+
+instance MessageDecode FileOptions where
+  messageDecoder = loop defaultFileOptions
     where
-      loop !o = do
+      loop !m = do
         mt <- getTagOrU
         case mt of
-          UNothing -> pure o
-          UJust (Tag 1 _) -> do v <- decodeFieldString; loop o { odpName = v }
-          UJust (Tag _ wt) -> skipField wt >> loop o
+          UNothing -> pure m {foUnknownFields = reverse (foUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {foJavaPackage = v}
+            11 -> do v <- decodeFieldString; loop m {foGoPackage = v}
+            23 -> do v <- decodeFieldBool; loop m {foDeprecated = v}
+            999 -> do v <- decodeFieldMessage; loop m {foUninterpretedOption = V.snoc (foUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {foUnknownFields = uf : foUnknownFields m}
+
+data MessageOptions = MessageOptions
+  { moMessageSetWireFormat :: !Bool
+  , moNoStandardDescriptorAccessor :: !Bool
+  , moDeprecated :: !Bool
+  , moMapEntry :: !Bool
+  , moUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , moUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultMessageOptions :: MessageOptions
+defaultMessageOptions = MessageOptions False False False False V.empty []
+
+instance MessageEncode MessageOptions where
+  buildMessage m =
+    (if moMessageSetWireFormat m then encodeFieldBool 1 True else mempty)
+      <> (if moNoStandardDescriptorAccessor m then encodeFieldBool 2 True else mempty)
+      <> (if moDeprecated m then encodeFieldBool 3 True else mempty)
+      <> (if moMapEntry m then encodeFieldBool 7 True else mempty)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (moUninterpretedOption m)
+      <> encodeUnknownFields (moUnknownFields m)
+
+instance MessageDecode MessageOptions where
+  messageDecoder = loop defaultMessageOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {moUnknownFields = reverse (moUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldBool; loop m {moMessageSetWireFormat = v}
+            2 -> do v <- decodeFieldBool; loop m {moNoStandardDescriptorAccessor = v}
+            3 -> do v <- decodeFieldBool; loop m {moDeprecated = v}
+            7 -> do v <- decodeFieldBool; loop m {moMapEntry = v}
+            999 -> do v <- decodeFieldMessage; loop m {moUninterpretedOption = V.snoc (moUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {moUnknownFields = uf : moUnknownFields m}
+
+data FieldOptions = FieldOptions
+  { fldoCtype :: !Int32
+  , fldoPacked :: !Bool
+  , fldoDeprecated :: !Bool
+  , fldoJstype :: !Int32
+  , fldoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , fldoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultFieldOptions :: FieldOptions
+defaultFieldOptions = FieldOptions 0 False False 0 V.empty []
+
+instance MessageEncode FieldOptions where
+  buildMessage m =
+    encI32 1 (fldoCtype m)
+      <> (if fldoPacked m then encodeFieldBool 2 True else mempty)
+      <> (if fldoDeprecated m then encodeFieldBool 3 True else mempty)
+      <> encI32 6 (fldoJstype m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (fldoUninterpretedOption m)
+      <> encodeUnknownFields (fldoUnknownFields m)
+
+instance MessageDecode FieldOptions where
+  messageDecoder = loop defaultFieldOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {fldoUnknownFields = reverse (fldoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldVarint; loop m {fldoCtype = fromIntegral v}
+            2 -> do v <- decodeFieldBool; loop m {fldoPacked = v}
+            3 -> do v <- decodeFieldBool; loop m {fldoDeprecated = v}
+            6 -> do v <- decodeFieldVarint; loop m {fldoJstype = fromIntegral v}
+            999 -> do v <- decodeFieldMessage; loop m {fldoUninterpretedOption = V.snoc (fldoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {fldoUnknownFields = uf : fldoUnknownFields m}
+
+data OneofOptions = OneofOptions
+  { oneofoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , oneofoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultOneofOptions :: OneofOptions
+defaultOneofOptions = OneofOptions V.empty []
+
+instance MessageEncode OneofOptions where
+  buildMessage m =
+    V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (oneofoUninterpretedOption m)
+      <> encodeUnknownFields (oneofoUnknownFields m)
+
+instance MessageDecode OneofOptions where
+  messageDecoder = loop defaultOneofOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {oneofoUnknownFields = reverse (oneofoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            999 -> do v <- decodeFieldMessage; loop m {oneofoUninterpretedOption = V.snoc (oneofoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {oneofoUnknownFields = uf : oneofoUnknownFields m}
+
+data EnumOptions = EnumOptions
+  { enoAllowAlias :: !Bool
+  , enoDeprecated :: !Bool
+  , enoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , enoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultEnumOptions :: EnumOptions
+defaultEnumOptions = EnumOptions False False V.empty []
+
+instance MessageEncode EnumOptions where
+  buildMessage m =
+    (if enoAllowAlias m then encodeFieldBool 2 True else mempty)
+      <> (if enoDeprecated m then encodeFieldBool 3 True else mempty)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (enoUninterpretedOption m)
+      <> encodeUnknownFields (enoUnknownFields m)
+
+instance MessageDecode EnumOptions where
+  messageDecoder = loop defaultEnumOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {enoUnknownFields = reverse (enoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            2 -> do v <- decodeFieldBool; loop m {enoAllowAlias = v}
+            3 -> do v <- decodeFieldBool; loop m {enoDeprecated = v}
+            999 -> do v <- decodeFieldMessage; loop m {enoUninterpretedOption = V.snoc (enoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {enoUnknownFields = uf : enoUnknownFields m}
+
+data EnumValueOptions = EnumValueOptions
+  { evoDeprecated :: !Bool
+  , evoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , evoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultEnumValueOptions :: EnumValueOptions
+defaultEnumValueOptions = EnumValueOptions False V.empty []
+
+instance MessageEncode EnumValueOptions where
+  buildMessage m =
+    (if evoDeprecated m then encodeFieldBool 1 True else mempty)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (evoUninterpretedOption m)
+      <> encodeUnknownFields (evoUnknownFields m)
+
+instance MessageDecode EnumValueOptions where
+  messageDecoder = loop defaultEnumValueOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {evoUnknownFields = reverse (evoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldBool; loop m {evoDeprecated = v}
+            999 -> do v <- decodeFieldMessage; loop m {evoUninterpretedOption = V.snoc (evoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {evoUnknownFields = uf : evoUnknownFields m}
+
+data ServiceOptions = ServiceOptions
+  { svoDeprecated :: !Bool
+  , svoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , svoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultServiceOptions :: ServiceOptions
+defaultServiceOptions = ServiceOptions False V.empty []
+
+instance MessageEncode ServiceOptions where
+  buildMessage m =
+    (if svoDeprecated m then encodeFieldBool 33 True else mempty)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (svoUninterpretedOption m)
+      <> encodeUnknownFields (svoUnknownFields m)
+
+instance MessageDecode ServiceOptions where
+  messageDecoder = loop defaultServiceOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {svoUnknownFields = reverse (svoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            33 -> do v <- decodeFieldBool; loop m {svoDeprecated = v}
+            999 -> do v <- decodeFieldMessage; loop m {svoUninterpretedOption = V.snoc (svoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {svoUnknownFields = uf : svoUnknownFields m}
+
+data MethodOptions = MethodOptions
+  { mtoDeprecated :: !Bool
+  , mtoIdempotencyLevel :: !Int32
+  , mtoUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , mtoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultMethodOptions :: MethodOptions
+defaultMethodOptions = MethodOptions False 0 V.empty []
+
+instance MessageEncode MethodOptions where
+  buildMessage m =
+    (if mtoDeprecated m then encodeFieldBool 33 True else mempty)
+      <> encI32 34 (mtoIdempotencyLevel m)
+      <> V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (mtoUninterpretedOption m)
+      <> encodeUnknownFields (mtoUnknownFields m)
+
+instance MessageDecode MethodOptions where
+  messageDecoder = loop defaultMethodOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {mtoUnknownFields = reverse (mtoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            33 -> do v <- decodeFieldBool; loop m {mtoDeprecated = v}
+            34 -> do v <- decodeFieldVarint; loop m {mtoIdempotencyLevel = fromIntegral v}
+            999 -> do v <- decodeFieldMessage; loop m {mtoUninterpretedOption = V.snoc (mtoUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {mtoUnknownFields = uf : mtoUnknownFields m}
+
+data ExtensionRangeOptions = ExtensionRangeOptions
+  { eroUninterpretedOption :: !(V.Vector UninterpretedOption)
+  , eroUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultExtensionRangeOptions :: ExtensionRangeOptions
+defaultExtensionRangeOptions = ExtensionRangeOptions V.empty []
+
+instance MessageEncode ExtensionRangeOptions where
+  buildMessage m =
+    V.foldl' (\a x -> a <> encodeFieldMessage 999 x) mempty (eroUninterpretedOption m)
+      <> encodeUnknownFields (eroUnknownFields m)
+
+instance MessageDecode ExtensionRangeOptions where
+  messageDecoder = loop defaultExtensionRangeOptions
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {eroUnknownFields = reverse (eroUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            999 -> do v <- decodeFieldMessage; loop m {eroUninterpretedOption = V.snoc (eroUninterpretedOption m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {eroUnknownFields = uf : eroUnknownFields m}
+
+----------------------------------------------------------------------
+-- UninterpretedOption (+ NamePart)
+----------------------------------------------------------------------
+
+data UninterpretedOption = UninterpretedOption
+  { uoName :: !(V.Vector UninterpretedOptionNamePart)
+  , uoIdentifierValue :: !Text
+  , uoPositiveIntValue :: !Word64
+  , uoNegativeIntValue :: !Int64
+  , uoDoubleValue :: !Double
+  , uoStringValue :: !ByteString
+  , uoAggregateValue :: !Text
+  , uoUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultUninterpretedOption :: UninterpretedOption
+defaultUninterpretedOption = UninterpretedOption V.empty "" 0 0 0 "" "" []
+
+instance MessageEncode UninterpretedOption where
+  buildMessage m =
+    V.foldl' (\a x -> a <> encodeFieldMessage 2 x) mempty (uoName m)
+      <> encStr 3 (uoIdentifierValue m)
+      <> (if uoPositiveIntValue m == 0 then mempty else encodeFieldVarint 4 (uoPositiveIntValue m))
+      <> (if uoNegativeIntValue m == 0 then mempty else encodeFieldVarint 5 (fromIntegral (uoNegativeIntValue m)))
+      <> (if uoDoubleValue m == 0 then mempty else encodeFieldDouble 6 (uoDoubleValue m))
+      <> encBytes 7 (uoStringValue m)
+      <> encStr 8 (uoAggregateValue m)
+      <> encodeUnknownFields (uoUnknownFields m)
+
+instance MessageDecode UninterpretedOption where
+  messageDecoder = loop defaultUninterpretedOption
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {uoUnknownFields = reverse (uoUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            2 -> do v <- decodeFieldMessage; loop m {uoName = V.snoc (uoName m) v}
+            3 -> do v <- decodeFieldString; loop m {uoIdentifierValue = v}
+            4 -> do v <- decodeFieldVarint; loop m {uoPositiveIntValue = v}
+            5 -> do v <- decodeFieldVarint; loop m {uoNegativeIntValue = fromIntegral v}
+            6 -> do v <- decodeFieldDouble; loop m {uoDoubleValue = v}
+            7 -> do v <- decodeFieldBytes; loop m {uoStringValue = v}
+            8 -> do v <- decodeFieldString; loop m {uoAggregateValue = v}
+            _ -> do uf <- captureUnknownField n wt; loop m {uoUnknownFields = uf : uoUnknownFields m}
+
+data UninterpretedOptionNamePart = UninterpretedOptionNamePart
+  { uonpNamePart :: !Text
+  , uonpIsExtension :: !Bool
+  , uonpUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultUninterpretedOptionNamePart :: UninterpretedOptionNamePart
+defaultUninterpretedOptionNamePart = UninterpretedOptionNamePart "" False []
+
+instance MessageEncode UninterpretedOptionNamePart where
+  buildMessage m =
+    encStr 1 (uonpNamePart m)
+      <> encodeFieldBool 2 (uonpIsExtension m)
+      <> encodeUnknownFields (uonpUnknownFields m)
+
+instance MessageDecode UninterpretedOptionNamePart where
+  messageDecoder = loop defaultUninterpretedOptionNamePart
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {uonpUnknownFields = reverse (uonpUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            1 -> do v <- decodeFieldString; loop m {uonpNamePart = v}
+            2 -> do v <- decodeFieldBool; loop m {uonpIsExtension = v}
+            _ -> do uf <- captureUnknownField n wt; loop m {uonpUnknownFields = uf : uonpUnknownFields m}
+
+----------------------------------------------------------------------
+-- SourceCodeInfo / GeneratedCodeInfo
+--
+-- The packed-repeated int32 @path@ / @span@ side fields are preserved as
+-- unknown fields rather than given typed accessors.
+----------------------------------------------------------------------
+
+newtype SourceCodeInfo = SourceCodeInfo
+  { sciLocation :: V.Vector SourceCodeInfoLocation
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultSourceCodeInfo :: SourceCodeInfo
+defaultSourceCodeInfo = SourceCodeInfo V.empty
+
+instance MessageEncode SourceCodeInfo where
+  buildMessage m = V.foldl' (\a x -> a <> encodeFieldMessage 1 x) mempty (sciLocation m)
+
+instance MessageDecode SourceCodeInfo where
+  messageDecoder = loop defaultSourceCodeInfo
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m
+          UJust (Tag 1 _) -> do v <- decodeFieldMessage; loop m {sciLocation = V.snoc (sciLocation m) v}
+          UJust (Tag _ wt) -> skipField wt >> loop m
+
+data SourceCodeInfoLocation = SourceCodeInfoLocation
+  { scilLeadingComments :: !Text
+  , scilTrailingComments :: !Text
+  , scilLeadingDetachedComments :: !(V.Vector Text)
+  , scilUnknownFields :: ![UnknownField]
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+defaultSourceCodeInfoLocation :: SourceCodeInfoLocation
+defaultSourceCodeInfoLocation = SourceCodeInfoLocation "" "" V.empty []
+
+instance MessageEncode SourceCodeInfoLocation where
+  buildMessage m =
+    encStr 3 (scilLeadingComments m)
+      <> encStr 4 (scilTrailingComments m)
+      <> V.foldl' (\a x -> a <> encodeFieldString 6 x) mempty (scilLeadingDetachedComments m)
+      <> encodeUnknownFields (scilUnknownFields m)
+
+instance MessageDecode SourceCodeInfoLocation where
+  messageDecoder = loop defaultSourceCodeInfoLocation
+    where
+      loop !m = do
+        mt <- getTagOrU
+        case mt of
+          UNothing -> pure m {scilUnknownFields = reverse (scilUnknownFields m)}
+          UJust (Tag n wt) -> case n of
+            3 -> do v <- decodeFieldString; loop m {scilLeadingComments = v}
+            4 -> do v <- decodeFieldString; loop m {scilTrailingComments = v}
+            6 -> do v <- decodeFieldString; loop m {scilLeadingDetachedComments = V.snoc (scilLeadingDetachedComments m) v}
+            _ -> do uf <- captureUnknownField n wt; loop m {scilUnknownFields = uf : scilUnknownFields m}
+
+----------------------------------------------------------------------
+-- Encode helpers (omit zero/empty scalars, like proto3 implicit presence)
+----------------------------------------------------------------------
+
+encStr :: Int -> Text -> Builder
+encStr n t = if t == "" then mempty else encodeFieldString n t
+{-# INLINE encStr #-}
+
+encBytes :: Int -> ByteString -> Builder
+encBytes n b = if b == "" then mempty else encodeFieldBytes n b
+{-# INLINE encBytes #-}
+
+encI32 :: Int -> Int32 -> Builder
+encI32 n v = if v == 0 then mempty else encodeFieldVarint n (fromIntegral v)
+{-# INLINE encI32 #-}
+
+encMsg :: MessageEncode a => Int -> Maybe a -> Builder
+encMsg n = maybe mempty (encodeFieldMessage n)
+{-# INLINE encMsg #-}
