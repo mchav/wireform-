@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module      : Kafka.Streams.Pipeline
@@ -42,6 +45,25 @@
 -- @+++@, @|||@) works on it. Combined with the typed smart
 -- constructors below this is enough to express most static
 -- topology fragments as pure values.
+--
+-- A 'Pipeline' is exactly @'Data.Profunctor.Star' IO@, so it
+-- carries the profunctor hierarchy that an @IO@-effected 'Star'
+-- supports: 'Data.Profunctor.Profunctor' \/
+-- 'Data.Profunctor.Strong' \/ 'Data.Profunctor.Choice' \/
+-- 'Data.Profunctor.Traversing.Traversing', plus
+-- 'Data.Profunctor.Sieve.Sieve' and
+-- 'Data.Profunctor.Rep.Representable' (@'Rep' = IO@). So
+-- @dimap@ \/ @lmap@ \/ @rmap@ (and the optics built on them)
+-- re-shape its types, and @traverse'@ \/ @wander@ lift it over
+-- a 'Traversable' or a van-Laarhoven traversal. Over its output
+-- it is 'Functor' \/ 'Applicative' \/ 'Monad' and, inheriting
+-- 'IO''s instances, 'Control.Applicative.Alternative' \/
+-- 'Control.Monad.MonadPlus' (exception-fallback semantics).
+-- This is the complete set of @'Data.Profunctor.Star' IO@
+-- instances; the only ones a generic 'Star' has that 'Pipeline'
+-- lacks are those needing 'IO' to be 'Distributive'
+-- ('Data.Profunctor.Closed' \/ 'Data.Profunctor.Mapping') or
+-- 'Traversable' ('Data.Profunctor.Cochoice'), which it is not.
 module Kafka.Streams.Pipeline
   ( -- * Pipeline
     Pipeline (..)
@@ -76,9 +98,14 @@ module Kafka.Streams.Pipeline
   , liftPure
   ) where
 
+import Control.Applicative (Alternative (..))
 import Control.Arrow (Arrow (..), ArrowChoice (..))
 import Control.Category (Category (..))
-import Control.Monad ((>=>))
+import Control.Monad (MonadPlus (..), (>=>))
+import Data.Profunctor (Choice (..), Profunctor (..), Strong (..))
+import Data.Profunctor.Rep (Representable (..))
+import Data.Profunctor.Sieve (Sieve (..))
+import Data.Profunctor.Traversing (Traversing (..))
 import Prelude hiding (id, (.))
 
 import qualified Kafka.Streams.KStream as KS
@@ -166,6 +193,62 @@ instance ArrowChoice Pipeline where
     Left a  -> f a
     Right b -> g b
 
+-- | 'Profunctor' over @('a' -> IO 'b')@: 'lmap' adjusts the
+-- input with a pure function, 'rmap' the output. Lets pipelines
+-- be re-shaped to fit a surrounding composition without leaving
+-- the 'Pipeline' vocabulary (and lets them be driven by the
+-- optics built on @profunctors@).
+instance Profunctor Pipeline where
+  dimap f g (Pipeline h) = Pipeline (fmap g . h . f)
+  lmap f (Pipeline h)    = Pipeline (h . f)
+  rmap g (Pipeline h)    = Pipeline (fmap g . h)
+
+-- | 'Strong' — carry a component past the pipeline untouched.
+-- Agrees with the 'Arrow' product combinators: @'first'' =
+-- 'first'@, @'second'' = 'second'@.
+instance Strong Pipeline where
+  first'  = first
+  second' = second
+
+-- | 'Choice' — run the pipeline on one branch of a sum and pass
+-- the other through. Agrees with 'ArrowChoice': @'left'' =
+-- 'left'@, @'right'' = 'right'@.
+instance Choice Pipeline where
+  left'  = left
+  right' = right
+
+-- | 'Traversing' — lift a pipeline over any 'Traversable'
+-- container. @'traverse'' p@ runs @p@ on every element
+-- (left-to-right, in 'IO') and rebuilds the structure; @wander@
+-- runs @p@ at every focus of an arbitrary van-Laarhoven
+-- traversal. This is what lets a single-record fragment be
+-- applied to a batch, or driven by a lens-style @Traversal@.
+--
+-- Viable because the underlying effect is 'IO', which is
+-- 'Applicative' (the only requirement 'Star' places on
+-- 'Traversing'). The dual 'Data.Profunctor.Cochoice' \/
+-- 'Data.Profunctor.Closed' \/ 'Data.Profunctor.Mapping' are
+-- /not/ available: they need 'IO' to be 'Traversable' \/
+-- 'Distributive', which it is not.
+instance Traversing Pipeline where
+  traverse' (Pipeline f) = Pipeline (traverse f)
+  wander w (Pipeline f)  = Pipeline (w f)
+
+-- | 'Sieve' — a 'Pipeline' /is/ its underlying @a -> IO b@
+-- (it's @'Data.Profunctor.Star' IO@), so @'sieve' =
+-- 'runPipeline'@.
+instance Sieve Pipeline IO where
+  sieve = runPipeline
+
+-- | 'Representable' — the representation is 'IO', and
+-- 'tabulate' is just the 'Pipeline' constructor. Together with
+-- the 'Sieve' instance this records that 'Pipeline' is exactly
+-- the representable profunctor on 'IO', so generic
+-- 'Sieve' \/ 'Representable' code works on it unchanged.
+instance Representable Pipeline where
+  type Rep Pipeline = IO
+  tabulate = Pipeline
+
 -- | 'Functor' over the output type.
 instance Functor (Pipeline a) where
   fmap f (Pipeline g) = Pipeline (fmap f . g)
@@ -178,6 +261,31 @@ instance Applicative (Pipeline a) where
     !g <- f a
     !v <- x a
     pure (g v)
+
+-- | 'Monad' over the output, threading the same input through
+-- both steps (the @ReaderT a IO@ monad). Completes the
+-- 'Functor' \/ 'Applicative' \/ 'Monad' trio; the continuation
+-- sees the original input, so @p >>= k@ is "run @p@, then run
+-- @k result@ on the same input".
+instance Monad (Pipeline a) where
+  Pipeline m >>= k = Pipeline $ \a -> do
+    !b <- m a
+    runPipeline (k b) a
+
+-- | 'Alternative' inherited pointwise from 'IO''s instance:
+-- 'empty' is a pipeline that always fails (an 'IO' exception),
+-- and @p \<|\> q@ runs @p@ on the input and, /if it throws an
+-- 'IOError'/, runs @q@ on the same input (the 'IO' fallback
+-- semantics from @GHC.Base@). Mirrors @'Alternative' ('Star' IO
+-- a)@.
+instance Alternative (Pipeline a) where
+  empty = Pipeline (const empty)
+  Pipeline f <|> Pipeline g = Pipeline (\a -> f a <|> g a)
+
+-- | 'MonadPlus' with the same exception-fallback semantics as
+-- the 'Alternative' instance (@'mzero' = 'empty'@,
+-- @'mplus' = '(<|>)'@). Mirrors @'MonadPlus' ('Star' IO a)@.
+instance MonadPlus (Pipeline a)
 
 -- | 'applyPipeline' is the canonical way to run a pipeline
 -- against a stream. It's a synonym for 'runPipeline' chosen

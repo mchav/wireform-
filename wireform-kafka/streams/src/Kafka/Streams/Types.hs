@@ -33,6 +33,7 @@ module Kafka.Streams.Types
   , RecordMetadata (..)
   ) where
 
+import Data.Bifunctor (Bifunctor (..))
 import Data.ByteString (ByteString)
 import Data.Hashable (Hashable)
 import Data.Int (Int32, Int64)
@@ -85,6 +86,15 @@ data Header = Header
 newtype Headers = Headers { headerEntries :: Seq Header }
   deriving stock (Eq, Show, Generic)
 
+-- | Concatenation, preserving order and duplicate keys (Kafka
+-- permits duplicates). Lets two header sets be merged with '<>'.
+instance Semigroup Headers where
+  Headers a <> Headers b = Headers (a <> b)
+
+-- | 'mempty' is the empty header set.
+instance Monoid Headers where
+  mempty = emptyHeaders
+
 emptyHeaders :: Headers
 emptyHeaders = Headers Seq.empty
 
@@ -124,7 +134,24 @@ data Record k v = Record
   , recordTimestamp :: !Timestamp
   , recordHeaders   :: !Headers
   }
-  deriving stock (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic, Functor, Foldable, Traversable)
+
+-- | A record is a 'Bifunctor' over its (optional) key and its
+-- value: 'first' maps the key (inside the 'Maybe'), 'second'
+-- maps the value, and 'bimap' does both at once. This is the
+-- typeclass-level companion to the explicit 'mapKey' \/
+-- 'mapValue' \/ 'mapKV' helpers — note 'first' lifts a
+-- @k -> k'@ through the 'Maybe', whereas 'mapKey' operates on
+-- the @'Maybe' k@ directly. The derived 'Functor' \/ 'Foldable'
+-- \/ 'Traversable' instances all range over the value, so
+-- @'second' = 'fmap'@.
+instance Bifunctor Record where
+  bimap f g r = r
+    { recordKey   = fmap f (recordKey r)
+    , recordValue = g (recordValue r)
+    }
+  first f r  = r { recordKey   = fmap f (recordKey r) }
+  second g r = r { recordValue = g (recordValue r) }
 
 mkRecord :: Maybe k -> v -> Timestamp -> Record k v
 mkRecord k v t = Record k v t emptyHeaders
@@ -155,6 +182,12 @@ data RecordMetadata = RecordMetadata
 newtype NodeName = NodeName { unNodeName :: Text }
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
+
+-- | String literals desugar to 'NodeName' under
+-- @OverloadedStrings@, matching the existing 'TopicName'
+-- treatment so node names can be written inline.
+instance IsString NodeName where
+  fromString = NodeName . Text.pack
 
 nodeName :: Text -> NodeName
 nodeName = NodeName
