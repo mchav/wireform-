@@ -1,20 +1,22 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Network.HTTP.Headers.Allow
-  ( Allow (..)
-  , HttpMethod (..)
-  , allowParser
-  , renderAllow
-  ) where
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
+module Network.HTTP.Headers.Allow (
+  Allow (..),
+  HttpMethod (..),
+  allowParser,
+  renderAllow,
+) where
 
 import Control.Monad.Combinators (sepBy)
-import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
-import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hAllow)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 import Network.HTTP.Headers.Rendering.Util (shortText)
+
 
 -- | Standard HTTP methods
 data HttpMethod
@@ -27,17 +29,21 @@ data HttpMethod
   | OPTIONS
   | TRACE
   | PATCH
-  | CustomMethod !ST.ShortText  -- ^ Non-standard method
+  | -- | Non-standard method
+    CustomMethod !ST.ShortText
   deriving stock (Eq, Show)
 
+
 -- | Allow header containing list of allowed HTTP methods
-newtype Allow = Allow { allowedMethods :: [HttpMethod] }
+newtype Allow = Allow {allowedMethods :: [HttpMethod]}
   deriving stock (Eq, Show)
+
 
 instance KnownHeader Allow where
   type ParseFailure Allow = String
   type Cardinality Allow = 'ZeroOrOne
   type Direction Allow = 'Response
+
 
   parseFromHeaders _ headers = do
     let header = NE.head headers
@@ -47,26 +53,35 @@ instance KnownHeader Allow where
       Fail -> Left "Failed to parse Allow header"
       Err err -> Left err
 
+
   renderToHeaders _ = M.toStrictByteString . renderAllow
+
 
   headerName _ = hAllow
 
+
 httpMethodParser :: ParserT st e HttpMethod
-httpMethodParser = $(switch [| case _ of
-  "GET" -> pure GET
-  "HEAD" -> pure HEAD
-  "POST" -> pure POST
-  "PUT" -> pure PUT
-  "DELETE" -> pure DELETE
-  "CONNECT" -> pure CONNECT
-  "OPTIONS" -> pure OPTIONS
-  "TRACE" -> pure TRACE
-  "PATCH" -> pure PATCH
-  _ -> CustomMethod <$> rfc9110Token
-  |])
+httpMethodParser =
+  $( switch
+      [|
+        case _ of
+          "GET" -> pure GET
+          "HEAD" -> pure HEAD
+          "POST" -> pure POST
+          "PUT" -> pure PUT
+          "DELETE" -> pure DELETE
+          "CONNECT" -> pure CONNECT
+          "OPTIONS" -> pure OPTIONS
+          "TRACE" -> pure TRACE
+          "PATCH" -> pure PATCH
+          _ -> CustomMethod <$> rfc9110Token
+        |]
+   )
+
 
 allowParser :: ParserT st String Allow
 allowParser = Allow <$> (httpMethodParser `sepBy` (ows *> $(char ',') *> ows))
+
 
 renderHttpMethod :: HttpMethod -> M.Builder
 renderHttpMethod = \case
@@ -80,6 +95,7 @@ renderHttpMethod = \case
   TRACE -> "TRACE"
   PATCH -> "PATCH"
   CustomMethod method -> shortText method
+
 
 renderAllow :: Allow -> M.Builder
 renderAllow (Allow methods) = M.intersperse ", " (map renderHttpMethod methods)

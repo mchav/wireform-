@@ -52,6 +52,7 @@ newtype AcceptEncoding = AcceptEncoding
   }
   deriving stock (Eq, Show)
 
+
 instance KnownHeader AcceptEncoding where
   type ParseFailure AcceptEncoding = String
   type Cardinality AcceptEncoding = 'ZeroOrOne
@@ -62,11 +63,14 @@ instance KnownHeader AcceptEncoding where
       OK ae "" -> Right ae
       OK _  rest -> Left $ "Unconsumed input after parsing Accept-Encoding header: " <> show rest
       Fail -> Left "Failed to parse Accept-Encoding header"
-      Err err -> Left err
+      Err e -> Left e
+
 
   renderToHeaders _ = M.toStrictByteString . renderAcceptEncoding
 
+
   headerName _ = hAcceptEncoding
+
 
 acceptEncodingParser :: ParserT st String AcceptEncoding
 acceptEncodingParser = AcceptEncoding <$> (weightedEncodingParser `sepBy` $(char ','))
@@ -83,7 +87,7 @@ acceptEncodingParser = AcceptEncoding <$> (weightedEncodingParser `sepBy` $(char
         <|> (NamedEncoding <$> contentCodingParser)
 
 -- | Parser for the optional @;q=Q@ tail. Copied from
--- "Network.HTTP.ContentNegotiation"\u2019s 'weightParser' so we can
+-- "Network.HTTP.ContentNegotiation"'s 'weightParser' so we can
 -- avoid an import cycle with the other Accept-* parsers; same
 -- semantics.
 weightParser :: ParserT st String Double
@@ -115,6 +119,7 @@ renderWeightedEncoding (WeightedEncoding tag w) =
   where
     renderTag AnyEncoding         = "*"
     renderTag (NamedEncoding c)   = renderContentCoding c
+
 
 renderAcceptEncoding :: AcceptEncoding -> M.Builder
 renderAcceptEncoding (AcceptEncoding xs) =

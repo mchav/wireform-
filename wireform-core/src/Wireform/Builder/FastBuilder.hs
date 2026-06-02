@@ -73,6 +73,7 @@ import Control.Concurrent (forkIOWithUnmask, myThreadId)
 import Control.Concurrent.MVar
 import Control.Exception qualified as E
 import Control.Monad
+import Data.Bits ((.&.))
 import Data.ByteString qualified as S
 import Data.ByteString.Builder.Extra qualified as X
 import Data.ByteString.Builder.Prim qualified as P
@@ -84,7 +85,6 @@ import Data.IORef
 import Data.Semigroup as Sem
 import Data.String
 import Data.Word
-import Data.Bits ((.&.))
 import Foreign.C.String
 import Foreign.C.Types
 import Foreign.ForeignPtr
@@ -146,14 +146,17 @@ instance Monoid Builder where
   {-# INLINE mempty #-}
   mappend = (<>)
   {-# INLINE mappend #-}
+
+
   -- Don't be tempted to write `mconcat = fold` here — the @Foldable []@
   -- instance defines `fold = mconcat` as an optimisation, so going
   -- through `fold` would bottom out in a value-level cycle and trip
   -- GHC's blackhole detection at runtime (<<loop>>).
   mconcat = foldr mappend mempty
   {-# INLINE mconcat #-}
-  {-# HLINT ignore "Use fold" #-}
 
+
+{- HLINT ignore "Use fold" -}
 
 -- | 'fromString' = 'stringUtf8'
 instance IsString Builder where
@@ -235,27 +238,27 @@ time (in "Wireform.Transport.Send"), so 'FastBuilder' does not
 depend on the transport types.
 -}
 data RingSinkState = RingSinkState
-  { rsHead        :: {-# UNPACK #-} !Word64
+  { rsHead :: {-# UNPACK #-} !Word64
   -- ^ Logical head: start of the current buffer region.
   -- Tracks the builder's logical write position; may be ahead
   -- of the last published head.
-  , rsPublished   :: {-# UNPACK #-} !Word64
+  , rsPublished :: {-# UNPACK #-} !Word64
   -- ^ Last position passed to 'rsPublishHead'.  Everything
   -- before this has been handed off to the ring consumer.
-  , rsBase        :: {-# UNPACK #-} !(Ptr Word8)
+  , rsBase :: {-# UNPACK #-} !(Ptr Word8)
   -- ^ Ring base address (first mapping).
-  , rsMask        :: {-# UNPACK #-} !Int
+  , rsMask :: {-# UNPACK #-} !Int
   -- ^ @ringSize - 1@.
-  , rsRingSize    :: {-# UNPACK #-} !Int
+  , rsRingSize :: {-# UNPACK #-} !Int
   -- ^ Physical ring size (N, not 2N).
-  , rsChunkSize   :: {-# UNPACK #-} !Int
+  , rsChunkSize :: {-# UNPACK #-} !Int
   -- ^ Default chunk offered to the builder on overflow.
   , rsPublishHead :: !(Word64 -> IO ())
   -- ^ Publish the head position to the ring consumer.
-  , rsEnsureRoom  :: !(Word64 -> IO ())
+  , rsEnsureRoom :: !(Word64 -> IO ())
   -- ^ Block until the ring has room for head to advance to this
   -- position.  Throws on transport failure / close.
-  , rsLoadTail    :: !(IO Word64)
+  , rsLoadTail :: !(IO Word64)
   -- ^ Read the consumer's current tail position.  Used to check
   -- whether the ring has room without publishing first.
   }
@@ -269,9 +272,9 @@ the last unpublished bytes.  Returns the final head position.
 finalizeRingSink :: IORef RingSinkState -> Ptr Word8 -> IO Word64
 finalizeRingSink rsRef finalCur = do
   rs <- readIORef rsRef
-  let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+  let !off = fromIntegral (rsHead rs) .&. rsMask rs
       !startPtr = rsBase rs `plusPtr` off
-      !written  = finalCur `minusPtr` startPtr
+      !written = finalCur `minusPtr` startPtr
       !finalHead = rsHead rs + fromIntegral written
   -- Publish everything from the last-published position to
   -- the builder's final cursor in a single call.
@@ -488,8 +491,8 @@ data Write = Write !Int (BuilderState -> BuilderState)
 -- 'BuilderState' is an unlifted tuple, so the @(\\s -> w1 (w0 s))@ /
 -- @(\\s -> s)@ continuations here can't go through @(.)@ or 'id' —
 -- those have lifted-kind type parameters and don't apply.
-{-# HLINT ignore "Avoid lambda" #-}
-{-# HLINT ignore "Use id" #-}
+{- HLINT ignore "Avoid lambda" -}
+{- HLINT ignore "Use id" -}
 instance Sem.Semigroup Write where
   Write s0 w0 <> Write s1 w1 = Write (s0 + s1) (\s -> w1 (w0 s))
 
@@ -1031,12 +1034,12 @@ byteStringInsert_ bstr = mkBuilder $ do
     RingSink rsRef -> do
       cur <- getCur
       rs <- io $ readIORef rsRef
-      let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+      let !off = fromIntegral (rsHead rs) .&. rsMask rs
           !startPtr = rsBase rs `plusPtr` off
-          !written  = cur `minusPtr` startPtr
-          !newHead  = rsHead rs + fromIntegral written
-          !bsLen    = S.length bstr
-          !ringSz   = rsRingSize rs
+          !written = cur `minusPtr` startPtr
+          !newHead = rsHead rs + fromIntegral written
+          !bsLen = S.length bstr
+          !ringSz = rsRingSize rs
       -- Publish accumulated builder bytes before the BS copy.
       when (written > 0) $ io $ do
         when (newHead > rsPublished rs) $
@@ -1048,21 +1051,25 @@ byteStringInsert_ bstr = mkBuilder $ do
               | remaining <= 0 = pure hd
               | otherwise = do
                   let !chunk = min remaining ringSz
-                      !wh    = hd + fromIntegral chunk
+                      !wh = hd + fromIntegral chunk
                   rsEnsureRoom rs wh
                   let !dstOff = fromIntegral hd .&. rsMask rs
-                      !dst    = rsBase rs `plusPtr` dstOff
+                      !dst = rsBase rs `plusPtr` dstOff
                   copyBytes dst (castPtr src `plusPtr` srcOff) chunk
                   rsPublishHead rs wh
                   loop (srcOff + chunk) wh (remaining - chunk)
         afterBs <- loop 0 newHead bsLen
         let !pub = afterBs
-        writeIORef rsRef rs { rsHead = afterBs
-                            , rsPublished = pub }
+        writeIORef
+          rsRef
+          rs
+            { rsHead = afterBs
+            , rsPublished = pub
+            }
       -- Set up a fresh region for subsequent builder writes.
       rs' <- io $ readIORef rsRef
       let !contChunk = min ringSz (rsChunkSize rs')
-          !contWant  = rsHead rs' + fromIntegral contChunk
+          !contWant = rsHead rs' + fromIntegral contChunk
       io $ rsEnsureRoom rs' contWant
       let !contOff = fromIntegral (rsHead rs') .&. rsMask rs'
           !contPtr = rsBase rs' `plusPtr` contOff
@@ -1169,36 +1176,45 @@ getBytes_ n = mkBuilder $ do
       -- error — use byteStringInsert (triggered automatically
       -- by byteString / byteStringThreshold) for large payloads.
       when (I# n > rsRingSize rs) $
-        io $ error $
-          "Wireform.Builder: RingSink getBytes request ("
-            ++ show (I# n)
-            ++ ") exceeds ring size ("
-            ++ show (rsRingSize rs)
-            ++ "); use byteString/byteStringInsert for large payloads"
-      let !off      = fromIntegral (rsHead rs) .&. rsMask rs
+        io $
+          error $
+            "Wireform.Builder: RingSink getBytes request ("
+              ++ show (I# n)
+              ++ ") exceeds ring size ("
+              ++ show (rsRingSize rs)
+              ++ "); use byteString/byteStringInsert for large payloads"
+      let !off = fromIntegral (rsHead rs) .&. rsMask rs
           !startPtr = rsBase rs `plusPtr` off
-          !written  = cur `minusPtr` startPtr
-          !newHead  = rsHead rs + fromIntegral written
+          !written = cur `minusPtr` startPtr
+          !newHead = rsHead rs + fromIntegral written
       -- Try to extend without publishing: the ring may already
       -- have room beyond what we initially reserved.
-      let !chunkSz = min (rsRingSize rs)
-                         (max (I# n) (rsChunkSize rs))
+      let !chunkSz =
+            min
+              (rsRingSize rs)
+              (max (I# n) (rsChunkSize rs))
           !wantHead = newHead + fromIntegral chunkSz
       tl <- io $ rsLoadTail rs
       let !ringCap = fromIntegral (rsRingSize rs) :: Word64
-      published' <- if wantHead - tl <= ringCap
-            then
-              io $ pure (rsPublished rs)
-            else do
-              io $ do
-                when (newHead > rsPublished rs) $
-                  rsPublishHead rs newHead
-                rsEnsureRoom rs wantHead
-              io $ pure newHead
+      published' <-
+        if wantHead - tl <= ringCap
+          then
+            io $ pure (rsPublished rs)
+          else do
+            io $ do
+              when (newHead > rsPublished rs) $
+                rsPublishHead rs newHead
+              rsEnsureRoom rs wantHead
+            io $ pure newHead
       let !newOff = fromIntegral newHead .&. rsMask rs
           !newPtr = rsBase rs `plusPtr` newOff
-      io $ writeIORef rsRef rs { rsHead = newHead
-                                , rsPublished = published' }
+      io $
+        writeIORef
+          rsRef
+          rs
+            { rsHead = newHead
+            , rsPublished = published'
+            }
       setCur newPtr
       setEnd (newPtr `plusPtr` chunkSz)
 {-# NOINLINE getBytes_ #-}

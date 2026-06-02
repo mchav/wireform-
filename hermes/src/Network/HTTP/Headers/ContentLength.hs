@@ -1,39 +1,44 @@
-module Network.HTTP.Headers.ContentLength where
+module Network.HTTP.Headers.ContentLength (
+  ContentLength (..),
+  contentLengthParser,
+  renderContentLength,
+) where
 
-import Control.Monad.Combinators.NonEmpty
-import qualified Data.ByteString as B
-import Data.Word (Word64)
-import Data.Foldable1
 import qualified Data.List.NonEmpty as NE
-import qualified Data.Text.Short as ST
-import qualified Network.HTTP.Headers.Mason as M
-import Network.HTTP.Headers.HeaderFieldName
-import Network.HTTP.Headers.Parsing.Util
-import Network.HTTP.Headers.Rendering.Util
 import Network.HTTP.Headers
+import Network.HTTP.Headers.HeaderFieldName
+import qualified Network.HTTP.Headers.Mason as M
+import Network.HTTP.Headers.Parsing.Util
 
-newtype ContentLength = ContentLength { contentLength :: Word }
+
+newtype ContentLength = ContentLength {contentLength :: Word}
   deriving stock (Eq, Show)
+
 
 instance KnownHeader ContentLength where
   type ParseFailure ContentLength = String
   type Cardinality ContentLength = 'ZeroOrOne
   type Direction ContentLength = 'RequestAndResponse
 
+
   parseFromHeaders _ headers = do
     let header = NE.head headers
     case runParser contentLengthParser header of
-      OK contentLength "" -> Right contentLength
+      OK cl "" -> Right cl
       OK _ rest -> Left $ "Unconsumed input after parsing Content-Length header: " <> show rest
       Fail -> Left "Failed to parse Content-Length header"
-      Err err -> Left err
+      Err e -> Left e
+
 
   renderToHeaders _ = M.toStrictByteString . renderContentLength
 
+
   headerName _ = hContentLength
+
 
 contentLengthParser :: ParserT st String ContentLength
 contentLengthParser = ContentLength <$> anyAsciiDecimalWord
+
 
 renderContentLength :: ContentLength -> M.Builder
 renderContentLength (ContentLength len) = M.wordDec len

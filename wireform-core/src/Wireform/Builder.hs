@@ -55,34 +55,6 @@ hPutBuilder stdout (myEncoder msg)
 @
 -}
 module Wireform.Builder (
-  -- * Builder type
-  -- | A chunk-based byte builder. Combine fragments with @('<>')@.
-  -- Run with 'toStrictByteString', 'toLazyByteString', or 'hPutBuilder'.
-  Builder,
-
-  -- * Running builders
-  -- | Convert a 'Builder' into output bytes or write directly to a handle.
-  toStrictByteString,
-  toLazyByteString,
-  hPutBuilder,
-  hPutBuilderLen,
-  hPutBuilderWith,
-
-  -- * Performance tuning
-  -- | 'rebuild' resets GHC's inlining budget for a builder, which can
-  -- help when combining many small builders causes excessive code bloat.
-  rebuild,
-
-  -- * Bounded / fixed primitives
-  primBounded,
-  primFixed,
-
-  -- * ByteString to Builder
-  byteString,
-  byteStringInsert,
-  byteStringCopy,
-  byteStringThreshold,
-
   -- * Single byte
   word8,
   int8,
@@ -124,6 +96,7 @@ module Wireform.Builder (
   string7,
 
   -- * Builder internals (advanced)
+
   -- | 'StreamSink' and 'withStreamTransform' allow interposing a
   -- streaming transformation (e.g. compression) between the builder
   -- and its output destination. See "Wireform.Builder.FastBuilder" for

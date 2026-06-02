@@ -72,7 +72,6 @@ module Fory.Encoding (
 import Data.Bits (complement, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Unsafe qualified as BSU
 import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)

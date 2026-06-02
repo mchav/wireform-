@@ -57,7 +57,7 @@ import Data.Time.Clock qualified as TC
 import Data.Time.Clock.POSIX qualified as TC
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Data.Word (Word32, Word64, Word8)
+import Data.Word (Word64, Word8)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble)
 import Text.Printf (printf)
 import Wireform.Builder qualified as B
@@ -168,10 +168,10 @@ encodeMetadata dict =
         | maxVal < 65536 = 2
         | maxVal < 16777216 = 3
         | otherwise = 4
-      !version = 1
+      !version = 1 :: Int
       !sortedFlag = 1
       !header =
-        fromIntegral version
+        version
           .|. (sortedFlag `shiftL` 4)
           .|. ((offsetSize - 1) `shiftL` 6)
       !offsets = V.scanl' (\acc b -> acc + BS.length b) 0 utf8s
@@ -239,7 +239,7 @@ encodeValue dict = BL.toStrict . B.toLazyByteString . goB
       VObject m -> encodeObject dict m
       VUnsupportedPrimitive tag payload ->
         -- emit verbatim so a roundtrip preserves what we don't model.
-        B.word8 (fromIntegral ((tag `shiftL` 2) .|. 0))
+        B.word8 ((tag `shiftL` 2) .|. 0)
           <> B.byteString payload
 
 
@@ -430,13 +430,13 @@ decodePrimitive ph bs off = case ph of
   6 -> readLE 8 bs off >>= \(v, n) -> Right (VInt64 (fromIntegral v), n)
   7 ->
     readLE 8 bs off >>= \(v, n) ->
-      Right (VDouble (castWord64ToDouble (fromIntegral v)), n)
+      Right (VDouble (castWord64ToDouble v), n)
   8 ->
     readScaledLE 4 bs off >>= \(sc, w, n) ->
-      Right (VDecimal4 sc (fromIntegral (fromIntegral w :: Int32)), n)
+      Right (VDecimal4 sc (fromIntegral w :: Int32), n)
   9 ->
     readScaledLE 8 bs off >>= \(sc, w, n) ->
-      Right (VDecimal8 sc (fromIntegral (fromIntegral w :: Int64)), n)
+      Right (VDecimal8 sc (fromIntegral w :: Int64), n)
   10 ->
     readScaled128 bs off >>= \(sc, i, n) ->
       Right (VDecimal16 sc i, n)

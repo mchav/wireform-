@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds -Wno-unused-local-binds #-}
 
 module Wireform.Transport.Capabilities
   ( SystemCapabilities (..)
@@ -20,7 +21,6 @@ import qualified Data.ByteString as BS
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IORef
-import Data.Word (Word8)
 import Foreign.C.Types (CLong (..))
 import System.IO.Unsafe (unsafePerformIO)
 

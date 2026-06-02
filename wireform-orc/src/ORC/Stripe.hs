@@ -26,11 +26,10 @@ module ORC.Stripe (
   encodeColumnEncoding,
 ) where
 
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Unsafe qualified as BSU
 import Data.Vector qualified as V
 import Data.Word (Word32, Word64)
 import ORC.Proto.Schema

@@ -1,42 +1,43 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE UnboxedTuples #-}
 
-module Wireform.Parser.Driver
-  ( runParser
-  , runParserLoop
-  , LoopControl (..)
-  , parseByteString
-  , runParserInternal
-  , InternalResult (..)
-  ) where
+module Wireform.Parser.Driver (
+  runParser,
+  runParserLoop,
+  LoopControl (..),
+  parseByteString,
+  runParserInternal,
+  InternalResult (..),
+) where
 
 import Control.Exception (SomeException, mask)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString.Internal qualified as BSI
 import Data.IORef
-import Data.Word (Word8, Word64)
+import Data.Word (Word64, Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
-import Foreign.Ptr (Ptr (..), plusPtr, minusPtr, castPtr)
+import Foreign.Ptr (Ptr, castPtr, minusPtr, plusPtr)
 import Foreign.Storable (poke)
 import GHC.Exts
 import GHC.ForeignPtr (ForeignPtr (..), ForeignPtrContents (..))
 import GHC.IO (IO (..))
 import System.IO.Unsafe (unsafeDupablePerformIO)
-
 import Wireform.Parser.Error
 import Wireform.Parser.Internal
-import Wireform.Ring.Internal (ringBase, ringSize, ringMask)
+import Wireform.Ring.Internal (ringBase, ringMask, ringSize)
 import Wireform.Transport
+
 
 data LoopControl = Continue | Stop
   deriving stock (Eq, Show)
+
 
 data InternalResult e a
   = IRDone {-# UNPACK #-} !Word64 !a
@@ -45,13 +46,15 @@ data InternalResult e a
   | IRUnexpectedEof !Word64 !Int
   | IRTransportError !SomeException
   | IRCleanEof
-  | IRRingOverflow {-# UNPACK #-} !Word64 {-# UNPACK #-} !Int {-# UNPACK #-} !Int
-    -- ^ position, requested bytes, ring size — see 'ParseRingOverflow'.
+  | -- | position, requested bytes, ring size — see 'ParseRingOverflow'.
+    IRRingOverflow {-# UNPACK #-} !Word64 {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+
 
 data TransportState
   = TSOpen
   | TSClosedEof
   | TSClosedErr !SomeException
+
 
 ------------------------------------------------------------------------
 -- runParser
@@ -62,20 +65,21 @@ runParser t p = do
   startPos <- receiveLoadHead t
   ir <- runParserInternal t p startPos
   pure $ case ir of
-    IRDone _ a              -> Right a
-    IRFail pos              -> Left (ParseFail pos)
-    IRErr pos e             -> Left (ParseErr pos e)
-    IRUnexpectedEof pos n   -> Left (ParseUnexpectedEof pos n)
-    IRTransportError exc    -> Left (ParseTransportError exc)
-    IRCleanEof              -> Left (ParseUnexpectedEof 0 0)
+    IRDone _ a -> Right a
+    IRFail pos -> Left (ParseFail pos)
+    IRErr pos e -> Left (ParseErr pos e)
+    IRUnexpectedEof pos n -> Left (ParseUnexpectedEof pos n)
+    IRTransportError exc -> Left (ParseTransportError exc)
+    IRCleanEof -> Left (ParseUnexpectedEof 0 0)
     IRRingOverflow pos n sz -> Left (ParseRingOverflow pos n sz)
+
 
 runParserInternal :: forall e a. ReceiveTransport -> Parser Stream e a -> Word64 -> IO (InternalResult e a)
 runParserInternal t p startPos = mask \restore -> do
-  let ring  = receiveRing t
+  let ring = receiveRing t
       !base = ringBase ring
-      !msk  = ringMask ring
-      !sz   = ringSize ring
+      !msk = ringMask ring
+      !sz = ringSize ring
 
   currentHead <- receiveLoadHead t
   let !curOffset = fromIntegral startPos .&. msk
@@ -92,7 +96,7 @@ runParserInternal t p startPos = mask \restore -> do
       -- recv loop) can claim a much larger head — without the
       -- clamp 'eob' would point past the double mapping and the
       -- first parser read past 'base + 2*ringSize' would segfault.
-      !avail     = min sz (fromIntegral (currentHead - startPos))
+      !avail = min sz (fromIntegral (currentHead - startPos))
       !(Ptr initEnd#) = (Ptr initCur#) `plusPtr` avail
 
   -- One stack-allocated buffer holds the three mutable cells the
@@ -108,11 +112,11 @@ runParserInternal t p startPos = mask \restore -> do
   -- suspended between 'control0#' and the matching 'prompt#'.  See
   -- the 'ParserEnv' haddock for the full argument.
   allocaBytes 24 \cells -> do
-    let !endPtr     = cells
-        !anchorPos  = cells `plusPtr` 8
-        !anchorCur  = cells `plusPtr` 16
-    poke (castPtr endPtr    :: Ptr (Ptr Word8)) (Ptr initEnd#)
-    poke (castPtr anchorPos :: Ptr Word64)      startPos
+    let !endPtr = cells
+        !anchorPos = cells `plusPtr` 8
+        !anchorCur = cells `plusPtr` 16
+    poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr initEnd#)
+    poke (castPtr anchorPos :: Ptr Word64) startPos
     poke (castPtr anchorCur :: Ptr (Ptr Word8)) (Ptr initCur#)
 
     highWaterRef <- newIORef startPos
@@ -122,15 +126,16 @@ runParserInternal t p startPos = mask \restore -> do
     -- is available for peTag, then return both.
     (env, step0) <- IO \s0 -> case newPromptTag# s0 of
       (# s1, (tag :: PromptTag# (Step e a)) #) ->
-        let !env' = ParserEnv
-              { peEndPtr    = castPtr endPtr
-              , peBaseAddr  = base
-              , peMask      = msk
-              , peAnchorPos = castPtr anchorPos
-              , peAnchorCur = castPtr anchorCur
-              , peBackingFp = FinalPtr
-              , peTag       = tagToAny tag
-              }
+        let !env' =
+              ParserEnv
+                { peEndPtr = castPtr endPtr
+                , peBaseAddr = base
+                , peMask = msk
+                , peAnchorPos = castPtr anchorPos
+                , peAnchorCur = castPtr anchorCur
+                , peBackingFp = FinalPtr
+                , peTag = tagToAny tag
+                }
             body :: State# RealWorld -> (# State# RealWorld, Step e a #)
             body s = case runParser# p env' initEnd# initCur# s of
               (# s', OK# a cur' #) ->
@@ -141,15 +146,24 @@ runParserInternal t p startPos = mask \restore -> do
               (# s', Err# e #) ->
                 (# s', StepErr startPos e #)
         in case prompt# tag body s1 of
-             (# s2, step #) -> (# s2, (env', step) #)
+            (# s2, step #) -> (# s2, (env', step) #)
 
     driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
 
-driverLoop :: forall e a.
-              (forall x. IO x -> IO x) -> ReceiveTransport -> ParserEnv
-           -> Ptr Word8 -> Int -> Int
-           -> Word64 -> IORef Word64 -> IORef TransportState
-           -> Step e a -> IO (InternalResult e a)
+
+driverLoop
+  :: forall e a
+   . (forall x. IO x -> IO x)
+  -> ReceiveTransport
+  -> ParserEnv
+  -> Ptr Word8
+  -> Int
+  -> Int
+  -> Word64
+  -> IORef Word64
+  -> IORef TransportState
+  -> Step e a
+  -> IO (InternalResult e a)
 driverLoop restore t env base msk sz startPos hwRef tsRef = go
   where
     go :: Step e a -> IO (InternalResult e a)
@@ -157,19 +171,16 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
       StepDone newPos a -> do
         receiveAdvanceTail t newPos
         pure (IRDone newPos a)
-
       StepErr pos e -> pure (IRErr pos e)
-
       StepFail pos -> do
         ts <- readIORef tsRef
         hw <- readIORef hwRef
         pure $ case ts of
-          TSOpen        -> IRFail pos
+          TSOpen -> IRFail pos
           TSClosedErr e -> IRTransportError e
           TSClosedEof
             | hw == startPos -> IRCleanEof
-            | otherwise      -> IRUnexpectedEof pos 0
-
+            | otherwise -> IRUnexpectedEof pos 0
       StepCheckpoint pos resume -> do
         receiveAdvanceTail t pos
         h <- receiveLoadHead t
@@ -186,11 +197,10 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
         -- correct after the cur wrap.
         let !curOff = fromIntegral pos .&. msk
             !newCur = base `plusPtr` curOff
-            !avail  = min sz (fromIntegral (h - pos))
+            !avail = min sz (fromIntegral (h - pos))
             !newEnd = newCur `plusPtr` avail
         nextStep <- resumeContinue resume newCur newEnd
         go nextStep
-
       StepSuspend pausedAt needed resume
         | needed > sz ->
             -- The parser asked for more bytes than the entire ring can
@@ -216,9 +226,9 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
                 -- 'resumeContinue' re-anchors the env so 'curToPos'
                 -- stays correct after the cur wrap.
                 let !newCurOff = fromIntegral pausedAt .&. msk
-                    !newCur    = base `plusPtr` newCurOff
-                    !avail     = min sz (fromIntegral (newHead - pausedAt))
-                    !newEnd    = newCur `plusPtr` avail
+                    !newCur = base `plusPtr` newCurOff
+                    !avail = min sz (fromIntegral (newHead - pausedAt))
+                    !newEnd = newCur `plusPtr` avail
                 nextStep <- resumeContinue resume newCur newEnd
                 go nextStep
               WAEndOfInput -> do
@@ -227,13 +237,20 @@ driverLoop restore t env base msk sz startPos hwRef tsRef = go
               WATransportError exc ->
                 pure (IRTransportError exc)
 
+
 data WaitAvail
   = WAMoreData {-# UNPACK #-} !Word64
   | WAEndOfInput
   | WATransportError !SomeException
 
-waitUntilAvailable :: ReceiveTransport -> IORef TransportState
-                   -> Word64 -> Int -> Int -> IO WaitAvail
+
+waitUntilAvailable
+  :: ReceiveTransport
+  -> IORef TransportState
+  -> Word64
+  -> Int
+  -> Int
+  -> IO WaitAvail
 waitUntilAvailable t tsRef pos needed _ringSize = do
   h0 <- receiveLoadHead t
   loop (max pos h0)
@@ -253,15 +270,20 @@ waitUntilAvailable t tsRef pos needed _ringSize = do
           r <- receiveWaitData t waitFrom
           case r of
             ReceiveMoreData h' -> loop (max waitFrom h')
-            ReceiveEndOfInput  -> do { writeIORef tsRef TSClosedEof; pure WAEndOfInput }
-            ReceiveFailed exc  -> do { writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc) }
+            ReceiveEndOfInput -> do writeIORef tsRef TSClosedEof; pure WAEndOfInput
+            ReceiveFailed exc -> do writeIORef tsRef (TSClosedErr exc); pure (WATransportError exc)
+
 
 ------------------------------------------------------------------------
 -- runParserLoop
 ------------------------------------------------------------------------
 
-runParserLoop :: forall e a. ReceiveTransport -> Parser Stream e a -> (a -> IO LoopControl)
-              -> IO (Either (ParseError e) ())
+runParserLoop
+  :: forall e a
+   . ReceiveTransport
+  -> Parser Stream e a
+  -> (a -> IO LoopControl)
+  -> IO (Either (ParseError e) ())
 runParserLoop t p k = do
   startPos <- receiveLoadHead t
   loop startPos
@@ -271,20 +293,22 @@ runParserLoop t p k = do
       case r of
         IRDone newPos a -> do
           ctl <- k a
-          case ctl of { Continue -> loop newPos; Stop -> pure (Right ()) }
-        IRCleanEof               -> pure (Right ())
-        IRFail fpos              -> pure (Left (ParseFail fpos))
-        IRErr fpos e             -> pure (Left (ParseErr fpos e))
-        IRUnexpectedEof fpos n   -> pure (Left (ParseUnexpectedEof fpos n))
-        IRTransportError exc     -> pure (Left (ParseTransportError exc))
+          case ctl of Continue -> loop newPos; Stop -> pure (Right ())
+        IRCleanEof -> pure (Right ())
+        IRFail fpos -> pure (Left (ParseFail fpos))
+        IRErr fpos e -> pure (Left (ParseErr fpos e))
+        IRUnexpectedEof fpos n -> pure (Left (ParseUnexpectedEof fpos n))
+        IRTransportError exc -> pure (Left (ParseTransportError exc))
         IRRingOverflow fpos n sz -> pure (Left (ParseRingOverflow fpos n sz))
+
 
 ------------------------------------------------------------------------
 -- parseByteString (non-streaming, flatparse-equivalent)
 ------------------------------------------------------------------------
 
--- | Run a parser against a whole 'ByteString'.
--- The hot path is bit-identical to flatparse — no suspension overhead.
+{- | Run a parser against a whole 'ByteString'.
+The hot path is bit-identical to flatparse — no suspension overhead.
+-}
 parseByteString :: forall e a. Parser Pure e a -> ByteString -> Either (ParseError e) a
 parseByteString p b = unsafeDupablePerformIO $ do
   -- withForeignPtr keeps the ByteString's backing memory alive
@@ -293,24 +317,25 @@ parseByteString p b = unsafeDupablePerformIO $ do
 
   withForeignPtr (ForeignPtr buf# fp) \_ ->
     allocaBytes 24 \cells -> do
-      let !endPtr    = cells
+      let !endPtr = cells
           !anchorPos = cells `plusPtr` 8
           !anchorCur = cells `plusPtr` 16
-      poke (castPtr endPtr    :: Ptr (Ptr Word8)) (Ptr end#)
-      poke (castPtr anchorPos :: Ptr Word64)      0
+      poke (castPtr endPtr :: Ptr (Ptr Word8)) (Ptr end#)
+      poke (castPtr anchorPos :: Ptr Word64) 0
       poke (castPtr anchorCur :: Ptr (Ptr Word8)) (Ptr buf#)
 
       IO \s0 -> case newPromptTag# s0 of
         (# s1, (tag :: PromptTag# (Step e a)) #) ->
-          let env = ParserEnv
-                { peEndPtr    = castPtr endPtr
-                , peBaseAddr  = Ptr buf#
-                , peMask      = maxBound
-                , peAnchorPos = castPtr anchorPos
-                , peAnchorCur = castPtr anchorCur
-                , peBackingFp = fp
-                , peTag       = tagToAny tag
-                }
+          let env =
+                ParserEnv
+                  { peEndPtr = castPtr endPtr
+                  , peBaseAddr = Ptr buf#
+                  , peMask = maxBound
+                  , peAnchorPos = castPtr anchorPos
+                  , peAnchorCur = castPtr anchorCur
+                  , peBackingFp = fp
+                  , peTag = tagToAny tag
+                  }
               body :: State# RealWorld -> (# State# RealWorld, Step e a #)
               body s = case runParser# p env end# buf# s of
                 (# s', OK# a cur' #) ->
@@ -319,11 +344,11 @@ parseByteString p b = unsafeDupablePerformIO $ do
                 (# s', Fail# #) -> (# s', StepFail 0 #)
                 (# s', Err# e #) -> (# s', StepErr 0 e #)
           in case prompt# tag body s1 of
-               (# s2, step #) -> unIO (classifyStep step) s2
+              (# s2, step #) -> unIO (classifyStep step) s2
   where
-    classifyStep (StepDone _ a)       = pure (Right a)
-    classifyStep (StepFail pos)       = pure (Left (ParseFail pos))
-    classifyStep (StepErr pos e)      = pure (Left (ParseErr pos e))
-    classifyStep (StepSuspend _ _ r)  = resumeEof r >>= classifyStep
+    classifyStep (StepDone _ a) = pure (Right a)
+    classifyStep (StepFail pos) = pure (Left (ParseFail pos))
+    classifyStep (StepErr pos e) = pure (Left (ParseErr pos e))
+    classifyStep (StepSuspend _ _ r) = resumeEof r >>= classifyStep
     classifyStep (StepCheckpoint _ r) = resumeEof r >>= classifyStep
     unIO (IO f) = f

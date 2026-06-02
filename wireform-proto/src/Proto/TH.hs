@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskellQuotes #-}
-{-# OPTIONS_GHC -Wno-unused-matches #-}
+{-# OPTIONS_GHC -Wno-unused-matches -Wno-partial-fields #-}
 
 {- | Template Haskell support for generating protobuf types at compile time.
 
@@ -109,7 +109,6 @@ module Proto.TH (
 
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as SBS
 import Data.Char qualified
@@ -118,13 +117,10 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Maybe qualified
-import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Text.Lazy qualified as TL
-import Data.Vector qualified as V
 import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 import Language.Haskell.TH
@@ -151,17 +147,6 @@ import Proto.Repr
 import Proto.Schema qualified as PS
 import Proto.TH.Metadata qualified as PTM
 import Wireform.Derive.Modifier (MapKeyScalar (..))
-
-
-{- | Produce a Haskell-valid record-field name from a proto field.
-The proto-side name is snake_cased (@file_path@, @num_rows@); we
-convert to camelCase and escape reserved keywords with a
-trailing prime (@data@ → @data'@, @type@ → @type'@, …). Without
-the escape, TH splices produce @data :: Foo -> Bar@ which is a
-parse error.
--}
-hsFieldName :: Text -> Text
-hsFieldName = escapeReserved . snakeToCamel
 
 
 {- | Message-scoped field name, mirroring the convention the pure-
@@ -254,10 +239,6 @@ isUnboxableScalar = \case
   SString -> False
   SBytes -> False
   _ -> True
-
-
-hsEnumCon :: Text -> Text -> Text
-hsEnumCon _enumName = snakeToPascal
 
 
 {- | Options for compile-time proto loading.
@@ -954,30 +935,6 @@ fieldTypeToTH scope lbl ft rep = case lbl of
       | not (isEnumName scope n) ->
           appT (conT ''Maybe) (fieldTypeInnerScopedQ scope rep ft)
     _ -> fieldTypeInnerScopedQ scope rep ft
-
-
-{- | 'fieldTypeInnerQ' ignores the per-field 'FieldRep'; used for map
-keys/values where we haven't threaded a rep config through yet.
-Prefer 'fieldTypeInnerQWithRep' for message fields so that
-custom bytes/string representations (@fieldBytes@ / @fieldString@)
-actually materialize in the generated Haskell type.
--}
-fieldTypeInnerQ :: FieldType -> Q Type
-fieldTypeInnerQ = fieldTypeInnerQWithRep defaultFieldRep
-
-
-{- | Scope-unaware variant kept for callers that don't have a
-'ScopeCtx' handy (e.g. map key resolution, where the key
-type is always a built-in scalar).
--}
-fieldTypeInnerQWithRep :: FieldRep -> FieldType -> Q Type
-fieldTypeInnerQWithRep rep = \case
-  FTScalar SString -> stringTypeQ (fieldString rep)
-  FTScalar SBytes -> bytesTypeQ (fieldBytes rep)
-  FTScalar s -> scalarToTH s
-  FTNamed n
-    | Just (tyN, _) <- lookupWkt n -> conT tyN
-    | otherwise -> conT (mkName (T.unpack (hsTypeName n)))
 
 
 {- | Scope-aware variant used for normal singular / repeated /

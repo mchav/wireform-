@@ -39,7 +39,7 @@ list to consume.
   bare scheme, @token68@, and @auth-param@ list.
 * 'WWWAuthenticate' is a list of challenges with a 'KnownHeader'
   instance that joins multi-line headers per RFC 9110 §5.3.
-* The @auth-scheme@ \\/ @auth-param@ vocabulary is shared with
+* The @auth-scheme@ \/ @auth-param@ vocabulary is shared with
   "Network.HTTP.Headers.Authorization" so the request and
   response sides speak the same parameter types.
 -}
@@ -113,10 +113,12 @@ newtype WWWAuthenticate = WWWAuthenticate
   }
   deriving stock (Eq, Show)
 
+
 instance KnownHeader WWWAuthenticate where
   type ParseFailure WWWAuthenticate = String
   type Cardinality WWWAuthenticate = 'ZeroOrMore
   type Direction WWWAuthenticate = 'Response
+
 
   parseFromHeaders _ headers = do
     challenges <- traverse parseOne (NE.toList headers)
@@ -134,6 +136,7 @@ instance KnownHeader WWWAuthenticate where
   renderToHeaders _ (WWWAuthenticate cs) =
     [M.toStrictByteString (renderWWWAuthenticate (WWWAuthenticate cs))]
 
+
   headerName _ = hWWWAuthenticate
 
 -- ---------------------------------------------------------------------------
@@ -148,16 +151,16 @@ wwwAuthenticateParser = WWWAuthenticate <$> challengesParser
 
 -- | Parse a comma-separated list of challenges with scheme-aware
 -- splitting.  Tolerates the RFC 9110 §5.6.1 \"empty list element\"
--- form (leading \\/ trailing \\/ stacked commas).
+-- form (leading \/ trailing \/ stacked commas).
 challengesParser :: ParserT st String [AuthChallenge]
 challengesParser = do
   ows
-  _ <- skipMany (ows *> $(char ','))   -- swallow any leading bare commas
+  _ <- skipMany (ows *> $(char ','))
   ows
   first <- challengeParser
   rest  <- many continueChallenge
   ows
-  _ <- skipMany (ows *> $(char ','))   -- and trailing ones
+  _ <- skipMany (ows *> $(char ','))
   ows
   pure (first : rest)
   where
@@ -165,7 +168,7 @@ challengesParser = do
       ows
       $(char ',')
       ows
-      _ <- skipMany (ows *> $(char ','))   -- stacked empty commas
+      _ <- skipMany (ows *> $(char ','))
       ows
       challengeParser
 
@@ -178,14 +181,8 @@ challengeParser = do
   pure AuthChallenge { challengeScheme = scheme, challengeContents = contents }
   where
     challengePayload = do
-      -- The grammar requires 1*SP before the payload; we consume
-      -- it and then commit to either token68 or auth-param-list.
       _ <- skipSome $(char ' ')
       ows
-      -- token68 is greedier than rfc9110Token (it includes '+' '/' '='),
-      -- but a token68 payload is /not/ followed by a '='; an
-      -- auth-param token /is/ followed by BWS '='.  Try auth-param
-      -- list first; on failure fall back to token68.
       (ChallengeParams <$> authParamList)
         <|> (ChallengeToken68 <$> token68Parser)
 
@@ -199,11 +196,6 @@ authParamList = do
   pure (first : rest)
   where
     continueParam = do
-      -- Use 'lookahead' to make the disambiguation transactional:
-      -- if the look-ahead succeeds, the comma + next auth-param is
-      -- ours to consume; if it fails (because what follows is a
-      -- new scheme), the outer challenge-list parser gets to see
-      -- the comma untouched.
       lookahead $ do
         ows
         $(char ',')

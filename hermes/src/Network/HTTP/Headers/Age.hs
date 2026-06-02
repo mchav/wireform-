@@ -1,38 +1,39 @@
-module Network.HTTP.Headers.Age
-  ( Age (..)
-  , parseAge
-  , renderAge
-  ) where
+module Network.HTTP.Headers.Age (
+  Age (..),
+  parseAge,
+  renderAge,
+) where
 
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as C
 import qualified Data.List.NonEmpty as NE
-import Data.Word (Word64, Word32)
-import Data.Time.Clock (UTCTime)
-import Data.Time.Format
-import qualified Network.HTTP.Headers.Mason as M
+import Data.Word (Word32)
 import Network.HTTP.Headers
-import Network.HTTP.Headers.Date (dateParser, renderDate)
 import Network.HTTP.Headers.HeaderFieldName (hAge)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 
-newtype Age = Age { age :: Word32 }
+
+newtype Age = Age {age :: Word32}
   deriving stock (Eq, Show)
+
 
 instance KnownHeader Age where
   type ParseFailure Age = String
   type Cardinality Age = 'ZeroOrOne
   type Direction Age = 'Response
 
+
   parseFromHeaders _ headers = case runParser parseAge $ NE.head headers of
-    OK age "" -> Right age
+    OK a "" -> Right a
     OK _ rest -> Left $ "Unconsumed input after parsing Age header: " <> show rest
     Fail -> Left "Failed to parse Age header"
-    Err err -> Left err
+    Err e -> Left e
+
 
   renderToHeaders _ = M.toStrictByteString . renderAge
 
+
   headerName _ = hAge
+
 
 parseAge :: ParserT st e Age
 parseAge = do
@@ -64,9 +65,12 @@ parseAge = do
     calculations.
   -}
   w <- anyAsciiDecimalWord
-  pure $ Age $ if w <= fromIntegral (maxBound :: Word32) 
-  then fromIntegral w
-  else fromIntegral (maxBound :: Word32)
+  pure $
+    Age $
+      if w <= fromIntegral (maxBound :: Word32)
+        then fromIntegral w
+        else maxBound
+
 
 renderAge :: Age -> M.Builder
-renderAge (Age age) = M.word32Dec age
+renderAge (Age a) = M.word32Dec a

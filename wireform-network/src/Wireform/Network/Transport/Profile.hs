@@ -1,47 +1,57 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Profile realization: turns a 'Profile' into concrete OS-level
--- tuning actions (CPU pinning, huge pages, mlock, NUMA placement).
-module Wireform.Network.Transport.Profile
-  ( realizeProfile
-  , applyPinning
-  , applyMemoryLocking
-  ) where
+{- | Profile realization: turns a 'Profile' into concrete OS-level
+tuning actions (CPU pinning, huge pages, mlock, NUMA placement).
+-}
+module Wireform.Network.Transport.Profile (
+  realizeProfile,
+  applyPinning,
+  applyMemoryLocking,
+) where
 
-import Control.Exception (try, SomeException)
+import Control.Exception (SomeException, try)
 import Data.Word (Word8)
 import Foreign.Ptr (Ptr)
 import System.IO (hPutStrLn, stderr)
-
-import Wireform.Transport.Config
 import Wireform.Transport.Capabilities
+import Wireform.Transport.Config
 
--- | Given a profile and detected capabilities, produce a config
--- that respects what the system can actually do.
+
+{- | Given a profile and detected capabilities, produce a config
+that respects what the system can actually do.
+-}
 realizeProfile :: Profile -> SystemCapabilities -> TransportConfig
 realizeProfile p caps = adjustForCapabilities caps (profileConfig p)
 
+
 adjustForCapabilities :: SystemCapabilities -> TransportConfig -> TransportConfig
-adjustForCapabilities caps cfg = cfg
-  { pages = adjustPages caps (pages cfg)
-  , ioUring = adjustIOUring caps (ioUring cfg)
-  }
+adjustForCapabilities caps cfg =
+  cfg
+    { pages = adjustPages caps (pages cfg)
+    , ioUring = adjustIOUring caps (ioUring cfg)
+    }
+
 
 adjustPages :: SystemCapabilities -> PagePolicy -> PagePolicy
 adjustPages caps RequireHugePages
   | null (capHugePageSizes caps) = StandardPages
 adjustPages _ p = p
 
+
 adjustIOUring :: SystemCapabilities -> IOUringConfig -> IOUringConfig
-adjustIOUring caps ioc = ioc
-  { ioUringProvidedBuffers = ioUringProvidedBuffers ioc
-      && ioUringFeatureProvidedBuffers (capIOUringFeatures caps)
-  , ioUringSQPoll = if ioUringFeatureSQPoll (capIOUringFeatures caps)
-      then ioUringSQPoll ioc
-      else NoSQPoll
-  }
+adjustIOUring caps ioc =
+  ioc
+    { ioUringProvidedBuffers =
+        ioUringProvidedBuffers ioc
+          && ioUringFeatureProvidedBuffers (capIOUringFeatures caps)
+    , ioUringSQPoll =
+        if ioUringFeatureSQPoll (capIOUringFeatures caps)
+          then ioUringSQPoll ioc
+          else NoSQPoll
+    }
+
 
 ------------------------------------------------------------------------
 -- Pinning
@@ -53,23 +63,25 @@ applyPinning NoPinning _ = pure ()
 applyPinning (PinToCore core) onFail = pinToCore core onFail
 applyPinning (PinToCoreSet cores) onFail =
   case cores of
-    (c:_) -> pinToCore c onFail
-    []    -> pure ()
-applyPinning PinNearFd onFail = pure ()
+    (c : _) -> pinToCore c onFail
+    [] -> pure ()
+applyPinning PinNearFd _onFail = pure ()
 applyPinning PinIsolated onFail = do
   caps <- detectCapabilities
   case capIsolatedCores caps of
-    (c:_) -> pinToCore c onFail
-    []    -> warnCapability onFail "no isolated cores available"
+    (c : _) -> pinToCore c onFail
+    [] -> warnCapability onFail "no isolated cores available"
+
 
 pinToCore :: Int -> CapabilityAction -> IO ()
-pinToCore core onFail = do
 #if defined(linux_HOST_OS)
+pinToCore core onFail = do
   result <- try @SomeException (c_pin_thread core)
   case result of
     Right 0 -> pure ()
     _       -> warnCapability onFail ("failed to pin to core " <> show core)
 #else
+pinToCore _core onFail =
   warnCapability onFail "CPU pinning not supported on this platform"
 #endif
 
@@ -77,6 +89,7 @@ pinToCore core onFail = do
 foreign import ccall unsafe "sched_setaffinity_single"
   c_pin_thread :: Int -> IO Int
 #endif
+
 
 ------------------------------------------------------------------------
 -- Memory locking
@@ -98,6 +111,7 @@ applyMemoryLocking ptr size onFail = do
 foreign import ccall unsafe "mlock"
   c_mlock :: Ptr Word8 -> Int -> IO Int
 #endif
+
 
 ------------------------------------------------------------------------
 -- Helpers

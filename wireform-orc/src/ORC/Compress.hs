@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 -- | ORC stream-level decompression.
 --
 -- ORC's stream framing wraps each (potentially compressed)

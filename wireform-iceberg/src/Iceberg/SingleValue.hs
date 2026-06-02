@@ -141,7 +141,7 @@ encodeDecimal n
 
     addOne :: ByteString -> ByteString
     addOne bs =
-      let (carried, bytes) = goCarry 1 (BS.unpack (BS.reverse bs))
+      let (carried, bytes) = goCarry (1 :: Int) (BS.unpack (BS.reverse bs))
           packed = BS.pack (reverse bytes)
       in if carried then BS.cons 1 packed else packed
       where

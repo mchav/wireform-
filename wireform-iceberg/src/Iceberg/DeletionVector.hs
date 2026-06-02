@@ -45,7 +45,7 @@ import Data.IntSet qualified as IntSet
 import Data.Map.Strict qualified as Map
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
-import Data.Word (Word16, Word32, Word64)
+import Data.Word (Word32, Word64)
 import Iceberg.Puffin (PuffinBlob (..))
 import Wireform.Builder qualified as BB
 import Wireform.Hash qualified as Hash
@@ -125,7 +125,7 @@ stays in Haskell because it has at most a handful of iterations.
 decodeDV :: ByteString -> Either String DeletionVector
 decodeDV bs0 = do
   (cnt, rest) <- takeWord64LE bs0
-  go (fromIntegral cnt) rest IntMap.empty
+  go (fromIntegral cnt :: Int) rest IntMap.empty
   where
     go 0 _ acc = Right (DeletionVector acc)
     go !n bs acc = do
@@ -215,7 +215,7 @@ decodeRoaring32C _ bs = do
       | otherwise =
           let !key = readWord16LE b 0
               !card = readWord16LE b 2 + 1
-          in (fromIntegral key, fromIntegral card) : unflatten4 (BS.drop 4 b)
+          in (key, card) : unflatten4 (BS.drop 4 b)
 
     goContainers [] tail' acc = Right (acc, tail')
     goContainers ((key, card) : rest) tail' acc =

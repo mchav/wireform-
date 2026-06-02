@@ -29,6 +29,8 @@
           pkgs.snappy
           pkgs.zstd
           pkgs.lz4
+          pkgs.brotli
+          pkgs.openssl
         ];
 
         sharedTools = [
@@ -57,44 +59,50 @@
         # Adding a new per-format package means: drop a line into
         # `wireformPackages` *and* an entry under `cabal.project`
         # at the workspace root.
-        # Packages built via callCabal2nix and included in the dev shell.
-        # wireform-grpc is excluded because its transitive deps
-        # (grpc-spec -> crc32c, http2-tls) are broken in nixpkgs;
-        # it still builds fine via `cabal build wireform-grpc` inside
-        # the shell.
         wireformPackages = {
-          wireform-core         = ./wireform-core;
-          wireform-derive       = ./wireform-derive;
-          wireform-columnar-core = ./wireform-columnar-core;
-          wireform-columnar     = ./wireform-columnar;
-          wireform-proto        = ./wireform-proto;
-          wireform-avro         = ./wireform-avro;
-          wireform-thrift       = ./wireform-thrift;
-          wireform-cbor         = ./wireform-cbor;
-          wireform-msgpack      = ./wireform-msgpack;
-          wireform-bson         = ./wireform-bson;
-          wireform-ion          = ./wireform-ion;
-          wireform-capnproto    = ./wireform-capnproto;
-          wireform-flatbuffers  = ./wireform-flatbuffers;
-          wireform-bond         = ./wireform-bond;
-          wireform-asn1         = ./wireform-asn1;
-          wireform-xml          = ./wireform-xml;
-          wireform-html         = ./wireform-html;
-          wireform-parquet      = ./wireform-parquet;
-          wireform-orc          = ./wireform-orc;
-          wireform-arrow        = ./wireform-arrow;
-          wireform-iceberg      = ./wireform-iceberg;
-          wireform-edn          = ./wireform-edn;
-          wireform-bencode      = ./wireform-bencode;
-          wireform-toml         = ./wireform-toml;
-          wireform-csv          = ./wireform-csv;
-          wireform-ndjson       = ./wireform-ndjson;
-          wireform-fory         = ./wireform-fory;
-          wireform-kafka        = ./wireform-kafka;
-          wireform-lance        = ./wireform-lance;
-          wireform-yaml         = ./wireform-yaml;
-          wireform-delta        = ./wireform-delta;
-          wireform-hudi         = ./wireform-hudi;
+          wireform-core              = ./wireform-core;
+          wireform-derive            = ./wireform-derive;
+          wireform-columnar-core     = ./wireform-columnar-core;
+          wireform-columnar          = ./wireform-columnar;
+          wireform-proto             = ./wireform-proto;
+          wireform-avro              = ./wireform-avro;
+          wireform-thrift            = ./wireform-thrift;
+          wireform-cbor              = ./wireform-cbor;
+          wireform-msgpack           = ./wireform-msgpack;
+          wireform-bson              = ./wireform-bson;
+          wireform-ion               = ./wireform-ion;
+          wireform-capnproto         = ./wireform-capnproto;
+          wireform-flatbuffers       = ./wireform-flatbuffers;
+          wireform-bond              = ./wireform-bond;
+          wireform-asn1              = ./wireform-asn1;
+          wireform-xml               = ./wireform-xml;
+          wireform-html              = ./wireform-html;
+          wireform-parquet           = ./wireform-parquet;
+          wireform-orc               = ./wireform-orc;
+          wireform-arrow             = ./wireform-arrow;
+          wireform-iceberg           = ./wireform-iceberg;
+          wireform-edn               = ./wireform-edn;
+          wireform-bencode           = ./wireform-bencode;
+          wireform-toml              = ./wireform-toml;
+          wireform-csv               = ./wireform-csv;
+          wireform-ndjson            = ./wireform-ndjson;
+          wireform-fory              = ./wireform-fory;
+          wireform-network           = ./wireform-network;
+          wireform-attoparsec        = ./wireform-attoparsec;
+          wireform-binary            = ./wireform-binary;
+          wireform-cereal            = ./wireform-cereal;
+          wireform-http1             = ./wireform-http1;
+          wireform-http2             = ./wireform-http2;
+          wireform-http              = ./wireform-http;
+          wireform-http-wai          = ./wireform-http-wai;
+          wireform-kafka-protocol    = ./wireform-kafka-protocol;
+          wireform-kafka             = ./wireform-kafka;
+          wireform-stats             = ./wireform-stats;
+          wireform-lance             = ./wireform-lance;
+          wireform-yaml              = ./wireform-yaml;
+          wireform-delta             = ./wireform-delta;
+          wireform-hudi              = ./wireform-hudi;
+          wireform-grpc              = ./wireform-grpc;
         };
 
         # Cabal flags to enable on specific packages. Mirrors the
@@ -108,44 +116,50 @@
           lib.foldl' (acc: flag: hlib.enableCabalFlag flag acc) drv
             (packageFlags.${name} or []);
 
-        # Packages whose tests must be skipped at the Nix level
-        # because they would introduce a build-time dependency
-        # cycle. wireform-columnar-core's test-suite depends on
-        # wireform-columnar, which itself depends on
-        # wireform-columnar-core (mirrors the `tests: False` line
-        # for wireform-columnar-core in cabal.project).
-        skipTests = [ "wireform-columnar-core" ];
-
         # Build every per-format package via callCabal2nix and
-        # apply the right Cabal flags. Benchmarks are off by
-        # default to avoid pulling proto-lens / criterion / xeno
-        # / hexml into the closure.
-        # cabal2nix turns pkgconfig-depends (e.g. `snappy`, `liblz4`)
-        # into Nix function arguments. We provide them through the
-        # Haskell package set so shellFor can resolve them.
+        # apply the right Cabal flags. Benchmarks and tests are
+        # both off at the Nix level: tests belong in `cabal test`,
+        # not in the Nix sandbox (ring-buffer / OS-specific tests
+        # misbehave under sandboxing, and dependency-cycle
+        # packages like wireform-columnar-core would deadlock the
+        # build graph). Use `cabal test` inside the dev shell instead.
         haskellOverlay = self: super:
           let
             mkPkg = name: src:
               applyFlags name
                 (hlib.overrideCabal (drv: {
                   doBenchmark = false;
-                  doCheck = if lib.elem name skipTests then false else drv.doCheck or true;
+                  doCheck    = false;
                 })
                   (self.callCabal2nix name src {}));
             perFormatAttrs = lib.mapAttrs mkPkg wireformPackages;
             wireformAttr = applyFlags "wireform"
               (hlib.overrideCabal (drv: { doBenchmark = false; })
                 (self.callCabal2nix "wireform" ./. {}));
+            hermesAttr = hlib.overrideCabal (drv: { doBenchmark = false; })
+              (self.callCabal2nix "hermes" ./hermes {});
+            # crc32c-0.2.2 in nixpkgs lists only x86 Darwin as supported,
+            # but Google's crc32c C library has ARMv8 CRC hardware support.
+            # Lift the false platform restriction so grpc-spec (and
+            # wireform-grpc) resolve on aarch64-darwin.
+            crc32cUnrestricted = super.crc32c.overrideAttrs (old: {
+              meta = old.meta // { platforms = lib.platforms.all; };
+            });
           in
             perFormatAttrs // {
               wireform = wireformAttr;
+              hermes   = hermesAttr;
+              crc32c   = crc32cUnrestricted;
               # Map pkg-config names (cabal `pkgconfig-depends`) and
               # bare C library names (cabal `extra-libraries`) to
               # system packages so cabal2nix-generated derivations
               # can find them.
-              liblz4 = pkgs.lz4;
-              lz4    = pkgs.lz4;
-              snappy = pkgs.snappy;
+              liblz4   = pkgs.lz4;
+              lz4      = pkgs.lz4;
+              snappy   = pkgs.snappy;
+              libzstd  = pkgs.zstd;
+              zstd     = pkgs.zstd;
+              openssl  = pkgs.openssl;
             };
 
         mkDevShell = ghcAttr:
@@ -153,9 +167,8 @@
             hp = (pkgs.haskell.packages.${ghcAttr}).override {
               overrides = haskellOverlay;
             };
-            # Every package the workspace ships (minus wireform-grpc
-            # which has broken transitive deps in nixpkgs), so a
-            # single `nix develop` shell can build any of them via
+            # Every package the workspace ships, so a single
+            # `nix develop` shell can build any of them via
             # `cabal build <pkg>`.
             workspaceDrvs =
               lib.attrValues

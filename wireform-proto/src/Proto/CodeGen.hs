@@ -651,6 +651,7 @@ genModuleHeader opts filePath pf =
       , txt "{-# LANGUAGE DerivingStrategies #-}"
       , txt "{-# LANGUAGE OverloadedStrings #-}"
       , txt "{-# LANGUAGE OverloadedRecordDot #-}"
+      , txt "{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-unused-top-binds #-}"
       ]
         <> dupRecordExts
         <> [ txt "-- | Auto-generated protobuf types" <> pretty pkgDoc <> txt "."
@@ -1812,9 +1813,9 @@ genFieldDescriptorList ctx scope fields =
   let entries = fmap (genFieldDescriptorEntry ctx scope) fields
   in case entries of
       [] -> txt "[]"
-      _ ->
-        vsep [txt "[ " <> head entries]
-          <> vsep (fmap (\e -> txt ", " <> e) (tail entries))
+      (e : es) ->
+        vsep [txt "[ " <> e]
+          <> vsep (fmap (\x -> txt ", " <> x) es)
           <> line
           <> txt "]"
 
@@ -1891,10 +1892,10 @@ genToJSONInstance ctx scope msg =
                   [ txt "toJSON msg = jsonObject"
                   , indent 4 $ case fields of
                       [] -> txt "[]"
-                      _ ->
+                      (f0 : fs) ->
                         vsep
-                          [ txt "[ " <> head (fmap (genToJSONField ctx) fields)
-                          , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) (tail fields))
+                          [ txt "[ " <> genToJSONField ctx f0
+                          , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) fs)
                           , txt "]"
                           ]
                   ]
@@ -1935,7 +1936,7 @@ genFromJSONInstance ctx scope msg =
                 [ instanceHead "Aeson.FromJSON" tyN
                 , indent 2 $ txt "parseJSON _ = pure default" <> pretty tyN
                 ]
-            _ ->
+            (f0 : frest) ->
               vsep
                 [ instanceHead "Aeson.FromJSON" tyN
                 , indent 2 $
@@ -1943,12 +1944,12 @@ genFromJSONInstance ctx scope msg =
                       [ txt "parseJSON = Aeson.withObject " <> pretty ("\"" :: Text) <> pretty tyN <> pretty ("\"" :: Text) <> txt " $ \\obj -> do"
                       , indent 2 $
                           vsep
-                            ( fmap genFromJSONFieldBind fields
+                            ( fmap genFromJSONFieldBind (f0 : frest)
                                 <> [ txt "pure default" <> pretty tyN
                                    , indent 2 $
                                       vsep
-                                        ( txt "{ " <> genFromJSONFieldAssign tyN (head fields)
-                                            : fmap (\jfi -> txt ", " <> genFromJSONFieldAssign tyN jfi) (tail fields)
+                                        ( txt "{ " <> genFromJSONFieldAssign tyN f0
+                                            : fmap (\jfi -> txt ", " <> genFromJSONFieldAssign tyN jfi) frest
                                               <> [txt "}"]
                                         )
                                    ]
@@ -2050,9 +2051,12 @@ genSemigroupInstance ctx scope msg =
             FKScalar (Just Repeated) _ -> aa <> txt " <> " <> ba
             FKNamed (Just Repeated) _ _ -> aa <> txt " <> " <> ba
             FKNamed (Just Optional) _ _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+            FKNamed (Just Required) _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+            FKNamed (Just Required) _ TKEnum -> lastNonDefault "(toEnum 0)"
             FKNamed Nothing _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
             FKNamed Nothing _ TKEnum -> lastNonDefault "(toEnum 0)"
             FKScalar (Just Optional) _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+            FKScalar (Just Required) ft -> lastNonDefault (scalarDefaultText ft)
             FKScalar Nothing ft -> lastNonDefault (scalarDefaultText ft)
   in vsep
       [ txt "instance Semigroup " <> pretty tyN <> txt " where"

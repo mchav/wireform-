@@ -1,90 +1,100 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Network.HTTP.Headers.Date 
-  ( Date(..)
-  , dateParser
-  , renderDate
-  ) where
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
+module Network.HTTP.Headers.Date (
+  Date (..),
+  dateParser,
+  renderDate,
+) where
 
 import qualified Data.ByteString.Char8 as C
 import qualified Data.List.NonEmpty as NE
 import Data.Time
-import Data.Time.Calendar
-import Data.Time.Format
-import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
+
 
 data Date = Date
   { date :: UTCTime
-  } deriving stock (Eq, Show)
+  }
+  deriving stock (Eq, Show)
+
 
 instance KnownHeader Date where
   type ParseFailure Date = String
   type Cardinality Date = 'ZeroOrOne
   type Direction Date = 'Response
 
+
   parseFromHeaders _ headers = do
     let header = NE.head headers
     case runParser dateParser header of
-      OK date "" -> Right $ Date date
+      OK d "" -> Right $ Date d
       OK _ rest -> Left $ "Unconsumed input after parsing Date header: " <> show rest
       Fail -> Left "Failed to parse Date header"
       Err err -> Left err
 
+
   renderToHeaders _ = C.pack . formatTime defaultTimeLocale rfc822DateFormat . date
+
 
   headerName _ = hDate
 
+
 shortDayOfWeek :: ParserT st err DayOfWeek
-shortDayOfWeek = $(switch [| case _ of
-  "Mon" -> pure Monday
-  "Tue" -> pure Tuesday
-  "Wed" -> pure Wednesday
-  "Thu" -> pure Thursday
-  "Fri" -> pure Friday
-  "Sat" -> pure Saturday
-  "Sun" -> pure Sunday |])
+shortDayOfWeek =
+  $( switch
+      [|
+        case _ of
+          "Mon" -> pure Monday
+          "Tue" -> pure Tuesday
+          "Wed" -> pure Wednesday
+          "Thu" -> pure Thursday
+          "Fri" -> pure Friday
+          "Sat" -> pure Saturday
+          "Sun" -> pure Sunday
+        |]
+   )
+
 
 longDayOfWeek :: ParserT st err DayOfWeek
-longDayOfWeek = $(switch [| case _ of
-  "Sunday" -> pure Sunday
-  "Monday" -> pure Monday
-  "Tuesday" -> pure Tuesday
-  "Wednesday" -> pure Wednesday
-  "Thursday" -> pure Thursday
-  "Friday" -> pure Friday
-  "Saturday" -> pure Saturday |])
+longDayOfWeek =
+  $( switch
+      [|
+        case _ of
+          "Sunday" -> pure Sunday
+          "Monday" -> pure Monday
+          "Tuesday" -> pure Tuesday
+          "Wednesday" -> pure Wednesday
+          "Thursday" -> pure Thursday
+          "Friday" -> pure Friday
+          "Saturday" -> pure Saturday
+        |]
+   )
+
 
 shortMonth :: ParserT st err MonthOfYear
-shortMonth = $(switch [| case _ of
-  "Jan" -> pure January
-  "Feb" -> pure February
-  "Mar" -> pure March
-  "Apr" -> pure April
-  "May" -> pure May
-  "Jun" -> pure June
-  "Jul" -> pure July
-  "Aug" -> pure August
-  "Sep" -> pure September
-  "Oct" -> pure October
-  "Nov" -> pure November
-  "Dec" -> pure December |])
+shortMonth =
+  $( switch
+      [|
+        case _ of
+          "Jan" -> pure January
+          "Feb" -> pure February
+          "Mar" -> pure March
+          "Apr" -> pure April
+          "May" -> pure May
+          "Jun" -> pure June
+          "Jul" -> pure July
+          "Aug" -> pure August
+          "Sep" -> pure September
+          "Oct" -> pure October
+          "Nov" -> pure November
+          "Dec" -> pure December
+        |]
+   )
 
-longMonth :: ParserT st err MonthOfYear
-longMonth = $(switch [| case _ of
-  "January" -> pure January
-  "February" -> pure February
-  "March" -> pure March
-  "April" -> pure April
-  "May" -> pure May
-  "June" -> pure June
-  "July" -> pure July
-  "August" -> pure August
-  "September" -> pure September
-  "October" -> pure October
-  "November" -> pure November
-  "December" -> pure December |])
 
 dateParser :: ParserT st String UTCTime
 dateParser = imfFixdate <|> obsDate
@@ -143,13 +153,13 @@ dateParser = imfFixdate <|> obsDate
       year <- isolate 4 anyAsciiDecimalInteger
       pure $ UTCTime (fromGregorian year month date) $ timeOfDayToTime tod
 
+
 renderDate :: UTCTime -> M.Builder
-renderDate (UTCTime day time) = 
+renderDate (UTCTime day time) =
   let (year, month, date) = toGregorian day
       (TimeOfDay hour minute second) = timeToTimeOfDay time
-  in
-    dayOfWeekStr day
-      <> ", " 
+  in dayOfWeekStr day
+      <> ", "
       <> M.intDecPadded 2 date
       <> " "
       <> monthOfYearStr month
@@ -184,4 +194,3 @@ renderDate (UTCTime day time) =
       October -> "Oct"
       November -> "Nov"
       December -> "Dec"
-    

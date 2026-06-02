@@ -1,17 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
+
 module Network.HTTP.Headers.UserAgent where
 
-import qualified Data.ByteString.Char8 as C
 import qualified Data.List.NonEmpty as NE
 import Data.Text.Short (ShortText)
-import Data.Time
-import Data.Time.Calendar
-import Data.Time.Format
-import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 import Network.HTTP.Headers.Rendering.Util
+
 
 data UserAgent = UserAgent
   { firstProduct :: Product
@@ -19,11 +17,13 @@ data UserAgent = UserAgent
   }
   deriving stock (Eq, Show)
 
+
 data Product = Product
   { productName :: !ShortText
   , productVersion :: !(Maybe ShortText)
   }
   deriving stock (Eq, Show)
+
 
 instance KnownHeader UserAgent where
   type ParseFailure UserAgent = String
@@ -35,11 +35,14 @@ instance KnownHeader UserAgent where
     OK userAgent "" -> Right userAgent
     OK _ rest -> Left $ "Unconsumed input after parsing User-Agent header: " <> show rest
     Fail -> Left "Failed to parse User-Agent header"
-    Err err -> Left err
+    Err e -> Left e
+
 
   renderToHeaders _ = M.toStrictByteString . renderUserAgent
 
+
   headerName _ = hUserAgent
+
 
 userAgentParser :: ParserT st String UserAgent
 userAgentParser = UserAgent <$> productParser <*> many (eitherP commentParser productParser)
@@ -47,14 +50,16 @@ userAgentParser = UserAgent <$> productParser <*> many (eitherP commentParser pr
     productParser = Product <$> rfc9110Token <*> optional ($(char '/') *> rfc9110Token)
     commentParser = Comment <$> comment
 
+
 eitherP :: ParserT st e a -> ParserT st e b -> ParserT st e (Either a b)
 eitherP l r = (Right <$> r) <|> (Left <$> l)
 
+
 renderUserAgent :: UserAgent -> M.Builder
-renderUserAgent (UserAgent firstProduct remainingUserAgentDefinition) =
-  shortText (productName firstProduct) <>
-  maybe mempty (\v -> "/" <> shortText v) (productVersion firstProduct) <>
-  foldMap (either renderComment renderProduct) remainingUserAgentDefinition
+renderUserAgent (UserAgent fp rest) =
+  shortText (productName fp)
+    <> maybe mempty (\v -> "/" <> shortText v) (productVersion fp)
+    <> foldMap (either renderComment renderProduct) rest
   where
     renderComment (Comment c) = "(" <> M.textUtf8 c <> ")"
     renderProduct (Product n mv) = case mv of

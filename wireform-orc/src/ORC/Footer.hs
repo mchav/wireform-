@@ -25,7 +25,7 @@ module ORC.Footer (
   decodeColStats,
 ) where
 
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftL, (.&.), (.|.))
 import Data.Bits qualified as Bits
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS

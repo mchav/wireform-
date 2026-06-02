@@ -73,23 +73,18 @@ import Data.Bifunctor qualified
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Short qualified as SBS
 import Data.Int (Int32, Int64)
-import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
-import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Text.Lazy qualified as TL
-import Data.Vector qualified as V
 import Data.Word (Word32, Word64)
 import Language.Haskell.TH
 import Proto.Decode qualified as PD
 import Proto.Encode qualified as PE
 import Proto.Internal.Encode.Archetype qualified as PA
-import Proto.Internal.Wire (Tag (..))
+import Proto.Internal.Wire (Tag)
 import Proto.Internal.Wire qualified as PWire
 import Proto.Internal.Wire.Decode qualified as PWD
 import Proto.Internal.Wire.Encode qualified as PWE

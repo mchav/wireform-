@@ -1,22 +1,25 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Network.HTTP.Headers.SetCookie
-  ( SetCookie (..)
-  , SameSitePolicy (..)
-  , SetCookies (..)
-  , setCookieParser
-  , renderSetCookie
-  ) where
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
+module Network.HTTP.Headers.SetCookie (
+  SetCookie (..),
+  SameSitePolicy (..),
+  SetCookies (..),
+  setCookieParser,
+  renderSetCookie,
+) where
 
 import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
 import Data.Time.Clock (UTCTime)
-import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.Date (dateParser, renderDate)
 import Network.HTTP.Headers.HeaderFieldName (hSetCookie)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 import Network.HTTP.Headers.Rendering.Util (shortText)
+
 
 -- | SameSite cookie policy
 data SameSitePolicy
@@ -24,6 +27,7 @@ data SameSitePolicy
   | SameSiteLax
   | SameSiteNone
   deriving stock (Eq, Show)
+
 
 -- | Set-Cookie header attributes
 data SetCookie = SetCookie
@@ -36,24 +40,31 @@ data SetCookie = SetCookie
   , setCookieSecure :: !Bool
   , setCookieHttpOnly :: !Bool
   , setCookieSameSite :: !(Maybe SameSitePolicy)
-  } deriving stock (Eq, Show)
+  }
+  deriving stock (Eq, Show)
+
 
 -- | Wrapper for multiple Set-Cookie headers
-newtype SetCookies = SetCookies { getSetCookies :: [SetCookie] }
+newtype SetCookies = SetCookies {getSetCookies :: [SetCookie]}
   deriving stock (Eq, Show)
+
 
 instance KnownHeader SetCookies where
   type ParseFailure SetCookies = String
   type Cardinality SetCookies = 'ZeroOrMore
   type Direction SetCookies = 'Response
 
+
   parseFromHeaders _ headers = do
     cookies <- traverse parseSingleSetCookie (NE.toList headers)
     pure $ SetCookies cookies
 
+
   renderToHeaders _ (SetCookies cookies) = map (M.toStrictByteString . renderSetCookie) cookies
 
+
   headerName _ = hSetCookie
+
 
 parseSingleSetCookie :: B.ByteString -> Either String SetCookie
 parseSingleSetCookie header = case runParser setCookieParser header of
@@ -61,6 +72,7 @@ parseSingleSetCookie header = case runParser setCookieParser header of
   OK _ rest -> Left $ "Unconsumed input after parsing Set-Cookie header: " <> show rest
   Fail -> Left "Failed to parse Set-Cookie header"
   Err err -> Left err
+
 
 setCookieParser :: ParserT st String SetCookie
 setCookieParser = do
@@ -71,61 +83,74 @@ setCookieParser = do
   pure $ buildSetCookie name value attributes
   where
     attributeParser =
-      expiresAttr <|> maxAgeAttr <|> domainAttr <|> pathAttr <|>
-      secureAttr <|> httpOnlyAttr <|> sameSiteAttr
+      expiresAttr
+        <|> maxAgeAttr
+        <|> domainAttr
+        <|> pathAttr
+        <|> secureAttr
+        <|> httpOnlyAttr
+        <|> sameSiteAttr
 
     expiresAttr = do
       $(string "Expires")
       $(char '=')
       expires <- dateParser
-      pure $ \sc -> sc { setCookieExpires = Just expires }
+      pure $ \sc -> sc {setCookieExpires = Just expires}
 
     maxAgeAttr = do
       $(string "Max-Age")
       $(char '=')
       maxAge <- fromIntegral <$> anyAsciiDecimalWord
-      pure $ \sc -> sc { setCookieMaxAge = Just maxAge }
+      pure $ \sc -> sc {setCookieMaxAge = Just maxAge}
 
     domainAttr = do
       $(string "Domain")
       $(char '=')
       domain <- rfc9110Token
-      pure $ \sc -> sc { setCookieDomain = Just domain }
+      pure $ \sc -> sc {setCookieDomain = Just domain}
 
     pathAttr = do
       $(string "Path")
       $(char '=')
       path <- rfc9110Token <|> quotedString
-      pure $ \sc -> sc { setCookiePath = Just path }
+      pure $ \sc -> sc {setCookiePath = Just path}
 
-    secureAttr = $(string "Secure") *> pure (\sc -> sc { setCookieSecure = True })
+    secureAttr = $(string "Secure") *> pure (\sc -> sc {setCookieSecure = True})
 
-    httpOnlyAttr = $(string "HttpOnly") *> pure (\sc -> sc { setCookieHttpOnly = True })
+    httpOnlyAttr = $(string "HttpOnly") *> pure (\sc -> sc {setCookieHttpOnly = True})
 
     sameSiteAttr = do
       $(string "SameSite")
       $(char '=')
-      policy <- $(switch [| case _ of
-        "Strict" -> pure SameSiteStrict
-        "Lax" -> pure SameSiteLax
-        "None" -> pure SameSiteNone
-        |])
-      pure $ \sc -> sc { setCookieSameSite = Just policy }
+      policy <-
+        $( switch
+            [|
+              case _ of
+                "Strict" -> pure SameSiteStrict
+                "Lax" -> pure SameSiteLax
+                "None" -> pure SameSiteNone
+              |]
+         )
+      pure $ \sc -> sc {setCookieSameSite = Just policy}
+
 
 buildSetCookie :: ST.ShortText -> ST.ShortText -> [SetCookie -> SetCookie] -> SetCookie
 buildSetCookie name value attributes =
   foldr ($) (SetCookie name value Nothing Nothing Nothing Nothing False False Nothing) attributes
 
+
 renderSetCookie :: SetCookie -> M.Builder
 renderSetCookie sc =
-  shortText (setCookieName sc) <> "=" <> shortText (setCookieValue sc) <>
-  maybe mempty (\expires -> "; Expires=" <> renderDate expires) (setCookieExpires sc) <>
-  maybe mempty (\maxAge -> "; Max-Age=" <> M.intDec maxAge) (setCookieMaxAge sc) <>
-  maybe mempty (\domain -> "; Domain=" <> shortText domain) (setCookieDomain sc) <>
-  maybe mempty (\path -> "; Path=" <> shortText path) (setCookiePath sc) <>
-  (if setCookieSecure sc then "; Secure" else mempty) <>
-  (if setCookieHttpOnly sc then "; HttpOnly" else mempty) <>
-  maybe mempty renderSameSite (setCookieSameSite sc)
+  shortText (setCookieName sc)
+    <> "="
+    <> shortText (setCookieValue sc)
+    <> maybe mempty (\expires -> "; Expires=" <> renderDate expires) (setCookieExpires sc)
+    <> maybe mempty (\maxAge -> "; Max-Age=" <> M.intDec maxAge) (setCookieMaxAge sc)
+    <> maybe mempty (\domain -> "; Domain=" <> shortText domain) (setCookieDomain sc)
+    <> maybe mempty (\path -> "; Path=" <> shortText path) (setCookiePath sc)
+    <> (if setCookieSecure sc then "; Secure" else mempty)
+    <> (if setCookieHttpOnly sc then "; HttpOnly" else mempty)
+    <> maybe mempty renderSameSite (setCookieSameSite sc)
   where
     renderSameSite SameSiteStrict = "; SameSite=Strict"
     renderSameSite SameSiteLax = "; SameSite=Lax"

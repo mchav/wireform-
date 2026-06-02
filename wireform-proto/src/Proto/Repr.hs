@@ -227,7 +227,6 @@ import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TLE
 import Data.Vector qualified as V
 import Data.Vector.Unboxed qualified as VU
-import Data.Word (Word8)
 import Language.Haskell.TH (Exp, Q, Type)
 import Proto.IDL.AST (Constant (..), OptionDef, OptionName (..), OptionNamePart (..), optName, optValue)
 import Proto.Internal.Wire (WireType (..))
@@ -901,43 +900,6 @@ sizeShortBytes !val =
 {-# INLINE sizeShortBytes #-}
 
 
--- Decoder wrappers for adapters (produce the decoded Haskell value
--- from strict ByteString wire bytes). These are referenced by
--- stringDecode / bytesDecode. Note: the actual Decoder integration is done
--- by the codegen which wraps these in the appropriate Decoder
--- combinator. For now these are just conversion functions used by
--- the TH splices.
-
-decodeToLazyTextD :: Text -> TL.Text
-decodeToLazyTextD = TL.fromStrict
-{-# INLINE decodeToLazyTextD #-}
-
-
-decodeToShortTextD :: Text -> SBS.ShortByteString
-decodeToShortTextD = SBS.toShort . TE.encodeUtf8
-{-# INLINE decodeToShortTextD #-}
-
-
-decodeToHsStringD :: Text -> String
-decodeToHsStringD = T.unpack
-{-# INLINE decodeToHsStringD #-}
-
-
-decodeToStrictBytesD :: ByteString -> ByteString
-decodeToStrictBytesD = id
-{-# INLINE decodeToStrictBytesD #-}
-
-
-decodeToLazyBytesD :: ByteString -> BL.ByteString
-decodeToLazyBytesD = BL.fromStrict
-{-# INLINE decodeToLazyBytesD #-}
-
-
-decodeToShortBytesD :: ByteString -> SBS.ShortByteString
-decodeToShortBytesD = SBS.toShort
-{-# INLINE decodeToShortBytesD #-}
-
-
 -- Legacy field-number encode helpers (Int -> a -> Builder).
 -- Kept for existing code that references them.
 
@@ -1128,7 +1090,7 @@ insertOrdMap = Map.insert
 {-# INLINE insertOrdMap #-}
 
 
-insertHashMap :: (Eq k, Hashable k) => k -> v -> HM.HashMap k v -> HM.HashMap k v
+insertHashMap :: Hashable k => k -> v -> HM.HashMap k v -> HM.HashMap k v
 insertHashMap = HM.insert
 {-# INLINE insertHashMap #-}
 

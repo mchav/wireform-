@@ -1,38 +1,42 @@
 module Network.HTTP.Headers.IfUnmodifiedSince where
 
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as C
 import qualified Data.List.NonEmpty as NE
 import Data.Time.Clock (UTCTime)
-import Data.Time.Format
-import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers
 import Network.HTTP.Headers.Date (dateParser, renderDate)
 import Network.HTTP.Headers.HeaderFieldName (hIfUnmodifiedSince)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
 
-newtype IfUnmodifiedSince = IfUnmodifiedSince { ifUnmodifiedSince :: UTCTime }
+
+newtype IfUnmodifiedSince = IfUnmodifiedSince {ifUnmodifiedSince :: UTCTime}
   deriving stock (Eq, Show)
+
 
 instance KnownHeader IfUnmodifiedSince where
   type ParseFailure IfUnmodifiedSince = String
   type Cardinality IfUnmodifiedSince = 'ZeroOrOne
   type Direction IfUnmodifiedSince = 'Request
 
+
   parseFromHeaders _ headers = do
     let header = NE.head headers
     case runParser ifUnmodifiedSinceParser header of
-      OK ifUnmodifiedSince "" -> Right ifUnmodifiedSince
+      OK ius "" -> Right ius
       OK _ rest -> Left $ "Unconsumed input after parsing If-Unmodified-Since header: " <> show rest
       Fail -> Left "Failed to parse If-Unmodified-Since header"
-      Err err -> Left err
+      Err e -> Left e
+
 
   renderToHeaders _ = M.toStrictByteString . renderIfUnmodifiedSince
 
+
   headerName _ = hIfUnmodifiedSince
+
 
 renderIfUnmodifiedSince :: IfUnmodifiedSince -> M.Builder
 renderIfUnmodifiedSince (IfUnmodifiedSince time) = renderDate time
+
 
 ifUnmodifiedSinceParser :: ParserT st String IfUnmodifiedSince
 ifUnmodifiedSinceParser = IfUnmodifiedSince <$> dateParser

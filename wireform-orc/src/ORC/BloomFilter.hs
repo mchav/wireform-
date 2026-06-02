@@ -167,14 +167,14 @@ optimalNumBits n fpp =
   in ((target + 63) `quot` 64) * 64
 
 
--- | @round (numBits / n * ln 2)@.
+-- | @round (nb / n * ln 2)@.
 optimalNumHashFunctions :: Int -> Int -> Int
-optimalNumHashFunctions n numBits
+optimalNumHashFunctions n nb
   | n <= 0 = 1
   | otherwise =
       max 1 $
         round
-          ((fromIntegral numBits / fromIntegral n) * log (2 :: Double))
+          ((fromIntegral nb / fromIntegral n) * log (2 :: Double))
 
 
 -- ============================================================

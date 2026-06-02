@@ -56,14 +56,12 @@ import ORC.RLE (
   encodeByteRLE,
   encodeWidth,
   packBitsMSB,
-  putVulong,
   zigzagEncode,
  )
 import ORC.Stripe (
   Stream (..),
   StripeFooter (..),
   defaultColumnEncodings,
-  encodeStream,
   encodeStripeFooter,
   encodingsForTypes,
  )
@@ -498,8 +496,8 @@ buildORCFileWithRowLookupFooter adjustFooter rowsForStripe types stripeData =
                         Stream {stKind = kind, stColumn = col, stLength = fromIntegral (BS.length bs)}
                     )
                     sdata
-                !footer = StripeFooter streams encs
-                !footerBs = encodeStripeFooter footer
+                !stripeFooter = StripeFooter streams encs
+                !footerBs = encodeStripeFooter stripeFooter
                 !dataLen = V.foldl' (\a (_, _, bs) -> a + fromIntegral (BS.length bs)) 0 sdata :: Word64
                 !ftrLen = fromIntegral (BS.length footerBs) :: Word64
                 !nRows = rowsForStripe i
