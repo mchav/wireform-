@@ -144,5 +144,5 @@ instance Show Response where
       <> show (responseHeaders r)
 
 instance NFData Response where
-  rnf (Response s v h b _ sid _) =
+  rnf (Response s v h b _ sid _ _) =
     rnf s `seq` rnf v `seq` rnf h `seq` rnf b `seq` rnf sid

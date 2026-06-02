@@ -99,10 +99,10 @@ defaultSettings = Settings
   }
 
 defaultOpenClientSocket :: AddrInfo -> IO Socket
-defaultOpenClientSocket = error
-  "Network.HTTP2.Engine.TLS.Client.defaultOpenClientSocket: \
-  \callers must override this in Settings; the placeholder is here \
-  \only because the engine record demanded a default."
+defaultOpenClientSocket addr = do
+  sock <- NS.socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr)
+  NS.connect sock (NS.addrAddress addr)
+  pure sock
 
 -- | Build a 'ClientConfig' from the supplied 'Settings' + authority.
 defaultClientConfig :: Settings -> Authority -> ClientConfig
@@ -142,7 +142,6 @@ runWithConfig cliCfg Settings{..} serverName port client = do
   case addrs of
     [] -> error "runWithConfig: no addresses"
     (addr:_) -> E.bracket (settingsOpenClientSocket addr) NS.close $ \sock -> do
-      NS.connect sock (NS.addrAddress addr)
       ctx <- buildClientCtxFromSettings serverName Settings{..}
       conn <- newClient ctx sock (Just (BS8.pack (sniHost serverName Settings{..})))
       _ <- if settingsValidateCert

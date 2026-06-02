@@ -106,10 +106,13 @@ data IOBackend = IOBackend
 -- control to the action with a fresh 'TM.Manager' and the bridge
 -- 'IOBackend'.  The 'SslCtx' is owned by the caller; the per-
 -- connection @SSL*@ is freed before this returns.
+--
+-- The socket passed here must be an already-connected (accepted)
+-- client socket, NOT a listen socket.
 runTLSWithSocket
   :: Settings
   -> SslCtx           -- ^ Pre-built server SSL_CTX (cert + key + ALPN)
-  -> Socket
+  -> Socket           -- ^ Already-accepted client socket
   -> ByteString       -- ^ ALPN identifier the caller expects to negotiate
                       --   (used for ALPN assertion; pass @\"h2\"@ for HTTP\/2).
   -> (TM.Manager -> IOBackend -> IO a)
@@ -119,8 +122,6 @@ runTLSWithSocket Settings{..} ctx sock _expectedAlpn action = do
   conn <- newServer ctx sock
   mysa <- NS.getSocketName sock
   peer <- NS.getPeerName sock
-  -- Build a recv buffer that uses tlsReceiveFn but yields whole
-  -- chunks (the engine's recvN wraps this).
   leftoverRef <- IORef.newIORef BS.empty
   let recvChunk :: IO ByteString
       recvChunk = do

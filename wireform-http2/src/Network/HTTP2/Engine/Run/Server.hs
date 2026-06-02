@@ -35,7 +35,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.CaseInsensitive as CI
-import Data.IORef
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
 import Data.Word (Word32)
 import Foreign.ForeignPtr (withForeignPtr)
@@ -57,6 +57,7 @@ import Network.HTTP2.Types (FrameType (..))
 import qualified Network.HTTP2.Types as H2
 import qualified Network.HTTP2.Types as Wire
 
+import Network.HTTP2.Client (ClientStreamError(..))
 import Network.HTTP2.Engine.Settings (Settings (..))
 import Network.HTTP2.Engine.Types
 
@@ -91,7 +92,11 @@ data StreamMb = StreamMb
   , smClosedRemote :: !(IORef Bool)
   }
 
-data InputItem = InputChunk !ByteString | InputEnd
+data InputItem
+  = InputChunk !ByteString
+  | InputFinal !ByteString
+  | InputEnd
+  | InputError !SomeException
 
 -- | Drive the server connection.
 runServer
@@ -105,7 +110,6 @@ runServer env handler = do
             (engineSettingsToWire (envSettings env))
             (\_ _ _ -> pure ())
             transport
-  -- Server-side: read the client preface first.
   preface <- envReadN env (BS.length connectionPreface)
   if preface /= connectionPreface
     then closeConnection conn Wire.ProtocolError "bad preface"
@@ -163,7 +167,11 @@ connLoop env conn handler streamsRef = loop
     loop = do
       mFrame <- pumpFrame env
       case mFrame of
-        Nothing -> pure ()
+        Nothing -> do
+          streams <- readIORef streamsRef
+          let err = toException ClientStreamConnectionClosed
+          mapM_ (\mb -> atomically $ writeTBQueue (smInputQueue mb)
+                          (InputError err)) (Map.elems streams)
         Just (Frame hdr payload) -> do
           handleFrame env conn handler streamsRef hdr payload
           loop
@@ -190,84 +198,86 @@ handleFrame
   -> FrameHeader
   -> FramePayload
   -> IO ()
-handleFrame env conn handler streamsRef hdr payload = case payload of
-  SettingsFrame _
+handleFrame env conn handler streamsRef hdr payload = case fhType hdr of
+  FrameSettings
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise -> do
         let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
         sendFrame conn ack
 
-  PingFrame opaque
+  FramePing
     | testFlag (fhFlags hdr) flagAck -> pure ()
-    | otherwise -> do
-        let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaque)
-        sendFrame conn pong
+    | otherwise -> case payload of
+        PingFrame opaque -> do
+          let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaque)
+          sendFrame conn pong
+        _ -> pure ()
 
-  WindowUpdateFrame _ -> pure ()
+  FrameWindowUpdate -> pure ()
 
-  GoAwayFrame{} -> pure ()
+  FrameGoAway -> pure ()
 
-  HeadersFrame _ block
-    | testFlag (fhFlags hdr) flagEndHeaders -> do
-        result <- withMVar (connHpackDecoder conn) $ \decoder ->
-          decodeHeaderBlock decoder block
-        case result of
-          Left _ -> closeConnection conn Wire.CompressionError "hpack decode"
-          Right headers -> do
-            streams <- readIORef streamsRef
-            case Map.lookup (fhStreamId hdr) streams of
-              -- Existing stream → trailing HEADERS (request trailers).
-              Just mb -> do
-                writeIORef (smTrailerSlot mb) (Just (tokeniseHeaders headers))
-                writeIORef (smClosedRemote mb) True
-                atomically $ writeTBQueue (smInputQueue mb) InputEnd
-              -- Fresh stream → start a worker.
-              Nothing ->
-                startStream env conn handler streamsRef hdr headers
+  FrameHeaders
+    | testFlag (fhFlags hdr) flagEndHeaders -> case payload of
+        HeadersFrame _ block -> do
+          result <- withMVar (connHpackDecoder conn) $ \decoder ->
+            decodeHeaderBlock decoder block
+          case result of
+            Left _ -> closeConnection conn Wire.CompressionError "hpack decode"
+            Right headers -> do
+              streams <- readIORef streamsRef
+              case Map.lookup (fhStreamId hdr) streams of
+                Just mb -> do
+                  writeIORef (smTrailerSlot mb) (Just (tokeniseHeaders headers))
+                  writeIORef (smClosedRemote mb) True
+                  atomically $ writeTBQueue (smInputQueue mb) InputEnd
+                Nothing ->
+                  startStream env conn handler streamsRef hdr headers
+        _ -> pure ()
     | otherwise ->
         closeConnection conn Wire.ProtocolError "fragmented HEADERS unsupported"
 
-  DataFrame body -> do
-    streams <- readIORef streamsRef
-    case Map.lookup (fhStreamId hdr) streams of
-      Nothing -> pure ()
-      Just mb -> do
-        unless (BS.null body) $
-          atomically $ writeTBQueue (smInputQueue mb) (InputChunk body)
-        when (testFlag (fhFlags hdr) flagEndStream) $ do
-          -- No trailers arrived: settle with an empty token table.
-          alreadyClosed <- readIORef (smClosedRemote mb)
-          unless alreadyClosed $ do
-            writeIORef (smTrailerSlot mb) (Just (tokeniseHeaders []))
-            writeIORef (smClosedRemote mb) True
-            atomically $ writeTBQueue (smInputQueue mb) InputEnd
-        -- Maintain connection + stream flow windows.
-        let len = fhLength hdr
-        when (len > 0) $ do
-          sendFrame conn $ Frame
-            (FrameHeader 4 FrameWindowUpdate 0 0)
-            (WindowUpdateFrame len)
-          sendFrame conn $ Frame
-            (FrameHeader 4 FrameWindowUpdate 0 (fhStreamId hdr))
-            (WindowUpdateFrame len)
+  FrameData -> case payload of
+    DataFrame body -> do
+      streams <- readIORef streamsRef
+      case Map.lookup (fhStreamId hdr) streams of
+        Nothing -> pure ()
+        Just mb -> do
+          let isEnd = testFlag (fhFlags hdr) flagEndStream
+          case (BS.null body, isEnd) of
+            (True, True) -> do
+              alreadyClosed <- readIORef (smClosedRemote mb)
+              unless alreadyClosed $ do
+                writeIORef (smTrailerSlot mb) (Just (tokeniseHeaders []))
+                writeIORef (smClosedRemote mb) True
+                atomically $ writeTBQueue (smInputQueue mb) InputEnd
+            (False, True) -> do
+              writeIORef (smTrailerSlot mb) (Just (tokeniseHeaders []))
+              writeIORef (smClosedRemote mb) True
+              atomically $ writeTBQueue (smInputQueue mb) (InputFinal body)
+            (False, False) ->
+              atomically $ writeTBQueue (smInputQueue mb) (InputChunk body)
+            (True, False) -> pure ()
+          let len = fhLength hdr
+          when (len > 0) $
+            void $ trySendWindowUpdates conn (fhStreamId hdr) len
+    _ -> pure ()
 
-  RSTStreamFrame _ -> do
+  FrameRSTStream -> do
     streams <- readIORef streamsRef
     case Map.lookup (fhStreamId hdr) streams of
       Nothing -> pure ()
       Just mb -> do
         writeIORef (smClosedRemote mb) True
-        atomically $ writeTBQueue (smInputQueue mb) InputEnd
+        atomically $ writeTBQueue (smInputQueue mb)
+          (InputError (toException ClientStreamConnectionClosed))
         mCancel <- readIORef (smCancel mb)
         case mCancel of
-          Just c -> c (Just (toException PeerCancelled))
+          Just c -> c (Just (toException ClientStreamConnectionClosed))
           Nothing -> pure ()
 
   _ -> pure ()
 
-data PeerCancelled = PeerCancelled
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 -- | Start a worker for a fresh stream.
 startStream
@@ -285,7 +295,7 @@ startStream env conn handler streamsRef hdr headers = do
   closedRemoteRef <- newIORef False
   let mb = StreamMb inputQ trailerRef cancelRef closedRemoteRef
       sid = fhStreamId hdr
-  modifyIORef' streamsRef (Map.insert sid mb)
+  atomicModifyIORef' streamsRef (\m -> (Map.insert sid mb m, ()))
 
   -- Trailers-Only request: HEADERS w/ END_STREAM set on the
   -- initial frame.
@@ -298,8 +308,10 @@ startStream env conn handler streamsRef hdr headers = do
       readChunk = do
         item <- atomically $ readTBQueue inputQ
         case item of
-          InputChunk bs -> pure (bs, False)
-          InputEnd      -> pure (BS.empty, True)
+          InputChunk bs  -> pure (bs, False)
+          InputFinal bs  -> pure (bs, True)
+          InputEnd       -> pure (BS.empty, True)
+          InputError exc -> throwIO exc
       inpObj = InpObj
         { inpObjHeaders = tokeniseHeaders headers
         , inpObjBodySize = Nothing
@@ -319,7 +331,7 @@ startStream env conn handler streamsRef hdr headers = do
         sendOutObj conn cancelRef sid resp)
       `catch` (\(_ :: SomeException) -> sendRstStream conn sid Wire.InternalError)
       `finally` do
-        modifyIORef' streamsRef (Map.delete sid)
+        atomicModifyIORef' streamsRef (\m -> (Map.delete sid m, ()))
         TM.cancel timeHandle
   pure ()
 
@@ -387,15 +399,8 @@ runStreamingIface conn cancelRef sid trailerMakerInit body = do
       pushFinal bs = do
         already <- readIORef finalisedRef
         unless already $ do
-          writeIORef finalisedRef True
+          unless (BS.null bs) $ sendData conn sid bs False
           updateMaker trailerMakerRef (Just bs)
-          tm <- readIORef trailerMakerRef
-          Trailers tr <- tm Nothing
-          if null tr
-            then sendData conn sid bs True
-            else do
-              sendData conn sid bs False
-              sendTrailerBlock conn sid (ciHeadersToRaw tr)
       cancel mExc = do
         already <- readIORef finalisedRef
         unless already $ do
@@ -411,9 +416,7 @@ runStreamingIface conn cancelRef sid trailerMakerInit body = do
           Trailers tr <- tm Nothing
           if null tr
             then sendData conn sid BS.empty True
-            else do
-              sendData conn sid BS.empty False
-              sendTrailerBlock conn sid (ciHeadersToRaw tr)
+            else sendTrailerBlock conn sid (ciHeadersToRaw tr)
       iface = OutBodyIface
         { outBodyUnmask = id
         , outBodyPush = \b -> pushOne (LBS.toStrict (BSB.toLazyByteString b))
@@ -472,3 +475,12 @@ sendRstStream conn sid code =
         (FrameHeader 4 FrameRSTStream 0 sid)
         (RSTStreamFrame code)
    in sendFrame conn frame `catch` (\(_ :: SomeException) -> pure ())
+
+trySendWindowUpdates :: Connection -> H2.StreamId -> Word32 -> IO Bool
+trySendWindowUpdates conn sid len = do
+    let connWu = Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
+        streamWu = Frame (FrameHeader 4 FrameWindowUpdate 0 sid) (WindowUpdateFrame len)
+    sendFrame conn connWu
+    sendFrame conn streamWu
+    pure True
+  `catch` \(_ :: SomeException) -> pure False

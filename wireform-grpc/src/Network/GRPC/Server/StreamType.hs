@@ -234,7 +234,9 @@ data Methods (m :: Type -> Type) (rpcs :: [k]) where
        ( SupportsServerRpc rpc
        , Default (ResponseInitialMetadata rpc)
        , Default (ResponseTrailingMetadata rpc)
+       , HasStreamingType rpc
        , SupportsStreamingType rpc styp
+       , styp ~ RpcStreamingType rpc
        )
     => ServerHandler' styp m rpc
     -> Methods m rpcs
@@ -387,6 +389,7 @@ instance
       SupportsServerRpc rpc
     , Default (ResponseInitialMetadata rpc)
     , Default (ResponseTrailingMetadata rpc)
+    , HasStreamingType rpc
     , SupportsStreamingType rpc (RpcStreamingType rpc)
       -- Requirements for the vararg construction
     , b ~ ServerHandler' (RpcStreamingType rpc) m rpc

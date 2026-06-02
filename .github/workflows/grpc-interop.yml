@@ -1,0 +1,121 @@
+name: gRPC Cross-Language Interop
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly on Sundays at 04:00 UTC
+    - cron: '0 4 * * 0'
+
+jobs:
+  self-test:
+    name: Self-test (wireform ↔ wireform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.8.4'
+          cabal-version: '3.10'
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-cabal-grpc-${{ hashFiles('**/cabal.project', '**/wireform-grpc.cabal', '**/grpc-spec.cabal') }}
+          restore-keys: ${{ runner.os }}-cabal-grpc-
+      - name: Build
+        run: cabal build wireform-grpc:test:wireform-grpc-interop wireform-grpc:test:wireform-grpc-test-grapesy
+      - name: Run self-test (20 interop cases)
+        run: cabal run wireform-grpc:test:wireform-grpc-interop -- --self-test
+      - name: Run test-grapesy (91 tests)
+        run: cabal run wireform-grpc:test:wireform-grpc-test-grapesy -- --timeout=120s +RTS -N2
+
+  cross-language:
+    name: Cross-language (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    needs: self-test
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, cxx, go]
+        include:
+          - language: python
+            image: us-docker.pkg.dev/grpc-testing/testing-images-public/grpc_interop_python:master
+            server_cmd: /var/local/git/grpc/bins/opt/interop_server --port=8080 --use_tls=false
+            client_cmd: /var/local/git/grpc/bins/opt/interop_client --server_host=host.docker.internal --server_port=50052 --use_tls=false
+            skip_flags: "--skip_compression"
+          - language: cxx
+            image: us-docker.pkg.dev/grpc-testing/testing-images-public/grpc_interop_cxx:master
+            server_cmd: /var/local/git/grpc/bins/opt/interop_server --port=8080 --use_tls=false
+            client_cmd: /var/local/git/grpc/bins/opt/interop_client --server_host=host.docker.internal --server_port=50052 --use_tls=false
+            skip_flags: ""
+          - language: go
+            image: us-docker.pkg.dev/grpc-testing/testing-images-public/grpc_interop_go:master
+            server_cmd: /go/bin/server --port=8080 --use_tls=false
+            client_cmd: /go/bin/client --server_host=host.docker.internal --server_port=50052 --use_tls=false
+            skip_flags: "--skip_compression"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.8.4'
+          cabal-version: '3.10'
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-cabal-grpc-${{ hashFiles('**/cabal.project', '**/wireform-grpc.cabal', '**/grpc-spec.cabal') }}
+          restore-keys: ${{ runner.os }}-cabal-grpc-
+      - name: Build wireform-grpc interop
+        run: cabal build wireform-grpc:test:wireform-grpc-interop
+
+      - name: Pull reference image
+        run: docker pull ${{ matrix.image }}
+
+      # Phase 1: wireform client → reference server
+      - name: Start ${{ matrix.language }} reference server
+        run: |
+          docker run -d --name ref-server -p 8080:8080 \
+            ${{ matrix.image }} \
+            bash -c "${{ matrix.server_cmd }}"
+          sleep 3
+          docker ps
+      - name: Run wireform client against ${{ matrix.language }} server
+        run: |
+          cabal run wireform-grpc:test:wireform-grpc-interop -- \
+            --client \
+            --server_host=127.0.0.1 \
+            --server_port=8080 \
+            --use_tls=false \
+            ${{ matrix.skip_flags }}
+      - name: Stop reference server
+        if: always()
+        run: docker stop ref-server || true
+
+      # Phase 2: reference client → wireform server
+      - name: Start wireform server
+        run: |
+          cabal run wireform-grpc:test:wireform-grpc-interop -- \
+            --server --port=50052 --use_tls=false &
+          echo $! > /tmp/wireform-server.pid
+          sleep 3
+      - name: Run ${{ matrix.language }} client against wireform server
+        run: |
+          docker run --rm --add-host=host.docker.internal:host-gateway \
+            ${{ matrix.image }} \
+            bash -c "${{ matrix.client_cmd }} --test_case=empty_unary && \
+                     ${{ matrix.client_cmd }} --test_case=large_unary && \
+                     ${{ matrix.client_cmd }} --test_case=client_streaming && \
+                     ${{ matrix.client_cmd }} --test_case=server_streaming && \
+                     ${{ matrix.client_cmd }} --test_case=ping_pong && \
+                     ${{ matrix.client_cmd }} --test_case=empty_stream && \
+                     ${{ matrix.client_cmd }} --test_case=custom_metadata && \
+                     ${{ matrix.client_cmd }} --test_case=status_code_and_message && \
+                     ${{ matrix.client_cmd }} --test_case=special_status_message && \
+                     ${{ matrix.client_cmd }} --test_case=unimplemented_method && \
+                     ${{ matrix.client_cmd }} --test_case=unimplemented_service && \
+                     ${{ matrix.client_cmd }} --test_case=cancel_after_begin && \
+                     ${{ matrix.client_cmd }} --test_case=cancel_after_first_response && \
+                     ${{ matrix.client_cmd }} --test_case=timeout_on_sleeping_server"
+      - name: Stop wireform server
+        if: always()
+        run: kill $(cat /tmp/wireform-server.pid) || true

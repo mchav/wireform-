@@ -83,7 +83,7 @@ import qualified Data.ByteString as BS
 import Network.HTTP.Client.BodyStream (popperFromStrict)
 import Network.HTTP.Client.Protocol
   (Http2Info (..), ProtocolInfo (..), PushPromise (..))
-import Network.HTTP.Client.Request (Request)
+import Network.HTTP.Client.Request hiding (Request, headers)
 import Network.HTTP.Client.Response (RawResponse (..))
 import qualified Network.HTTP.TLS as TLS
 import Network.HTTP.VersionRange

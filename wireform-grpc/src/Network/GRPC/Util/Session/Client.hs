@@ -9,7 +9,7 @@ module Network.GRPC.Util.Session.Client (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Concurrent.STM.TVar (modifyTVar)
 import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
@@ -152,15 +152,15 @@ setupRequestChannel sess
 
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask markReady _debugId -> unmask $
-          linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
-            sendRequest req $ \resp -> do
+        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask markReady _debugId ->
+          unmask $
+            linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
+              sendRequest req $ \resp -> do
               responseStatus <-
                 case Client.responseStatus resp of
                   Just x  -> return x
                   Nothing -> throwIO PeerMissingPseudoHeaderStatus
 
-              -- Read the entire response body in case of a non-OK response
               responseBody :: Maybe Lazy.ByteString <-
                 if HTTP.statusIsSuccessful responseStatus then
                   return Nothing
@@ -192,7 +192,7 @@ setupRequestChannel sess
       -> RegularFlowState (Outbound sess)
       -> OutBodyIface
       -> IO ()
-    outboundThread channel cancelRequestVar regular iface =
+    outboundThread channel cancelRequestVar regular iface = do
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
           markReady $ FlowStateRegular regular
           putMVar cancelRequestVar (Client.outBodyCancel iface)
@@ -209,6 +209,12 @@ setupRequestChannel sess
           -- 'ServerDisconnected' or 'ClientDisconnected'.
           wrapStreamExceptionsWith ServerDisconnected $
             Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+        -- threadBody swallows exceptions; rethrow so the http2 engine
+        -- sends RST_STREAM rather than DATA+END_STREAM.
+        st <- readTVarIO (channelOutbound channel)
+        case st of
+          ThreadException _ e -> throwIO e
+          _                   -> pure ()
 
 {-------------------------------------------------------------------------------
    Auxiliary http2
@@ -219,8 +225,8 @@ readResponseBody resp = go []
   where
     go :: [Strict.ByteString] -> IO Lazy.ByteString
     go acc = do
-        chunk <- Client.getResponseBodyChunk resp
-        if BS.Strict.null chunk then
-          return $ BS.Lazy.fromChunks (reverse acc)
+        (chunk, isFinal) <- Client.getResponseBodyChunk' resp
+        if BS.Strict.null chunk || isFinal then
+          return $ BS.Lazy.fromChunks (reverse (if BS.Strict.null chunk then acc else chunk:acc))
         else
           go (chunk:acc)

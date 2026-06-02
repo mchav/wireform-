@@ -345,7 +345,7 @@ instance ToYAML a => ToYAML (Set a) where
   toYAML = YV.YSeq . V.fromList . fmap toYAML . Set.toList
 
 
-instance FromYAML a => FromYAML (Set a) where
+instance (Ord a, FromYAML a) => FromYAML (Set a) where
   fromYAML v = Set.fromList <$> fromYAML v
 
 

@@ -6,6 +6,7 @@ module Network.GRPC.Server.Protobuf (
     ProtobufServices
   , ProtobufMethodsOf
   , ProtobufMethods
+  , ServiceMethods
   ) where
 
 import Data.Kind (Type)

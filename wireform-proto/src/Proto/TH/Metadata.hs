@@ -479,10 +479,13 @@ mkToJSONForMessage tyName fqName mUfSel fields = do
               (VarE '(<>))
               (Just extensionEntries)
           )
+      ctx = case mUfSel of
+        Nothing -> []
+        Just _ -> [AppT (ConT ''Given) (ConT ''PJExt.ExtensionRegistry)]
   pure $
     InstanceD
       Nothing
-      []
+      ctx
       (AppT (ConT ''Aeson.ToJSON) (ConT tyName))
       [ FunD
           'Aeson.toJSON
@@ -1069,7 +1072,7 @@ mkFromJSONForMessage tyName fqName mUfSel defName fields = do
       pure $
         InstanceD
           Nothing
-          []
+          [AppT (ConT ''Given) (ConT ''PJExt.ExtensionRegistry)]
           (AppT (ConT ''Aeson.FromJSON) (ConT tyName))
           [FunD 'Aeson.parseJSON [Clause [] (NormalB body) []]]
 

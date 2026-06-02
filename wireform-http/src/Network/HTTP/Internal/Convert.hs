@@ -239,5 +239,6 @@ fromHttp2Response r = Response
   , responseTrailers = pure (fromHttp2Headers (H2S.responseTrailers r))
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 

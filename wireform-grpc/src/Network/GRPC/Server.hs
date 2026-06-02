@@ -41,6 +41,7 @@ module Network.GRPC.Server (
   , recvInputWithMeta
   , sendOutputWithMeta
   , getRequestHeaders
+  , sendProperTrailers
 
     -- * Exceptions
   , CallSetupFailure(..)

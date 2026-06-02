@@ -27,6 +27,51 @@ tests = testGroup "HPACK"
       , testProperty "roundtrip arbitrary ASCII" $ \(ASCIIString s) ->
           let bs = BS.pack (map (fromIntegral . fromEnum) s)
           in huffmanDecode (huffmanEncode bs) == Right bs
+      , testCase "encode/decode roundtrip - single non-ASCII byte 0x80" $ do
+          let input = BS.pack [0x80]
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testCase "encode/decode roundtrip - single non-ASCII byte 0xFF" $ do
+          let input = BS.pack [0xFF]
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testCase "encode/decode roundtrip - multiple non-ASCII bytes" $ do
+          let input = BS.pack [0x80, 0xFF, 0xC0, 0xFE, 0x80, 0xFF, 0xC0, 0xFE]
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testCase "encode/decode roundtrip - all bytes 0x80..0xFF" $ do
+          let input = BS.pack [0x80..0xFF]
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testCase "encode/decode roundtrip - all 256 byte values" $ do
+          let input = BS.pack [0x00..0xFF]
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testCase "encode/decode roundtrip - long non-ASCII sequence" $ do
+          let input = BS.pack (concat (replicate 100 [0x80, 0xC0, 0xFF]))
+              encoded = huffmanEncode input
+          huffmanDecode encoded @?= Right input
+      , testProperty "roundtrip arbitrary bytes" $ \ws ->
+          let bs = BS.pack ws
+          in not (null ws) ==> huffmanDecode (huffmanEncode bs) == Right bs
+      ]
+  , testGroup "Huffman with HPACK headers"
+      [ testCase "header roundtrip with Huffman enabled" $ do
+          encDt <- newDynamicTable 4096
+          decDt <- newDynamicTable 4096
+          let huffStrategy = EncodeStrategy { useHuffman = True, useDynamicTable = True }
+              headers = [(":method", "GET"), (":path", "/"), ("custom", "value")]
+          encoded <- encodeHeaderBlock huffStrategy encDt headers
+          result <- decodeHeaderBlock decDt encoded
+          result @?= Right headers
+      , testCase "header roundtrip with Huffman - non-ASCII values" $ do
+          encDt <- newDynamicTable 4096
+          decDt <- newDynamicTable 4096
+          let huffStrategy = EncodeStrategy { useHuffman = True, useDynamicTable = True }
+              headers = [("x-bin", BS.pack [0x80, 0xFF, 0xC0]), (":method", "GET")]
+          encoded <- encodeHeaderBlock huffStrategy encDt headers
+          result <- decodeHeaderBlock decDt encoded
+          result @?= Right headers
       ]
   , testGroup "Integer encoding"
       [ testCase "RFC 7541 C.1.1 - encoding 10 with 5-bit prefix" $ do

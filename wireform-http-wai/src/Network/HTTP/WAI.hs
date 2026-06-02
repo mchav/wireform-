@@ -271,6 +271,7 @@ fromWaiResponse resp = do
     , U.responseTrailers   = pure []
     , U.responseH2StreamId = 0
     , U.responseCancel     = pure ()
+    , U.responsePushPromises = pure []
     }
 
 -- | When materializing a streamed response to BodyBytes, the

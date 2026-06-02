@@ -956,9 +956,9 @@ encodeMapKeyE mks kVar =
   in encodeSingleE pseudo tagInt kVar
 
 
-{- | Bytes contributed by one map-key on the wire (1 entry-tag byte
-+ the key payload). Used by the exact entry-size emitter for
-'FKMap'.
+{- | Bytes contributed by one map-key on the wire (tag + payload).
+Used by the exact entry-size emitter for 'FKMap'.
+'sizeSingleE' already accounts for the tag byte.
 -}
 mapKeyEntrySizeE :: MapKeyScalar -> Name -> Q Exp
 mapKeyEntrySizeE mks kVar =
@@ -969,16 +969,16 @@ mapKeyEntrySizeE mks kVar =
           FKBare
           (PFScalar (scalarOfMapKey mks))
           (ConT ''Int)
-  in [|1 + $(sizeSingleE pseudo kVar)|]
+  in sizeSingleE pseudo kVar
 
 
-{- | Bytes contributed by one map-value on the wire (1 entry-tag
-byte + the value payload).
+{- | Bytes contributed by one map-value on the wire (tag + payload).
+'sizeSingleE' already accounts for the tag byte.
 -}
 mapValueEntrySizeE :: ProtoField -> Name -> Q Exp
 mapValueEntrySizeE pf vVar =
   let valueField = pf {pfTag = 2} -- inside the entry
-  in [|1 + $(sizeSingleE valueField vVar)|]
+  in sizeSingleE valueField vVar
 
 
 {- | Build the encoder for one map value at field number 2 inside

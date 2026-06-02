@@ -81,6 +81,7 @@ import Fory.IO qualified as IO
 import Fory.Options qualified as Opt
 import Fory.TextHelpers qualified as TH
 import Fory.TypeId qualified as T
+import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Ptr (Ptr (Ptr), plusPtr)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Wireform.FFI qualified as WFFI

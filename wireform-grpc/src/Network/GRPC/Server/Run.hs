@@ -36,7 +36,7 @@ import Network.HTTP2.Engine.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
 import Network.Socket qualified as Socket
-import Wireform.Network.TLS.OpenSSL (freeCtx)
+import Wireform.Network.TLS.OpenSSL ()
 import Control.Exception (SomeException, try)
 
 #if MIN_VERSION_network_run(0,4,4)
@@ -388,29 +388,19 @@ runSecure http2 cfg socketTMVar server = do
         socketTMVar
         (Just $ secureHost cfg)
         (securePort cfg) $ \listenSock ->
-      flip (`onCleanup` freeCtx ctx) listenSock $ \_ ->
-      HTTP2.TLS.runTLSWithSocket
-          tlsSettings
-          ctx
-          listenSock
-          "h2" $ \mgr backend -> do
+      Run.runTCPServerWithSocket listenSock $ \clientSock -> do
         when (http2TcpNoDelay http2) $
-          -- See description of 'withServerSocket'
-          Socket.setSocketOption (HTTP2.TLS.requestSock backend) Socket.NoDelay 1
+          Socket.setSocketOption clientSock Socket.NoDelay 1
         when (http2TcpAbortiveClose http2) $ do
-          Socket.setSockOpt (HTTP2.TLS.requestSock backend) Socket.Linger
+          Socket.setSockOpt clientSock Socket.Linger
             (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
-        withConfigForSecure mgr backend $ \config ->
-          HTTP2.run serverConfig config server
-  where
-    -- Run @body sock@; free the OpenSSL context after, regardless of
-    -- whether body succeeded.
-    onCleanup body cleanup sock = do
-      r <- try @SomeException (body sock)
-      _ <- try @SomeException cleanup
-      case r of
-        Left  e -> throwIO e
-        Right v -> pure v
+        HTTP2.TLS.runTLSWithSocket
+            tlsSettings
+            ctx
+            clientSock
+            "h2" $ \mgr backend ->
+          withConfigForSecure mgr backend $ \config ->
+            HTTP2.run serverConfig config server
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials

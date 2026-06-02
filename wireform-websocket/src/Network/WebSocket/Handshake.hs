@@ -207,6 +207,7 @@ serverAccept req mSelectedProto =
        , responseTrailers   = pure []
        , responseH2StreamId = 0
        , responseCancel     = pure ()
+       , responsePushPromises = pure []
        }
 
 ------------------------------------------------------------------------

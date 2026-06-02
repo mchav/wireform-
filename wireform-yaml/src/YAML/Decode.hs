@@ -311,6 +311,9 @@ w8Tab = 9
 w8Quest = 63
 w8SOH = 1 -- '\\1'
 w8STX = 2 -- '\\2'
+w8Bang = 33
+w8Amp = 38
+w8Star = 42
 w8Backslash = 92
 
 

@@ -20,6 +20,7 @@ module Network.GRPC.Common.Protobuf (
   , (.~)
   , (^.)
   , (%~)
+  , field
     -- ** "Proto.Schema" / "Proto.Registry"
   , StreamingType(..)
   , Proto.Schema.HasField(..)
@@ -36,7 +37,7 @@ import Data.Function ((&))
 import Data.Int (Int32)
 import Data.Text qualified as T
 
-import Proto.Lens ((.~), (^.), (%~))
+import Proto.Lens ((.~), (^.), (%~), field)
 import Proto.Schema (ProtoMessage(..))
 import Proto.Schema qualified
 import Proto.Registry (IsMessage)

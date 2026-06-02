@@ -83,7 +83,7 @@ import Data.Vector qualified as V
 import Data.Vector.Mutable qualified as VM
 import Data.Vector.Storable qualified as VS
 import Data.Word (Word16, Word32, Word64, Word8)
-import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (peekByteOff)
 import Fory.Bulk qualified as B

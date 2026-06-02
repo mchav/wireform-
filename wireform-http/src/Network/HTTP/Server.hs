@@ -178,6 +178,7 @@ defaultServerConfig = ServerConfig
       , responseTrailers = pure []
       , responseH2StreamId = 0
       , responseCancel = pure ()
+      , responsePushPromises = pure []
       }
 
 -- ---------------------------------------------------------------------------
@@ -222,6 +223,7 @@ optionsAllowResponse methods = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 -- | Build a 405 response with @Allow@ enumerating the supported
@@ -235,6 +237,7 @@ methodNotAllowed methods = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 allowValue :: [U.Method] -> ByteString
@@ -472,6 +475,7 @@ uriTooLong = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 headerFieldsTooLarge :: Response
@@ -483,4 +487,5 @@ headerFieldsTooLarge = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }

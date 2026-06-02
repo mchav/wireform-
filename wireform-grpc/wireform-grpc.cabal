@@ -181,6 +181,81 @@ library
 -- Test suites and benchmarks are disabled while migrating from proto-lens to wireform.
 -- They depend on proto-lens generated code that needs to be regenerated.
 
+test-suite wireform-grpc-interop
+  import:             lang, common-executable-flags
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     interop, proto
+  main-is:            Main.hs
+  build-depends:      wireform-grpc
+  default-extensions: OverloadedLabels
+                      OverloadedRecordDot
+
+  other-modules:
+      Interop.Client
+      Interop.Client.Common
+      Interop.Client.Connect
+      Interop.Client.Ping
+      Interop.Client.TestCase.CancelAfterBegin
+      Interop.Client.TestCase.CancelAfterFirstResponse
+      Interop.Client.TestCase.ClientCompressedStreaming
+      Interop.Client.TestCase.ClientCompressedUnary
+      Interop.Client.TestCase.ClientStreaming
+      Interop.Client.TestCase.CustomMetadata
+      Interop.Client.TestCase.EmptyStream
+      Interop.Client.TestCase.EmptyUnary
+      Interop.Client.TestCase.LargeUnary
+      Interop.Client.TestCase.PingPong
+      Interop.Client.TestCase.ServerCompressedStreaming
+      Interop.Client.TestCase.ServerCompressedUnary
+      Interop.Client.TestCase.ServerStreaming
+      Interop.Client.TestCase.SpecialStatusMessage
+      Interop.Client.TestCase.StatusCodeAndMessage
+      Interop.Client.TestCase.TimeoutOnSleepingServer
+      Interop.Client.TestCase.UnimplementedMethod
+      Interop.Client.TestCase.UnimplementedService
+      Interop.Client.TestCase.OrcaPerRpc
+      Interop.Client.TestCase.OrcaOob
+      Interop.Cmdline
+      Interop.SelfTest
+      Interop.Server
+      Interop.Server.Common
+      Interop.Server.PingService.Ping
+      Interop.Server.TestService.EmptyCall
+      Interop.Server.TestService.FullDuplexCall
+      Interop.Server.TestService.StreamingInputCall
+      Interop.Server.TestService.StreamingOutputCall
+      Interop.Server.TestService.UnaryCall
+      Interop.Util.ANSI
+      Interop.Util.Exceptions
+      Interop.Util.Messages
+
+      Proto.Interop
+      Proto.API.Interop
+      Proto.API.Ping
+      Paths_wireform_grpc
+
+  build-depends:
+      -- Inherited dependencies
+    , bytestring
+    , exceptions
+    , grpc-spec
+    , mtl
+    , network
+    , text
+    , filepath
+    , wireform-proto
+    , wireform-derive
+
+  build-depends:
+      -- Additional dependencies
+    , ansi-terminal        >= 1.1  && < 1.2
+    , optparse-applicative >= 0.16 && < 0.20
+    , reflection
+    , data-default
+    , vector
+    , containers
+    , stm
+
 test-suite wireform-grpc-test-minimal
   import:          lang, common-executable-flags
   type:            exitcode-stdio-1.0
@@ -201,3 +276,83 @@ Flag strace
   description: Write events to /dev/null in @grapesy-kvstore@ so that they show up in strace
   default: False
   manual: True
+
+test-suite wireform-grpc-test-grapesy
+  import:          lang, common-executable-flags
+  type:            exitcode-stdio-1.0
+  hs-source-dirs:  test-grapesy, proto
+  main-is:         Main.hs
+  build-depends:   wireform-grpc
+  ghc-options:     -with-rtsopts=-N
+  default-extensions: OverloadedLabels
+                      OverloadedRecordDot
+
+  other-modules:
+      Test.Driver.ClientServer
+      Test.Driver.Dialogue
+      Test.Driver.Dialogue.Definition
+      Test.Driver.Dialogue.Execution
+      Test.Driver.Dialogue.Generation
+      Test.Driver.Dialogue.TestClock
+      Test.Prop.Dialogue
+      Test.Regression.Issue102
+      Test.Regression.Issue238
+      Test.Sanity.Any
+      Test.Sanity.BrokenDeployments
+      Test.Sanity.Compression
+      Test.Sanity.EndOfStream
+      Test.Sanity.Interop
+      Test.Sanity.NoIsLabel
+      Test.Sanity.Reclamation
+      Test.Sanity.StreamingType.CustomFormat
+      Test.Sanity.StreamingType.NonStreaming
+      Test.Util
+      Test.Util.Exception
+      Test.Util.RawTestServer
+
+      Proto.API.Helloworld
+      Proto.API.Interop
+      Proto.API.Ping
+      Proto.API.RouteGuide
+      Proto.API.TestAny
+      Proto.API.Trivial
+      Proto.Empty
+      Proto.Helloworld
+      Proto.Interop
+      Proto.Messages
+      Proto.RouteGuide
+      Proto.Spec
+      Proto.Test
+      Proto.TestAny
+
+  build-depends:
+      -- Inherited dependencies
+    , async
+    , bytestring
+    , containers
+    , data-default
+    , deepseq
+    , exceptions
+    , grpc-spec
+    , http-types
+    , wireform-http2
+    , mtl
+    , network
+    , wireform-proto
+    , stm
+    , text
+    , wireform-network
+    , utf8-string
+
+  build-depends:
+      -- Additional dependencies
+    , filepath           >= 1.4.2.1 && < 1.6
+    , QuickCheck         >= 2.14    && < 2.19
+    , serialise          >= 0.2     && < 0.3
+    , tasty              >= 1.4     && < 1.6
+    , tasty-hunit        >= 0.10    && < 0.11
+    , tasty-quickcheck   >= 0.10    && < 0.12
+    , temporary          >= 1.3     && < 1.4
+    , tls
+    , vector
+    , reflection

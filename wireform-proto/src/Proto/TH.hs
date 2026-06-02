@@ -108,6 +108,7 @@ module Proto.TH (
 ) where
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as SBS
@@ -193,7 +194,7 @@ unknownConNameFor :: [Text] -> Text -> Name
 unknownConNameFor parents enumNm =
   mkName
     ( T.unpack
-        (scopedHsTypeName parents enumNm <> T.pack "'Unknown")
+        (scopedHsTypeName parents enumNm <> T.pack "''Unrecognized")
     )
 
 
@@ -565,11 +566,16 @@ messageToDecls'' scopeCtx cfg hooks msg = do
   -- registry. We use the same naming convention as
   -- 'unknownFieldsName'.
   let ufSelName = unknownFieldsName tyName
+      hasExts = any isExt (msgElements msg)
+        where
+          isExt (MEExtensions _) = True
+          isExt _ = False
+      aesonUfSel = if hasExts then Just ufSelName else Nothing
   aesonDecs <-
     PTM.mkAesonInstancesForMessage
       tyName
       fqName
-      (Just ufSelName)
+      aesonUfSel
       defName
       metaFields
   hashableDec <- PTM.mkHashableInstanceForMessage tyName metaFields
@@ -588,6 +594,9 @@ messageToDecls'' scopeCtx cfg hooks msg = do
             <> "@ with all fields at their proto default values."
         )
     )
+
+  -- HasField instances for lens-style access via Proto.Schema.HasField
+  hasFieldDecs <- mkHasFieldInstances scopeCtx tyName fields
 
   -- Monoid: mempty = defaultFoo (must come after Semigroup in codecDecs)
   let monoidDec =
@@ -610,6 +619,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
         <> defaultDec
         <> codecDecs
         <> [monoidDec]
+        <> hasFieldDecs
         <> hasExtDec
         <> protoMsgDecs
         <> aesonDecs
@@ -809,7 +819,9 @@ mkDataDec scope tyName fields = do
     []
     Nothing
     [con]
-    [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
+    [ derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]
+    , derivClause (Just AnyclassStrategy) [conT ''NFData]
+    ]
   where
     parentName = T.pack (nameBase tyName)
     mkField :: FieldSpec -> Q [VarBangType]
@@ -828,6 +840,51 @@ mkDataDec scope tyName fields = do
           oneofTyName = oneofSumName tyName name
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
+
+
+-- ===========================================================
+-- HasField instances (Proto.Schema.HasField)
+-- ===========================================================
+
+mkHasFieldInstances :: ScopeCtx -> Name -> [FieldSpec] -> Q [Dec]
+mkHasFieldInstances scope tyName fields =
+  fmap concat (mapM mkOne fields)
+  where
+    parentName = T.pack (nameBase tyName)
+    mkOne :: FieldSpec -> Q [Dec]
+    mkOne (FSField name _ lbl ft rep _) = do
+      let hsName = scopedHsFieldName (scFieldNaming scope) parentName name
+          fname = mkName (T.unpack hsName)
+      ty <- fieldTypeToTH scope lbl ft rep
+      mkHasFieldDec tyName (snakeToCamel name) fname ty
+    mkOne (FSMap name _ kt vt rep) = do
+      let hsName = scopedHsFieldName (scFieldNaming scope) parentName name
+          fname = mkName (T.unpack hsName)
+      kty <- scalarToTH kt
+      vty <- fieldTypeInnerScopedQ scope rep vt
+      ty <- appT (appT (conT ''Map) (pure kty)) (pure vty)
+      mkHasFieldDec tyName (snakeToCamel name) fname ty
+    mkOne (FSOneof name _) = do
+      let hsName = scopedHsFieldName (scFieldNaming scope) parentName name
+          fname = mkName (T.unpack hsName)
+          oneofTyName = oneofSumName tyName name
+      ty <- appT (conT ''Maybe) (conT oneofTyName)
+      mkHasFieldDec tyName (snakeToCamel name) fname ty
+
+mkHasFieldDec :: Name -> Text -> Name -> Type -> Q [Dec]
+mkHasFieldDec tyName fnameStr fname ty = do
+  msgVar <- newName "msg"
+  aVar <- newName "a"
+  let nameLit = LitT (StrTyLit (T.unpack fnameStr))
+      instTy = foldl AppT (ConT ''PS.HasField) [ConT tyName, nameLit, ty]
+      getFld = FunD 'PS.getField
+        [Clause [VarP msgVar] (NormalB (AppE (VarE fname) (VarE msgVar))) []]
+      setFld = FunD 'PS.setField
+        [Clause [VarP aVar, VarP msgVar]
+          (NormalB (RecUpdE (VarE msgVar) [(fname, VarE aVar)])) []]
+      fdesc = FunD 'PS.fieldDescriptor
+        [Clause [WildP, WildP] (NormalB (VarE 'undefined)) []]
+  pure [InstanceD Nothing [] instTy [getFld, setFld, fdesc]]
 
 
 -- ===========================================================
@@ -885,7 +942,9 @@ mkOneofDataDecs scope parentTy fields =
         []
         Nothing
         (fmap pure cons)
-        [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
+        [ derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]
+        , derivClause (Just AnyclassStrategy) [conT ''NFData]
+        ]
 
     mkCon :: Text -> (OneofField, FieldRep) -> Q Con
     mkCon ooName (f, rep) = do
@@ -1214,6 +1273,7 @@ enumToDecls'' pkg parents hooks ed = do
           , conT ''Ord
           , conT ''Generic
           ]
+      , derivClause (Just AnyclassStrategy) [conT ''NFData]
       ]
   enumInst <- mkEnumInstance tyName parents ed
   let
