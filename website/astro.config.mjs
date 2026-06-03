@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightLinksValidator from 'starlight-links-validator';
 import mermaid from 'astro-mermaid';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync, existsSync } from 'node:fs';
@@ -68,6 +69,19 @@ export default defineConfig({
       title: 'wireform',
       description:
         'One Haskell ecosystem for serialization, codegen, streaming, messaging, and analytics.',
+      plugins: [
+        // Dead-link checking. Validates every internal link (and in-page
+        // anchor) against the set of pages Starlight actually builds, so a
+        // typo'd slug or a renamed page fails the build instead of shipping
+        // a 404. The auto-generated Haddock API pages under `api/` are only
+        // present after the ingester runs, so we exclude them from the link
+        // graph to avoid false positives when building without GHC.
+        starlightLinksValidator({
+          errorOnRelativeLinks: false,
+          errorOnLocalLinks: false,
+          exclude: ['/wireform-/api/**', '/api/**', '**/api/**'],
+        }),
+      ],
       social: [
         {
           icon: 'github',
