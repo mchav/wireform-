@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {- | Template Haskell generation of gRPC /service/ bindings.
@@ -92,6 +93,7 @@ module Network.GRPC.Protobuf.TH (
   , defaultServiceGenOpts
   ) where
 
+import Data.Char (toUpper)
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import Data.Text (Text)
@@ -101,7 +103,7 @@ import Data.Text.IO qualified as TIO
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 
-import Proto.CodeGen (hsTypeName, lowerFirst, snakeToCamel, snakeToPascal)
+import Proto.CodeGen (hsTypeName, lowerFirst)
 import Proto.IDL.AST
 import Proto.IDL.Parser (parseProtoFile, renderParseError)
 
@@ -183,7 +185,7 @@ collectServices = foldr step []
 
 serviceToDecls :: ServiceGenOpts -> ProtoFile -> Text -> ServiceDef -> Q [Dec]
 serviceToDecls opts pf pkg svc = do
-  let servHsName = mkName (T.unpack (snakeToPascal (svcName svc)))
+  let servHsName = mkName (T.unpack (pascalName (svcName svc)))
       fqServiceName = qualify pkg (svcName svc)
   servData <- dataD (pure []) servHsName [] Nothing [] []
   rpcDecls <-
@@ -200,8 +202,8 @@ serviceToDecls opts pf pkg svc = do
 -- | All declarations for a single RPC method.
 rpcToDecls :: ProtoFile -> Text -> Name -> Text -> RpcDef -> Q [Dec]
 rpcToDecls pf pkg servHsName fqServiceName rpc = do
-  let methHsName = mkName (T.unpack (snakeToPascal (rpcName rpc)))
-      methSym = lowerFirst (snakeToCamel (rpcName rpc))
+  let methHsName = mkName (T.unpack (pascalName (rpcName rpc)))
+      methSym = methodSymbol (rpcName rpc)
       inHs = resolveHsType pf (rpcInput rpc)
       outHs = resolveHsType pf (rpcOutput rpc)
       inFq = fqMessageName pkg (rpcInput rpc)
@@ -307,7 +309,7 @@ serviceMethodsDecl servHsName rpcs =
         (promotedSymbolList syms)
     )
   where
-    syms = fmap (lowerFirst . snakeToCamel . rpcName) rpcs
+    syms = fmap (methodSymbol . rpcName) rpcs
 
 
 -- ---------------------------------------------------------------------------
@@ -341,6 +343,24 @@ streamingCon inS outS = case (inS, outS) of
   (NoStream, Streaming) -> 'ServerStreaming
   (Streaming, NoStream) -> 'ClientStreaming
   (Streaming, Streaming) -> 'BiDiStreaming
+
+
+{- | Pascal-case a proto identifier while /preserving/ interior capitals:
+@RouteGuide@ stays @RouteGuide@, @get_feature@ becomes @GetFeature@. Unlike
+'Proto.CodeGen.snakeToPascal' (which lower-cases each segment's tail) this is
+safe for the already-PascalCase service and method names gRPC uses. -}
+pascalName :: Text -> Text
+pascalName t = T.concat (fmap upperFirst (T.splitOn (T.singleton '_') t))
+  where
+    upperFirst x = case T.uncons x of
+      Just (c, rest) -> T.cons (toUpper c) rest
+      Nothing -> x
+
+
+-- | The method symbol used in @Protobuf serv "<sym>"@: 'pascalName' with a
+-- lower-cased leading character (@GetFeature@ / @get_feature@ -> @getFeature@).
+methodSymbol :: Text -> Text
+methodSymbol = lowerFirst . pascalName
 
 
 -- ---------------------------------------------------------------------------
