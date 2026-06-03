@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package payments.v1;
 
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
 // ---------------------------------------------------------------------------
 // payments.v1 — the example "payments → event stream → derived views" schema.
 //
@@ -13,9 +16,12 @@ package payments.v1;
 //     Streams topology (RiskFeature for the risk engine, BookkeepingEntry
 //     for the bookkeeping product).
 //
-// We deliberately avoid google.protobuf.Timestamp / any other imported
-// well-known type so the file loads through Proto.TH.loadProto with no
-// include path wrangling — timestamps are plain int64 epoch-millis.
+// It uses the google.protobuf well-known types Duration and Timestamp: the
+// authorization window is a Duration, and the event carries a Timestamp for
+// when it was received. Proto.TH.loadProto resolves these through its
+// built-in WKT registry (no include paths needed) to the pre-generated
+// Proto.Google.Protobuf.{Duration,Timestamp} modules. Plain int64 epoch-millis
+// are kept alongside for the fields the streams topology keys / prints on.
 // ---------------------------------------------------------------------------
 
 // Lifecycle status of a payment, returned synchronously to the gRPC caller.
@@ -46,6 +52,8 @@ message PaymentRequest {
   string currency = 5;
   string description = 6;
   TransactionType type = 7;
+  // How long the authorization is valid before it must be captured/voided.
+  google.protobuf.Duration authorization_window = 8;
 }
 
 // gRPC response: synchronous acknowledgement once the event is durably
@@ -69,6 +77,10 @@ message TransactionEvent {
   int64 occurred_at_millis = 7;
   TransactionType type = 8;
   string description = 9;
+  // Carried through from the request: the authorization validity window.
+  google.protobuf.Duration authorization_window = 10;
+  // Wall-clock instant the event was minted by the service.
+  google.protobuf.Timestamp received_at = 11;
 }
 
 // Risk-engine projection: a flattened, numeric "feature" keyed by the

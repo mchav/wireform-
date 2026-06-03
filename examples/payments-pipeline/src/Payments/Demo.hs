@@ -39,6 +39,8 @@ import Kafka.Serde.Proto (decodeProto, encodeProto)
 
 import Proto.Lens ((&), (.~), (^.))
 import Proto.Payments
+import Proto.Google.Protobuf.Duration (durationSeconds, defaultDuration)
+import Proto.Google.Protobuf.Timestamp (timestampSeconds)
 import Payments.Domain (transactionEventFromRequest)
 import Payments.Serdes (bookkeepingTopic, riskFeaturesTopic, transactionsTopic)
 import Payments.Streams (buildPaymentsTopology)
@@ -98,6 +100,8 @@ sampleEvents =
           & #currency .~ "USD"
           & #type .~ ty
           & #description .~ desc
+          -- A google.protobuf.Duration: a 10-minute authorization window.
+          & #authorizationWindow .~ Just (defaultDuration {durationSeconds = 600})
 
 baseTs :: Int64
 baseTs = 1_700_000_000_000
@@ -113,6 +117,11 @@ describeEvent ev =
     <> " -> " <> T.unpack (ev ^. #payeeAccount)
     <> " " <> show (ev ^. #amountMinor) <> " " <> T.unpack (ev ^. #currency)
     <> " (" <> showType (ev ^. #type) <> ")"
+    <> ", auth-window=" <> showWindow (ev ^. #authorizationWindow)
+    <> ", received@" <> showStamp (ev ^. #receivedAt)
+  where
+    showWindow = maybe "none" (\d -> show (durationSeconds d) <> "s")
+    showStamp = maybe "?" (\t -> show (timestampSeconds t) <> "s")
 
 showType :: TransactionType -> String
 showType = \case

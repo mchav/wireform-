@@ -39,6 +39,7 @@ import qualified Data.Text as T
 
 import Proto.Lens ((&), (.~), (^.))
 import Proto.Payments
+import Proto.Google.Protobuf.Timestamp (Timestamp (..), defaultTimestamp)
 
 -- | Transactions at or above this amount (in minor units) are flagged as
 -- high-value by the risk projection. 100_000 minor units == 1,000.00 major.
@@ -65,6 +66,18 @@ transactionEventFromRequest transactionId occurredAtMillis req =
     & #occurredAtMillis .~ occurredAtMillis
     & #type .~ (req ^. #type)
     & #description .~ (req ^. #description)
+    -- Carry the Duration through untouched, and stamp the event with a
+    -- Timestamp derived from the same epoch-millis the rest of the demo uses.
+    & #authorizationWindow .~ (req ^. #authorizationWindow)
+    & #receivedAt .~ Just (millisToTimestamp occurredAtMillis)
+
+-- | Convert epoch-millis into a @google.protobuf.Timestamp@.
+millisToTimestamp :: Int64 -> Timestamp
+millisToTimestamp millis =
+  defaultTimestamp
+    { timestampSeconds = millis `div` 1000
+    , timestampNanos = fromIntegral ((millis `mod` 1000) * 1_000_000)
+    }
 
 -- | The account the risk engine assesses: the account losing money. For a
 -- payment that is the payer; for a refund it is the payee.

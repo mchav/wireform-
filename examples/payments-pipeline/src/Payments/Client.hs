@@ -22,6 +22,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
 import Proto.API.Payments
+import Proto.Google.Protobuf.Duration (defaultDuration, durationSeconds)
 
 -- | Connect to @host:port@ and create one demo payment.
 runClient :: String -> Int -> IO ()
@@ -39,6 +40,7 @@ runClient host port = do
               & #currency .~ ("USD" :: Text)
               & #type .~ TransactionType'TransactionTypePayment
               & #description .~ ("demo payment" :: Text)
+              & #authorizationWindow .~ Just (defaultDuration {durationSeconds = 600})
     resp <- nonStreaming conn (rpc @CreatePayment) req
     putStrLn "CreatePayment response:"
     print (getProto resp)
