@@ -64,7 +64,7 @@ vocabulary has no effect on this path.
 
 ## Full annotation reference
 
-See [wireform-derive](/packages/derive/) for the complete annotation
+See [wireform-derive](../../packages/derive/) for the complete annotation
 vocabulary: `rename`, `renameStyle`, `tag`, `skip`, `flatten`, `defaults`,
 `optional`, `required`, `coerced`, `wireOverride`, `forBackend`, and
 `extension`.
