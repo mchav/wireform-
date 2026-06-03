@@ -28,6 +28,28 @@ The dev/build pipeline runs `npm run prebuild` (= the ingester with
 when no real Haddock output is present — it falls back to the small fixture
 under `../haddock-fixture/` so the layout is browsable end-to-end.
 
+## Dead-link checking
+
+`npm run build` validates every internal link and in-page anchor via the
+[`starlight-links-validator`](https://github.com/HiDeoo/starlight-links-validator)
+plugin (configured in `astro.config.mjs`). A typo'd slug, a renamed page,
+or a missing heading anchor fails the build instead of shipping a 404, so
+running `npm run build` locally is the quickest way to confirm the docs
+still cross-link correctly.
+
+Notes:
+
+- Use **relative** links between docs (e.g. `../operating/scaling/`) rather
+  than root-absolute ones (`/kafka-streams/operating/scaling/`). The site is
+  served under a `base` of `/wireform-` on GitHub Pages but `/` on Vercel;
+  relative links resolve correctly under both, absolute ones do not.
+- The auto-generated Haddock API pages under `api/` are excluded from the
+  link graph, since they only exist after the ingester runs.
+
+CI runs this check on every pull request that touches `website/`, `docs/`,
+or the Haddock fixture (see `.github/workflows/docs.yml`), using the
+in-tree fixture so no GHC build is needed.
+
 ## Build with real Haddock output
 
 From the repo root:

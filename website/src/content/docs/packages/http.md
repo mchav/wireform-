@@ -25,12 +25,12 @@ The stack spans three packages:
 - **TLS with ALPN** to select the on-wire protocol on secure connections
 - **HTTP/1 connection pooling** and SIMD-accelerated header parsing
 - **HTTP/2 multiplexing** with exact-size allocation and zero-copy frame
-  reads off a [magic ring transport](/packages/network/)
+  reads off a [magic ring transport](../network/)
 - **Magic-ring receive path** (shared with `wireform-kafka` via
-  [`wireform-network`](/packages/network/)) — recv bytes land directly
+  [`wireform-network`](../network/)) — recv bytes land directly
   in a double-mapped pinned buffer; the parser reads zero-copy slices.
   15-51% faster end-to-end than the classic `RecvBuffer` shape; see the
-  [benchmarks](/packages/network/#benchmarks-faster-than-the-classic-recv-path)
+  [benchmarks](../network/#benchmarks-faster-than-the-classic-recv-path)
 - **HPACK** with a hand-tuned C Huffman codec
 - **Direct OpenSSL TLS** (`Wireform.Network.TLS.OpenSSL`) — decrypts
   plaintext straight into the magic ring with no `ByteString`
@@ -121,7 +121,7 @@ main =
 | `wireform-http1` | `Network.HTTP1.Client` | HTTP/1.x client with connection pooling |
 | `wireform-http1` | `Network.HTTP1.Parser` | SIMD-accelerated request/response parsing |
 | `wireform-http1` | `Network.HTTP1.StreamingReader` | Magic-ring head + body readers (SIMD CRLFCRLF scanner on the ring + classic `parseRequest`) |
-| `wireform-http1` | `Network.HTTP1.TLS` | `tls`-package bridge for HTTP/1 (legacy path); use [`Wireform.Network.TLS.OpenSSL`](/packages/network/#tls-on-ring-via-openssl) for the ring-direct path |
+| `wireform-http1` | `Network.HTTP1.TLS` | `tls`-package bridge for HTTP/1 (legacy path); use [`Wireform.Network.TLS.OpenSSL`](../network/#tls-on-ring-via-openssl) for the ring-direct path |
 | `wireform-http2` | `Network.HTTP2.Connection` | Flow control, stream table, HPACK state, magic-ring recv |
 | `wireform-http2` | `Network.HTTP2.Frame` | Zero-copy frame encode/decode |
 | `wireform-http2` | `Network.HTTP2.Frame.StreamingReader` | Magic-ring frame reader (9-byte header + payload slice, single `transportLoadHead` per frame) |

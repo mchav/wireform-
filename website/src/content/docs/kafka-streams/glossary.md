@@ -44,7 +44,7 @@ group](#consumer-group) owns which [partition](#partition) (and,
 in Streams, which [task](#task)). The built-in default is
 **cooperative-sticky**: it prefers to keep tasks on their current
 owner across rebalances, and revocations are incremental rather
-than stop-the-world. See also [KIP-848](#kip-848).
+than stop-the-world. See also [KIP-848](#kip).
 
 ### Async I/O operator
 
@@ -273,7 +273,7 @@ Configured via `withGracePeriod` / `withSessionGracePeriod`.
 ### Heartbeat
 
 The periodic message a [consumer group](#consumer-group) member
-sends the coordinator to confirm liveness. Under [KIP-848](#kip-848),
+sends the coordinator to confirm liveness. Under [KIP-848](#kip),
 heartbeats also carry [subscription metadata](#subscription-metadata)
 and receive [reconciliation](#reconciliation) deltas.
 
@@ -560,7 +560,7 @@ cache eviction.
 The process by which a [consumer group](#consumer-group)
 reassigns partition / [task](#task) ownership across its members
 in response to a membership change. Under the classic protocol it
-was stop-the-world; under [KIP-848](#kip-848) it's incremental
+was stop-the-world; under [KIP-848](#kip) it's incremental
 per-task with no double-ownership at any point.
 
 ### Reconciliation
@@ -777,7 +777,7 @@ belongs to exactly one window.
 
 ### Two-phase commit sink
 
-A Riffle [sink](#sink) interface that commits external-system
+A Riffle sink interface that commits external-system
 writes atomically with the Kafka [commit cycle](#commit-cycle).
 Five operations: `tpsStage` (per-record buffer), `tpsPrepare`
 (promote batch to "prepared"), `tpsCommit` (atomically make

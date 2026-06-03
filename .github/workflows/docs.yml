@@ -10,6 +10,16 @@ on:
       - '.github/workflows/docs.yml'
       - '**.cabal'
       - '**/src/**.hs'
+  # On pull requests we build the site (which runs the Starlight
+  # dead-link validator) to catch broken cross-doc links before they
+  # land. The Haddock job and the gh-pages deploy are both gated to
+  # non-PR events below, so PRs only pay for the fast fixture build.
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'haddock-fixture/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +35,10 @@ jobs:
     # the deploy: when no Haddocks land, the ingester falls back to the
     # in-tree fixture so the site still ships.
     name: Build Haddocks
+    # Skipped on pull requests: link validation only needs the in-tree
+    # fixture, and a full 'cabal v2-haddock all' is far too heavy to run
+    # on every PR.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     continue-on-error: true
     outputs:
@@ -111,7 +125,10 @@ jobs:
           retention-days: 7
 
   build-and-deploy:
-    name: Build & Deploy site
+    # The Astro build runs the starlight-links-validator plugin, so this
+    # job doubles as the dead-link check on pull requests. The deploy
+    # steps at the end are gated to non-PR events.
+    name: Build & validate site
     runs-on: ubuntu-latest
     needs: [haddock]
     if: ${{ always() }}
@@ -153,14 +170,16 @@ jobs:
             node scripts/ingest-haddock.mjs --fallback-fixture
           fi
 
-      - name: Build Astro site
+      - name: Build Astro site (validates internal links)
         working-directory: website
         run: npm run build
 
       - name: Disable Jekyll on Pages
+        if: ${{ github.event_name != 'pull_request' }}
         run: touch website/dist/.nojekyll
 
       - name: Deploy to gh-pages branch
+        if: ${{ github.event_name != 'pull_request' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
