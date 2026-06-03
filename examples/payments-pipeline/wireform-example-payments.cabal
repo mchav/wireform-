@@ -1,0 +1,54 @@
+cabal-version: 3.0
+name: wireform-example-payments
+version: 0.1.0.0
+synopsis: gRPC payments -> Kafka event log -> derived risk/bookkeeping views
+description:
+  An end-to-end example wiring together three wireform packages:
+
+  * @wireform-grpc@ exposes a @PaymentService@ whose @CreatePayment@ RPC
+    turns a payment request into a transaction;
+  * the transaction is emitted as a protobuf @TransactionEvent@ (the
+    semantic event) onto a Kafka topic, event-sourcing style, via
+    @wireform-kafka@;
+  * a @wireform-kafka@ Streams topology consumes that event log and forks it
+    into a numeric @RiskFeature@ for a risk engine and a domain-specific
+    @BookkeepingEntry@ for a bookkeeping product.
+
+  The @demo@ subcommand runs the streams fan-out in-process (no broker
+  needed); @server@ / @client@ exercise the full broker-backed gRPC path.
+license: BSD-3-Clause
+author: wireform
+build-type: Simple
+
+executable payments-pipeline
+    main-is: Main.hs
+    hs-source-dirs: app, src
+    default-language: GHC2021
+    ghc-options: -Wall -threaded -rtsopts
+    default-extensions:
+        OverloadedLabels
+        OverloadedStrings
+    other-modules:
+        Proto.Payments
+        Proto.API.Payments
+        Payments.Domain
+        Payments.Serdes
+        Payments.Streams
+        Payments.Demo
+        Payments.Server
+        Payments.Client
+    build-depends:
+        base,
+        bytestring,
+        containers,
+        text,
+        time,
+        uuid,
+        reflection,
+        data-default,
+        wireform-proto,
+        wireform-derive,
+        grpc-spec,
+        wireform-grpc,
+        wireform-kafka,
+        wireform-kafka:wireform-kafka-streams

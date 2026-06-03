@@ -48,6 +48,7 @@ packages:
   wireform-stats/
   wireform-cel/
   wireform-protovalidate/
+  examples/payments-pipeline/
 
 package *
   optimization: 1

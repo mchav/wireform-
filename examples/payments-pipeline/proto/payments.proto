@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package payments.v1;
+
+// ---------------------------------------------------------------------------
+// payments.v1 — the example "payments → event stream → derived views" schema.
+//
+// One .proto file carries every contract in the demo:
+//
+//   * the gRPC request/response pair (PaymentRequest / PaymentResponse),
+//   * the semantic event written to the Kafka event log (TransactionEvent),
+//   * the two derived, downstream-owned projections produced by the Kafka
+//     Streams topology (RiskFeature for the risk engine, BookkeepingEntry
+//     for the bookkeeping product).
+//
+// We deliberately avoid google.protobuf.Timestamp / any other imported
+// well-known type so the file loads through Proto.TH.loadProto with no
+// include path wrangling — timestamps are plain int64 epoch-millis.
+// ---------------------------------------------------------------------------
+
+// Lifecycle status of a payment, returned synchronously to the gRPC caller.
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_ACCEPTED = 1;
+  PAYMENT_STATUS_REJECTED = 2;
+}
+
+// What kind of money movement a transaction represents. The bookkeeping
+// projection flips debit/credit accounts based on this.
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_PAYMENT = 1;
+  TRANSACTION_TYPE_REFUND = 2;
+}
+
+// gRPC request: a caller asks the PaymentService to move money.
+message PaymentRequest {
+  // Caller-supplied dedupe token. Echoed into the emitted event so the
+  // event log is idempotent w.r.t. retries.
+  string idempotency_key = 1;
+  string payer_account = 2;
+  string payee_account = 3;
+  // Amount in minor units (e.g. cents) to avoid floating point on the wire.
+  int64 amount_minor = 4;
+  // ISO-4217 currency code, e.g. "USD".
+  string currency = 5;
+  string description = 6;
+  TransactionType type = 7;
+}
+
+// gRPC response: synchronous acknowledgement once the event is durably
+// appended to the log.
+message PaymentResponse {
+  string transaction_id = 1;
+  PaymentStatus status = 2;
+  int64 created_at_millis = 3;
+}
+
+// The semantic event appended to the "transactions" Kafka topic. This is
+// the source of truth (event-sourcing style): every downstream view is a
+// pure function of the ordered stream of these.
+message TransactionEvent {
+  string transaction_id = 1;
+  string idempotency_key = 2;
+  string payer_account = 3;
+  string payee_account = 4;
+  int64 amount_minor = 5;
+  string currency = 6;
+  int64 occurred_at_millis = 7;
+  TransactionType type = 8;
+  string description = 9;
+}
+
+// Risk-engine projection: a flattened, numeric "feature" keyed by the
+// account under assessment, suitable for scoring.
+message RiskFeature {
+  string account = 1;
+  string transaction_id = 2;
+  // Amount expressed in major units (e.g. dollars) as the risk model wants.
+  double amount_major = 3;
+  string currency = 4;
+  // Derived signal: did this transaction breach the high-value threshold?
+  bool is_high_value = 5;
+  // Direction relative to `account`: true if money left the account.
+  bool is_outbound = 6;
+  int64 observed_at_millis = 7;
+}
+
+// Bookkeeping projection: a double-entry-flavoured ledger posting that the
+// bookkeeping product stores and reconciles.
+message BookkeepingEntry {
+  string entry_id = 1;
+  string transaction_id = 2;
+  string debit_account = 3;
+  string credit_account = 4;
+  int64 amount_minor = 5;
+  string currency = 6;
+  int64 posted_at_millis = 7;
+  string memo = 8;
+}
+
+// The synchronous front door. A single unary RPC; everything asynchronous
+// (the derived views) happens off the back of the emitted event.
+service PaymentService {
+  rpc CreatePayment (PaymentRequest) returns (PaymentResponse);
+}
