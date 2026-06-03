@@ -171,6 +171,7 @@ library
     , random                    >= 1.2     && < 1.4
     , recv                      >= 0.1     && < 0.2
     , stm                       >= 2.5     && < 2.6
+    , template-haskell          >= 2.18    && < 2.24
     , text                      >= 1.2     && < 2.2
     , time-manager              >= 0.2.2   && < 0.3
     , unbounded-delays          >= 0.1.1   && < 0.2
