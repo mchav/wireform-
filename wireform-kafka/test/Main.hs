@@ -101,6 +101,7 @@ import Protocol.VersionHandlingSpec qualified
 import Protocol.VersionNegotiationSpec qualified
 import Protocol.WireCodecParitySpec qualified
 import Protocol.WireSpec qualified
+import Serde.ProtoBufSpec qualified
 import Test.Tasty
 
 
@@ -121,6 +122,15 @@ tests knownGoodTests comprehensiveTests =
     , compressionTests
     , clientTests
     , networkTests
+    , serdeTests
+    ]
+
+
+serdeTests :: TestTree
+serdeTests =
+  testGroup
+    "Serde"
+    [ Serde.ProtoBufSpec.tests
     ]
 
 
