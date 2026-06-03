@@ -98,6 +98,10 @@ respective output topics.
 - The streams DSL is the free-arrow topology API
   (`Kafka.Streams.Topology.Free`). The two-way fork is just `(&&&)`; each branch
   is an ordinary `mapValues >>> selectKey >>> sink` chain.
-- This example intentionally avoids `google.protobuf.Timestamp` and other
-  imported well-known types so `loadProto` resolves the schema with no include
-  paths — timestamps are plain `int64` epoch-millis.
+- The schema uses the `google.protobuf` well-known types `Duration` (the
+  authorization window) and `Timestamp` (the event's `received_at`).
+  `loadProto` resolves these through its built-in WKT registry — and, after the
+  accompanying `wireform-proto` fix, the generated code references the WKT
+  types by their fully-resolved names, so `Proto.Payments` does **not** need to
+  import the `Proto.Google.Protobuf.*` modules itself. Plain `int64`
+  epoch-millis are kept alongside for the fields the topology keys / prints on.
