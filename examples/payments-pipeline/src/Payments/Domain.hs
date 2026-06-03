@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -37,7 +36,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Proto.Lens ((&), (.~), (^.))
 import Proto.Payments
 import Proto.Google.Protobuf.Timestamp (Timestamp (..), defaultTimestamp)
 
@@ -56,20 +54,21 @@ minorUnitsPerMajor = 100
 -- live in the server, keeping this function pure and testable).
 transactionEventFromRequest :: Text -> Int64 -> PaymentRequest -> TransactionEvent
 transactionEventFromRequest transactionId occurredAtMillis req =
-  mempty
-    & #transactionId .~ transactionId
-    & #idempotencyKey .~ (req ^. #idempotencyKey)
-    & #payerAccount .~ (req ^. #payerAccount)
-    & #payeeAccount .~ (req ^. #payeeAccount)
-    & #amountMinor .~ (req ^. #amountMinor)
-    & #currency .~ (req ^. #currency)
-    & #occurredAtMillis .~ occurredAtMillis
-    & #type .~ (req ^. #type)
-    & #description .~ (req ^. #description)
-    -- Carry the Duration through untouched, and stamp the event with a
-    -- Timestamp derived from the same epoch-millis the rest of the demo uses.
-    & #authorizationWindow .~ (req ^. #authorizationWindow)
-    & #receivedAt .~ Just (millisToTimestamp occurredAtMillis)
+  defaultTransactionEvent
+    { transactionEventTransactionId = transactionId
+    , transactionEventIdempotencyKey = paymentRequestIdempotencyKey req
+    , transactionEventPayerAccount = paymentRequestPayerAccount req
+    , transactionEventPayeeAccount = paymentRequestPayeeAccount req
+    , transactionEventAmountMinor = paymentRequestAmountMinor req
+    , transactionEventCurrency = paymentRequestCurrency req
+    , transactionEventOccurredAtMillis = occurredAtMillis
+    , transactionEventType = paymentRequestType req
+    , transactionEventDescription = paymentRequestDescription req
+    , -- Carry the Duration through untouched, and stamp the event with a
+      -- Timestamp derived from the same epoch-millis the rest of the demo uses.
+      transactionEventAuthorizationWindow = paymentRequestAuthorizationWindow req
+    , transactionEventReceivedAt = Just (millisToTimestamp occurredAtMillis)
+    }
 
 -- | Convert epoch-millis into a @google.protobuf.Timestamp@.
 millisToTimestamp :: Int64 -> Timestamp
@@ -83,24 +82,25 @@ millisToTimestamp millis =
 -- payment that is the payer; for a refund it is the payee.
 riskKeyForEvent :: TransactionEvent -> Text
 riskKeyForEvent ev =
-  case ev ^. #type of
-    TransactionType'TransactionTypeRefund -> ev ^. #payeeAccount
-    _                                     -> ev ^. #payerAccount
+  case transactionEventType ev of
+    TransactionType'TransactionTypeRefund -> transactionEventPayeeAccount ev
+    _                                     -> transactionEventPayerAccount ev
 
 -- | Flatten an event into a numeric risk feature keyed by the assessed
 -- account.
 eventToRiskFeature :: TransactionEvent -> RiskFeature
 eventToRiskFeature ev =
-  mempty
-    & #account .~ riskKeyForEvent ev
-    & #transactionId .~ (ev ^. #transactionId)
-    & #amountMajor .~ (fromIntegral (ev ^. #amountMinor) / minorUnitsPerMajor)
-    & #currency .~ (ev ^. #currency)
-    & #isHighValue .~ ((ev ^. #amountMinor) >= highValueThresholdMinor)
-    & #isOutbound .~ isOutbound
-    & #observedAtMillis .~ (ev ^. #occurredAtMillis)
+  defaultRiskFeature
+    { riskFeatureAccount = riskKeyForEvent ev
+    , riskFeatureTransactionId = transactionEventTransactionId ev
+    , riskFeatureAmountMajor = fromIntegral (transactionEventAmountMinor ev) / minorUnitsPerMajor
+    , riskFeatureCurrency = transactionEventCurrency ev
+    , riskFeatureIsHighValue = transactionEventAmountMinor ev >= highValueThresholdMinor
+    , riskFeatureIsOutbound = isOutbound
+    , riskFeatureObservedAtMillis = transactionEventOccurredAtMillis ev
+    }
   where
-    isOutbound = case ev ^. #type of
+    isOutbound = case transactionEventType ev of
       TransactionType'TransactionTypeRefund -> False
       _                                     -> True
 
@@ -111,21 +111,22 @@ eventToRiskFeature ev =
 -- the same event.)
 eventToBookkeepingEntry :: TransactionEvent -> BookkeepingEntry
 eventToBookkeepingEntry ev =
-  mempty
-    & #entryId .~ ((ev ^. #transactionId) <> "-entry")
-    & #transactionId .~ (ev ^. #transactionId)
-    & #debitAccount .~ debit
-    & #creditAccount .~ credit
-    & #amountMinor .~ (ev ^. #amountMinor)
-    & #currency .~ (ev ^. #currency)
-    & #postedAtMillis .~ (ev ^. #occurredAtMillis)
-    & #memo .~ memo
+  defaultBookkeepingEntry
+    { bookkeepingEntryEntryId = transactionEventTransactionId ev <> "-entry"
+    , bookkeepingEntryTransactionId = transactionEventTransactionId ev
+    , bookkeepingEntryDebitAccount = debit
+    , bookkeepingEntryCreditAccount = credit
+    , bookkeepingEntryAmountMinor = transactionEventAmountMinor ev
+    , bookkeepingEntryCurrency = transactionEventCurrency ev
+    , bookkeepingEntryPostedAtMillis = transactionEventOccurredAtMillis ev
+    , bookkeepingEntryMemo = memo
+    }
   where
-    (debit, credit) = case ev ^. #type of
+    (debit, credit) = case transactionEventType ev of
       TransactionType'TransactionTypeRefund ->
-        (ev ^. #payerAccount, ev ^. #payeeAccount)
+        (transactionEventPayerAccount ev, transactionEventPayeeAccount ev)
       _ ->
-        (ev ^. #payeeAccount, ev ^. #payerAccount)
+        (transactionEventPayeeAccount ev, transactionEventPayerAccount ev)
     memo =
-      let d = ev ^. #description
-       in if T.null d then "payment " <> (ev ^. #transactionId) else d
+      let d = transactionEventDescription ev
+       in if T.null d then "payment " <> transactionEventTransactionId ev else d

@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -42,7 +41,6 @@ import Kafka.Streams (KStream, recordValue)
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 
-import Proto.Lens ((^.))
 import Proto.Payments
 import Payments.Domain (eventToBookkeepingEntry, eventToRiskFeature)
 import Payments.Serdes (bookkeepingTopic, riskFeaturesTopic, transactionsTopic)
@@ -60,7 +58,7 @@ paymentsTopology =
 riskBranch :: F.Topology (KStream Text TransactionEvent) ()
 riskBranch =
   F.mapValues eventToRiskFeature
-    >>> F.selectKey (\r -> recordValue r ^. #account)
+    >>> F.selectKey (\r -> riskFeatureAccount (recordValue r))
     >>> F.sink riskFeaturesTopic
 
 -- | Bookkeeping branch: project each event to a 'BookkeepingEntry', re-key by
@@ -68,7 +66,7 @@ riskBranch =
 bookkeepingBranch :: F.Topology (KStream Text TransactionEvent) ()
 bookkeepingBranch =
   F.mapValues eventToBookkeepingEntry
-    >>> F.selectKey (\r -> recordValue r ^. #transactionId)
+    >>> F.selectKey (\r -> bookkeepingEntryTransactionId (recordValue r))
     >>> F.sink bookkeepingTopic
 
 -- | Compile the AST into a runnable 'Topo.Topology' graph.

@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -81,15 +80,16 @@ handleCreatePayment prod reqMsg = do
   nowMillis <- round . (* 1000) <$> getPOSIXTime
   let transactionId = "txn-" <> UUID.toText uuid
       event = transactionEventFromRequest transactionId nowMillis req
-  result <- Kafka.publish prod transactionsLog (Just (event ^. #payerAccount)) event
+  result <- Kafka.publish prod transactionsLog (Just (transactionEventPayerAccount event)) event
   let status = case result of
         Right _ -> PaymentStatus'PaymentStatusAccepted
         Left _ -> PaymentStatus'PaymentStatusRejected
   pure . Proto $
-    mempty
-      & #transactionId .~ transactionId
-      & #status .~ status
-      & #createdAtMillis .~ nowMillis
+    defaultPaymentResponse
+      { paymentResponseTransactionId = transactionId
+      , paymentResponseStatus = status
+      , paymentResponseCreatedAtMillis = nowMillis
+      }
 
 serverConfig :: Int -> ServerConfig
 serverConfig port =

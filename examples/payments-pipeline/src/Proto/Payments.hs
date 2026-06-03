@@ -14,12 +14,11 @@
 -- Description : @payments.v1@ message + enum types, generated at compile time.
 --
 -- The whole @payments.proto@ schema is spliced in by 'loadProto' at compile
--- time: every message becomes a record with @MessageEncode@ \/
--- @MessageDecode@ \/ @ProtoMessage@ \/ @HasField@ instances, and every enum
--- becomes a proto-faithful sum type. The @IsLabel@ instance below wires the
--- @HasField@ machinery to @OverloadedLabels@ so downstream code can read and
--- write fields with the @#field@ / @^.@ / @.~@ lens idiom (the same one the
--- gRPC handlers in @wireform-grpc@ use).
+-- time: every message becomes a plain record (with a @default\<Type\>@ value
+-- and @MessageEncode@ \/ @MessageDecode@ \/ @ProtoMessage@ instances) and every
+-- enum becomes a proto-faithful sum type. Downstream code uses ordinary record
+-- syntax — the prefixed field selectors for reads and record-update on the
+-- @default\<Type\>@ value for writes — rather than any lens idiom.
 module Proto.Payments where
 
 import Proto.TH (loadProto)
@@ -27,14 +26,10 @@ import Proto.TH (loadProto)
 import Data.Reflection (Given (..))
 import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 
-import GHC.OverloadedLabels (IsLabel (..))
-import Proto.Lens (field)
-import Proto.Schema (HasField)
-
+-- The TH-generated proto3 JSON instances carry a @Given ExtensionRegistry@
+-- constraint (for proto2 extensions); this schema has none, so satisfy it
+-- with the empty registry.
 instance Given ExtensionRegistry where
   given = emptyExtensionRegistry
-
-instance (HasField msg name a, Functor f) => IsLabel name ((a -> f a) -> msg -> f msg) where
-  fromLabel = field @name
 
 $(loadProto "proto/payments.proto")

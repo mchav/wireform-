@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -37,7 +36,6 @@ import Kafka.Streams
   )
 import Kafka.Serde.Proto (decodeProto, encodeProto)
 
-import Proto.Lens ((&), (.~), (^.))
 import Proto.Payments
 import Proto.Google.Protobuf.Duration (durationSeconds, defaultDuration)
 import Proto.Google.Protobuf.Timestamp (timestampSeconds)
@@ -73,7 +71,7 @@ runDemo = do
       pipeInput
         driver
         (topicName transactionsTopic)
-        (Just (TE.encodeUtf8 (ev ^. #payerAccount)))
+        (Just (TE.encodeUtf8 (transactionEventPayerAccount ev)))
         (encodeProto ev)
         (Timestamp (baseTs + i))
         0
@@ -92,16 +90,17 @@ sampleEvents =
     refundT = TransactionType'TransactionTypeRefund
     event txnId payer payee amount ty offset desc =
       transactionEventFromRequest txnId (baseTs + offset) $
-        mempty
-          & #idempotencyKey .~ (txnId <> "-idem")
-          & #payerAccount .~ payer
-          & #payeeAccount .~ payee
-          & #amountMinor .~ amount
-          & #currency .~ "USD"
-          & #type .~ ty
-          & #description .~ desc
-          -- A google.protobuf.Duration: a 10-minute authorization window.
-          & #authorizationWindow .~ Just (defaultDuration {durationSeconds = 600})
+        defaultPaymentRequest
+          { paymentRequestIdempotencyKey = txnId <> "-idem"
+          , paymentRequestPayerAccount = payer
+          , paymentRequestPayeeAccount = payee
+          , paymentRequestAmountMinor = amount
+          , paymentRequestCurrency = "USD"
+          , paymentRequestType = ty
+          , paymentRequestDescription = desc
+          , -- A google.protobuf.Duration: a 10-minute authorization window.
+            paymentRequestAuthorizationWindow = Just (defaultDuration {durationSeconds = 600})
+          }
 
 baseTs :: Int64
 baseTs = 1_700_000_000_000
@@ -112,13 +111,13 @@ baseTs = 1_700_000_000_000
 
 describeEvent :: TransactionEvent -> String
 describeEvent ev =
-  T.unpack (ev ^. #transactionId)
-    <> ": " <> T.unpack (ev ^. #payerAccount)
-    <> " -> " <> T.unpack (ev ^. #payeeAccount)
-    <> " " <> show (ev ^. #amountMinor) <> " " <> T.unpack (ev ^. #currency)
-    <> " (" <> showType (ev ^. #type) <> ")"
-    <> ", auth-window=" <> showWindow (ev ^. #authorizationWindow)
-    <> ", received@" <> showStamp (ev ^. #receivedAt)
+  T.unpack (transactionEventTransactionId ev)
+    <> ": " <> T.unpack (transactionEventPayerAccount ev)
+    <> " -> " <> T.unpack (transactionEventPayeeAccount ev)
+    <> " " <> show (transactionEventAmountMinor ev) <> " " <> T.unpack (transactionEventCurrency ev)
+    <> " (" <> showType (transactionEventType ev) <> ")"
+    <> ", auth-window=" <> showWindow (transactionEventAuthorizationWindow ev)
+    <> ", received@" <> showStamp (transactionEventReceivedAt ev)
   where
     showWindow = maybe "none" (\d -> show (durationSeconds d) <> "s")
     showStamp = maybe "?" (\t -> show (timestampSeconds t) <> "s")
@@ -134,19 +133,19 @@ printRisk cr = case decodeProto (crValue cr) :: Either String RiskFeature of
   Left err -> putStrLn ("  <undecodable risk feature: " <> err <> ">")
   Right rf ->
     putStrLn $
-      "  " <> T.unpack (rf ^. #account)
-        <> " | " <> T.unpack (rf ^. #transactionId)
-        <> " | $" <> show (rf ^. #amountMajor)
-        <> (if rf ^. #isHighValue then " | HIGH-VALUE" else "")
-        <> (if rf ^. #isOutbound then " | outbound" else " | inbound")
+      "  " <> T.unpack (riskFeatureAccount rf)
+        <> " | " <> T.unpack (riskFeatureTransactionId rf)
+        <> " | $" <> show (riskFeatureAmountMajor rf)
+        <> (if riskFeatureIsHighValue rf then " | HIGH-VALUE" else "")
+        <> (if riskFeatureIsOutbound rf then " | outbound" else " | inbound")
 
 printEntry :: CollectedRecord -> IO ()
 printEntry cr = case decodeProto (crValue cr) :: Either String BookkeepingEntry of
   Left err -> putStrLn ("  <undecodable bookkeeping entry: " <> err <> ">")
   Right be ->
     putStrLn $
-      "  " <> T.unpack (be ^. #entryId)
-        <> " | debit " <> T.unpack (be ^. #debitAccount)
-        <> " | credit " <> T.unpack (be ^. #creditAccount)
-        <> " | " <> show (be ^. #amountMinor) <> " " <> T.unpack (be ^. #currency)
-        <> " | " <> T.unpack (be ^. #memo)
+      "  " <> T.unpack (bookkeepingEntryEntryId be)
+        <> " | debit " <> T.unpack (bookkeepingEntryDebitAccount be)
+        <> " | credit " <> T.unpack (bookkeepingEntryCreditAccount be)
+        <> " | " <> show (bookkeepingEntryAmountMinor be) <> " " <> T.unpack (bookkeepingEntryCurrency be)
+        <> " | " <> T.unpack (bookkeepingEntryMemo be)

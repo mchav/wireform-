@@ -35,7 +35,6 @@ executable payments-pipeline
         GADTs
         LambdaCase
         MultiParamTypeClasses
-        OverloadedLabels
         OverloadedRecordDot
         OverloadedStrings
         StandaloneDeriving

@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -13,8 +12,6 @@
 module Payments.Client
   ( runClient
   ) where
-
-import Data.Text (Text)
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO (nonStreaming)
@@ -32,15 +29,16 @@ runClient host port = do
     let req :: Proto PaymentRequest
         req =
           Proto $
-            mempty
-              & #idempotencyKey .~ ("demo-idem-1" :: Text)
-              & #payerAccount .~ ("acct-alice" :: Text)
-              & #payeeAccount .~ ("acct-merchant" :: Text)
-              & #amountMinor .~ 150_000
-              & #currency .~ ("USD" :: Text)
-              & #type .~ TransactionType'TransactionTypePayment
-              & #description .~ ("demo payment" :: Text)
-              & #authorizationWindow .~ Just (defaultDuration {durationSeconds = 600})
+            defaultPaymentRequest
+              { paymentRequestIdempotencyKey = "demo-idem-1"
+              , paymentRequestPayerAccount = "acct-alice"
+              , paymentRequestPayeeAccount = "acct-merchant"
+              , paymentRequestAmountMinor = 150_000
+              , paymentRequestCurrency = "USD"
+              , paymentRequestType = TransactionType'TransactionTypePayment
+              , paymentRequestDescription = "demo payment"
+              , paymentRequestAuthorizationWindow = Just (defaultDuration {durationSeconds = 600})
+              }
     resp <- nonStreaming conn (rpc @CreatePayment) req
     putStrLn "CreatePayment response:"
     print (getProto resp)
