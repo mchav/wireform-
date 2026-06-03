@@ -147,6 +147,17 @@ import Proto.Internal.JSON.Extension qualified as PJExt
 import Proto.Repr
 import Proto.Schema qualified as PS
 import Proto.TH.Metadata qualified as PTM
+-- Well-Known-Type modules. Imported here so 'lookupWkt' can hand back
+-- fully-resolved (quoted) 'Name's for the WKT types it references, which
+-- makes the generated code self-contained: the user no longer has to import
+-- the matching @Proto.Google.Protobuf.*@ module at the @loadProto@ call site.
+import Proto.Google.Protobuf.Any qualified as WktAny
+import Proto.Google.Protobuf.Duration qualified as WktDuration
+import Proto.Google.Protobuf.Empty qualified as WktEmpty
+import Proto.Google.Protobuf.FieldMask qualified as WktFieldMask
+import Proto.Google.Protobuf.Struct qualified as WktStruct
+import Proto.Google.Protobuf.Timestamp qualified as WktTimestamp
+import Proto.Google.Protobuf.Wrappers qualified as WktWrappers
 import Wireform.Derive.Modifier (MapKeyScalar (..))
 
 
@@ -1020,44 +1031,41 @@ pre-generated Haskell type plus the splice 'Name' of its
 existing modules whenever a @.proto@ file references a WKT
 (which @loadProto@ doesn't yet follow imports for).
 
-Adding a WKT is a one-line entry here plus an import of the
-corresponding pre-generated module from any consumer of
-@loadProto@ (the imports are silent because the @ConT@ name we
-spit out resolves at GHC's renamer phase, not at TH-splice
-time, so consumers just have to make sure the module is in
-scope at the call site).
+The returned 'Name's are fully-resolved (produced by the @''Type@ \/
+@'value@ name quotes against the imported @Wkt*@ modules above), so the
+generated code references the WKT type by its global name and does /not/
+require the consumer to import the corresponding
+@Proto.Google.Protobuf.*@ module at the @loadProto@ call site. Adding a
+WKT is a one-line entry here plus the matching qualified import above.
 -}
 lookupWkt :: Text -> Maybe (Name, Name)
 lookupWkt n = case T.unpack n of
   -- Single-message WKTs.
-  "google.protobuf.Timestamp" -> Just (mkPGP "Timestamp" "Timestamp", defPGP "Timestamp" "Timestamp")
-  "google.protobuf.Duration" -> Just (mkPGP "Duration" "Duration", defPGP "Duration" "Duration")
-  "google.protobuf.Empty" -> Just (mkPGP "Empty" "Empty", defPGP "Empty" "Empty")
-  "google.protobuf.FieldMask" -> Just (mkPGP "FieldMask" "FieldMask", defPGP "FieldMask" "FieldMask")
-  "google.protobuf.Any" -> Just (mkPGP "Any" "Any", defPGP "Any" "Any")
-  "google.protobuf.Struct" -> Just (mkPGP "Struct" "Struct", defPGP "Struct" "Struct")
-  "google.protobuf.Value" -> Just (mkPGP "Struct" "Value", defPGP "Struct" "Value")
-  "google.protobuf.ListValue" -> Just (mkPGP "Struct" "ListValue", defPGP "Struct" "ListValue")
+  "google.protobuf.Timestamp" -> Just (''WktTimestamp.Timestamp, 'WktTimestamp.defaultTimestamp)
+  "google.protobuf.Duration" -> Just (''WktDuration.Duration, 'WktDuration.defaultDuration)
+  "google.protobuf.Empty" -> Just (''WktEmpty.Empty, 'WktEmpty.defaultEmpty)
+  "google.protobuf.FieldMask" -> Just (''WktFieldMask.FieldMask, 'WktFieldMask.defaultFieldMask)
+  "google.protobuf.Any" -> Just (''WktAny.Any, 'WktAny.defaultAny)
+  "google.protobuf.Struct" -> Just (''WktStruct.Struct, 'WktStruct.defaultStruct)
+  "google.protobuf.Value" -> Just (''WktStruct.Value, 'WktStruct.defaultValue)
+  "google.protobuf.ListValue" -> Just (''WktStruct.ListValue, 'WktStruct.defaultListValue)
   "google.protobuf.NullValue" ->
     Just
-      ( mkPGP "Struct" "NullValue"
+      ( ''WktStruct.NullValue
       , -- NullValue is an enum; default is its single value.
-        mkName "Proto.Google.Protobuf.Struct.NullValue'NullValue"
+        'WktStruct.NullValue'NullValue
       )
   -- Wrapper messages (all in Proto.Google.Protobuf.Wrappers).
-  "google.protobuf.DoubleValue" -> Just (mkPGP "Wrappers" "DoubleValue", defPGP "Wrappers" "DoubleValue")
-  "google.protobuf.FloatValue" -> Just (mkPGP "Wrappers" "FloatValue", defPGP "Wrappers" "FloatValue")
-  "google.protobuf.Int64Value" -> Just (mkPGP "Wrappers" "Int64Value", defPGP "Wrappers" "Int64Value")
-  "google.protobuf.UInt64Value" -> Just (mkPGP "Wrappers" "UInt64Value", defPGP "Wrappers" "UInt64Value")
-  "google.protobuf.Int32Value" -> Just (mkPGP "Wrappers" "Int32Value", defPGP "Wrappers" "Int32Value")
-  "google.protobuf.UInt32Value" -> Just (mkPGP "Wrappers" "UInt32Value", defPGP "Wrappers" "UInt32Value")
-  "google.protobuf.BoolValue" -> Just (mkPGP "Wrappers" "BoolValue", defPGP "Wrappers" "BoolValue")
-  "google.protobuf.StringValue" -> Just (mkPGP "Wrappers" "StringValue", defPGP "Wrappers" "StringValue")
-  "google.protobuf.BytesValue" -> Just (mkPGP "Wrappers" "BytesValue", defPGP "Wrappers" "BytesValue")
+  "google.protobuf.DoubleValue" -> Just (''WktWrappers.DoubleValue, 'WktWrappers.defaultDoubleValue)
+  "google.protobuf.FloatValue" -> Just (''WktWrappers.FloatValue, 'WktWrappers.defaultFloatValue)
+  "google.protobuf.Int64Value" -> Just (''WktWrappers.Int64Value, 'WktWrappers.defaultInt64Value)
+  "google.protobuf.UInt64Value" -> Just (''WktWrappers.UInt64Value, 'WktWrappers.defaultUInt64Value)
+  "google.protobuf.Int32Value" -> Just (''WktWrappers.Int32Value, 'WktWrappers.defaultInt32Value)
+  "google.protobuf.UInt32Value" -> Just (''WktWrappers.UInt32Value, 'WktWrappers.defaultUInt32Value)
+  "google.protobuf.BoolValue" -> Just (''WktWrappers.BoolValue, 'WktWrappers.defaultBoolValue)
+  "google.protobuf.StringValue" -> Just (''WktWrappers.StringValue, 'WktWrappers.defaultStringValue)
+  "google.protobuf.BytesValue" -> Just (''WktWrappers.BytesValue, 'WktWrappers.defaultBytesValue)
   _ -> Nothing
-  where
-    mkPGP modSuffix tyN = mkName ("Proto.Google.Protobuf." <> modSuffix <> "." <> tyN)
-    defPGP modSuffix tyN = mkName ("Proto.Google.Protobuf." <> modSuffix <> ".default" <> tyN)
 
 
 stringTypeQ :: StringAdapter -> Q Type
