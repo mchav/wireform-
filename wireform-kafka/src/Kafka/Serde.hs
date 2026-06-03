@@ -92,6 +92,17 @@ module Kafka.Serde
     -- * Combinators
   , prefixedSerde
   , lengthPrefixedSerde
+    -- * Header-carrying serdes
+  --
+  -- | A 'Serde' also carries a 'serializeHeaders' function: the
+  -- record headers a value contributes when produced through the
+  -- typed 'Kafka.Client.Producer.publish' path. Every built-in
+  -- serde contributes none; schema-identity serdes (e.g.
+  -- 'Kafka.Serde.Proto.Buf.bufProtoSerde') override it so the
+  -- ordinary @publish@ stamps the schema headers onto the outgoing
+  -- record automatically — no bespoke produce helper required.
+  , withHeaders
+  , withStaticHeaders
     -- * Record helpers
   , serializeRecord
   , deserializeRecord
@@ -109,6 +120,7 @@ import           Data.Text            (Text)
 import qualified Data.Text.Encoding   as TE
 import qualified Data.UUID            as UUID
 import           Data.UUID            (UUID)
+import           Kafka.Headers        (Headers)
 import           Data.Word            (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import           Foreign.Ptr          (Ptr, castPtr)
 import           Foreign.Storable     (peek, poke)
@@ -125,6 +137,15 @@ import           GHC.IO               (unsafePerformIO)
 data Serde a = Serde
   { serialize   :: a -> ByteString
   , deserialize :: ByteString -> Either Text a
+  , serializeHeaders :: a -> Headers
+    -- ^ Record headers this value contributes when it is produced
+    -- through the typed 'Kafka.Client.Producer.publish' path. Defaults
+    -- to no headers ('mempty') for every built-in serde. Schema-identity
+    -- serdes — e.g. 'Kafka.Serde.Proto.Buf.bufProtoSerde' — override it
+    -- to stamp the schema headers onto the outgoing record. Headers ride
+    -- on the record, not in the value bytes, so this never affects the
+    -- 'serialize' output; the untyped 'Kafka.Client.Producer.sendMessage'
+    -- path ignores it.
   }
   deriving stock (Generic)
 
@@ -140,13 +161,13 @@ mkSerde
   :: (a -> ByteString)
   -> (ByteString -> Either Text a)
   -> Serde a
-mkSerde = Serde
+mkSerde s d = Serde s d (const mempty)
 
 -- | Convenience builder for a serde whose decoder cannot fail
 -- (the inverse function is total). The 'Serde' it produces wraps
 -- the result in 'Right' on every call.
 mkTotalSerde :: (a -> ByteString) -> (ByteString -> a) -> Serde a
-mkTotalSerde s d = Serde s (Right . d)
+mkTotalSerde s d = Serde s (Right . d) (const mempty)
 
 -- | Types whose default wire codec is implicit. Used by the
 -- streams DSL to resolve serdes at every type-changing
@@ -165,14 +186,27 @@ class HasSerde a where
 unsafeSerde :: (a -> ByteString) -> (ByteString -> Either String a) -> Serde a
 unsafeSerde s d = Serde s (\bs -> case d bs of
   Left e  -> Left (T.pack e)
-  Right a -> Right a)
+  Right a -> Right a) (const mempty)
 
 -- | Invariant-map a 'Serde' through an iso @(b -> a, a -> b)@.
 imap :: (b -> a) -> (a -> b) -> Serde a -> Serde b
 imap toA fromA s = Serde
-  { serialize   = serialize s . toA
-  , deserialize = fmap fromA . deserialize s
+  { serialize        = serialize s . toA
+  , deserialize      = fmap fromA . deserialize s
+  , serializeHeaders = serializeHeaders s . toA
   }
+
+-- | Attach a header-deriving function to a serde. The headers it
+-- returns are stamped onto the record by the typed
+-- 'Kafka.Client.Producer.publish' path; the serialized value bytes are
+-- left unchanged. Replaces any header function already set.
+withHeaders :: (a -> Headers) -> Serde a -> Serde a
+withHeaders f s = s { serializeHeaders = f }
+
+-- | Attach a fixed header block to every record produced through this
+-- serde. @'withStaticHeaders' hs = 'withHeaders' ('const' hs)@.
+withStaticHeaders :: Headers -> Serde a -> Serde a
+withStaticHeaders hs = withHeaders (const hs)
 
 byteStringSerde :: Serde ByteString
 byteStringSerde = mkTotalSerde id id
@@ -206,6 +240,7 @@ textSerde =
     { serialize   = TE.encodeUtf8
     , deserialize = either (Left . T.pack . show) Right
                        . TE.decodeUtf8'
+    , serializeHeaders = const mempty
     }
 
 utf8Serde :: Serde String
@@ -219,6 +254,7 @@ voidSerde =
         if BS.null b
           then Right ()
           else Left "voidSerde: expected empty payload"
+    , serializeHeaders = const mempty
     }
 
 ----------------------------------------------------------------------
@@ -306,6 +342,7 @@ int32Serde = Serde
   , deserialize = \b -> if BS.length b /= 4
       then Left "int32Serde: expected 4 bytes"
       else Right $! fromIntegral (hostToBE32 (peekHostWord32 b))
+  , serializeHeaders = const mempty
   }
 
 -- | Big-endian 'Int64' serde. Matches @LongSerializer@ on the JVM.
@@ -315,6 +352,7 @@ int64Serde = Serde
   , deserialize = \b -> if BS.length b /= 8
       then Left "int64Serde: expected 8 bytes"
       else Right $! fromIntegral (hostToBE64 (peekHostWord64 b))
+  , serializeHeaders = const mempty
   }
 
 -- | Big-endian 'Int16' serde. Matches @ShortSerializer@ on the JVM.
@@ -324,6 +362,7 @@ int16Serde = Serde
   , deserialize = \b -> if BS.length b /= 2
       then Left "int16Serde: expected 2 bytes"
       else Right $! fromIntegral (hostToBE16 (peekHostWord16 b))
+  , serializeHeaders = const mempty
   }
 
 -- | Alias for 'int64Serde' — matches Java's @LongSerializer@ /
@@ -347,6 +386,7 @@ word64Serde = Serde
   , deserialize = \b -> if BS.length b /= 8
       then Left "word64Serde: expected 8 bytes"
       else Right $! hostToBE64 (peekHostWord64 b)
+  , serializeHeaders = const mempty
   }
 
 word32Serde :: Serde Word32
@@ -355,6 +395,7 @@ word32Serde = Serde
   , deserialize = \b -> if BS.length b /= 4
       then Left "word32Serde: expected 4 bytes"
       else Right $! hostToBE32 (peekHostWord32 b)
+  , serializeHeaders = const mempty
   }
 
 word16Serde :: Serde Word16
@@ -363,6 +404,7 @@ word16Serde = Serde
   , deserialize = \b -> if BS.length b /= 2
       then Left "word16Serde: expected 2 bytes"
       else Right $! hostToBE16 (peekHostWord16 b)
+  , serializeHeaders = const mempty
   }
 
 -- | Big-endian 16-byte UUID encoding (matches @UUIDSerializer@).
@@ -373,6 +415,7 @@ uuidSerde = Serde
       case UUID.fromByteString (BL.fromStrict b) of
         Just u  -> Right u
         Nothing -> Left "uuidSerde: not a valid 16-byte UUID"
+  , serializeHeaders = const mempty
   }
 
 -- | Alias for 'byteStringSerde' (matches Java's
@@ -409,6 +452,7 @@ listSerde inner = Serde
   , deserialize = \bs0 -> do
       (n, rest0) <- splitInt32 bs0
       goN (fromIntegral n) rest0 []
+  , serializeHeaders = const mempty
   }
   where
     lengthPrefixSerialize :: Serde a -> a -> ByteString
@@ -443,6 +487,7 @@ jsonSerde = Serde
   , deserialize = \b -> case Aeson.eitherDecodeStrict b of
       Left e  -> Left (T.pack e)
       Right a -> Right a
+  , serializeHeaders = const mempty
   }
 
 -- | Length-prefix the value with a 32-bit big-endian byte-count, then
@@ -470,6 +515,7 @@ lengthPrefixedSerde inner = Serde
                   <> show n <> " bytes, payload had "
                   <> show (BS.length rest)
                 else deserialize inner rest
+  , serializeHeaders = serializeHeaders inner
   }
 
 -- | Tag a serde with a static prefix byte. Useful for distinguishing
@@ -485,6 +531,7 @@ prefixedSerde tag inner = Serde
           | otherwise -> Left $ T.pack $
               "prefixedSerde: expected tag "
               <> show tag <> ", got " <> show t
+  , serializeHeaders = serializeHeaders inner
   }
 
 -- | Convenience: serialise a @(key, value)@ pair through a

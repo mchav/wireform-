@@ -51,5 +51,6 @@ jsonSchemaSerde JsonSchemaSerdeConfig{..} =
         , deserialize = \b -> case runJsonSchemaDecoder jssDecoder b of
             Left e  -> Left (T.pack e)
             Right a -> Right a
+        , serializeHeaders = const mempty
         }
     }

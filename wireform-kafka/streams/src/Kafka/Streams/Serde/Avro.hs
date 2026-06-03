@@ -67,5 +67,6 @@ avroSerde AvroSerdeConfig{..} =
         , deserialize = \b -> case runAvroDecoder ascDecoder b of
             Left e  -> Left (T.pack e)
             Right a -> Right a
+        , serializeHeaders = const mempty
         }
     }

@@ -239,6 +239,7 @@ import qualified Kafka.Client.Metadata as Meta
 import qualified Kafka.Client.RecordMetadata as RM
 import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Errors as Errors
+import qualified Kafka.Headers as H
 import qualified Kafka.Serde as Serde
 import qualified Kafka.Topic as Topic
 import qualified Kafka.Network.Connection as Conn
@@ -1362,9 +1363,15 @@ sendRecord p@Producer{..} pr0 = liftIO $ do
 
 -- | Typed send. Encodes the key (when present) and value through
 -- the topic's 'Kafka.Topic.Topic' serdes and forwards to
--- 'sendMessage'. Returns a 'Left' if the serde encoding never
+-- 'sendRecord'. Returns a 'Left' if the serde encoding never
 -- fails (in practice never — serialisers in 'Kafka.Serde' are
 -- total) but the broker rejects the record.
+--
+-- Any headers the key or value serde contributes (via
+-- 'Kafka.Serde.serializeHeaders' — e.g. the schema-identity headers
+-- from 'Kafka.Serde.Proto.Buf.bufProtoSerde') are stamped onto the
+-- outgoing record automatically, value headers after key headers.
+-- Plain serdes contribute none, so the common case is unchanged.
 --
 -- @
 -- let events = Kafka.'Kafka.Topic.textTopic' \"events\"
@@ -1378,9 +1385,18 @@ publish
   -> v
   -> m (Either String RecordMetadata)
 publish p t mk v =
-  sendMessage p (Topic.topicName t)
-    (Serde.serialize (Topic.topicKeySerde t) <$> mk)
-    (Serde.serialize (Topic.topicValueSerde t) v)
+  let ks      = Topic.topicKeySerde t
+      vs      = Topic.topicValueSerde t
+      keyHdrs = maybe mempty (Serde.serializeHeaders ks) mk
+      hdrs    = H.toList (keyHdrs <> Serde.serializeHeaders vs v)
+   in sendRecord p ProducerRecord
+        { topic     = Topic.topicName t
+        , key       = Serde.serialize ks <$> mk
+        , value     = Serde.serialize vs v
+        , headers   = hdrs
+        , partition = Nothing
+        , timestamp = Nothing
+        }
 {-# INLINABLE publish #-}
 {-# SPECIALIZE publish :: Producer -> Topic.Topic k v -> Maybe k -> v -> IO (Either String RecordMetadata) #-}
 
