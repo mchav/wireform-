@@ -24,10 +24,24 @@ executable payments-pipeline
     main-is: Main.hs
     hs-source-dirs: app, src
     default-language: GHC2021
-    ghc-options: -Wall -threaded -rtsopts
+    ghc-options: -threaded -rtsopts
     default-extensions:
+        DataKinds
+        DeriveAnyClass
+        DerivingStrategies
+        DerivingVia
+        DisambiguateRecordFields
+        FlexibleInstances
+        GADTs
+        LambdaCase
+        MultiParamTypeClasses
         OverloadedLabels
+        OverloadedRecordDot
         OverloadedStrings
+        StandaloneDeriving
+        TemplateHaskell
+        TypeFamilies
+        UndecidableInstances
     other-modules:
         Proto.Payments
         Proto.API.Payments

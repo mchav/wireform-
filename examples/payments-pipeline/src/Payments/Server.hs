@@ -23,7 +23,7 @@
 -- Requires a reachable Kafka broker; see 'Payments.Demo' for a broker-free
 -- view of the stream processing.
 module Payments.Server
-  ( runServer
+  ( runPaymentServer
   ) where
 
 import Data.Text (Text)
@@ -37,20 +37,20 @@ import Kafka.Serde (textSerde)
 import Kafka.Serde.Proto (protoSerde)
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
-import Proto.Lens ((&), (.~), (^.))
 import Proto.API.Payments
 import Payments.Domain (transactionEventFromRequest)
 import Payments.Serdes (transactionsTopic)
 
 -- | Run the gRPC server on @port@, producing events to @brokers@. Blocks
 -- until the server stops.
-runServer :: Int -> [Text] -> IO ()
-runServer port brokers =
+runPaymentServer :: Int -> [Text] -> IO ()
+runPaymentServer port brokers =
   Kafka.withProducer brokers Kafka.defaultProducerConfig $ \prod -> do
     putStrLn $ "PaymentService listening on 0.0.0.0:" <> show port
     putStrLn $ "  emitting events to topic '" <> show transactionsTopic <> "'"

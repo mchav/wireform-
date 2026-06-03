@@ -21,7 +21,6 @@ import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
-import Proto.Lens ((&), (.~))
 import Proto.API.Payments
 
 -- | Connect to @host:port@ and create one demo payment.

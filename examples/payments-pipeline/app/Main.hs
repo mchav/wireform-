@@ -22,7 +22,7 @@ import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 import Payments.Client (runClient)
 import Payments.Demo (runDemo)
-import Payments.Server (runServer)
+import Payments.Server (runPaymentServer)
 
 main :: IO ()
 main = do
@@ -34,7 +34,7 @@ main = do
     ("server" : rest) -> do
       let port = argInt 50051 (atMay rest 0)
           brokers = argBrokers (atMay rest 1)
-      runServer port brokers
+      runPaymentServer port brokers
     ("client" : rest) -> do
       let host = maybe "localhost" id (atMay rest 0)
           port = argInt 50051 (atMay rest 1)
