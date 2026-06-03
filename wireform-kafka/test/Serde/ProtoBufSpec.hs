@@ -29,6 +29,7 @@ import           Kafka.Serde.Proto.Buf
 
 import           Proto.Decode         (MessageDecode (..), getTagOr, getText, getVarint, skipField)
 import           Proto.Encode         (MessageEncode (..), encodeFieldString, encodeFieldVarint)
+import           Proto.Google.Protobuf.Timestamp (Timestamp)
 import           Proto.Internal.Wire  (Tag (..))
 import           Proto.Schema         (ProtoMessage (..))
 
@@ -166,6 +167,13 @@ tests =
             fqn (Proxy :: Proxy OrderPlaced) @?= "payments.v1.OrderPlaced"
         , testCase "empty package => no leading dot" $
             fqn (Proxy :: Proxy BareEvent) @?= "BareEvent"
+        , -- Guard against a regression of the package-doubling bug on a
+          -- real codegen-emitted instance (protoMessageName is already
+          -- fully qualified, so fqn must not prepend the package again).
+          testCase "real generated instance (google.protobuf.Timestamp) is not doubled" $ do
+            fqn (Proxy :: Proxy Timestamp) @?= "google.protobuf.Timestamp"
+            protoMessageName (Proxy :: Proxy Timestamp) @?= "google.protobuf.Timestamp"
+            protoPackageName (Proxy :: Proxy Timestamp) @?= "google.protobuf"
         ]
     , testGroup
         "bufSchemaHeaders"
