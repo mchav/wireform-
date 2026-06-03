@@ -115,6 +115,7 @@ library
         Kafka.Serde
         Kafka.Serde.Avro
         Kafka.Serde.Proto
+        Kafka.Serde.Proto.Buf
         Kafka.Topic
         Kafka.Client.AdminClient
         Kafka.Client.AdminTimeouts
@@ -931,6 +932,7 @@ test-suite wireform-kafka-test
         Protocol.RecordBatchWireSpec
         Protocol.SliceVectorSpec
         Protocol.VersionNegotiationSpec
+        Serde.ProtoBufSpec
         TestUtil.BrokerGate
     build-depends:
         base,
@@ -939,6 +941,7 @@ test-suite wireform-kafka-test
         wireform-kafka:wireform-kafka-codegen,
         wireform-kafka-protocol,
         wireform-network,
+        wireform-proto,
         prettyprinter             >= 1.7   && < 1.8,
         aeson,
         async,
