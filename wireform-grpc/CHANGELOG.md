@@ -1,5 +1,15 @@
 # Revision history for grapesy
 
+## Unreleased
+
+* Add `Network.GRPC.Protobuf.TH` (`loadProtoServices` /
+  `loadProtoServicesWith`): Template Haskell generation of the gRPC service
+  bindings (the `Protobuf`-tagged RPC types plus their `IsRPC` /
+  `SupportsClientRpc` / `SupportsServerRpc` / `HasStreamingType` /
+  `ServiceMethods` instances) directly from a `.proto` file, complementing
+  `wireform-proto`'s `loadProto` (which generates only the message types).
+  Previously this glue had to be hand-written per method.
+
 ## 1.1.1 -- 2025-10-09
 
 * Support `openConnection/closeConnection`

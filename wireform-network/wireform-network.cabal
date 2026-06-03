@@ -75,6 +75,13 @@ library
   if !os(windows)
     build-depends: unix >= 2.7
 
+  -- CPU pinning helper for Wireform.Network.Transport.Profile's
+  -- `foreign import ccall "sched_setaffinity_single"` (Linux-only, like
+  -- the import itself). Without this the symbol is undefined in any
+  -- eager-resolution build (shared objects / TH interpreter dlopen).
+  if os(linux)
+    c-sources: cbits/wireform_affinity.c
+
   if flag(iouring) && os(linux)
     exposed-modules: Wireform.Network.Transport.IOUring
     c-sources: cbits/iouring_glue.c
