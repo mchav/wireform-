@@ -103,7 +103,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Foreign.Concurrent as FC
 import Foreign
   ( Ptr
-  , Storable
+  , Storable(..)
   , alloca
   , castPtr
   , nullPtr
