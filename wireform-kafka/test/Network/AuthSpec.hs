@@ -26,6 +26,7 @@ import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS8
+import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Time as Time
@@ -304,6 +305,79 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
           KeyMap.lookup "x-amz-security-token" o
             @?= Just (Aeson.String "tokvalue")
         _ -> assertFailure "payload missing security token"
+
+  , testCase "static provider resolves credentials verbatim" $ do
+      let creds = Iam.AwsCredentials "AKIASTATIC" "secret" (Just "session")
+      resolved <- Iam.resolveAwsCredentials (Iam.AwsStaticCredentials creds)
+      resolved @?= Right creds
+
+  , testCase "custom provider failure surfaces before any IAM payload is sent" $ do
+      let impl = SASL.awsMskIamImpl
+            (Iam.AwsCustomProvider (pure (Left "no credentials")))
+            "broker-1.kafka.us-east-1.amazonaws.com"
+            "us-east-1"
+      SASL.smiName impl @?= "AWS_MSK_IAM"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> err @?= "AWS_MSK_IAM: no credentials"
+        Right _ -> assertFailure "expected IAM init failure"
+
+  , testCase "SASL implementation emits IAM JSON for the broker host and region" $ do
+      let creds = Iam.AwsCredentials
+            { Iam.awsAccessKeyId     = "AKIAIOSFODNN7EXAMPLE"
+            , Iam.awsSecretAccessKey = "secret"
+            , Iam.awsSessionToken    = Just "tokvalue"
+            }
+          impl = SASL.awsMskIamImpl
+            (Iam.AwsStaticCredentials creds)
+            "broker-2.kafka.us-west-2.amazonaws.com"
+            "us-west-2"
+      step <- SASL.smiInitial impl
+      case step of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          obj <- expectJsonObject payload
+          KeyMap.lookup "version" obj
+            @?= Just (Aeson.String "2020_10_22")
+          KeyMap.lookup "host" obj
+            @?= Just (Aeson.String "broker-2.kafka.us-west-2.amazonaws.com")
+          KeyMap.lookup "user-agent" obj
+            @?= Just (Aeson.String "wireform-kafka/0.1")
+          KeyMap.lookup "x-amz-expires" obj
+            @?= Just (Aeson.String "900")
+          KeyMap.lookup "x-amz-security-token" obj
+            @?= Just (Aeson.String "tokvalue")
+          case KeyMap.lookup "x-amz-credential" obj of
+            Just (Aeson.String credential) -> do
+              assertBool "credential includes configured region"
+                ("/us-west-2/kafka-cluster/aws4_request" `T.isSuffixOf` credential)
+              assertBool "credential starts with access key"
+                ("AKIAIOSFODNN7EXAMPLE/" `T.isPrefixOf` credential)
+            _ -> assertFailure "missing or non-string x-amz-credential"
+          case acceptBrokerBytes (Just "") of
+            Right (SASL.StepDone Nothing) -> pure ()
+            Right _ -> assertFailure "AWS_MSK_IAM should finish after broker accept"
+            Left err -> assertFailure ("unexpected IAM accept failure: " <> err)
+        Right _ ->
+          assertFailure "AWS_MSK_IAM should send exactly one client payload"
+        Left err ->
+          assertFailure ("unexpected IAM init failure: " <> err)
+
+  , testCase "SASL implementation resolves credentials for each auth attempt" $ do
+      counter <- newIORef (0 :: Int)
+      let provider = Iam.AwsCustomProvider $ do
+            n <- atomicModifyIORef' counter (\old -> let new = old + 1 in (new, new))
+            pure $ Right Iam.AwsCredentials
+              { Iam.awsAccessKeyId     = "AKIA" <> T.pack (show n)
+              , Iam.awsSecretAccessKey = "secret"
+              , Iam.awsSessionToken    = Nothing
+              }
+          impl = SASL.awsMskIamImpl provider "broker.kafka.us-east-1.amazonaws.com" "us-east-1"
+      first <- SASL.smiInitial impl
+      second <- SASL.smiInitial impl
+      firstAccessKey <- stepAccessKey first
+      secondAccessKey <- stepAccessKey second
+      firstAccessKey @?= "AKIA1"
+      secondAccessKey @?= "AKIA2"
   ]
 
 --------------------------------------------------------------------------------
@@ -354,4 +428,25 @@ lookupIndex needle hay =
                                      <> BS8.unpack needle)
       | BS.take nLen bs == needle = i
       | otherwise = go (i + 1) (BS.drop 1 bs)
+
+expectJsonObject :: BS.ByteString -> IO Aeson.Object
+expectJsonObject payload =
+  case Aeson.eitherDecodeStrict payload of
+    Right (Aeson.Object obj) -> pure obj
+    Left err -> assertFailure ("payload not valid JSON: " <> err)
+    Right _ -> assertFailure "payload was not a JSON object"
+
+stepAccessKey :: Either String SASL.StepResult -> IO T.Text
+stepAccessKey = \case
+  Right (SASL.StepSend payload _) -> do
+    obj <- expectJsonObject payload
+    case KeyMap.lookup "x-amz-credential" obj of
+      Just (Aeson.String credential) ->
+        case T.breakOn "/" credential of
+          (accessKey, rest)
+            | not (T.null rest) -> pure accessKey
+          _ -> assertFailure "credential did not include a scope"
+      _ -> assertFailure "missing or non-string x-amz-credential"
+  Right _ -> assertFailure "AWS_MSK_IAM should start with StepSend"
+  Left err -> assertFailure ("unexpected IAM init failure: " <> err)
 
