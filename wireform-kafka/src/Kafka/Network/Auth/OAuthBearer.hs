@@ -39,6 +39,7 @@ module Kafka.Network.Auth.OAuthBearer
     -- * Payload
   , buildOAuthPayload
   , buildOAuthPayloadWithExtensions
+  , validateOAuthBearerPayload
   ) where
 
 import qualified Data.ByteString.Builder as BB
@@ -46,6 +47,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
@@ -157,6 +159,27 @@ buildOAuthPayloadWithExtensions ext OAuthToken{..}
     portBytes :: Int -> ByteString
     portBytes =
       BL.toStrict . BB.toLazyByteString . BB.intDec
+
+validateOAuthBearerPayload :: OAuthBearerExtensions -> OAuthToken -> Either String ()
+validateOAuthBearerPayload OAuthBearerExtensions{..} OAuthToken{..} = do
+  validateField "bearer token" oauthTokenBytes
+  maybe (Right ()) (validateField "authorization identity") oauthAuthorizationIdentity
+  maybe (Right ()) (validateField "host") oauthServerHost
+  case oauthServerPort of
+    Nothing -> Right ()
+    Just p
+      | p > 0 && p <= 65535 -> Right ()
+      | otherwise -> Left "OAUTHBEARER: port must be between 1 and 65535"
+
+validateField :: String -> Text -> Either String ()
+validateField name value
+  | T.null value =
+      Left ("OAUTHBEARER: " <> name <> " must not be empty")
+  | T.any invalid value =
+      Left ("OAUTHBEARER: " <> name <> " must not contain control characters")
+  | otherwise = Right ()
+  where
+    invalid c = c < ' ' || c == '\DEL'
 
 saslNameEscape :: ByteString -> ByteString
 saslNameEscape =

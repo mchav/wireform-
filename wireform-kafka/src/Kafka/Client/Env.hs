@@ -128,6 +128,7 @@ import qualified System.Environment as Env
 import Kafka.Client.ConfigValidation (ConfigError (..))
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Network.Auth.SASL as SASL
+import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.Scram as Scram
 import qualified Kafka.Network.Connection as Conn
 
@@ -206,6 +207,7 @@ data KafkaEnv = KafkaEnv
   , envSaslMechanism                 :: !(Maybe SaslMechanism)
   , envSaslUsername                  :: !(Maybe Text)
   , envSaslPassword                  :: !(Maybe Text)
+  , envSaslOAuthBearerToken          :: !(Maybe Text)
   , envRequestTimeoutMs              :: !(Maybe Int)
   , envSocketTimeoutMs               :: !(Maybe Int)
   , envSocketKeepaliveEnable         :: !(Maybe Bool)
@@ -266,6 +268,7 @@ emptyKafkaEnv = KafkaEnv
   , envSaslMechanism                 = Nothing
   , envSaslUsername                  = Nothing
   , envSaslPassword                  = Nothing
+  , envSaslOAuthBearerToken          = Nothing
   , envRequestTimeoutMs              = Nothing
   , envSocketTimeoutMs               = Nothing
   , envSocketKeepaliveEnable         = Nothing
@@ -387,6 +390,8 @@ fieldParsers =
       (\v env -> env { envSaslPassword = Just v }))
   , ("KAFKA_SASL_PLAIN_PASSWORD", textField "sasl.password"
       (\v env -> env { envSaslPassword = Just v }))
+  , ("KAFKA_SASL_OAUTH_BEARER_TOKEN", textField "sasl.oauthbearer.token"
+      (\v env -> env { envSaslOAuthBearerToken = Just v }))
   , ("KAFKA_REQUEST_TIMEOUT_MS", intField "request.timeout.ms"
       (\n env -> env { envRequestTimeoutMs = Just n }))
   , ("KAFKA_SOCKET_TIMEOUT_MS", intField "socket.timeout.ms"
@@ -803,11 +808,14 @@ buildSaslRequired KafkaEnv{..} = case envSaslMechanism of
   Just MechScramSha512 ->
     credMech "SCRAM-SHA-512" (SASL.SaslScram Scram.ScramSHA512)
              envSaslUsername envSaslPassword
-  Just MechOAuthBearer -> Left
-    [ ConfigError "sasl.mechanism"
-        ("OAUTHBEARER cannot be configured from env vars alone; "
-          <> "build a SASL.SaslOAuthBearer with your token provider and "
-          <> "set ConnectionConfig.connSasl programmatically") ]
+  Just MechOAuthBearer -> case envSaslOAuthBearerToken of
+    Just tok ->
+      Right (SASL.SaslOAuthBearer (OAuth.OAuthStaticToken (OAuth.OAuthToken tok Nothing Nothing)))
+    Nothing -> Left
+      [ ConfigError "sasl.oauthbearer.token"
+          ("must be set for sasl.mechanism=OAUTHBEARER, or build a "
+            <> "SASL.SaslOAuthBearer with your token provider and set "
+            <> "ConnectionConfig.connSasl programmatically") ]
   Just MechAwsMskIam -> Left
     [ ConfigError "sasl.mechanism"
         ("AWS_MSK_IAM cannot be configured from env vars alone; "

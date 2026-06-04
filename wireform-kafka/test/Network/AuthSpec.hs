@@ -79,6 +79,13 @@ plainTests = testGroup "PLAIN"
       Plain.generatePlainAuthWithAuthzid (Just "admin") "alice" "secret"
         @?= BS.concat ["admin", BS.singleton 0, "alice", BS.singleton 0, "secret"]
 
+  , testCase "SASL implementation rejects NUL-delimited PLAIN fields" $ do
+      let impl = SASL.plainImpl "ali\NULce" "secret"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions NUL" ("NUL" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected PLAIN NUL validation failure"
+
   , testCase "SASL implementation sends the PLAIN payload and completes after accept" $ do
       let impl = SASL.plainImpl "alice" "secret"
       SASL.smiName impl @?= "PLAIN"
@@ -347,6 +354,26 @@ oauthBearerTests = testGroup "OAUTHBEARER"
       initial <- SASL.smiInitial impl
       payload <- stepPayload "OAUTHBEARER" initial
       payload @?= OAuth.buildOAuthPayloadWithExtensions ext tok
+
+  , testCase "SASL implementation rejects invalid OAuth fields" $ do
+      let tok = OAuth.OAuthToken ("tok" <> T.singleton '\SOH' <> "bad") Nothing Nothing
+          impl = SASL.oauthBearerImpl (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions control characters"
+          ("control characters" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid OAuth token to fail"
+
+  , testCase "SASL implementation rejects invalid OAuth extension port" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.defaultOAuthBearerExtensions
+            { OAuth.oauthServerPort = Just 70000 }
+          impl = SASL.oauthBearerImplWithExtensions ext (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions port range"
+          ("port" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid OAuth port to fail"
   ]
 
 --------------------------------------------------------------------------------
@@ -586,6 +613,8 @@ gssapiTests = testGroup "GSSAPI"
           assertBool "mentions not implemented"
             ("not implemented" `BS.isInfixOf` BS8.pack err)
         Right _ -> assertFailure "expected GSSAPI to fail explicitly"
+  , testCase "build flag is disabled by default" $
+      SASL.gssapiBuildEnabled @?= False
   ]
 
 --------------------------------------------------------------------------------

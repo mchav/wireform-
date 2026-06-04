@@ -31,6 +31,7 @@ import Kafka.Client.Env
 import qualified Kafka.Client.Producer as P
 import Kafka.Client.Producer (applyKafkaEnvToProducerConfig)
 import qualified Kafka.Compression.Types as Compression
+import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.SASL as SASL
 import qualified Kafka.Network.Auth.Scram as Scram
 import qualified Kafka.Network.Connection as Conn
@@ -74,8 +75,10 @@ tests = testGroup "Kafka.Client.Env"
           prop_connSaslSslNoMechanism
       , testCase "SASL_SSL with PLAIN and missing password is an error"
           prop_connSaslMissingPassword
-      , testCase "SASL_SSL with OAUTHBEARER is rejected with guidance"
-          prop_connSaslOAuthRejected
+      , testCase "SASL_SSL with OAUTHBEARER and static token sets connSasl"
+          prop_connSaslOAuthStaticToken
+      , testCase "SASL_SSL with OAUTHBEARER and no token is rejected with guidance"
+          prop_connSaslOAuthMissingToken
       , testCase "SASL_SSL with AWS_MSK_IAM is rejected with guidance"
           prop_connSaslAwsRejected
       ]
@@ -226,6 +229,7 @@ prop_fullEnv = case parseKafkaEnvList
          , ("KAFKA_SASL_MECHANISM", "SCRAM-SHA-256")
          , ("KAFKA_SASL_USERNAME", "u")
          , ("KAFKA_SASL_PASSWORD", "p")
+         , ("KAFKA_SASL_OAUTH_BEARER_TOKEN", "oauth-token")
          , ("KAFKA_ACKS", "all")
          , ("KAFKA_COMPRESSION_TYPE", "zstd")
          , ("KAFKA_GROUP_ID", "grp")
@@ -238,6 +242,7 @@ prop_fullEnv = case parseKafkaEnvList
       envSaslMechanism    env @?= Just MechScramSha256
       envSaslUsername     env @?= Just "u"
       envSaslPassword     env @?= Just "p"
+      envSaslOAuthBearerToken env @?= Just "oauth-token"
       envAcks             env @?= Just EnvAcksAll
       envCompressionType  env @?= Just Compression.Zstd
       envGroupId          env @?= Just "grp"
@@ -381,8 +386,24 @@ prop_connSaslMissingPassword =
       other -> assertFailure ("expected sasl.password error, got "
                               <> describeResult other)
 
-prop_connSaslOAuthRejected :: Assertion
-prop_connSaslOAuthRejected =
+prop_connSaslOAuthStaticToken :: Assertion
+prop_connSaslOAuthStaticToken =
+  withEnv
+    [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
+    , ("KAFKA_SASL_MECHANISM", "OAUTHBEARER")
+    , ("KAFKA_SASL_OAUTH_BEARER_TOKEN", "static-token")
+    , ("KAFKA_BOOTSTRAP_SERVERS", "h:1")
+    ] $ \env ->
+    case applyKafkaEnvToConnectionConfig env baseConn of
+      Right cfg -> case Conn.connSasl cfg of
+        Just (SASL.SaslOAuthBearer (OAuth.OAuthStaticToken tok)) ->
+          OAuth.oauthTokenBytes tok @?= "static-token"
+        other -> assertFailure ("expected static OAUTHBEARER, got "
+                                <> show (saslDescr other))
+      Left e -> assertFailure ("expected Right, got " <> show e)
+
+prop_connSaslOAuthMissingToken :: Assertion
+prop_connSaslOAuthMissingToken =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
     , ("KAFKA_SASL_MECHANISM", "OAUTHBEARER")
@@ -390,10 +411,10 @@ prop_connSaslOAuthRejected =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Left [ConfigError field msg] -> do
-        field @?= "sasl.mechanism"
+        field @?= "sasl.oauthbearer.token"
         assertBool "msg mentions OAUTHBEARER"
           ("OAUTHBEARER" `T.isInfixOf` msg)
-      other -> assertFailure ("expected sasl.mechanism error, got "
+      other -> assertFailure ("expected sasl.oauthbearer.token error, got "
                               <> describeResult other)
 
 prop_connSaslAwsRejected :: Assertion

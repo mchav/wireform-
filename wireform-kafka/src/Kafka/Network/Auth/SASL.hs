@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -58,6 +60,8 @@ module Kafka.Network.Auth.SASL
   , mechanismWireName
     -- * High-level entry point
   , authenticate
+  , authenticateDetailed
+  , AuthSuccess(..)
   , AuthError(..)
     -- * KIP-368 session re-authentication
   , effectiveReauthDeadlineMs
@@ -72,6 +76,7 @@ module Kafka.Network.Auth.SASL
   , oauthBearerImplWithExtensions
   , awsMskIamImpl
   , gssapiImpl
+  , gssapiBuildEnabled
   , configMechanism
   ) where
 
@@ -83,6 +88,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Kafka.Network.Connection.Internal (Connection)
+
+#ifdef WIREFORM_KAFKA_GSSAPI
+import qualified Network.Security.GssApi as GSSAPI ()
+#endif
 
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Auth.AwsMskIam as Iam
@@ -210,6 +219,13 @@ data AuthError
   | AuthTransport   !String        -- ^ Network / decode error during the SASL exchange
   deriving (Show)
 
+-- | Metadata returned by a successful SASL authentication.
+data AuthSuccess = AuthSuccess
+  { authSessionLifetimeMs :: !Int
+    -- ^ Broker-advertised @SaslAuthenticateResponse.session_lifetime_ms@.
+    --   Zero means the broker did not advertise a SASL reauth deadline.
+  } deriving (Eq, Show)
+
 -- | Run the full SASL handshake (SaslHandshakeRequest +
 -- SaslAuthenticateRequest loop) over an already-open connection.
 authenticate
@@ -218,7 +234,18 @@ authenticate
   -> Text          -- ^ Broker host (used by mechanisms like AWS_MSK_IAM)
   -> SaslConfig
   -> IO (Either AuthError ())
-authenticate conn clientId host cfg = do
+authenticate conn clientId host cfg =
+  fmap (fmap (const ())) (authenticateDetailed conn clientId host cfg)
+
+-- | Like 'authenticate', but preserves broker metadata needed by
+-- KIP-368 re-authentication scheduling.
+authenticateDetailed
+  :: Connection
+  -> Text          -- ^ Client id (used in request headers)
+  -> Text          -- ^ Broker host (used by mechanisms like AWS_MSK_IAM)
+  -> SaslConfig
+  -> IO (Either AuthError AuthSuccess)
+authenticateDetailed conn clientId host cfg = do
   let mechName = mechanismWireName (configMechanism cfg)
       mech     = mechanismImpl host cfg
   corrIdRef <- newIORef (0 :: Int32)
@@ -278,35 +305,40 @@ drive
   -> P.KafkaString
   -> IO Int32
   -> SaslMechanismImpl
-  -> IO (Either AuthError ())
+  -> IO (Either AuthError AuthSuccess)
 drive conn clientId nextCorrId SaslMechanismImpl{..} = do
   initR <- smiInitial
   case initR of
     Left err -> pure (Left (AuthMechanism err))
-    Right step -> loop step
+    Right step -> loop 0 step
   where
-    loop = \case
+    loop !lastLifetimeMs = \case
       StepError err           -> pure (Left (AuthMechanism err))
-      StepDone Nothing        -> pure (Right ())
+      StepDone Nothing        -> pure (Right (AuthSuccess lastLifetimeMs))
       StepDone (Just verify)  ->
         -- The broker may be silent now; we don't expect more bytes
         -- but if it sends them we still hand them through verify.
-        pure (Right ())
+        pure (Right (AuthSuccess lastLifetimeMs))
         -- (the actual round-trip path lives in StepSend below)
       StepSend out k -> do
         sendR <- saslAuthenticate conn clientId nextCorrId out
         case sendR of
           Left err               -> pure (Left err)
-          Right brokerBytes      -> case k brokerBytes of
+          Right brokerResponse    -> case k (sbrAuthBytes brokerResponse) of
             Left err     -> pure (Left (AuthMechanism err))
-            Right next   -> loop next
+            Right next   -> loop (sbrSessionLifetimeMs brokerResponse) next
+
+data SaslBrokerResponse = SaslBrokerResponse
+  { sbrAuthBytes :: !(Maybe ByteString)
+  , sbrSessionLifetimeMs :: !Int
+  } deriving (Eq, Show)
 
 saslAuthenticate
   :: Connection
   -> P.KafkaString
   -> IO Int32
   -> ByteString
-  -> IO (Either AuthError (Maybe ByteString))
+  -> IO (Either AuthError SaslBrokerResponse)
 saslAuthenticate conn clientId nextCorrId bytes = do
   let req = SAReq.SaslAuthenticateRequest
         { SAReq.saslAuthenticateRequestAuthBytes = P.mkKafkaBytes bytes }
@@ -328,12 +360,13 @@ saslAuthenticate conn clientId nextCorrId bytes = do
               raw  = case P.unKafkaBytes (SAResp.saslAuthenticateResponseAuthBytes resp) of
                        P.NotNull v -> Just v
                        P.Null      -> Nothing
+              lifetimeMs = fromIntegral (SAResp.saslAuthenticateResponseSessionLifetimeMs resp)
           in if ec /= 0
                then pure (Left (AuthBrokerError ec
                        (if T.null msg
                           then "SaslAuthenticate error " <> T.pack (show ec)
                           else msg)))
-               else pure (Right raw)
+               else pure (Right (SaslBrokerResponse raw lifetimeMs))
 
 ------------------------------------------------------------------------
 -- Built-in mechanism implementations
@@ -360,7 +393,9 @@ plainImplWithAuthzid authzid = plainImplWithAuthzidMaybe (Just authzid)
 plainImplWithAuthzidMaybe :: Maybe Text -> Text -> Text -> SaslMechanismImpl
 plainImplWithAuthzidMaybe mAuthzid user pwd = SaslMechanismImpl
   { smiName    = "PLAIN"
-  , smiInitial = pure (Right initial)
+  , smiInitial = pure $ do
+      validatePlainInputs mAuthzid user pwd
+      Right initial
   }
   where
     bytes   = Plain.generatePlainAuthWithAuthzid mAuthzid user pwd
@@ -409,9 +444,10 @@ oauthBearerImplWithExtensions ext provider = SaslMechanismImpl
       tokenR <- OAuth.resolveOAuthToken provider
       case tokenR of
         Left err  -> pure (Left ("OAUTHBEARER: " <> err))
-        Right tok ->
+        Right tok -> pure $ do
+          OAuth.validateOAuthBearerPayload ext tok
           let bytes = OAuth.buildOAuthPayloadWithExtensions ext tok
-          in pure $ Right $ StepSend bytes $ \_ -> Right (StepDone Nothing)
+          Right $ StepSend bytes $ \_ -> Right (StepDone Nothing)
   }
 
 -- | AWS MSK IAM. Computes the SigV4-signed JSON payload up front,
@@ -434,10 +470,23 @@ gssapiImpl :: SaslMechanismImpl
 gssapiImpl = SaslMechanismImpl
   { smiName    = "GSSAPI"
   , smiInitial = pure $ Left
+#ifdef WIREFORM_KAFKA_GSSAPI
+      "GSSAPI/Kerberos support is built with the optional gssapi flag, \
+      \but the Kafka token exchange is not wired yet. Use a custom \
+      \SaslMechanismImpl on top of Network.Security.GssApi for now."
+#else
       "GSSAPI/Kerberos is not implemented in wireform-kafka. \
-      \Use SASL/SCRAM-SHA-512 or AWS_MSK_IAM instead, or wire \
-      \your own SaslMechanismImpl on top of MIT Kerberos GSS bindings."
+      \Build wireform-kafka with the gssapi flag to enable the optional \
+      \Kerberos dependency, or use SASL/SCRAM-SHA-512 or AWS_MSK_IAM."
+#endif
   }
+
+gssapiBuildEnabled :: Bool
+#ifdef WIREFORM_KAFKA_GSSAPI
+gssapiBuildEnabled = True
+#else
+gssapiBuildEnabled = False
+#endif
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -447,6 +496,18 @@ kafkaStrToText :: P.KafkaString -> Text
 kafkaStrToText ks = case P.unKafkaString ks of
   P.NotNull t -> t
   P.Null      -> T.empty
+
+validatePlainInputs :: Maybe Text -> Text -> Text -> Either String ()
+validatePlainInputs mAuthzid user pwd = do
+  maybe (Right ()) (validatePlainField "authorization identity") mAuthzid
+  validatePlainField "username" user
+  validatePlainField "password" pwd
+
+validatePlainField :: String -> Text -> Either String ()
+validatePlainField fieldName value
+  | T.any (== '\NUL') value =
+      Left ("PLAIN: " <> fieldName <> " must not contain NUL")
+  | otherwise = Right ()
 
 ------------------------------------------------------------------------
 -- KIP-368 session re-authentication
