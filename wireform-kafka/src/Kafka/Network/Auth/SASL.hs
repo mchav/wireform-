@@ -107,6 +107,7 @@ import Foreign
   , alloca
   , castPtr
   , nullPtr
+  , plusPtr
   , peek
   , poke
   , withForeignPtr
