@@ -284,6 +284,31 @@ oauthBearerTests = testGroup "OAUTHBEARER"
         , BS.singleton 0x01
         ]
 
+  , testCase "default extensions preserve the minimal Kafka payload" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+      OAuth.buildOAuthPayloadWithExtensions OAuth.defaultOAuthBearerExtensions tok
+        @?= OAuth.buildOAuthPayload tok
+
+  , testCase "RFC payload includes authzid, host, and port extensions" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.OAuthBearerExtensions
+            { OAuth.oauthAuthorizationIdentity = Just "user,with=chars"
+            , OAuth.oauthServerHost = Just "broker.example.com"
+            , OAuth.oauthServerPort = Just 9093
+            }
+      OAuth.buildOAuthPayloadWithExtensions ext tok
+        @?= BS.concat
+          [ "n,a=user=2Cwith=3Dchars,"
+          , BS.singleton 0x01
+          , "auth=Bearer tok-abc"
+          , BS.singleton 0x01
+          , "host=broker.example.com"
+          , BS.singleton 0x01
+          , "port=9093"
+          , BS.singleton 0x01
+          , BS.singleton 0x01
+          ]
+
   , testCase "OAuthStaticToken provider returns the token verbatim" $ do
       let tok = OAuth.OAuthToken "static" (Just 60000) (Just "sub-123")
       r <- OAuth.resolveOAuthToken (OAuth.OAuthStaticToken tok)
@@ -310,6 +335,18 @@ oauthBearerTests = testGroup "OAUTHBEARER"
       secondPayload <- stepPayload "OAUTHBEARER" second
       assertBool "first token appears in payload" ("token-1" `BS.isInfixOf` firstPayload)
       assertBool "second token appears in payload" ("token-2" `BS.isInfixOf` secondPayload)
+
+  , testCase "SASL implementation emits RFC-form extension payloads" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.OAuthBearerExtensions
+            { OAuth.oauthAuthorizationIdentity = Just "service-a"
+            , OAuth.oauthServerHost = Just "broker.example.com"
+            , OAuth.oauthServerPort = Just 9093
+            }
+          impl = SASL.oauthBearerImplWithExtensions ext (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      payload <- stepPayload "OAUTHBEARER" initial
+      payload @?= OAuth.buildOAuthPayloadWithExtensions ext tok
   ]
 
 --------------------------------------------------------------------------------
@@ -571,6 +608,12 @@ configTests = testGroup "configMechanism"
   , testCase "OAUTHBEARER" $
       SASL.configMechanism
         (SASL.SaslOAuthBearer (OAuth.OAuthStaticToken (OAuth.OAuthToken "x" Nothing Nothing)))
+        @?= SASL.NameOAuthBearer
+  , testCase "OAUTHBEARER with extensions" $
+      SASL.configMechanism
+        (SASL.SaslOAuthBearerWithExtensions
+          (OAuth.OAuthStaticToken (OAuth.OAuthToken "x" Nothing Nothing))
+          OAuth.defaultOAuthBearerExtensions)
         @?= SASL.NameOAuthBearer
   , testCase "AWS_MSK_IAM" $ do
       let creds = Iam.AwsCredentials "k" "s" Nothing

@@ -69,6 +69,7 @@ module Kafka.Network.Auth.SASL
   , plainImplWithAuthzid
   , scramImpl
   , oauthBearerImpl
+  , oauthBearerImplWithExtensions
   , awsMskIamImpl
   , gssapiImpl
   , configMechanism
@@ -120,6 +121,11 @@ data SaslConfig
     SaslScram !Scram.ScramAlgo !Text !Text
   | -- | SASL\/OAUTHBEARER with a pluggable token provider.
     SaslOAuthBearer !OAuth.OAuthTokenProvider
+  | -- | SASL\/OAUTHBEARER with optional RFC 7628 authzid/host/port
+    --   extensions.
+    SaslOAuthBearerWithExtensions
+        !OAuth.OAuthTokenProvider
+        !OAuth.OAuthBearerExtensions
   | -- | AWS MSK IAM (@AWS_MSK_IAM@). Pass a credentials provider and
     --   the AWS region; the broker host is taken from the connection
     --   target at handshake time.
@@ -158,6 +164,7 @@ configMechanism = \case
   SaslScram Scram.ScramSHA256 _ _           -> NameScramSha256
   SaslScram Scram.ScramSHA512 _ _           -> NameScramSha512
   SaslOAuthBearer{}                         -> NameOAuthBearer
+  SaslOAuthBearerWithExtensions{}           -> NameOAuthBearer
   SaslAwsMskIam{}                           -> NameAwsMskIam
   SaslGssapi{}                              -> NameGssapi
 
@@ -338,6 +345,7 @@ mechanismImpl host = \case
   SaslPlainWithAuthzid authzid user pwd -> plainImplWithAuthzid authzid user pwd
   SaslScram algo user pwd       -> scramImpl algo user pwd
   SaslOAuthBearer provider      -> oauthBearerImpl provider
+  SaslOAuthBearerWithExtensions provider ext -> oauthBearerImplWithExtensions ext provider
   SaslAwsMskIam provider region -> awsMskIamImpl provider host region
   SaslGssapi                    -> gssapiImpl
 
@@ -389,14 +397,20 @@ scramImpl algo user pwd = SaslMechanismImpl
 -- bearer token; broker either accepts (with empty auth_bytes) or
 -- rejects with an error code.
 oauthBearerImpl :: OAuth.OAuthTokenProvider -> SaslMechanismImpl
-oauthBearerImpl provider = SaslMechanismImpl
+oauthBearerImpl = oauthBearerImplWithExtensions OAuth.defaultOAuthBearerExtensions
+
+oauthBearerImplWithExtensions
+  :: OAuth.OAuthBearerExtensions
+  -> OAuth.OAuthTokenProvider
+  -> SaslMechanismImpl
+oauthBearerImplWithExtensions ext provider = SaslMechanismImpl
   { smiName    = "OAUTHBEARER"
   , smiInitial = do
       tokenR <- OAuth.resolveOAuthToken provider
       case tokenR of
         Left err  -> pure (Left ("OAUTHBEARER: " <> err))
         Right tok ->
-          let bytes = OAuth.buildOAuthPayload tok
+          let bytes = OAuth.buildOAuthPayloadWithExtensions ext tok
           in pure $ Right $ StepSend bytes $ \_ -> Right (StepDone Nothing)
   }
 

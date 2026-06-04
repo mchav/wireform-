@@ -642,6 +642,7 @@ saslName SASL.SaslPlainWithAuthzid{} = "PLAIN"
 saslName (SASL.SaslScram Scram.ScramSHA256 _ _) = "SCRAM-SHA-256"
 saslName (SASL.SaslScram Scram.ScramSHA512 _ _) = "SCRAM-SHA-512"
 saslName SASL.SaslOAuthBearer{} = "OAUTHBEARER"
+saslName SASL.SaslOAuthBearerWithExtensions{} = "OAUTHBEARER"
 saslName SASL.SaslAwsMskIam{}   = "AWS_MSK_IAM"
 saslName SASL.SaslGssapi        = "GSSAPI"
 
