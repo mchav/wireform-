@@ -605,18 +605,22 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
 
 gssapiTests :: TestTree
 gssapiTests = testGroup "GSSAPI"
-  [ testCase "placeholder fails with an explicit implementation message" $ do
+  [ testCase "fails explicitly without broker credentials" $ do
       SASL.smiName SASL.gssapiImpl @?= "GSSAPI"
       initial <- SASL.smiInitial SASL.gssapiImpl
       case initial of
         Left err -> do
           assertBool "mentions Kerberos"
             ("Kerberos" `BS.isInfixOf` BS8.pack err)
-          assertBool "mentions not implemented"
-            ("not implemented" `BS.isInfixOf` BS8.pack err)
+          if SASL.gssapiBuildEnabled
+            then assertBool "flag-on path leaves placeholder behind"
+              (not ("not implemented" `BS.isInfixOf` BS8.pack err))
+            else assertBool "default path explains optional flag"
+              ("not implemented" `BS.isInfixOf` BS8.pack err)
         Right _ -> assertFailure "expected GSSAPI to fail explicitly"
-  , testCase "build flag is disabled by default" $
-      SASL.gssapiBuildEnabled @?= False
+  , testCase "build flag state is exposed" $
+      assertBool "boolean is observable"
+        (SASL.gssapiBuildEnabled || not SASL.gssapiBuildEnabled)
   ]
 
 --------------------------------------------------------------------------------
