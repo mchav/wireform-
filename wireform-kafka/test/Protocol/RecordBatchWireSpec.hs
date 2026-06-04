@@ -32,6 +32,8 @@ tests = testGroup "RecordBatchWire round-trips"
   , testGroup "compressed encoder"
       [ testProperty "gzip: encode . decode == id"
           (prop_round_trip_compressed Compression.Gzip)
+      , testProperty "snappy: encode . decode == id"
+          (prop_round_trip_compressed Compression.Snappy)
       , testProperty "lz4: encode . decode == id"
           (prop_round_trip_compressed Compression.Lz4)
       , testProperty "zstd: encode . decode == id"

@@ -8,7 +8,7 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Int (Int8)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Hedgehog (Property, PropertyT, Gen, (===), forAll, property, assert, annotate, evalIO)
+import Hedgehog (Property, Gen, (===), forAll, property, assert, annotate, evalIO)
 import qualified Kafka.Compression.Types as Compression
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
@@ -269,7 +269,6 @@ test_codec_names_valid = do
 
 test_all_codecs_parseable :: IO ()
 test_all_codecs_parseable = do
-  -- TODO: Snappy works for parsing, just has some edge case issues with compression
   let allCodecs = [Compression.NoCompression, Compression.Gzip, Compression.Snappy, Compression.Lz4, Compression.Zstd]
   mapM_ testParseable allCodecs
   where
@@ -295,12 +294,11 @@ genByteString :: Gen BS.ByteString
 genByteString = Gen.bytes (Range.linear 0 100)
 
 -- | Generate arbitrary compression codec
--- TODO: Add Compression.Snappy back after fixing edge cases with small inputs
 genCodec :: Gen Compression.CompressionCodec
 genCodec = Gen.element 
   [ Compression.NoCompression
   , Compression.Gzip
-  -- , Compression.Snappy  -- Disabled temporarily
+  , Compression.Snappy
   , Compression.Lz4
   , Compression.Zstd
   ]
