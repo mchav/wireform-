@@ -413,16 +413,13 @@ scramImpl algo user pwd = SaslMechanismImpl
       session <- Scram.newScramSession algo user pwd
       let cf = Scram.firstClientMessage session
       pure $ Right $ StepSend cf $ \mServerFirst -> case mServerFirst of
-        Nothing -> Left "SCRAM: broker closed the auth conversation \
-                        \after the client-first message without sending \
-                        \a server-first."
+        Nothing -> Left "SCRAM: broker closed the auth conversation after the client-first message without sending a server-first."
         Just serverFirst ->
           case Scram.finalClientMessage session serverFirst of
             Left err -> Left err
             Right (clientFinal, verifier) ->
               Right $ StepSend clientFinal $ \mFinal -> case mFinal of
-                Nothing       -> Left "SCRAM: broker did not send a \
-                                      \server-final message."
+                Nothing       -> Left "SCRAM: broker did not send a server-final message."
                 Just sfBytes  -> case verifier sfBytes of
                   Left err -> Left err
                   Right () -> Right (StepDone Nothing)
