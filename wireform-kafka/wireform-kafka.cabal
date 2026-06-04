@@ -40,6 +40,8 @@ extra-source-files:
     test/Network/TLS/client.key
     test/Network/TLS/README.md
     test/Serde/buf.lock
+    test/Serde/buf.real.v1.lock
+    test/Serde/buf.real.v2.lock
 
 flag rocksdb
     description:
