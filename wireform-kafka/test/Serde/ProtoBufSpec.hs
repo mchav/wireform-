@@ -28,7 +28,7 @@ import qualified Kafka.Headers        as H
 import qualified Kafka.Serde          as Serde
 import           Kafka.Serde.Proto    (encodeProto)
 import           Kafka.Serde.Proto.Buf
-import           Kafka.Serde.Proto.Buf.TH (bufCommitFromLock, bufProtoSerdeFromLock, lookupBufLockCommit)
+import           Kafka.Serde.Proto.Buf.TH (bufCommitFromLock, bufProtoKeySerdeFromLock, bufProtoSerdeFromLock, lookupBufLockCommit)
 
 import           Proto.Decode         (MessageDecode (..), getTagOr, getText, getVarint, skipField)
 import           Proto.Encode         (MessageEncode (..), encodeFieldString, encodeFieldVarint)
@@ -287,7 +287,67 @@ tests =
             , testCase "spliced serde still emits the bare encodeProto value" $ do
                 let x = OrderPlaced 42 "widget"
                 Serde.serialize splicedSerde x @?= encodeProto x
+            , testCase "bufProtoKeySerdeFromLock stamps key-side commit + message" $ do
+                let hs = Serde.serializeHeaders splicedKeySerde (OrderPlaced 1 "sku")
+                H.lookup keyCommitHeaderName hs
+                  @?= Just (TE.encodeUtf8 "0a1b2c3d4e5f60718293a4b5c6d7e8f9")
+                H.lookup keyMessageHeaderName hs
+                  @?= Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
             ]
+        ]
+    , testGroup
+        "key-side schema identity"
+        [ testCase "key header names are byte-identical to the convention" $ do
+            keyMessageHeaderName @?= "buf.registry.key.schema.message"
+            keyCommitHeaderName @?= "buf.registry.key.schema.commit"
+            keyModuleHeaderName @?= "buf.registry.key.schema.module"
+        , testCase "messageHeaderNameFor agrees with the side constants" $ do
+            messageHeaderNameFor ValueSchema @?= messageHeaderName
+            messageHeaderNameFor KeySchema @?= keyMessageHeaderName
+        , testProperty "bufProtoKeySerde stamps key-side headers (not value-side)" $
+            property $ do
+              x <- forAll genOrderPlaced
+              c <- forAll genCommit
+              let s  = bufProtoKeySerde c Nothing :: Serde.Serde OrderPlaced
+                  hs = Serde.serializeHeaders s x
+              H.lookup keyMessageHeaderName hs === Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
+              H.lookup keyCommitHeaderName hs === Just (TE.encodeUtf8 c)
+              H.lookup messageHeaderName hs === Nothing
+              -- the value bytes are still the bare encodeProto output
+              Serde.serialize s x === encodeProto x
+        , testCase "decodeAsFor KeySchema reads the key header; value-side read misses" $ do
+            let x  = OrderPlaced 5 "abc"
+                hs = bufSchemaHeadersFor KeySchema
+                       (identityOf (Proxy :: Proxy OrderPlaced) "k1" Nothing)
+            decodeAsFor KeySchema (Proxy :: Proxy OrderPlaced) hs (encodeProto x) @?= Right x
+            decodeAs (Proxy :: Proxy OrderPlaced) hs (encodeProto x)
+              @?= Left (HeaderError MissingMessageHeader)
+        ]
+    , testGroup
+        "O(1) prebuilt-map dispatch"
+        [ testProperty "dispatchWith matches list dispatch on a mixed stream" $
+            property $ do
+              c <- forAll genCommit
+              p <- forAll genOrderPlaced
+              s <- forAll genOrderShipped
+              let hm = handlerMap handlers
+              dispatchWith hm (placedHeaders c) (encodeProto p) === Right (RPlaced p)
+              dispatchWith hm (shippedHeaders c) (encodeProto s) === Right (RShipped s)
+        , testCase "unregistered FQN => UnknownType" $ do
+            let hm = handlerMap handlers
+                hs = H.singleton messageHeaderName (TE.encodeUtf8 "payments.v1.Nope")
+            dispatchWith hm hs "x" @?= Left (UnknownType "payments.v1.Nope")
+        , testCase "missing header => HeaderError MissingMessageHeader" $
+            dispatchWith (handlerMap handlers) H.empty "x"
+              @?= Left (HeaderError MissingMessageHeader)
+        , testCase "first handler wins on a duplicate FQN" $ do
+            let hm =
+                  handlerMap
+                    [ Handler (Proxy :: Proxy OrderPlaced) (\_ -> RPlaced (OrderPlaced 111 ""))
+                    , Handler (Proxy :: Proxy OrderPlaced) (\_ -> RPlaced (OrderPlaced 222 ""))
+                    ]
+            dispatchWith hm (placedHeaders "c") (encodeProto (OrderPlaced 1 "x"))
+              @?= Right (RPlaced (OrderPlaced 111 ""))
         ]
     ]
 
@@ -299,6 +359,9 @@ splicedCommit = $(bufCommitFromLock "test/Serde/buf.lock" "buf.build/acme/paymen
 
 splicedSerde :: Serde.Serde OrderPlaced
 splicedSerde = $(bufProtoSerdeFromLock "test/Serde/buf.lock" "buf.build/acme/payments")
+
+splicedKeySerde :: Serde.Serde OrderPlaced
+splicedKeySerde = $(bufProtoKeySerdeFromLock "test/Serde/buf.lock" "buf.build/acme/payments")
 
 -- Inline fixtures for the pure parser (kept separate from the on-disk
 -- fixture used by the splice).

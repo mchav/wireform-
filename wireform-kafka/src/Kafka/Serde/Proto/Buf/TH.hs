@@ -52,6 +52,7 @@ Both @buf.lock@ schema versions are understood: v2 (@name:@ +
 module Kafka.Serde.Proto.Buf.TH
   ( -- * Splices
     bufProtoSerdeFromLock
+  , bufProtoKeySerdeFromLock
   , bufCommitFromLock
   , bufCommitFromEnv
     -- * Pure @buf.lock@ lookup
@@ -68,7 +69,7 @@ import           Language.Haskell.TH.Syntax (addDependentFile, runIO)
 import           System.Directory           (doesFileExist)
 import           System.Environment         (lookupEnv)
 
-import           Kafka.Serde.Proto.Buf      (bufProtoSerde)
+import           Kafka.Serde.Proto.Buf      (bufProtoKeySerde, bufProtoSerde)
 
 -- | Build a complete header-carrying serde by reading the BSR commit
 -- for @moduleName@ from a @buf.lock@ at compile time. Expands to
@@ -86,6 +87,16 @@ bufProtoSerdeFromLock
 bufProtoSerdeFromLock lockPath moduleName = do
   commitE <- bufCommitFromLock lockPath moduleName
   pure (AppE (AppE (VarE 'bufProtoSerde) commitE) (ConE 'Nothing))
+
+-- | Key-side counterpart of 'bufProtoSerdeFromLock': splices a complete
+-- 'Kafka.Serde.Proto.Buf.bufProtoKeySerde' (stamping the
+-- @buf.registry.key.schema.*@ headers) with the commit read from
+-- @buf.lock@ at compile time. Use it as a 'Kafka.Topic.Topic' key serde
+-- when the key is itself a typed Protobuf message.
+bufProtoKeySerdeFromLock :: FilePath -> String -> Q Exp
+bufProtoKeySerdeFromLock lockPath moduleName = do
+  commitE <- bufCommitFromLock lockPath moduleName
+  pure (AppE (AppE (VarE 'bufProtoKeySerde) commitE) (ConE 'Nothing))
 
 -- | Splice the BSR commit (as 'Text') pinned for @moduleName@ in a
 -- @buf.lock@, read at compile time. Fails compilation with a clear
