@@ -18,9 +18,10 @@ deployed in the wild for SASL/OAUTHBEARER over TLS):
 \\x01auth=Bearer \<token\>\\x01[host=\<server-name\>\\x01port=\<port\>\\x01]\\x01
 @
 
-We always include @auth=Bearer ...@ and we never set @host=@ \/ @port=@
-because Kafka brokers don't validate them; sending them just wastes
-bytes. This matches the default the Java client emits.
+By default we emit the minimal Kafka-compatible form containing only
+@auth=Bearer ...@. When a broker-side OAuth integration wants RFC
+7628 metadata, use 'OAuthBearerExtensions' to include an authorization
+identity, host, and/or port.
 
 Token sourcing:
 
@@ -32,14 +33,21 @@ module Kafka.Network.Auth.OAuthBearer
   ( -- * Token providers
     OAuthTokenProvider(..)
   , OAuthToken(..)
+  , OAuthBearerExtensions(..)
+  , defaultOAuthBearerExtensions
   , resolveOAuthToken
     -- * Payload
   , buildOAuthPayload
+  , buildOAuthPayloadWithExtensions
+  , validateOAuthBearerPayload
   ) where
 
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BL
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
@@ -58,6 +66,31 @@ data OAuthToken = OAuthToken
   , oauthPrincipalName   :: !(Maybe Text)
     -- ^ Reported principal; informational only.
   } deriving (Eq, Show)
+
+-- | Optional RFC 7628 fields for OAUTHBEARER client responses.
+--
+-- The default Kafka-compatible payload omits the GS2 header and
+-- extensions entirely. Supplying any field here switches to the full
+-- RFC shape:
+--
+-- @
+-- n,[a=authzid,]\\x01auth=Bearer ...\\x01[host=...]\\x01[port=...]\\x01\\x01
+-- @
+data OAuthBearerExtensions = OAuthBearerExtensions
+  { oauthAuthorizationIdentity :: !(Maybe Text)
+    -- ^ Optional authorization identity in the GS2 header.
+  , oauthServerHost            :: !(Maybe Text)
+    -- ^ Optional host extension.
+  , oauthServerPort            :: !(Maybe Int)
+    -- ^ Optional port extension.
+  } deriving (Eq, Show)
+
+defaultOAuthBearerExtensions :: OAuthBearerExtensions
+defaultOAuthBearerExtensions = OAuthBearerExtensions
+  { oauthAuthorizationIdentity = Nothing
+  , oauthServerHost = Nothing
+  , oauthServerPort = Nothing
+  }
 
 -- | How to obtain an OAuth bearer token. The SASL driver calls into
 -- this once per broker connection (so a custom provider can refresh
@@ -94,10 +127,67 @@ resolveOAuthToken provider = case provider of
 -- the most minimal that brokers accept: the @\\x01auth=Bearer ...@
 -- sequence terminated by @\\x01\\x01@.
 buildOAuthPayload :: OAuthToken -> ByteString
-buildOAuthPayload OAuthToken{..} =
-  let sep  = BS.singleton ctlA
-      bear = "auth=Bearer " <> TE.encodeUtf8 oauthTokenBytes
-  in BS.concat [sep, bear, sep, sep]
+buildOAuthPayload = buildOAuthPayloadWithExtensions defaultOAuthBearerExtensions
+
+buildOAuthPayloadWithExtensions :: OAuthBearerExtensions -> OAuthToken -> ByteString
+buildOAuthPayloadWithExtensions ext OAuthToken{..}
+  | ext == defaultOAuthBearerExtensions =
+      BS.concat [sep, bearerKv, sep, sep]
+  | otherwise =
+      BS.concat
+        [ gs2Header
+        , sep
+        , bearerKv
+        , sep
+        , extensionBytes "host" (TE.encodeUtf8 <$> oauthServerHost ext)
+        , extensionBytes "port" (portBytes <$> oauthServerPort ext)
+        , sep
+        ]
   where
     ctlA = 0x01 :: Word8
+    sep  = BS.singleton ctlA
+    bearerKv = "auth=Bearer " <> TE.encodeUtf8 oauthTokenBytes
+
+    gs2Header = case oauthAuthorizationIdentity ext of
+      Nothing -> "n,,"
+      Just authzid -> "n,a=" <> saslNameEscape (TE.encodeUtf8 authzid) <> ","
+
+    extensionBytes :: ByteString -> Maybe ByteString -> ByteString
+    extensionBytes _ Nothing = BS.empty
+    extensionBytes key (Just value) = key <> "=" <> value <> sep
+
+    portBytes :: Int -> ByteString
+    portBytes =
+      BL.toStrict . BB.toLazyByteString . BB.intDec
+
+validateOAuthBearerPayload :: OAuthBearerExtensions -> OAuthToken -> Either String ()
+validateOAuthBearerPayload OAuthBearerExtensions{..} OAuthToken{..} = do
+  validateField "bearer token" oauthTokenBytes
+  maybe (Right ()) (validateField "authorization identity") oauthAuthorizationIdentity
+  maybe (Right ()) (validateField "host") oauthServerHost
+  case oauthServerPort of
+    Nothing -> Right ()
+    Just p
+      | p > 0 && p <= 65535 -> Right ()
+      | otherwise -> Left "OAUTHBEARER: port must be between 1 and 65535"
+
+validateField :: String -> Text -> Either String ()
+validateField name value
+  | T.null value =
+      Left ("OAUTHBEARER: " <> name <> " must not be empty")
+  | T.any invalid value =
+      Left ("OAUTHBEARER: " <> name <> " must not contain control characters")
+  | otherwise = Right ()
+  where
+    invalid c = c < ' ' || c == '\DEL'
+
+saslNameEscape :: ByteString -> ByteString
+saslNameEscape =
+  BS.concatMap escapeByte
+  where
+    escapeByte w
+      | w == c '=' = "=3D"
+      | w == c ',' = "=2C"
+      | otherwise  = BS.singleton w
+    c x = fromIntegral (fromEnum x)
 

@@ -98,6 +98,8 @@ module Kafka.Client.Group
   , Iam.AwsCredentialsProvider(..)
   , OAuth.OAuthToken(..)
   , OAuth.OAuthTokenProvider(..)
+  , OAuth.OAuthBearerExtensions(..)
+  , OAuth.defaultOAuthBearerExtensions
   ) where
 
 import Control.Concurrent (threadDelay)

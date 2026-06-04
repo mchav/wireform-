@@ -20,15 +20,19 @@ in the broker-gated integration suite.
 -}
 module Network.AuthSpec (authSpec) where
 
+import Control.Exception (bracket)
+import Control.Monad (zipWithM_)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS8
+import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Time as Time
+import qualified System.Environment as Env
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -45,6 +49,7 @@ authSpec = testGroup "Auth (SASL mechanisms)"
   , scramTests
   , oauthBearerTests
   , awsMskIamTests
+  , gssapiTests
   , configTests
   ]
 
@@ -69,6 +74,39 @@ plainTests = testGroup "PLAIN"
               , BS.singleton 0
               , TE.encodeUtf8 "ümlaut"
               ]
+
+  , testCase "authorization identity is encoded when supplied" $ do
+      Plain.generatePlainAuthWithAuthzid (Just "admin") "alice" "secret"
+        @?= BS.concat ["admin", BS.singleton 0, "alice", BS.singleton 0, "secret"]
+
+  , testCase "SASL implementation rejects NUL-delimited PLAIN fields" $ do
+      let impl = SASL.plainImpl "ali\NULce" "secret"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions NUL" ("NUL" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected PLAIN NUL validation failure"
+
+  , testCase "SASL implementation sends the PLAIN payload and completes after accept" $ do
+      let impl = SASL.plainImpl "alice" "secret"
+      SASL.smiName impl @?= "PLAIN"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          payload @?= Plain.generatePlainAuth "alice" "secret"
+          assertStepDone "PLAIN" (acceptBrokerBytes (Just ""))
+        Right _ -> assertFailure "PLAIN should send exactly one client payload"
+        Left err -> assertFailure ("unexpected PLAIN init failure: " <> err)
+
+  , testCase "SASL implementation can send an explicit authorization identity" $ do
+      let impl = SASL.plainImplWithAuthzid "admin" "alice" "secret"
+      SASL.smiName impl @?= "PLAIN"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          payload @?= Plain.generatePlainAuthWithAuthzid (Just "admin") "alice" "secret"
+          assertStepDone "PLAIN" (acceptBrokerBytes (Just ""))
+        Right _ -> assertFailure "PLAIN authzid should send exactly one client payload"
+        Left err -> assertFailure ("unexpected PLAIN authzid init failure: " <> err)
   ]
 
 --------------------------------------------------------------------------------
@@ -78,9 +116,11 @@ plainTests = testGroup "PLAIN"
 scramTests :: TestTree
 scramTests = testGroup "SCRAM-SHA-*"
   [ rfc5802Vector
+  , sha512Vector
   , parseTests
   , verifyTests
   , messageStructureTests
+  , scramImplTests
   ]
 
 -- | RFC 5802 §5 worked example for SCRAM-SHA-1 (we use the same
@@ -99,6 +139,12 @@ rfc5802Vector = testCase "PBKDF2 SaltedPassword agrees with RFC 8018 SHA-256 vec
   let derived = Scram.saltedPassword Scram.ScramSHA256 "password" "salt" 4096
       asHex   = BA.convertToBase BA.Base16 derived :: BS.ByteString
   asHex @?= "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"
+
+sha512Vector :: TestTree
+sha512Vector = testCase "PBKDF2 SaltedPassword agrees with SHA-512 vector" $ do
+  let derived = Scram.saltedPassword Scram.ScramSHA512 "password" "salt" 4096
+      asHex = BA.convertToBase BA.Base16 derived :: BS.ByteString
+  asHex @?= "d197b1b33db0143e018b12f3d1d1479e6cdebdcc97c5c0f87f6902e072f457b5143f30602641b3d55cd335988cb36b84376060ecd532e039b742a239434af2d5"
 
 parseTests :: TestTree
 parseTests = testGroup "parseServerFirst"
@@ -120,6 +166,27 @@ parseTests = testGroup "parseServerFirst"
       case Scram.parseServerFirst ("r=n,s=" <> B64.encode "salt" <> ",i=hello") of
         Left _   -> pure ()
         Right _  -> assertFailure "expected parse failure"
+
+  , testCase "accepts attributes out of order with extensions" $ do
+      let bs = "m=ignored,i=4096,r=clientserver,s=" <> B64.encode "salt"
+      case Scram.parseServerFirst bs of
+        Right sf -> do
+          Scram.sfFullNonce sf @?= "clientserver"
+          Scram.sfSalt sf @?= "salt"
+          Scram.sfIterations sf @?= 4096
+        Left err -> assertFailure err
+
+  , testCase "invalid base64 salt fails clearly" $ do
+      case Scram.parseServerFirst "r=nonce,s=not-valid-@@,i=4096" of
+        Left err -> assertBool "mentions invalid base64 salt"
+          ("invalid base64 salt" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid salt to fail"
+
+  , testCase "empty iterations fails clearly" $ do
+      case Scram.parseServerFirst ("r=nonce,s=" <> B64.encode "salt" <> ",i=") of
+        Left err -> assertBool "mentions empty iteration count"
+          ("empty iteration count" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected empty iteration count to fail"
   ]
 
 verifyTests :: TestTree
@@ -142,6 +209,24 @@ verifyTests = testGroup "verifyServerFinal"
         Left msg -> assertBool "error message contains broker text"
                       ("invalid-username-or-password" `BS.isInfixOf` BS8.pack msg)
         Right _  -> assertFailure "expected verifier to surface broker error"
+
+  , testCase "invalid base64 verifier fails clearly" $ do
+      case Scram.verifyServerFinal "key" "v=not-valid-@@" of
+        Left msg -> assertBool "mentions invalid base64"
+          ("not valid base64" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected invalid verifier to fail"
+
+  , testCase "malformed server-final fails clearly" $ do
+      case Scram.verifyServerFinal "key" "x=wat" of
+        Left msg -> assertBool "mentions malformed server-final"
+          ("malformed server-final" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected malformed server-final to fail"
+
+  , testCase "empty server-final fails clearly" $ do
+      case Scram.verifyServerFinal "key" "" of
+        Left msg -> assertBool "mentions empty server-final"
+          ("empty server-final" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected empty server-final to fail"
   ]
 
 messageStructureTests :: TestTree
@@ -170,6 +255,27 @@ messageStructureTests = testGroup "Wire framing"
         Right _ -> assertFailure "expected finalClientMessage to reject hijacked nonce"
   ]
 
+scramImplTests :: TestTree
+scramImplTests = testGroup "SASL implementation"
+  [ testCase "SCRAM-SHA-512 advertises the right mechanism" $ do
+      let impl = SASL.scramImpl Scram.ScramSHA512 "alice" "pwd"
+      SASL.smiName impl @?= "SCRAM-SHA-512"
+
+  , testCase "missing server-first payload fails before client proof" $ do
+      let impl = SASL.scramImpl Scram.ScramSHA256 "alice" "pwd"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend clientFirst continue) -> do
+          assertBool "client-first starts with gs2 header" ("n,," `BS.isPrefixOf` clientFirst)
+          continued <- continue Nothing
+          case continued of
+            Left err -> assertBool "mentions missing server-first"
+              ("server-first" `BS.isInfixOf` BS8.pack err)
+            Right _ -> assertFailure "expected missing server-first to fail"
+        Right _ -> assertFailure "SCRAM should start with StepSend"
+        Left err -> assertFailure ("unexpected SCRAM init failure: " <> err)
+  ]
+
 --------------------------------------------------------------------------------
 -- OAUTHBEARER
 --------------------------------------------------------------------------------
@@ -186,10 +292,89 @@ oauthBearerTests = testGroup "OAUTHBEARER"
         , BS.singleton 0x01
         ]
 
+  , testCase "default extensions preserve the minimal Kafka payload" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+      OAuth.buildOAuthPayloadWithExtensions OAuth.defaultOAuthBearerExtensions tok
+        @?= OAuth.buildOAuthPayload tok
+
+  , testCase "RFC payload includes authzid, host, and port extensions" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.OAuthBearerExtensions
+            { OAuth.oauthAuthorizationIdentity = Just "user,with=chars"
+            , OAuth.oauthServerHost = Just "broker.example.com"
+            , OAuth.oauthServerPort = Just 9093
+            }
+      OAuth.buildOAuthPayloadWithExtensions ext tok
+        @?= BS.concat
+          [ "n,a=user=2Cwith=3Dchars,"
+          , BS.singleton 0x01
+          , "auth=Bearer tok-abc"
+          , BS.singleton 0x01
+          , "host=broker.example.com"
+          , BS.singleton 0x01
+          , "port=9093"
+          , BS.singleton 0x01
+          , BS.singleton 0x01
+          ]
+
   , testCase "OAuthStaticToken provider returns the token verbatim" $ do
       let tok = OAuth.OAuthToken "static" (Just 60000) (Just "sub-123")
       r <- OAuth.resolveOAuthToken (OAuth.OAuthStaticToken tok)
       r @?= Right tok
+
+  , testCase "custom provider failure surfaces before payload" $ do
+      let impl = SASL.oauthBearerImpl
+            (OAuth.OAuthTokenIO (pure (Left "token unavailable")))
+      SASL.smiName impl @?= "OAUTHBEARER"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> err @?= "OAUTHBEARER: token unavailable"
+        Right _ -> assertFailure "expected OAuth init failure"
+
+  , testCase "SASL implementation resolves tokens for each auth attempt" $ do
+      counter <- newIORef (0 :: Int)
+      let provider = OAuth.OAuthTokenIO $ do
+            n <- atomicModifyIORef' counter (\old -> let new = old + 1 in (new, new))
+            pure $ Right (OAuth.OAuthToken (T.pack ("token-" <> show n)) Nothing Nothing)
+          impl = SASL.oauthBearerImpl provider
+      first <- SASL.smiInitial impl
+      second <- SASL.smiInitial impl
+      firstPayload <- stepPayload "OAUTHBEARER" first
+      secondPayload <- stepPayload "OAUTHBEARER" second
+      assertBool "first token appears in payload" ("token-1" `BS.isInfixOf` firstPayload)
+      assertBool "second token appears in payload" ("token-2" `BS.isInfixOf` secondPayload)
+
+  , testCase "SASL implementation emits RFC-form extension payloads" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.OAuthBearerExtensions
+            { OAuth.oauthAuthorizationIdentity = Just "service-a"
+            , OAuth.oauthServerHost = Just "broker.example.com"
+            , OAuth.oauthServerPort = Just 9093
+            }
+          impl = SASL.oauthBearerImplWithExtensions ext (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      payload <- stepPayload "OAUTHBEARER" initial
+      payload @?= OAuth.buildOAuthPayloadWithExtensions ext tok
+
+  , testCase "SASL implementation rejects invalid OAuth fields" $ do
+      let tok = OAuth.OAuthToken ("tok" <> T.singleton '\SOH' <> "bad") Nothing Nothing
+          impl = SASL.oauthBearerImpl (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions control characters"
+          ("control characters" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid OAuth token to fail"
+
+  , testCase "SASL implementation rejects invalid OAuth extension port" $ do
+      let tok = OAuth.OAuthToken "tok-abc" Nothing Nothing
+          ext = OAuth.defaultOAuthBearerExtensions
+            { OAuth.oauthServerPort = Just 70000 }
+          impl = SASL.oauthBearerImplWithExtensions ext (OAuth.OAuthStaticToken tok)
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> assertBool "mentions port range"
+          ("port" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid OAuth port to fail"
   ]
 
 --------------------------------------------------------------------------------
@@ -284,6 +469,24 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
           KeyMap.lookup "x-amz-security-token" o @?= Nothing
         Right _ -> assertFailure "payload was not a JSON object"
 
+  , testCase "buildIamPayload has a stable SigV4 signature for fixed inputs" $ do
+      let creds = Iam.AwsCredentials
+            { Iam.awsAccessKeyId     = "AKIAIOSFODNN7EXAMPLE"
+            , Iam.awsSecretAccessKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+            , Iam.awsSessionToken    = Nothing
+            }
+          input = Iam.IamPayloadInput
+            { Iam.iiCredentials = creds
+            , Iam.iiHost        = "broker-1.kafka.us-east-1.amazonaws.com"
+            , Iam.iiRegion      = "us-east-1"
+            , Iam.iiNow         = read "2024-01-01 00:00:00 UTC" :: Time.UTCTime
+            , Iam.iiUserAgent   = "wireform-kafka-test"
+            , Iam.iiExpires     = 900
+            }
+      obj <- expectJsonObject (Iam.buildIamPayload input)
+      KeyMap.lookup "x-amz-signature" obj
+        @?= Just (Aeson.String "625ab063dc5c77f47a754b13fb123411c594bc00261935ae8830d1c962b0998b")
+
   , testCase "session-token credentials add x-amz-security-token" $ do
       let creds = Iam.AwsCredentials
             { Iam.awsAccessKeyId     = "ASIA"
@@ -304,6 +507,120 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
           KeyMap.lookup "x-amz-security-token" o
             @?= Just (Aeson.String "tokvalue")
         _ -> assertFailure "payload missing security token"
+
+  , testCase "static provider resolves credentials verbatim" $ do
+      let creds = Iam.AwsCredentials "AKIASTATIC" "secret" (Just "session")
+      resolved <- Iam.resolveAwsCredentials (Iam.AwsStaticCredentials creds)
+      resolved @?= Right creds
+
+  , testCase "env provider requires access key and secret" $
+      withAwsEnv Nothing Nothing Nothing $ do
+        resolved <- Iam.resolveAwsCredentials Iam.AwsEnvCredentials
+        case resolved of
+          Left err -> do
+            assertBool "mentions AWS_ACCESS_KEY_ID"
+              ("AWS_ACCESS_KEY_ID" `T.isInfixOf` T.pack err)
+            assertBool "mentions AWS_SECRET_ACCESS_KEY"
+              ("AWS_SECRET_ACCESS_KEY" `T.isInfixOf` T.pack err)
+          Right _ -> assertFailure "expected missing env credentials to fail"
+
+  , testCase "env provider includes optional session token" $
+      withAwsEnv (Just "AKIAENV") (Just "env-secret") (Just "env-token") $ do
+        resolved <- Iam.resolveAwsCredentials Iam.AwsEnvCredentials
+        resolved @?= Right Iam.AwsCredentials
+          { Iam.awsAccessKeyId     = "AKIAENV"
+          , Iam.awsSecretAccessKey = "env-secret"
+          , Iam.awsSessionToken    = Just "env-token"
+          }
+
+  , testCase "custom provider failure surfaces before any IAM payload is sent" $ do
+      let impl = SASL.awsMskIamImpl
+            (Iam.AwsCustomProvider (pure (Left "no credentials")))
+            "broker-1.kafka.us-east-1.amazonaws.com"
+            "us-east-1"
+      SASL.smiName impl @?= "AWS_MSK_IAM"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> err @?= "AWS_MSK_IAM: no credentials"
+        Right _ -> assertFailure "expected IAM init failure"
+
+  , testCase "SASL implementation emits IAM JSON for the broker host and region" $ do
+      let creds = Iam.AwsCredentials
+            { Iam.awsAccessKeyId     = "AKIAIOSFODNN7EXAMPLE"
+            , Iam.awsSecretAccessKey = "secret"
+            , Iam.awsSessionToken    = Just "tokvalue"
+            }
+          impl = SASL.awsMskIamImpl
+            (Iam.AwsStaticCredentials creds)
+            "broker-2.kafka.us-west-2.amazonaws.com"
+            "us-west-2"
+      step <- SASL.smiInitial impl
+      case step of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          obj <- expectJsonObject payload
+          KeyMap.lookup "version" obj
+            @?= Just (Aeson.String "2020_10_22")
+          KeyMap.lookup "host" obj
+            @?= Just (Aeson.String "broker-2.kafka.us-west-2.amazonaws.com")
+          KeyMap.lookup "user-agent" obj
+            @?= Just (Aeson.String "wireform-kafka/0.1")
+          KeyMap.lookup "x-amz-expires" obj
+            @?= Just (Aeson.String "900")
+          KeyMap.lookup "x-amz-security-token" obj
+            @?= Just (Aeson.String "tokvalue")
+          case KeyMap.lookup "x-amz-credential" obj of
+            Just (Aeson.String credential) -> do
+              assertBool "credential includes configured region"
+                ("/us-west-2/kafka-cluster/aws4_request" `T.isSuffixOf` credential)
+              assertBool "credential starts with access key"
+                ("AKIAIOSFODNN7EXAMPLE/" `T.isPrefixOf` credential)
+            _ -> assertFailure "missing or non-string x-amz-credential"
+          accepted <- acceptBrokerBytes (Just "")
+          case accepted of
+            Right (SASL.StepDone Nothing) -> pure ()
+            Right _ -> assertFailure "AWS_MSK_IAM should finish after broker accept"
+            Left err -> assertFailure ("unexpected IAM accept failure: " <> err)
+        Right _ ->
+          assertFailure "AWS_MSK_IAM should send exactly one client payload"
+        Left err ->
+          assertFailure ("unexpected IAM init failure: " <> err)
+
+  , testCase "SASL implementation resolves credentials for each auth attempt" $ do
+      counter <- newIORef (0 :: Int)
+      let provider = Iam.AwsCustomProvider $ do
+            n <- atomicModifyIORef' counter (\old -> let new = old + 1 in (new, new))
+            pure $ Right Iam.AwsCredentials
+              { Iam.awsAccessKeyId     = "AKIA" <> T.pack (show n)
+              , Iam.awsSecretAccessKey = "secret"
+              , Iam.awsSessionToken    = Nothing
+              }
+          impl = SASL.awsMskIamImpl provider "broker.kafka.us-east-1.amazonaws.com" "us-east-1"
+      first <- SASL.smiInitial impl
+      second <- SASL.smiInitial impl
+      firstAccessKey <- stepAccessKey first
+      secondAccessKey <- stepAccessKey second
+      firstAccessKey @?= "AKIA1"
+      secondAccessKey @?= "AKIA2"
+  ]
+
+gssapiTests :: TestTree
+gssapiTests = testGroup "GSSAPI"
+  [ testCase "fails explicitly without broker credentials" $ do
+      SASL.smiName SASL.gssapiImpl @?= "GSSAPI"
+      initial <- SASL.smiInitial SASL.gssapiImpl
+      case initial of
+        Left err -> do
+          assertBool "mentions Kerberos"
+            ("Kerberos" `BS.isInfixOf` BS8.pack err)
+          if SASL.gssapiBuildEnabled
+            then assertBool "flag-on path leaves placeholder behind"
+              (not ("not implemented" `BS.isInfixOf` BS8.pack err))
+            else assertBool "default path explains optional flag"
+              ("not implemented" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected GSSAPI to fail explicitly"
+  , testCase "build flag state is exposed" $
+      assertBool "boolean is observable"
+        (SASL.gssapiBuildEnabled || not SASL.gssapiBuildEnabled)
   ]
 
 --------------------------------------------------------------------------------
@@ -314,6 +631,9 @@ configTests :: TestTree
 configTests = testGroup "configMechanism"
   [ testCase "PLAIN" $
       SASL.configMechanism (SASL.SaslPlain "u" "p") @?= SASL.NamePlain
+  , testCase "PLAIN with authzid" $
+      SASL.configMechanism (SASL.SaslPlainWithAuthzid "authz" "u" "p")
+        @?= SASL.NamePlain
   , testCase "SCRAM-SHA-256" $
       SASL.configMechanism (SASL.SaslScram Scram.ScramSHA256 "u" "p")
         @?= SASL.NameScramSha256
@@ -323,6 +643,12 @@ configTests = testGroup "configMechanism"
   , testCase "OAUTHBEARER" $
       SASL.configMechanism
         (SASL.SaslOAuthBearer (OAuth.OAuthStaticToken (OAuth.OAuthToken "x" Nothing Nothing)))
+        @?= SASL.NameOAuthBearer
+  , testCase "OAUTHBEARER with extensions" $
+      SASL.configMechanism
+        (SASL.SaslOAuthBearerWithExtensions
+          (OAuth.OAuthStaticToken (OAuth.OAuthToken "x" Nothing Nothing))
+          OAuth.defaultOAuthBearerExtensions)
         @?= SASL.NameOAuthBearer
   , testCase "AWS_MSK_IAM" $ do
       let creds = Iam.AwsCredentials "k" "s" Nothing
@@ -354,4 +680,66 @@ lookupIndex needle hay =
                                      <> BS8.unpack needle)
       | BS.take nLen bs == needle = i
       | otherwise = go (i + 1) (BS.drop 1 bs)
+
+withAwsEnv :: Maybe String -> Maybe String -> Maybe String -> IO a -> IO a
+withAwsEnv accessKey secretKey sessionToken action =
+  bracket capture restore $ \_ -> do
+    setAll [accessKey, secretKey, sessionToken]
+    action
+  where
+    names :: [String]
+    names =
+      [ "AWS_ACCESS_KEY_ID"
+      , "AWS_SECRET_ACCESS_KEY"
+      , "AWS_SESSION_TOKEN"
+      ]
+
+    capture :: IO [Maybe String]
+    capture = traverse Env.lookupEnv names
+
+    restore :: [Maybe String] -> IO ()
+    restore = setAll
+
+    setAll :: [Maybe String] -> IO ()
+    setAll values = zipWithM_ setOne names values
+
+    setOne :: String -> Maybe String -> IO ()
+    setOne name = \case
+      Nothing -> Env.unsetEnv name
+      Just value -> Env.setEnv name value
+
+assertStepDone :: String -> IO (Either String SASL.StepResult) -> IO ()
+assertStepDone mechanism action = action >>= \case
+  Right (SASL.StepDone Nothing) -> pure ()
+  Right _ -> assertFailure (mechanism <> " should finish after broker accept")
+  Left err -> assertFailure ("unexpected " <> mechanism <> " accept failure: " <> err)
+
+stepPayload :: String -> Either String SASL.StepResult -> IO BS.ByteString
+stepPayload mechanism = \case
+  Right (SASL.StepSend payload acceptBrokerBytes) -> do
+    assertStepDone mechanism (acceptBrokerBytes (Just ""))
+    pure payload
+  Right _ -> assertFailure (mechanism <> " should start with StepSend")
+  Left err -> assertFailure ("unexpected " <> mechanism <> " init failure: " <> err)
+
+expectJsonObject :: BS.ByteString -> IO Aeson.Object
+expectJsonObject payload =
+  case Aeson.eitherDecodeStrict payload of
+    Right (Aeson.Object obj) -> pure obj
+    Left err -> assertFailure ("payload not valid JSON: " <> err)
+    Right _ -> assertFailure "payload was not a JSON object"
+
+stepAccessKey :: Either String SASL.StepResult -> IO T.Text
+stepAccessKey = \case
+  Right (SASL.StepSend payload _) -> do
+    obj <- expectJsonObject payload
+    case KeyMap.lookup "x-amz-credential" obj of
+      Just (Aeson.String credential) ->
+        case T.breakOn "/" credential of
+          (accessKey, rest)
+            | not (T.null rest) -> pure accessKey
+          _ -> assertFailure "credential did not include a scope"
+      _ -> assertFailure "missing or non-string x-amz-credential"
+  Right _ -> assertFailure "AWS_MSK_IAM should start with StepSend"
+  Left err -> assertFailure ("unexpected IAM init failure: " <> err)
 

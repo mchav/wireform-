@@ -286,9 +286,9 @@ getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
             Nothing -> pure (Right ())
             Just sc -> do
               let host = T.pack (brokerHost addr)
-              r <- SASL.authenticate newConn (connClientId config) host sc
+              r <- SASL.authenticateDetailed newConn (connClientId config) host sc
               case r of
-                Right () -> pure (Right ())
+                Right _ -> pure (Right ())
                 Left e   -> pure (Left ("SASL authentication failed: " ++ show e))
           case authResult of
             Left err -> do

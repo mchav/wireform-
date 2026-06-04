@@ -52,6 +52,13 @@ flag rocksdb
     default: False
     manual: True
 
+flag gssapi
+    description:
+        Enable optional Kerberos/GSSAPI bindings for future SASL/GSSAPI support.
+        Requires the gssapi Haskell package and system libgssapi_krb5/libkrb5.
+    default: False
+    manual: True
+
 source-repository head
     type: git
     location: https://github.com/iand675/wireform-
@@ -99,6 +106,10 @@ library
     -- vDSO-style page read; no syscall).
     if !os(windows)
       c-sources: cbits/wireform_time.c
+    if flag(gssapi)
+      cpp-options: -DWIREFORM_KAFKA_GSSAPI
+      build-depends:
+          gssapi >= 0.2.0.1 && < 0.3
     -- -O3 lets the compiler inline simde_mm_crc32_u* into the CRC32C
     -- inner loop. -march=native picks up SSE4.2 / ARMv8.1 CRC32 on the
     -- build host so SIMDe emits the hardware instruction; for portable

@@ -73,8 +73,9 @@ import qualified Kafka.Time as KafkaTime
 -- driver writes the error into 'reauthLastError' so the
 -- pipeline can tear the connection down.
 data ReauthRunner = ReauthRunner
-  { authenticate :: IO (Either SASL.AuthError Int)
-    -- ^ 'Right ms' on success — the broker's @session.lifetime.ms@.
+  { authenticate :: IO (Either SASL.AuthError SASL.AuthSuccess)
+    -- ^ 'Right AuthSuccess' on success; carries the broker's
+    --   @session.lifetime.ms@.
   , logger :: SASL.AuthError -> IO ()
     -- ^ Optional callback for failure observability. The driver
     --   already records the error in 'lastError'; this
@@ -182,7 +183,7 @@ driverLoop st runner = loop
 doHandshake :: ReauthState -> ReauthRunner -> IO ()
 doHandshake st runner = do
   atomically $ writeTVar st.inFlight True
-  r <- try runner.authenticate :: IO (Either SomeException (Either SASL.AuthError Int))
+  r <- try runner.authenticate :: IO (Either SomeException (Either SASL.AuthError SASL.AuthSuccess))
   case r of
     Left e -> do
       let !err = SASL.AuthTransport ("reauth: " <> show e)
@@ -195,8 +196,9 @@ doHandshake st runner = do
         writeTVar st.lastError (Just err)
         writeTVar st.inFlight False
       runner.logger err
-    Right (Right brokerLifetimeMs) -> do
+    Right (Right success) -> do
       now <- nowMs
+      let !brokerLifetimeMs = SASL.authSessionLifetimeMs success
       atomically $ do
         writeTVar st.lastBrokerLifetimeMs brokerLifetimeMs
         let !d = SASL.effectiveReauthDeadlineMs

@@ -1,3 +1,9 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -58,6 +64,8 @@ module Kafka.Network.Auth.SASL
   , mechanismWireName
     -- * High-level entry point
   , authenticate
+  , authenticateDetailed
+  , AuthSuccess(..)
   , AuthError(..)
     -- * KIP-368 session re-authentication
   , effectiveReauthDeadlineMs
@@ -66,21 +74,49 @@ module Kafka.Network.Auth.SASL
   , SaslMechanismImpl(..)
   , StepResult(..)
   , plainImpl
+  , plainImplWithAuthzid
   , scramImpl
   , oauthBearerImpl
+  , oauthBearerImplWithExtensions
   , awsMskIamImpl
   , gssapiImpl
+  , gssapiBuildEnabled
   , configMechanism
   ) where
 
 import Control.Exception (SomeException, try)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Int (Int16, Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Kafka.Network.Connection.Internal (Connection)
+
+#ifdef WIREFORM_KAFKA_GSSAPI
+import Control.Exception (bracketOnError, finally, throwIO)
+import Control.Monad (void)
+import Data.Bits ((.&.))
+import qualified Data.ByteString.Char8 as BS8
+import qualified Foreign.Concurrent as FC
+import Foreign
+  ( Ptr
+  , Storable(..)
+  , alloca
+  , castPtr
+  , nullPtr
+  , plusPtr
+  , peek
+  , poke
+  , withForeignPtr
+  )
+import Foreign.C.Types (CSize(..), CUInt(..))
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Marshal.Alloc (free, malloc)
+import qualified Network.Security.GssApi as GSSAPI ()
+#endif
 
 import qualified Kafka.Client.Internal.Request as Req
 import qualified Kafka.Network.Auth.AwsMskIam as Iam
@@ -107,10 +143,23 @@ data SaslConfig
   = -- | SASL\/PLAIN with a static username\/password. Send only over
     --   TLS — the password is on the wire in the clear.
     SaslPlain !Text !Text
+  | -- | SASL\/PLAIN with an explicit authorization identity
+    --   (@authzid@) distinct from the authentication identity. Most
+    --   Kafka deployments leave this empty; use this only when the
+    --   broker-side auth stack is configured to honor it.
+    SaslPlainWithAuthzid
+        !Text  -- ^ Authorization identity (@authzid@)
+        !Text  -- ^ Authentication identity / username
+        !Text  -- ^ Password
   | -- | SASL\/SCRAM with the chosen hash variant.
     SaslScram !Scram.ScramAlgo !Text !Text
   | -- | SASL\/OAUTHBEARER with a pluggable token provider.
     SaslOAuthBearer !OAuth.OAuthTokenProvider
+  | -- | SASL\/OAUTHBEARER with optional RFC 7628 authzid/host/port
+    --   extensions.
+    SaslOAuthBearerWithExtensions
+        !OAuth.OAuthTokenProvider
+        !OAuth.OAuthBearerExtensions
   | -- | AWS MSK IAM (@AWS_MSK_IAM@). Pass a credentials provider and
     --   the AWS region; the broker host is taken from the connection
     --   target at handshake time.
@@ -145,9 +194,11 @@ mechanismWireName = \case
 configMechanism :: SaslConfig -> SaslMechanismName
 configMechanism = \case
   SaslPlain{}                               -> NamePlain
+  SaslPlainWithAuthzid{}                    -> NamePlain
   SaslScram Scram.ScramSHA256 _ _           -> NameScramSha256
   SaslScram Scram.ScramSHA512 _ _           -> NameScramSha512
   SaslOAuthBearer{}                         -> NameOAuthBearer
+  SaslOAuthBearerWithExtensions{}           -> NameOAuthBearer
   SaslAwsMskIam{}                           -> NameAwsMskIam
   SaslGssapi{}                              -> NameGssapi
 
@@ -160,7 +211,7 @@ configMechanism = \case
 -- defined trailing tokens (SCRAM's server-final), but stops sending
 -- new ones.
 data StepResult
-  = StepSend  !ByteString (Maybe ByteString -> Either String StepResult)
+  = StepSend  !ByteString (Maybe ByteString -> IO (Either String StepResult))
     -- ^ Send these bytes; when the broker replies, feed its bytes
     --   (or 'Nothing' for "the broker said this was the last round")
     --   back in to get the next step.
@@ -193,6 +244,13 @@ data AuthError
   | AuthTransport   !String        -- ^ Network / decode error during the SASL exchange
   deriving (Show)
 
+-- | Metadata returned by a successful SASL authentication.
+data AuthSuccess = AuthSuccess
+  { authSessionLifetimeMs :: !Int
+    -- ^ Broker-advertised @SaslAuthenticateResponse.session_lifetime_ms@.
+    --   Zero means the broker did not advertise a SASL reauth deadline.
+  } deriving (Eq, Show)
+
 -- | Run the full SASL handshake (SaslHandshakeRequest +
 -- SaslAuthenticateRequest loop) over an already-open connection.
 authenticate
@@ -201,7 +259,18 @@ authenticate
   -> Text          -- ^ Broker host (used by mechanisms like AWS_MSK_IAM)
   -> SaslConfig
   -> IO (Either AuthError ())
-authenticate conn clientId host cfg = do
+authenticate conn clientId host cfg =
+  fmap (fmap (const ())) (authenticateDetailed conn clientId host cfg)
+
+-- | Like 'authenticate', but preserves broker metadata needed by
+-- KIP-368 re-authentication scheduling.
+authenticateDetailed
+  :: Connection
+  -> Text          -- ^ Client id (used in request headers)
+  -> Text          -- ^ Broker host (used by mechanisms like AWS_MSK_IAM)
+  -> SaslConfig
+  -> IO (Either AuthError AuthSuccess)
+authenticateDetailed conn clientId host cfg = do
   let mechName = mechanismWireName (configMechanism cfg)
       mech     = mechanismImpl host cfg
   corrIdRef <- newIORef (0 :: Int32)
@@ -261,35 +330,42 @@ drive
   -> P.KafkaString
   -> IO Int32
   -> SaslMechanismImpl
-  -> IO (Either AuthError ())
+  -> IO (Either AuthError AuthSuccess)
 drive conn clientId nextCorrId SaslMechanismImpl{..} = do
   initR <- smiInitial
   case initR of
     Left err -> pure (Left (AuthMechanism err))
-    Right step -> loop step
+    Right step -> loop 0 step
   where
-    loop = \case
+    loop !lastLifetimeMs = \case
       StepError err           -> pure (Left (AuthMechanism err))
-      StepDone Nothing        -> pure (Right ())
+      StepDone Nothing        -> pure (Right (AuthSuccess lastLifetimeMs))
       StepDone (Just verify)  ->
         -- The broker may be silent now; we don't expect more bytes
         -- but if it sends them we still hand them through verify.
-        pure (Right ())
+        pure (Right (AuthSuccess lastLifetimeMs))
         -- (the actual round-trip path lives in StepSend below)
       StepSend out k -> do
         sendR <- saslAuthenticate conn clientId nextCorrId out
         case sendR of
           Left err               -> pure (Left err)
-          Right brokerBytes      -> case k brokerBytes of
-            Left err     -> pure (Left (AuthMechanism err))
-            Right next   -> loop next
+          Right brokerResponse    -> do
+            nextR <- k (sbrAuthBytes brokerResponse)
+            case nextR of
+              Left err     -> pure (Left (AuthMechanism err))
+              Right next   -> loop (sbrSessionLifetimeMs brokerResponse) next
+
+data SaslBrokerResponse = SaslBrokerResponse
+  { sbrAuthBytes :: !(Maybe ByteString)
+  , sbrSessionLifetimeMs :: !Int
+  } deriving (Eq, Show)
 
 saslAuthenticate
   :: Connection
   -> P.KafkaString
   -> IO Int32
   -> ByteString
-  -> IO (Either AuthError (Maybe ByteString))
+  -> IO (Either AuthError SaslBrokerResponse)
 saslAuthenticate conn clientId nextCorrId bytes = do
   let req = SAReq.SaslAuthenticateRequest
         { SAReq.saslAuthenticateRequestAuthBytes = P.mkKafkaBytes bytes }
@@ -311,12 +387,13 @@ saslAuthenticate conn clientId nextCorrId bytes = do
               raw  = case P.unKafkaBytes (SAResp.saslAuthenticateResponseAuthBytes resp) of
                        P.NotNull v -> Just v
                        P.Null      -> Nothing
+              lifetimeMs = fromIntegral (SAResp.saslAuthenticateResponseSessionLifetimeMs resp)
           in if ec /= 0
                then pure (Left (AuthBrokerError ec
                        (if T.null msg
                           then "SaslAuthenticate error " <> T.pack (show ec)
                           else msg)))
-               else pure (Right raw)
+               else pure (Right (SaslBrokerResponse raw lifetimeMs))
 
 ------------------------------------------------------------------------
 -- Built-in mechanism implementations
@@ -325,24 +402,35 @@ saslAuthenticate conn clientId nextCorrId bytes = do
 mechanismImpl :: Text -> SaslConfig -> SaslMechanismImpl
 mechanismImpl host = \case
   SaslPlain user pwd            -> plainImpl user pwd
+  SaslPlainWithAuthzid authzid user pwd -> plainImplWithAuthzid authzid user pwd
   SaslScram algo user pwd       -> scramImpl algo user pwd
   SaslOAuthBearer provider      -> oauthBearerImpl provider
+  SaslOAuthBearerWithExtensions provider ext -> oauthBearerImplWithExtensions ext provider
   SaslAwsMskIam provider region -> awsMskIamImpl provider host region
-  SaslGssapi                    -> gssapiImpl
+  SaslGssapi                    -> gssapiImplForHost host
 
 -- | SASL\/PLAIN: one client message, broker either accepts or rejects.
 plainImpl :: Text -> Text -> SaslMechanismImpl
-plainImpl user pwd = SaslMechanismImpl
+plainImpl = plainImplWithAuthzidMaybe Nothing
+
+-- | SASL\/PLAIN with an explicit authorization identity.
+plainImplWithAuthzid :: Text -> Text -> Text -> SaslMechanismImpl
+plainImplWithAuthzid authzid = plainImplWithAuthzidMaybe (Just authzid)
+
+plainImplWithAuthzidMaybe :: Maybe Text -> Text -> Text -> SaslMechanismImpl
+plainImplWithAuthzidMaybe mAuthzid user pwd = SaslMechanismImpl
   { smiName    = "PLAIN"
-  , smiInitial = pure (Right initial)
+  , smiInitial = pure $ do
+      validatePlainInputs mAuthzid user pwd
+      Right initial
   }
   where
-    bytes   = Plain.generatePlainAuth user pwd
+    bytes   = Plain.generatePlainAuthWithAuthzid mAuthzid user pwd
     initial = StepSend bytes $ \_brokerBytes ->
       -- Broker either errored (and we'd never get here — the driver
       -- short-circuits on a non-zero error code) or accepted with no
       -- payload. Either way, we're done.
-      Right (StepDone Nothing)
+      pure (Right (StepDone Nothing))
 
 -- | SASL\/SCRAM-SHA-{256,512}.
 scramImpl :: Scram.ScramAlgo -> Text -> Text -> SaslMechanismImpl
@@ -351,17 +439,14 @@ scramImpl algo user pwd = SaslMechanismImpl
   , smiInitial = do
       session <- Scram.newScramSession algo user pwd
       let cf = Scram.firstClientMessage session
-      pure $ Right $ StepSend cf $ \mServerFirst -> case mServerFirst of
-        Nothing -> Left "SCRAM: broker closed the auth conversation \
-                        \after the client-first message without sending \
-                        \a server-first."
+      pure $ Right $ StepSend cf $ \mServerFirst -> pure $ case mServerFirst of
+        Nothing -> Left "SCRAM: broker closed the auth conversation after the client-first message without sending a server-first."
         Just serverFirst ->
           case Scram.finalClientMessage session serverFirst of
             Left err -> Left err
             Right (clientFinal, verifier) ->
-              Right $ StepSend clientFinal $ \mFinal -> case mFinal of
-                Nothing       -> Left "SCRAM: broker did not send a \
-                                      \server-final message."
+              Right $ StepSend clientFinal $ \mFinal -> pure $ case mFinal of
+                Nothing       -> Left "SCRAM: broker did not send a server-final message."
                 Just sfBytes  -> case verifier sfBytes of
                   Left err -> Left err
                   Right () -> Right (StepDone Nothing)
@@ -371,15 +456,22 @@ scramImpl algo user pwd = SaslMechanismImpl
 -- bearer token; broker either accepts (with empty auth_bytes) or
 -- rejects with an error code.
 oauthBearerImpl :: OAuth.OAuthTokenProvider -> SaslMechanismImpl
-oauthBearerImpl provider = SaslMechanismImpl
+oauthBearerImpl = oauthBearerImplWithExtensions OAuth.defaultOAuthBearerExtensions
+
+oauthBearerImplWithExtensions
+  :: OAuth.OAuthBearerExtensions
+  -> OAuth.OAuthTokenProvider
+  -> SaslMechanismImpl
+oauthBearerImplWithExtensions ext provider = SaslMechanismImpl
   { smiName    = "OAUTHBEARER"
   , smiInitial = do
       tokenR <- OAuth.resolveOAuthToken provider
       case tokenR of
         Left err  -> pure (Left ("OAUTHBEARER: " <> err))
-        Right tok ->
-          let bytes = OAuth.buildOAuthPayload tok
-          in pure $ Right $ StepSend bytes $ \_ -> Right (StepDone Nothing)
+        Right tok -> pure $ do
+          OAuth.validateOAuthBearerPayload ext tok
+          let bytes = OAuth.buildOAuthPayloadWithExtensions ext tok
+          Right $ StepSend bytes $ \_ -> pure (Right (StepDone Nothing))
   }
 
 -- | AWS MSK IAM. Computes the SigV4-signed JSON payload up front,
@@ -392,20 +484,253 @@ awsMskIamImpl provider host region = SaslMechanismImpl
                     "wireform-kafka/0.1" 900
       case payloadR of
         Left err -> pure (Left ("AWS_MSK_IAM: " <> err))
-        Right bs -> pure $ Right $ StepSend bs $ \_ -> Right (StepDone Nothing)
+        Right bs -> pure $ Right $ StepSend bs $ \_ -> pure (Right (StepDone Nothing))
   }
 
 -- | Stub for GSSAPI \/ Kerberos. Returning an explicit error here
 -- gives users a clear message instead of a confusing broker-side
 -- timeout.
 gssapiImpl :: SaslMechanismImpl
-gssapiImpl = SaslMechanismImpl
+gssapiImpl = gssapiImplForHost "localhost"
+
+gssapiImplForHost :: Text -> SaslMechanismImpl
+#ifdef WIREFORM_KAFKA_GSSAPI
+gssapiImplForHost host = SaslMechanismImpl
+  { smiName    = "GSSAPI"
+  , smiInitial = do
+      ctxR <- try (newGssClientContext ("kafka@" <> TE.encodeUtf8 host))
+      case ctxR of
+        Left (e :: SomeException) ->
+          pure (Left ("GSSAPI/Kerberos init failed: " <> show e))
+        Right ctx -> do
+          stepR <- runGssClientStep ctx Nothing
+          pure (gssStep ctx stepR)
+  }
+#else
+gssapiImplForHost _ = SaslMechanismImpl
   { smiName    = "GSSAPI"
   , smiInitial = pure $ Left
-      "GSSAPI/Kerberos is not implemented in wireform-kafka. \
-      \Use SASL/SCRAM-SHA-512 or AWS_MSK_IAM instead, or wire \
-      \your own SaslMechanismImpl on top of MIT Kerberos GSS bindings."
+      "GSSAPI/Kerberos is not implemented in wireform-kafka. Build wireform-kafka with the gssapi flag to enable the optional Kerberos dependency, or use SASL/SCRAM-SHA-512 or AWS_MSK_IAM."
   }
+#endif
+
+gssapiBuildEnabled :: Bool
+#ifdef WIREFORM_KAFKA_GSSAPI
+gssapiBuildEnabled = True
+#else
+gssapiBuildEnabled = False
+#endif
+
+#ifdef WIREFORM_KAFKA_GSSAPI
+data OidDescStruct
+newtype GssOID = GssOID (Ptr OidDescStruct)
+newtype GssNameT = GssNameT { unGssNameT :: Ptr () } deriving (Storable)
+newtype GssCredIdT = GssCredIdT (Ptr ()) deriving (Storable)
+newtype GssCtxIdT = GssCtxIdT (Ptr ()) deriving (Storable)
+newtype GssChannelBindingsT = GssChannelBindingsT (Ptr ()) deriving (Storable)
+
+data GssBufferDesc = GssBufferDesc !CSize !(Ptr ())
+
+instance Storable GssBufferDesc where
+  sizeOf _ = sizeOf (undefined :: CSize) + sizeOf (undefined :: Ptr ())
+  alignment _ = alignment (undefined :: Ptr ())
+  poke p (GssBufferDesc len value) = do
+    poke (castPtr p) len
+    poke (castPtr (p `plusPtr` sizeOf (undefined :: CSize))) value
+  peek p =
+    GssBufferDesc
+      <$> peek (castPtr p)
+      <*> peek (castPtr (p `plusPtr` sizeOf (undefined :: CSize)))
+
+foreign import capi "gssapi/gssapi.h value GSS_C_NT_HOSTBASED_SERVICE"
+  gssCNtHostbasedService :: GssOID
+foreign import capi "gssapi/gssapi.h value GSS_C_NO_OID"
+  gssCNoOid :: GssOID
+foreign import capi "gssapi/gssapi.h value GSS_C_NO_CREDENTIAL"
+  gssCNoCredential :: GssCredIdT
+foreign import capi "gssapi/gssapi.h value GSS_C_NO_CONTEXT"
+  gssCNoContext :: GssCtxIdT
+foreign import capi "gssapi/gssapi.h value GSS_C_NO_CHANNEL_BINDINGS"
+  gssCNoChannelBindings :: GssChannelBindingsT
+foreign import capi "gssapi/gssapi.h value GSS_C_NO_BUFFER"
+  gssCNoBuffer :: Ptr GssBufferDesc
+foreign import capi "gssapi/gssapi.h value GSS_C_GSS_CODE"
+  gssCGssCode :: CUInt
+foreign import capi "gssapi/gssapi.h value GSS_C_MECH_CODE"
+  gssCMechCode :: CUInt
+foreign import capi "gssapi/gssapi.h value GSS_S_CONTINUE_NEEDED"
+  gssSContinueNeeded :: CUInt
+
+foreign import capi "gssapi/gssapi.h GSS_ERROR"
+  gssErrorRaw :: CUInt -> CUInt
+
+foreign import ccall unsafe "gssapi/gssapi.h gss_import_name"
+  c_gss_import_name
+    :: Ptr CUInt -> Ptr GssBufferDesc -> GssOID -> Ptr GssNameT -> IO CUInt
+
+foreign import ccall unsafe "gssapi/gssapi.h gss_release_name"
+  c_gss_release_name :: Ptr CUInt -> GssNameT -> IO CUInt
+
+foreign import ccall unsafe "gssapi/gssapi.h gss_release_buffer"
+  c_gss_release_buffer :: Ptr CUInt -> Ptr GssBufferDesc -> IO CUInt
+
+foreign import ccall unsafe "gssapi/gssapi.h gss_display_status"
+  c_gss_display_status
+    :: Ptr CUInt -> CUInt -> CUInt -> GssOID -> Ptr CUInt -> Ptr GssBufferDesc -> IO CUInt
+
+foreign import ccall safe "gssapi/gssapi.h gss_init_sec_context"
+  c_gss_init_sec_context
+    :: Ptr CUInt
+    -> GssCredIdT
+    -> Ptr GssCtxIdT
+    -> GssNameT
+    -> GssOID
+    -> CUInt
+    -> CUInt
+    -> GssChannelBindingsT
+    -> Ptr GssBufferDesc
+    -> Ptr GssOID
+    -> Ptr GssBufferDesc
+    -> Ptr CUInt
+    -> Ptr CUInt
+    -> IO CUInt
+
+foreign import ccall unsafe "gssapi/gssapi.h gss_delete_sec_context"
+  c_gss_delete_sec_context :: Ptr CUInt -> Ptr GssCtxIdT -> Ptr GssBufferDesc -> IO CUInt
+
+data GssClientContext = GssClientContext
+  { gccContext :: !(ForeignPtr GssCtxIdT)
+  , gccTargetName :: !(ForeignPtr ())
+  }
+
+newGssClientContext :: ByteString -> IO GssClientContext
+newGssClientContext target = bracketOnError (gssImportName target) gssReleaseName $ \targetName -> do
+  nameFp <- FC.newForeignPtr (unGssNameT targetName) (gssReleaseName targetName)
+  ctxPtr <- malloc
+  poke ctxPtr gssCNoContext
+  ctxFp <- FC.newForeignPtr ctxPtr $ do
+    alloca $ \minor -> void (c_gss_delete_sec_context minor ctxPtr gssCNoBuffer)
+    free ctxPtr
+  pure GssClientContext
+    { gccContext = ctxFp
+    , gccTargetName = nameFp
+    }
+
+gssImportName :: ByteString -> IO GssNameT
+gssImportName target =
+  withInputBuffer (Just target) $ \targetBuf ->
+    alloca $ \minor ->
+      alloca $ \namePtr -> do
+        major <- c_gss_import_name minor targetBuf gssCNtHostbasedService namePtr
+        whenGssOk major minor (peek namePtr)
+
+gssReleaseName :: GssNameT -> IO ()
+gssReleaseName name =
+  alloca $ \minor -> void (c_gss_release_name minor name)
+
+runGssClientStep :: GssClientContext -> Maybe ByteString -> IO (Either String (ByteString, Bool))
+runGssClientStep GssClientContext{..} mInput =
+  fmap normalize (try runStep)
+  where
+    normalize :: Either SomeException (ByteString, Bool) -> Either String (ByteString, Bool)
+    normalize = \case
+      Left e -> Left (show e)
+      Right r -> Right r
+
+    runStep =
+      withForeignPtr gccContext $ \ctxPtr ->
+        withForeignPtr gccTargetName $ \targetPtr ->
+          withInputBuffer mInput $ \inputBuf ->
+            withOutputBuffer $ \outputBuf ->
+              alloca $ \minor ->
+                alloca $ \retFlags ->
+                  alloca $ \timeRec -> do
+                    major <- c_gss_init_sec_context
+                      minor
+                      gssCNoCredential
+                      ctxPtr
+                      (GssNameT targetPtr)
+                      gssCNoOid
+                      0
+                      0
+                      gssCNoChannelBindings
+                      inputBuf
+                      nullPtr
+                      outputBuf
+                      retFlags
+                      timeRec
+                    whenGssOk major minor $ do
+                      output <- peekGssBuffer outputBuf
+                      pure (output, gssContinueNeeded major)
+
+gssStep :: GssClientContext -> Either String (ByteString, Bool) -> Either String StepResult
+gssStep _ (Left err) = Left ("GSSAPI/Kerberos: " <> err)
+gssStep ctx (Right (out, continue))
+  | BS.null out && continue =
+      Left "GSSAPI/Kerberos: GSSAPI requested continuation without an output token"
+  | BS.null out =
+      Right (StepDone Nothing)
+  | otherwise =
+      Right $ StepSend out $ \mChallenge ->
+        if continue
+          then case mChallenge of
+            Nothing -> pure (Left "GSSAPI/Kerberos: broker did not send a continuation token")
+            Just challenge -> do
+              next <- runGssClientStep ctx (Just challenge)
+              pure (gssStep ctx next)
+          else pure (Right (StepDone Nothing))
+
+gssContinueNeeded :: CUInt -> Bool
+gssContinueNeeded major = major .&. gssSContinueNeeded /= 0
+
+gssError :: CUInt -> Bool
+gssError major = gssErrorRaw major /= 0
+
+whenGssOk :: CUInt -> Ptr CUInt -> IO a -> IO a
+whenGssOk major minorPtr action
+  | gssError major = do
+      minor <- peek minorPtr
+      majorMsg <- gssDisplayStatus gssCGssCode major
+      minorMsg <- gssDisplayStatus gssCMechCode minor
+      throwIO (userError ("GSS major=" <> BS8.unpack majorMsg <> "; minor=" <> BS8.unpack minorMsg))
+  | otherwise = action
+
+gssDisplayStatus :: CUInt -> CUInt -> IO ByteString
+gssDisplayStatus statusType status =
+  alloca $ \minor ->
+    alloca $ \msgCtx ->
+      withOutputBuffer $ \buf -> do
+        poke msgCtx 0
+        major <- c_gss_display_status minor status statusType gssCNoOid msgCtx buf
+        if gssError major
+          then pure ""
+          else peekGssBuffer buf
+
+withInputBuffer :: Maybe ByteString -> (Ptr GssBufferDesc -> IO a) -> IO a
+withInputBuffer Nothing action = action gssCNoBuffer
+withInputBuffer (Just bs) action =
+  BS.useAsCStringLen bs $ \(ptr, len) ->
+    alloca $ \buf -> do
+      poke buf (GssBufferDesc (fromIntegral len) (castPtr ptr))
+      action buf
+
+withOutputBuffer :: (Ptr GssBufferDesc -> IO a) -> IO a
+withOutputBuffer action =
+  alloca $ \buf -> do
+    poke buf (GssBufferDesc 0 nullPtr)
+    action buf `finally` releaseBuffer buf
+
+releaseBuffer :: Ptr GssBufferDesc -> IO ()
+releaseBuffer buf =
+  alloca $ \minor -> void (c_gss_release_buffer minor buf)
+
+peekGssBuffer :: Ptr GssBufferDesc -> IO ByteString
+peekGssBuffer buf = do
+  GssBufferDesc len ptr <- peek buf
+  if len == 0 || ptr == nullPtr
+    then pure BS.empty
+    else BS.packCStringLen (castPtr ptr, fromIntegral len)
+#endif
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -415,6 +740,18 @@ kafkaStrToText :: P.KafkaString -> Text
 kafkaStrToText ks = case P.unKafkaString ks of
   P.NotNull t -> t
   P.Null      -> T.empty
+
+validatePlainInputs :: Maybe Text -> Text -> Text -> Either String ()
+validatePlainInputs mAuthzid user pwd = do
+  maybe (Right ()) (validatePlainField "authorization identity") mAuthzid
+  validatePlainField "username" user
+  validatePlainField "password" pwd
+
+validatePlainField :: String -> Text -> Either String ()
+validatePlainField fieldName value
+  | T.any (== '\NUL') value =
+      Left ("PLAIN: " <> fieldName <> " must not contain NUL")
+  | otherwise = Right ()
 
 ------------------------------------------------------------------------
 -- KIP-368 session re-authentication

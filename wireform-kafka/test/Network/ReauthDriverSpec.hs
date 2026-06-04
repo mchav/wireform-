@@ -45,7 +45,7 @@ force_now = do
   let runner = RD.ReauthRunner
         { RD.authenticate = do
             modifyIORef' callsRef (+ 1)
-            pure (Right 60_000)
+            pure (Right (SASL.AuthSuccess 60_000))
         , RD.logger = \_ -> pure ()
         }
   RD.startReauthThread st runner
@@ -65,7 +65,7 @@ success_path :: IO ()
 success_path = do
   st <- RD.createReauthState 60_000
   let runner = RD.ReauthRunner
-        { RD.authenticate = pure (Right 30_000)
+        { RD.authenticate = pure (Right (SASL.AuthSuccess 30_000))
         , RD.logger       = \_ -> pure ()
         }
   RD.startReauthThread st runner

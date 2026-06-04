@@ -447,7 +447,7 @@ pipeline_attach_reauth_driver_pauses_during_handshake =
                   paused <- isPipelinePaused pipe
                   IORef.writeIORef observedPausedRef paused
                   IORef.writeIORef ranRef True
-                  pure (Right 60_000)
+                  pure (Right (SASL.AuthSuccess 60_000))
               , Reauth.logger = \_ -> pure ()
               }
 

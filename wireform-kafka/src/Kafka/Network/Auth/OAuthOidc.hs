@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 {-|
 Module      : Kafka.Network.Auth.OAuthOidc
@@ -45,6 +46,8 @@ module Kafka.Network.Auth.OAuthOidc
   , lookupToken
   , tokenRefreshDeadlineMs
   , shouldRefreshToken
+  , oidcTokenProvider
+  , oidcTokenProviderWithPkce
     -- * Pluggable fetcher
   , OidcTokenFetcher (..)
   ) where
@@ -60,6 +63,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
+import qualified Kafka.Network.Auth.OAuthBearer as OAuth
+import qualified Kafka.Time as KafkaTime
 
 ----------------------------------------------------------------------
 -- Config
@@ -175,3 +180,48 @@ data OidcTokenFetcher = OidcTokenFetcher
            -> Maybe PkceVerifier
            -> IO (Either String OidcToken))
   }
+
+-- | Build a SASL\/OAUTHBEARER token provider from an OIDC fetcher and
+-- cache. Cached tokens are reused until they reach the proactive
+-- refresh deadline from 'tokenRefreshDeadlineMs'.
+oidcTokenProvider
+  :: OidcClientConfig
+  -> TokenCache
+  -> OidcTokenFetcher
+  -> OAuth.OAuthTokenProvider
+oidcTokenProvider cfg cache fetcher =
+  oidcTokenProviderWithPkce cfg cache fetcher Nothing
+
+-- | Variant of 'oidcTokenProvider' for public clients using PKCE.
+oidcTokenProviderWithPkce
+  :: OidcClientConfig
+  -> TokenCache
+  -> OidcTokenFetcher
+  -> Maybe PkceVerifier
+  -> OAuth.OAuthTokenProvider
+oidcTokenProviderWithPkce cfg@OidcClientConfig{..} cache fetcher mVerifier =
+  OAuth.OAuthTokenIO $ do
+    now <- KafkaTime.currentTimeMillis
+    cached <- lookupToken cache oidcClientId
+    case cached of
+      Just tok
+        | not (shouldRefreshToken now tok) ->
+            pure (Right (toOAuthToken tok))
+      _ ->
+        if oidcUsePkce && mVerifier == Nothing
+          then pure (Left "OIDC: PKCE is enabled but no verifier was supplied")
+          else do
+            fetched <- otfFetchToken fetcher cfg (if oidcUsePkce then mVerifier else Nothing)
+            case fetched of
+              Left err -> pure (Left err)
+              Right tok -> do
+                storeToken cache oidcClientId tok
+                pure (Right (toOAuthToken tok))
+
+toOAuthToken :: OidcToken -> OAuth.OAuthToken
+toOAuthToken OidcToken{..} =
+  OAuth.OAuthToken
+    { OAuth.oauthTokenBytes = otAccessToken
+    , OAuth.oauthLifetimeMs = Just (fromIntegral (otExpiresAtMs - otIssuedAtMs))
+    , OAuth.oauthPrincipalName = Nothing
+    }
