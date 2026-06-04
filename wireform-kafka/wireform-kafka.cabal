@@ -42,6 +42,8 @@ extra-source-files:
     test/Serde/buf.lock
     test/Serde/buf.real.v1.lock
     test/Serde/buf.real.v2.lock
+    test/Serde/interop/go-timestamp.bin
+    test/Serde/interop/go-timestamp.headers
 
 flag rocksdb
     description:

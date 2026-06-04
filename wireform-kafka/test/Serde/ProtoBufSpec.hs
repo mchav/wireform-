@@ -10,6 +10,7 @@ module Serde.ProtoBufSpec (tests) where
 
 import           Data.Bifunctor       (first)
 import           Data.ByteString      (ByteString)
+import qualified Data.ByteString      as BS
 import qualified Data.Map.Strict      as Map
 import           Data.Proxy           (Proxy (..))
 import           Data.Text            (Text)
@@ -33,7 +34,7 @@ import           Kafka.Serde.Proto.Buf.TH (bufCommitFromLock, bufProtoKeySerdeFr
 
 import           Proto.Decode         (MessageDecode (..), getTagOr, getText, getVarint, skipField)
 import           Proto.Encode         (MessageEncode (..), encodeFieldString, encodeFieldVarint)
-import           Proto.Google.Protobuf.Timestamp (Timestamp)
+import           Proto.Google.Protobuf.Timestamp (Timestamp (..))
 import           Proto.Internal.Wire  (Tag (..))
 import           Proto.Schema         (ProtoMessage (..))
 
@@ -316,6 +317,36 @@ tests =
             ]
         ]
     , testGroup
+        "cross-language interop (bufbuild/bsr-kafka-serde-go v0.3.0)"
+        -- Golden record under test/Serde/interop/ was produced by the
+        -- real Go bsr-kafka-serde-go Serde.Serialize of a
+        -- google.protobuf.Timestamp{1700000000,123} (static commit
+        -- resolver). These assertions prove the Haskell and Go layers
+        -- agree byte-for-byte on the wire.
+        [ testCase "Go-produced headers match the Buf convention" $ do
+            (hdrs, _) <- loadGoRecord
+            H.lookup messageHeaderName hdrs
+              @?= Just (TE.encodeUtf8 "google.protobuf.Timestamp")
+            H.lookup commitHeaderName hdrs
+              @?= Just (TE.encodeUtf8 goInteropCommit)
+        , testCase "Haskell decodeAs consumes the Go-produced record" $ do
+            (hdrs, val) <- loadGoRecord
+            decodeAs (Proxy :: Proxy Timestamp) hdrs val @?= Right goTimestamp
+        , testCase "Haskell dispatch routes the Go-produced record" $ do
+            (hdrs, val) <- loadGoRecord
+            dispatch [Handler (Proxy :: Proxy Timestamp) id] hdrs val
+              @?= Right goTimestamp
+        , testCase "Haskell bufProtoSerde produces byte-identical value + headers" $ do
+            (hdrs, val) <- loadGoRecord
+            let s = bufProtoSerde goInteropCommit Nothing :: Serde.Serde Timestamp
+                hsk = Serde.serializeHeaders s goTimestamp
+            -- value bytes identical to Go's proto.Marshal output
+            Serde.serialize s goTimestamp @?= val
+            -- the two identity headers match Go's, by name + value
+            H.lookup messageHeaderName hsk @?= H.lookup messageHeaderName hdrs
+            H.lookup commitHeaderName hsk @?= H.lookup commitHeaderName hdrs
+        ]
+    , testGroup
         "key-side schema identity"
         [ testCase "key header names are byte-identical to the convention" $ do
             keyMessageHeaderName @?= "buf.registry.key.schema.message"
@@ -394,6 +425,30 @@ realSplicedCommit =
 -- generated. Stable as long as the committed buf.lock files are.
 realCommit :: Text
 realCommit = "50325440f8f24053b047484a6bf60b76"
+
+-- | The Timestamp the Go serde was given (and that its golden record
+-- decodes back to).
+goTimestamp :: Timestamp
+goTimestamp = Timestamp 1700000000 123 []
+
+-- | The static commit the Go serde's resolver returned.
+goInteropCommit :: Text
+goInteropCommit = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+
+-- | Load the golden record produced by the real Go @bsr-kafka-serde-go@
+-- serializer: the bare value bytes and the @(name, value)@ headers it
+-- attached (one @name\\tvalue@ line each).
+loadGoRecord :: IO (H.Headers, ByteString)
+loadGoRecord = do
+  val <- BS.readFile "test/Serde/interop/go-timestamp.bin"
+  raw <- TIO.readFile "test/Serde/interop/go-timestamp.headers"
+  let parseLine l =
+        let (k, v) = T.breakOn "\t" l
+         in (T.strip k, TE.encodeUtf8 (T.strip (T.drop 1 v)))
+      hdrs =
+        H.fromList
+          (fmap parseLine (filter (not . T.null) (T.lines raw)))
+  pure (hdrs, val)
 
 -- Inline fixtures for the pure parser (kept separate from the on-disk
 -- fixture used by the splice).
