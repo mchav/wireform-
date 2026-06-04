@@ -49,6 +49,7 @@ module Kafka.Client.Internal.BatchAccumulator
     -- * Draining Batches
   , drainReadyBatches
   , hasReadyBatches
+  , purgePendingBatches
     -- * Batch Types
   , ProducerBatch(..)
   , BatchState(..)
@@ -67,7 +68,7 @@ import Data.Atomics
   , readForCAS
   )
 import qualified Data.ByteString as BS
-import Data.Foldable (toList)
+import Data.Foldable (foldl', toList)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
@@ -455,6 +456,49 @@ flushPendingBatches :: BatchAccumulator -> IO ()
 flushPendingBatches BatchAccumulator{..} = do
   parts <- readIORef accumulatorPartitions
   forM_ (HashMap.elems parts) markCurrentBatchReadyIO
+
+-- | Drop every locally queued batch without closing the accumulator.
+--
+-- This is the accumulator-level analogue of librdkafka's
+-- @RD_KAFKA_PURGE_F_QUEUE@: records that have already been drained
+-- by the sender thread are not touched, but records still sitting in
+-- the per-partition ready queue or current filling batch are removed
+-- and their callbacks receive the supplied local error.
+--
+-- The returned map counts records purged per topic-partition so the
+-- producer can repair sequence bookkeeping for idempotent producers:
+-- this implementation assigns sequence numbers before enqueue, while
+-- a local purge means those sequence numbers never reached a broker.
+purgePendingBatches :: BatchAccumulator -> Text -> IO (HashMap TopicPartition Int)
+purgePendingBatches BatchAccumulator{..} reason = do
+  parts <- readIORef accumulatorPartitions
+  fmap (foldl' (HashMap.unionWith (+)) HashMap.empty) $
+    forM (HashMap.elems parts) purgePartitionQueue
+  where
+    purgePartitionQueue :: PartitionQueue -> IO (HashMap TopicPartition Int)
+    purgePartitionQueue PartitionQueue{..} = do
+      queued <- atomicModifyIORef' queueBatches $ \s -> (Seq.empty, s)
+      current <- atomicModifyIORef' queueCurrentBatch $ \mb -> (Nothing, mb)
+      currentCounts <- case current of
+        Nothing -> pure HashMap.empty
+        Just ba -> do
+          batch <- snapshotBatch ba (Failed reason)
+          failBatch batch
+          pure (countBatch HashMap.empty batch)
+      forM_ queued failBatch
+      pure (foldl' countBatch currentCounts queued)
+
+    countBatch :: HashMap TopicPartition Int -> ProducerBatch -> HashMap TopicPartition Int
+    countBatch counts batch =
+      HashMap.insertWith
+        (+)
+        (batchTopicPartition batch)
+        (V.length (batchRecords batch))
+        counts
+
+    failBatch :: ProducerBatch -> IO ()
+    failBatch batch =
+      V.mapM_ (\cb -> runRecordCallback cb (Left reason)) (batchCallbacks batch)
 
 -- | Promote a partition's in-flight accumulating batch onto the
 -- ready 'queueBatches', if any. Snapshots the 'BatchAccumulating'

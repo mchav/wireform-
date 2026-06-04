@@ -14,6 +14,7 @@ Mapping Apache Kafka 4.0 Java SDK to wireform-kafka Haskell equivalents.
 | `RecordMetadata` | Direct | `RecordMetadata` |
 | `send()` | Direct | `sendMessage`, `sendMessageAsync` |
 | `flush()` | Direct | `flushProducer` |
+| `purge()` | Direct | `purgeProducer` |
 | `partitionsFor()` | Partial | Use `AdminClient.describeTopics` |
 | `metrics` | Direct | `Kafka.Telemetry.Metrics` |
 | `initTransactions` | Direct | `initTransactions` |

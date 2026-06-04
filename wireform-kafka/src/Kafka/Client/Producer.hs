@@ -93,6 +93,7 @@ module Kafka.Client.Producer
     -- 'withProducer', which does) before tearing down the producer
     -- if you care about at-least-once delivery.
   , flushProducer
+  , purgeProducer
 
     -- * Configuration
   , ProducerConfig(..)
@@ -1090,6 +1091,41 @@ flushProducer Producer{..} = liftIO $ do
         else do
           threadDelay 100000  -- 100ms
           waitForAllBatches (n - 1)
+
+-- | Drop all locally queued producer records without closing the
+-- producer.
+--
+-- Mirrors librdkafka's local queue purge operation for records that
+-- have not yet been handed to the sender thread. Every purged
+-- record's callback/future receives a local failure, and the
+-- producer remains usable for later sends. Records already in flight
+-- to a broker are not affected.
+--
+-- Returns the number of locally purged records.
+purgeProducer :: MonadIO m => Producer -> m Int
+purgeProducer Producer{..} = liftIO $ do
+  writeIORef producerLastBatch Nothing
+  purged <- BA.purgePendingBatches producerAccumulator producerPurgeError
+  atomically $
+    HashMap.foldrWithKey
+      (\tp n rest -> rewindSequence tp n >> rest)
+      (pure ())
+      purged
+  pure (HashMap.foldl' (+) 0 purged)
+  where
+    rewindSequence :: BA.TopicPartition -> Int -> STM ()
+    rewindSequence tp n = do
+      curM <- StmMap.lookup tp producerSequenceNumbers
+      case curM of
+        Nothing -> pure ()
+        Just cur -> do
+          let !next = max 0 (cur - fromIntegral n)
+          if next == 0
+            then StmMap.delete tp producerSequenceNumbers
+            else StmMap.insert next tp producerSequenceNumbers
+
+producerPurgeError :: Text
+producerPurgeError = "Local: message purged from producer queue"
 
 -- | Bind a 'Txn.Transaction' to this producer.
 --
