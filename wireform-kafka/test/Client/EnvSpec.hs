@@ -638,6 +638,7 @@ assertSameSaslNothing a       b       =
 
 saslName :: SASL.SaslConfig -> String
 saslName SASL.SaslPlain{}       = "PLAIN"
+saslName SASL.SaslPlainWithAuthzid{} = "PLAIN"
 saslName (SASL.SaslScram Scram.ScramSHA256 _ _) = "SCRAM-SHA-256"
 saslName (SASL.SaslScram Scram.ScramSHA512 _ _) = "SCRAM-SHA-512"
 saslName SASL.SaslOAuthBearer{} = "OAUTHBEARER"

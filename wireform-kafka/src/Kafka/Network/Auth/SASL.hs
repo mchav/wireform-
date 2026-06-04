@@ -66,6 +66,7 @@ module Kafka.Network.Auth.SASL
   , SaslMechanismImpl(..)
   , StepResult(..)
   , plainImpl
+  , plainImplWithAuthzid
   , scramImpl
   , oauthBearerImpl
   , awsMskIamImpl
@@ -107,6 +108,14 @@ data SaslConfig
   = -- | SASL\/PLAIN with a static username\/password. Send only over
     --   TLS — the password is on the wire in the clear.
     SaslPlain !Text !Text
+  | -- | SASL\/PLAIN with an explicit authorization identity
+    --   (@authzid@) distinct from the authentication identity. Most
+    --   Kafka deployments leave this empty; use this only when the
+    --   broker-side auth stack is configured to honor it.
+    SaslPlainWithAuthzid
+        !Text  -- ^ Authorization identity (@authzid@)
+        !Text  -- ^ Authentication identity / username
+        !Text  -- ^ Password
   | -- | SASL\/SCRAM with the chosen hash variant.
     SaslScram !Scram.ScramAlgo !Text !Text
   | -- | SASL\/OAUTHBEARER with a pluggable token provider.
@@ -145,6 +154,7 @@ mechanismWireName = \case
 configMechanism :: SaslConfig -> SaslMechanismName
 configMechanism = \case
   SaslPlain{}                               -> NamePlain
+  SaslPlainWithAuthzid{}                    -> NamePlain
   SaslScram Scram.ScramSHA256 _ _           -> NameScramSha256
   SaslScram Scram.ScramSHA512 _ _           -> NameScramSha512
   SaslOAuthBearer{}                         -> NameOAuthBearer
@@ -325,6 +335,7 @@ saslAuthenticate conn clientId nextCorrId bytes = do
 mechanismImpl :: Text -> SaslConfig -> SaslMechanismImpl
 mechanismImpl host = \case
   SaslPlain user pwd            -> plainImpl user pwd
+  SaslPlainWithAuthzid authzid user pwd -> plainImplWithAuthzid authzid user pwd
   SaslScram algo user pwd       -> scramImpl algo user pwd
   SaslOAuthBearer provider      -> oauthBearerImpl provider
   SaslAwsMskIam provider region -> awsMskIamImpl provider host region
@@ -332,12 +343,19 @@ mechanismImpl host = \case
 
 -- | SASL\/PLAIN: one client message, broker either accepts or rejects.
 plainImpl :: Text -> Text -> SaslMechanismImpl
-plainImpl user pwd = SaslMechanismImpl
+plainImpl = plainImplWithAuthzidMaybe Nothing
+
+-- | SASL\/PLAIN with an explicit authorization identity.
+plainImplWithAuthzid :: Text -> Text -> Text -> SaslMechanismImpl
+plainImplWithAuthzid authzid = plainImplWithAuthzidMaybe (Just authzid)
+
+plainImplWithAuthzidMaybe :: Maybe Text -> Text -> Text -> SaslMechanismImpl
+plainImplWithAuthzidMaybe mAuthzid user pwd = SaslMechanismImpl
   { smiName    = "PLAIN"
   , smiInitial = pure (Right initial)
   }
   where
-    bytes   = Plain.generatePlainAuth user pwd
+    bytes   = Plain.generatePlainAuthWithAuthzid mAuthzid user pwd
     initial = StepSend bytes $ \_brokerBytes ->
       -- Broker either errored (and we'd never get here — the driver
       -- short-circuits on a non-zero error code) or accepted with no

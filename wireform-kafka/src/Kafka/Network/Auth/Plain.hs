@@ -19,6 +19,7 @@ See RFC 4616 for the complete PLAIN SASL mechanism specification.
 -}
 module Kafka.Network.Auth.Plain
   ( generatePlainAuth
+  , generatePlainAuthWithAuthzid
   , plainAuthData
   ) where
 
@@ -28,25 +29,30 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Word (Word8)
 
--- | Generate SASL/PLAIN authentication data.
---
--- The format is: [authzid] \\0 username \\0 password
--- For Kafka, authzid is typically empty.
---
--- Example:
---
--- > let authData = generatePlainAuth "alice" "secret123"
--- > -- Sends: \\0alice\\0secret123
+-- | Generate SASL/PLAIN authentication data with the Kafka-default
+-- empty authorization identity.
 generatePlainAuth
   :: Text      -- ^ Username
   -> Text      -- ^ Password
   -> ByteString
-generatePlainAuth username password =
-  let authzid = BS.empty  -- Empty authorization identity
+generatePlainAuth = generatePlainAuthWithAuthzid Nothing
+
+-- | Generate SASL/PLAIN authentication data.
+--
+-- The format is: @[authzid] \\0 username \\0 password@. For Kafka,
+-- @authzid@ is usually empty, but RFC 4616 permits callers to request
+-- a distinct authorization identity when the broker side supports it.
+generatePlainAuthWithAuthzid
+  :: Maybe Text -- ^ Authorization identity; 'Nothing' keeps it empty.
+  -> Text       -- ^ Username
+  -> Text       -- ^ Password
+  -> ByteString
+generatePlainAuthWithAuthzid mAuthzid username password =
+  let authzidBytes = maybe BS.empty encodeUtf8 mAuthzid
       nul = BS.singleton 0 :: ByteString
       usernameBytes = encodeUtf8 username
       passwordBytes = encodeUtf8 password
-  in BS.concat [authzid, nul, usernameBytes, nul, passwordBytes]
+  in BS.concat [authzidBytes, nul, usernameBytes, nul, passwordBytes]
 
 -- | Alias for 'generatePlainAuth' for clarity.
 plainAuthData :: Text -> Text -> ByteString

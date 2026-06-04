@@ -75,6 +75,10 @@ plainTests = testGroup "PLAIN"
               , TE.encodeUtf8 "ümlaut"
               ]
 
+  , testCase "authorization identity is encoded when supplied" $ do
+      Plain.generatePlainAuthWithAuthzid (Just "admin") "alice" "secret"
+        @?= BS.concat ["admin", BS.singleton 0, "alice", BS.singleton 0, "secret"]
+
   , testCase "SASL implementation sends the PLAIN payload and completes after accept" $ do
       let impl = SASL.plainImpl "alice" "secret"
       SASL.smiName impl @?= "PLAIN"
@@ -85,6 +89,17 @@ plainTests = testGroup "PLAIN"
           assertStepDone "PLAIN" (acceptBrokerBytes (Just ""))
         Right _ -> assertFailure "PLAIN should send exactly one client payload"
         Left err -> assertFailure ("unexpected PLAIN init failure: " <> err)
+
+  , testCase "SASL implementation can send an explicit authorization identity" $ do
+      let impl = SASL.plainImplWithAuthzid "admin" "alice" "secret"
+      SASL.smiName impl @?= "PLAIN"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          payload @?= Plain.generatePlainAuthWithAuthzid (Just "admin") "alice" "secret"
+          assertStepDone "PLAIN" (acceptBrokerBytes (Just ""))
+        Right _ -> assertFailure "PLAIN authzid should send exactly one client payload"
+        Left err -> assertFailure ("unexpected PLAIN authzid init failure: " <> err)
   ]
 
 --------------------------------------------------------------------------------
@@ -544,6 +559,9 @@ configTests :: TestTree
 configTests = testGroup "configMechanism"
   [ testCase "PLAIN" $
       SASL.configMechanism (SASL.SaslPlain "u" "p") @?= SASL.NamePlain
+  , testCase "PLAIN with authzid" $
+      SASL.configMechanism (SASL.SaslPlainWithAuthzid "authz" "u" "p")
+        @?= SASL.NamePlain
   , testCase "SCRAM-SHA-256" $
       SASL.configMechanism (SASL.SaslScram Scram.ScramSHA256 "u" "p")
         @?= SASL.NameScramSha256
