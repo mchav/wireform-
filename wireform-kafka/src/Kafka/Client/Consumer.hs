@@ -93,6 +93,7 @@ module Kafka.Client.Consumer
     -- loop with built-in commit + error handling, see
     -- "Kafka.Client.Group".
   , poll
+  , pollRecords
   , commitSync
   , commitAsync
   , commitSyncOffsets
@@ -1584,6 +1585,13 @@ poll consumer@Consumer{..} timeoutMs = liftIO $ do
      let !tp         = TopicPartition r.topic r.partition
          !nextOffset = r.offset + 1
      in HashMap.alter (Just . maybe nextOffset (max nextOffset)) tp m
+
+-- | 'poll' variant that returns the Java-style 'ConsumerRecords'
+-- batch wrapper.
+pollRecords :: MonadIO m => Consumer -> Int -> m (Either String ConsumerRecords)
+pollRecords consumer timeoutMs = do
+  r <- poll consumer timeoutMs
+  pure (ConsumerRecords <$> r)
 
 -- | Seek to a specific offset on an /assigned/ partition. The
 -- next 'poll' will re-fetch starting at @offset@. Mirrors
@@ -3168,7 +3176,9 @@ matchesSubscriptionPattern sp t =
 -- per-process and stable".
 clientInstanceId :: Consumer -> IO TopicIdImp.TopicId
 clientInstanceId c =
-  pure (TopicIdImp.TopicId (Telemetry.clientInstanceIdFromText (consumerGroupIdOf c)))
+  pure
+    (TopicIdImp.TopicId
+      (Telemetry.clientInstanceIdFromText ((consumerConfigOf c).consumerClientId)))
 
 ----------------------------------------------------------------------
 -- Consumer overload tail (KIP-447 / KIP-666 / KIP-848)
@@ -3176,14 +3186,23 @@ clientInstanceId c =
 
 -- | Commit explicit per-partition offsets. Mirrors
 -- @KafkaConsumer.commitSync(Map<TopicPartition, OffsetAndMetadata>)@.
--- Currently routes through 'commitSync' because the underlying
--- protocol layer accepts the consumer's stashed offsets as the
--- source of truth.
 commitSyncOffsets
   :: Consumer
   -> Map.Map TopicPartition OffsetAndMetadata
   -> IO (Either String ())
-commitSyncOffsets c _ = commitSync c
+commitSyncOffsets c offsetsM =
+  if Map.null offsetsM
+    then pure (Right ())
+    else do
+      let offsets =
+            Map.foldrWithKey
+              (\tp oam acc -> (tp, oamOffset oam) : acc)
+              []
+              offsetsM
+      r <- commitOffsetsSync c (consumerGroupIdOf c) offsets
+      case r of
+        Right () -> dispatchOnCommit c offsets >> pure (Right ())
+        Left e   -> pure (Left e)
 
 -- | 'commitAsync' with a user-supplied 'OffsetCommitCallback'.
 -- Mirrors @KafkaConsumer.commitAsync(OffsetCommitCallback)@.

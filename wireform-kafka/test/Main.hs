@@ -48,6 +48,7 @@ import Client.MockBrokerNetSpec qualified
 import Client.MockBrokerProtoSpec qualified
 import Client.MockBrokerSpec qualified
 import Client.MockBrokerStoreSpec qualified
+import Client.MockShareConsumerSpec qualified
 import Client.Murmur2Spec qualified
 import Client.PartitionerSpec qualified
 import Client.PipelineSpec qualified
@@ -212,6 +213,7 @@ clientTests =
     , Client.AdminClientConfigSpec.tests
     , Client.SerdeContextSpec.tests
     , Client.ShareConsumerHelpersSpec.tests
+    , Client.MockShareConsumerSpec.tests
     , Client.AdminClientSpec.tests
     , Client.GroupSpec.groupSpec
     , Client.MockBrokerSpec.tests

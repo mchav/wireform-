@@ -157,6 +157,7 @@ library
         Kafka.Client.Mock.Fault
         Kafka.Client.Mock.Producer
         Kafka.Client.Mock.Consumer
+        Kafka.Client.Mock.ShareConsumer
         Kafka.Client.Mock.Admin
         Kafka.Client.Mock.Idempotent
         Kafka.Client.Mock.Backoff
@@ -896,6 +897,7 @@ test-suite wireform-kafka-test
         Client.AdminClientConfigSpec
         Client.SerdeContextSpec
         Client.ShareConsumerHelpersSpec
+        Client.MockShareConsumerSpec
         Client.MockBrokerSpec
         Client.MockBrokerFailureModesSpec
         Client.MockBrokerAdvancedSpec

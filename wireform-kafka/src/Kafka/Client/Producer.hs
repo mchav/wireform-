@@ -76,6 +76,7 @@ module Kafka.Client.Producer
   , sendMessageAsync
   , ProducerRecord(..)
   , RecordMetadata(..)
+  , PartitionInfo(..)
 
     -- * Sending records (typed)
     --
@@ -138,6 +139,7 @@ module Kafka.Client.Producer
 
     -- * Cluster info
   , producerClusterId
+  , partitionsFor
   , producerHealthy
 
     -- * KIP-714 client telemetry id
@@ -489,6 +491,17 @@ data RecordMetadata = RecordMetadata
     -- ^ Offset within partition
   , timestamp :: !Int64
     -- ^ Broker-assigned timestamp
+  } deriving (Eq, Show, Generic)
+
+-- | Metadata for one topic partition. Mirrors the useful subset of
+-- Java's @PartitionInfo@: partition id, leader broker id, replicas,
+-- and in-sync replicas.
+data PartitionInfo = PartitionInfo
+  { partitionInfoTopic :: !Text
+  , partitionInfoPartition :: !Int32
+  , partitionInfoLeader :: !(Maybe Int32)
+  , partitionInfoReplicas :: ![Int32]
+  , partitionInfoIsrs :: ![Int32]
   } deriving (Eq, Show, Generic)
 
 -- | Partitioning strategy for messages.
@@ -1457,6 +1470,32 @@ publish_ p t mk v = do
 producerClusterId :: MonadIO m => Producer -> m (Maybe Text)
 producerClusterId Producer{..} = liftIO $
   atomically (Meta.getClusterId producerMetadata)
+
+-- | Return partition metadata for a topic, refreshing the producer's
+-- metadata cache on a cache miss. Mirrors
+-- @KafkaProducer.partitionsFor(String)@.
+partitionsFor :: MonadIO m => Producer -> Text -> m (Either String [PartitionInfo])
+partitionsFor p@Producer{..} topicName = liftIO $ do
+  cached <- atomically (Meta.getTopicPartitions producerMetadata topicName)
+  parts <- case cached of
+    Just ps -> pure (Just ps)
+    Nothing -> do
+      refreshTopicOnDemand p topicName
+      atomically (Meta.getTopicPartitions producerMetadata topicName)
+  pure $ case parts of
+    Nothing -> Left ("partitionsFor: no metadata for topic " <> T.unpack topicName)
+    Just ps -> Right (map (partitionInfoFromMetadata topicName) ps)
+
+partitionInfoFromMetadata :: Text -> Meta.PartitionMetadata -> PartitionInfo
+partitionInfoFromMetadata topicName pm = PartitionInfo
+  { partitionInfoTopic = topicName
+  , partitionInfoPartition = Meta.partitionMetaId pm
+  , partitionInfoLeader =
+      let !leader = Meta.partitionMetaLeader pm
+      in if leader < 0 then Nothing else Just leader
+  , partitionInfoReplicas = Meta.partitionMetaReplicas pm
+  , partitionInfoIsrs = Meta.partitionMetaIsrs pm
+  }
 
 -- | Cheap health probe: returns 'True' iff the background sender
 -- thread is still running. A 'False' return means the sender
