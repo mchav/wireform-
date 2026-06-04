@@ -49,6 +49,7 @@ authSpec = testGroup "Auth (SASL mechanisms)"
   , scramTests
   , oauthBearerTests
   , awsMskIamTests
+  , gssapiTests
   , configTests
   ]
 
@@ -73,6 +74,17 @@ plainTests = testGroup "PLAIN"
               , BS.singleton 0
               , TE.encodeUtf8 "ümlaut"
               ]
+
+  , testCase "SASL implementation sends the PLAIN payload and completes after accept" $ do
+      let impl = SASL.plainImpl "alice" "secret"
+      SASL.smiName impl @?= "PLAIN"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend payload acceptBrokerBytes) -> do
+          payload @?= Plain.generatePlainAuth "alice" "secret"
+          assertStepDone "PLAIN" (acceptBrokerBytes (Just ""))
+        Right _ -> assertFailure "PLAIN should send exactly one client payload"
+        Left err -> assertFailure ("unexpected PLAIN init failure: " <> err)
   ]
 
 --------------------------------------------------------------------------------
@@ -82,9 +94,11 @@ plainTests = testGroup "PLAIN"
 scramTests :: TestTree
 scramTests = testGroup "SCRAM-SHA-*"
   [ rfc5802Vector
+  , sha512Vector
   , parseTests
   , verifyTests
   , messageStructureTests
+  , scramImplTests
   ]
 
 -- | RFC 5802 §5 worked example for SCRAM-SHA-1 (we use the same
@@ -103,6 +117,12 @@ rfc5802Vector = testCase "PBKDF2 SaltedPassword agrees with RFC 8018 SHA-256 vec
   let derived = Scram.saltedPassword Scram.ScramSHA256 "password" "salt" 4096
       asHex   = BA.convertToBase BA.Base16 derived :: BS.ByteString
   asHex @?= "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"
+
+sha512Vector :: TestTree
+sha512Vector = testCase "PBKDF2 SaltedPassword agrees with SHA-512 vector" $ do
+  let derived = Scram.saltedPassword Scram.ScramSHA512 "password" "salt" 4096
+      asHex = BA.convertToBase BA.Base16 derived :: BS.ByteString
+  asHex @?= "d197b1b33db0143e018b12f3d1d1479e6cdebdcc97c5c0f87f6902e072f457b5143f30602641b3d55cd335988cb36b84376060ecd532e039b742a239434af2d5"
 
 parseTests :: TestTree
 parseTests = testGroup "parseServerFirst"
@@ -124,6 +144,27 @@ parseTests = testGroup "parseServerFirst"
       case Scram.parseServerFirst ("r=n,s=" <> B64.encode "salt" <> ",i=hello") of
         Left _   -> pure ()
         Right _  -> assertFailure "expected parse failure"
+
+  , testCase "accepts attributes out of order with extensions" $ do
+      let bs = "m=ignored,i=4096,r=clientserver,s=" <> B64.encode "salt"
+      case Scram.parseServerFirst bs of
+        Right sf -> do
+          Scram.sfFullNonce sf @?= "clientserver"
+          Scram.sfSalt sf @?= "salt"
+          Scram.sfIterations sf @?= 4096
+        Left err -> assertFailure err
+
+  , testCase "invalid base64 salt fails clearly" $ do
+      case Scram.parseServerFirst "r=nonce,s=not-valid-@@,i=4096" of
+        Left err -> assertBool "mentions invalid base64 salt"
+          ("invalid base64 salt" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected invalid salt to fail"
+
+  , testCase "empty iterations fails clearly" $ do
+      case Scram.parseServerFirst ("r=nonce,s=" <> B64.encode "salt" <> ",i=") of
+        Left err -> assertBool "mentions empty iteration count"
+          ("empty iteration count" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected empty iteration count to fail"
   ]
 
 verifyTests :: TestTree
@@ -146,6 +187,24 @@ verifyTests = testGroup "verifyServerFinal"
         Left msg -> assertBool "error message contains broker text"
                       ("invalid-username-or-password" `BS.isInfixOf` BS8.pack msg)
         Right _  -> assertFailure "expected verifier to surface broker error"
+
+  , testCase "invalid base64 verifier fails clearly" $ do
+      case Scram.verifyServerFinal "key" "v=not-valid-@@" of
+        Left msg -> assertBool "mentions invalid base64"
+          ("not valid base64" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected invalid verifier to fail"
+
+  , testCase "malformed server-final fails clearly" $ do
+      case Scram.verifyServerFinal "key" "x=wat" of
+        Left msg -> assertBool "mentions malformed server-final"
+          ("malformed server-final" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected malformed server-final to fail"
+
+  , testCase "empty server-final fails clearly" $ do
+      case Scram.verifyServerFinal "key" "" of
+        Left msg -> assertBool "mentions empty server-final"
+          ("empty server-final" `BS.isInfixOf` BS8.pack msg)
+        Right _ -> assertFailure "expected empty server-final to fail"
   ]
 
 messageStructureTests :: TestTree
@@ -174,6 +233,26 @@ messageStructureTests = testGroup "Wire framing"
         Right _ -> assertFailure "expected finalClientMessage to reject hijacked nonce"
   ]
 
+scramImplTests :: TestTree
+scramImplTests = testGroup "SASL implementation"
+  [ testCase "SCRAM-SHA-512 advertises the right mechanism" $ do
+      let impl = SASL.scramImpl Scram.ScramSHA512 "alice" "pwd"
+      SASL.smiName impl @?= "SCRAM-SHA-512"
+
+  , testCase "missing server-first payload fails before client proof" $ do
+      let impl = SASL.scramImpl Scram.ScramSHA256 "alice" "pwd"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Right (SASL.StepSend clientFirst continue) -> do
+          assertBool "client-first starts with gs2 header" ("n,," `BS.isPrefixOf` clientFirst)
+          case continue Nothing of
+            Left err -> assertBool "mentions missing server-first"
+              ("server-first" `BS.isInfixOf` BS8.pack err)
+            Right _ -> assertFailure "expected missing server-first to fail"
+        Right _ -> assertFailure "SCRAM should start with StepSend"
+        Left err -> assertFailure ("unexpected SCRAM init failure: " <> err)
+  ]
+
 --------------------------------------------------------------------------------
 -- OAUTHBEARER
 --------------------------------------------------------------------------------
@@ -194,6 +273,28 @@ oauthBearerTests = testGroup "OAUTHBEARER"
       let tok = OAuth.OAuthToken "static" (Just 60000) (Just "sub-123")
       r <- OAuth.resolveOAuthToken (OAuth.OAuthStaticToken tok)
       r @?= Right tok
+
+  , testCase "custom provider failure surfaces before payload" $ do
+      let impl = SASL.oauthBearerImpl
+            (OAuth.OAuthTokenIO (pure (Left "token unavailable")))
+      SASL.smiName impl @?= "OAUTHBEARER"
+      initial <- SASL.smiInitial impl
+      case initial of
+        Left err -> err @?= "OAUTHBEARER: token unavailable"
+        Right _ -> assertFailure "expected OAuth init failure"
+
+  , testCase "SASL implementation resolves tokens for each auth attempt" $ do
+      counter <- newIORef (0 :: Int)
+      let provider = OAuth.OAuthTokenIO $ do
+            n <- atomicModifyIORef' counter (\old -> let new = old + 1 in (new, new))
+            pure $ Right (OAuth.OAuthToken (T.pack ("token-" <> show n)) Nothing Nothing)
+          impl = SASL.oauthBearerImpl provider
+      first <- SASL.smiInitial impl
+      second <- SASL.smiInitial impl
+      firstPayload <- stepPayload "OAUTHBEARER" first
+      secondPayload <- stepPayload "OAUTHBEARER" second
+      assertBool "first token appears in payload" ("token-1" `BS.isInfixOf` firstPayload)
+      assertBool "second token appears in payload" ("token-2" `BS.isInfixOf` secondPayload)
   ]
 
 --------------------------------------------------------------------------------
@@ -421,6 +522,20 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
       secondAccessKey @?= "AKIA2"
   ]
 
+gssapiTests :: TestTree
+gssapiTests = testGroup "GSSAPI"
+  [ testCase "placeholder fails with an explicit implementation message" $ do
+      SASL.smiName SASL.gssapiImpl @?= "GSSAPI"
+      initial <- SASL.smiInitial SASL.gssapiImpl
+      case initial of
+        Left err -> do
+          assertBool "mentions Kerberos"
+            ("Kerberos" `BS.isInfixOf` BS8.pack err)
+          assertBool "mentions not implemented"
+            ("not implemented" `BS.isInfixOf` BS8.pack err)
+        Right _ -> assertFailure "expected GSSAPI to fail explicitly"
+  ]
+
 --------------------------------------------------------------------------------
 -- SaslConfig classification
 --------------------------------------------------------------------------------
@@ -496,6 +611,20 @@ withAwsEnv accessKey secretKey sessionToken action =
     setOne name = \case
       Nothing -> Env.unsetEnv name
       Just value -> Env.setEnv name value
+
+assertStepDone :: String -> Either String SASL.StepResult -> IO ()
+assertStepDone mechanism = \case
+  Right (SASL.StepDone Nothing) -> pure ()
+  Right _ -> assertFailure (mechanism <> " should finish after broker accept")
+  Left err -> assertFailure ("unexpected " <> mechanism <> " accept failure: " <> err)
+
+stepPayload :: String -> Either String SASL.StepResult -> IO BS.ByteString
+stepPayload mechanism = \case
+  Right (SASL.StepSend payload acceptBrokerBytes) -> do
+    assertStepDone mechanism (acceptBrokerBytes (Just ""))
+    pure payload
+  Right _ -> assertFailure (mechanism <> " should start with StepSend")
+  Left err -> assertFailure ("unexpected " <> mechanism <> " init failure: " <> err)
 
 expectJsonObject :: BS.ByteString -> IO Aeson.Object
 expectJsonObject payload =
