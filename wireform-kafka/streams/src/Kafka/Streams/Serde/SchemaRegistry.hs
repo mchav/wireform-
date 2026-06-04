@@ -479,6 +479,7 @@ registrySerde SchemaRegistrySerdeConfig {..} = do
           case decodeEnvelope bs of
             Left err -> Left (T.pack err)
             Right (_sid, payload) -> deserialize srscPayload payload
+      , serializeHeaders = const mempty
       }
   where
     unsafeBlocking :: IO (Either RegistryError SchemaId) -> ByteString -> ByteString

@@ -79,4 +79,5 @@ windowedSerde inner =
                   k <- deserialize inner kBytes
                   ts <- deserialize int64Serde tsBs
                   Right (WindowedKey k (Timestamp ts))
+    , serializeHeaders = const mempty
     }

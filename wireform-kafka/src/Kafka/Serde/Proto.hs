@@ -56,10 +56,9 @@ module Kafka.Serde.Proto
   ) where
 
 import qualified Data.ByteString        as BS
-import qualified Data.Text              as T
 import           Data.Bifunctor         (first)
 
-import           Kafka.Serde            (Serde (..))
+import           Kafka.Serde            (Serde, unsafeSerde)
 
 import qualified Proto.Encode           as Proto.Encode
 import qualified Proto.Decode           as Proto.Decode
@@ -77,12 +76,7 @@ import qualified Proto.Decode           as Proto.Decode
 protoSerde
   :: (Proto.Encode.MessageEncode a, Proto.Decode.MessageDecode a)
   => Serde a
-protoSerde = Serde
-  { serialize   = encodeProto
-  , deserialize = \b -> case decodeProto b of
-      Left e  -> Left (T.pack e)
-      Right a -> Right a
-  }
+protoSerde = unsafeSerde encodeProto decodeProto
 
 -- | Standalone encoder; calls 'Proto.Encode.encodeMessage'.
 encodeProto :: Proto.Encode.MessageEncode a => a -> BS.ByteString

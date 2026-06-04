@@ -89,6 +89,7 @@ avroSerde schema = Serde
       Right val -> case Avro.Class.fromAvro val of
         Left e'  -> Left (T.pack e')
         Right a' -> Right a'
+  , serializeHeaders = const mempty
   }
 
 -- | Dynamic-value serde. Operates directly on 'Avro.Value.Value'
@@ -100,6 +101,7 @@ avroValueSerde schema = Serde
   , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
       Left e  -> Left (T.pack e)
       Right v -> Right v
+  , serializeHeaders = const mempty
   }
 
 -- | Standalone encode of an 'Avro.Value.Value'. Identical to
