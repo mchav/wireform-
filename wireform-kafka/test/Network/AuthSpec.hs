@@ -20,6 +20,8 @@ in the broker-gated integration suite.
 -}
 module Network.AuthSpec (authSpec) where
 
+import Control.Exception (bracket)
+import Control.Monad (zipWithM_)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteArray.Encoding as BA
@@ -30,6 +32,7 @@ import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Time as Time
+import qualified System.Environment as Env
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -285,6 +288,24 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
           KeyMap.lookup "x-amz-security-token" o @?= Nothing
         Right _ -> assertFailure "payload was not a JSON object"
 
+  , testCase "buildIamPayload has a stable SigV4 signature for fixed inputs" $ do
+      let creds = Iam.AwsCredentials
+            { Iam.awsAccessKeyId     = "AKIAIOSFODNN7EXAMPLE"
+            , Iam.awsSecretAccessKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+            , Iam.awsSessionToken    = Nothing
+            }
+          input = Iam.IamPayloadInput
+            { Iam.iiCredentials = creds
+            , Iam.iiHost        = "broker-1.kafka.us-east-1.amazonaws.com"
+            , Iam.iiRegion      = "us-east-1"
+            , Iam.iiNow         = read "2024-01-01 00:00:00 UTC" :: Time.UTCTime
+            , Iam.iiUserAgent   = "wireform-kafka-test"
+            , Iam.iiExpires     = 900
+            }
+      obj <- expectJsonObject (Iam.buildIamPayload input)
+      KeyMap.lookup "x-amz-signature" obj
+        @?= Just (Aeson.String "625ab063dc5c77f47a754b13fb123411c594bc00261935ae8830d1c962b0998b")
+
   , testCase "session-token credentials add x-amz-security-token" $ do
       let creds = Iam.AwsCredentials
             { Iam.awsAccessKeyId     = "ASIA"
@@ -310,6 +331,26 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
       let creds = Iam.AwsCredentials "AKIASTATIC" "secret" (Just "session")
       resolved <- Iam.resolveAwsCredentials (Iam.AwsStaticCredentials creds)
       resolved @?= Right creds
+
+  , testCase "env provider requires access key and secret" $
+      withAwsEnv Nothing Nothing Nothing $ do
+        resolved <- Iam.resolveAwsCredentials Iam.AwsEnvCredentials
+        case resolved of
+          Left err -> do
+            assertBool "mentions AWS_ACCESS_KEY_ID"
+              ("AWS_ACCESS_KEY_ID" `T.isInfixOf` T.pack err)
+            assertBool "mentions AWS_SECRET_ACCESS_KEY"
+              ("AWS_SECRET_ACCESS_KEY" `T.isInfixOf` T.pack err)
+          Right _ -> assertFailure "expected missing env credentials to fail"
+
+  , testCase "env provider includes optional session token" $
+      withAwsEnv (Just "AKIAENV") (Just "env-secret") (Just "env-token") $ do
+        resolved <- Iam.resolveAwsCredentials Iam.AwsEnvCredentials
+        resolved @?= Right Iam.AwsCredentials
+          { Iam.awsAccessKeyId     = "AKIAENV"
+          , Iam.awsSecretAccessKey = "env-secret"
+          , Iam.awsSessionToken    = Just "env-token"
+          }
 
   , testCase "custom provider failure surfaces before any IAM payload is sent" $ do
       let impl = SASL.awsMskIamImpl
@@ -428,6 +469,33 @@ lookupIndex needle hay =
                                      <> BS8.unpack needle)
       | BS.take nLen bs == needle = i
       | otherwise = go (i + 1) (BS.drop 1 bs)
+
+withAwsEnv :: Maybe String -> Maybe String -> Maybe String -> IO a -> IO a
+withAwsEnv accessKey secretKey sessionToken action =
+  bracket capture restore $ \_ -> do
+    setAll [accessKey, secretKey, sessionToken]
+    action
+  where
+    names :: [String]
+    names =
+      [ "AWS_ACCESS_KEY_ID"
+      , "AWS_SECRET_ACCESS_KEY"
+      , "AWS_SESSION_TOKEN"
+      ]
+
+    capture :: IO [Maybe String]
+    capture = traverse Env.lookupEnv names
+
+    restore :: [Maybe String] -> IO ()
+    restore = setAll
+
+    setAll :: [Maybe String] -> IO ()
+    setAll values = zipWithM_ setOne names values
+
+    setOne :: String -> Maybe String -> IO ()
+    setOne name = \case
+      Nothing -> Env.unsetEnv name
+      Just value -> Env.setEnv name value
 
 expectJsonObject :: BS.ByteString -> IO Aeson.Object
 expectJsonObject payload =
