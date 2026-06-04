@@ -267,7 +267,8 @@ scramImplTests = testGroup "SASL implementation"
       case initial of
         Right (SASL.StepSend clientFirst continue) -> do
           assertBool "client-first starts with gs2 header" ("n,," `BS.isPrefixOf` clientFirst)
-          case continue Nothing of
+          continued <- continue Nothing
+          case continued of
             Left err -> assertBool "mentions missing server-first"
               ("server-first" `BS.isInfixOf` BS8.pack err)
             Right _ -> assertFailure "expected missing server-first to fail"
@@ -574,7 +575,8 @@ awsMskIamTests = testGroup "AWS_MSK_IAM"
               assertBool "credential starts with access key"
                 ("AKIAIOSFODNN7EXAMPLE/" `T.isPrefixOf` credential)
             _ -> assertFailure "missing or non-string x-amz-credential"
-          case acceptBrokerBytes (Just "") of
+          accepted <- acceptBrokerBytes (Just "")
+          case accepted of
             Right (SASL.StepDone Nothing) -> pure ()
             Right _ -> assertFailure "AWS_MSK_IAM should finish after broker accept"
             Left err -> assertFailure ("unexpected IAM accept failure: " <> err)
@@ -702,8 +704,8 @@ withAwsEnv accessKey secretKey sessionToken action =
       Nothing -> Env.unsetEnv name
       Just value -> Env.setEnv name value
 
-assertStepDone :: String -> Either String SASL.StepResult -> IO ()
-assertStepDone mechanism = \case
+assertStepDone :: String -> IO (Either String SASL.StepResult) -> IO ()
+assertStepDone mechanism action = action >>= \case
   Right (SASL.StepDone Nothing) -> pure ()
   Right _ -> assertFailure (mechanism <> " should finish after broker accept")
   Left err -> assertFailure ("unexpected " <> mechanism <> " accept failure: " <> err)
