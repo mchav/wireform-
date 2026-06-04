@@ -468,13 +468,9 @@ gssapiImpl = SaslMechanismImpl
   { smiName    = "GSSAPI"
   , smiInitial = pure $ Left
 #ifdef WIREFORM_KAFKA_GSSAPI
-      "GSSAPI/Kerberos support is built with the optional gssapi flag, \
-      \but the Kafka token exchange is not wired yet. Use a custom \
-      \SaslMechanismImpl on top of Network.Security.GssApi for now."
+      "GSSAPI/Kerberos support is built with the optional gssapi flag, but the Kafka token exchange is not wired yet. Use a custom SaslMechanismImpl on top of Network.Security.GssApi for now."
 #else
-      "GSSAPI/Kerberos is not implemented in wireform-kafka. \
-      \Build wireform-kafka with the gssapi flag to enable the optional \
-      \Kerberos dependency, or use SASL/SCRAM-SHA-512 or AWS_MSK_IAM."
+      "GSSAPI/Kerberos is not implemented in wireform-kafka. Build wireform-kafka with the gssapi flag to enable the optional Kerberos dependency, or use SASL/SCRAM-SHA-512 or AWS_MSK_IAM."
 #endif
   }
 
