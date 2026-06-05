@@ -422,7 +422,7 @@ library
         directory                 >= 1.3   && < 1.4,
         filepath                  >= 1.4   && < 1.6,
         hashable                  >= 1.3   && < 1.6,
-        hs-opentelemetry-api      >= 0.2   && < 1,
+        hs-opentelemetry-api      >= 1.0   && < 1.1,
         http-types                >= 0.12  && < 0.13,
         list-t                    >= 1.0   && < 1.1,
         memory                    >= 0.18  && < 0.19,
@@ -554,9 +554,14 @@ library wireform-kafka-streams
         Kafka.Streams.AsyncIO.Config
         Kafka.Streams.Observability.Topology
         Kafka.Streams.Observability.OrphanTopics
+        Kafka.Streams.Observability.OpenTelemetry
+        Kafka.Streams.Observability.Lag
+        Kafka.Streams.Observability.Health
+        Kafka.Streams.Observability.TopologyStats
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
+        hs-opentelemetry-api      >= 1.0   && < 1.1,
         async                     >= 2.2   && < 3,
         binary                    >= 0.8   && < 0.11,
         bytestring                >= 0.11  && < 0.13,
@@ -668,6 +673,10 @@ test-suite wireform-kafka-streams-test
         Streams.TopologyFreeSpec
         Streams.TopologyFreeArrowSpec
         Streams.AsyncIOSpec
+        Streams.LagSpec
+        Streams.HealthSpec
+        Streams.TopologyStatsSpec
+        Streams.ObservabilityOTelSpec
         Streams.Properties.KVStoreSMSpec
         Streams.Properties.OptimizerEqSpec
         Streams.Properties.WindowMathSpec
@@ -703,6 +712,7 @@ test-suite wireform-kafka-streams-test
         containers,
         directory,
         filepath,
+        hs-opentelemetry-api      >= 1.0   && < 1.1,
         hedgehog                  >= 1.2   && < 2,
         profunctors               >= 5.6   && < 5.7,
         stm,
@@ -782,12 +792,15 @@ executable wireform-kafka-streams-examples
         Kafka.Streams.Examples.Ops.RevocationGrace
         Kafka.Streams.Examples.Ops.RollingUpgrade
         Kafka.Streams.Examples.Ops.StandbyWarmup
+        Kafka.Streams.Examples.Ops.Observability
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
         wireform-kafka,
         bytestring,
         containers,
+        hs-opentelemetry-api      >= 1.0   && < 1.1,
+        stm,
         text
 
 library wireform-kafka-codegen

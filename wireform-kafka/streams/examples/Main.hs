@@ -42,6 +42,9 @@
 --   * @ops-eos@     — EOS commit visibility under read-committed
 --                     and behaviour on commit fault
 --   * @ops-revoke@  — KIP-869 soft-revocation grace decisions
+--   * @ops-observe@ — observability utilities: topology stats, lag /
+--                     health reports, and the OpenTelemetry metrics
+--                     bridge
 module Main (main) where
 
 import Data.List (intercalate)
@@ -70,6 +73,7 @@ import qualified Kafka.Streams.Examples.Ops.ClusterBringup   as OpsBringup
 import qualified Kafka.Streams.Examples.Ops.CrashFailover    as OpsCrash
 import qualified Kafka.Streams.Examples.Ops.DynamicThreads   as OpsThreads
 import qualified Kafka.Streams.Examples.Ops.EOSCommit        as OpsEOS
+import qualified Kafka.Streams.Examples.Ops.Observability    as OpsObservability
 import qualified Kafka.Streams.Examples.Ops.RevocationGrace  as OpsRevGrace
 import qualified Kafka.Streams.Examples.Ops.RollingUpgrade   as OpsRolling
 import qualified Kafka.Streams.Examples.Ops.StandbyWarmup    as OpsStandby
@@ -126,6 +130,7 @@ demos =
   , ("ops-standby", InMemoryOnly OpsStandby.runDemo)
   , ("ops-eos",     InMemoryOnly OpsEOS.runDemo)
   , ("ops-revoke",  InMemoryOnly OpsRevGrace.runDemo)
+  , ("ops-observe", InMemoryOnly OpsObservability.runDemo)
   ]
 
 main :: IO ()

@@ -173,10 +173,19 @@ withTracing (TracingEnabled opts) inner = Transport $ \req -> do
                                         (Req.spanAttributes req)))
 
   -- Inject W3C trace context into outgoing headers via the
-  -- TracerProvider's configured propagator.
+  -- TracerProvider's configured propagator. The OTel 1.0 propagator
+  -- carries a 'Prop.TextMap', so inject into a fresh carrier and merge
+  -- the trace fields back over the request headers (overwriting any
+  -- stale trace fields, leaving everything else untouched).
   let propagator = Trace.getTracerProviderPropagators tp
-  hdrs' <- Prop.inject propagator ctx0 (Req.headers req)
-  let req' = req { Req.headers = hdrs' }
+  injectedTm <- Prop.inject propagator ctx0 Prop.emptyTextMap
+  let injected =
+        map (\(k, v) -> (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v))
+            (Prop.textMapToList injectedTm)
+      traceFields = map T.toLower (Prop.propagatorFields propagator)
+      keepHeader (k, _) =
+        TE.decodeUtf8 (CI.foldedCase k) `notElem` traceFields
+      req' = req { Req.headers = filter keepHeader (Req.headers req) <> injected }
 
   -- Run the inner transport. If sendRaw itself throws (transport
   -- error, decode error, etc.) record the exception, end the span,

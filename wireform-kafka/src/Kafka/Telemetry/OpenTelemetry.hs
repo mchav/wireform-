@@ -106,13 +106,12 @@ module Kafka.Telemetry.OpenTelemetry
   ) where
 
 import           Data.ByteString          (ByteString)
-import qualified Data.CaseInsensitive     as CI
 import qualified Data.HashMap.Strict      as HashMap
 import           Data.Int                 (Int32, Int64)
 import           Data.Text                (Text)
+import qualified Data.Text                as T
 import qualified Data.Text.Encoding       as TE
 import           GHC.Stack                (HasCallStack)
-import qualified Network.HTTP.Types       as HT
 
 import qualified OpenTelemetry.Context             as OCtx
 import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
@@ -297,8 +296,15 @@ injectIntoProducerHeaders tr sp headers = do
   let tp   = OTel.getTracerTracerProvider tr
       prop = OTel.getTracerProviderPropagators tp
       ctx  = OCtx.insertSpan sp OCtx.empty
-  hs <- OProp.inject prop ctx (toHttpHeaders headers)
-  pure (fromHttpHeaders hs)
+  -- Inject the trace fields into a fresh carrier, then merge them back
+  -- over the original headers. This overwrites any existing trace
+  -- fields and leaves unrelated (possibly binary) headers untouched —
+  -- safer than round-tripping every header through 'Text'.
+  tm <- OProp.inject prop ctx OProp.emptyTextMap
+  let injected = fromTextMap tm
+      fields   = map T.toLower (OProp.propagatorFields prop)
+      keep (k, _) = T.toLower k `notElem` fields
+  pure (filter keep headers <> injected)
 
 -- | Extract a parent 'OCtx.Context' from a Kafka consumer record's
 -- headers. The starting context is the current thread-local one so
@@ -316,7 +322,7 @@ extractFromConsumerHeaders tr headers = do
   let tp   = OTel.getTracerTracerProvider tr
       prop = OTel.getTracerProviderPropagators tp
   ctx0 <- OCtxTL.getContext
-  OProp.extract prop (toHttpHeaders headers) ctx0
+  OProp.extract prop (toTextMap headers) ctx0
 
 -- | Build a pre-send producer interceptor that opens a
 -- @kafka.enqueue@ span, stamps the record's headers with the
@@ -337,15 +343,18 @@ tracingProducerInterceptor tr topic partition headers =
       injectIntoProducerHeaders tr sp headers
 
 ----------------------------------------------------------------------
--- Internal: Kafka header <-> http-types header conversion
+-- Internal: Kafka header <-> OTel TextMap conversion
 --
--- Kafka record headers are @[(Text, ByteString)]@ pairs. The OTel
--- propagator API expects 'HT.Header' = @(CI ByteString, ByteString)@.
--- These two helpers are the only Kafka <-> propagator boundary.
+-- Kafka record headers are @[(Text, ByteString)]@ pairs. The OTel 1.0
+-- propagator API carries a case-insensitive 'OProp.TextMap' of
+-- @Text@-valued fields. Trace-context values are ASCII, so a lenient
+-- UTF-8 decode of the (small) header set is safe at this boundary.
 ----------------------------------------------------------------------
 
-toHttpHeaders :: [(Text, ByteString)] -> [HT.Header]
-toHttpHeaders = map $ \(k, v) -> (CI.mk (TE.encodeUtf8 k), v)
+toTextMap :: [(Text, ByteString)] -> OProp.TextMap
+toTextMap =
+  OProp.textMapFromList . map (\(k, v) -> (k, TE.decodeUtf8Lenient v))
 
-fromHttpHeaders :: [HT.Header] -> [(Text, ByteString)]
-fromHttpHeaders = map $ \(k, v) -> (TE.decodeUtf8 (CI.original k), v)
+fromTextMap :: OProp.TextMap -> [(Text, ByteString)]
+fromTextMap =
+  map (\(k, v) -> (k, TE.encodeUtf8 v)) . OProp.textMapToList
