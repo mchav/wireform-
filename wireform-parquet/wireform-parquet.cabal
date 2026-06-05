@@ -161,8 +161,7 @@ test-suite wireform-parquet-derive-test
     text,
     vector,
     bytestring,
-    tasty,
-    tasty-hunit
+    sydtest
 
 executable wireform-parquet-interop-probe
   import: defaults

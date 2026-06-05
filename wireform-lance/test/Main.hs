@@ -14,17 +14,16 @@ import qualified Data.Vector as V
 import qualified Lance.Format as L
 import qualified Lance.IO     as LIO
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-lance"
-  [ testCase "envelope round-trip" envelopeTest
-  , testCase "footer fields decoded" footerTest
-  , testCase "column metadata extraction" columnMetaTest
-  , testCase "missing trailing magic is rejected" missingTrailingMagicTest
-  , testCase "file shorter than footer is rejected" tooShortTest
-  , testCase "manifest filename round-trip" manifestNameRoundTrip
+main = sydTest $ describe "wireform-lance" $ sequence_
+  [ it "envelope round-trip" envelopeTest
+  , it "footer fields decoded" footerTest
+  , it "column metadata extraction" columnMetaTest
+  , it "missing trailing magic is rejected" missingTrailingMagicTest
+  , it "file shorter than footer is rejected" tooShortTest
+  , it "manifest filename round-trip" manifestNameRoundTrip
   ]
 
 -- | Build a minimal Lance file:
@@ -66,64 +65,64 @@ sampleFile = BS.concat
     majV        = 2 :: Int
     minV        = 1 :: Int
 
-envelopeTest :: Assertion
+envelopeTest :: IO ()
 envelopeTest = case L.readLanceFile sampleFile of
   Right _  -> pure ()
-  Left err -> assertFailure ("expected Right, got " ++ err)
+  Left err -> expectationFailure ("expected Right, got " ++ err)
 
-footerTest :: Assertion
+footerTest :: IO ()
 footerTest = case L.parseFooter sampleFile of
-  Left err -> assertFailure err
+  Left err -> expectationFailure err
   Right f  -> do
-    L.lfColumnMeta0Offset f @?= 0
-    L.lfCMOTableOffset    f @?= 3
-    L.lfGBOTableOffset    f @?= 19
-    L.lfNumGlobalBuffers  f @?= 0
-    L.lfNumColumns        f @?= 1
-    L.lfMajorVersion      f @?= 2
-    L.lfMinorVersion      f @?= 1
+    L.lfColumnMeta0Offset f `shouldBe` 0
+    L.lfCMOTableOffset    f `shouldBe` 3
+    L.lfGBOTableOffset    f `shouldBe` 19
+    L.lfNumGlobalBuffers  f `shouldBe` 0
+    L.lfNumColumns        f `shouldBe` 1
+    L.lfMajorVersion      f `shouldBe` 2
+    L.lfMinorVersion      f `shouldBe` 1
 
-columnMetaTest :: Assertion
+columnMetaTest :: IO ()
 columnMetaTest = case L.readLanceFile sampleFile of
-  Left err -> assertFailure err
+  Left err -> expectationFailure err
   Right lf -> do
     case L.parseColumnOffsetTable lf of
-      Left err -> assertFailure err
+      Left err -> expectationFailure err
       Right tbl -> do
-        V.length tbl @?= 1
+        V.length tbl `shouldBe` 1
         let s = V.head tbl
-        L.csPosition s @?= 0
-        L.csSize     s @?= 3
+        L.csPosition s `shouldBe` 0
+        L.csSize     s `shouldBe` 3
     case L.extractColumnMetadataBytes lf 0 of
-      Right bytes -> bytes @?= BS.pack [0xAA, 0xBB, 0xCC]
-      Left  err   -> assertFailure err
+      Right bytes -> bytes `shouldBe` BS.pack [0xAA, 0xBB, 0xCC]
+      Left  err   -> expectationFailure err
 
-missingTrailingMagicTest :: Assertion
+missingTrailingMagicTest :: IO ()
 missingTrailingMagicTest =
   let n       = BS.length sampleFile
       corrupt = BS.take (n - 4) sampleFile <> BS.pack [0x00, 0x00, 0x00, 0x00]
    in case L.readLanceFile corrupt of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected Left for corrupted trailing magic"
+        Right _ -> expectationFailure "expected Left for corrupted trailing magic"
 
-tooShortTest :: Assertion
+tooShortTest :: IO ()
 tooShortTest = case L.readLanceFile (BS.pack [0x4C, 0x41, 0x4E, 0x43]) of
   Left _  -> pure ()
-  Right _ -> assertFailure "expected Left for too-short file"
+  Right _ -> expectationFailure "expected Left for too-short file"
 
-manifestNameRoundTrip :: Assertion
+manifestNameRoundTrip :: IO ()
 manifestNameRoundTrip = do
   -- pylance writes manifest-filename = (2^64 - 1 - version), so:
-  LIO.decodeManifestFileName "18446744073709551614.manifest" @?= Just 1
-  LIO.decodeManifestFileName "18446744073709551613.manifest" @?= Just 2
+  LIO.decodeManifestFileName "18446744073709551614.manifest" `shouldBe` Just 1
+  LIO.decodeManifestFileName "18446744073709551613.manifest" `shouldBe` Just 2
   LIO.decodeManifestFileName "0.manifest"
-    @?= Just (maxBound :: Word64)
+    `shouldBe` Just (maxBound :: Word64)
   -- Filename → version → filename.
-  LIO.encodeManifestFileName 1 @?= "18446744073709551614.manifest"
-  LIO.encodeManifestFileName 2 @?= "18446744073709551613.manifest"
+  LIO.encodeManifestFileName 1 `shouldBe` "18446744073709551614.manifest"
+  LIO.encodeManifestFileName 2 `shouldBe` "18446744073709551613.manifest"
   -- Reject malformed names.
-  LIO.decodeManifestFileName "not-a-version.manifest" @?= Nothing
-  LIO.decodeManifestFileName "1.json"                 @?= Nothing
+  LIO.decodeManifestFileName "not-a-version.manifest" `shouldBe` Nothing
+  LIO.decodeManifestFileName "1.json"                 `shouldBe` Nothing
 
 -- ============================================================
 -- Tiny LE encoders (avoid pulling in extra deps for tests).

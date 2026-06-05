@@ -4,8 +4,7 @@
 module Test.Parquet.Derive (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Syd
 
 import qualified Parquet.Nested as PN
 import qualified Parquet.Types as P
@@ -18,8 +17,8 @@ import Parquet.Derive
 import Test.Parquet.Derive.Instances (sumTypeDeriveSucceeded)
 import Test.Parquet.Derive.Types
 
-tests :: TestTree
-tests = testGroup "Parquet.Derive"
+tests :: Spec
+tests = describe "Parquet.Derive" $ sequence_
   [ schemaTests
   , rowTests
   , coercedTests
@@ -38,117 +37,116 @@ orderSchema = $(parquetSchemaFor ''Order)
 -- Schema
 -- ---------------------------------------------------------------------------
 
-schemaTests :: TestTree
-schemaTests = testGroup "schema"
-  [ testCase "synthetic root + one leaf per field" $ do
-      V.length saleSchema @?= 4
-      P.seName        (V.unsafeIndex saleSchema 0) @?= "schema"
-      P.seNumChildren (V.unsafeIndex saleSchema 0) @?= Just 3
+schemaTests :: Spec
+schemaTests = describe "schema" $ sequence_
+  [ it "synthetic root + one leaf per field" $ do
+      V.length saleSchema `shouldBe` 4
+      P.seName        (V.unsafeIndex saleSchema 0) `shouldBe` "schema"
+      P.seNumChildren (V.unsafeIndex saleSchema 0) `shouldBe` Just 3
 
-  , testCase "rename modifier reflected on schema element name" $ do
-      P.seName (V.unsafeIndex saleSchema 1) @?= "amount"
-      P.seName (V.unsafeIndex saleSchema 2) @?= "product"
+  , it "rename modifier reflected on schema element name" $ do
+      P.seName (V.unsafeIndex saleSchema 1) `shouldBe` "amount"
+      P.seName (V.unsafeIndex saleSchema 2) `shouldBe` "product"
 
-  , testCase "absent rename falls back to backend's snake_case style" $
-      P.seName (V.unsafeIndex saleSchema 3) @?= "sale_region"
+  , it "absent rename falls back to backend's snake_case style" $
+      P.seName (V.unsafeIndex saleSchema 3) `shouldBe` "sale_region"
 
-  , testCase "amount -> INT64 required" $ do
+  , it "amount -> INT64 required" $ do
       let se = V.unsafeIndex saleSchema 1
-      P.seType       se @?= Just P.PTInt64
-      P.seRepetition se @?= Just P.Required
+      P.seType       se `shouldBe` Just P.PTInt64
+      P.seRepetition se `shouldBe` Just P.Required
 
-  , testCase "product -> BYTE_ARRAY/UTF8 required" $ do
+  , it "product -> BYTE_ARRAY/UTF8 required" $ do
       let se = V.unsafeIndex saleSchema 2
-      P.seType          se @?= Just P.PTByteArray
-      P.seConvertedType se @?= Just P.CTUtf8
-      P.seRepetition    se @?= Just P.Required
+      P.seType          se `shouldBe` Just P.PTByteArray
+      P.seConvertedType se `shouldBe` Just P.CTUtf8
+      P.seRepetition    se `shouldBe` Just P.Required
 
-  , testCase "Maybe Text region -> BYTE_ARRAY/UTF8 optional" $ do
+  , it "Maybe Text region -> BYTE_ARRAY/UTF8 optional" $ do
       let se = V.unsafeIndex saleSchema 3
-      P.seType          se @?= Just P.PTByteArray
-      P.seConvertedType se @?= Just P.CTUtf8
-      P.seRepetition    se @?= Just P.Optional
+      P.seType          se `shouldBe` Just P.PTByteArray
+      P.seConvertedType se `shouldBe` Just P.CTUtf8
+      P.seRepetition    se `shouldBe` Just P.Optional
   ]
 
 -- ---------------------------------------------------------------------------
 -- Per-row codec
 -- ---------------------------------------------------------------------------
 
-rowTests :: TestTree
-rowTests = testGroup "row"
-  [ testCase "Just region produces three Just leaves" $ do
+rowTests :: Spec
+rowTests = describe "row" $ sequence_
+  [ it "Just region produces three Just leaves" $ do
       let s   = Sale 100 "widget" (Just "us-east")
           row = toParquetRow s
-      V.length row @?= 3
-      V.unsafeIndex row 0 @?= Just (PN.LvInt64  100)
-      V.unsafeIndex row 1 @?= Just (PN.LvString "widget")
-      V.unsafeIndex row 2 @?= Just (PN.LvString "us-east")
+      V.length row `shouldBe` 3
+      V.unsafeIndex row 0 `shouldBe` Just (PN.LvInt64  100)
+      V.unsafeIndex row 1 `shouldBe` Just (PN.LvString "widget")
+      V.unsafeIndex row 2 `shouldBe` Just (PN.LvString "us-east")
 
-  , testCase "Nothing region produces a Nothing slot" $ do
+  , it "Nothing region produces a Nothing slot" $ do
       let s   = Sale 7 "gizmo" Nothing
           row = toParquetRow s
-      V.unsafeIndex row 2 @?= Nothing
+      V.unsafeIndex row 2 `shouldBe` Nothing
 
-  , testCase "round-trip Sale through toParquetRow/fromParquetRow" $ do
+  , it "round-trip Sale through toParquetRow/fromParquetRow" $ do
       let s = Sale 0xCAFE "wrench" (Just "eu-west")
       case fromParquetRow (toParquetRow s) of
-        Right s' -> s' @?= s
-        Left  e  -> assertFailure e
+        Right s' -> s' `shouldBe` s
+        Left  e  -> expectationFailure e
 
-  , testCase "round-trip Sale with Nothing region" $ do
+  , it "round-trip Sale with Nothing region" $ do
       let s = Sale 1 "spanner" Nothing
       case fromParquetRow (toParquetRow s) of
-        Right s' -> s' @?= s
-        Left  e  -> assertFailure e
+        Right s' -> s' `shouldBe` s
+        Left  e  -> expectationFailure e
 
-  , testCase "fromParquetRow rejects wrong leaf count" $
+  , it "fromParquetRow rejects wrong leaf count" $
       case (fromParquetRow (V.singleton (Just (PN.LvInt64 1)))
               :: Either String Sale) of
         Left _  -> pure ()
-        Right s -> assertFailure ("unexpected success: " ++ show s)
+        Right s -> expectationFailure ("unexpected success: " ++ show s)
 
-  , testCase "fromParquetRow rejects null in required column" $
+  , it "fromParquetRow rejects null in required column" $
       case (fromParquetRow (V.fromList
               [ Nothing
               , Just (PN.LvString "x")
               , Nothing
               ]) :: Either String Sale) of
         Left _  -> pure ()
-        Right s -> assertFailure ("unexpected success: " ++ show s)
+        Right s -> expectationFailure ("unexpected success: " ++ show s)
   ]
 
 -- ---------------------------------------------------------------------------
 -- coerced newtype roundtrip
 -- ---------------------------------------------------------------------------
 
-coercedTests :: TestTree
-coercedTests = testGroup "coerced"
-  [ testCase "Order schema picks up Int64 from coerced ''Int64" $ do
-      V.length orderSchema @?= 2
+coercedTests :: Spec
+coercedTests = describe "coerced" $ sequence_
+  [ it "Order schema picks up Int64 from coerced ''Int64" $ do
+      V.length orderSchema `shouldBe` 2
       let leaf = V.unsafeIndex orderSchema 1
-      P.seType       leaf @?= Just P.PTInt64
-      P.seRepetition leaf @?= Just P.Required
+      P.seType       leaf `shouldBe` Just P.PTInt64
+      P.seRepetition leaf `shouldBe` Just P.Required
 
-  , testCase "Order encodes via the underlying Int64 representation" $ do
+  , it "Order encodes via the underlying Int64 representation" $ do
       let o   = Order (OrderId 42)
           row = toParquetRow o
-      V.length row @?= 1
-      V.unsafeIndex row 0 @?= Just (PN.LvInt64 42)
+      V.length row `shouldBe` 1
+      V.unsafeIndex row 0 `shouldBe` Just (PN.LvInt64 42)
 
-  , testCase "Order round-trips through the coerced leaf" $ do
+  , it "Order round-trips through the coerced leaf" $ do
       let o = Order (OrderId 0xDEAD)
       case fromParquetRow (toParquetRow o) of
-        Right o' -> o' @?= o
-        Left  e  -> assertFailure e
+        Right o' -> o' `shouldBe` o
+        Left  e  -> expectationFailure e
   ]
 
 -- ---------------------------------------------------------------------------
 -- Splice-time refusal of sum types
 -- ---------------------------------------------------------------------------
 
-spliceTests :: TestTree
-spliceTests = testGroup "splice-time"
-  [ testCase "deriveParquet refuses sum types" $
-      assertBool "deriveParquet ''Color must fail at splice time"
-        (not sumTypeDeriveSucceeded)
+spliceTests :: Spec
+spliceTests = describe "splice-time" $ sequence_
+  [ it "deriveParquet refuses sum types" $
+      (not sumTypeDeriveSucceeded) `shouldBe` True
   ]
