@@ -237,9 +237,8 @@ test-suite wireform-proto-test
     time,
     vector,
     hedgehog             >= 1.0  && < 1.8,
-    tasty                >= 1.4  && < 1.6,
-    tasty-hedgehog       >= 1.0  && < 1.8,
-    tasty-hunit          >= 0.10 && < 0.11
+    sydtest,
+    sydtest-hedgehog
 
 -- ===========================================================
 -- Regenerate well-known types from .proto files.
@@ -336,8 +335,7 @@ test-suite protobuf-conformance-test
     template-haskell,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest
 
 test-suite wireform-proto-derive-test
   import: defaults
@@ -375,8 +373,7 @@ test-suite wireform-proto-derive-test
     template-haskell,
     reflection,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest
 
 -- ===========================================================
 -- protoc plugin: reads CodeGeneratorRequest, writes Haskell

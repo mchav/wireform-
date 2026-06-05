@@ -18,16 +18,15 @@ import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encode
 import Proto.Internal.Wire (Tag (..), WireType (..))
 import Proto.Internal.Wire.Decode (DecodeError (..), Decoder, getTagOr, getText, getVarint, skipField)
 import Proto.Internal.Wire.Encode (fieldBoolSize, fieldTextSize, fieldVarintSize, putTag, putText, putVarint)
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import Wireform.Builder qualified as B
 
 
-streamCodecTests :: TestTree
+streamCodecTests :: Spec
 streamCodecTests =
-  testGroup
-    "Streaming & Lazy Codecs"
+  describe
+    "Streaming & Lazy Codecs" $ sequence_
     [ lazyEncodeTests
     , lazyDecodeTests
     , streamRoundtripTests
@@ -39,17 +38,17 @@ streamCodecTests =
 -- Lazy single-message encoding
 -- -----------------------------------------------------------------------
 
-lazyEncodeTests :: TestTree
+lazyEncodeTests :: Spec
 lazyEncodeTests =
-  testGroup
-    "Lazy encoding"
-    [ testProperty "encodeMessageLazy matches strict" $ property $ do
+  describe
+    "Lazy encoding" $ sequence_
+    [ it "encodeMessageLazy matches strict" $ property $ do
         msg <- genSMsg
         BL.toStrict (encodeMessageLazy msg) === encodeMessage msg
-    , testProperty "encodeMessageLazy matches strict" $ property $ do
+    , it "encodeMessageLazy matches strict" $ property $ do
         msg <- genSMsg
         BL.toStrict (encodeMessageLazy msg) === encodeMessageSized msg
-    , testProperty "encodeMessageLazy matches encodeMessageLazy" $ property $ do
+    , it "encodeMessageLazy matches encodeMessageLazy" $ property $ do
         msg <- genSMsg
         encodeMessageLazy msg === encodeMessageLazy msg
     ]
@@ -59,22 +58,22 @@ lazyEncodeTests =
 -- Lazy single-message decoding
 -- -----------------------------------------------------------------------
 
-lazyDecodeTests :: TestTree
+lazyDecodeTests :: Spec
 lazyDecodeTests =
-  testGroup
-    "Lazy decoding"
-    [ testProperty "decodeMessageLazy roundtrip" $ property $ do
+  describe
+    "Lazy decoding" $ sequence_
+    [ it "decodeMessageLazy roundtrip" $ property $ do
         msg <- genSMsg
         let lbs = encodeMessageLazy msg
         decodeMessageLazy lbs === Right msg
-    , testCase "decodeMessageLazy empty" $ do
+    , it "decodeMessageLazy empty" $ do
         let lbs = BL.empty
-        decodeMessageLazy lbs @?= Right (SMsg 0 "" False)
-    , testCase "decodeMessageLazy multi-chunk" $ do
+        decodeMessageLazy lbs `shouldBe` Right (SMsg 0 "" False)
+    , it "decodeMessageLazy multi-chunk" $ do
         let strict = encodeMessage (SMsg 42 "hello" True)
             (a, b) = BS.splitAt (BS.length strict `div` 2) strict
             lbs = BL.fromChunks [a, b]
-        decodeMessageLazy lbs @?= Right (SMsg 42 "hello" True)
+        decodeMessageLazy lbs `shouldBe` Right (SMsg 42 "hello" True)
     ]
 
 
@@ -82,43 +81,43 @@ lazyDecodeTests =
 -- Stream framing roundtrip
 -- -----------------------------------------------------------------------
 
-streamRoundtripTests :: TestTree
+streamRoundtripTests :: Spec
 streamRoundtripTests =
-  testGroup
-    "Stream framing roundtrip"
-    [ testProperty "stream roundtrip (no size)" $ property $ do
+  describe
+    "Stream framing roundtrip" $ sequence_
+    [ it "stream roundtrip (no size)" $ property $ do
         msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
         let encoded = encodeMessageStream msgs
             decoded = decodeMessageStream encoded
         fmap fromRight' decoded === msgs
-    , testProperty "stream roundtrip (sized)" $ property $ do
+    , it "stream roundtrip (sized)" $ property $ do
         msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
         let encoded = encodeMessageStreamSized msgs
             decoded = decodeMessageStream encoded
         fmap fromRight' decoded === msgs
-    , testProperty "sized stream matches non-sized stream" $ property $ do
+    , it "sized stream matches non-sized stream" $ property $ do
         msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
         encodeMessageStreamSized msgs === encodeMessageStream msgs
-    , testCase "empty stream" $ do
+    , it "empty stream" $ do
         let encoded = encodeMessageStream ([] :: [SMsg])
-        BL.null encoded @?= True
-        decodeMessageStream @SMsg encoded @?= []
-    , testCase "single-message stream" $ do
+        BL.null encoded `shouldBe` True
+        decodeMessageStream @SMsg encoded `shouldBe` []
+    , it "single-message stream" $ do
         let msg = SMsg 99 "solo" True
             encoded = encodeMessageStream [msg]
             decoded = decodeMessageStream encoded
-        decoded @?= [Right msg]
-    , testCase "stream decode truncated length" $ do
+        decoded `shouldBe` [Right msg]
+    , it "stream decode truncated length" $ do
         let lbs = BL.pack [0x80]
         case decodeMessageStream @SMsg lbs of
           [Left UnexpectedEnd] -> pure ()
-          other -> assertFailure ("Expected [Left UnexpectedEnd], got: " <> show other)
-    , testCase "stream decode truncated payload" $ do
+          other -> expectationFailure ("Expected [Left UnexpectedEnd], got: " <> show other)
+    , it "stream decode truncated payload" $ do
         let lbs = BL.pack [0x0A, 0x01]
         case decodeMessageStream @SMsg lbs of
           [Left UnexpectedEnd] -> pure ()
-          other -> assertFailure ("Expected [Left UnexpectedEnd], got: " <> show other)
-    , testProperty "stream framing matches manual framing" $ property $ do
+          other -> expectationFailure ("Expected [Left UnexpectedEnd], got: " <> show other)
+    , it "stream framing matches manual framing" $ property $ do
         msgs <- forAll $ Gen.list (Range.linear 1 10) genSMsg'
         let autoFramed = encodeMessageStream msgs
             manualFramed = BL.fromChunks $ do
@@ -133,11 +132,11 @@ streamRoundtripTests =
 -- Incremental decoder
 -- -----------------------------------------------------------------------
 
-incrementalDecodeTests :: TestTree
+incrementalDecodeTests :: Spec
 incrementalDecodeTests =
-  testGroup
-    "Incremental decoder"
-    [ testProperty "single message fed all at once" $ property $ do
+  describe
+    "Incremental decoder" $ sequence_
+    [ it "single message fed all at once" $ property $ do
         msg <- genSMsg
         let framed = frameMessage msg
         case feed decodeMessageIncremental framed of
@@ -147,7 +146,7 @@ incrementalDecodeTests =
           other -> do
             annotate (show other)
             failure
-    , testProperty "single message fed byte-by-byte" $ property $ do
+    , it "single message fed byte-by-byte" $ property $ do
         msg <- genSMsg
         let framed = frameMessage msg
             chunks = fmap BS.singleton (BS.unpack framed)
@@ -158,7 +157,7 @@ incrementalDecodeTests =
           other -> do
             annotate (show other)
             failure
-    , testProperty "preserves leftover bytes" $ property $ do
+    , it "preserves leftover bytes" $ property $ do
         msg <- genSMsg
         extra <- forAll $ Gen.bytes (Range.linear 1 50)
         let framed = frameMessage msg <> extra
@@ -169,7 +168,7 @@ incrementalDecodeTests =
           other -> do
             annotate (show other)
             failure
-    , testProperty "two messages fed together" $ property $ do
+    , it "two messages fed together" $ property $ do
         msg1 <- genSMsg
         msg2 <- genSMsg
         let framed = frameMessage msg1 <> frameMessage msg2
@@ -186,7 +185,7 @@ incrementalDecodeTests =
           other -> do
             annotate ("first: " <> show other)
             failure
-    , testProperty "split at arbitrary byte boundary" $ property $ do
+    , it "split at arbitrary byte boundary" $ property $ do
         msg <- genSMsg
         let framed = frameMessage msg
         splitPos <- forAll $ Gen.int (Range.linear 0 (BS.length framed))
@@ -205,33 +204,33 @@ incrementalDecodeTests =
           other -> do
             annotate (show other)
             failure
-    , testCase "empty message" $ do
+    , it "empty message" $ do
         let framed = BS.singleton 0
         case feed decodeMessageIncremental framed of
           IDone decoded leftover -> do
-            decoded @?= SMsg 0 "" False
-            BS.null leftover @?= True
-          other -> assertFailure (show other)
-    , testCase "Nothing at start yields IFail" $ do
+            decoded `shouldBe` SMsg 0 "" False
+            BS.null leftover `shouldBe` True
+          other -> expectationFailure (show other)
+    , it "Nothing at start yields IFail" $ do
         case decodeMessageIncremental @SMsg of
           IPartial k -> case k Nothing of
             IFail UnexpectedEnd _ -> pure ()
-            other -> assertFailure ("Expected IFail UnexpectedEnd, got: " <> show other)
-          other -> assertFailure ("Expected IPartial, got: " <> show other)
-    , testCase "truncated varint" $ do
+            other -> expectationFailure ("Expected IFail UnexpectedEnd, got: " <> show other)
+          other -> expectationFailure ("Expected IPartial, got: " <> show other)
+    , it "truncated varint" $ do
         let chunk = BS.pack [0x80, 0x80]
         case feed decodeMessageIncremental chunk of
           IPartial k -> case k Nothing of
             IFail UnexpectedEnd _ -> pure ()
-            other -> assertFailure ("Expected IFail UnexpectedEnd, got: " <> show (other :: IDecode SMsg))
-          other -> assertFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
-    , testCase "truncated payload" $ do
+            other -> expectationFailure ("Expected IFail UnexpectedEnd, got: " <> show (other :: IDecode SMsg))
+          other -> expectationFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
+    , it "truncated payload" $ do
         let chunk = BS.pack [0x0A, 0x01]
         case feed decodeMessageIncremental chunk of
           IPartial k -> case k Nothing of
             IFail UnexpectedEnd _ -> pure ()
-            other -> assertFailure ("Expected IFail, got: " <> show (other :: IDecode SMsg))
-          other -> assertFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
+            other -> expectationFailure ("Expected IFail, got: " <> show (other :: IDecode SMsg))
+          other -> expectationFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
     ]
 
 

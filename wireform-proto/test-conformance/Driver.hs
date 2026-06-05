@@ -60,23 +60,22 @@ import System.Process
   )
 import qualified Data.Maybe
 
-import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase)
+import Test.Syd
 
 main :: IO ()
-main = defaultMain =<< buildTree
+main = sydTest =<< buildTree
 
-buildTree :: IO TestTree
+buildTree :: IO Spec
 buildTree = do
   mRunner <- locateUpstreamRunner
   case mRunner of
-    Nothing -> pure (testGroup "protobuf-conformance"
-      [ testCase "skipped (no upstream runner)" $ do
+    Nothing -> pure (describe "protobuf-conformance" $ sequence_
+      [ it "skipped (no upstream runner)" $ do
           hPutStrLn stderr ""
           hPutStrLn stderr instructions
       ])
-    Just runner -> pure (testGroup "protobuf-conformance"
-      [ testCase ("upstream runner: " <> runner) (runConformance runner) ])
+    Just runner -> pure (describe "protobuf-conformance" $ sequence_
+      [ it ("upstream runner: " <> runner) (runConformance runner) ])
 
 -- | Probe order: @CONFORMANCE_TEST_RUNNER@ env var first, then
 -- the helper-script's default install path.
@@ -150,7 +149,7 @@ runConformance :: FilePath -> IO ()
 runConformance runner = do
   eRunnerBin <- locateWireformRunner
   case eRunnerBin of
-    Left e -> assertFailure ("could not build wireform-conformance-runner: " <> e)
+    Left e -> expectationFailure ("could not build wireform-conformance-runner: " <> e)
     Right wireformBin -> do
       failureList <- failureListPath
       let args = [ "--enforce_recommended"
@@ -179,7 +178,7 @@ runConformance runner = do
           hPutStrLn stderr
             "upstream runner exited non-zero but reported 0 unexpected failures; \
             \treating as PASS."
-        (ExitFailure n, _) -> assertFailure
+        (ExitFailure n, _) -> expectationFailure
           ("upstream conformance_test_runner exited with code "
             <> show n
             <> "; failures listed above. See "

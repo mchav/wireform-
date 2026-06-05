@@ -14,7 +14,7 @@ import Test.Roundtrip (roundtripTests)
 import Test.Schema (schemaTests)
 import Test.StreamCodec (streamCodecTests)
 import Test.TDP (dynamicSchemaTests)
-import Test.Tasty
+import Test.Syd
 import Test.WellKnown (wellKnownTests)
 import Test.WellKnownUtil (wellKnownUtilTests)
 import Test.Wire (wireTests)
@@ -22,9 +22,9 @@ import Test.Wire (wireTests)
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "wireform-proto"
+  sydTest $
+    describe
+      "wireform-proto" $ sequence_
       [ parserTests
       , wireTests
       , roundtripTests

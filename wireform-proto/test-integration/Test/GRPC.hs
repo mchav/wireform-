@@ -1,13 +1,12 @@
 module Test.GRPC (grpcTests) where
 
 import qualified Data.ByteString as BS
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Proto.GRPC
 
-grpcTests :: TestTree
-grpcTests = testGroup "gRPC Framing"
+grpcTests :: Spec
+grpcTests = describe "gRPC Framing" $ sequence_
   [ singleMessageRoundtrip
   , emptyMessageRoundtrip
   , multiMessageRoundtrip
@@ -15,83 +14,83 @@ grpcTests = testGroup "gRPC Framing"
   , frameStructure
   ]
 
-singleMessageRoundtrip :: TestTree
-singleMessageRoundtrip = testGroup "Single message roundtrip"
-  [ testCase "simple payload" $ do
+singleMessageRoundtrip :: Spec
+singleMessageRoundtrip = describe "Single message roundtrip" $ sequence_
+  [ it "simple payload" $ do
       let payload = BS.pack [0x08, 0x96, 0x01]
           framed = grpcFrame payload
-      grpcUnframe framed @?= Right payload
+      grpcUnframe framed `shouldBe` Right payload
 
-  , testCase "large payload" $ do
+  , it "large payload" $ do
       let payload = BS.replicate 10000 0xAB
           framed = grpcFrame payload
-      grpcUnframe framed @?= Right payload
+      grpcUnframe framed `shouldBe` Right payload
 
-  , testCase "single byte payload" $ do
+  , it "single byte payload" $ do
       let payload = BS.singleton 0xFF
           framed = grpcFrame payload
-      grpcUnframe framed @?= Right payload
+      grpcUnframe framed `shouldBe` Right payload
   ]
 
-emptyMessageRoundtrip :: TestTree
-emptyMessageRoundtrip = testCase "Empty message roundtrip" $ do
+emptyMessageRoundtrip :: Spec
+emptyMessageRoundtrip = it "Empty message roundtrip" $ do
   let payload = BS.empty
       framed = grpcFrame payload
-  BS.length framed @?= 5
-  grpcUnframe framed @?= Right payload
+  BS.length framed `shouldBe` 5
+  grpcUnframe framed `shouldBe` Right payload
 
-multiMessageRoundtrip :: TestTree
-multiMessageRoundtrip = testGroup "Multiple messages"
-  [ testCase "three messages" $ do
+multiMessageRoundtrip :: Spec
+multiMessageRoundtrip = describe "Multiple messages" $ sequence_
+  [ it "three messages" $ do
       let msgs = [BS.pack [1,2,3], BS.pack [4,5], BS.pack [6]]
           framed = grpcFrameMany msgs
-      grpcUnframeMany framed @?= Right msgs
+      grpcUnframeMany framed `shouldBe` Right msgs
 
-  , testCase "empty list" $ do
+  , it "empty list" $ do
       let framed = grpcFrameMany []
-      grpcUnframeMany framed @?= Right []
+      grpcUnframeMany framed `shouldBe` Right []
 
-  , testCase "single in many" $ do
+  , it "single in many" $ do
       let msgs = [BS.pack [0xDE, 0xAD]]
           framed = grpcFrameMany msgs
-      grpcUnframeMany framed @?= Right msgs
+      grpcUnframeMany framed `shouldBe` Right msgs
 
-  , testCase "mixed sizes including empty" $ do
+  , it "mixed sizes including empty" $ do
       let msgs = [BS.empty, BS.pack [1], BS.replicate 256 0x42, BS.empty]
           framed = grpcFrameMany msgs
-      grpcUnframeMany framed @?= Right msgs
+      grpcUnframeMany framed `shouldBe` Right msgs
   ]
 
-errorCases :: TestTree
-errorCases = testGroup "Error cases"
-  [ testCase "too short for header" $ do
+errorCases :: Spec
+errorCases = describe "Error cases" $ sequence_
+  [ it "too short for header" $ do
       case grpcUnframe (BS.pack [0x00, 0x00]) of
         Left _ -> return ()
-        Right _ -> assertFailure "expected error for truncated header"
+        Right _ -> expectationFailure "expected error for truncated header"
 
-  , testCase "truncated payload" $ do
+  , it "truncated payload" $ do
       case grpcUnframe (BS.pack [0x00, 0x00, 0x00, 0x05, 0x01, 0x02]) of
         Left _ -> return ()
-        Right _ -> assertFailure "expected error for truncated payload"
+        Right _ -> expectationFailure "expected error for truncated payload"
 
-  , testCase "trailing data" $ do
+  , it "trailing data" $ do
       let framed = grpcFrame (BS.pack [1,2,3])
           withTrailing = framed <> BS.singleton 0xFF
       case grpcUnframe withTrailing of
         Left _ -> return ()
-        Right _ -> assertFailure "expected error for trailing data"
+        Right _ -> expectationFailure "expected error for trailing data"
 
-  , testCase "empty input to unframeMany" $ do
-      grpcUnframeMany BS.empty @?= Right []
+  , it "empty input to unframeMany" $ do
+      grpcUnframeMany BS.empty `shouldBe` Right []
   ]
 
-frameStructure :: TestTree
-frameStructure = testCase "Frame header structure" $ do
+frameStructure :: Spec
+frameStructure = it "Frame header structure" $ do
   let payload = BS.pack [0x08, 0x96, 0x01]
       framed = grpcFrame payload
-  BS.length framed @?= 8
-  BS.index framed 0 @?= 0x00
-  BS.index framed 1 @?= 0x00
-  BS.index framed 2 @?= 0x00
-  BS.index framed 3 @?= 0x00
-  BS.index framed 4 @?= 0x03
+  BS.length framed `shouldBe` 8
+  BS.index framed 0 `shouldBe` 0x00
+  BS.index framed 1 `shouldBe` 0x00
+  BS.index framed 2 `shouldBe` 0x00
+  BS.index framed 3 `shouldBe` 0x00
+  BS.index framed 4 `shouldBe` 0x03

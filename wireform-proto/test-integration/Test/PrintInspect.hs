@@ -7,41 +7,40 @@ import Proto.IDL.AST
 import Proto.IDL.Inspect
 import Proto.IDL.Parser
 import Proto.IDL.Print
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 
-printInspectTests :: TestTree
+printInspectTests :: Spec
 printInspectTests =
-  testGroup
-    "Print & Inspect"
-    [ testGroup
-        "Exact printing"
-        [ testCase "roundtrip: parse -> print -> parse yields same AST" $ do
+  describe
+    "Print & Inspect" $ sequence_
+    [ describe
+        "Exact printing" $ sequence_
+        [ it "roundtrip: parse -> print -> parse yields same AST" $ do
             let original = complexProto
             case parseProtoFile "<test>" original of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right ast1 -> do
                 let printed = printProtoFile ast1
                 case parseProtoFile "<printed>" printed of
-                  Left e -> assertFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
-                  Right ast2 -> ast1 @?= ast2
-        , testCase "syntax declaration" $ do
+                  Left e -> expectationFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
+                  Right ast2 -> ast1 `shouldBe` ast2
+        , it "syntax declaration" $ do
             let ast = ProtoFile Proto3 Nothing [] [] [] Nothing
-            T.isInfixOf "syntax = \"proto3\";" (printProtoFile ast) @?= True
-        , testCase "syntax proto2" $ do
+            T.isInfixOf "syntax = \"proto3\";" (printProtoFile ast) `shouldBe` True
+        , it "syntax proto2" $ do
             let ast = ProtoFile Proto2 Nothing [] [] [] Nothing
-            T.isInfixOf "syntax = \"proto2\";" (printProtoFile ast) @?= True
-        , testCase "package declaration" $ do
+            T.isInfixOf "syntax = \"proto2\";" (printProtoFile ast) `shouldBe` True
+        , it "package declaration" $ do
             let ast = ProtoFile Proto3 (Just "my.package") [] [] [] Nothing
-            T.isInfixOf "package my.package;" (printProtoFile ast) @?= True
-        , testCase "import" $ do
+            T.isInfixOf "package my.package;" (printProtoFile ast) `shouldBe` True
+        , it "import" $ do
             let ast = ProtoFile Proto3 Nothing [ImportDef () Nothing "other.proto"] [] [] Nothing
-            T.isInfixOf "import \"other.proto\";" (printProtoFile ast) @?= True
-        , testCase "public import" $ do
+            T.isInfixOf "import \"other.proto\";" (printProtoFile ast) `shouldBe` True
+        , it "public import" $ do
             let ast = ProtoFile Proto3 Nothing [ImportDef () (Just ImportPublic) "other.proto"] [] [] Nothing
-            T.isInfixOf "import public \"other.proto\";" (printProtoFile ast) @?= True
-        , testCase "simple message roundtrip" $ do
+            T.isInfixOf "import public \"other.proto\";" (printProtoFile ast) `shouldBe` True
+        , it "simple message roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -51,7 +50,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "enum roundtrip" $ do
+        , it "enum roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -61,7 +60,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "service roundtrip" $ do
+        , it "service roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -70,7 +69,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "map field roundtrip" $ do
+        , it "map field roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -79,7 +78,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "oneof roundtrip" $ do
+        , it "oneof roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -91,7 +90,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "reserved roundtrip" $ do
+        , it "reserved roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -101,7 +100,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "field options roundtrip" $ do
+        , it "field options roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -110,7 +109,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "option with extension name roundtrip" $ do
+        , it "option with extension name roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -120,7 +119,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "nested message roundtrip" $ do
+        , it "nested message roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -132,7 +131,7 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
-        , testCase "streaming rpc roundtrip" $ do
+        , it "streaming rpc roundtrip" $ do
             let src =
                   T.unlines
                     [ "syntax = \"proto3\";"
@@ -142,98 +141,98 @@ printInspectTests =
                     ]
             roundtripTest src
         ]
-    , testGroup
-        "AST inspection"
-        [ testCase "allMessages finds top-level and nested" $ do
+    , describe
+        "AST inspection" $ sequence_
+        [ it "allMessages finds top-level and nested" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let msgs = allMessages pf
-                assertBool "Should find Person" (any (\m -> msgName m == "Person") msgs)
-                assertBool "Should find PhoneNumber" (any (\m -> msgName m == "PhoneNumber") msgs)
-                assertBool "Should find Address" (any (\m -> msgName m == "Address") msgs)
-                assertBool "Should find AddressBook" (any (\m -> msgName m == "AddressBook") msgs)
-        , testCase "findMessage" $ do
+                (any (\m -> msgName m == "Person") msgs) `shouldBe` True
+                (any (\m -> msgName m == "PhoneNumber") msgs) `shouldBe` True
+                (any (\m -> msgName m == "Address") msgs) `shouldBe` True
+                (any (\m -> msgName m == "AddressBook") msgs) `shouldBe` True
+        , it "findMessage" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
-                assertBool "Find Person" (isJust (findMessage "Person" pf))
-                assertBool "No Nonexistent" (isNothing (findMessage "Nonexistent" pf))
-        , testCase "allEnums" $ do
+                (isJust (findMessage "Person" pf)) `shouldBe` True
+                (isNothing (findMessage "Nonexistent" pf)) `shouldBe` True
+        , it "allEnums" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let enums = allEnums pf
-                assertBool "Should find Status" (any (\e -> enumName e == "Status") enums)
-                assertBool "Should find PhoneType" (any (\e -> enumName e == "PhoneType") enums)
-        , testCase "allServices" $ do
+                (any (\e -> enumName e == "Status") enums) `shouldBe` True
+                (any (\e -> enumName e == "PhoneType") enums) `shouldBe` True
+        , it "allServices" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let svcs = allServices pf
-                length svcs @?= 1
-                svcName (head svcs) @?= "PersonService"
-        , testCase "messageFields" $ do
+                length svcs `shouldBe` 1
+                svcName (head svcs) `shouldBe` "PersonService"
+        , it "messageFields" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> case findMessage "Person" pf of
-                Nothing -> assertFailure "Person not found"
+                Nothing -> expectationFailure "Person not found"
                 Just msg -> do
                   let fields = messageFields msg
-                  assertBool "Has name field" (any (\f -> fieldName f == "name") fields)
-                  assertBool "Has id field" (any (\f -> fieldName f == "id") fields)
-                  assertBool "Has email field" (any (\f -> fieldName f == "email") fields)
-        , testCase "nestedMessages" $ do
+                  (any (\f -> fieldName f == "name") fields) `shouldBe` True
+                  (any (\f -> fieldName f == "id") fields) `shouldBe` True
+                  (any (\f -> fieldName f == "email") fields) `shouldBe` True
+        , it "nestedMessages" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> case findMessage "Person" pf of
-                Nothing -> assertFailure "Person not found"
+                Nothing -> expectationFailure "Person not found"
                 Just msg -> do
                   let nested = nestedMessages msg
-                  assertBool "Has PhoneNumber" (any (\m -> msgName m == "PhoneNumber") nested)
-                  assertBool "Has Address" (any (\m -> msgName m == "Address") nested)
-        , testCase "messageOneofs" $ do
+                  (any (\m -> msgName m == "PhoneNumber") nested) `shouldBe` True
+                  (any (\m -> msgName m == "Address") nested) `shouldBe` True
+        , it "messageOneofs" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> case findMessage "Person" pf of
-                Nothing -> assertFailure "Person not found"
+                Nothing -> expectationFailure "Person not found"
                 Just msg -> do
                   let oneofs = messageOneofs msg
-                  length oneofs @?= 1
-                  oneofName (head oneofs) @?= "contact"
-        , testCase "messageMapFields" $ do
+                  length oneofs `shouldBe` 1
+                  oneofName (head oneofs) `shouldBe` "contact"
+        , it "messageMapFields" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> case findMessage "Person" pf of
-                Nothing -> assertFailure "Person not found"
+                Nothing -> expectationFailure "Person not found"
                 Just msg -> do
                   let maps = messageMapFields msg
-                  length maps @?= 1
-                  mapFieldName (head maps) @?= "metadata"
-        , testCase "allTypeNames" $ do
+                  length maps `shouldBe` 1
+                  mapFieldName (head maps) `shouldBe` "metadata"
+        , it "allTypeNames" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let types = allTypeNames pf
-                assertBool "Has Person" ("Person" `elem` types)
-                assertBool "Has Status" ("Status" `elem` types)
-        , testCase "referencedTypes" $ do
+                ("Person" `elem` types) `shouldBe` True
+                ("Status" `elem` types) `shouldBe` True
+        , it "referencedTypes" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let refs = referencedTypes pf
-                assertBool "References PhoneNumber" ("PhoneNumber" `elem` refs)
-                assertBool "References Status" ("Status" `elem` refs)
-        , testCase "summarize" $ do
+                ("PhoneNumber" `elem` refs) `shouldBe` True
+                ("Status" `elem` refs) `shouldBe` True
+        , it "summarize" $ do
             case parseProtoFile "<test>" complexProto of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let s = summarize pf
-                summSyntax s @?= Proto3
-                summPackage s @?= Just "example.api"
-                summMessageCount s > 0 @?= True
-                summEnumCount s > 0 @?= True
-                summServiceCount s @?= 1
+                summSyntax s `shouldBe` Proto3
+                summPackage s `shouldBe` Just "example.api"
+                summMessageCount s > 0 `shouldBe` True
+                summEnumCount s > 0 `shouldBe` True
+                summServiceCount s `shouldBe` 1
         ]
     ]
 
@@ -241,12 +240,12 @@ printInspectTests =
 roundtripTest :: Text -> IO ()
 roundtripTest src =
   case parseProtoFile "<test>" src of
-    Left e -> assertFailure ("Initial parse failed: " <> show e)
+    Left e -> expectationFailure ("Initial parse failed: " <> show e)
     Right ast1 -> do
       let printed = printProtoFile ast1
       case parseProtoFile "<printed>" printed of
-        Left e -> assertFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
-        Right ast2 -> ast1 @?= ast2
+        Left e -> expectationFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
+        Right ast2 -> ast1 `shouldBe` ast2
 
 
 complexProto :: Text

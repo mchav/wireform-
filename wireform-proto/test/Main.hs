@@ -6,14 +6,14 @@ import Test.Proto.Derive.Golden qualified
 import Test.Proto.Derive.Metadata qualified
 import Test.Proto.Derive.Oneof qualified
 import Test.Proto.Derive.TopEnum qualified
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "wireform-proto:Derive"
+  sydTest $
+    describe
+      "wireform-proto:Derive" $ sequence_
       [ Test.Proto.Derive.tests
       , Test.Proto.Derive.Auto.tests
       , Test.Proto.Derive.Golden.tests

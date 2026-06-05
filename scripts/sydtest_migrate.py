@@ -437,7 +437,7 @@ def _wrap_describe_lists(src: str) -> tuple[str, list[str]]:
     # consumed as a do-block-equivalent.
     name = r'"(?:[^"\\]|\\.)*"|[^\s\[]+'
     gap = r'(?:[ \t]*\n|[ \t]+|[ \t]*--[^\n]*\n)*'
-    pattern = re.compile(rf'(\bdescribe[ \t]+(?:{name}))({gap})\[')
+    pattern = re.compile(rf'(\bdescribe{gap}(?:{name}))({gap})\[')
 
     def repl(m: re.Match) -> str:
         return f"{m.group(1)} $ sequence_{m.group(2)}["

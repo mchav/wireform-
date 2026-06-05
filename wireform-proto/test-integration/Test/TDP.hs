@@ -37,17 +37,16 @@ import Proto.Internal.Wire.Decode (
 import Proto.Internal.Wire.Decode qualified as WD
 import Proto.Internal.Wire.Encode
 import Proto.Schema
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import Wireform.Builder qualified as B
 import Wireform.FFI (countPackedVarints, packedAllSingleByte, validateUtf8SWAR)
 
 
-dynamicSchemaTests :: TestTree
+dynamicSchemaTests :: Spec
 dynamicSchemaTests =
-  testGroup
-    "Dynamic Schema-Driven Decoder"
+  describe
+    "Dynamic Schema-Driven Decoder" $ sequence_
     [ coreTests
     , compileTests
     , wireFFITests
@@ -61,25 +60,25 @@ dynamicSchemaTests =
 -- TDP core interpreter tests
 -- ============================================================
 
-coreTests :: TestTree
+coreTests :: Spec
 coreTests =
-  testGroup
-    "Core interpreter"
-    [ testCase "empty message" $ do
+  describe
+    "Core interpreter" $ sequence_
+    [ it "empty message" $ do
         let result = decodeDynamicWithSchema emptyTable BS.empty
         case result of
-          Right msg -> Map.null (dynFields msg) @?= True
-          Left e -> assertFailure (show e)
-    , testCase "single varint field" $ do
+          Right msg -> Map.null (dynFields msg) `shouldBe` True
+          Left e -> expectationFailure (show e)
+    , it "single varint field" $ do
         let bs = buildToBS $ putTag 1 WireVarint <> putVarint 42
             result = decodeDynamicWithSchema testSimpleTable bs
         case result of
           Right msg -> do
             case Map.lookup 1 (dynFields msg) of
               Just (DynVarint 42) -> pure ()
-              other -> assertFailure ("Expected DynVarint 42, got: " <> show other)
-          Left e -> assertFailure (show e)
-    , testCase "multiple fields in order" $ do
+              other -> expectationFailure ("Expected DynVarint 42, got: " <> show other)
+          Left e -> expectationFailure (show e)
+    , it "multiple fields in order" $ do
         let bs =
               buildToBS $
                 putTag 1 WireVarint
@@ -91,11 +90,11 @@ coreTests =
             result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 100)
-            Map.lookup 2 (dynFields msg) @?= Just (DynBytes (buildToBS (B.byteString "hello")))
-            Map.lookup 3 (dynFields msg) @?= Just (DynVarint 1)
-          Left e -> assertFailure (show e)
-    , testCase "fields out of order" $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynVarint 100)
+            Map.lookup 2 (dynFields msg) `shouldBe` Just (DynBytes (buildToBS (B.byteString "hello")))
+            Map.lookup 3 (dynFields msg) `shouldBe` Just (DynVarint 1)
+          Left e -> expectationFailure (show e)
+    , it "fields out of order" $ do
         let bs =
               buildToBS $
                 putTag 3 WireVarint
@@ -105,10 +104,10 @@ coreTests =
             result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
-            Map.lookup 3 (dynFields msg) @?= Just (DynVarint 99)
-          Left e -> assertFailure (show e)
-    , testCase "unknown fields are skipped" $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynVarint 42)
+            Map.lookup 3 (dynFields msg) `shouldBe` Just (DynVarint 99)
+          Left e -> expectationFailure (show e)
+    , it "unknown fields are skipped" $ do
         let bs =
               buildToBS $
                 putTag 1 WireVarint
@@ -120,10 +119,10 @@ coreTests =
             result = decodeDynamicWithSchema testMultiTable bs
         case result of
           Right msg -> do
-            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
-            Map.member 99 (dynFields msg) @?= False
-          Left e -> assertFailure (show e)
-    , testCase "last value wins for scalar fields" $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynVarint 42)
+            Map.member 99 (dynFields msg) `shouldBe` False
+          Left e -> expectationFailure (show e)
+    , it "last value wins for scalar fields" $ do
         let bs =
               buildToBS $
                 putTag 1 WireVarint
@@ -133,25 +132,25 @@ coreTests =
             result = decodeDynamicWithSchema testSimpleTable bs
         case result of
           Right msg ->
-            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 20)
-          Left e -> assertFailure (show e)
-    , testCase "fixed32 field" $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynVarint 20)
+          Left e -> expectationFailure (show e)
+    , it "fixed32 field" $ do
         let bs = buildToBS $ putTag 1 Wire32Bit <> putFixed32 0xDEADBEEF
             table = makeSimpleTable 1 Wire32Bit (thunkFixed32Pub DynFixed32)
             result = decodeDynamicWithSchema table bs
         case result of
           Right msg ->
-            Map.lookup 1 (dynFields msg) @?= Just (DynFixed32 0xDEADBEEF)
-          Left e -> assertFailure (show e)
-    , testCase "fixed64 field" $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynFixed32 0xDEADBEEF)
+          Left e -> expectationFailure (show e)
+    , it "fixed64 field" $ do
         let bs = buildToBS $ putTag 1 Wire64Bit <> putFixed64 0xCAFEBABEDEADBEEF
             table = makeSimpleTable 1 Wire64Bit (thunkFixed64Pub DynFixed64)
             result = decodeDynamicWithSchema table bs
         case result of
           Right msg ->
-            Map.lookup 1 (dynFields msg) @?= Just (DynFixed64 0xCAFEBABEDEADBEEF)
-          Left e -> assertFailure (show e)
-    , testProperty "varint field roundtrip through TDP" $ property $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynFixed64 0xCAFEBABEDEADBEEF)
+          Left e -> expectationFailure (show e)
+    , it "varint field roundtrip through TDP" $ property $ do
         val <- forAll $ Gen.word64 (Range.linear 0 maxBound)
         let bs = buildToBS $ putTag 1 WireVarint <> putVarint val
             result = decodeDynamicWithSchema testSimpleTable bs
@@ -161,7 +160,7 @@ coreTests =
           Left e -> do
             annotate (show e)
             failure
-    , testProperty "multiple varint fields roundtrip" $ property $ do
+    , it "multiple varint fields roundtrip" $ property $ do
         v1 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
         v2 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
         v3 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
@@ -189,23 +188,23 @@ coreTests =
 -- Compile from schema tests
 -- ============================================================
 
-compileTests :: TestTree
+compileTests :: Spec
 compileTests =
-  testGroup
-    "Compilation from schema"
-    [ testCase "compileParseTable produces non-empty table" $ do
+  describe
+    "Compilation from schema" $ sequence_
+    [ it "compileParseTable produces non-empty table" $ do
         let table = compileParseTable (Proxy :: Proxy TestSchemaMsg)
-        V.length (ptFields table) @?= 3
-        BS.length (ptTagLUT table) @?= 128
-    , testCase "TagLUT has entries for small field numbers" $ do
+        V.length (ptFields table) `shouldBe` 3
+        BS.length (ptTagLUT table) `shouldBe` 128
+    , it "TagLUT has entries for small field numbers" $ do
         let table = compileParseTable (Proxy :: Proxy TestSchemaMsg)
             -- Field 1, varint: tag = 0x08
             lut08 = BS.index (ptTagLUT table) 0x08
             -- Field 2, length-delimited: tag = 0x12
             lut12 = BS.index (ptTagLUT table) 0x12
-        lut08 /= 0xFF @?= True
-        lut12 /= 0xFF @?= True
-    , testCase "compiled table decodes matching wire data" $ do
+        lut08 /= 0xFF `shouldBe` True
+        lut12 /= 0xFF `shouldBe` True
+    , it "compiled table decodes matching wire data" $ do
         let table = compileParseTable (Proxy :: Proxy TestSchemaMsg)
             bs =
               buildToBS $
@@ -218,10 +217,10 @@ compileTests =
             result = decodeDynamicWithSchema table bs
         case result of
           Right msg -> do
-            Map.lookup 1 (dynFields msg) @?= Just (DynVarint 42)
-            Map.lookup 3 (dynFields msg) @?= Just (DynBool True)
-          Left e -> assertFailure (show e)
-    , testProperty "compiled table roundtrips with encodeMessage" $ property $ do
+            Map.lookup 1 (dynFields msg) `shouldBe` Just (DynVarint 42)
+            Map.lookup 3 (dynFields msg) `shouldBe` Just (DynBool True)
+          Left e -> expectationFailure (show e)
+    , it "compiled table roundtrips with encodeMessage" $ property $ do
         val <- forAll $ Gen.word64 (Range.linear 0 1000)
         name <- forAll $ Gen.text (Range.linear 0 50) Gen.alphaNum
         active <- forAll Gen.bool
@@ -247,36 +246,36 @@ compileTests =
 -- Wire FFI tests (SWAR routines)
 -- ============================================================
 
-wireFFITests :: TestTree
+wireFFITests :: Spec
 wireFFITests =
-  testGroup
-    "Wire FFI (SWAR)"
-    [ testCase "countPackedVarints empty" $
-        countPackedVarints BS.empty @?= 0
-    , testCase "countPackedVarints single byte" $
-        countPackedVarints (BS.pack [42]) @?= 1
-    , testCase "countPackedVarints all single byte" $
-        countPackedVarints (BS.pack [0, 1, 2, 3, 4, 5, 6, 7]) @?= 8
-    , testCase "countPackedVarints two-byte varints" $
-        countPackedVarints (BS.pack [0x80, 0x01, 0x80, 0x02]) @?= 2
-    , testCase "countPackedVarints mixed" $
-        countPackedVarints (BS.pack [42, 0x80, 0x01, 99]) @?= 3
-    , testProperty "countPackedVarints matches manual count" $ property $ do
+  describe
+    "Wire FFI (SWAR)" $ sequence_
+    [ it "countPackedVarints empty" $
+        countPackedVarints BS.empty `shouldBe` 0
+    , it "countPackedVarints single byte" $
+        countPackedVarints (BS.pack [42]) `shouldBe` 1
+    , it "countPackedVarints all single byte" $
+        countPackedVarints (BS.pack [0, 1, 2, 3, 4, 5, 6, 7]) `shouldBe` 8
+    , it "countPackedVarints two-byte varints" $
+        countPackedVarints (BS.pack [0x80, 0x01, 0x80, 0x02]) `shouldBe` 2
+    , it "countPackedVarints mixed" $
+        countPackedVarints (BS.pack [42, 0x80, 0x01, 99]) `shouldBe` 3
+    , it "countPackedVarints matches manual count" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 100) (Gen.word64 (Range.linear 0 0xFFFF))
         let encoded = BL.toStrict $ B.toLazyByteString $ foldMap putVarint vals
             expected = length vals
         countPackedVarints encoded === expected
-    , testCase "packedAllSingleByte empty" $
-        packedAllSingleByte BS.empty @?= True
-    , testCase "packedAllSingleByte all small" $
-        packedAllSingleByte (BS.pack [0, 1, 42, 127]) @?= True
-    , testCase "packedAllSingleByte has continuation" $
-        packedAllSingleByte (BS.pack [0, 0x80, 1]) @?= False
-    , testProperty "packedAllSingleByte correct for small values" $ property $ do
+    , it "packedAllSingleByte empty" $
+        packedAllSingleByte BS.empty `shouldBe` True
+    , it "packedAllSingleByte all small" $
+        packedAllSingleByte (BS.pack [0, 1, 42, 127]) `shouldBe` True
+    , it "packedAllSingleByte has continuation" $
+        packedAllSingleByte (BS.pack [0, 0x80, 1]) `shouldBe` False
+    , it "packedAllSingleByte correct for small values" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.word8 (Range.linear 0 127))
         let bs = BS.pack vals
         packedAllSingleByte bs === True
-    , testProperty "packedAllSingleByte false when large varint present" $ property $ do
+    , it "packedAllSingleByte false when large varint present" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 1 50) (Gen.word64 (Range.linear 128 0xFFFF))
         let encoded = BL.toStrict $ B.toLazyByteString $ foldMap putVarint vals
         packedAllSingleByte encoded === False
@@ -287,11 +286,11 @@ wireFFITests =
 -- Packed field decode tests (zero-copy, bulk memcpy paths)
 -- ============================================================
 
-packedTests :: TestTree
+packedTests :: Spec
 packedTests =
-  testGroup
-    "Packed field optimizations"
-    [ testProperty "packed varint single-byte fast path" $ property $ do
+  describe
+    "Packed field optimizations" $ sequence_
+    [ it "packed varint single-byte fast path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.word64 (Range.linear 0 127))
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedWord64 1 vec)
@@ -302,7 +301,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed varint multi-byte values" $ property $ do
+    , it "packed varint multi-byte values" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 100) (Gen.word64 (Range.linear 128 0xFFFFFFFF))
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedWord64 1 vec)
@@ -313,7 +312,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed fixed32 bulk memcpy path" $ property $ do
+    , it "packed fixed32 bulk memcpy path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.word32 Range.linearBounded)
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedFixed32 1 vec)
@@ -324,7 +323,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed fixed64 bulk memcpy path" $ property $ do
+    , it "packed fixed64 bulk memcpy path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.word64 Range.linearBounded)
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedFixed64 1 vec)
@@ -335,7 +334,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed float bulk memcpy path" $ property $ do
+    , it "packed float bulk memcpy path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.float (Range.linearFrac (-1e30) 1e30))
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedFloat 1 vec)
@@ -346,7 +345,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed double bulk memcpy path" $ property $ do
+    , it "packed double bulk memcpy path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 200) (Gen.double (Range.linearFrac (-1e300) 1e300))
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedDouble 1 vec)
@@ -357,7 +356,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed sint32 pre-allocated path" $ property $ do
+    , it "packed sint32 pre-allocated path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 100) (Gen.int32 Range.linearBounded)
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedSVarint32 1 vec)
@@ -368,7 +367,7 @@ packedTests =
               annotate (show e)
               failure
             Right decoded -> VU.toList decoded === vals
-    , testProperty "packed sint64 pre-allocated path" $ property $ do
+    , it "packed sint64 pre-allocated path" $ property $ do
         vals <- forAll $ Gen.list (Range.linear 0 100) (Gen.int64 Range.linearBounded)
         let vec = VU.fromList vals
             encoded = buildToBS (encodePackedSVarint64 1 vec)
@@ -386,37 +385,37 @@ packedTests =
 -- SWAR UTF-8 validation tests
 -- ============================================================
 
-utf8Tests :: TestTree
+utf8Tests :: Spec
 utf8Tests =
-  testGroup
-    "SWAR UTF-8 validation"
-    [ testCase "empty is valid" $
-        validateUtf8SWAR BS.empty @?= True
-    , testCase "ASCII is valid" $
-        validateUtf8SWAR "hello world" @?= True
-    , testCase "long ASCII string" $
-        validateUtf8SWAR (BS.replicate 1000 0x41) @?= True
-    , testCase "valid 2-byte UTF-8" $
-        validateUtf8SWAR (BS.pack [0xC3, 0xA9]) @?= True -- é
-    , testCase "valid 3-byte UTF-8" $
-        validateUtf8SWAR (BS.pack [0xE2, 0x80, 0x99]) @?= True -- '
-    , testCase "valid 4-byte UTF-8" $
-        validateUtf8SWAR (BS.pack [0xF0, 0x9F, 0x98, 0x80]) @?= True -- 😀
-    , testCase "invalid: bare continuation byte" $
-        validateUtf8SWAR (BS.pack [0x80]) @?= False
-    , testCase "invalid: overlong 2-byte" $
-        validateUtf8SWAR (BS.pack [0xC0, 0xAF]) @?= False
-    , testCase "invalid: surrogate" $
-        validateUtf8SWAR (BS.pack [0xED, 0xA0, 0x80]) @?= False
-    , testCase "invalid: truncated 2-byte" $
-        validateUtf8SWAR (BS.pack [0xC3]) @?= False
-    , testCase "invalid: truncated 3-byte" $
-        validateUtf8SWAR (BS.pack [0xE2, 0x80]) @?= False
-    , testCase "invalid: byte 0xFF" $
-        validateUtf8SWAR (BS.pack [0xFF]) @?= False
-    , testCase "mixed ASCII and multibyte" $
-        validateUtf8SWAR "hello \xC3\xA9 world \xF0\x9F\x98\x80" @?= True
-    , testProperty "all generated unicode text is valid" $ property $ do
+  describe
+    "SWAR UTF-8 validation" $ sequence_
+    [ it "empty is valid" $
+        validateUtf8SWAR BS.empty `shouldBe` True
+    , it "ASCII is valid" $
+        validateUtf8SWAR "hello world" `shouldBe` True
+    , it "long ASCII string" $
+        validateUtf8SWAR (BS.replicate 1000 0x41) `shouldBe` True
+    , it "valid 2-byte UTF-8" $
+        validateUtf8SWAR (BS.pack [0xC3, 0xA9]) `shouldBe` True -- é
+    , it "valid 3-byte UTF-8" $
+        validateUtf8SWAR (BS.pack [0xE2, 0x80, 0x99]) `shouldBe` True -- '
+    , it "valid 4-byte UTF-8" $
+        validateUtf8SWAR (BS.pack [0xF0, 0x9F, 0x98, 0x80]) `shouldBe` True -- 😀
+    , it "invalid: bare continuation byte" $
+        validateUtf8SWAR (BS.pack [0x80]) `shouldBe` False
+    , it "invalid: overlong 2-byte" $
+        validateUtf8SWAR (BS.pack [0xC0, 0xAF]) `shouldBe` False
+    , it "invalid: surrogate" $
+        validateUtf8SWAR (BS.pack [0xED, 0xA0, 0x80]) `shouldBe` False
+    , it "invalid: truncated 2-byte" $
+        validateUtf8SWAR (BS.pack [0xC3]) `shouldBe` False
+    , it "invalid: truncated 3-byte" $
+        validateUtf8SWAR (BS.pack [0xE2, 0x80]) `shouldBe` False
+    , it "invalid: byte 0xFF" $
+        validateUtf8SWAR (BS.pack [0xFF]) `shouldBe` False
+    , it "mixed ASCII and multibyte" $
+        validateUtf8SWAR "hello \xC3\xA9 world \xF0\x9F\x98\x80" `shouldBe` True
+    , it "all generated unicode text is valid" $ property $ do
         t <- forAll $ Gen.text (Range.linear 0 500) Gen.unicode
         let bs = encodeUtf8 t
         validateUtf8SWAR bs === True
@@ -429,14 +428,14 @@ utf8Tests =
 -- withTagM CPS tests
 -- ============================================================
 
-withTagMTests :: TestTree
+withTagMTests :: Spec
 withTagMTests =
-  testGroup
-    "withTagM CPS dispatch"
-    [ testCase "withTagM at EOF returns kEOF" $ do
+  describe
+    "withTagM CPS dispatch" $ sequence_
+    [ it "withTagM at EOF returns kEOF" $ do
         let decoder = withTagM (pure True) (\_ _ -> pure False)
-        runDecoder decoder BS.empty @?= Right True
-    , testCase "withTagM on varint field" $ do
+        runDecoder decoder BS.empty `shouldBe` Right True
+    , it "withTagM on varint field" $ do
         let bs = buildToBS $ putTag 1 WireVarint <> putVarint 42
             decoder =
               withTagM
@@ -447,10 +446,10 @@ withTagMTests =
                 )
         case runDecoder decoder bs of
           Right (fn, val) -> do
-            fn @?= 1
-            val @?= 42
-          Left e -> assertFailure (show e)
-    , testCase "withTagM dispatches correctly on wire type" $ do
+            fn `shouldBe` 1
+            val `shouldBe` 42
+          Left e -> expectationFailure (show e)
+    , it "withTagM dispatches correctly on wire type" $ do
         let bs = buildToBS $ putTag 5 Wire32Bit <> putFixed32 999
             decoder =
               withTagM
@@ -466,25 +465,25 @@ withTagMTests =
                 )
         case runDecoder decoder bs of
           Right (Just (5, 999)) -> pure ()
-          other -> assertFailure ("Unexpected: " <> show other)
-    , testCase "map entry decode via withTagM" $ do
+          other -> expectationFailure ("Unexpected: " <> show other)
+    , it "map entry decode via withTagM" $ do
         let keyEnc = putTag 1 WireVarint <> putVarint 42
             valEnc = putTag 2 WireLengthDelimited <> putText "value"
             encoded = buildToBS (keyEnc <> valEnc)
         case runDecoder (decodeMapEntry getVarint getText 0 "") encoded of
           Right (k, v) -> do
-            k @?= 42
-            v @?= "value"
-          Left e -> assertFailure (show e)
-    , testCase "map entry with reversed field order" $ do
+            k `shouldBe` 42
+            v `shouldBe` "value"
+          Left e -> expectationFailure (show e)
+    , it "map entry with reversed field order" $ do
         let valEnc = putTag 2 WireLengthDelimited <> putText "first"
             keyEnc = putTag 1 WireVarint <> putVarint 7
             encoded = buildToBS (valEnc <> keyEnc)
         case runDecoder (decodeMapEntry getVarint getText 0 "") encoded of
           Right (k, v) -> do
-            k @?= 7
-            v @?= "first"
-          Left e -> assertFailure (show e)
+            k `shouldBe` 7
+            v `shouldBe` "first"
+          Left e -> expectationFailure (show e)
     ]
 
 

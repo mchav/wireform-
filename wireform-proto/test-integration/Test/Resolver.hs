@@ -13,15 +13,14 @@ import System.Directory (
   removeDirectoryRecursive,
  )
 import System.FilePath ((</>))
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 
-resolverTests :: TestTree
+resolverTests :: Spec
 resolverTests =
-  testGroup
-    "Proto.IDL.Parser.Resolver"
-    [ testCase "resolve simple proto with no imports" $ do
+  describe
+    "Proto.IDL.Parser.Resolver" $ sequence_
+    [ it "resolve simple proto with no imports" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "simple.proto") $
             T.unlines
@@ -33,12 +32,12 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "simple.proto")
           case result of
-            Left e -> assertFailure ("resolve failed: " <> show e)
+            Left e -> expectationFailure ("resolve failed: " <> show e)
             Right rp -> do
-              rpPath rp @?= dir </> "simple.proto"
-              Map.null (rpImports rp) @?= True
-              protoPackage (rpFile rp) @?= Just "test"
-    , testCase "resolve proto with local import" $ do
+              rpPath rp `shouldBe` dir </> "simple.proto"
+              Map.null (rpImports rp) `shouldBe` True
+              protoPackage (rpFile rp) `shouldBe` Just "test"
+    , it "resolve proto with local import" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "dep.proto") $
             T.unlines
@@ -59,14 +58,14 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "main.proto")
           case result of
-            Left e -> assertFailure ("resolve failed: " <> show e)
+            Left e -> expectationFailure ("resolve failed: " <> show e)
             Right rp -> do
-              Map.size (rpImports rp) @?= 1
-              assertBool "import dep.proto present" (Map.member "dep.proto" (rpImports rp))
+              Map.size (rpImports rp) `shouldBe` 1
+              (Map.member "dep.proto" (rpImports rp)) `shouldBe` True
               case Map.lookup "dep.proto" (rpImports rp) of
-                Nothing -> assertFailure "dep.proto not in imports"
-                Just dep -> protoPackage (rpFile dep) @?= Just "dep"
-    , testCase "resolve proto with subdirectory import" $ do
+                Nothing -> expectationFailure "dep.proto not in imports"
+                Just dep -> protoPackage (rpFile dep) `shouldBe` Just "dep"
+    , it "resolve proto with subdirectory import" $ do
         withTempProtoDir $ \dir -> do
           createDirectoryIfMissing True (dir </> "sub")
           writeProtoFile (dir </> "sub" </> "dep.proto") $
@@ -87,10 +86,10 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "main.proto")
           case result of
-            Left e -> assertFailure ("resolve failed: " <> show e)
+            Left e -> expectationFailure ("resolve failed: " <> show e)
             Right rp -> do
-              assertBool "sub/dep.proto imported" (Map.member "sub/dep.proto" (rpImports rp))
-    , testCase "well-known import google/protobuf/timestamp.proto resolves" $ do
+              (Map.member "sub/dep.proto" (rpImports rp)) `shouldBe` True
+    , it "well-known import google/protobuf/timestamp.proto resolves" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "with_ts.proto") $
             T.unlines
@@ -102,14 +101,12 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "with_ts.proto")
           case result of
-            Left e -> assertFailure ("resolve failed: " <> show e)
+            Left e -> expectationFailure ("resolve failed: " <> show e)
             Right rp -> do
-              assertBool
-                "timestamp.proto imported"
-                (Map.member "google/protobuf/timestamp.proto" (rpImports rp))
+              (Map.member "google/protobuf/timestamp.proto" (rpImports rp)) `shouldBe` True
               let tsProto = rpImports rp Map.! "google/protobuf/timestamp.proto"
-              protoPackage (rpFile tsProto) @?= Just "google.protobuf"
-    , testCase "types from imported files available via registry" $ do
+              protoPackage (rpFile tsProto) `shouldBe` Just "google.protobuf"
+    , it "types from imported files available via registry" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "dep.proto") $
             T.unlines
@@ -130,14 +127,14 @@ resolverTests =
               ]
           result <- resolveProtoImports [dir] (dir </> "main.proto")
           case result of
-            Left e -> assertFailure ("resolve failed: " <> show e)
+            Left e -> expectationFailure ("resolve failed: " <> show e)
             Right rp -> do
               let importedProtos = rpImports rp
-              assertBool "dep.proto imported" (Map.member "dep.proto" importedProtos)
+              (Map.member "dep.proto" importedProtos) `shouldBe` True
               let depPf = rpFile (importedProtos Map.! "dep.proto")
                   topLevels = protoTopLevels depPf
-              assertBool "Payload message found" $ any isPayloadMsg topLevels
-    , testCase "missing import returns FileNotFound" $ do
+              any isPayloadMsg topLevels `shouldBe` True
+    , it "missing import returns FileNotFound" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "bad.proto") $
             T.unlines
@@ -150,9 +147,9 @@ resolverTests =
           result <- resolveProtoImports [dir] (dir </> "bad.proto")
           case result of
             Left (FileNotFound {}) -> pure ()
-            Left e -> assertFailure ("unexpected error: " <> show e)
-            Right _ -> assertFailure "expected FileNotFound error"
-    , testCase "circular import detected" $ do
+            Left e -> expectationFailure ("unexpected error: " <> show e)
+            Right _ -> expectationFailure "expected FileNotFound error"
+    , it "circular import detected" $ do
         withTempProtoDir $ \dir -> do
           writeProtoFile (dir </> "a.proto") $
             T.unlines
@@ -169,11 +166,11 @@ resolverTests =
           result <- resolveProtoImports [dir] (dir </> "a.proto")
           case result of
             Left (CircularImport _) -> pure ()
-            Left e -> assertFailure ("unexpected error: " <> show e)
-            Right _ -> assertFailure "expected CircularImport error"
-    , testCase "getBundledIncludeDir returns valid path" $ do
+            Left e -> expectationFailure ("unexpected error: " <> show e)
+            Right _ -> expectationFailure "expected CircularImport error"
+    , it "getBundledIncludeDir returns valid path" $ do
         dir <- getBundledIncludeDir
-        assertBool "bundled dir is non-empty" (not (null dir))
+        (not (null dir)) `shouldBe` True
     ]
 
 

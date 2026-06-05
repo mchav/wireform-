@@ -15,19 +15,18 @@ import Proto.Internal.SizedBuilder qualified as SB
 import Proto.Internal.Wire (Tag (..), WireType (..))
 import Proto.Internal.Wire.Decode
 import Proto.Internal.Wire.Encode
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import Wireform.Builder qualified as B
 
 
-roundtripTests :: TestTree
+roundtripTests :: Spec
 roundtripTests =
-  testGroup
-    "Roundtrip Encoding/Decoding"
-    [ testGroup
-        "Hand-crafted message roundtrip"
-        [ testCase "simple message encode/decode" $ do
+  describe
+    "Roundtrip Encoding/Decoding" $ sequence_
+    [ describe
+        "Hand-crafted message roundtrip" $ sequence_
+        [ it "simple message encode/decode" $ do
             let encoded =
                   buildToBS $
                     putTag 1 WireVarint
@@ -38,23 +37,23 @@ roundtripTests =
                       <> putVarint 1
 
             case runDecoder decodeSimpleMsg encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (val, name, active) -> do
-                val @?= 42
-                name @?= "hello"
-                active @?= True
-        , testCase "message with missing optional fields" $ do
+                val `shouldBe` 42
+                name `shouldBe` "hello"
+                active `shouldBe` True
+        , it "message with missing optional fields" $ do
             let encoded =
                   buildToBS $
                     putTag 1 WireVarint <> putVarint 99
 
             case runDecoder decodeSimpleMsgDefaults encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (val, name, active) -> do
-                val @?= 99
-                name @?= ""
-                active @?= False
-        , testCase "message with unknown fields" $ do
+                val `shouldBe` 99
+                name `shouldBe` ""
+                active `shouldBe` False
+        , it "message with unknown fields" $ do
             let encoded =
                   buildToBS $
                     putTag 1 WireVarint
@@ -69,12 +68,12 @@ roundtripTests =
                       <> putVarint 1
 
             case runDecoder decodeSimpleMsg encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (val, name, active) -> do
-                val @?= 42
-                name @?= "hello"
-                active @?= True
-        , testCase "message with repeated field" $ do
+                val `shouldBe` 42
+                name `shouldBe` "hello"
+                active `shouldBe` True
+        , it "message with repeated field" $ do
             let encoded =
                   buildToBS $
                     putTag 1 WireVarint
@@ -85,18 +84,18 @@ roundtripTests =
                       <> putVarint 3
 
             case runDecoder decodeRepeatedMsg encoded of
-              Left e -> assertFailure (show e)
-              Right vals -> vals @?= [1, 2, 3]
-        , testCase "packed repeated field" $ do
+              Left e -> expectationFailure (show e)
+              Right vals -> vals `shouldBe` [1, 2, 3]
+        , it "packed repeated field" $ do
             let payload = buildToBS (putVarint 10 <> putVarint 20 <> putVarint 30)
                 encoded =
                   buildToBS $
                     putTag 1 WireLengthDelimited <> putLengthDelimited payload
 
             case runDecoder decodePackedRepeatedMsg encoded of
-              Left e -> assertFailure (show e)
-              Right vals -> VU.toList vals @?= [10, 20, 30]
-        , testCase "nested message encode/decode" $ do
+              Left e -> expectationFailure (show e)
+              Right vals -> VU.toList vals `shouldBe` [10, 20, 30]
+        , it "nested message encode/decode" $ do
             let innerPayload =
                   buildToBS $
                     putTag 1 WireLengthDelimited <> putText "inner value"
@@ -108,14 +107,14 @@ roundtripTests =
                       <> putLengthDelimited innerPayload
 
             case runDecoder decodeNestedMsg encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (outerVal, innerText) -> do
-                outerVal @?= 1
-                innerText @?= "inner value"
+                outerVal `shouldBe` 1
+                innerText `shouldBe` "inner value"
         ]
-    , testGroup
-        "Field type roundtrips"
-        [ testProperty "int32 field roundtrip" $ property $ do
+    , describe
+        "Field type roundtrips" $ sequence_
+        [ it "int32 field roundtrip" $ property $ do
             n <- forAll $ Gen.int32 Range.linearBounded
             let encoded = buildToBS $ putTag 1 WireVarint <> putVarintSigned (fromIntegral n)
             case runDecoder (getTag >> getVarintSigned) encoded of
@@ -123,7 +122,7 @@ roundtripTests =
                 annotate (show e)
                 failure
               Right v -> fromIntegral v === n
-        , testProperty "fixed32 field roundtrip" $ property $ do
+        , it "fixed32 field roundtrip" $ property $ do
             n <- forAll $ Gen.word32 Range.linearBounded
             let encoded = buildToBS $ putTag 1 Wire32Bit <> putFixed32 n
             case runDecoder (getTag >> getFixed32) encoded of
@@ -131,7 +130,7 @@ roundtripTests =
                 annotate (show e)
                 failure
               Right v -> v === n
-        , testProperty "string field roundtrip" $ property $ do
+        , it "string field roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 500) Gen.unicode
             let encoded = buildToBS $ putTag 1 WireLengthDelimited <> putText t
             case runDecoder (getTag >> getText) encoded of
@@ -139,7 +138,7 @@ roundtripTests =
                 annotate (show e)
                 failure
               Right v -> v === t
-        , testProperty "bytes field roundtrip" $ property $ do
+        , it "bytes field roundtrip" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 500)
             let encoded = buildToBS $ putTag 1 WireLengthDelimited <> putByteString bs
             case runDecoder (getTag >> getByteString) encoded of
@@ -148,9 +147,9 @@ roundtripTests =
                 failure
               Right v -> v === bs
         ]
-    , testGroup
-        "Multi-field message roundtrip"
-        [ testProperty "multi-field roundtrip" $ property $ do
+    , describe
+        "Multi-field message roundtrip" $ sequence_
+        [ it "multi-field roundtrip" $ property $ do
             v1 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             v2 <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
             v3 <- forAll Gen.bool
@@ -173,9 +172,9 @@ roundtripTests =
                 failure
               Right () -> success
         ]
-    , testGroup
-        "Packed encoding helpers"
-        [ testProperty "packed varint roundtrip" $ property $ do
+    , describe
+        "Packed encoding helpers" $ sequence_
+        [ it "packed varint roundtrip" $ property $ do
             vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.word64 (Range.linear 0 maxBound))
             let vec = VU.fromList vals
                 encoded = buildToBS (encodePackedVarint 1 vec)
@@ -186,7 +185,7 @@ roundtripTests =
                   annotate (show e)
                   failure
                 Right decoded -> VU.toList decoded === vals
-        , testProperty "packed fixed32 roundtrip" $ property $ do
+        , it "packed fixed32 roundtrip" $ property $ do
             vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.word32 Range.linearBounded)
             let vec = VU.fromList vals
                 encoded = buildToBS (encodePackedFixed32 1 vec)
@@ -197,7 +196,7 @@ roundtripTests =
                   annotate (show e)
                   failure
                 Right decoded -> VU.toList decoded === vals
-        , testProperty "packed double roundtrip" $ property $ do
+        , it "packed double roundtrip" $ property $ do
             vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.double (Range.linearFrac (-1e100) 1e100))
             let vec = VU.fromList vals
                 encoded = buildToBS (encodePackedDouble 1 vec)
@@ -208,7 +207,7 @@ roundtripTests =
                   annotate (show e)
                   failure
                 Right decoded -> VU.toList decoded === vals
-        , testProperty "packed sint32 roundtrip" $ property $ do
+        , it "packed sint32 roundtrip" $ property $ do
             vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.int32 Range.linearBounded)
             let vec = VU.fromList vals
                 encoded = buildToBS (encodePackedSVarint32 1 vec)
@@ -220,9 +219,9 @@ roundtripTests =
                   failure
                 Right decoded -> VU.toList decoded === vals
         ]
-    , testGroup
-        "MessageEncode/MessageDecode typeclass roundtrip"
-        [ testProperty "TestMsg roundtrip" $ property $ do
+    , describe
+        "MessageEncode/MessageDecode typeclass roundtrip" $ sequence_
+        [ it "TestMsg roundtrip" $ property $ do
             v <- forAll $ Gen.word64 (Range.linear 0 1000000)
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
             b <- forAll Gen.bool
@@ -233,7 +232,7 @@ roundtripTests =
                 annotate (show e)
                 failure
               Right decoded -> decoded === msg
-        , testProperty "TestMsg with submessage roundtrip" $ property $ do
+        , it "TestMsg with submessage roundtrip" $ property $ do
             outerVal <- forAll $ Gen.word64 (Range.linear 0 1000)
             innerVal <- forAll $ Gen.word64 (Range.linear 0 1000)
             innerName <- forAll $ Gen.text (Range.linear 0 50) Gen.alphaNum
@@ -245,12 +244,12 @@ roundtripTests =
                 annotate (show e)
                 failure
               Right decoded -> decoded === outer
-        , testCase "TestMsg size calculation matches encoding" $ do
+        , it "TestMsg size calculation matches encoding" $ do
             let msg = TestMsg 42 "hello" True
                 encoded = encodeMessage msg
                 calculatedSize = messageSize msg
-            BS.length encoded @?= calculatedSize
-        , testProperty "TestMsg size always matches" $ property $ do
+            BS.length encoded `shouldBe` calculatedSize
+        , it "TestMsg size always matches" $ property $ do
             v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             t <- forAll $ Gen.text (Range.linear 0 200) Gen.alphaNum
             b <- forAll Gen.bool
@@ -258,9 +257,9 @@ roundtripTests =
                 encoded = encodeMessage msg
             BS.length encoded === messageSize msg
         ]
-    , testGroup
-        "Lazy submessage decoding"
-        [ testCase "lazy message captures bytes" $ do
+    , describe
+        "Lazy submessage decoding" $ sequence_
+        [ it "lazy message captures bytes" $ do
             let inner = TestMsg 42 "lazy" True
                 innerBS = encodeMessage inner
                 encoded =
@@ -271,16 +270,16 @@ roundtripTests =
                       <> putLengthDelimited innerBS
 
             case runDecoder decodeLazyOuter encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (outerVal, lazyInner) -> do
-                outerVal @?= 1
+                outerVal `shouldBe` 1
                 case forceLazyMessage lazyInner of
-                  Left e -> assertFailure (show e)
-                  Right msg -> msg @?= TestMsg 42 "lazy" True
+                  Left e -> expectationFailure (show e)
+                  Right msg -> msg `shouldBe` TestMsg 42 "lazy" True
         ]
-    , testGroup
-        "Unknown field preservation"
-        [ testCase "capture and re-encode unknown fields" $ do
+    , describe
+        "Unknown field preservation" $ sequence_
+        [ it "capture and re-encode unknown fields" $ do
             let encoded =
                   buildToBS $
                     putTag 1 WireVarint
@@ -295,11 +294,11 @@ roundtripTests =
                       <> putText "hello"
 
             case runDecoder decodeWithUnknowns encoded of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right (val, name, unknowns) -> do
-                val @?= 42
-                name @?= "hello"
-                length unknowns @?= 3
+                val `shouldBe` 42
+                name `shouldBe` "hello"
+                length unknowns `shouldBe` 3
 
                 let reencoded =
                       buildToBS $
@@ -308,48 +307,48 @@ roundtripTests =
                           <> putTag 2 WireLengthDelimited
                           <> putText "hello"
                           <> encodeUnknownFields unknowns
-                BS.length reencoded > 0 @?= True
+                BS.length reencoded > 0 `shouldBe` True
         ]
-    , testGroup
-        "Size calculation"
-        [ testProperty "varintSize correct" $ property $ do
+    , describe
+        "Size calculation" $ sequence_
+        [ it "varintSize correct" $ property $ do
             n <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             let encoded = buildToBS (putVarint n)
             BS.length encoded === varintSize n
-        , testProperty "tagSize correct" $ property $ do
+        , it "tagSize correct" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 10000)
             let tagVal = fromIntegral fn * 8
                 encoded = buildToBS (putVarint tagVal)
             BS.length encoded === tagSize fn
         ]
-    , testGroup
-        "SizedBuilder (fused size+builder)"
-        [ testProperty "sizedFieldVarint size matches" $ property $ do
+    , describe
+        "SizedBuilder (fused size+builder)" $ sequence_
+        [ it "sizedFieldVarint size matches" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 100)
             val <- forAll $ Gen.word64 (Range.linear 0 maxBound)
             let sb = sizedFieldVarint fn val
                 bs = SB.toByteString sb
             BS.length bs === SB.size sb
-        , testProperty "sizedFieldString size matches" $ property $ do
+        , it "sizedFieldString size matches" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 100)
             t <- forAll $ Gen.text (Range.linear 0 200) Gen.alphaNum
             let sb = sizedFieldString fn t
                 bs = SB.toByteString sb
             BS.length bs === SB.size sb
-        , testProperty "sizedFieldMessage size matches" $ property $ do
+        , it "sizedFieldMessage size matches" $ property $ do
             val <- forAll $ Gen.word64 (Range.linear 0 1000)
             name <- forAll $ Gen.text (Range.linear 0 50) Gen.alphaNum
             let innerSB = sizedFieldVarint 1 val <> sizedFieldString 2 name
                 outerSB = sizedFieldMessage 1 innerSB
                 bs = SB.toByteString outerSB
             BS.length bs === SB.size outerSB
-        , testProperty "sizedFieldBool size matches" $ property $ do
+        , it "sizedFieldBool size matches" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 100)
             b <- forAll Gen.bool
             let sb = sizedFieldBool fn b
                 bs = SB.toByteString sb
             BS.length bs === SB.size sb
-        , testProperty "sizedFieldDouble size matches" $ property $ do
+        , it "sizedFieldDouble size matches" $ property $ do
             fn <- forAll $ Gen.int (Range.linear 1 100)
             d <- forAll $ Gen.double (Range.linearFrac (-1e100) 1e100)
             let sb = sizedFieldDouble fn d

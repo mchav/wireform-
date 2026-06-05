@@ -5,20 +5,19 @@ import Data.Text qualified as T
 import Proto.Compat
 import Proto.IDL.AST
 import Proto.IDL.Parser
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 
-compatTests :: TestTree
+compatTests :: Spec
 compatTests =
-  testGroup
-    "Schema Compatibility"
-    [ testGroup
-        "BACKWARD compatibility"
-        [ testCase "identical schemas are compatible" $ do
+  describe
+    "Schema Compatibility" $ sequence_
+    [ describe
+        "BACKWARD compatibility" $ sequence_
+        [ it "identical schemas are compatible" $ do
             let schema = parseOrDie simpleSchema
             assertCompatible (checkBackward schema schema)
-        , testCase "adding optional field is backward compatible" $ do
+        , it "adding optional field is backward compatible" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -32,7 +31,7 @@ compatTests =
                       , "message Msg { string name = 1; int32 age = 2; }"
                       ]
             assertCompatible (checkBackward new old)
-        , testCase "removing field without reserving breaks backward" $ do
+        , it "removing field without reserving breaks backward" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -47,7 +46,7 @@ compatTests =
                       ]
             assertIncompatible (checkBackward new old)
             assertHasRule "FIELD_REMOVED_NOT_RESERVED" (checkBackward new old)
-        , testCase "removing field with reservation is backward compatible" $ do
+        , it "removing field with reservation is backward compatible" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -61,7 +60,7 @@ compatTests =
                       , "message Msg { string name = 1; reserved 2; }"
                       ]
             assertCompatible (checkBackward new old)
-        , testCase "changing field type (incompatible wire) breaks backward" $ do
+        , it "changing field type (incompatible wire) breaks backward" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -76,7 +75,7 @@ compatTests =
                       ]
             assertIncompatible (checkBackward new old)
             assertHasRule "FIELD_TYPE_CHANGED_INCOMPATIBLE" (checkBackward new old)
-        , testCase "changing between wire-compatible types warns" $ do
+        , it "changing between wire-compatible types warns" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -92,7 +91,7 @@ compatTests =
             let result = checkBackward new old
             assertCompatible result
             assertHasRule "FIELD_TYPE_CHANGED_COMPATIBLE" result
-        , testCase "adding required field breaks backward" $ do
+        , it "adding required field breaks backward" $ do
             -- Simulate required by checking the rule directly
             let fd = FieldDef () Nothing (Just Required) (FTScalar SInt32) "user_id" (FieldNumber 2) []
                 oldMsg = MessageDef () Nothing "Msg" [MEField (FieldDef () Nothing Nothing (FTScalar SString) "name" (FieldNumber 1) [])]
@@ -100,9 +99,9 @@ compatTests =
             assertIncompatible (checkMessageCompat BackwardDir "Msg" newMsg oldMsg)
             assertHasRule "REQUIRED_FIELD_ADDED" (checkMessageCompat BackwardDir "Msg" newMsg oldMsg)
         ]
-    , testGroup
-        "FORWARD compatibility"
-        [ testCase "adding field is forward compatible (old ignores new)" $ do
+    , describe
+        "FORWARD compatibility" $ sequence_
+        [ it "adding field is forward compatible (old ignores new)" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -116,7 +115,7 @@ compatTests =
                       , "message Msg { string name = 1; int32 age = 2; }"
                       ]
             assertCompatible (checkForward new old)
-        , testCase "removing field is forward compatible" $ do
+        , it "removing field is forward compatible" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -130,7 +129,7 @@ compatTests =
                       , "message Msg { string name = 1; }"
                       ]
             assertCompatible (checkForward new old)
-        , testCase "type change (incompatible wire) breaks forward" $ do
+        , it "type change (incompatible wire) breaks forward" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -145,9 +144,9 @@ compatTests =
                       ]
             assertIncompatible (checkForward new old)
         ]
-    , testGroup
-        "FULL compatibility"
-        [ testCase "adding optional field is full compatible" $ do
+    , describe
+        "FULL compatibility" $ sequence_
+        [ it "adding optional field is full compatible" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -161,7 +160,7 @@ compatTests =
                       , "message Msg { string name = 1; int32 age = 2; }"
                       ]
             assertCompatible (checkFull new old)
-        , testCase "removing field without reserving breaks full" $ do
+        , it "removing field without reserving breaks full" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -176,9 +175,9 @@ compatTests =
                       ]
             assertIncompatible (checkFull new old)
         ]
-    , testGroup
-        "Enum compatibility"
-        [ testCase "adding enum value warns for forward" $ do
+    , describe
+        "Enum compatibility" $ sequence_
+        [ it "adding enum value warns for forward" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -194,7 +193,7 @@ compatTests =
             let result = checkForward new old
             assertCompatible result
             assertHasRule "ENUM_VALUE_ADDED" result
-        , testCase "removing enum value breaks backward" $ do
+        , it "removing enum value breaks backward" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -209,7 +208,7 @@ compatTests =
                       ]
             assertIncompatible (checkBackward new old)
             assertHasRule "ENUM_VALUE_REMOVED" (checkBackward new old)
-        , testCase "renaming enum value warns" $ do
+        , it "renaming enum value warns" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -224,9 +223,9 @@ compatTests =
                       ]
             assertHasRule "ENUM_VALUE_RENAMED" (checkBackward new old)
         ]
-    , testGroup
-        "Transitive compatibility"
-        [ testCase "checkCompatAll with multiple versions" $ do
+    , describe
+        "Transitive compatibility" $ sequence_
+        [ it "checkCompatAll with multiple versions" $ do
             let v1 =
                   parseOrDie $
                     T.unlines
@@ -246,7 +245,7 @@ compatTests =
                       , "message Msg { string name = 1; int32 age = 2; bool active = 3; }"
                       ]
             assertCompatible (checkCompatAll BackwardTransitive v3 [v2, v1])
-        , testCase "transitive fails if any version is incompatible" $ do
+        , it "transitive fails if any version is incompatible" $ do
             let v1 =
                   parseOrDie $
                     T.unlines
@@ -267,9 +266,9 @@ compatTests =
                       ]
             assertIncompatible (checkCompatAll BackwardTransitive v3 [v2, v1])
         ]
-    , testGroup
-        "NONE level"
-        [ testCase "NONE always passes" $ do
+    , describe
+        "NONE level" $ sequence_
+        [ it "NONE always passes" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -284,9 +283,9 @@ compatTests =
                       ]
             assertCompatible (checkCompat None new old)
         ]
-    , testGroup
-        "Field name changes"
-        [ testCase "renaming a field warns" $ do
+    , describe
+        "Field name changes" $ sequence_
+        [ it "renaming a field warns" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -301,9 +300,9 @@ compatTests =
                       ]
             assertHasRule "FIELD_NAME_CHANGED" (checkBackward new old)
         ]
-    , testGroup
-        "Complex schema evolution"
-        [ testCase "safe evolution: add fields, reserve removed" $ do
+    , describe
+        "Complex schema evolution" $ sequence_
+        [ it "safe evolution: add fields, reserve removed" $ do
             let old =
                   parseOrDie $
                     T.unlines
@@ -352,20 +351,14 @@ parseOrDie src = case parseProtoFile "<test>" src of
 
 assertCompatible :: CompatResult -> IO ()
 assertCompatible result =
-  assertBool
-    ("Expected compatible, got errors: " <> show (compatErrors result))
-    (isCompatible result)
+  (if (isCompatible result) then pure () else expectationFailure ("Expected compatible, got errors: " <> show (compatErrors result)))
 
 
 assertIncompatible :: CompatResult -> IO ()
 assertIncompatible result =
-  assertBool
-    "Expected incompatible, but was compatible"
-    (not (isCompatible result))
+  (not (isCompatible result)) `shouldBe` True
 
 
 assertHasRule :: Text -> CompatResult -> IO ()
 assertHasRule rule result =
-  assertBool
-    ("Expected rule '" <> T.unpack rule <> "' in errors: " <> show (compatErrors result))
-    (any (\e -> ceRule e == rule) (compatErrors result))
+  (if (any (\e -> ceRule e == rule) (compatErrors result)) then pure () else expectationFailure ("Expected rule '" <> T.unpack rule <> "' in errors: " <> show (compatErrors result)))
