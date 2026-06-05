@@ -1,13 +1,13 @@
 module Main where
 
-import Test.Hspec
+import Test.Syd
 import qualified Wireform.Ring.Test as Ring
 import qualified Wireform.Parser.Test as Parser
 import qualified Wireform.Transport.SendTest as Send
 import qualified Wireform.Base64.Test as Base64
 
 main :: IO ()
-main = hspec $ do
+main = sydTest $ do
   Ring.spec
   Parser.spec
   Send.spec
