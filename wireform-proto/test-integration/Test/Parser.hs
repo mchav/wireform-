@@ -356,6 +356,175 @@ parserTests =
                 _ -> expectationFailure "Expected one message"
         ]
     , describe
+        "Empty statements (trailing/stray semicolons)" $ sequence_
+        [ it "trailing ';' after a message block (protoc tolerates '};')" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Foo {"
+                    , "  string name = 1;"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> do
+                  msgName msg `shouldBe` "Foo"
+                  length (msgElements msg) `shouldBe` 1
+                _ -> expectationFailure "Expected exactly one message"
+        , it "trailing ';' after an enum block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum Status {"
+                    , "  UNKNOWN = 0;"
+                    , "  ACTIVE = 1;"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> do
+                  enumName ed `shouldBe` "Status"
+                  length (enumValues ed) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one enum"
+        , it "trailing ';' after a service block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "service Greeter {"
+                    , "  rpc SayHello (HelloRequest) returns (HelloReply);"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLService svc] -> svcName svc `shouldBe` "Greeter"
+                _ -> expectationFailure "Expected exactly one service"
+        , it "trailing ';' after a nested message inside a message body" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Outer {"
+                    , "  message Inner {"
+                    , "    int32 value = 1;"
+                    , "  };"
+                    , "  enum E {"
+                    , "    A = 0;"
+                    , "  };"
+                    , "  Inner inner = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> do
+                  msgName msg `shouldBe` "Outer"
+                  let nested = filter isNestedMsg (msgElements msg)
+                  length nested `shouldBe` 1
+                _ -> expectationFailure "Expected exactly one message"
+        , it "trailing ';' after a oneof block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Msg {"
+                    , "  oneof value {"
+                    , "    string name = 1;"
+                    , "    int32 id = 2;"
+                    , "  };"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> case msgElements msg of
+                  [MEOneof od] -> length (oneofFields od) `shouldBe` 2
+                  _ -> expectationFailure "Expected exactly one oneof"
+                _ -> expectationFailure "Expected exactly one message"
+        , it "stray ';' between top-level declarations" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , ";"
+                    , "message A { int32 x = 1; };"
+                    , ";"
+                    , "message B { int32 y = 1; }"
+                    , ";"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> length (protoTopLevels pf) `shouldBe` 2
+        , it "stray ';' between message elements" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Msg {"
+                    , "  ;"
+                    , "  int32 x = 1;"
+                    , "  ;"
+                    , "  int32 y = 2;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] ->
+                  length (extractFieldDefs (msgElements msg)) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one message"
+        , it "stray ';' inside an enum body" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum E {"
+                    , "  ;"
+                    , "  A = 0;"
+                    , "  ;"
+                    , "  B = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> length (enumValues ed) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one enum"
+        , it "stray ';' inside a service body and after an rpc block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "service S {"
+                    , "  ;"
+                    , "  rpc A (Req) returns (Resp) {"
+                    , "    option deprecated = true;"
+                    , "    ;"
+                    , "  };"
+                    , "  rpc B (Req) returns (Resp);"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLService svc] -> length (svcRpcs svc) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one service"
+        , it "trailing ';' after an extend block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "extend Foo {"
+                    , "  optional int32 bar = 100;"
+                    , "};"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "still rejects a genuinely missing closing brace" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Foo {"
+                    , "  string name = 1;"
+                    , ";"
+                    ]
+            (isLeft (parseProtoFile "<test>" input)) `shouldBe` True
+        ]
+    , describe
         "Complex proto files" $ sequence_
         [ it "full proto file" $ do
             let input = complexProto

@@ -17,7 +17,7 @@ import Control.Monad (void)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -63,7 +63,7 @@ parseProto :: CommentMap -> Parser (ProtoFile' Parsed)
 parseProto cm = do
   sc
   syn <- option Proto3 syntaxOrEdition
-  stmts <- many (topLevelStmt cm)
+  stmts <- manyStmts (topLevelStmt cm)
   eof
   let pkg = firstJust (\case TLStmtPackage p -> Just p; _ -> Nothing) stmts
   let imps = concatMap (\case TLStmtImport i -> [i]; _ -> []) stmts
@@ -85,6 +85,18 @@ firstJust _ [] = Nothing
 firstJust f (x : xs) = case f x of
   Just v -> Just v
   Nothing -> firstJust f xs
+
+
+{- | Parse zero or more statements, tolerating empty statements (bare @;@).
+
+The proto grammar models a stray semicolon as @emptyStatement = ";"@, which
+@protoc@ accepts wherever a statement may appear. The most common case is the
+trailing @;@ that follows a message, enum, or service block (e.g.
+@message Foo { ... };@), but bare semicolons are also valid between and inside
+declarations.
+-}
+manyStmts :: Parser a -> Parser [a]
+manyStmts p = catMaybes <$> many ((Nothing <$ semi) <|> (Just <$> p))
 
 
 data TLStmt
@@ -148,7 +160,7 @@ extendDef :: CommentMap -> Parser (TopLevel' Parsed)
 extendDef cm = do
   reserved "extend"
   name <- fullIdent
-  fields <- braces (many (fieldDef cm))
+  fields <- braces (manyStmts (fieldDef cm))
   pure (TLExtend name fields)
 
 
@@ -239,7 +251,7 @@ messageDef :: CommentMap -> Maybe Text -> Int -> Parser (MessageDef' Parsed)
 messageDef cm doc start = do
   reserved "message"
   name <- identifier <?> "message name"
-  elems <- braces (many (messageElement cm))
+  elems <- braces (manyStmts (messageElement cm))
   end <- getOffset
   pure MessageDef {msgExt = mkSpan start end, msgDoc = doc, msgName = name, msgElements = elems}
 
@@ -373,7 +385,7 @@ oneofDef cm doc start = do
   reserved "oneof"
   name <- identifier
   (fields, opts) <- braces $ do
-    items <- many (Left <$> try oneofOption <|> Right <$> oneofField cm)
+    items <- manyStmts (Left <$> try oneofOption <|> Right <$> oneofField cm)
     let os = concatMap (either (: []) (const [])) items
     let fs = concatMap (either (const []) (: [])) items
     pure (fs, os)
@@ -458,7 +470,7 @@ enumDef :: CommentMap -> Maybe Text -> Int -> Parser (EnumDef' Parsed)
 enumDef cm doc start = do
   reserved "enum"
   name <- identifier
-  items <- braces (many (enumItem cm))
+  items <- braces (manyStmts (enumItem cm))
   let vals = mapMaybe (\case EIValue v -> Just v; _ -> Nothing) items
       opts = mapMaybe (\case EIOption o -> Just o; _ -> Nothing) items
   end <- getOffset
@@ -514,7 +526,7 @@ serviceDef cm doc start = do
   reserved "service"
   name <- identifier
   (rpcs, opts) <- braces $ do
-    items <- many (Left <$> try (getOffset >>= optionDecl) <|> Right <$> rpcDef cm)
+    items <- manyStmts (Left <$> try (getOffset >>= optionDecl) <|> Right <$> rpcDef cm)
     pure
       ( concatMap (either (const []) (: [])) items
       , concatMap (either (: []) (const [])) items
@@ -560,7 +572,7 @@ rpcDef cm = do
       , rpcOptions = opts
       }
   where
-    rpcBody = braces (many (getOffset >>= optionDecl >>= \o -> optional semi >> pure o))
+    rpcBody = braces (manyStmts (getOffset >>= optionDecl))
 
 
 -- -----------------------------------------------------------------------
