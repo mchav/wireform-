@@ -95,5 +95,4 @@ test-suite wireform-bond-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

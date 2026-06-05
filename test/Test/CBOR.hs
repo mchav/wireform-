@@ -9,17 +9,16 @@ import Data.Word (Word8, Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified CBOR.Value as C
 import CBOR.Encode (encode, encodeDeterministic, encodeSequence)
 import CBOR.Decode (decode, decodeSequence)
 import CBOR.JSON (toJSON, fromJSON)
 
-cborTests :: TestTree
-cborTests = testGroup "CBOR"
+cborTests :: Spec
+cborTests = describe "CBOR" $ sequence_
   [ rfc8949AppendixA
   , rfc8949ConformanceVectors
   , propertyRoundtrips
@@ -30,168 +29,168 @@ cborTests = testGroup "CBOR"
   ]
 
 -- | RFC 8949 Appendix A test vectors: exact byte sequences.
-rfc8949AppendixA :: TestTree
-rfc8949AppendixA = testGroup "RFC 8949 Appendix A test vectors"
-  [ testGroup "Unsigned integers"
-      [ testCase "0 = [0x00]" $
-          encode (C.UInt 0) @?= BS.pack [0x00]
-      , testCase "1 = [0x01]" $
-          encode (C.UInt 1) @?= BS.pack [0x01]
-      , testCase "10 = [0x0a]" $
-          encode (C.UInt 10) @?= BS.pack [0x0a]
-      , testCase "23 = [0x17]" $
-          encode (C.UInt 23) @?= BS.pack [0x17]
-      , testCase "24 = [0x18, 0x18]" $
-          encode (C.UInt 24) @?= BS.pack [0x18, 0x18]
-      , testCase "25 = [0x18, 0x19]" $
-          encode (C.UInt 25) @?= BS.pack [0x18, 0x19]
-      , testCase "100 = [0x18, 0x64]" $
-          encode (C.UInt 100) @?= BS.pack [0x18, 0x64]
-      , testCase "1000 = [0x19, 0x03, 0xe8]" $
-          encode (C.UInt 1000) @?= BS.pack [0x19, 0x03, 0xe8]
-      , testCase "1000000 = [0x1a, 0x00, 0x0f, 0x42, 0x40]" $
-          encode (C.UInt 1000000) @?= BS.pack [0x1a, 0x00, 0x0f, 0x42, 0x40]
-      , testCase "1000000000000 = [0x1b, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0xa5, 0x10, 0x00]" $
-          encode (C.UInt 1000000000000) @?= BS.pack [0x1b, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0xa5, 0x10, 0x00]
+rfc8949AppendixA :: Spec
+rfc8949AppendixA = describe "RFC 8949 Appendix A test vectors" $ sequence_
+  [ describe "Unsigned integers" $ sequence_
+      [ it "0 = [0x00]" $
+          encode (C.UInt 0) `shouldBe` BS.pack [0x00]
+      , it "1 = [0x01]" $
+          encode (C.UInt 1) `shouldBe` BS.pack [0x01]
+      , it "10 = [0x0a]" $
+          encode (C.UInt 10) `shouldBe` BS.pack [0x0a]
+      , it "23 = [0x17]" $
+          encode (C.UInt 23) `shouldBe` BS.pack [0x17]
+      , it "24 = [0x18, 0x18]" $
+          encode (C.UInt 24) `shouldBe` BS.pack [0x18, 0x18]
+      , it "25 = [0x18, 0x19]" $
+          encode (C.UInt 25) `shouldBe` BS.pack [0x18, 0x19]
+      , it "100 = [0x18, 0x64]" $
+          encode (C.UInt 100) `shouldBe` BS.pack [0x18, 0x64]
+      , it "1000 = [0x19, 0x03, 0xe8]" $
+          encode (C.UInt 1000) `shouldBe` BS.pack [0x19, 0x03, 0xe8]
+      , it "1000000 = [0x1a, 0x00, 0x0f, 0x42, 0x40]" $
+          encode (C.UInt 1000000) `shouldBe` BS.pack [0x1a, 0x00, 0x0f, 0x42, 0x40]
+      , it "1000000000000 = [0x1b, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0xa5, 0x10, 0x00]" $
+          encode (C.UInt 1000000000000) `shouldBe` BS.pack [0x1b, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0xa5, 0x10, 0x00]
       ]
 
-  , testGroup "Negative integers"
-      [ testCase "-1 = [0x20]" $
-          encode (C.NInt 0) @?= BS.pack [0x20]
-      , testCase "-10 = [0x29]" $
-          encode (C.NInt 9) @?= BS.pack [0x29]
-      , testCase "-100 = [0x38, 0x63]" $
-          encode (C.NInt 99) @?= BS.pack [0x38, 0x63]
-      , testCase "-1000 = [0x39, 0x03, 0xe7]" $
-          encode (C.NInt 999) @?= BS.pack [0x39, 0x03, 0xe7]
+  , describe "Negative integers" $ sequence_
+      [ it "-1 = [0x20]" $
+          encode (C.NInt 0) `shouldBe` BS.pack [0x20]
+      , it "-10 = [0x29]" $
+          encode (C.NInt 9) `shouldBe` BS.pack [0x29]
+      , it "-100 = [0x38, 0x63]" $
+          encode (C.NInt 99) `shouldBe` BS.pack [0x38, 0x63]
+      , it "-1000 = [0x39, 0x03, 0xe7]" $
+          encode (C.NInt 999) `shouldBe` BS.pack [0x39, 0x03, 0xe7]
       ]
 
-  , testGroup "Simple values / booleans"
-      [ testCase "false = [0xf4]" $
-          encode (C.Bool False) @?= BS.pack [0xf4]
-      , testCase "true = [0xf5]" $
-          encode (C.Bool True) @?= BS.pack [0xf5]
-      , testCase "null = [0xf6]" $
-          encode C.Null @?= BS.pack [0xf6]
-      , testCase "undefined = [0xf7]" $
-          encode C.Undefined @?= BS.pack [0xf7]
+  , describe "Simple values / booleans" $ sequence_
+      [ it "false = [0xf4]" $
+          encode (C.Bool False) `shouldBe` BS.pack [0xf4]
+      , it "true = [0xf5]" $
+          encode (C.Bool True) `shouldBe` BS.pack [0xf5]
+      , it "null = [0xf6]" $
+          encode C.Null `shouldBe` BS.pack [0xf6]
+      , it "undefined = [0xf7]" $
+          encode C.Undefined `shouldBe` BS.pack [0xf7]
       ]
 
-  , testGroup "Text strings"
-      [ testCase "\"\" = [0x60]" $
-          encode (C.TextString "") @?= BS.pack [0x60]
-      , testCase "\"a\" = [0x61, 0x61]" $
-          encode (C.TextString "a") @?= BS.pack [0x61, 0x61]
-      , testCase "\"IETF\" = [0x64, 0x49, 0x45, 0x54, 0x46]" $
-          encode (C.TextString "IETF") @?= BS.pack [0x64, 0x49, 0x45, 0x54, 0x46]
-      , testCase "\"\\\"\\\\\" = [0x62, 0x22, 0x5c]" $
-          encode (C.TextString "\"\\") @?= BS.pack [0x62, 0x22, 0x5c]
-      , testCase "\"\\u00fc\" = [0x62, 0xc3, 0xbc]" $
-          encode (C.TextString "\252") @?= BS.pack [0x62, 0xc3, 0xbc]
+  , describe "Text strings" $ sequence_
+      [ it "\"\" = [0x60]" $
+          encode (C.TextString "") `shouldBe` BS.pack [0x60]
+      , it "\"a\" = [0x61, 0x61]" $
+          encode (C.TextString "a") `shouldBe` BS.pack [0x61, 0x61]
+      , it "\"IETF\" = [0x64, 0x49, 0x45, 0x54, 0x46]" $
+          encode (C.TextString "IETF") `shouldBe` BS.pack [0x64, 0x49, 0x45, 0x54, 0x46]
+      , it "\"\\\"\\\\\" = [0x62, 0x22, 0x5c]" $
+          encode (C.TextString "\"\\") `shouldBe` BS.pack [0x62, 0x22, 0x5c]
+      , it "\"\\u00fc\" = [0x62, 0xc3, 0xbc]" $
+          encode (C.TextString "\252") `shouldBe` BS.pack [0x62, 0xc3, 0xbc]
       ]
 
-  , testGroup "Byte strings"
-      [ testCase "h'' = [0x40]" $
-          encode (C.ByteString BS.empty) @?= BS.pack [0x40]
-      , testCase "h'01020304' = [0x44, 0x01, 0x02, 0x03, 0x04]" $
-          encode (C.ByteString (BS.pack [1,2,3,4])) @?= BS.pack [0x44, 0x01, 0x02, 0x03, 0x04]
+  , describe "Byte strings" $ sequence_
+      [ it "h'' = [0x40]" $
+          encode (C.ByteString BS.empty) `shouldBe` BS.pack [0x40]
+      , it "h'01020304' = [0x44, 0x01, 0x02, 0x03, 0x04]" $
+          encode (C.ByteString (BS.pack [1,2,3,4])) `shouldBe` BS.pack [0x44, 0x01, 0x02, 0x03, 0x04]
       ]
 
-  , testGroup "Arrays"
-      [ testCase "[] = [0x80]" $
-          encode (C.Array V.empty) @?= BS.pack [0x80]
-      , testCase "[1, 2, 3] = [0x83, 0x01, 0x02, 0x03]" $
+  , describe "Arrays" $ sequence_
+      [ it "[] = [0x80]" $
+          encode (C.Array V.empty) `shouldBe` BS.pack [0x80]
+      , it "[1, 2, 3] = [0x83, 0x01, 0x02, 0x03]" $
           encode (C.Array (V.fromList [C.UInt 1, C.UInt 2, C.UInt 3]))
-            @?= BS.pack [0x83, 0x01, 0x02, 0x03]
-      , testCase "[1, [2, 3], [4, 5]]" $
+            `shouldBe` BS.pack [0x83, 0x01, 0x02, 0x03]
+      , it "[1, [2, 3], [4, 5]]" $
           encode (C.Array (V.fromList
             [ C.UInt 1
             , C.Array (V.fromList [C.UInt 2, C.UInt 3])
             , C.Array (V.fromList [C.UInt 4, C.UInt 5])
             ]))
-            @?= BS.pack [0x83, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05]
-      , testCase "25 element array" $
+            `shouldBe` BS.pack [0x83, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05]
+      , it "25 element array" $
           encode (C.Array (V.fromList [C.UInt (fromIntegral i) | i <- [1..25 :: Int]]))
-            @?= BS.pack ([0x98, 25] ++ [1..23] ++ [0x18, 24, 0x18, 25])
+            `shouldBe` BS.pack ([0x98, 25] ++ [1..23] ++ [0x18, 24, 0x18, 25])
       ]
 
-  , testGroup "Maps"
-      [ testCase "{} = [0xa0]" $
-          encode (C.Map V.empty) @?= BS.pack [0xa0]
-      , testCase "{1: 2, 3: 4}" $
+  , describe "Maps" $ sequence_
+      [ it "{} = [0xa0]" $
+          encode (C.Map V.empty) `shouldBe` BS.pack [0xa0]
+      , it "{1: 2, 3: 4}" $
           encode (C.Map (V.fromList [(C.UInt 1, C.UInt 2), (C.UInt 3, C.UInt 4)]))
-            @?= BS.pack [0xa2, 0x01, 0x02, 0x03, 0x04]
+            `shouldBe` BS.pack [0xa2, 0x01, 0x02, 0x03, 0x04]
       ]
 
-  , testGroup "Tags"
-      [ testCase "tag 1 with integer" $
+  , describe "Tags" $ sequence_
+      [ it "tag 1 with integer" $
           encode (C.Tag 1 (C.UInt 1363896240))
-            @?= BS.pack [0xc1, 0x1a, 0x51, 0x4b, 0x67, 0xb0]
+            `shouldBe` BS.pack [0xc1, 0x1a, 0x51, 0x4b, 0x67, 0xb0]
       ]
 
-  , testGroup "Decode test vectors"
-      [ testCase "decode 0" $
-          decode (BS.pack [0x00]) @?= Right (C.UInt 0)
-      , testCase "decode 1" $
-          decode (BS.pack [0x01]) @?= Right (C.UInt 1)
-      , testCase "decode 23" $
-          decode (BS.pack [0x17]) @?= Right (C.UInt 23)
-      , testCase "decode 24" $
-          decode (BS.pack [0x18, 0x18]) @?= Right (C.UInt 24)
-      , testCase "decode 100" $
-          decode (BS.pack [0x18, 0x64]) @?= Right (C.UInt 100)
-      , testCase "decode 1000" $
-          decode (BS.pack [0x19, 0x03, 0xe8]) @?= Right (C.UInt 1000)
-      , testCase "decode 1000000" $
-          decode (BS.pack [0x1a, 0x00, 0x0f, 0x42, 0x40]) @?= Right (C.UInt 1000000)
-      , testCase "decode -1" $
-          decode (BS.pack [0x20]) @?= Right (C.NInt 0)
-      , testCase "decode -100" $
-          decode (BS.pack [0x38, 0x63]) @?= Right (C.NInt 99)
-      , testCase "decode false" $
-          decode (BS.pack [0xf4]) @?= Right (C.Bool False)
-      , testCase "decode true" $
-          decode (BS.pack [0xf5]) @?= Right (C.Bool True)
-      , testCase "decode null" $
-          decode (BS.pack [0xf6]) @?= Right C.Null
-      , testCase "decode \"\"" $
-          decode (BS.pack [0x60]) @?= Right (C.TextString "")
-      , testCase "decode \"a\"" $
-          decode (BS.pack [0x61, 0x61]) @?= Right (C.TextString "a")
-      , testCase "decode \"IETF\"" $
-          decode (BS.pack [0x64, 0x49, 0x45, 0x54, 0x46]) @?= Right (C.TextString "IETF")
-      , testCase "decode []" $
-          decode (BS.pack [0x80]) @?= Right (C.Array V.empty)
-      , testCase "decode [1,2,3]" $
+  , describe "Decode test vectors" $ sequence_
+      [ it "decode 0" $
+          decode (BS.pack [0x00]) `shouldBe` Right (C.UInt 0)
+      , it "decode 1" $
+          decode (BS.pack [0x01]) `shouldBe` Right (C.UInt 1)
+      , it "decode 23" $
+          decode (BS.pack [0x17]) `shouldBe` Right (C.UInt 23)
+      , it "decode 24" $
+          decode (BS.pack [0x18, 0x18]) `shouldBe` Right (C.UInt 24)
+      , it "decode 100" $
+          decode (BS.pack [0x18, 0x64]) `shouldBe` Right (C.UInt 100)
+      , it "decode 1000" $
+          decode (BS.pack [0x19, 0x03, 0xe8]) `shouldBe` Right (C.UInt 1000)
+      , it "decode 1000000" $
+          decode (BS.pack [0x1a, 0x00, 0x0f, 0x42, 0x40]) `shouldBe` Right (C.UInt 1000000)
+      , it "decode -1" $
+          decode (BS.pack [0x20]) `shouldBe` Right (C.NInt 0)
+      , it "decode -100" $
+          decode (BS.pack [0x38, 0x63]) `shouldBe` Right (C.NInt 99)
+      , it "decode false" $
+          decode (BS.pack [0xf4]) `shouldBe` Right (C.Bool False)
+      , it "decode true" $
+          decode (BS.pack [0xf5]) `shouldBe` Right (C.Bool True)
+      , it "decode null" $
+          decode (BS.pack [0xf6]) `shouldBe` Right C.Null
+      , it "decode \"\"" $
+          decode (BS.pack [0x60]) `shouldBe` Right (C.TextString "")
+      , it "decode \"a\"" $
+          decode (BS.pack [0x61, 0x61]) `shouldBe` Right (C.TextString "a")
+      , it "decode \"IETF\"" $
+          decode (BS.pack [0x64, 0x49, 0x45, 0x54, 0x46]) `shouldBe` Right (C.TextString "IETF")
+      , it "decode []" $
+          decode (BS.pack [0x80]) `shouldBe` Right (C.Array V.empty)
+      , it "decode [1,2,3]" $
           decode (BS.pack [0x83, 0x01, 0x02, 0x03])
-            @?= Right (C.Array (V.fromList [C.UInt 1, C.UInt 2, C.UInt 3]))
-      , testCase "decode {}" $
-          decode (BS.pack [0xa0]) @?= Right (C.Map V.empty)
-      , testCase "decode {1:2, 3:4}" $
+            `shouldBe` Right (C.Array (V.fromList [C.UInt 1, C.UInt 2, C.UInt 3]))
+      , it "decode {}" $
+          decode (BS.pack [0xa0]) `shouldBe` Right (C.Map V.empty)
+      , it "decode {1:2, 3:4}" $
           decode (BS.pack [0xa2, 0x01, 0x02, 0x03, 0x04])
-            @?= Right (C.Map (V.fromList [(C.UInt 1, C.UInt 2), (C.UInt 3, C.UInt 4)]))
+            `shouldBe` Right (C.Map (V.fromList [(C.UInt 1, C.UInt 2), (C.UInt 3, C.UInt 4)]))
       ]
 
-  , testGroup "Decode indefinite-length"
-      [ testCase "indefinite array [_ 1, 2]" $
+  , describe "Decode indefinite-length" $ sequence_
+      [ it "indefinite array [_ 1, 2]" $
           decode (BS.pack [0x9f, 0x01, 0x02, 0xff])
-            @?= Right (C.Array (V.fromList [C.UInt 1, C.UInt 2]))
-      , testCase "indefinite map {_ 1:2}" $
+            `shouldBe` Right (C.Array (V.fromList [C.UInt 1, C.UInt 2]))
+      , it "indefinite map {_ 1:2}" $
           decode (BS.pack [0xbf, 0x01, 0x02, 0xff])
-            @?= Right (C.Map (V.fromList [(C.UInt 1, C.UInt 2)]))
+            `shouldBe` Right (C.Map (V.fromList [(C.UInt 1, C.UInt 2)]))
       ]
 
-  , testGroup "Float encoding/decoding"
-      [ testCase "float32 100000.0" $ do
+  , describe "Float encoding/decoding" $ sequence_
+      [ it "float32 100000.0" $ do
           let val = C.Float32 100000.0
               bs  = encode val
-          BS.index bs 0 @?= 0xfa
-          decode bs @?= Right val
-      , testCase "float64 1.1" $ do
+          BS.index bs 0 `shouldBe` 0xfa
+          decode bs `shouldBe` Right val
+      , it "float64 1.1" $ do
           let val = C.Float64 1.1
               bs  = encode val
-          BS.index bs 0 @?= 0xfb
-          decode bs @?= Right val
+          BS.index bs 0 `shouldBe` 0xfb
+          decode bs `shouldBe` Right val
       ]
   ]
 
@@ -199,21 +198,21 @@ rfc8949AppendixA = testGroup "RFC 8949 Appendix A test vectors"
 -- Each entry: (description, hex bytes, expected decoded Value, roundtrip?)
 -- We test decode of hex bytes matches expected value, and for roundtrip entries,
 -- re-encoding produces the original bytes.
-rfc8949ConformanceVectors :: TestTree
-rfc8949ConformanceVectors = testGroup "RFC 8949 Appendix A conformance vectors"
-  [ testGroup "Decode conformance" $ map mkDecodeTest decodeVectors
-  , testGroup "Roundtrip conformance" $ map mkRoundtripTest roundtripVectors
-  , testGroup "Decode-only (indefinite-length)" $ map mkDecodeTest indefiniteVectors
+rfc8949ConformanceVectors :: Spec
+rfc8949ConformanceVectors = describe "RFC 8949 Appendix A conformance vectors" $ sequence_
+  [ describe "Decode conformance" $ mapM_ mkDecodeTest decodeVectors
+  , describe "Roundtrip conformance" $ mapM_ mkRoundtripTest roundtripVectors
+  , describe "Decode-only (indefinite-length)" $ mapM_ mkDecodeTest indefiniteVectors
   ]
   where
     mkDecodeTest (name, hexBytes, expected) =
-      testCase name $ decode (BS.pack hexBytes) @?= Right expected
+      it name $ decode (BS.pack hexBytes) `shouldBe` Right expected
 
     mkRoundtripTest (name, hexBytes, expected) =
-      testCase name $ do
+      it name $ do
         let bs = BS.pack hexBytes
-        decode bs @?= Right expected
-        encode expected @?= bs
+        decode bs `shouldBe` Right expected
+        encode expected `shouldBe` bs
 
     -- Vectors where roundtrip==true and we have a decoded value
     roundtripVectors :: [(String, [Word8], C.Value)]
@@ -425,53 +424,53 @@ rfc8949ConformanceVectors = testGroup "RFC 8949 Appendix A conformance vectors"
       ]
 
 -- | Property-based roundtrip tests.
-propertyRoundtrips :: TestTree
-propertyRoundtrips = testGroup "Property roundtrips"
-  [ testProperty "UInt roundtrip" $ property $ do
+propertyRoundtrips :: Spec
+propertyRoundtrips = describe "Property roundtrips" $ sequence_
+  [ it "UInt roundtrip" $ property $ do
       n <- forAll $ Gen.word64 Range.linearBounded
       let val = C.UInt n
       decode (encode val) === Right val
 
-  , testProperty "NInt roundtrip" $ property $ do
+  , it "NInt roundtrip" $ property $ do
       n <- forAll $ Gen.word64 Range.linearBounded
       let val = C.NInt n
       decode (encode val) === Right val
 
-  , testProperty "Bool roundtrip" $ property $ do
+  , it "Bool roundtrip" $ property $ do
       b <- forAll Gen.bool
       let val = C.Bool b
       decode (encode val) === Right val
 
-  , testProperty "Null roundtrip" $ property $ do
+  , it "Null roundtrip" $ property $ do
       decode (encode C.Null) === Right C.Null
 
-  , testProperty "ByteString roundtrip" $ property $ do
+  , it "ByteString roundtrip" $ property $ do
       bs <- forAll $ Gen.bytes (Range.linear 0 512)
       let val = C.ByteString bs
       decode (encode val) === Right val
 
-  , testProperty "TextString roundtrip" $ property $ do
+  , it "TextString roundtrip" $ property $ do
       t <- forAll $ Gen.text (Range.linear 0 256) Gen.unicode
       let val = C.TextString t
       decode (encode val) === Right val
 
-  , testProperty "Float32 roundtrip" $ property $ do
+  , it "Float32 roundtrip" $ property $ do
       f <- forAll $ Gen.float (Range.linearFrac (-1e6) 1e6)
       let val = C.Float32 f
       decode (encode val) === Right val
 
-  , testProperty "Float64 roundtrip" $ property $ do
+  , it "Float64 roundtrip" $ property $ do
       d <- forAll $ Gen.double (Range.linearFrac (-1e12) 1e12)
       let val = C.Float64 d
       decode (encode val) === Right val
 
-  , testProperty "Array of UInts roundtrip" $ property $ do
+  , it "Array of UInts roundtrip" $ property $ do
       ns <- forAll $ Gen.list (Range.linear 0 50)
                        (Gen.word64 (Range.linear 0 0xffffffff))
       let val = C.Array (V.fromList (map C.UInt ns))
       decode (encode val) === Right val
 
-  , testProperty "Map roundtrip" $ property $ do
+  , it "Map roundtrip" $ property $ do
       entries <- forAll $ Gen.list (Range.linear 0 30) $ do
         k <- Gen.text (Range.linear 1 32) Gen.alphaNum
         v <- Gen.word64 (Range.linear 0 0xffff)
@@ -479,13 +478,13 @@ propertyRoundtrips = testGroup "Property roundtrips"
       let val = C.Map (V.fromList entries)
       decode (encode val) === Right val
 
-  , testProperty "Tag roundtrip" $ property $ do
+  , it "Tag roundtrip" $ property $ do
       tagNum <- forAll $ Gen.word64 (Range.linear 0 0xffff)
       n <- forAll $ Gen.word64 (Range.linear 0 0xffffffff)
       let val = C.Tag tagNum (C.UInt n)
       decode (encode val) === Right val
 
-  , testProperty "Nested arrays roundtrip" $ property $ do
+  , it "Nested arrays roundtrip" $ property $ do
       inner <- forAll $ Gen.list (Range.linear 0 10)
                           (Gen.word64 (Range.linear 0 255))
       let val = C.Array (V.fromList
@@ -497,108 +496,108 @@ propertyRoundtrips = testGroup "Property roundtrips"
   ]
 
 -- | Edge cases.
-edgeCases :: TestTree
-edgeCases = testGroup "Edge cases"
-  [ testCase "large integer (max Word64)" $ do
+edgeCases :: Spec
+edgeCases = describe "Edge cases" $ sequence_
+  [ it "large integer (max Word64)" $ do
       let val = C.UInt maxBound
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "large negative integer (max Word64)" $ do
+  , it "large negative integer (max Word64)" $ do
       let val = C.NInt maxBound
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "deeply nested" $ do
+  , it "deeply nested" $ do
       let nest 0 = C.UInt 42
           nest n = C.Array (V.singleton (nest (n - 1)))
           val = nest (20 :: Int)
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "tagged tagged value" $ do
+  , it "tagged tagged value" $ do
       let val = C.Tag 0 (C.Tag 1 (C.TextString "epoch"))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "map with mixed key types" $ do
+  , it "map with mixed key types" $ do
       let val = C.Map (V.fromList
                   [ (C.UInt 1, C.TextString "one")
                   , (C.TextString "two", C.UInt 2)
                   , (C.Bool True, C.Null)
                   ])
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "empty byte string" $ do
+  , it "empty byte string" $ do
       let val = C.ByteString BS.empty
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "empty text string" $ do
+  , it "empty text string" $ do
       let val = C.TextString ""
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "simple value 16" $ do
+  , it "simple value 16" $ do
       let val = C.Simple 16
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "simple value 255" $ do
+  , it "simple value 255" $ do
       let val = C.Simple 255
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "decode empty input" $
+  , it "decode empty input" $
       case decode BS.empty of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on empty input"
+        Right _ -> expectationFailure "expected error on empty input"
   ]
 
 -- | JSON conversion tests.
-jsonTests :: TestTree
-jsonTests = testGroup "JSON conversion"
-  [ testCase "UInt to JSON" $
-      toJSON (C.UInt 42) @?= Aeson.Number 42
+jsonTests :: Spec
+jsonTests = describe "JSON conversion" $ sequence_
+  [ it "UInt to JSON" $
+      toJSON (C.UInt 42) `shouldBe` Aeson.Number 42
 
-  , testCase "NInt to JSON" $
-      toJSON (C.NInt 0) @?= Aeson.Number (-1)
+  , it "NInt to JSON" $
+      toJSON (C.NInt 0) `shouldBe` Aeson.Number (-1)
 
-  , testCase "Bool to JSON" $ do
-      toJSON (C.Bool True) @?= Aeson.Bool True
-      toJSON (C.Bool False) @?= Aeson.Bool False
+  , it "Bool to JSON" $ do
+      toJSON (C.Bool True) `shouldBe` Aeson.Bool True
+      toJSON (C.Bool False) `shouldBe` Aeson.Bool False
 
-  , testCase "Null to JSON" $
-      toJSON C.Null @?= Aeson.Null
+  , it "Null to JSON" $
+      toJSON C.Null `shouldBe` Aeson.Null
 
-  , testCase "TextString to JSON" $
-      toJSON (C.TextString "hello") @?= Aeson.String "hello"
+  , it "TextString to JSON" $
+      toJSON (C.TextString "hello") `shouldBe` Aeson.String "hello"
 
-  , testCase "Array to JSON" $
+  , it "Array to JSON" $
       toJSON (C.Array (V.fromList [C.UInt 1, C.UInt 2]))
-        @?= Aeson.Array (V.fromList [Aeson.Number 1, Aeson.Number 2])
+        `shouldBe` Aeson.Array (V.fromList [Aeson.Number 1, Aeson.Number 2])
 
-  , testCase "Tag to JSON" $ do
+  , it "Tag to JSON" $ do
       let json = toJSON (C.Tag 1 (C.UInt 42))
       case json of
         Aeson.Object _ -> pure ()
-        _ -> assertFailure "expected JSON object for tag"
+        _ -> expectationFailure "expected JSON object for tag"
 
-  , testCase "fromJSON null" $
-      fromJSON Aeson.Null @?= C.Null
+  , it "fromJSON null" $
+      fromJSON Aeson.Null `shouldBe` C.Null
 
-  , testCase "fromJSON bool" $
-      fromJSON (Aeson.Bool True) @?= C.Bool True
+  , it "fromJSON bool" $
+      fromJSON (Aeson.Bool True) `shouldBe` C.Bool True
 
-  , testCase "fromJSON string" $
-      fromJSON (Aeson.String "hi") @?= C.TextString "hi"
+  , it "fromJSON string" $
+      fromJSON (Aeson.String "hi") `shouldBe` C.TextString "hi"
 
-  , testCase "fromJSON positive int" $
-      fromJSON (Aeson.Number 42) @?= C.UInt 42
+  , it "fromJSON positive int" $
+      fromJSON (Aeson.Number 42) `shouldBe` C.UInt 42
 
-  , testCase "fromJSON negative int" $
-      fromJSON (Aeson.Number (-1)) @?= C.NInt 0
+  , it "fromJSON negative int" $
+      fromJSON (Aeson.Number (-1)) `shouldBe` C.NInt 0
 
-  , testCase "fromJSON array" $
+  , it "fromJSON array" $
       fromJSON (Aeson.Array (V.fromList [Aeson.Number 1]))
-        @?= C.Array (V.fromList [C.UInt 1])
+        `shouldBe` C.Array (V.fromList [C.UInt 1])
   ]
 
-deterministicTests :: TestTree
-deterministicTests = testGroup "Deterministic encoding"
-  [ testCase "sorted map keys by length first" $ do
+deterministicTests :: Spec
+deterministicTests = describe "Deterministic encoding" $ sequence_
+  [ it "sorted map keys by length first" $ do
       let val = C.Map (V.fromList
             [ (C.TextString "bb", C.UInt 2)
             , (C.UInt 1, C.UInt 1)
@@ -608,10 +607,10 @@ deterministicTests = testGroup "Deterministic encoding"
       case decode bs of
         Right (C.Map kvs) -> do
           let keys = V.toList (V.map fst kvs)
-          keys @?= [C.UInt 1, C.TextString "a", C.TextString "bb"]
-        other -> assertFailure $ "expected Map, got: " ++ show other
+          keys `shouldBe` [C.UInt 1, C.TextString "a", C.TextString "bb"]
+        other -> expectationFailure $ "expected Map, got: " ++ show other
 
-  , testCase "deterministic roundtrip" $ do
+  , it "deterministic roundtrip" $ do
       let val = C.Map (V.fromList
             [ (C.TextString "z", C.UInt 1)
             , (C.TextString "a", C.UInt 2)
@@ -620,50 +619,50 @@ deterministicTests = testGroup "Deterministic encoding"
       case decode bs of
         Right decoded -> do
           case decoded of
-            C.Map kvs -> V.map fst kvs @?= V.fromList [C.TextString "a", C.TextString "z"]
-            _ -> assertFailure "expected map"
-        Left err -> assertFailure err
+            C.Map kvs -> V.map fst kvs `shouldBe` V.fromList [C.TextString "a", C.TextString "z"]
+            _ -> expectationFailure "expected map"
+        Left err -> expectationFailure err
 
-  , testCase "deterministic preserves non-map values" $ do
+  , it "deterministic preserves non-map values" $ do
       let val = C.Array (V.fromList [C.UInt 3, C.UInt 1, C.UInt 2])
-      decode (encodeDeterministic val) @?= Right val
+      decode (encodeDeterministic val) `shouldBe` Right val
 
-  , testCase "deterministic encoding is valid CBOR" $ do
+  , it "deterministic encoding is valid CBOR" $ do
       let val = C.Map (V.fromList
             [ (C.TextString "key", C.UInt 42)
             , (C.UInt 1, C.TextString "val")
             ])
       case decode (encodeDeterministic val) of
         Right _ -> pure ()
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
   ]
 
-sequenceTests :: TestTree
-sequenceTests = testGroup "CBOR Sequences (RFC 8742)"
-  [ testCase "encode/decode empty sequence" $ do
+sequenceTests :: Spec
+sequenceTests = describe "CBOR Sequences (RFC 8742)" $ sequence_
+  [ it "encode/decode empty sequence" $ do
       let vals = V.empty
           bs = encodeSequence vals
-      BS.length bs @?= 0
-      decodeSequence bs @?= Right V.empty
+      BS.length bs `shouldBe` 0
+      decodeSequence bs `shouldBe` Right V.empty
 
-  , testCase "encode/decode single item sequence" $ do
+  , it "encode/decode single item sequence" $ do
       let vals = V.singleton (C.UInt 42)
           bs = encodeSequence vals
-      decodeSequence bs @?= Right vals
+      decodeSequence bs `shouldBe` Right vals
 
-  , testCase "encode/decode multi-item sequence" $ do
+  , it "encode/decode multi-item sequence" $ do
       let vals = V.fromList [C.UInt 1, C.TextString "hello", C.Bool True]
           bs = encodeSequence vals
-      decodeSequence bs @?= Right vals
+      decodeSequence bs `shouldBe` Right vals
 
-  , testCase "sequence is concatenation of individual encodings" $ do
+  , it "sequence is concatenation of individual encodings" $ do
       let v1 = C.UInt 1
           v2 = C.TextString "hi"
           seq' = encodeSequence (V.fromList [v1, v2])
           cat  = encode v1 <> encode v2
-      seq' @?= cat
+      seq' `shouldBe` cat
 
-  , testProperty "sequence roundtrip" $ property $ do
+  , it "sequence roundtrip" $ property $ do
       ns <- forAll $ Gen.list (Range.linear 0 20) (Gen.word64 (Range.linear 0 0xffff))
       let vals = V.fromList (map C.UInt ns)
       decodeSequence (encodeSequence vals) === Right vals

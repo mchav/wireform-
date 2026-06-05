@@ -4,9 +4,9 @@
 module Test.Prop.Dialogue (tests) where
 
 import Control.Exception
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import GHC.Stack (HasCallStack)
+import Test.Syd
+import Test.QuickCheck
 
 import Network.GRPC.Common
 import Test.Util.Exception
@@ -15,50 +15,50 @@ import Test.Driver.ClientServer
 import Test.Driver.Dialogue
 import GHC.Generics (Generic)
 
-tests :: TestTree
-tests = testGroup "Test.Prop.Dialogue" [
-      testGroup "Regression" [
-          testCase "trivial1"               $ regression SharedConn trivial1
-        , testCase "trivial2"               $ regression SharedConn trivial2
-        , testCase "trivial3"               $ regression SharedConn trivial3
-        , testCase "concurrent1"            $ regression SharedConn concurrent1
-        , testCase "concurrent2"            $ regression SharedConn concurrent2
-        , testCase "concurrent3"            $ regression SharedConn concurrent3
-        , testCase "concurrent4"            $ regression SharedConn concurrent4
-        , testCase "exception1"             $ regression ConnPerRPC exception1
-        , testCase "exception2"             $ regression ConnPerRPC exception2
-        , testCase "earlyTermination01"     $ regression ConnPerRPC earlyTermination01
-        , testCase "earlyTermination02"     $ regression ConnPerRPC earlyTermination02
-        , testCase "earlyTermination03"     $ regression ConnPerRPC earlyTermination03
-        , testCase "earlyTermination04"     $ regression ConnPerRPC earlyTermination04
-        , testCase "earlyTermination05"     $ regression ConnPerRPC earlyTermination05
-        , testCase "earlyTermination06"     $ regression ConnPerRPC earlyTermination06
-        , testCase "earlyTermination07"     $ regression ConnPerRPC earlyTermination07
-        , testCase "earlyTermination08"     $ regression ConnPerRPC earlyTermination08
-        , testCase "earlyTermination09"     $ regression ConnPerRPC earlyTermination09
-        , testCase "earlyTermination10"     $ regression ConnPerRPC earlyTermination10
-        , testCase "earlyTermination11"     $ regression ConnPerRPC earlyTermination11
-        , testCase "earlyTermination12"     $ regression ConnPerRPC earlyTermination12
-        , testCase "earlyTermination13"     $ regression ConnPerRPC earlyTermination13
-        , testCase "earlyTermination14"     $ regression ConnPerRPC earlyTermination14
-        , testCase "unilateralTermination1" $ regression SharedConn unilateralTermination1
-        , testCase "unilateralTermination2" $ regression SharedConn unilateralTermination2
-        , testCase "unilateralTermination3" $ regression SharedConn unilateralTermination3
-        , testCase "allowHalfClosed1"       $ regression SharedConn allowHalfClosed1
-        , testCase "allowHalfClosed2"       $ regression SharedConn allowHalfClosed2
-        , testCase "allowHalfClosed3"       $ regression ConnPerRPC allowHalfClosed3
+tests :: Spec
+tests = describe "Test.Prop.Dialogue" $ sequence_ [
+      describe "Regression" $ sequence_ [
+          it "trivial1"               $ regression SharedConn trivial1
+        , it "trivial2"               $ regression SharedConn trivial2
+        , it "trivial3"               $ regression SharedConn trivial3
+        , it "concurrent1"            $ regression SharedConn concurrent1
+        , it "concurrent2"            $ regression SharedConn concurrent2
+        , it "concurrent3"            $ regression SharedConn concurrent3
+        , it "concurrent4"            $ regression SharedConn concurrent4
+        , it "exception1"             $ regression ConnPerRPC exception1
+        , it "exception2"             $ regression ConnPerRPC exception2
+        , it "earlyTermination01"     $ regression ConnPerRPC earlyTermination01
+        , it "earlyTermination02"     $ regression ConnPerRPC earlyTermination02
+        , it "earlyTermination03"     $ regression ConnPerRPC earlyTermination03
+        , it "earlyTermination04"     $ regression ConnPerRPC earlyTermination04
+        , it "earlyTermination05"     $ regression ConnPerRPC earlyTermination05
+        , it "earlyTermination06"     $ regression ConnPerRPC earlyTermination06
+        , it "earlyTermination07"     $ regression ConnPerRPC earlyTermination07
+        , it "earlyTermination08"     $ regression ConnPerRPC earlyTermination08
+        , it "earlyTermination09"     $ regression ConnPerRPC earlyTermination09
+        , it "earlyTermination10"     $ regression ConnPerRPC earlyTermination10
+        , it "earlyTermination11"     $ regression ConnPerRPC earlyTermination11
+        , it "earlyTermination12"     $ regression ConnPerRPC earlyTermination12
+        , it "earlyTermination13"     $ regression ConnPerRPC earlyTermination13
+        , it "earlyTermination14"     $ regression ConnPerRPC earlyTermination14
+        , it "unilateralTermination1" $ regression SharedConn unilateralTermination1
+        , it "unilateralTermination2" $ regression SharedConn unilateralTermination2
+        , it "unilateralTermination3" $ regression SharedConn unilateralTermination3
+        , it "allowHalfClosed1"       $ regression SharedConn allowHalfClosed1
+        , it "allowHalfClosed2"       $ regression SharedConn allowHalfClosed2
+        , it "allowHalfClosed3"       $ regression ConnPerRPC allowHalfClosed3
         ]
-    , testGroup "Setup" [
-          testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
+    , describe "Setup" $ sequence_ [
+          it "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
-    , testGroup "Arbitrary" [
-          testGroup "WithoutExceptions" [
-            testProperty "connPerRPC" $ arbitraryWithoutExceptions ConnPerRPC
-          , testProperty "sharedConn" $ arbitraryWithoutExceptions SharedConn
+    , describe "Arbitrary" $ sequence_ [
+          describe "WithoutExceptions" $ sequence_ [
+            it "connPerRPC" $ property $ arbitraryWithoutExceptions ConnPerRPC
+          , it "sharedConn" $ property $ arbitraryWithoutExceptions SharedConn
           ]
-        , testGroup "WithExceptions" [
-            testProperty "connPerRPC" $ arbitraryWithExceptions ConnPerRPC
-          , testProperty "sharedConn" $ arbitraryWithExceptions SharedConn
+        , describe "WithExceptions" $ sequence_ [
+            it "connPerRPC" $ property $ arbitraryWithExceptions ConnPerRPC
+          , it "sharedConn" $ property $ arbitraryWithExceptions SharedConn
           ]
         ]
     ]

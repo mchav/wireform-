@@ -13,9 +13,8 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVR
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MR
@@ -24,26 +23,26 @@ import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ResponseHead
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
-tests :: TestTree
-tests = testGroup "Wire codec round-trips (native dispatch)"
-  [ testGroup "RequestHeader"
-      [ testProperty "decode . encode == id"
+tests :: Spec
+tests = describe "Wire codec round-trips (native dispatch)" $ sequence_
+  [ describe "RequestHeader" $ sequence_
+      [ it "decode . encode == id"
           prop_requestHeader_roundTrip
-      , testCase "v2 sample byte length (api=18, ver=3, corr=42, cid=\"abc\")"
+      , it "v2 sample byte length (api=18, ver=3, corr=42, cid=\"abc\")"
           unit_requestHeader_v2Sample
       ]
-  , testGroup "ResponseHeader"
-      [ testProperty "decode . encode == id"
+  , describe "ResponseHeader" $ sequence_
+      [ it "decode . encode == id"
           prop_responseHeader_roundTrip
-      , testCase "v0 / v1 sample byte lengths"
+      , it "v0 / v1 sample byte lengths"
           unit_responseHeader_samples
       ]
-  , testGroup "ApiVersionsRequest"
-      [ testProperty "decode . encode == id"
+  , describe "ApiVersionsRequest" $ sequence_
+      [ it "decode . encode == id"
           prop_apiVersionsRequest_roundTrip
       ]
-  , testGroup "MetadataRequest (representative array-of-struct shape)"
-      [ testCase "v9 round-trips through the native codec"
+  , describe "MetadataRequest (representative array-of-struct shape)" $ sequence_
+      [ it "v9 round-trips through the native codec"
           unit_metadataRequest_v9RoundTrip
       ]
   ]
@@ -89,7 +88,7 @@ unit_requestHeader_v2Sample = do
   -- v2 RequestHeader layout: 2 (apiKey) + 2 (apiVersion) + 4 (corr)
   -- + 2 + 3 (clientId as INT16-prefixed string; 'flexibleVersions:
   -- none' on this field) + 1 (empty tagged-fields trailer).
-  BS.length bs @?= 2 + 2 + 4 + 2 + 3 + 1
+  BS.length bs `shouldBe` 2 + 2 + 4 + 2 + 3 + 1
 
 ------------------------------------------------------------------
 -- ResponseHeader
@@ -117,8 +116,8 @@ unit_responseHeader_samples = do
   let msg = RsH.ResponseHeader { RsH.responseHeaderCorrelationId = 0x4DEADBEE }
       !v0 = WC.runEncodeVer @RsH.ResponseHeader 0 msg
       !v1 = WC.runEncodeVer @RsH.ResponseHeader 1 msg
-  BS.length v0 @?= 4
-  BS.length v1 @?= 4 + 1  -- + empty tagged-fields trailer
+  BS.length v0 `shouldBe` 4
+  BS.length v1 `shouldBe` 4 + 1  -- + empty tagged-fields trailer
 
 ------------------------------------------------------------------
 -- ApiVersionsRequest
@@ -162,5 +161,5 @@ unit_metadataRequest_v9RoundTrip = do
       !bs = WC.runEncodeVer @MR.MetadataRequest v msg
   case WC.runDecodeVer @MR.MetadataRequest v bs of
     Left err -> error ("decodeMetadataRequest failed: " <> err)
-    Right rt -> rt @?= msg
+    Right rt -> rt `shouldBe` msg
 

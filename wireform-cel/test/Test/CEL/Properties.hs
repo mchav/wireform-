@@ -13,8 +13,8 @@ import qualified Data.Text as T
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import CEL
 
@@ -27,15 +27,15 @@ lit = T.pack . show
 inI64 :: Integer -> Bool
 inI64 n = n >= toInteger (minBound :: Int64) && n <= toInteger (maxBound :: Int64)
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "properties"
-    [ testProperty "int addition agrees with Integer / overflows exactly" prop_add
-    , testProperty "int subtraction agrees with Integer / overflows exactly" prop_sub
-    , testProperty "int ordering agrees with compare" prop_lt
-    , testProperty "int equality is reflexive" prop_eq_refl
-    , testProperty "string size counts code points" prop_strsize
+  describe
+    "properties" $ sequence_
+    [ it "int addition agrees with Integer / overflows exactly" prop_add
+    , it "int subtraction agrees with Integer / overflows exactly" prop_sub
+    , it "int ordering agrees with compare" prop_lt
+    , it "int equality is reflexive" prop_eq_refl
+    , it "string size counts code points" prop_strsize
     ]
 
 prop_add :: Property

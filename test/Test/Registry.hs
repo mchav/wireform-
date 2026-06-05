@@ -23,17 +23,16 @@ import FlatBuffers.Schema
 import Proto.CodeGen.Hooks
 import Proto.IDL.AST (FieldNumber (..), FieldType (..), ScalarType (..))
 import Proto.IDL.AST qualified
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 import Thrift.CodeGen (generateThriftTypesWithRegistry)
 import Thrift.Registry
 import Thrift.Schema
 
 
-registryTests :: TestTree
+registryTests :: Spec
 registryTests =
-  testGroup
-    "Custom Type Registration"
+  describe
+    "Custom Type Registration" $ sequence_
     [ avroRegistryTests
     , thriftRegistryTests
     , cborTagRegistryTests
@@ -48,11 +47,11 @@ registryTests =
 -- Avro registry tests
 -- =========================================================================
 
-avroRegistryTests :: TestTree
+avroRegistryTests :: Spec
 avroRegistryTests =
-  testGroup
-    "Avro.Registry"
-    [ testCase "custom logical type replaces base type in codegen" $ do
+  describe
+    "Avro.Registry" $ sequence_
+    [ it "custom logical type replaces base type in codegen" $ do
         let handler =
               LogicalTypeHandler
                 { lthHaskellType = "Money"
@@ -85,14 +84,14 @@ avroRegistryTests =
                       ]
                 }
             code = generateAvroTypesWithRegistry reg schema
-        assertBool "contains Money type" ("Money" `T.isInfixOf` code)
-        assertBool "contains encodeMoney" ("encodeMoney" `T.isInfixOf` code)
-        assertBool "contains decodeMoney" ("decodeMoney" `T.isInfixOf` code)
-    , testCase "default registry includes timestamp-millis" $ do
+        ("Money" `T.isInfixOf` code) `shouldBe` True
+        ("encodeMoney" `T.isInfixOf` code) `shouldBe` True
+        ("decodeMoney" `T.isInfixOf` code) `shouldBe` True
+    , it "default registry includes timestamp-millis" $ do
         let reg = defaultAvroRegistry
-        assertBool "has timestamp-millis" (Map.member "timestamp-millis" (arLogicalTypes reg))
-        assertBool "has uuid" (Map.member "uuid" (arLogicalTypes reg))
-    , testCase "custom prop handler emits extra code" $ do
+        (Map.member "timestamp-millis" (arLogicalTypes reg)) `shouldBe` True
+        (Map.member "uuid" (arLogicalTypes reg)) `shouldBe` True
+    , it "custom prop handler emits extra code" $ do
         let handler =
               PropHandler
                 { phCodeGen = \k v ->
@@ -119,8 +118,8 @@ avroRegistryTests =
                       ]
                 }
             code = generateAvroTypesWithRegistry reg schema
-        assertBool "contains prop extra code" ("-- prop x-validate = required" `T.isInfixOf` code)
-    , testCase "Semigroup composition of registries" $ do
+        ("-- prop x-validate = required" `T.isInfixOf` code) `shouldBe` True
+    , it "Semigroup composition of registries" $ do
         let reg1 =
               registerLogicalType
                 "custom1"
@@ -132,9 +131,9 @@ avroRegistryTests =
                 (LogicalTypeHandler "Type2" [] "enc2" "dec2")
                 mempty
             combined = reg1 <> reg2
-        assertBool "has custom1" (Map.member "custom1" (arLogicalTypes combined))
-        assertBool "has custom2" (Map.member "custom2" (arLogicalTypes combined))
-    , testCase "backward compat: generateAvroTypes still works" $ do
+        (Map.member "custom1" (arLogicalTypes combined)) `shouldBe` True
+        (Map.member "custom2" (arLogicalTypes combined)) `shouldBe` True
+    , it "backward compat: generateAvroTypes still works" $ do
         let schema =
               AvroRecord
                 { avroRecordName = "Simple"
@@ -148,7 +147,7 @@ avroRegistryTests =
                       ]
                 }
         let code = generateAvroTypesWithRegistry defaultAvroRegistry schema
-        assertBool "contains data Simple" ("data Simple = Simple" `T.isInfixOf` code)
+        ("data Simple = Simple" `T.isInfixOf` code) `shouldBe` True
     ]
 
 
@@ -156,11 +155,11 @@ avroRegistryTests =
 -- Thrift registry tests
 -- =========================================================================
 
-thriftRegistryTests :: TestTree
+thriftRegistryTests :: Spec
 thriftRegistryTests =
-  testGroup
-    "Thrift.Registry"
-    [ testCase "field annotation transforms type" $ do
+  describe
+    "Thrift.Registry" $ sequence_
+    [ it "field annotation transforms type" $ do
         let handler =
               FieldAnnotationHandler
                 { fahTransformType = \ty -> "Sensitive (" <> ty <> ")"
@@ -191,8 +190,8 @@ thriftRegistryTests =
                 , tsServices = []
                 }
             code = generateThriftTypesWithRegistry reg schema
-        assertBool "contains Sensitive" ("Sensitive" `T.isInfixOf` code)
-    , testCase "field annotation emits extra code" $ do
+        ("Sensitive" `T.isInfixOf` code) `shouldBe` True
+    , it "field annotation emits extra code" $ do
         let handler =
               FieldAnnotationHandler
                 { fahTransformType = id
@@ -224,8 +223,8 @@ thriftRegistryTests =
                 , tsServices = []
                 }
             code = generateThriftTypesWithRegistry reg schema
-        assertBool "contains extra code" ("-- annotation on old_field: use new_field" `T.isInfixOf` code)
-    , testCase "struct annotation emits extra derivations" $ do
+        ("-- annotation on old_field: use new_field" `T.isInfixOf` code) `shouldBe` True
+    , it "struct annotation emits extra derivations" $ do
         let handler =
               StructAnnotationHandler
                 { sahExtraDerivations = const ["Hashable"]
@@ -251,8 +250,8 @@ thriftRegistryTests =
                 , tsServices = []
                 }
             code = generateThriftTypesWithRegistry reg schema
-        assertBool "contains Hashable deriving" ("Hashable" `T.isInfixOf` code)
-        assertBool "contains struct annotation code" ("-- struct annotation hashable = true" `T.isInfixOf` code)
+        ("Hashable" `T.isInfixOf` code) `shouldBe` True
+        ("-- struct annotation hashable = true" `T.isInfixOf` code) `shouldBe` True
     ]
 
 
@@ -260,17 +259,17 @@ thriftRegistryTests =
 -- CBOR tag registry tests
 -- =========================================================================
 
-cborTagRegistryTests :: TestTree
+cborTagRegistryTests :: Spec
 cborTagRegistryTests =
-  testGroup
-    "CBOR.TagRegistry"
-    [ testCase "default registry has standard tags" $ do
+  describe
+    "CBOR.TagRegistry" $ sequence_
+    [ it "default registry has standard tags" $ do
         let reg = defaultCBORTagRegistry
-        assertBool "has tag 0" (IntMap.member 0 (ctrTags reg))
-        assertBool "has tag 1" (IntMap.member 1 (ctrTags reg))
-        assertBool "has tag 2" (IntMap.member 2 (ctrTags reg))
-        assertBool "has tag 3" (IntMap.member 3 (ctrTags reg))
-    , testCase "register custom tag" $ do
+        (IntMap.member 0 (ctrTags reg)) `shouldBe` True
+        (IntMap.member 1 (ctrTags reg)) `shouldBe` True
+        (IntMap.member 2 (ctrTags reg)) `shouldBe` True
+        (IntMap.member 3 (ctrTags reg)) `shouldBe` True
+    , it "register custom tag" $ do
         let handler =
               TagHandler
                 { thName = "geojson"
@@ -279,32 +278,32 @@ cborTagRegistryTests =
                 }
             reg = registerTag 100 handler defaultCBORTagRegistry
         case lookupTag 100 reg of
-          Just h -> thName h @?= "geojson"
-          Nothing -> assertFailure "tag 100 not found"
-    , testCase "tag validation works" $ do
+          Just h -> thName h `shouldBe` "geojson"
+          Nothing -> expectationFailure "tag 100 not found"
+    , it "tag validation works" $ do
         let reg = defaultCBORTagRegistry
         case lookupTag 0 reg of
           Just h -> do
             let result = thValidate h (CBOR.Value.TextString "2024-01-01T00:00:00Z")
             case result of
               Right _ -> pure ()
-              Left err -> assertFailure ("validation failed: " <> err)
-          Nothing -> assertFailure "tag 0 not found"
-    , testCase "tag validation rejects invalid" $ do
+              Left err -> expectationFailure ("validation failed: " <> err)
+          Nothing -> expectationFailure "tag 0 not found"
+    , it "tag validation rejects invalid" $ do
         let reg = defaultCBORTagRegistry
         case lookupTag 0 reg of
           Just h -> do
             let result = thValidate h (CBOR.Value.UInt 42)
             case result of
               Left _ -> pure ()
-              Right _ -> assertFailure "should have rejected UInt for datetime tag"
-          Nothing -> assertFailure "tag 0 not found"
-    , testCase "Semigroup composition" $ do
+              Right _ -> expectationFailure "should have rejected UInt for datetime tag"
+          Nothing -> expectationFailure "tag 0 not found"
+    , it "Semigroup composition" $ do
         let reg1 = registerTag 100 (TagHandler "a" Nothing Right) mempty
             reg2 = registerTag 101 (TagHandler "b" Nothing Right) mempty
             combined = reg1 <> reg2
-        assertBool "has 100" (IntMap.member 100 (ctrTags combined))
-        assertBool "has 101" (IntMap.member 101 (ctrTags combined))
+        (IntMap.member 100 (ctrTags combined)) `shouldBe` True
+        (IntMap.member 101 (ctrTags combined)) `shouldBe` True
     ]
 
 
@@ -312,11 +311,11 @@ cborTagRegistryTests =
 -- Bond registry tests
 -- =========================================================================
 
-bondRegistryTests :: TestTree
+bondRegistryTests :: Spec
 bondRegistryTests =
-  testGroup
-    "Bond.Registry"
-    [ testCase "attribute handler transforms type" $ do
+  describe
+    "Bond.Registry" $ sequence_
+    [ it "attribute handler transforms type" $ do
         let handler =
               AttributeHandler
                 { Bond.Registry.hTransformType = \ty -> "Encrypted (" <> ty <> ")"
@@ -347,8 +346,8 @@ bondRegistryTests =
                     ]
                 }
             code = generateBondTypesWithRegistry reg schema
-        assertBool "contains Encrypted" ("Encrypted" `T.isInfixOf` code)
-    , testCase "attribute handler emits extra code" $ do
+        ("Encrypted" `T.isInfixOf` code) `shouldBe` True
+    , it "attribute handler emits extra code" $ do
         let handler =
               AttributeHandler
                 { Bond.Registry.hTransformType = id
@@ -380,8 +379,8 @@ bondRegistryTests =
                     ]
                 }
             code = generateBondTypesWithRegistry reg schema
-        assertBool "contains extra code" ("-- bond attribute: audit" `T.isInfixOf` code)
-    , testCase "backward compat: generateBondTypes still works" $ do
+        ("-- bond attribute: audit" `T.isInfixOf` code) `shouldBe` True
+    , it "backward compat: generateBondTypes still works" $ do
         let schema =
               BondSchema
                 { bondNamespace = Nothing
@@ -400,7 +399,7 @@ bondRegistryTests =
                     ]
                 }
             code = generateBondTypesWithRegistry defaultBondRegistry schema
-        assertBool "contains data Simple" ("data Simple = Simple" `T.isInfixOf` code)
+        ("data Simple = Simple" `T.isInfixOf` code) `shouldBe` True
     ]
 
 
@@ -408,11 +407,11 @@ bondRegistryTests =
 -- Cap'n Proto registry tests
 -- =========================================================================
 
-capnProtoRegistryTests :: TestTree
+capnProtoRegistryTests :: Spec
 capnProtoRegistryTests =
-  testGroup
-    "CapnProto.Registry"
-    [ testCase "annotation handler transforms type" $ do
+  describe
+    "CapnProto.Registry" $ sequence_
+    [ it "annotation handler transforms type" $ do
         let handler =
               CapnProto.Registry.AnnotationHandler
                 { CapnProto.Registry.hTransformType = \ty -> "Validated (" <> ty <> ")"
@@ -444,8 +443,8 @@ capnProtoRegistryTests =
                       ]
                 }
             code = generateCapnProtoTypesWithRegistry reg schema
-        assertBool "contains Validated" ("Validated" `T.isInfixOf` code)
-    , testCase "annotation handler emits extra code" $ do
+        ("Validated" `T.isInfixOf` code) `shouldBe` True
+    , it "annotation handler emits extra code" $ do
         let handler =
               CapnProto.Registry.AnnotationHandler
                 { CapnProto.Registry.hTransformType = id
@@ -478,7 +477,7 @@ capnProtoRegistryTests =
                       ]
                 }
             code = generateCapnProtoTypesWithRegistry reg schema
-        assertBool "contains extra code" ("-- capnp annotation: deprecated" `T.isInfixOf` code)
+        ("-- capnp annotation: deprecated" `T.isInfixOf` code) `shouldBe` True
     ]
 
 
@@ -486,11 +485,11 @@ capnProtoRegistryTests =
 -- FlatBuffers registry tests
 -- =========================================================================
 
-flatBuffersRegistryTests :: TestTree
+flatBuffersRegistryTests :: Spec
 flatBuffersRegistryTests =
-  testGroup
-    "FlatBuffers.Registry"
-    [ testCase "metadata handler transforms type" $ do
+  describe
+    "FlatBuffers.Registry" $ sequence_
+    [ it "metadata handler transforms type" $ do
         let handler =
               FlatBuffers.Registry.MetadataHandler
                 { FlatBuffers.Registry.hTransformType = \ty -> "Compressed (" <> ty <> ")"
@@ -524,8 +523,8 @@ flatBuffersRegistryTests =
                 , fbsAttributes = V.empty
                 }
             code = generateFlatBuffersTypesWithRegistry reg schema
-        assertBool "contains Compressed" ("Compressed" `T.isInfixOf` code)
-    , testCase "metadata handler emits extra code" $ do
+        ("Compressed" `T.isInfixOf` code) `shouldBe` True
+    , it "metadata handler emits extra code" $ do
         let handler =
               FlatBuffers.Registry.MetadataHandler
                 { FlatBuffers.Registry.hTransformType = id
@@ -560,8 +559,8 @@ flatBuffersRegistryTests =
                 , fbsAttributes = V.empty
                 }
             code = generateFlatBuffersTypesWithRegistry reg schema
-        assertBool "contains extra code" ("-- fbs metadata: custom_attr" `T.isInfixOf` code)
-    , testCase "backward compat: generateFlatBuffersTypes still works" $ do
+        ("-- fbs metadata: custom_attr" `T.isInfixOf` code) `shouldBe` True
+    , it "backward compat: generateFlatBuffersTypes still works" $ do
         let schema =
               FlatBuffersSchema
                 { fbsNamespace = Nothing
@@ -584,7 +583,7 @@ flatBuffersRegistryTests =
                 , fbsAttributes = V.empty
                 }
             code = generateFlatBuffersTypesWithRegistry defaultFlatBuffersRegistry schema
-        assertBool "contains data Monster" ("data Monster = Monster" `T.isInfixOf` code)
+        ("data Monster = Monster" `T.isInfixOf` code) `shouldBe` True
     ]
 
 
@@ -592,11 +591,11 @@ flatBuffersRegistryTests =
 -- Proto hooks enhancement tests
 -- =========================================================================
 
-protoHooksEnhancementTests :: TestTree
+protoHooksEnhancementTests :: Spec
 protoHooksEnhancementTests =
-  testGroup
-    "Proto.CodeGen.Hooks enhancements"
-    [ testCase "FieldHookCtx is constructible" $ do
+  describe
+    "Proto.CodeGen.Hooks enhancements" $ sequence_
+    [ it "FieldHookCtx is constructible" $ do
         let ctx =
               FieldHookCtx
                 { fldFieldDef = Proto.IDL.AST.FieldDef () Nothing Nothing (FTScalar SString) "name" (FieldNumber 1) []
@@ -604,9 +603,9 @@ protoHooksEnhancementTests =
                 , fldHsFieldName = "personName"
                 , fldFieldOptions = []
                 }
-        fldParentMsg ctx @?= "Person"
-        fldHsFieldName ctx @?= "personName"
-    , testCase "onFieldCodeGen fires in hook" $ do
+        fldParentMsg ctx `shouldBe` "Person"
+        fldHsFieldName ctx `shouldBe` "personName"
+    , it "onFieldCodeGen fires in hook" $ do
         let hook =
               defaultCodeGenHooks
                 { onFieldCodeGen = \ctx ->
@@ -620,12 +619,12 @@ protoHooksEnhancementTests =
                 , fldFieldOptions = []
                 }
             output = onFieldCodeGen hook ctx
-        output @?= ["-- field: personName"]
-    , testCase "onCustomOption returns Nothing by default" $ do
+        output `shouldBe` ["-- field: personName"]
+    , it "onCustomOption returns Nothing by default" $ do
         let hook = defaultCodeGenHooks
             result = onCustomOption hook "some.option" (OVBool True)
-        result @?= Nothing
-    , testCase "onCustomOption returns WireTransform" $ do
+        result `shouldBe` Nothing
+    , it "onCustomOption returns WireTransform" $ do
         let hook =
               defaultCodeGenHooks
                 { onCustomOption = \name _val ->
@@ -636,17 +635,17 @@ protoHooksEnhancementTests =
             result = onCustomOption hook "compress" (OVBool True)
         case result of
           Just wt -> do
-            wtEncodeExpr wt @?= "compressEncode"
-            wtDecodeExpr wt @?= "compressDecode"
-          Nothing -> assertFailure "expected WireTransform"
-    , testCase "THHooks has thOnService" $ do
+            wtEncodeExpr wt `shouldBe` "compressEncode"
+            wtDecodeExpr wt `shouldBe` "compressDecode"
+          Nothing -> expectationFailure "expected WireTransform"
+    , it "THHooks has thOnService" $ do
         let hook =
               defaultTHHooks
                 { thOnService = const (pure [])
                 }
             combined = hook <> hook
-        assertBool "thOnService composes" True
-    , testCase "composed CodeGenHooks with field hooks" $ do
+        (True) `shouldBe` True
+    , it "composed CodeGenHooks with field hooks" $ do
         let hook1 =
               defaultCodeGenHooks
                 { onFieldCodeGen = \ctx ->
@@ -666,18 +665,18 @@ protoHooksEnhancementTests =
                 , fldFieldOptions = []
                 }
             output = onFieldCodeGen combined ctx
-        output @?= ["-- h1: msgX", "-- h2: msgX"]
-    , testCase "OptionValue and WireTransform types" $ do
+        output `shouldBe` ["-- h1: msgX", "-- h2: msgX"]
+    , it "OptionValue and WireTransform types" $ do
         let ov1 = OVBool True
             ov2 = OVInt 42
             ov3 = OVFloat 3.14
             ov4 = OVString "hello"
-        ov1 @?= OVBool True
-        ov2 @?= OVInt 42
-        ov3 @?= OVFloat 3.14
-        ov4 @?= OVString "hello"
+        ov1 `shouldBe` OVBool True
+        ov2 `shouldBe` OVInt 42
+        ov3 `shouldBe` OVFloat 3.14
+        ov4 `shouldBe` OVString "hello"
 
         let wt = WireTransform "enc" "dec"
-        wtEncodeExpr wt @?= "enc"
-        wtDecodeExpr wt @?= "dec"
+        wtEncodeExpr wt `shouldBe` "enc"
+        wtDecodeExpr wt `shouldBe` "dec"
     ]

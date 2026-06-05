@@ -30,8 +30,7 @@ import qualified Control.Category as Cat
 import Data.Functor.Identity (Identity (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Topology.Free.Arrow
 
@@ -83,8 +82,8 @@ labelCalc Negate = "Negate"
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Topology.Free.Arrow (framework)"
+tests :: Spec
+tests = describe "Topology.Free.Arrow (framework)" $ sequence_
   [ test_category_composition
   , test_arrow_combinators
   , test_arrow_choice_combinators
@@ -100,63 +99,63 @@ tests = testGroup "Topology.Free.Arrow (framework)"
 -- 1. Category composition
 ----------------------------------------------------------------------
 
-test_category_composition :: TestTree
+test_category_composition :: Spec
 test_category_composition =
-  testCase "Category: Id, Compose work for the calculator DSL" $ do
+  it "Category: Id, Compose work for the calculator DSL" $ do
     let prog :: Calc Double Double
         prog = negateC >>> negateC      -- double-negate => identity
 
     -- (-3) -> negate -> 3 -> negate -> -3
-    runCalc prog (-3) @?= (-3)
-    runCalc prog 7    @?= 7
+    runCalc prog (-3) `shouldBe` (-3)
+    runCalc prog 7    `shouldBe` 7
     -- Composition with 'Id' on either side is identity.
-    runCalc (Cat.id Cat.. prog) 5 @?= runCalc prog 5
-    runCalc (prog Cat.. Cat.id) 5 @?= runCalc prog 5
+    runCalc (Cat.id Cat.. prog) 5 `shouldBe` runCalc prog 5
+    runCalc (prog Cat.. Cat.id) 5 `shouldBe` runCalc prog 5
 
 ----------------------------------------------------------------------
 -- 2. Arrow combinators
 ----------------------------------------------------------------------
 
-test_arrow_combinators :: TestTree
+test_arrow_combinators :: Spec
 test_arrow_combinators =
-  testCase "Arrow: first / second / *** / &&& work" $ do
+  it "Arrow: first / second / *** / &&& work" $ do
     -- (x, y) -> (x + y, x * y)
     let prog :: Calc (Double, Double) (Double, Double)
         prog = (addC &&& mulC) >>> Cat.id
 
-    runCalc prog (2, 5) @?= (7, 10)
+    runCalc prog (2, 5) `shouldBe` (7, 10)
 
     -- first: apply addC to the first half, leave the second
     let addFirst :: Calc ((Double, Double), Double) (Double, Double)
         addFirst = addC *** Cat.id
 
-    runCalc addFirst ((1, 2), 99) @?= (3, 99)
+    runCalc addFirst ((1, 2), 99) `shouldBe` (3, 99)
 
 ----------------------------------------------------------------------
 -- 3. ArrowChoice combinators
 ----------------------------------------------------------------------
 
-test_arrow_choice_combinators :: TestTree
+test_arrow_choice_combinators :: Spec
 test_arrow_choice_combinators =
-  testCase "ArrowChoice: left / right / +++ / ||| work" $ do
+  it "ArrowChoice: left / right / +++ / ||| work" $ do
     let prog :: Calc (Either (Double, Double) (Double, Double)) Double
         prog = addC ||| subC   -- Left -> add, Right -> sub
 
-    runCalc prog (Left  (3, 4)) @?= 7
-    runCalc prog (Right (10, 7)) @?= 3
+    runCalc prog (Left  (3, 4)) `shouldBe` 7
+    runCalc prog (Right (10, 7)) `shouldBe` 3
 
 ----------------------------------------------------------------------
 -- 4. Lineage combinators
 ----------------------------------------------------------------------
 
-test_lineage_combinators :: TestTree
+test_lineage_combinators :: Spec
 test_lineage_combinators =
-  testCase "Lineage: fork / forkN / tap work" $ do
+  it "Lineage: fork / forkN / tap work" $ do
     -- fork: x -> (x, x)
     let dup :: Calc Double Double
         dup = fork >>> addC
 
-    runCalc dup 7 @?= 14
+    runCalc dup 7 `shouldBe` 14
 
     -- forkN: x -> NonEmpty [x+1, x*2, -x]
     let three :: Calc Double (NE.NonEmpty Double)
@@ -166,7 +165,7 @@ test_lineage_combinators =
           , negateC
           ])
 
-    NE.toList (runCalc three 10) @?= [11, 20, -10]
+    NE.toList (runCalc three 10) `shouldBe` [11, 20, -10]
   where
     arrPlusOne :: Calc Double Double
     arrPlusOne = A.arr (+ 1)
@@ -178,65 +177,65 @@ test_lineage_combinators =
 -- 5. Applicative + Monad
 ----------------------------------------------------------------------
 
-test_applicative_monad :: TestTree
+test_applicative_monad :: Spec
 test_applicative_monad =
-  testCase "Applicative / Monad: pure, <*>, >>= work" $ do
+  it "Applicative / Monad: pure, <*>, >>= work" $ do
     -- Applicative: liftA2 (+) (pure 3) (pure 4) ignores input.
     let prog :: Calc () Double
         prog = (+) <$> pure 3 <*> pure 4
-    runCalc prog () @?= 7
+    runCalc prog () `shouldBe` 7
 
     -- Monad: bind a wire value and use it downstream.
     let prog2 :: Calc Double Double
         prog2 = do
           x <- Cat.id
           pure (x * 2)
-    runCalc prog2 5 @?= 10
+    runCalc prog2 5 `shouldBe` 10
 
 ----------------------------------------------------------------------
 -- 6. Semigroup / Monoid
 ----------------------------------------------------------------------
 
-test_semigroup_monoid :: TestTree
+test_semigroup_monoid :: Spec
 test_semigroup_monoid =
-  testCase "Semigroup / Monoid over the output type work" $ do
+  it "Semigroup / Monoid over the output type work" $ do
     -- Semigroup: lift (<>) over Double via Sum-style semigroup
     -- (we use a list to avoid pulling in newtype wrappers).
     let prog :: Calc Double [Double]
         prog = ((: []) <$> A.arr id) <> ((: []) <$> negateC)
-    runCalc prog 3 @?= [3, -3]
+    runCalc prog 3 `shouldBe` [3, -3]
 
     -- Monoid: mempty :: Calc Double [Double] = pure []
     let memptyProg :: Calc Double [Double]
         memptyProg = mempty
-    runCalc memptyProg 99 @?= []
+    runCalc memptyProg 99 `shouldBe` []
 
 ----------------------------------------------------------------------
 -- 7. Inspection
 ----------------------------------------------------------------------
 
-test_inspect_emits_tokens :: TestTree
+test_inspect_emits_tokens :: Spec
 test_inspect_emits_tokens =
-  testCase "inspectFA emits framework + primitive tokens" $ do
+  it "inspectFA emits framework + primitive tokens" $ do
     let prog :: Calc Double Double
         prog = fork >>> (negateC *** A.arr (+ 1)) >>> addC
 
         toks = inspectFA labelCalc prog
 
     -- Tokens for: Fork; Parallel<Negate|Arr>; Add
-    assertBool "Fork present"     ("Fork" `elem` toks)
-    assertBool "Negate present"   ("Negate" `elem` toks)
-    assertBool "Arr present"      ("Arr" `elem` toks)
-    assertBool "Add present"      ("Add" `elem` toks)
-    assertBool "Parallel present" ("Parallel<" `elem` toks)
+    ("Fork" `elem` toks) `shouldBe` True
+    ("Negate" `elem` toks) `shouldBe` True
+    ("Arr" `elem` toks) `shouldBe` True
+    ("Add" `elem` toks) `shouldBe` True
+    ("Parallel<" `elem` toks) `shouldBe` True
 
 ----------------------------------------------------------------------
 -- 8. Framework-level optimisation
 ----------------------------------------------------------------------
 
-test_simplify_collapses_identity_and_pure_chains :: TestTree
+test_simplify_collapses_identity_and_pure_chains :: Spec
 test_simplify_collapses_identity_and_pure_chains =
-  testCase "simplifyFA collapses Id chains and fuses Arr-Arr-Fork" $ do
+  it "simplifyFA collapses Id chains and fuses Arr-Arr-Fork" $ do
     -- A program with redundant Ids and adjacent Arrs that
     -- should fuse plus a 'fork >>> Arr' that should collapse.
     let redundant :: Calc Double Double
@@ -253,23 +252,21 @@ test_simplify_collapses_identity_and_pure_chains =
         after  = countNodesFA (simplifyFA redundant)
 
     -- Behaviour preserved.
-    runCalc redundant 5 @?= runCalc (simplifyFA redundant) 5
-    runCalc redundant 5 @?= 24  -- ((5+1)+(5+1)) * 2 = 24
+    runCalc redundant 5 `shouldBe` runCalc (simplifyFA redundant) 5
+    runCalc redundant 5 `shouldBe` 24  -- ((5+1)+(5+1)) * 2 = 24
     -- And the optimised version has strictly fewer nodes.
-    assertBool
-      ("expected node-count reduction; before="
-        <> show before <> " after=" <> show after)
-      (after < before)
+    (if (after < before) then pure () else expectationFailure ("expected node-count reduction; before="
+        <> show before <> " after=" <> show after))
 
 ----------------------------------------------------------------------
 -- 9. prettyPrint
 ----------------------------------------------------------------------
 
-test_pretty_print_renders_tokens :: TestTree
+test_pretty_print_renders_tokens :: Spec
 test_pretty_print_renders_tokens =
-  testCase "prettyPrintFA renders the AST as whitespace-joined tokens" $ do
+  it "prettyPrintFA renders the AST as whitespace-joined tokens" $ do
     let prog :: Calc (Double, Double) Double
         prog = addC
 
         pp = prettyPrintFA labelCalc prog
-    pp @?= "Add"
+    pp `shouldBe` "Add"

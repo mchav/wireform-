@@ -10,8 +10,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
 import Data.Int (Int32)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
+import Test.Syd
 
 import Wireform.Network (chunkedReceiveFn, withReceiveBufTransport)
 import Wireform.Parser.Driver (LoopControl (..))
@@ -30,9 +29,9 @@ frameBytes cid body =
         BP.putInt32be (fromIntegral (BS.length payload))
   in lenHdr <> payload
 
-tests :: TestTree
-tests = testGroup "Kafka.Network.FrameParser"
-  [ testCase "reads a single frame off the magic ring" $ do
+tests :: Spec
+tests = describe "Kafka.Network.FrameParser" $ sequence_
+  [ it "reads a single frame off the magic ring" $ do
       let bs = frameBytes 7 "hello"
       recvFn <- chunkedReceiveFn [bs]
       got <- newIORef Nothing
@@ -48,12 +47,12 @@ tests = testGroup "Kafka.Network.FrameParser"
           pure Stop
       case r of
         Right () -> pure ()
-        Left e   -> assertFailure ("loop error: " <> show e)
+        Left e   -> expectationFailure ("loop error: " <> show e)
       Just (cid, body) <- readIORef got
-      cid  @?= 7
-      body @?= "hello"
+      cid  `shouldBe` 7
+      body `shouldBe` "hello"
 
-  , testCase "reads two frames split across recv chunks" $ do
+  , it "reads two frames split across recv chunks" $ do
       let f1 = frameBytes 11 "abc"
           f2 = frameBytes 22 "defg"
           combined = f1 <> f2
@@ -67,9 +66,9 @@ tests = testGroup "Kafka.Network.FrameParser"
           xs <- readIORef acc
           pure (if length xs >= 2 then Stop else Continue)
       observed <- reverse <$> readIORef acc
-      observed @?= [(11, "abc"), (22, "defg")]
+      observed `shouldBe` [(11, "abc"), (22, "defg")]
 
-  , testCase "raises FrameTooShort on undersized length prefix" $ do
+  , it "raises FrameTooShort on undersized length prefix" $ do
       let !payload = BL.toStrict $ BP.runPut $ BP.putInt32be 2  -- < 4
           !len     = BS.length payload
           _ = len
@@ -78,5 +77,5 @@ tests = testGroup "Kafka.Network.FrameParser"
         FP.runKafkaFrameLoop t $ \_ -> pure Continue
       case r of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected FrameTooShort"
+        Right _ -> expectationFailure "expected FrameTooShort"
   ]

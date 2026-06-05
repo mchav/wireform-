@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.XML.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-xml-derive"
+main = sydTest $ describe "wireform-xml-derive" $ sequence_
   [ Test.XML.Derive.tests
   ]

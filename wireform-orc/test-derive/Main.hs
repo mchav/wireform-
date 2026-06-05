@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.ORC.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-orc-derive"
+main = sydTest $ describe "wireform-orc-derive" $ sequence_
   [ Test.ORC.Derive.tests
   ]

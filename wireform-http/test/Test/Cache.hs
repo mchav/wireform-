@@ -32,8 +32,7 @@ import           Network.HTTP.Client.Send      (prepareRequest)
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI       as WURI
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
 
 -- ---------------------------------------------------------------------------
 -- Test fixtures
@@ -79,8 +78,8 @@ drainBody = BSm.popperBytes . Resp.bodyPopper
 -- Hit + miss accounting
 -- ---------------------------------------------------------------------------
 
-unit_fresh_hits :: TestTree
-unit_fresh_hits = testCase "fresh response satisfies subsequent reads" $ do
+unit_fresh_hits :: Spec
+unit_fresh_hits = it "fresh response satisfies subsequent reads" $ do
   let payload = "hello"
   (t, calls, _) <- mkTransport
     [ ( S.status200
@@ -97,14 +96,14 @@ unit_fresh_hits = testCase "fresh response satisfies subsequent reads" $ do
   r2 <- makeRequest "/a" >>= withC
   body2 <- drainBody r2
   n <- readIORef calls
-  assertEqual "upstream calls" 1 n
-  assertEqual "first body"  payload body1
-  assertEqual "second body" payload body2
+  n `shouldBe` 1
+  body1 `shouldBe` payload
+  body2 `shouldBe` payload
   size <- cacheSize cache
-  assertEqual "cache size" 1 size
+  size `shouldBe` 1
 
-unit_no_store_response :: TestTree
-unit_no_store_response = testCase "no-store on response is not cached" $ do
+unit_no_store_response :: Spec
+unit_no_store_response = it "no-store on response is not cached" $ do
   let payload = "secret"
   (t, calls, _) <- mkTransport
     [ ( S.status200, [(H.hCacheControl, "no-store, max-age=60")], payload )
@@ -115,12 +114,12 @@ unit_no_store_response = testCase "no-store on response is not cached" $ do
   _ <- makeRequest "/x" >>= withC >>= drainBody
   _ <- makeRequest "/x" >>= withC >>= drainBody
   n <- readIORef calls
-  assertEqual "upstream calls" 2 n
+  n `shouldBe` 2
   size <- cacheSize cache
-  assertEqual "cache size"     0 size
+  size `shouldBe` 0
 
-unit_etag_revalidation :: TestTree
-unit_etag_revalidation = testCase "stale entry revalidates with ETag and replays on 304" $ do
+unit_etag_revalidation :: Spec
+unit_etag_revalidation = it "stale entry revalidates with ETag and replays on 304" $ do
   let payload = "etag-body"
       etag    = "\"v1\""
   (t, calls, reqsRef) <- mkTransport
@@ -141,16 +140,16 @@ unit_etag_revalidation = testCase "stale entry revalidates with ETag and replays
   r2 <- makeRequest "/e" >>= withC
   body2 <- drainBody r2
   n <- readIORef calls
-  assertEqual "upstream calls (1 + revalidation)" 2 n
+  n `shouldBe` 2
   -- The replayed response is the cached body, not the 304's empty body.
-  assertEqual "replayed body" payload body2
+  body2 `shouldBe` payload
   -- The second request should have carried If-None-Match.
   reqs <- readIORef reqsRef
   let recent  = head reqs  -- newest first
       hadInm  = case lookup H.hIfNoneMatch (WReq.headers recent) of
                   Just v  -> v == etag
                   Nothing -> False
-  assertBool "If-None-Match carried" hadInm
+  (hadInm) `shouldBe` True
 
 -- ---------------------------------------------------------------------------
 -- Pluggable store
@@ -183,8 +182,8 @@ mkAuditedStore = do
     , audit
     )
 
-unit_custom_store_is_used :: TestTree
-unit_custom_store_is_used = testCase "withCache routes through a custom CacheStore" $ do
+unit_custom_store_is_used :: Spec
+unit_custom_store_is_used = it "withCache routes through a custom CacheStore" $ do
   let payload = "audit-body"
   (t, _, _) <- mkTransport
     [ ( S.status200
@@ -200,15 +199,15 @@ unit_custom_store_is_used = testCase "withCache routes through a custom CacheSto
   log_ <- reverse <$> readIORef audit
   -- Expected pattern: lookup (miss), insert (after store), lookup (hit).
   let summary = filter (\s -> "lookup" `isPrefix` s || "insert" `isPrefix` s) log_
-  assertEqual "audit count" 3 (length summary)
-  assertEqual "first op"  True ("lookup" `isPrefix` head summary)
-  assertEqual "second op" True ("insert" `isPrefix` (summary !! 1))
-  assertEqual "third op"  True ("lookup" `isPrefix` (summary !! 2))
+  (length summary) `shouldBe` 3
+  ("lookup" `isPrefix` head summary) `shouldBe` True
+  ("insert" `isPrefix` (summary !! 1)) `shouldBe` True
+  ("lookup" `isPrefix` (summary !! 2)) `shouldBe` True
   where
     isPrefix p s = take (length p) s == p
 
-unit_custom_store_isolated :: TestTree
-unit_custom_store_isolated = testCase "two caches with separate stores don't share state" $ do
+unit_custom_store_isolated :: Spec
+unit_custom_store_isolated = it "two caches with separate stores don't share state" $ do
   let payload = "isolation-body"
   (t, calls, _) <- mkTransport
     [ ( S.status200
@@ -227,10 +226,10 @@ unit_custom_store_isolated = testCase "two caches with separate stores don't sha
   _ <- makeRequest "/iso" >>= sendRaw (withCache cacheA t) >>= drainBody
   _ <- makeRequest "/iso" >>= sendRaw (withCache cacheB t) >>= drainBody
   n <- readIORef calls
-  assertEqual "each cache misses independently" 2 n
+  n `shouldBe` 2
 
-unit_in_memory_eviction :: TestTree
-unit_in_memory_eviction = testCase "in-memory store honours the entry cap" $ do
+unit_in_memory_eviction :: Spec
+unit_in_memory_eviction = it "in-memory store honours the entry cap" $ do
   let body = "x"
   (t, _, _) <- mkTransport
     [ (S.status200, [(H.hCacheControl, "max-age=60")], body)
@@ -243,12 +242,12 @@ unit_in_memory_eviction = testCase "in-memory store honours the entry cap" $ do
   mapM_ (\i -> makeRequest (BS8.pack ("/" <> show i)) >>= withC >>= drainBody)
         [(1 :: Int) .. 5]
   size <- cacheSize cache
-  assertBool ("size " <> show size <> " > cap") (size <= 3)
+  (if (size <= 3) then pure () else expectationFailure ("size " <> show size <> " > cap"))
 
 -- | Verify that 'clearCache' on the Cache wrapper actually calls
 -- the store's 'csClear' (not just the in-memory map).
-unit_clear_threads_through :: TestTree
-unit_clear_threads_through = testCase "clearCache invokes csClear on the store" $ do
+unit_clear_threads_through :: Spec
+unit_clear_threads_through = it "clearCache invokes csClear on the store" $ do
   cleared <- newIORef (0 :: Int)
   inner   <- newInMemoryStore 16
   let store = CacheStore
@@ -262,14 +261,14 @@ unit_clear_threads_through = testCase "clearCache invokes csClear on the store" 
   clearCache cache
   clearCache cache
   n <- readIORef cleared
-  assertEqual "csClear invocations" 2 n
+  n `shouldBe` 2
 
 -- ---------------------------------------------------------------------------
 -- Top-level
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Cache"
+tests :: Spec
+tests = describe "Cache" $ sequence_
   [ unit_fresh_hits
   , unit_no_store_response
   , unit_etag_revalidation

@@ -8,8 +8,7 @@ import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Streams.Pipeline as P
 
@@ -25,8 +24,8 @@ import Kafka.Streams.Imperative
   )
 import qualified Kafka.Streams.DSL as S
 
-tests :: TestTree
-tests = testGroup "Kafka.Streams.DSL (builder-implicit façade)"
+tests :: Spec
+tests = describe "Kafka.Streams.DSL (builder-implicit façade)" $ sequence_
   [ dsl_pipe_chain
   , dsl_multiple_branches
   , dsl_table_join
@@ -42,9 +41,9 @@ ts = Timestamp . fromIntegral
 -- | A straight `|>` chain produces the same observable output as
 -- the imperative API, with the builder implicit and no
 -- per-operation IO threading.
-dsl_pipe_chain :: TestTree
+dsl_pipe_chain :: Spec
 dsl_pipe_chain =
-  testCase "source |> map |> filter |> sink" $ do
+  it "source |> map |> filter |> sink" $ do
     topo <- S.build $ do
       src <- S.source "in" textSerde textSerde
       src S.|> S.map T.toUpper
@@ -59,15 +58,15 @@ dsl_pipe_chain =
     let outT = createOutputTopic driver (topicName "out") textSerde textSerde
     rs <- readKeyValuesToList outT
     let vs = [v | Right (_, v) <- rs]
-    vs @?= ["HELL", "HASK"]
+    vs `shouldBe` ["HELL", "HASK"]
     closeDriver driver
 
 -- | The same intermediate stream can be sent to multiple sinks
 -- without rebuilding it. Exercises the side-effecting nature of
 -- 'S.sink' and the topology builder underneath.
-dsl_multiple_branches :: TestTree
+dsl_multiple_branches :: Spec
 dsl_multiple_branches =
-  testCase "single source feeds two sinks" $ do
+  it "single source feeds two sinks" $ do
     topo <- S.build $ do
       src <- S.source "in" textSerde textSerde
       upper <- src S.|> S.map T.toUpper
@@ -84,8 +83,8 @@ dsl_multiple_branches =
         lgT  = createOutputTopic driver (topicName "long")  textSerde textSerde
     upR <- readKeyValuesToList upT
     lgR <- readKeyValuesToList lgT
-    [v | Right (_, v) <- upR] @?= ["HI", "HELLO", "WORLD!"]
-    [v | Right (_, v) <- lgR] @?= ["hello", "world!"]
+    [v | Right (_, v) <- upR] `shouldBe` ["HI", "HELLO", "WORLD!"]
+    [v | Right (_, v) <- lgR] `shouldBe` ["hello", "world!"]
     closeDriver driver
 
 -- | A first-class 'P.Pipeline' fragment (built with the
@@ -93,9 +92,9 @@ dsl_multiple_branches =
 -- straight into a @|>@ chain via the 'S.PipeInto' instance for
 -- 'P.Pipeline', interleaved with ordinary @b -> Streams c@
 -- steps. Confirms the two composition styles compose.
-dsl_pipeline_fragment :: TestTree
+dsl_pipeline_fragment :: Spec
 dsl_pipeline_fragment =
-  testCase "a reusable Pipeline fragment splices into a |> chain" $ do
+  it "a reusable Pipeline fragment splices into a |> chain" $ do
     let normalise :: P.Pipeline (S.KStream Text Text) (S.KStream Text Text)
         normalise = P.pmapValues T.toUpper
                 >>> P.pfilter (\r -> S.recordValue r /= "")
@@ -110,14 +109,14 @@ dsl_pipeline_fragment =
     pipeInput driver (topicName "in") (Just "k3") (bytes "world") (ts 2) 0
     let outT = createOutputTopic driver (topicName "out") textSerde textSerde
     rs <- readKeyValuesToList outT
-    [v | Right (_, v) <- rs] @?= ["HELLO", "WORLD"]
+    [v | Right (_, v) <- rs] `shouldBe` ["HELLO", "WORLD"]
     closeDriver driver
 
 -- | Stream-table inner join inside the DSL. Exercises 'S.table',
 -- 'S.join', and the 'S.|>' pipe over a 'KTable' argument.
-dsl_table_join :: TestTree
+dsl_table_join :: Spec
 dsl_table_join =
-  testCase "stream-table inner join via the DSL" $ do
+  it "stream-table inner join via the DSL" $ do
     let joinedConf = (error "unused Joined" :: S.Joined Text Text Text)
     topo <- S.build $ do
       stream  <- S.source "events" textSerde textSerde
@@ -136,5 +135,5 @@ dsl_table_join =
 
     let outT = createOutputTopic driver (topicName "out") textSerde textSerde
     rs <- readKeyValuesToList outT
-    [v | Right (_, v) <- rs] @?= ["login@Engineering", "logout@Sales"]
+    [v | Right (_, v) <- rs] `shouldBe` ["login@Engineering", "logout@Sales"]
     closeDriver driver

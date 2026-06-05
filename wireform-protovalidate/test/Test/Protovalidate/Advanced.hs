@@ -7,8 +7,7 @@ module Test.Protovalidate.Advanced (tests) where
 
 import Data.List (sort)
 import Data.Text (Text)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL (Duration (..), Timestamp (..), Value (..), celMapFromList)
 import Protovalidate
@@ -26,89 +25,89 @@ ids = sort . map violationConstraintId
 mustC :: Text -> Text -> Text -> Constraint
 mustC i m e = either (error . show) id (mkConstraint i m e)
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "advanced rules"
-    [ testGroup
-        "time-relative timestamp rules (validateAt)"
-        [ testCase "lt_now passes for past, fails for future" $ do
-            validateAt now (msg [("t", VTimestamp (Timestamp 500 0))]) ltNowRules @?= []
+  describe
+    "advanced rules" $ sequence_
+    [ describe
+        "time-relative timestamp rules (validateAt)" $ sequence_
+        [ it "lt_now passes for past, fails for future" $ do
+            validateAt now (msg [("t", VTimestamp (Timestamp 500 0))]) ltNowRules `shouldBe` []
             ids (validateAt now (msg [("t", VTimestamp (Timestamp 1500 0))]) ltNowRules)
-              @?= ["timestamp.lt_now"]
-        , testCase "gt_now passes for future" $
-            validateAt now (msg [("t", VTimestamp (Timestamp 1500 0))]) gtNowRules @?= []
-        , testCase "within tolerates the configured duration" $ do
-            validateAt now (msg [("t", VTimestamp (Timestamp 1050 0))]) withinRules @?= []
+              `shouldBe` ["timestamp.lt_now"]
+        , it "gt_now passes for future" $
+            validateAt now (msg [("t", VTimestamp (Timestamp 1500 0))]) gtNowRules `shouldBe` []
+        , it "within tolerates the configured duration" $ do
+            validateAt now (msg [("t", VTimestamp (Timestamp 1050 0))]) withinRules `shouldBe` []
             ids (validateAt now (msg [("t", VTimestamp (Timestamp 1200 0))]) withinRules)
-              @?= ["timestamp.within"]
+              `shouldBe` ["timestamp.within"]
         ]
-    , testGroup
-        "map key / value rules"
-        [ testCase "valid map" $
-            validate (msg [("m", cmap [(VString "ab", VInt 1)])]) mapRules @?= []
-        , testCase "bad key reports at m[key]" $
+    , describe
+        "map key / value rules" $ sequence_
+        [ it "valid map" $
+            validate (msg [("m", cmap [(VString "ab", VInt 1)])]) mapRules `shouldBe` []
+        , it "bad key reports at m[key]" $
             map (\v -> (violationFieldPath v, violationConstraintId v))
               (validate (msg [("m", cmap [(VString "a", VInt 1)])]) mapRules)
-              @?= [("m[a]", "string.min_len")]
-        , testCase "bad value reports at m[key]" $
+              `shouldBe` [("m[a]", "string.min_len")]
+        , it "bad value reports at m[key]" $
             map (\v -> (violationFieldPath v, violationConstraintId v))
               (validate (msg [("m", cmap [(VString "ab", VInt 0)])]) mapRules)
-              @?= [("m[ab]", "int32.gt")]
+              `shouldBe` [("m[ab]", "int32.gt")]
         ]
-    , testGroup
-        "enum defined_only"
-        [ testCase "defined value passes" $
-            validate (msg [("e", VInt 1)]) enumRules @?= []
-        , testCase "undefined value fails" $
-            ids (validate (msg [("e", VInt 5)]) enumRules) @?= ["enum.defined_only"]
+    , describe
+        "enum defined_only" $ sequence_
+        [ it "defined value passes" $
+            validate (msg [("e", VInt 1)]) enumRules `shouldBe` []
+        , it "undefined value fails" $
+            ids (validate (msg [("e", VInt 5)]) enumRules) `shouldBe` ["enum.defined_only"]
         ]
-    , testGroup
-        "oneof required"
-        [ testCase "one member present passes" $
-            validate (msg [("a", VInt 1)]) oneofRules @?= []
-        , testCase "no member present fails" $
-            ids (validate (msg []) oneofRules) @?= ["kind"]
+    , describe
+        "oneof required" $ sequence_
+        [ it "one member present passes" $
+            validate (msg [("a", VInt 1)]) oneofRules `shouldBe` []
+        , it "no member present fails" $
+            ids (validate (msg []) oneofRules) `shouldBe` ["kind"]
         ]
-    , testGroup
-        "well_known_regex"
-        [ testCase "valid HTTP header name" $
-            validate (msg [("h", VString "Content-Type")]) wkrRules @?= []
-        , testCase "invalid header name" $
-            ids (validate (msg [("h", VString "bad header")]) wkrRules) @?= ["string.well_known_regex"]
+    , describe
+        "well_known_regex" $ sequence_
+        [ it "valid HTTP header name" $
+            validate (msg [("h", VString "Content-Type")]) wkrRules `shouldBe` []
+        , it "invalid header name" $
+            ids (validate (msg [("h", VString "bad header")]) wkrRules) `shouldBe` ["string.well_known_regex"]
         ]
-    , testGroup
-        "predefined constraints (rule binding)"
-        [ testCase "satisfied" $
-            validate (msg [("n", VInt 20)]) predefRules @?= []
-        , testCase "violated" $
-            ids (validate (msg [("n", VInt 5)]) predefRules) @?= ["n.min_rule"]
+    , describe
+        "predefined constraints (rule binding)" $ sequence_
+        [ it "satisfied" $
+            validate (msg [("n", VInt 20)]) predefRules `shouldBe` []
+        , it "violated" $
+            ids (validate (msg [("n", VInt 5)]) predefRules) `shouldBe` ["n.min_rule"]
         ]
-    , testGroup
-        "schema extraction of map key/value rules"
-        [ testCase "valid map from .proto rules" $
-            validate (msg [("scores", cmap [(VString "ab", VInt 5)]), ("a", VString "x")]) extractedMapRules @?= []
-        , testCase "bad key + value from .proto rules" $
+    , describe
+        "schema extraction of map key/value rules" $ sequence_
+        [ it "valid map from .proto rules" $
+            validate (msg [("scores", cmap [(VString "ab", VInt 5)]), ("a", VString "x")]) extractedMapRules `shouldBe` []
+        , it "bad key + value from .proto rules" $
             ids (validate (msg [("scores", cmap [(VString "x", VInt 0)]), ("a", VString "x")]) extractedMapRules)
-              @?= sort ["string.min_len", "int32.gt"]
-        , testCase "oneof required extracted from .proto" $ do
-            validate (msg [("scores", cmap [(VString "ab", VInt 5)]), ("a", VString "x")]) extractedMapRules @?= []
-            ids (validate (msg [("scores", cmap [(VString "ab", VInt 5)])]) extractedMapRules) @?= ["choice"]
+              `shouldBe` sort ["string.min_len", "int32.gt"]
+        , it "oneof required extracted from .proto" $ do
+            validate (msg [("scores", cmap [(VString "ab", VInt 5)]), ("a", VString "x")]) extractedMapRules `shouldBe` []
+            ids (validate (msg [("scores", cmap [(VString "ab", VInt 5)])]) extractedMapRules) `shouldBe` ["choice"]
         ]
-    , testGroup
-        "schema extraction of enum/regex/time bounds"
-        [ testCase "enum.defined_only resolves declared values" $ do
-            validate (msg [("c", VInt 1)]) (rulesFor "E" enumProto) @?= []
-            ids (validate (msg [("c", VInt 5)]) (rulesFor "E" enumProto)) @?= ["enum.defined_only"]
-        , testCase "well_known_regex resolves the header-name pattern" $ do
-            validate (msg [("name", VString "Content-Type")]) (rulesFor "H" enumProto) @?= []
+    , describe
+        "schema extraction of enum/regex/time bounds" $ sequence_
+        [ it "enum.defined_only resolves declared values" $ do
+            validate (msg [("c", VInt 1)]) (rulesFor "E" enumProto) `shouldBe` []
+            ids (validate (msg [("c", VInt 5)]) (rulesFor "E" enumProto)) `shouldBe` ["enum.defined_only"]
+        , it "well_known_regex resolves the header-name pattern" $ do
+            validate (msg [("name", VString "Content-Type")]) (rulesFor "H" enumProto) `shouldBe` []
             ids (validate (msg [("name", VString "bad name")]) (rulesFor "H" enumProto))
-              @?= ["string.well_known_regex"]
-        , testCase "timestamp.gt / duration.lte message-literal bounds" $ do
+              `shouldBe` ["string.well_known_regex"]
+        , it "timestamp.gt / duration.lte message-literal bounds" $ do
             validate (msg [("t", VTimestamp (Timestamp 2000 0)), ("d", VDuration (Duration 5 0))]) (rulesFor "T" enumProto)
-              @?= []
+              `shouldBe` []
             ids (validate (msg [("t", VTimestamp (Timestamp 500 0)), ("d", VDuration (Duration 9 0))]) (rulesFor "T" enumProto))
-              @?= sort ["timestamp.gt", "duration.lte"]
+              `shouldBe` sort ["timestamp.gt", "duration.lte"]
         ]
     ]
   where

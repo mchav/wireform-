@@ -16,14 +16,13 @@ module Conformance.T0095.AllBrokersDown (tests) where
 
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Network.Connection as Conn
 
-tests :: TestTree
-tests = testGroup "0095-all_brokers_down"
-  [ testCase "connect fails fast with bounded retries" $ do
+tests :: Spec
+tests = describe "0095-all_brokers_down" $ sequence_
+  [ it "connect fails fast with bounded retries" $ do
       let cfg = Conn.defaultConnectionConfig
             { Conn.connMaxRetries        = 2
             , Conn.connRetryDelay        = 5
@@ -40,17 +39,16 @@ tests = testGroup "0095-all_brokers_down"
 
       case r of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected connection failure, got success"
+        Right _ -> expectationFailure "expected connection failure, got success"
 
       -- Total wall time should be a small multiple of the configured
       -- retry budget. Three attempts at <= 25 ms backoff each (with
       -- 0.8x to 1.2x jitter) is well under 1 second; we give ourselves
       -- a generous 5 second cap to avoid flaking on slow CI VMs.
       let elapsedSec = realToFrac (diffUTCTime t1 t0) :: Double
-      assertBool ("elapsed " <> show elapsedSec <> " s is bounded")
-        (elapsedSec < 5.0)
+      (if (elapsedSec < 5.0) then pure () else expectationFailure ("elapsed " <> show elapsedSec <> " s is bounded"))
 
-  , testCase "calculateBackoffDelay caps at connBackoffMaxMs" $ do
+  , it "calculateBackoffDelay caps at connBackoffMaxMs" $ do
       let cfg = Conn.defaultConnectionConfig
             { Conn.connRetryDelay        = 10
             , Conn.connBackoffMaxMs      = 100
@@ -59,6 +57,5 @@ tests = testGroup "0095-all_brokers_down"
       -- Attempt 20 would naively be 10 * 2^20 ms; the cap should
       -- crush it down to 100 ms (modulo jitter up to 1.2x).
       d <- Conn.calculateBackoffDelay 20 cfg
-      assertBool ("delay " <> show d <> " us is at most 100 ms * 1.2 jitter")
-        (d <= 100 * 1000 * 2)
+      (if (d <= 100 * 1000 * 2) then pure () else expectationFailure ("delay " <> show d <> " us is at most 100 ms * 1.2 jitter"))
   ]

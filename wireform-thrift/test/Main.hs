@@ -1,10 +1,10 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Thrift.Derive
 
 main :: IO ()
-main = defaultMain (testGroup "wireform-thrift"
+main = sydTest (describe "wireform-thrift" $ sequence_
   [ Test.Thrift.Derive.tests
   ])

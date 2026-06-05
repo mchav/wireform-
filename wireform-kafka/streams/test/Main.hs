@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Streams.SerdeSpec
 import qualified Streams.TimeSpec
@@ -110,7 +110,7 @@ import qualified Streams.Properties.OperatorWatermarkSpec
 import qualified Streams.Properties.RebalanceBridgeSpec
 
 main :: IO ()
-main = defaultMain $ testGroup "kafka-streams"
+main = sydTest $ describe "kafka-streams" $ sequence_
   [ Streams.SerdeSpec.tests
   , Streams.TimeSpec.tests
   , Streams.StateStoreSpec.tests
@@ -192,7 +192,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.ObservabilityOTelSpec.tests
   , Streams.ReplaySpec.tests
   , Streams.BackfillSpec.tests
-  , testGroup "Properties"
+  , describe "Properties" $ sequence_
       [ Streams.Properties.KVStoreSMSpec.tests
       , Streams.Properties.OptimizerEqSpec.tests
       , Streams.Properties.WindowMathSpec.tests

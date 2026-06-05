@@ -4,24 +4,23 @@ module Streams.SchemaRegistrySerdeSpec (tests) where
 
 import Data.IORef
 import qualified Data.ByteString as BS
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Streams.Serde.SchemaRegistry as SR
 
-tests :: TestTree
-tests = testGroup "Schema Registry serdes"
-  [ testCase "encodeEnvelope / decodeEnvelope round-trip"
+tests :: Spec
+tests = describe "Schema Registry serdes" $ sequence_
+  [ it "encodeEnvelope / decodeEnvelope round-trip"
       envelope_roundtrip
-  , testCase "decodeEnvelope rejects bad magic byte"
+  , it "decodeEnvelope rejects bad magic byte"
       envelope_bad_magic
-  , testCase "decodeEnvelope rejects truncated input"
+  , it "decodeEnvelope rejects truncated input"
       envelope_truncated
-  , testCase "inMemoryRegistry assigns sequential ids"
+  , it "inMemoryRegistry assigns sequential ids"
       inmemory_ids
-  , testCase "inMemoryRegistry returns the same id for the same payload"
+  , it "inMemoryRegistry returns the same id for the same payload"
       inmemory_same_payload
-  , testCase "mockHttpRegistry records the HTTP exchanges"
+  , it "mockHttpRegistry records the HTTP exchanges"
       mock_records
   ]
 
@@ -30,8 +29,8 @@ envelope_roundtrip = do
   let bs   = SR.encodeEnvelope (SR.SchemaId 12345) "payload"
   case SR.decodeEnvelope bs of
     Right (sid, payload) -> do
-      sid     @?= SR.SchemaId 12345
-      payload @?= "payload"
+      sid     `shouldBe` SR.SchemaId 12345
+      payload `shouldBe` "payload"
     Left err -> error err
 
 envelope_bad_magic :: IO ()
@@ -53,7 +52,7 @@ inmemory_ids = do
                               (SR.SchemaPayload "schema1")
   Right (SR.SchemaId i2) <- SR.srRegister c (SR.SchemaSubject "t-value")
                               (SR.SchemaPayload "schema2")
-  assertBool "ids monotonically increase" (i2 > i1)
+  (i2 > i1) `shouldBe` True
 
 inmemory_same_payload :: IO ()
 inmemory_same_payload = do
@@ -62,7 +61,7 @@ inmemory_same_payload = do
                               (SR.SchemaPayload "schema")
   Right s2 <- SR.srRegister c (SR.SchemaSubject "t-value")
                               (SR.SchemaPayload "schema")
-  s1 @?= s2
+  s1 `shouldBe` s2
 
 mock_records :: IO ()
 mock_records = do
@@ -72,4 +71,4 @@ mock_records = do
                        (SR.SchemaPayload "{...}")
   _ <- SR.srLookup c (SR.SchemaId 7)
   log_ <- readIORef ref
-  length log_ @?= 2
+  length log_ `shouldBe` 2

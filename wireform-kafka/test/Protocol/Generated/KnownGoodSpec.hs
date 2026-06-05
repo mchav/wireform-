@@ -14,8 +14,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest (MetadataRequest)
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 -- | A test vector from the Rust generator
 data TestVector = TestVector
@@ -82,30 +81,30 @@ hexToBS hexText =
 
 -- | Test a single MetadataRequest vector through the WireCodec
 -- instance: decode the bytes, re-encode, and assert they match.
-testMetadataRequest :: TestVector -> TestTree
-testMetadataRequest vec = testCase (show (description vec)) $ do
+testMetadataRequest :: TestVector -> Spec
+testMetadataRequest vec = it (show (description vec)) $ do
   bytes <- case hexToBS (hex vec) of
-    Left err -> assertFailure $ "Failed to parse hex: " ++ err
+    Left err -> expectationFailure $ "Failed to parse hex: " ++ err
     Right bs -> return bs
 
   case WC.runDecodeVer @MetadataRequest (version vec) bytes of
-    Left err  -> assertFailure $ "Decode failed: " ++ err
+    Left err  -> expectationFailure $ "Decode failed: " ++ err
     Right msg -> do
       let reencoded = WC.runEncodeVer @MetadataRequest (version vec) msg
-      reencoded @?= bytes
+      reencoded `shouldBe` bytes
 
 -- | Create test tree from vectors
-createTests :: [TestVector] -> TestTree
+createTests :: [TestVector] -> Spec
 createTests vectors =
   let metadataVectors = filter (\v -> messageType v == "MetadataRequest") vectors
       metadataGroup
         | null metadataVectors =
-            testCase "MetadataRequest (skipped: no test-vectors.json)" $ pure ()
+            it "MetadataRequest (skipped: no test-vectors.json)" $ (pure () :: IO ())
         | otherwise =
-            testGroup "MetadataRequest" (map testMetadataRequest metadataVectors)
-  in testGroup "Known-Good Test Vectors" [ metadataGroup ]
+            describe "MetadataRequest" (mapM_ testMetadataRequest metadataVectors)
+  in describe "Known-Good Test Vectors" $ sequence_ [ metadataGroup ]
 
-tests :: IO TestTree
+tests :: IO Spec
 tests = do
   vectors <- loadTestVectors
   return $ createTests vectors

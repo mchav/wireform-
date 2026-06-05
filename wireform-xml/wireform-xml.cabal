@@ -88,5 +88,4 @@ test-suite wireform-xml-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

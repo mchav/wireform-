@@ -15,8 +15,8 @@ import Data.Int (Int64)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Time
   ( Duration
@@ -44,16 +44,16 @@ genAdvanceSize = millis <$> Gen.int64 (Range.linear 1 60_000)
 -- Tumbling
 ----------------------------------------------------------------------
 
-tumblingTests :: TestTree
-tumblingTests = testGroup "tumblingWindows"
-  [ testProperty "produces exactly one window per timestamp" $
+tumblingTests :: Spec
+tumblingTests = describe "tumblingWindows" $ sequence_
+  [ it "produces exactly one window per timestamp" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
         let ws = windowsAssign (tumblingWindows sz) t
         length ws H.=== 1
 
-  , testProperty "the assigned window contains the timestamp" $
+  , it "the assigned window contains the timestamp" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -61,7 +61,7 @@ tumblingTests = testGroup "tumblingWindows"
           [w] -> H.assert (windowContains w t)
           xs  -> H.annotate ("got " <> show xs) >> H.failure
 
-  , testProperty "window size equals the configured size" $
+  , it "window size equals the configured size" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -69,7 +69,7 @@ tumblingTests = testGroup "tumblingWindows"
           [w] -> windowSize w H.=== windowsSize (tumblingWindows sz)
           _   -> H.failure
 
-  , testProperty "timestamps at distance sz fall in disjoint windows" $
+  , it "timestamps at distance sz fall in disjoint windows" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -81,7 +81,7 @@ tumblingTests = testGroup "tumblingWindows"
             H.assert (not (windowOverlaps w1 w2))
           _ -> H.failure
 
-  , testProperty "two records in the same slot land in identical windows" $
+  , it "two records in the same slot land in identical windows" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t@(Timestamp tv)  <- H.forAll genTimestamp
@@ -102,9 +102,9 @@ tumblingTests = testGroup "tumblingWindows"
 -- Hopping
 ----------------------------------------------------------------------
 
-hoppingTests :: TestTree
-hoppingTests = testGroup "hoppingWindows"
-  [ testProperty "every assigned window contains the timestamp" $
+hoppingTests :: Spec
+hoppingTests = describe "hoppingWindows" $ sequence_
+  [ it "every assigned window contains the timestamp" $
       H.property $ do
         sz <- H.forAll genWindowSize
         ad <- H.forAll genAdvanceSize
@@ -113,7 +113,7 @@ hoppingTests = testGroup "hoppingWindows"
             ws  = windowsAssign cfg t
         mapM_ (\w -> H.assert (windowContains w t)) ws
 
-  , testProperty "every assigned window has the configured size" $
+  , it "every assigned window has the configured size" $
       H.property $ do
         sz <- H.forAll genWindowSize
         ad <- H.forAll genAdvanceSize
@@ -122,7 +122,7 @@ hoppingTests = testGroup "hoppingWindows"
             ws  = windowsAssign cfg t
         mapM_ (\w -> windowSize w H.=== windowsSize cfg) ws
 
-  , testProperty "window starts are advance-aligned" $
+  , it "window starts are advance-aligned" $
       H.property $ do
         sz <- H.forAll genWindowSize
         ad <- H.forAll genAdvanceSize
@@ -134,7 +134,7 @@ hoppingTests = testGroup "hoppingWindows"
           (\(Window (Timestamp s) _) -> (s `mod` a) H.=== 0)
           ws
 
-  , testProperty "advance == size collapses to tumbling cardinality" $
+  , it "advance == size collapses to tumbling cardinality" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -147,15 +147,15 @@ hoppingTests = testGroup "hoppingWindows"
 -- Sliding
 ----------------------------------------------------------------------
 
-slidingTests :: TestTree
-slidingTests = testGroup "slidingWindows"
-  [ testProperty "produces exactly one window per timestamp" $
+slidingTests :: Spec
+slidingTests = describe "slidingWindows" $ sequence_
+  [ it "produces exactly one window per timestamp" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
         length (windowsAssign (slidingWindows sz) t) H.=== 1
 
-  , testProperty "window right edge is t + 1" $
+  , it "window right edge is t + 1" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t@(Timestamp tv) <- H.forAll genTimestamp
@@ -163,7 +163,7 @@ slidingTests = testGroup "slidingWindows"
           [Window _ (Timestamp e)] -> e H.=== (tv + 1)
           _                        -> H.failure
 
-  , testProperty "window contains the assigning timestamp" $
+  , it "window contains the assigning timestamp" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -171,7 +171,7 @@ slidingTests = testGroup "slidingWindows"
           [w] -> H.assert (windowContains w t)
           _   -> H.failure
 
-  , testProperty "window size equals the configured size" $
+  , it "window size equals the configured size" $
       H.property $ do
         sz <- H.forAll genWindowSize
         t  <- H.forAll genTimestamp
@@ -184,14 +184,14 @@ slidingTests = testGroup "slidingWindows"
 -- Unlimited
 ----------------------------------------------------------------------
 
-unlimitedTests :: TestTree
-unlimitedTests = testGroup "unlimitedWindows"
-  [ testProperty "produces exactly one window per timestamp" $
+unlimitedTests :: Spec
+unlimitedTests = describe "unlimitedWindows" $ sequence_
+  [ it "produces exactly one window per timestamp" $
       H.property $ do
         t <- H.forAll genTimestamp
         length (windowsAssign unlimitedWindows t) H.=== 1
 
-  , testProperty "window starts at the timestamp" $
+  , it "window starts at the timestamp" $
       H.property $ do
         t@(Timestamp tv) <- H.forAll genTimestamp
         case windowsAssign unlimitedWindows t of
@@ -203,9 +203,9 @@ unlimitedTests = testGroup "unlimitedWindows"
 -- Sessions
 ----------------------------------------------------------------------
 
-sessionTests :: TestTree
-sessionTests = testGroup "sessionWindows"
-  [ testProperty "abutting sessions merge" $
+sessionTests :: Spec
+sessionTests = describe "sessionWindows" $ sequence_
+  [ it "abutting sessions merge" $
       H.property $ do
         gapMs <- H.forAll (Gen.int64 (Range.linear 1 1000))
         let sw = sessionWindows (millis gapMs)
@@ -221,7 +221,7 @@ sessionTests = testGroup "sessionWindows"
             (s, e) H.=== (Timestamp a, Timestamp (startB + len2))
           Nothing -> H.failure
 
-  , testProperty "non-touching sessions don't merge" $
+  , it "non-touching sessions don't merge" $
       H.property $ do
         gapMs <- H.forAll (Gen.int64 (Range.linear 1 1000))
         let sw = sessionWindows (millis gapMs)
@@ -243,8 +243,8 @@ sessionTests = testGroup "sessionWindows"
 -- Aggregate
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Window math properties"
+tests :: Spec
+tests = describe "Window math properties" $ sequence_
   [ tumblingTests
   , hoppingTests
   , slidingTests

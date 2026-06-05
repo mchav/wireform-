@@ -24,8 +24,7 @@ import qualified Data.Text            as T
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Word
 import           System.Timeout       (timeout)
-import           Test.Tasty
-import           Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Consumer                       as Consumer
 import qualified Kafka.Client.Producer                       as Producer
@@ -50,8 +49,8 @@ testTopic :: Text
 testTopic = "kafka-native-integration-test"
 
 -- | All integration tests
-tests :: TestTree
-tests = testGroup "Integration Tests"
+tests :: Spec
+tests = describe "Integration Tests" $ sequence_
   [ connectionTests
   , metadataTests
   , producerTests
@@ -59,38 +58,38 @@ tests = testGroup "Integration Tests"
   , produceConsumeTests
   ]
 
-connectionTests :: TestTree
-connectionTests = testGroup "Connection"
-  [ testCase "Can connect to Kafka broker" testConnection
-  , testCase "Can disconnect cleanly" testDisconnect
+connectionTests :: Spec
+connectionTests = describe "Connection" $ sequence_
+  [ it "Can connect to Kafka broker" testConnection
+  , it "Can disconnect cleanly" testDisconnect
   ]
 
-metadataTests :: TestTree
-metadataTests = testGroup "Metadata"
-  [ testCase "Can request cluster metadata" testMetadataRequest
+metadataTests :: Spec
+metadataTests = describe "Metadata" $ sequence_
+  [ it "Can request cluster metadata" testMetadataRequest
   ]
 
 -- | Test that we can establish a connection to the broker
-testConnection :: Assertion
+testConnection :: IO ()
 testConnection = do
   result <- Conn.connect testBroker testConfig
   case result of
-    Left err -> assertFailure $ "Failed to connect: " ++ err
+    Left err -> expectationFailure $ "Failed to connect: " ++ err
     Right conn -> Conn.disconnect conn
 
 -- | Test clean disconnection
-testDisconnect :: Assertion
+testDisconnect :: IO ()
 testDisconnect = do
   result <- Conn.connect testBroker testConfig
   case result of
-    Left err -> assertFailure $ "Failed to connect: " ++ err
+    Left err -> expectationFailure $ "Failed to connect: " ++ err
     Right conn -> Conn.disconnect conn
 
 -- | Smoke-test: we can serialise a MetadataRequest header without
 -- the codec blowing up. Actually transporting the request lives in
 -- the producer / consumer / admin paths; this assertion is purely
 -- structural.
-testMetadataRequest :: Assertion
+testMetadataRequest :: IO ()
 testMetadataRequest = do
   result <- Conn.withConnection testBroker testConfig $ \_conn -> do
     let _metadataReq = MR.MetadataRequest
@@ -113,34 +112,34 @@ testMetadataRequest = do
     pure ()
 
   case result of
-    Left err -> assertFailure $ "Connection failed: " ++ err
+    Left err -> expectationFailure $ "Connection failed: " ++ err
     Right () -> pure ()
 
 -- | Producer tests
-producerTests :: TestTree
-producerTests = testGroup "Producer"
-  [ testCase "Can create and close producer" testCreateProducer
-  , testCase "Can send message synchronously" testProducerSendSync
-  , testCase "Can send batch of messages" testProducerBatch
+producerTests :: Spec
+producerTests = describe "Producer" $ sequence_
+  [ it "Can create and close producer" testCreateProducer
+  , it "Can send message synchronously" testProducerSendSync
+  , it "Can send batch of messages" testProducerBatch
   ]
 
 -- | Test creating and closing a producer
-testCreateProducer :: Assertion
+testCreateProducer :: IO ()
 testCreateProducer = do
   result <- Producer.createProducer ["localhost:9092"] Producer.defaultProducerConfig
   case result of
-    Left err -> assertFailure $ "Failed to create producer: " ++ err
+    Left err -> expectationFailure $ "Failed to create producer: " ++ err
     Right producer -> do
       Producer.closeProducer producer
       putStrLn "Producer created and closed successfully"
 
 -- | Test sending a message synchronously
-testProducerSendSync :: Assertion
+testProducerSendSync :: IO ()
 testProducerSendSync = do
   putStrLn "Creating producer..."
   result <- Producer.createProducer ["localhost:9092"] Producer.defaultProducerConfig
   case result of
-    Left err -> assertFailure $ "Failed to create producer: " ++ err
+    Left err -> expectationFailure $ "Failed to create producer: " ++ err
     Right producer -> do
       let key   = Just (BS8.pack "producer-key")
           value = BS8.pack "producer-value-sync"
@@ -149,17 +148,17 @@ testProducerSendSync = do
       Producer.closeProducer producer
 
       case sendResult of
-        Left err -> assertFailure $ "Failed to send: " ++ err
+        Left err -> expectationFailure $ "Failed to send: " ++ err
         Right md -> do
           putStrLn $ "Sent to offset: " ++ show md.offset
-          assertBool "Expected non-negative offset" (md.offset >= 0)
+          (md.offset >= 0) `shouldBe` True
 
 -- | Test sending a batch of messages
-testProducerBatch :: Assertion
+testProducerBatch :: IO ()
 testProducerBatch = do
   result <- Producer.createProducer ["localhost:9092"] Producer.defaultProducerConfig
   case result of
-    Left err -> assertFailure $ "Failed to create producer: " ++ err
+    Left err -> expectationFailure $ "Failed to create producer: " ++ err
     Right producer -> do
       results <- sequence
         [ Producer.sendMessage producer testTopic
@@ -171,65 +170,65 @@ testProducerBatch = do
       Producer.closeProducer producer
 
       case sequence results of
-        Left err -> assertFailure $ "Failed to send batch: " ++ err
+        Left err -> expectationFailure $ "Failed to send batch: " ++ err
         Right metadatas -> do
           putStrLn $ "Sent " ++ show (length metadatas) ++ " messages"
-          assertEqual "Should send all messages" 10 (length metadatas)
+          (length metadatas) `shouldBe` 10
 
 -- | Consumer tests
-consumerTests :: TestTree
-consumerTests = testGroup "Consumer"
-  [ testCase "Can create and close consumer" testCreateConsumer
-  , testCase "Can manually assign partitions" testConsumerAssign
-  , testCase "Can poll for records" testConsumerPoll
-  , testCase "Can subscribe + receive an assignment" testConsumerSubscribe
+consumerTests :: Spec
+consumerTests = describe "Consumer" $ sequence_
+  [ it "Can create and close consumer" testCreateConsumer
+  , it "Can manually assign partitions" testConsumerAssign
+  , it "Can poll for records" testConsumerPoll
+  , it "Can subscribe + receive an assignment" testConsumerSubscribe
   ]
 
-testCreateConsumer :: Assertion
+testCreateConsumer :: IO ()
 testCreateConsumer = do
   let config = Consumer.defaultConsumerConfig
   result <- Consumer.createConsumer ["localhost:9092"] "" config
   case result of
-    Left err -> assertFailure $ "Failed to create consumer: " ++ err
+    Left err -> expectationFailure $ "Failed to create consumer: " ++ err
     Right consumer -> do
       Consumer.closeConsumer consumer
       putStrLn "Consumer created and closed successfully"
 
-testConsumerAssign :: Assertion
+testConsumerAssign :: IO ()
 testConsumerAssign = do
   let config = Consumer.defaultConsumerConfig
   result <- Consumer.createConsumer ["localhost:9092"] "" config
   case result of
-    Left err -> assertFailure $ "Failed to create consumer: " ++ err
+    Left err -> expectationFailure $ "Failed to create consumer: " ++ err
     Right consumer -> do
       let partitions = [Consumer.TopicPartition testTopic 0]
       assignResult <- Consumer.assign consumer partitions
       assignment   <- Consumer.assignment consumer
       Consumer.closeConsumer consumer
       case assignResult of
-        Left err -> assertFailure $ "Failed to assign: " ++ err
+        Left err -> expectationFailure $ "Failed to assign: " ++ err
         Right () -> do
           putStrLn $ "Assigned " ++ show (length assignment) ++ " partition(s)"
-          assertEqual "Should have 1 partition assigned" 1 (length assignment)
+          (length assignment) `shouldBe` 1
 
-testConsumerPoll :: Assertion
+testConsumerPoll :: IO ()
 testConsumerPoll = do
   let config = Consumer.defaultConsumerConfig
   result <- Consumer.createConsumer ["localhost:9092"] "" config
   case result of
-    Left err -> assertFailure $ "Failed to create consumer: " ++ err
+    Left err -> expectationFailure $ "Failed to create consumer: " ++ err
     Right consumer -> do
       let partitions = [Consumer.TopicPartition testTopic 0]
       assignResult <- Consumer.assign consumer partitions
       case assignResult of
         Left err -> do
           Consumer.closeConsumer consumer
-          assertFailure $ "Failed to assign: " ++ err
+          expectationFailure $ "Failed to assign: " ++ err
         Right () -> do
           pollResult <- Consumer.poll consumer 5000
           Consumer.closeConsumer consumer
           case pollResult of
-            Left err -> assertFailure $ "Failed to poll: " ++ err
+            Left err -> expectationFailure $ "Failed to poll: " ++ err
             Right records ->
               putStrLn $ "Polled " ++ show (length records) ++ " record(s)"
 
@@ -242,7 +241,7 @@ testConsumerPoll = do
 -- broker should hold JoinGroup open only until
 -- 'group.initial.rebalance.delay.ms' elapses (3 s default),
 -- so 10 s is more than enough headroom on a healthy cluster.
-testConsumerSubscribe :: Assertion
+testConsumerSubscribe :: IO ()
 testConsumerSubscribe = do
   ts <- (show :: Integer -> String) . truncate <$> getPOSIXTime
   let groupId = T.pack ("wf-it-subgrp-" ++ ts)
@@ -252,43 +251,43 @@ testConsumerSubscribe = do
                   }
   result <- Consumer.createConsumer ["localhost:9092"] groupId cfg
   case result of
-    Left err -> assertFailure $ "Failed to create consumer: " ++ err
+    Left err -> expectationFailure $ "Failed to create consumer: " ++ err
     Right consumer -> do
       mr <- timeout (10 * 1000_000) $ Consumer.subscribe consumer [testTopic]
       Consumer.closeConsumer consumer
       case mr of
-        Nothing        -> assertFailure
+        Nothing        -> expectationFailure
           "subscribe took longer than 10 s — heartbeat / rebalance hung"
-        Just (Left e)  -> assertFailure ("subscribe: " ++ e)
+        Just (Left e)  -> expectationFailure ("subscribe: " ++ e)
         Just (Right _) -> putStrLn "subscribe completed in <10 s"
 
 -- | Produce-consume integration tests
-produceConsumeTests :: TestTree
-produceConsumeTests = testGroup "Produce-Consume Integration"
-  [ testCase "Can produce and consume messages" testProduceConsumeIntegration
+produceConsumeTests :: Spec
+produceConsumeTests = describe "Produce-Consume Integration" $ sequence_
+  [ it "Can produce and consume messages" testProduceConsumeIntegration
   ]
 
 -- | Produce a record through the real producer, then consume it
 -- back through the real consumer assigned to the same partition.
-testProduceConsumeIntegration :: Assertion
+testProduceConsumeIntegration :: IO ()
 testProduceConsumeIntegration = do
   let uniqueValue = "integration-test-" <> show (hash 42 :: Word64)
       payload     = BS8.pack uniqueValue
 
   producerResult <- Producer.createProducer ["localhost:9092"] Producer.defaultProducerConfig
   case producerResult of
-    Left err -> assertFailure $ "Failed to create producer: " ++ err
+    Left err -> expectationFailure $ "Failed to create producer: " ++ err
     Right producer -> do
       sendResult <- Producer.sendMessage producer testTopic Nothing payload
       Producer.closeProducer producer
 
       case sendResult of
-        Left err -> assertFailure $ "Failed to produce: " ++ err
+        Left err -> expectationFailure $ "Failed to produce: " ++ err
         Right md -> do
           let producedOffset = md.offset
               producedPart   = md.partition
           putStrLn $ "Produced at offset: " ++ show producedOffset
-          assertBool "Expected non-negative offset" (producedOffset >= 0)
+          (producedOffset >= 0) `shouldBe` True
 
           -- Consume from the partition the broker actually assigned.
           let config = Consumer.defaultConsumerConfig
@@ -296,7 +295,7 @@ testProduceConsumeIntegration = do
                 }
           consumerResult <- Consumer.createConsumer ["localhost:9092"] "" config
           case consumerResult of
-            Left err -> assertFailure $ "Failed to create consumer: " ++ err
+            Left err -> expectationFailure $ "Failed to create consumer: " ++ err
             Right consumer -> do
               let partitions = [Consumer.TopicPartition testTopic producedPart]
               _ <- Consumer.assign consumer partitions
@@ -305,12 +304,12 @@ testProduceConsumeIntegration = do
               Consumer.closeConsumer consumer
 
               case pollResult of
-                Left err -> assertFailure $ "Failed to poll: " ++ err
+                Left err -> expectationFailure $ "Failed to poll: " ++ err
                 Right records -> do
                   let ours = filter (\r -> r.value == payload) records
                   when (null ours) $
                     putStrLn $ "Polled " ++ show (length records) ++ " unrelated record(s)"
-                  assertBool "Should find our produced message" (not (null ours))
+                  (not (null ours)) `shouldBe` True
 
 -- Simple deterministic hash used to build a unique payload per run.
 hash :: Word64 -> Word64

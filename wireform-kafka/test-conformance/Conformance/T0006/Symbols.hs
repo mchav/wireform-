@@ -16,8 +16,7 @@ if any of the imports below fail to resolve, the suite won't link.
 -}
 module Conformance.T0006.Symbols (tests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 -- Top-level umbrella (re-exports producer / consumer / transaction
 -- entry points the user is most likely to reach for):
@@ -51,13 +50,13 @@ import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives ()
 import qualified Kafka.Protocol.RecordBatch ()
 import qualified Kafka.Telemetry.OpenTelemetry ()
 
-tests :: TestTree
-tests = testGroup "0006-symbols"
-  [ testCase "umbrella module is importable" $ do
+tests :: Spec
+tests = describe "0006-symbols" $ sequence_
+  [ it "umbrella module is importable" $ do
       -- 'Kafka' is the user-facing entry point; touching it forces
       -- GHC to resolve its re-exports at link time. If any of the
       -- imports above are missing, the file would not have compiled.
       let _ = Kafka.defaultProducerConfig
           _ = Kafka.defaultConsumerConfig
-      pure ()
+      pure () :: IO ()
   ]

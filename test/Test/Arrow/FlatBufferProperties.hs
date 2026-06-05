@@ -32,8 +32,8 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Arrow.FlatBufferIPC
 import Arrow.Types
@@ -42,25 +42,25 @@ import Arrow.Types
 -- Entry point
 -- ============================================================
 
-flatBufferPropertyTests :: TestTree
-flatBufferPropertyTests = testGroup "Arrow.FlatBufferIPC properties"
-  [ testGroup "Message round-trips"
-      [ testProperty "Schema"           propSchemaRoundTrip
-      , testProperty "RecordBatch"      propRecordBatchRoundTrip
-      , testProperty "DictionaryBatch"  propDictionaryBatchRoundTrip
-      , testProperty "Tensor"           propTensorRoundTrip
-      , testProperty "SparseTensor COO" propSparseTensorRoundTrip
+flatBufferPropertyTests :: Spec
+flatBufferPropertyTests = describe "Arrow.FlatBufferIPC properties" $ sequence_
+  [ describe "Message round-trips" $ sequence_
+      [ it "Schema"           propSchemaRoundTrip
+      , it "RecordBatch"      propRecordBatchRoundTrip
+      , it "DictionaryBatch"  propDictionaryBatchRoundTrip
+      , it "Tensor"           propTensorRoundTrip
+      , it "SparseTensor COO" propSparseTensorRoundTrip
       ]
-  , testGroup "End-to-end streams"
-      [ testProperty "writeArrowStreamFB / readArrowStreamFB"
+  , describe "End-to-end streams" $ sequence_
+      [ it "writeArrowStreamFB / readArrowStreamFB"
           propStreamRoundTrip
-      , testProperty "writeArrowFileFB / readArrowFileFB"
+      , it "writeArrowFileFB / readArrowFileFB"
           propFileRoundTrip
       ]
-  , testGroup "Invariants"
-      [ testProperty "encapsulated message length is 8-byte aligned"
+  , describe "Invariants" $ sequence_
+      [ it "encapsulated message length is 8-byte aligned"
           propFrameAlignment
-      , testProperty "vtable dedup: same field shape => same vtable offset"
+      , it "vtable dedup: same field shape => same vtable offset"
           propVTableDedup
       ]
   ]

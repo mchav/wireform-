@@ -5,8 +5,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Iceberg.Maintenance as M
 import qualified Iceberg.Types as I
@@ -39,9 +38,9 @@ threeAppends = appendAt 3000 (appendAt 2000 (appendAt 1000 minimal))
       , IU.apfSchemaId = Just 0
       }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Maintenance"
-  [ testCase "expireSnapshots drops snapshots older than the cutoff" $ do
+tests :: Spec
+tests = describe "Iceberg.Maintenance" $ sequence_
+  [ it "expireSnapshots drops snapshots older than the cutoff" $ do
       let now = 4000 :: Int64
           policy = M.ExpiryPolicy
             { M.epMaxAgeMs = Just 1500   -- keep snapshots >= now - 1500 = 2500
@@ -50,20 +49,20 @@ tests = testGroup "Iceberg.Maintenance"
             }
           result = M.expireSnapshots now policy threeAppends
           tm' = M.exNewMetadata result
-      length (M.exExpiredSnapshots result) @?= 2  -- snapshots at 1000 and 2000
-      V.length (I.tmSnapshots tm') @?= 1          -- only the 3000 snapshot survives
-      I.tmCurrentSnapshotId tm' /= Nothing @?= True
+      length (M.exExpiredSnapshots result) `shouldBe` 2  -- snapshots at 1000 and 2000
+      V.length (I.tmSnapshots tm') `shouldBe` 1          -- only the 3000 snapshot survives
+      I.tmCurrentSnapshotId tm' /= Nothing `shouldBe` True
 
-  , testCase "expireSnapshots keeps minimum count even when all are old" $ do
+  , it "expireSnapshots keeps minimum count even when all are old" $ do
       let now = 1_000_000 :: Int64
           policy = M.defaultExpiryPolicy
             { M.epMaxAgeMs = Just 1
             , M.epMinSnapshots = 2
             }
           result = M.expireSnapshots now policy threeAppends
-      V.length (I.tmSnapshots (M.exNewMetadata result)) @?= 2
+      V.length (I.tmSnapshots (M.exNewMetadata result)) `shouldBe` 2
 
-  , testCase "expireSnapshots respects retainSnapshots" $ do
+  , it "expireSnapshots respects retainSnapshots" $ do
       let oldestId = I.snapId (V.unsafeIndex (I.tmSnapshots threeAppends) 0)
           now = 1_000_000 :: Int64
           policy = M.defaultExpiryPolicy
@@ -73,23 +72,23 @@ tests = testGroup "Iceberg.Maintenance"
             }
           result = M.expireSnapshots now policy threeAppends
           ids = map I.snapId (V.toList (I.tmSnapshots (M.exNewMetadata result)))
-      (oldestId `elem` ids) @?= True
+      (oldestId `elem` ids) `shouldBe` True
 
-  , testCase "referencedFilePaths includes manifest list, metadata log, statistics" $ do
+  , it "referencedFilePaths includes manifest list, metadata log, statistics" $ do
       let tm = threeAppends
             { I.tmMetadataLog = V.singleton (I.MetadataLogEntry 1000 "m-old.json")
             , I.tmStatistics  = V.singleton (I.StatisticsFile 1 "s.puffin" 1024 256 Nothing V.empty)
             }
           paths = M.referencedFilePaths tm
-      Set.member "ml.avro" paths @?= True
-      Set.member "m-old.json" paths @?= True
-      Set.member "s.puffin" paths @?= True
+      Set.member "ml.avro" paths `shouldBe` True
+      Set.member "m-old.json" paths `shouldBe` True
+      Set.member "s.puffin" paths `shouldBe` True
 
-  , testCase "orphanFileCandidates returns set difference" $ do
+  , it "orphanFileCandidates returns set difference" $ do
       let tm = threeAppends
           referenced = M.referencedFilePaths tm
           discovered = referenced
                      `Set.union` Set.fromList ["junk1.avro", "junk2.parquet"]
           orphans = M.orphanFileCandidates tm discovered
-      orphans @?= Set.fromList ["junk1.avro", "junk2.parquet"]
+      orphans `shouldBe` Set.fromList ["junk1.avro", "junk2.parquet"]
   ]

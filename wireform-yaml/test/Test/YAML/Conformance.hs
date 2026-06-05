@@ -36,18 +36,17 @@ import System.Directory
   (doesFileExist, doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertFailure, (@?=))
+import Test.Syd
 
 import qualified YAML.Decode as YD
 import qualified YAML.JSON   as YJ
 import qualified YAML.Value  as YV
 
-tests :: IO TestTree
+tests :: IO Spec
 tests = do
   builtin <- builtinSuite
   ext     <- externalSuite
-  pure (testGroup "conformance" [builtin, ext])
+  pure (describe "conformance" $ sequence_ [builtin, ext])
 
 -- ---------------------------------------------------------------------------
 -- Built-in mini-suite
@@ -55,16 +54,16 @@ tests = do
 
 -- | A handful of cases distilled from the YAML 1.2 spec that we
 -- never want to regress on.
-builtinSuite :: IO TestTree
-builtinSuite = pure $ testGroup "builtin"
+builtinSuite :: IO Spec
+builtinSuite = pure $ describe "builtin" $ sequence_
   [ caseOK "spec ex 2.1 seq of strings"
       (T.unlines [ "- Mark McGwire"
                  , "- Sammy Sosa"
                  , "- Ken Griffey"
                  ])
       (\v -> case v of
-         YV.YSeq xs -> V.length xs @?= 3
-         _ -> assertFailure "expected sequence")
+         YV.YSeq xs -> V.length xs `shouldBe` 3
+         _ -> expectationFailure "expected sequence")
 
   , caseOK "spec ex 2.2 mapping of scalars"
       (T.unlines [ "hr:  65"
@@ -72,10 +71,10 @@ builtinSuite = pure $ testGroup "builtin"
                  , "rbi: 147"
                  ])
       (\v -> do
-         YV.lookupKey "hr"  v @?= Just (YV.YInt 65)
+         YV.lookupKey "hr"  v `shouldBe` Just (YV.YInt 65)
          case YV.lookupKey "rbi" v of
            Just (YV.YInt 147) -> pure ()
-           r -> assertFailure (show r))
+           r -> expectationFailure (show r))
 
   , caseOK "spec ex 7.1 alias nodes"
       (T.unlines [ "First occurrence: &anchor Foo"
@@ -83,9 +82,9 @@ builtinSuite = pure $ testGroup "builtin"
                  ])
       (\v -> do
          fmap YV.unwrap (YV.lookupKey "First occurrence"  v)
-           @?= Just (YV.YString "Foo")
+           `shouldBe` Just (YV.YString "Foo")
          fmap YV.unwrap (YV.lookupKey "Second occurrence" v)
-           @?= Just (YV.YString "Foo"))
+           `shouldBe` Just (YV.YString "Foo"))
 
   , caseOK "spec ex 8.1 block scalar header"
       (T.unlines [ "literal: |"
@@ -94,8 +93,8 @@ builtinSuite = pure $ testGroup "builtin"
                  , "  text"
                  ])
       (\v -> do
-         YV.lookupKey "literal" v @?= Just (YV.YString "text\n")
-         YV.lookupKey "folded"  v @?= Just (YV.YString "text\n"))
+         YV.lookupKey "literal" v `shouldBe` Just (YV.YString "text\n")
+         YV.lookupKey "folded"  v `shouldBe` Just (YV.YString "text\n"))
 
   , caseOK "spec ex 5.3 block sequence"
       (T.unlines [ "block sequence:"
@@ -103,44 +102,44 @@ builtinSuite = pure $ testGroup "builtin"
                  , "  - two : three"
                  ])
       (\v -> case YV.lookupKey "block sequence" v of
-         Just (YV.YSeq xs) -> V.length xs @?= 2
-         _ -> assertFailure "expected nested sequence")
+         Just (YV.YSeq xs) -> V.length xs `shouldBe` 2
+         _ -> expectationFailure "expected nested sequence")
 
   , caseOK "flow nested in block"
       (T.unlines [ "flow: { a: 1, b: 2, c: [3, 4] }"
                  ])
       (\v -> case YV.lookupKey "flow" v of
          Just (YV.YMap _) -> pure ()
-         r -> assertFailure (show r))
+         r -> expectationFailure (show r))
 
   , caseOK "string preserves int-like value when quoted"
       "version: \"1.0\""
-      (\v -> YV.lookupKey "version" v @?= Just (YV.YString "1.0"))
+      (\v -> YV.lookupKey "version" v `shouldBe` Just (YV.YString "1.0"))
   ]
 
-caseOK :: String -> T.Text -> (YV.Value -> IO ()) -> TestTree
-caseOK name src k = testCase name $
+caseOK :: String -> T.Text -> (YV.Value -> IO ()) -> Spec
+caseOK name src k = it name $
   case YD.decode src of
-    Left  e -> assertFailure $ "decode failed: " ++ e
+    Left  e -> expectationFailure $ "decode failed: " ++ e
     Right v -> k v
 
 -- ---------------------------------------------------------------------------
 -- External suite (yaml-test-suite)
 -- ---------------------------------------------------------------------------
 
-externalSuite :: IO TestTree
+externalSuite :: IO Spec
 externalSuite = do
   mDir <- lookupEnv "YAML_TEST_SUITE"
   case mDir of
-    Nothing  -> pure (testGroup "yaml-test-suite (skipped, set YAML_TEST_SUITE)" [])
+    Nothing  -> pure (describe "yaml-test-suite (skipped, set YAML_TEST_SUITE)" $ sequence_ [])
     Just dir -> do
       exists <- doesDirectoryExist dir
       if not exists
-        then pure (testGroup "yaml-test-suite (path missing)" [])
+        then pure (describe "yaml-test-suite (path missing)" $ sequence_ [])
         else do
           cases <- discoverCases dir
-          pure (testGroup ("yaml-test-suite (" ++ show (length cases) ++ " cases)")
-                  (map (mkCase dir) cases))
+          pure (describe ("yaml-test-suite (" ++ show (length cases) ++ " cases)")
+                  (mapM_ (mkCase dir) cases))
 
 -- | Each case-id is a path relative to the test-suite root.
 discoverCases :: FilePath -> IO [FilePath]
@@ -170,8 +169,8 @@ discoverCases root = walk root
           subs <- mapM walk dirs
           pure (here ++ concat subs)
 
-mkCase :: FilePath -> FilePath -> TestTree
-mkCase _root caseDir = testCase caseDir $ do
+mkCase :: FilePath -> FilePath -> Spec
+mkCase _root caseDir = it caseDir $ do
   let inPath   = caseDir </> "in.yaml"
       errPath  = caseDir </> "error"
       jsonPath = caseDir </> "in.json"
@@ -182,11 +181,11 @@ mkCase _root caseDir = testCase caseDir $ do
            :: IO (Either SomeException (Either String YV.Stream))
   case (isErr, res) of
     (True,  Right (Left _))     -> pure ()
-    (True,  Right (Right _))    -> assertFailure "expected parse error, got success"
+    (True,  Right (Right _))    -> expectationFailure "expected parse error, got success"
     (True,  Left  _)            -> pure ()
     (False, Right (Right s))    -> compareToExpectedJSON jsonPath s
-    (False, Right (Left e))     -> assertFailure $ "decode failed: " ++ e
-    (False, Left  e)            -> assertFailure $ "exception: " ++ show e
+    (False, Right (Left e))     -> expectationFailure $ "decode failed: " ++ e
+    (False, Left  e)            -> expectationFailure $ "exception: " ++ show e
 
 -- | When the case ships an @in.json@ companion, compare it against
 -- the JSON projection of our parse result. The YAML test suite uses
@@ -207,7 +206,7 @@ compareToExpectedJSON jsonPath stream = do
               let actual = YJ.yamlToJSON (YV.docBody doc)
               if jsonEq actual expected
                 then pure ()
-                else actual @?= expected
+                else actual `shouldBe` expected
             _ -> pure ()    -- multi-doc streams have no @in.json@.
 
 -- | Forgiving JSON equality: numeric scalars compare by parsed

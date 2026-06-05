@@ -10,17 +10,16 @@ import GHC.Generics (Generic)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import CSV.Value
 import CSV.Decode
 import CSV.Encode
 import CSV.Class
 
-csvTests :: TestTree
-csvTests = testGroup "CSV"
+csvTests :: Spec
+csvTests = describe "CSV" $ sequence_
   [ parseTests
   , quoteTests
   , tsvTests
@@ -30,109 +29,109 @@ csvTests = testGroup "CSV"
   , genericTests
   ]
 
-parseTests :: TestTree
-parseTests = testGroup "Basic parsing"
-  [ testCase "Simple CSV with header" $ do
+parseTests :: Spec
+parseTests = describe "Basic parsing" $ sequence_
+  [ it "Simple CSV with header" $ do
       let input = "name,age\nAlice,30\nBob,25"
           Right doc = decode defaultCSV (BSC.pack input)
-      csvHeader doc @?= Just (V.fromList ["name", "age"])
-      csvRows doc @?= V.fromList
+      csvHeader doc `shouldBe` Just (V.fromList ["name", "age"])
+      csvRows doc `shouldBe` V.fromList
         [ V.fromList ["Alice", "30"]
         , V.fromList ["Bob", "25"]
         ]
 
-  , testCase "CSV without header" $ do
+  , it "CSV without header" $ do
       let cfg = defaultCSV { csvHasHeader = False }
           input = "Alice,30\nBob,25"
           Right doc = decode cfg (BSC.pack input)
-      csvHeader doc @?= Nothing
-      csvRows doc @?= V.fromList
+      csvHeader doc `shouldBe` Nothing
+      csvRows doc `shouldBe` V.fromList
         [ V.fromList ["Alice", "30"]
         , V.fromList ["Bob", "25"]
         ]
 
-  , testCase "Single row" $ do
+  , it "Single row" $ do
       let input = "a,b,c"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      csvRows doc @?= V.fromList [V.fromList ["a", "b", "c"]]
+      csvRows doc `shouldBe` V.fromList [V.fromList ["a", "b", "c"]]
 
-  , testCase "CRLF line endings" $ do
+  , it "CRLF line endings" $ do
       let input = "x,y\r\n1,2\r\n3,4"
           Right doc = decode defaultCSV (BSC.pack input)
-      csvHeader doc @?= Just (V.fromList ["x", "y"])
-      csvRows doc @?= V.fromList
+      csvHeader doc `shouldBe` Just (V.fromList ["x", "y"])
+      csvRows doc `shouldBe` V.fromList
         [ V.fromList ["1", "2"]
         , V.fromList ["3", "4"]
         ]
   ]
 
-quoteTests :: TestTree
-quoteTests = testGroup "Quoted fields"
-  [ testCase "Field with embedded comma" $ do
+quoteTests :: Spec
+quoteTests = describe "Quoted fields" $ sequence_
+  [ it "Field with embedded comma" $ do
       let input = "a,\"hello, world\",c"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      csvRows doc @?= V.fromList [V.fromList ["a", "hello, world", "c"]]
+      csvRows doc `shouldBe` V.fromList [V.fromList ["a", "hello, world", "c"]]
 
-  , testCase "Escaped quotes (doubled)" $ do
+  , it "Escaped quotes (doubled)" $ do
       let input = "\"she said \"\"hi\"\"\""
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      V.head (csvRows doc) @?= V.fromList ["she said \"hi\""]
+      V.head (csvRows doc) `shouldBe` V.fromList ["she said \"hi\""]
 
-  , testCase "Quoted field with newline" $ do
+  , it "Quoted field with newline" $ do
       let input = "\"line1\nline2\",b"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      V.head (csvRows doc) @?= V.fromList ["line1\nline2", "b"]
+      V.head (csvRows doc) `shouldBe` V.fromList ["line1\nline2", "b"]
 
-  , testCase "Empty quoted field" $ do
+  , it "Empty quoted field" $ do
       let input = "\"\",b"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      V.head (csvRows doc) @?= V.fromList ["", "b"]
+      V.head (csvRows doc) `shouldBe` V.fromList ["", "b"]
   ]
 
-tsvTests :: TestTree
-tsvTests = testGroup "TSV"
-  [ testCase "Tab-separated values" $ do
+tsvTests :: Spec
+tsvTests = describe "TSV" $ sequence_
+  [ it "Tab-separated values" $ do
       let input = "name\tage\nAlice\t30\nBob\t25"
           Right doc = decode defaultTSV (BSC.pack input)
-      csvHeader doc @?= Just (V.fromList ["name", "age"])
-      csvRows doc @?= V.fromList
+      csvHeader doc `shouldBe` Just (V.fromList ["name", "age"])
+      csvRows doc `shouldBe` V.fromList
         [ V.fromList ["Alice", "30"]
         , V.fromList ["Bob", "25"]
         ]
 
-  , testCase "TSV with quoted tab" $ do
+  , it "TSV with quoted tab" $ do
       let input = "\"a\tb\"\tc"
           cfg = defaultTSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      V.head (csvRows doc) @?= V.fromList ["a\tb", "c"]
+      V.head (csvRows doc) `shouldBe` V.fromList ["a\tb", "c"]
   ]
 
-emptyFieldTests :: TestTree
-emptyFieldTests = testGroup "Empty fields"
-  [ testCase "Empty fields at various positions" $ do
+emptyFieldTests :: Spec
+emptyFieldTests = describe "Empty fields" $ sequence_
+  [ it "Empty fields at various positions" $ do
       let input = ",b,\na,,c"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      csvRows doc @?= V.fromList
+      csvRows doc `shouldBe` V.fromList
         [ V.fromList ["", "b", ""]
         , V.fromList ["a", "", "c"]
         ]
 
-  , testCase "All empty fields" $ do
+  , it "All empty fields" $ do
       let input = ",,"
           cfg = defaultCSV { csvHasHeader = False }
           Right doc = decode cfg (BSC.pack input)
-      csvRows doc @?= V.fromList [V.fromList ["", "", ""]]
+      csvRows doc `shouldBe` V.fromList [V.fromList ["", "", ""]]
   ]
 
-roundtripTests :: TestTree
-roundtripTests = testGroup "Roundtrip"
-  [ testProperty "CSV encode-decode roundtrip" $ property $ do
+roundtripTests :: Spec
+roundtripTests = describe "Roundtrip" $ sequence_
+  [ it "CSV encode-decode roundtrip" $ property $ do
       nRows <- forAll $ Gen.int (Range.linear 1 20)
       nCols <- forAll $ Gen.int (Range.linear 1 5)
       rows <- forAll $ V.replicateM nRows $
@@ -146,7 +145,7 @@ roundtripTests = testGroup "Roundtrip"
           failure
         Right doc' -> csvRows doc' === csvRows doc
 
-  , testProperty "CSV with header roundtrip" $ property $ do
+  , it "CSV with header roundtrip" $ property $ do
       nCols <- forAll $ Gen.int (Range.linear 1 5)
       header <- forAll $ V.replicateM nCols (Gen.text (Range.linear 1 10) Gen.alpha)
       nRows <- forAll $ Gen.int (Range.linear 0 10)
@@ -163,9 +162,9 @@ roundtripTests = testGroup "Roundtrip"
           csvRows doc' === csvRows doc
   ]
 
-streamTests :: TestTree
-streamTests = testGroup "Streaming"
-  [ testCase "Streaming decode collects all rows" $ do
+streamTests :: Spec
+streamTests = describe "Streaming" $ sequence_
+  [ it "Streaming decode collects all rows" $ do
       let input = "h1,h2\na,1\nb,2\nc,3"
           ref = V.fromList
             [ V.fromList ["a", "1"]
@@ -175,9 +174,9 @@ streamTests = testGroup "Streaming"
       collected <- newIORef []
       result <- decodeStream defaultCSV (BSC.pack input) $ \row ->
         modifyIORef' collected (row :)
-      result @?= Right ()
+      result `shouldBe` Right ()
       rows <- reverse <$> readIORef collected
-      V.fromList rows @?= ref
+      V.fromList rows `shouldBe` ref
   ]
 
 data Person = Person
@@ -198,18 +197,18 @@ instance FromCSV Person where
                  _         -> Left "cannot parse age"
         Right (Person name age)
 
-genericTests :: TestTree
-genericTests = testGroup "Generic deriving"
-  [ testCase "Person record from CSV" $ do
+genericTests :: Spec
+genericTests = describe "Generic deriving" $ sequence_
+  [ it "Person record from CSV" $ do
       let input = "name,age\nAlice,30\nBob,25"
           Right persons = decodeRecords defaultCSV (BSC.pack input) :: Either String (V.Vector Person)
-      persons @?= V.fromList [Person "Alice" 30, Person "Bob" 25]
+      persons `shouldBe` V.fromList [Person "Alice" 30, Person "Bob" 25]
 
-  , testCase "Person record roundtrip" $ do
+  , it "Person record roundtrip" $ do
       let cfg = defaultCSV { csvHasHeader = False }
           persons = V.fromList [Person "Alice" 30, Person "Bob" 25]
           encoded = encodeRecords cfg persons
           Right decoded = decodeRecords cfg encoded :: Either String (V.Vector Person)
-      decoded @?= persons
+      decoded `shouldBe` persons
   ]
 

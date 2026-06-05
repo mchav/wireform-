@@ -9,7 +9,7 @@ import Data.Word (Word8)
 import Foreign.Ptr (Ptr, plusPtr, nullPtr, minusPtr)
 import Foreign.Storable (poke, peek)
 import Foreign.Marshal.Array (pokeArray)
-import Test.Hspec
+import Test.Syd
 import Test.QuickCheck
 
 import Wireform.Ring

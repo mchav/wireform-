@@ -8,21 +8,20 @@ import qualified Data.Map.Strict as Map
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Streams.Runtime.MultiInstanceHarness as H
 
-tests :: TestTree
-tests = testGroup "Multi-instance liveness harness"
-  [ testCase "no failures: every record is processed"
+tests :: Spec
+tests = describe "Multi-instance liveness harness" $ sequence_
+  [ it "no failures: every record is processed"
       no_failures
-  , testCase "single instance crash: subsequent records are skipped"
+  , it "single instance crash: subsequent records are skipped"
       single_crash
-  , testCase "multi-instance: surviving instance keeps processing"
+  , it "multi-instance: surviving instance keeps processing"
       multi_survival
-  , testProperty
+  , it
       "with at least one healthy instance, no records are skipped"
       prop_at_least_one_healthy
   ]
@@ -33,8 +32,8 @@ no_failures = do
             [ H.EvRecord ("k1" :: String) ("v1" :: String)
             , H.EvRecord "k2" "v2"
             ]
-  H.rrProcessed r @?= [("k1", "v1"), ("k2", "v2")]
-  H.rrSkipped r   @?= []
+  H.rrProcessed r `shouldBe` [("k1", "v1"), ("k2", "v2")]
+  H.rrSkipped r   `shouldBe` []
 
 single_crash :: IO ()
 single_crash = do
@@ -43,8 +42,8 @@ single_crash = do
             , H.EvFailure (H.Crash (H.InstanceId 0))
             , H.EvRecord "k2" "v2"
             ]
-  H.rrProcessed r @?= [("k1", "v1")]
-  H.rrSkipped r   @?= [("k2", "v2")]
+  H.rrProcessed r `shouldBe` [("k1", "v1")]
+  H.rrSkipped r   `shouldBe` [("k2", "v2")]
 
 multi_survival :: IO ()
 multi_survival = do
@@ -54,8 +53,8 @@ multi_survival = do
             , H.EvRecord "k2" "v2"
             ]
   -- Instance 1 still healthy; record k2 still processed.
-  H.rrProcessed r @?= [("k1", "v1"), ("k2", "v2")]
-  H.rrSkipped r   @?= []
+  H.rrProcessed r `shouldBe` [("k1", "v1"), ("k2", "v2")]
+  H.rrSkipped r   `shouldBe` []
 
 prop_at_least_one_healthy :: Property
 prop_at_least_one_healthy = property $ do

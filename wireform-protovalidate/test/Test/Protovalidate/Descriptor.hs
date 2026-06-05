@@ -12,8 +12,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Word (Word64, Word8)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL (Value (..), celMapFromList)
 import Proto.Decode (UnknownField (..))
@@ -93,16 +92,16 @@ msg fs = VMap (celMapFromList [(VString k, v) | (k, v) <- fs])
 ids :: [Violation] -> [Text]
 ids = sort . map violationConstraintId
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "descriptor (buf.validate extension #1159)"
-    [ testCase "rules are extracted from FieldOptions/MessageOptions" $
-        assertBool "expected a field rule for 'name'" (any ((== "name") . fst) (mrFields userRules))
-    , testCase "standard rule + field CEL + message CEL all fire" $
+  describe
+    "descriptor (buf.validate extension #1159)" $ sequence_
+    [ it "rules are extracted from FieldOptions/MessageOptions" $
+        (any ((== "name") . fst) (mrFields userRules)) `shouldBe` True
+    , it "standard rule + field CEL + message CEL all fire" $
         ids (validate (msg [("name", VString "ab")]) userRules)
-          @?= sort ["string.min_len", "f.prefix_x", "m.always"]
-    , testCase "a conforming value only trips the always-false message rule" $
+          `shouldBe` sort ["string.min_len", "f.prefix_x", "m.always"]
+    , it "a conforming value only trips the always-false message rule" $
         ids (validate (msg [("name", VString "xander")]) userRules)
-          @?= ["m.always"]
+          `shouldBe` ["m.always"]
     ]

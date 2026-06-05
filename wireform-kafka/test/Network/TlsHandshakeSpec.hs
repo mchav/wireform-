@@ -15,7 +15,7 @@
 -- the deprecated pure-Haskell @tls@ path.
 module Network.TlsHandshakeSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
+import Test.Syd
 
-tests :: TestTree
-tests = testGroup "TLS handshake (post-OpenSSL-rewrite stub)" []
+tests :: Spec
+tests = describe "TLS handshake (post-OpenSSL-rewrite stub)" $ sequence_ []

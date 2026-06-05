@@ -7,16 +7,15 @@ module Main (main) where
 
 import qualified Streams.Integration.RoundTrip as RT
 import System.Environment (lookupEnv)
-import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (testCase)
+import Test.Syd
 
 main :: IO ()
 main = do
   brokers <- lookupEnv "WIREFORM_KAFKA_BROKER"
   case brokers of
-    Nothing -> defaultMain $ testGroup "kafka-streams-integration"
-      [ testCase "skipped (set WIREFORM_KAFKA_BROKER to enable)" (pure ())
+    Nothing -> sydTest $ describe "kafka-streams-integration" $ sequence_
+      [ it "skipped (set WIREFORM_KAFKA_BROKER to enable)" (pure () :: IO ())
       ]
-    Just bs -> defaultMain $ testGroup "kafka-streams-integration"
+    Just bs -> sydTest $ describe "kafka-streams-integration" $ sequence_
       [ RT.tests bs
       ]

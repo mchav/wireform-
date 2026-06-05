@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Protovalidate.Advanced
 import qualified Test.Protovalidate.Descriptor
@@ -12,9 +12,9 @@ import qualified Test.Protovalidate.Validation
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "wireform-protovalidate"
+  sydTest $
+    describe
+      "wireform-protovalidate" $ sequence_
       [ Test.Protovalidate.Format.tests
       , Test.Protovalidate.Validation.tests
       , Test.Protovalidate.Schema.tests

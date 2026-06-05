@@ -9,8 +9,7 @@ import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
 import Data.IORef
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Catalog.Hadoop
 import Iceberg.Types
@@ -71,52 +70,52 @@ mkMeta v = TableMetadata
 -- Tests
 -- ============================================================
 
-tests :: TestTree
-tests = testGroup "Iceberg.Catalog.Hadoop"
-  [ testCase "currentVersion is Nothing on empty catalog" $ do
+tests :: Spec
+tests = describe "Iceberg.Catalog.Hadoop" $ sequence_
+  [ it "currentVersion is Nothing on empty catalog" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
       r <- currentVersion cat (V.singleton "ns") "tbl"
-      r @?= Nothing
+      r `shouldBe` Nothing
 
-  , testCase "first commit creates v1" $ do
+  , it "first commit creates v1" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
       r <- commitMetadata cat (V.singleton "ns") "tbl" Nothing (mkMeta 1)
-      r @?= Right 1
+      r `shouldBe` Right 1
       v <- currentVersion cat (V.singleton "ns") "tbl"
-      v @?= Just 1
+      v `shouldBe` Just 1
 
-  , testCase "second commit increments to v2" $ do
+  , it "second commit increments to v2" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
       _ <- commitMetadata cat (V.singleton "ns") "tbl" Nothing (mkMeta 1)
       r <- commitMetadata cat (V.singleton "ns") "tbl" (Just 1) (mkMeta 2)
-      r @?= Right 2
+      r `shouldBe` Right 2
 
-  , testCase "stale assertion is rejected" $ do
+  , it "stale assertion is rejected" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
       _ <- commitMetadata cat (V.singleton "ns") "tbl" Nothing (mkMeta 1)
       r <- commitMetadata cat (V.singleton "ns") "tbl" Nothing (mkMeta 1)
       case r of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected version-conflict error"
+        Right _ -> expectationFailure "expected version-conflict error"
 
-  , testCase "currentMetadata reflects last commit" $ do
+  , it "currentMetadata reflects last commit" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
       _ <- commitMetadata cat (V.singleton "ns") "tbl" Nothing (mkMeta 1)
       _ <- commitMetadata cat (V.singleton "ns") "tbl" (Just 1) (mkMeta 2)
       r <- currentMetadata cat (V.singleton "ns") "tbl"
       case r of
-        Right (Just (v, _tm)) -> v @?= 2
-        Right Nothing -> assertFailure "expected metadata"
-        Left e        -> assertFailure e
+        Right (Just (v, _tm)) -> v `shouldBe` 2
+        Right Nothing -> expectationFailure "expected metadata"
+        Left e        -> expectationFailure e
 
-  , testCase "metadataPath formats v<N>.metadata.json" $ do
+  , it "metadataPath formats v<N>.metadata.json" $ do
       ref <- newIORef Map.empty
       let cat = mkHadoopCatalog "/wh" (memFS ref)
           p = metadataPath cat (V.fromList ["a", "b"]) "tbl" 7
-      p @?= "/wh/a/b/tbl/metadata/v7.metadata.json"
+      p `shouldBe` "/wh/a/b/tbl/metadata/v7.metadata.json"
   ]

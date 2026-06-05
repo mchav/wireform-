@@ -201,9 +201,8 @@ test-suite wireform-test
     , filepath
     , directory
     , hedgehog             >= 1.0  && < 1.8
-    , tasty                >= 1.4  && < 1.6
-    , tasty-hedgehog       >= 1.0  && < 1.8
-    , tasty-hunit          >= 0.10 && < 0.11
+    , sydtest
+    , sydtest-hedgehog
     , stm
     , primitive
   hs-source-dirs: test
@@ -228,8 +227,7 @@ test-suite interop-test
     , vector
     , containers
     , process          >= 1.6  && < 1.8
-    , tasty            >= 1.4  && < 1.6
-    , tasty-hunit      >= 0.10 && < 0.11
+    , sydtest
 
 test-suite html5lib-test
   import: defaults
@@ -238,7 +236,7 @@ test-suite html5lib-test
   hs-source-dirs: test-interop
   build-depends:
       base, wireform-html, bytestring, text, vector,
-      directory, filepath, tasty, tasty-hunit
+      directory, filepath, sydtest
 
 test-suite html-dom-test
   import: defaults
@@ -247,7 +245,7 @@ test-suite html-dom-test
   hs-source-dirs: test-interop
   build-depends:
       base, wireform-core, wireform-html, bytestring, text,
-      tasty, tasty-hunit
+      sydtest
 
 test-suite wpt-selector-test
   import: defaults
@@ -256,7 +254,7 @@ test-suite wpt-selector-test
   hs-source-dirs: test-interop
   build-depends:
       base, wireform-html, text,
-      tasty, tasty-hunit
+      sydtest
 
 test-suite html-rewriter-test
   import: defaults
@@ -265,7 +263,7 @@ test-suite html-rewriter-test
   hs-source-dirs: test-interop
   build-depends:
       base, wireform-core, wireform-html, bytestring, text, aeson,
-      tasty, tasty-hunit, directory, filepath
+      sydtest, directory, filepath
 
 test-suite python-interop
   import: defaults
@@ -286,9 +284,8 @@ test-suite python-interop
     , filepath
     , process          >= 1.6  && < 1.8
     , hedgehog         >= 1.0  && < 1.8
-    , tasty            >= 1.4  && < 1.6
-    , tasty-hedgehog   >= 1.0  && < 1.8
-    , tasty-hunit      >= 0.10 && < 0.11
+    , sydtest
+    , sydtest-hedgehog
   hs-source-dirs: test-interop
 
 ------------------------------------------------------------------------

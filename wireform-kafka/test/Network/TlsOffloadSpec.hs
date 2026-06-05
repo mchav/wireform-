@@ -41,24 +41,23 @@ import System.Directory
   )
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
+import Test.Syd
 
 import qualified Kafka.Network.Connection as Conn
 import Kafka.Network.Connection (BrokerAddress (..))
 import qualified Kafka.Network.TlsOffload as Offload
 
-tests :: TestTree
-tests = testGroup "Kafka.Network.TlsOffload"
-  [ testCase "static TCP offload routes every broker to the sidecar"
+tests :: Spec
+tests = describe "Kafka.Network.TlsOffload" $ sequence_
+  [ it "static TCP offload routes every broker to the sidecar"
       static_tcp_offload_routes_to_sidecar
-  , testCase "per-broker offload picks the right sidecar port"
+  , it "per-broker offload picks the right sidecar port"
       per_broker_offload_routing
-  , testCase "transparent offload uses the broker's own address"
+  , it "transparent offload uses the broker's own address"
       transparent_offload_uses_broker_address
-  , testCase "unix-socket offload connects to a UDS sidecar"
+  , it "unix-socket offload connects to a UDS sidecar"
       unix_socket_offload_round_trip
-  , testCase "Connection layer skips client-side TLS when offload is set"
+  , it "Connection layer skips client-side TLS when offload is set"
       offload_overrides_use_tls
   ]
 
@@ -186,11 +185,11 @@ static_tcp_offload_routes_to_sidecar = do
         addr = BrokerAddress "203.0.113.1" 9092
     r <- Conn.connectOffload addr cfg offload
     case r of
-      Left err   -> assertFailure ("offload connect failed: " <> err)
+      Left err   -> expectationFailure ("offload connect failed: " <> err)
       Right conn -> do
         pushAndClose conn "PING-static"
         got <- awaitBytes sink (BS.length "PING-static")
-        got @?= "PING-static"
+        got `shouldBe` "PING-static"
 
 per_broker_offload_routing :: IO ()
 per_broker_offload_routing = do
@@ -219,9 +218,9 @@ per_broker_offload_routing = do
           pushAndClose cb "to-broker-B"
           gA <- awaitBytes sinkA 4
           gB <- awaitBytes sinkB 11
-          gA @?= "to-A"
-          gB @?= "to-broker-B"
-        _ -> assertFailure "per-broker offload connects should both succeed"
+          gA `shouldBe` "to-A"
+          gB `shouldBe` "to-broker-B"
+        _ -> expectationFailure "per-broker offload connects should both succeed"
 
 transparent_offload_uses_broker_address :: IO ()
 transparent_offload_uses_broker_address = do
@@ -238,11 +237,11 @@ transparent_offload_uses_broker_address = do
         addr = BrokerAddress "127.0.0.1" (fromIntegral port)
     r <- Conn.connectOffload addr cfg offload
     case r of
-      Left err   -> assertFailure ("transparent offload connect failed: " <> err)
+      Left err   -> expectationFailure ("transparent offload connect failed: " <> err)
       Right conn -> do
         pushAndClose conn "PING-transparent"
         got <- awaitBytes sink (BS.length "PING-transparent")
-        got @?= "PING-transparent"
+        got `shouldBe` "PING-transparent"
 
 -- | Inline replacement for 'withSystemTempDirectory' to keep
 -- the test deps minimal — we only need 'directory'.
@@ -280,11 +279,11 @@ unix_socket_offload_round_trip = withTempDir "kfk-offload" $ \dir -> do
         addr = BrokerAddress "broker.kafka.invalid" 9093
     r <- Conn.connectOffload addr cfg offload
     case r of
-      Left err   -> assertFailure ("UDS offload connect failed: " <> err)
+      Left err   -> expectationFailure ("UDS offload connect failed: " <> err)
       Right conn -> do
         pushAndClose conn "via-uds"
         got <- awaitBytes sink (BS.length "via-uds")
-        got @?= "via-uds"
+        got `shouldBe` "via-uds"
 
 offload_overrides_use_tls :: IO ()
 offload_overrides_use_tls = do
@@ -309,11 +308,10 @@ offload_overrides_use_tls = do
     cm <- Conn.createConnectionManager
     r <- Conn.getOrCreateConnection cm addr cfg
     case r of
-      Left err   -> assertFailure ("offload-overrides-tls failed: " <> err)
+      Left err   -> expectationFailure ("offload-overrides-tls failed: " <> err)
       Right conn -> do
         NC.connectionPut conn "USE-OFFLOAD"
         NC.connectionClose conn
         got <- awaitBytes sink (BS.length "USE-OFFLOAD")
-        assertBool "echoed bytes via offload sidecar"
-                   (BS.isPrefixOf "USE-OFFLOAD" got)
+        (BS.isPrefixOf "USE-OFFLOAD" got) `shouldBe` True
     Conn.closeAllConnections cm

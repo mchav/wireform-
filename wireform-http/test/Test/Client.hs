@@ -28,8 +28,7 @@ import qualified Data.Text.Encoding as TE
 import GHC.Generics (Generic)
 import System.IO.Temp (withSystemTempDirectory)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
@@ -50,8 +49,8 @@ data User = User
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Aeson.ToJSON, Aeson.FromJSON)
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client"
+tests :: Spec
+tests = describe "Network.HTTP.Client" $ sequence_
   [ mediaTypeTests
   , requestBuildingTests
   , sendTests
@@ -75,62 +74,62 @@ tests = testGroup "Network.HTTP.Client"
 -- Media type parsing + matching
 -- ---------------------------------------------------------------------------
 
-mediaTypeTests :: TestTree
-mediaTypeTests = testGroup "MediaType"
-  [ testCase "parses type/subtype" $ do
+mediaTypeTests :: Spec
+mediaTypeTests = describe "MediaType" $ sequence_
+  [ it "parses type/subtype" $ do
       case parseMediaType "application/json" of
         Right m -> do
-          mtType m    @?= "application"
-          mtSubType m @?= "json"
-        Left err -> assertFailure err
+          mtType m    `shouldBe` "application"
+          mtSubType m `shouldBe` "json"
+        Left err -> expectationFailure err
 
-  , testCase "parses parameters and lowercases the name" $ do
+  , it "parses parameters and lowercases the name" $ do
       case parseMediaType "Application/JSON; charset=utf-8" of
         Right m -> do
-          mtType m    @?= "application"
-          mtSubType m @?= "json"
-          lookup "charset" (mtParameters m) @?= Just "utf-8"
-        Left err -> assertFailure err
+          mtType m    `shouldBe` "application"
+          mtSubType m `shouldBe` "json"
+          lookup "charset" (mtParameters m) `shouldBe` Just "utf-8"
+        Left err -> expectationFailure err
 
-  , testCase "wildcard matches" $ do
-      matches "application/json" "*/*"          @?= True
-      matches "application/json" "application/*" @?= True
-      matches "application/json" "text/*"        @?= False
-      matches "text/plain"       "text/plain"    @?= True
+  , it "wildcard matches" $ do
+      matches "application/json" "*/*"          `shouldBe` True
+      matches "application/json" "application/*" `shouldBe` True
+      matches "application/json" "text/*"        `shouldBe` False
+      matches "text/plain"       "text/plain"    `shouldBe` True
 
-  , testCase "Accept header rendering omits q=1" $ do
+  , it "Accept header rendering omits q=1" $ do
       acceptHeaderValue
         [ ("application/json", maxQuality)
         , ("text/plain", Quality 0.5)
-        ] @?= "application/json, text/plain; q=0.5"
+        ] `shouldBe` "application/json, text/plain; q=0.5"
   ]
 
 -- ---------------------------------------------------------------------------
 -- Request building / bindVar
 -- ---------------------------------------------------------------------------
 
-requestBuildingTests :: TestTree
-requestBuildingTests = testGroup "Request building"
-  [ testCase "bindVar substitutes a path variable" $ do
+requestBuildingTests :: Spec
+requestBuildingTests = describe "Request building" $ sequence_
+  [ it "bindVar substitutes a path variable" $ do
       tpl <- case parseTemplate "/users/{userId}" of
         Right t  -> pure t
-        Left err -> assertFailure (show err) >> error "unreachable"
+        Left err -> expectationFailure (show err) >> error "unreachable"
       let req = bindVar' "userId" (42 :: Int) (request M.mGet (templateURI tpl) ())
-      requestURIToText (requestURI req) @?= "/users/42"
+      requestURIToText (requestURI req) `shouldBe` "/users/42"
 
-  , testCase "withBody @JSON sets Content-Type" $ do
+  , it "withBody @JSON sets Content-Type" $ do
       let req :: Request BS.ByteString
           req = withBody @JSON (User 1 "alice") (post (compileTemplate "/users"))
           Request { headers = hs } = req
-      H.lookupHeader H.hContentType hs @?= Just "application/json; charset=utf-8"
+      H.lookupHeader H.hContentType hs `shouldBe` Just "application/json; charset=utf-8"
 
-  , testCase "setHeader replaces previous header values" $ do
+  , it "setHeader replaces previous header values" $ do
       let req :: Request ()
           req = setHeader H.hContentType "text/plain"
               . setHeader H.hContentType "application/xml"
               $ get (compileTemplate "/x")
           Request { headers = hs } = req
-      H.lookupHeader H.hContentType hs @?= Just "text/plain"
+      H.lookupHeader H.hContentType hs `shouldBe` Just "text/plain"
   ]
 
 compileTemplate :: String -> UriTemplate
@@ -147,15 +146,15 @@ bindVar' n v r = r { requestURI = bindVar n v (requestURI r) }
 -- send + mock transport
 -- ---------------------------------------------------------------------------
 
-sendTests :: TestTree
-sendTests = testGroup "send / mocks"
-  [ testCase "stubJSON decodes a response" $ do
+sendTests :: Spec
+sendTests = describe "send / mocks" $ sequence_
+  [ it "stubJSON decodes a response" $ do
       let transport = stubJSON S.status200 (User 7 "alice")
       Response { responseBody = u } <-
         sendIO transport (get (compileTemplate "/users/7")) (as @JSON @User)
-      u @?= User 7 "alice"
+      u `shouldBe` User 7 "alice"
 
-  , testCase "request log captures method + uri" $ do
+  , it "request log captures method + uri" $ do
       let inner = stubJSON S.status200 (User 1 "bob")
       (t, log_) <- withRequestLog inner
       _ <- sendIO t (get (compileTemplate "/users/1")) (as @JSON @User)
@@ -163,22 +162,22 @@ sendTests = testGroup "send / mocks"
       assertLog log_ (anyRequest (hasMethod M.mGet <> hasURI "/users/1"))
       assertLog log_ (anyRequest (hasURIPath "/users/1"))
 
-  , testCase "decode failure throws DecodeFailure" $ do
+  , it "decode failure throws DecodeFailure" $ do
       let transport = stub S.status200 "not json at all"
       result <- try (sendIO transport (get (compileTemplate "/x")) (as @JSON @User))
               :: IO (Either SomeException (Response User))
       case result of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected DecodeFailure"
+        Right _ -> expectationFailure "expected DecodeFailure"
   ]
 
 -- ---------------------------------------------------------------------------
 -- Middleware
 -- ---------------------------------------------------------------------------
 
-middlewareTests :: TestTree
-middlewareTests = testGroup "middleware"
-  [ testCase "withAuth adds Authorization header" $ do
+middlewareTests :: Spec
+middlewareTests = describe "middleware" $ sequence_
+  [ it "withAuth adds Authorization header" $ do
       -- Place the log innermost so it observes the request that the
       -- base transport sees (i.e. after the auth middleware ran).
       (logged, log_) <- withRequestLog (stubStatus S.status200)
@@ -187,13 +186,13 @@ middlewareTests = testGroup "middleware"
              :: IO (Either SomeException (Response Text))
       assertLog log_ (anyRequest (hasHeaderEq H.hAuthorization "Bearer tok123"))
 
-  , testCase "failFirstN retries to success" $ do
+  , it "failFirstN retries to success" $ do
       let canned = errorResp
       retried <- failFirstN 2 canned (stubJSON S.status200 (User 9 "ok"))
       let withRet = withRetry defaultRetryPolicy retried
       Response { responseBody = u } <-
         sendIO withRet (get (compileTemplate "/x")) (as @JSON @User)
-      u @?= User 9 "ok"
+      u `shouldBe` User 9 "ok"
   ]
 
 errorResp :: RawResponse
@@ -212,9 +211,9 @@ errorResp = RawResponse
 -- MockAPI declarative routing
 -- ---------------------------------------------------------------------------
 
-mockAPITests :: TestTree
-mockAPITests = testGroup "MockAPI"
-  [ testCase "first matching route wins" $ do
+mockAPITests :: Spec
+mockAPITests = describe "MockAPI" $ sequence_
+  [ it "first matching route wins" $ do
       let api = mockAPI MockAPI
             { routes =
                 [ on (hasMethod M.mGet <> hasURIPath "/health")
@@ -226,18 +225,18 @@ mockAPITests = testGroup "MockAPI"
             }
       Response { responseBody = u } <-
         sendIO api (get (compileTemplate "/users/1")) (as @JSON @User)
-      u @?= User 1 "alice"
+      u `shouldBe` User 1 "alice"
 
-  , testCase "fallback runs when nothing matches" $ do
+  , it "fallback runs when nothing matches" $ do
       let api = mockAPI MockAPI
             { routes   = [on (hasMethod M.mGet <> hasURIPath "/health")
                               (\_ _ -> ok200 "ok")]
             , fallback = \_ _ -> rawResponse S.status418 [] "i'm a teapot"
             }
       raw <- sendRaw api =<< prep (get (compileTemplate "/unknown"))
-      statusCode raw @?= S.status418
+      statusCode raw `shouldBe` S.status418
 
-  , testCase "hasQueryParam matches" $ do
+  , it "hasQueryParam matches" $ do
       let api = mockAPI MockAPI
             { routes =
                 [ on (hasMethod M.mGet
@@ -248,9 +247,9 @@ mockAPITests = testGroup "MockAPI"
             , fallback = \_ _ -> rawResponse S.status404 [] ""
             }
       raw <- sendRaw api =<< prep (get (compileTemplate "/search?q=hello"))
-      statusCode raw @?= S.status200
+      statusCode raw `shouldBe` S.status200
 
-  , testCase "hasJSONBody matches on shape" $ do
+  , it "hasJSONBody matches on shape" $ do
       let target = User 1 "alice"
           api = mockAPI MockAPI
             { routes =
@@ -261,16 +260,16 @@ mockAPITests = testGroup "MockAPI"
             }
       raw <- sendRaw api =<< prep
         (withBody @JSON target (post (compileTemplate "/users")))
-      statusCode raw @?= S.status200
+      statusCode raw `shouldBe` S.status200
   ]
 
 -- ---------------------------------------------------------------------------
 -- Resource mocks
 -- ---------------------------------------------------------------------------
 
-resourceTests :: TestTree
-resourceTests = testGroup "resource"
-  [ testCase "POST then GET, then DELETE then GET" $ do
+resourceTests :: Spec
+resourceTests = describe "resource" $ sequence_
+  [ it "POST then GET, then DELETE then GET" $ do
       idVar <- newIORef (0 :: Int)
       let nextId = atomicModifyIORef' idVar (\n -> (n + 1, T.pack (show (n + 1))))
       userRoutes <- resource ResourceConfig
@@ -283,27 +282,27 @@ resourceTests = testGroup "resource"
       created <- sendIO api
         (withBody @JSON (User 0 "alice") (post (compileTemplate "/users")))
         (as @JSON @User)
-      responseStatus created @?= S.status201
+      responseStatus created `shouldBe` S.status201
 
       Response { responseBody = u } <- sendIO api
         (get (compileTemplate "/users/0"))
         (as @JSON @User)
-      userName u @?= "alice"
+      userName u `shouldBe` "alice"
 
       delRaw <- sendRaw api =<< prep (delete (compileTemplate "/users/0"))
-      statusCode delRaw @?= S.status204
+      statusCode delRaw `shouldBe` S.status204
 
       notFound <- sendRaw api =<< prep (get (compileTemplate "/users/0"))
-      statusCode notFound @?= S.status404
+      statusCode notFound `shouldBe` S.status404
   ]
 
 -- ---------------------------------------------------------------------------
 -- Expectations
 -- ---------------------------------------------------------------------------
 
-expectationTests :: TestTree
-expectationTests = testGroup "withExpectations"
-  [ testCase "expected counts pass" $ do
+expectationTests :: Spec
+expectationTests = describe "withExpectations" $ sequence_
+  [ it "expected counts pass" $ do
       withExpectations
         [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
                   (Exactly 1)
@@ -313,7 +312,7 @@ expectationTests = testGroup "withExpectations"
           _ <- sendIO t (get (compileTemplate "/users")) (as @JSON @User)
           pure ()
 
-  , testCase "violated count throws ExpectationNotMet" $ do
+  , it "violated count throws ExpectationNotMet" $ do
       result <- try $ withExpectations
         [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
                   (Exactly 2)
@@ -324,9 +323,9 @@ expectationTests = testGroup "withExpectations"
           pure ()
       case (result :: Either ExpectationNotMet ()) of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected ExpectationNotMet"
+        Right _ -> expectationFailure "expected ExpectationNotMet"
 
-  , testCase "unexpected request throws UnexpectedRequest" $ do
+  , it "unexpected request throws UnexpectedRequest" $ do
       result <- try $ withExpectations
         [ expect_ (hasMethod M.mGet <> hasURIPath "/users")
                   AnyTimes
@@ -337,16 +336,16 @@ expectationTests = testGroup "withExpectations"
           pure ()
       case (result :: Either SomeException ()) of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected an exception"
+        Right _ -> expectationFailure "expected an exception"
   ]
 
 -- ---------------------------------------------------------------------------
 -- State machines
 -- ---------------------------------------------------------------------------
 
-stateMachineTests :: TestTree
-stateMachineTests = testGroup "stateMachine"
-  [ testCase "polling: pending -> pending -> complete" $ do
+stateMachineTests :: Spec
+stateMachineTests = describe "stateMachine" $ sequence_
+  [ it "polling: pending -> pending -> complete" $ do
       transport <- stateMachine StateMachine
         { initialState = 0 :: Int
         , transition = \n _ _ ->
@@ -358,34 +357,34 @@ stateMachineTests = testGroup "stateMachine"
       let req = get (compileTemplate "/jobs/1")
       r1 <- sendRaw transport =<< prep req
       r1Body <- rawResponseBytes r1
-      BS.isInfixOf "pending" r1Body @?= True
+      BS.isInfixOf "pending" r1Body `shouldBe` True
       r2 <- sendRaw transport =<< prep req
       r2Body <- rawResponseBytes r2
-      BS.isInfixOf "pending" r2Body @?= True
+      BS.isInfixOf "pending" r2Body `shouldBe` True
       r3 <- sendRaw transport =<< prep req
       r3Body <- rawResponseBytes r3
-      BS.isInfixOf "complete" r3Body @?= True
+      BS.isInfixOf "complete" r3Body `shouldBe` True
   ]
 
 -- ---------------------------------------------------------------------------
 -- Decoders
 -- ---------------------------------------------------------------------------
 
-decoderTests :: TestTree
-decoderTests = testGroup "Decoder"
-  [ testCase "asEither @JSON @JSON returns Right on 2xx" $ do
+decoderTests :: Spec
+decoderTests = describe "Decoder" $ sequence_
+  [ it "asEither @JSON @JSON returns Right on 2xx" $ do
       let transport = stubJSON S.status200 (User 1 "alice")
       Response { responseBody = r } <- sendIO transport
         (get (compileTemplate "/users/1"))
         (asEither @JSON @ErrorPayload @JSON @User)
-      r @?= Right (User 1 "alice")
+      r `shouldBe` Right (User 1 "alice")
 
-  , testCase "asEither returns Left on non-2xx" $ do
+  , it "asEither returns Left on non-2xx" $ do
       let transport = stubJSON S.status404 (ErrorPayload "not found")
       Response { responseBody = r } <- sendIO transport
         (get (compileTemplate "/users/999"))
         (asEither @JSON @ErrorPayload @JSON @User)
-      r @?= Left (ErrorPayload "not found")
+      r `shouldBe` Left (ErrorPayload "not found")
   ]
 
 data ErrorPayload = ErrorPayload { errMsg :: !Text }
@@ -396,37 +395,37 @@ data ErrorPayload = ErrorPayload { errMsg :: !Text }
 -- Fault injection
 -- ---------------------------------------------------------------------------
 
-faultTests :: TestTree
-faultTests = testGroup "Faults"
-  [ testCase "withTruncation cuts the body" $ do
+faultTests :: Spec
+faultTests = describe "Faults" $ sequence_
+  [ it "withTruncation cuts the body" $ do
       let inner = stub S.status200 "abcdefghij"
           transport = withTruncation 4 inner
       raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
       bs <- rawResponseBytes raw
-      bs @?= "abcd"
+      bs `shouldBe` "abcd"
   ]
 
 -- ---------------------------------------------------------------------------
 -- Tracing (smoke test: middleware composes without error)
 -- ---------------------------------------------------------------------------
 
-tracingTests :: TestTree
-tracingTests = testGroup "withTracing"
-  [ testCase "no-op tracing middleware passes the response through" $ do
+tracingTests :: Spec
+tracingTests = describe "withTracing" $ sequence_
+  [ it "no-op tracing middleware passes the response through" $ do
       let inner = stubJSON S.status200 (User 1 "alice")
           transport = withTracing defaultTracingConfig inner
       Response { responseBody = u } <-
         sendIO transport (get (compileTemplate "/users/1")) (as @JSON @User)
-      u @?= User 1 "alice"
+      u `shouldBe` User 1 "alice"
 
-  , testCase "TracingDisabled short-circuits to the inner transport" $ do
+  , it "TracingDisabled short-circuits to the inner transport" $ do
       let inner = stubJSON S.status200 (User 2 "bob")
           transport = withTracing TracingDisabled inner
       Response { responseBody = u } <-
         sendIO transport (get (compileTemplate "/users/2")) (as @JSON @User)
-      u @?= User 2 "bob"
+      u `shouldBe` User 2 "bob"
 
-  , testCase "span lifetime extends until the popper hits EOF" $ do
+  , it "span lifetime extends until the popper hits EOF" $ do
       -- Smoke test: the popper should still produce its chunk
       -- /after/ sendRaw returns, since the span (and the popper
       -- wrapping it) live past that boundary.
@@ -434,9 +433,9 @@ tracingTests = testGroup "withTracing"
           transport = withTracing defaultTracingConfig inner
       raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
       first <- bodyPopper raw
-      first @?= "streamed body"
+      first `shouldBe` "streamed body"
       eof <- bodyPopper raw
-      eof @?= BS.empty
+      eof `shouldBe` BS.empty
   ]
 
 -- Build a Request BodyStream from any Body-bearing Request for use
@@ -448,9 +447,9 @@ prep r = prepareRequest [] r
 -- Streaming VCR + Alt + path matcher
 -- ---------------------------------------------------------------------------
 
-streamingVcrTests :: TestTree
-streamingVcrTests = testGroup "Streaming VCR"
-  [ testCase "withChunkedRecording preserves chunk boundaries on replay" $ do
+streamingVcrTests :: Spec
+streamingVcrTests = describe "Streaming VCR" $ sequence_
+  [ it "withChunkedRecording preserves chunk boundaries on replay" $ do
       let chunks = ["alpha", "beta", "gamma"] :: [BS.ByteString]
       innerRaw <- do
         p <- popperFromList chunks
@@ -471,7 +470,7 @@ streamingVcrTests = testGroup "Streaming VCR"
         replay <- replayTransport cassette byMethodAndURI
         raw <- sendRaw replay =<< prep (get (compileTemplate "/x"))
         replayed <- pullChunks (bodyPopper raw)
-        replayed @?= chunks
+        replayed `shouldBe` chunks
   ]
 
 pullChunks :: IO BS.ByteString -> IO [BS.ByteString]
@@ -481,9 +480,9 @@ pullChunks p = go []
       c <- p
       if BS.null c then pure (reverse acc) else go (c : acc)
 
-decoderAltTests :: TestTree
-decoderAltTests = testGroup "ResponseDecoder Alt"
-  [ testCase "<!> defers to the second decoder when the first can't decode" $ do
+decoderAltTests :: Spec
+decoderAltTests = describe "ResponseDecoder Alt" $ sequence_
+  [ it "<!> defers to the second decoder when the first can't decode" $ do
       let transport = stubBytes S.status200
             [(H.hContentType, "text/plain; charset=utf-8")]
             "plain bytes"
@@ -491,12 +490,12 @@ decoderAltTests = testGroup "ResponseDecoder Alt"
           decoder = as @JSON @Text <!> as @PlainText @Text
       Response { responseBody = t } <-
         sendIO transport (get (compileTemplate "/x")) decoder
-      t @?= "plain bytes"
+      t `shouldBe` "plain bytes"
   ]
 
-pathMatcherTests :: TestTree
-pathMatcherTests = testGroup "hasPathMatches"
-  [ testCase "captures simple :id segment" $ do
+pathMatcherTests :: Spec
+pathMatcherTests = describe "hasPathMatches" $ sequence_
+  [ it "captures simple :id segment" $ do
       let api = mockAPI MockAPI
             { routes =
                 [ on (hasMethod M.mGet <> hasPathMatches "/users/:id")
@@ -505,9 +504,9 @@ pathMatcherTests = testGroup "hasPathMatches"
             , fallback = \_ _ -> rawResponse S.status404 [] ""
             }
       raw <- sendRaw api =<< prep (get (compileTemplate "/users/42"))
-      statusCode raw @?= S.status200
+      statusCode raw `shouldBe` S.status200
 
-  , testCase "rejects extra segments" $ do
+  , it "rejects extra segments" $ do
       let api = mockAPI MockAPI
             { routes =
                 [ on (hasMethod M.mGet <> hasPathMatches "/users/:id")
@@ -516,33 +515,33 @@ pathMatcherTests = testGroup "hasPathMatches"
             , fallback = \_ _ -> rawResponse S.status404 [] ""
             }
       raw <- sendRaw api =<< prep (get (compileTemplate "/users/42/posts"))
-      statusCode raw @?= S.status404
+      statusCode raw `shouldBe` S.status404
   ]
 
 -- ---------------------------------------------------------------------------
 -- Compression
 -- ---------------------------------------------------------------------------
 
-poolTests :: TestTree
-poolTests = testGroup "ConnectionPool"
-  [ testCase "newPool / closePool round-trip is clean" $ do
+poolTests :: Spec
+poolTests = describe "ConnectionPool" $ sequence_
+  [ it "newPool / closePool round-trip is clean" $ do
       pool <- newPool defaultPoolConfig
       closePool pool
 
-  , testCase "withPool runs the action and tears down" $ do
+  , it "withPool runs the action and tears down" $ do
       ran <- newIORef False
       withPool defaultPoolConfig $ \_ -> writeIORef ran True
-      readIORef ran >>= (@?= True)
+      readIORef ran >>= (`shouldBe` True)
 
-  , testCase "ClientConfig.ccPoolConfig defaults to Just" $
+  , it "ClientConfig.ccPoolConfig defaults to Just" $
       case ccPoolConfig defaultClientConfig of
         Just _  -> pure ()
-        Nothing -> assertFailure "expected a default PoolConfig"
+        Nothing -> expectationFailure "expected a default PoolConfig"
   ]
 
-compressionTests :: TestTree
-compressionTests = testGroup "withDecompression"
-  [ testCase "decodes gzip-encoded response" $ do
+compressionTests :: Spec
+compressionTests = describe "withDecompression" $ sequence_
+  [ it "decodes gzip-encoded response" $ do
       let payload = "the quick brown fox jumps over the lazy dog" :: BS.ByteString
           compressed = BSL.toStrict $ GZip.compress (BSL.fromStrict payload)
           inner = mockTransport $ \_ -> rawResponse S.status200
@@ -551,9 +550,9 @@ compressionTests = testGroup "withDecompression"
           transport = withDecompression inner
       Response { responseBody = t } <-
         sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
-      TE.encodeUtf8 t @?= payload
+      TE.encodeUtf8 t `shouldBe` payload
 
-  , testCase "decodes deflate (zlib) response" $ do
+  , it "decodes deflate (zlib) response" $ do
       let payload = "deflate payload bytes here" :: BS.ByteString
           compressed = BSL.toStrict $ Zlib.compress (BSL.fromStrict payload)
           inner = mockTransport $ \_ -> rawResponse S.status200
@@ -562,9 +561,9 @@ compressionTests = testGroup "withDecompression"
           transport = withDecompression inner
       Response { responseBody = t } <-
         sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
-      TE.encodeUtf8 t @?= payload
+      TE.encodeUtf8 t `shouldBe` payload
 
-  , testCase "decodes brotli response" $ do
+  , it "decodes brotli response" $ do
       let payload = "brotli payload that is reasonably long for the encoder"
                       :: BS.ByteString
           compressed = BSL.toStrict $ Brotli.compress (BSL.fromStrict payload)
@@ -574,15 +573,15 @@ compressionTests = testGroup "withDecompression"
           transport = withDecompression inner
       Response { responseBody = t } <-
         sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
-      TE.encodeUtf8 t @?= payload
+      TE.encodeUtf8 t `shouldBe` payload
 
-  , testCase "adds Accept-Encoding when absent" $ do
+  , it "adds Accept-Encoding when absent" $ do
       (logged, log_) <- withRequestLog (stubStatus S.status200)
       let transport = withDecompression logged
       _ <- sendIO transport (get (compileTemplate "/x")) (as @PlainText @Text)
       assertLog log_ (anyRequest (hasHeaderEq H.hAcceptEncoding "br, gzip, deflate"))
 
-  , testCase "leaves unknown Content-Encoding alone" $ do
+  , it "leaves unknown Content-Encoding alone" $ do
       let payload = "raw bytes" :: BS.ByteString
           inner = mockTransport $ \_ -> rawResponse S.status200
             [("Content-Encoding", "x-magic")]
@@ -590,9 +589,9 @@ compressionTests = testGroup "withDecompression"
           transport = withDecompression inner
       raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
       bs <- rawResponseBytes raw
-      bs @?= payload
+      bs `shouldBe` payload
 
-  , testCase "strips Content-Encoding + Content-Length after decompression" $ do
+  , it "strips Content-Encoding + Content-Length after decompression" $ do
       let payload = "hello" :: BS.ByteString
           compressed = BSL.toStrict $ GZip.compress (BSL.fromStrict payload)
           inner = mockTransport $ \_ -> rawResponse S.status200
@@ -604,13 +603,13 @@ compressionTests = testGroup "withDecompression"
           transport = withDecompression inner
       raw <- sendRaw transport =<< prep (get (compileTemplate "/x"))
       let RawResponse { headers = respHdrs } = raw
-      H.lookupHeader "Content-Encoding" respHdrs @?= Nothing
-      H.lookupHeader H.hContentLength    respHdrs @?= Nothing
+      H.lookupHeader "Content-Encoding" respHdrs `shouldBe` Nothing
+      H.lookupHeader H.hContentLength    respHdrs `shouldBe` Nothing
   ]
 
-vcrTests :: TestTree
-vcrTests = testGroup "VCR"
-  [ testCase "record then replay reproduces the response" $ do
+vcrTests :: Spec
+vcrTests = describe "VCR" $ sequence_
+  [ it "record then replay reproduces the response" $ do
       withSystemTempDirectory "wire-vcr" $ \dir -> do
         let cassettePath = dir <> "/login.yaml"
             real = stubJSON S.status201 (User 1 "alice")
@@ -618,11 +617,11 @@ vcrTests = testGroup "VCR"
         Response { responseBody = u } <-
           recordSession real cassettePath $ \t ->
             sendIO t postUsers (as @JSON @User)
-        u @?= User 1 "alice"
+        u `shouldBe` User 1 "alice"
 
         cassette <- loadCassette cassettePath
         transport <- replayTransport cassette byMethodAndURI
         Response { responseBody = u2 } <-
           sendIO transport postUsers (as @JSON @User)
-        u2 @?= User 1 "alice"
+        u2 `shouldBe` User 1 "alice"
   ]

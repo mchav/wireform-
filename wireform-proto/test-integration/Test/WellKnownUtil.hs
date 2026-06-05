@@ -12,9 +12,8 @@ import qualified Data.Aeson as Aeson
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Timestamp.Util
@@ -27,8 +26,8 @@ import Proto.Google.Protobuf.Wrappers.Util
 import Proto.Google.Protobuf.Struct
 import Proto.Google.Protobuf.Struct.Util
 
-wellKnownUtilTests :: TestTree
-wellKnownUtilTests = testGroup "Well-Known Type Utilities"
+wellKnownUtilTests :: Spec
+wellKnownUtilTests = describe "Well-Known Type Utilities" $ sequence_
   [ timestampUtilTests
   , durationUtilTests
   , fieldMaskUtilTests
@@ -40,9 +39,9 @@ wellKnownUtilTests = testGroup "Well-Known Type Utilities"
 -- Timestamp.Util
 -- --------------------------------------------------------------------------
 
-timestampUtilTests :: TestTree
-timestampUtilTests = testGroup "Timestamp.Util"
-  [ testProperty "POSIXTime roundtrip" $ property $ do
+timestampUtilTests :: Spec
+timestampUtilTests = describe "Timestamp.Util" $ sequence_
+  [ it "POSIXTime roundtrip" $ property $ do
       s <- forAll $ Gen.int64 (Range.linear 0 2000000000)
       n <- forAll $ Gen.int32 (Range.linear 0 999999999)
       let ts = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
@@ -50,7 +49,7 @@ timestampUtilTests = testGroup "Timestamp.Util"
       timestampSeconds rt === s
       timestampNanos rt === n
 
-  , testProperty "UTCTime roundtrip" $ property $ do
+  , it "UTCTime roundtrip" $ property $ do
       s <- forAll $ Gen.int64 (Range.linear 0 2000000000)
       n <- forAll $ Gen.int32 (Range.linear 0 999999999)
       let ts = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
@@ -58,31 +57,31 @@ timestampUtilTests = testGroup "Timestamp.Util"
       timestampSeconds rt === s
       timestampNanos rt === n
 
-  , testCase "epoch is zero" $ do
+  , it "epoch is zero" $ do
       let ts = timestampFromPOSIXTime 0
-      timestampSeconds ts @?= 0
-      timestampNanos ts @?= 0
+      timestampSeconds ts `shouldBe` 0
+      timestampNanos ts `shouldBe` 0
 
-  , testCase "specific POSIX time" $ do
+  , it "specific POSIX time" $ do
       let ts = timestampFromPOSIXTime 1708000000.5
-      timestampSeconds ts @?= 1708000000
-      timestampNanos ts @?= 500000000
+      timestampSeconds ts `shouldBe` 1708000000
+      timestampNanos ts `shouldBe` 500000000
 
-  , testCase "addDuration" $ do
+  , it "addDuration" $ do
       let ts = defaultTimestamp { timestampSeconds = 100, timestampNanos = 500000000 }
           dur = defaultDuration { durationSeconds = 1, durationNanos = 700000000 }
           result = addDuration ts dur
-      timestampSeconds result @?= 102
-      timestampNanos result @?= 200000000
+      timestampSeconds result `shouldBe` 102
+      timestampNanos result `shouldBe` 200000000
 
-  , testCase "subtractTimestamps" $ do
+  , it "subtractTimestamps" $ do
       let a = defaultTimestamp { timestampSeconds = 102, timestampNanos = 200000000 }
           b = defaultTimestamp { timestampSeconds = 100, timestampNanos = 500000000 }
           dur = subtractTimestamps a b
-      durationSeconds dur @?= 1
-      durationNanos dur @?= 700000000
+      durationSeconds dur `shouldBe` 1
+      durationNanos dur `shouldBe` 700000000
 
-  , testProperty "addDuration then subtract gives identity" $ property $ do
+  , it "addDuration then subtract gives identity" $ property $ do
       s <- forAll $ Gen.int64 (Range.linear 0 1000000000)
       n <- forAll $ Gen.int32 (Range.linear 0 999999999)
       ds <- forAll $ Gen.int64 (Range.linear 0 1000000)
@@ -92,15 +91,15 @@ timestampUtilTests = testGroup "Timestamp.Util"
           result = subtractTimestamps (addDuration ts dur) ts
       durationToNanos result === durationToNanos dur
 
-  , testCase "isValidTimestamp valid" $ do
-      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = 0 }) @?= True
-      isValidTimestamp (defaultTimestamp { timestampSeconds = 1708000000, timestampNanos = 123456789 }) @?= True
+  , it "isValidTimestamp valid" $ do
+      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = 0 }) `shouldBe` True
+      isValidTimestamp (defaultTimestamp { timestampSeconds = 1708000000, timestampNanos = 123456789 }) `shouldBe` True
 
-  , testCase "isValidTimestamp invalid nanos" $ do
-      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = -1 }) @?= False
-      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = 1000000000 }) @?= False
+  , it "isValidTimestamp invalid nanos" $ do
+      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = -1 }) `shouldBe` False
+      isValidTimestamp (defaultTimestamp { timestampSeconds = 0, timestampNanos = 1000000000 }) `shouldBe` False
 
-  , testProperty "Ord is consistent with compareTimestamp" $ property $ do
+  , it "Ord is consistent with compareTimestamp" $ property $ do
       s1 <- forAll $ Gen.int64 (Range.linear 0 2000000000)
       n1 <- forAll $ Gen.int32 (Range.linear 0 999999999)
       s2 <- forAll $ Gen.int64 (Range.linear 0 2000000000)
@@ -114,89 +113,89 @@ timestampUtilTests = testGroup "Timestamp.Util"
 -- Duration.Util
 -- --------------------------------------------------------------------------
 
-durationUtilTests :: TestTree
-durationUtilTests = testGroup "Duration.Util"
-  [ testProperty "NominalDiffTime roundtrip" $ property $ do
+durationUtilTests :: Spec
+durationUtilTests = describe "Duration.Util" $ sequence_
+  [ it "NominalDiffTime roundtrip" $ property $ do
       s <- forAll $ Gen.int64 (Range.linear (-1000000) 1000000)
       n <- forAll $ Gen.int32 (Range.linear 0 999999999)
       let dur = defaultDuration { durationSeconds = s, durationNanos = n }
           rt = durationFromNominalDiffTime (durationToNominalDiffTime dur)
       durationToNanos rt === durationToNanos dur
 
-  , testCase "durationFromSeconds" $ do
+  , it "durationFromSeconds" $ do
       let dur = durationFromSeconds 42
-      durationSeconds dur @?= 42
-      durationNanos dur @?= 0
+      durationSeconds dur `shouldBe` 42
+      durationNanos dur `shouldBe` 0
 
-  , testCase "durationFromMillis" $ do
+  , it "durationFromMillis" $ do
       let dur = durationFromMillis 1500
-      durationSeconds dur @?= 1
-      durationNanos dur @?= 500000000
+      durationSeconds dur `shouldBe` 1
+      durationNanos dur `shouldBe` 500000000
 
-  , testCase "durationFromMillis negative" $ do
+  , it "durationFromMillis negative" $ do
       let dur = durationFromMillis (-1500)
-      durationSeconds dur @?= (-1)
-      durationNanos dur @?= (-500000000)
+      durationSeconds dur `shouldBe` (-1)
+      durationNanos dur `shouldBe` (-500000000)
 
-  , testCase "durationFromMicros" $ do
+  , it "durationFromMicros" $ do
       let dur = durationFromMicros 2500000
-      durationSeconds dur @?= 2
-      durationNanos dur @?= 500000000
+      durationSeconds dur `shouldBe` 2
+      durationNanos dur `shouldBe` 500000000
 
-  , testCase "durationFromNanos" $ do
+  , it "durationFromNanos" $ do
       let dur = durationFromNanos 1500000000
-      durationSeconds dur @?= 1
-      durationNanos dur @?= 500000000
+      durationSeconds dur `shouldBe` 1
+      durationNanos dur `shouldBe` 500000000
 
-  , testCase "durationToMillis" $ do
-      durationToMillis (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) @?= 1500
+  , it "durationToMillis" $ do
+      durationToMillis (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) `shouldBe` 1500
 
-  , testCase "durationToMicros" $ do
-      durationToMicros (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) @?= 1500000
+  , it "durationToMicros" $ do
+      durationToMicros (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) `shouldBe` 1500000
 
-  , testCase "durationToNanos" $ do
-      durationToNanos (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) @?= 1500000000
+  , it "durationToNanos" $ do
+      durationToNanos (defaultDuration { durationSeconds = 1, durationNanos = 500000000 }) `shouldBe` 1500000000
 
-  , testProperty "fromNanos . toNanos is identity" $ property $ do
+  , it "fromNanos . toNanos is identity" $ property $ do
       s <- forAll $ Gen.int64 (Range.linear (-1000000) 1000000)
       n <- forAll $ Gen.int32 (Range.linear 0 999999999)
       let dur = defaultDuration { durationSeconds = s, durationNanos = n }
       durationToNanos (durationFromNanos (durationToNanos dur)) === durationToNanos dur
 
-  , testCase "addDurations" $ do
+  , it "addDurations" $ do
       let a = defaultDuration { durationSeconds = 1, durationNanos = 700000000 }
           b = defaultDuration { durationSeconds = 2, durationNanos = 500000000 }
-      durationToNanos (addDurations a b) @?= 4200000000
+      durationToNanos (addDurations a b) `shouldBe` 4200000000
 
-  , testCase "negateDuration" $ do
+  , it "negateDuration" $ do
       let dur = defaultDuration { durationSeconds = 1, durationNanos = 500000000 }
           neg = negateDuration dur
-      durationSeconds neg @?= (-1)
-      durationNanos neg @?= (-500000000)
+      durationSeconds neg `shouldBe` (-1)
+      durationNanos neg `shouldBe` (-500000000)
 
-  , testCase "absDuration of negative" $ do
+  , it "absDuration of negative" $ do
       let dur = defaultDuration { durationSeconds = (-3), durationNanos = (-500000000) }
           abs' = absDuration dur
-      durationSeconds abs' @?= 3
-      durationNanos abs' @?= 500000000
+      durationSeconds abs' `shouldBe` 3
+      durationNanos abs' `shouldBe` 500000000
 
-  , testCase "normalizeDuration" $ do
+  , it "normalizeDuration" $ do
       let dur = defaultDuration { durationSeconds = 0, durationNanos = 2000000000 }
           norm = normalizeDuration dur
-      durationSeconds norm @?= 2
-      durationNanos norm @?= 0
+      durationSeconds norm `shouldBe` 2
+      durationNanos norm `shouldBe` 0
 
-  , testCase "isValidDuration valid" $ do
-      isValidDuration (defaultDuration { durationSeconds = 3600, durationNanos = 0 }) @?= True
-      isValidDuration (defaultDuration { durationSeconds = (-3600), durationNanos = 0 }) @?= True
+  , it "isValidDuration valid" $ do
+      isValidDuration (defaultDuration { durationSeconds = 3600, durationNanos = 0 }) `shouldBe` True
+      isValidDuration (defaultDuration { durationSeconds = (-3600), durationNanos = 0 }) `shouldBe` True
 
-  , testCase "isValidDuration invalid sign mismatch" $ do
-      isValidDuration (defaultDuration { durationSeconds = 1, durationNanos = (-500000000) }) @?= False
+  , it "isValidDuration invalid sign mismatch" $ do
+      isValidDuration (defaultDuration { durationSeconds = 1, durationNanos = (-500000000) }) `shouldBe` False
 
-  , testCase "isValidDuration invalid range" $ do
-      isValidDuration (defaultDuration { durationSeconds = 315576000001, durationNanos = 0 }) @?= False
+  , it "isValidDuration invalid range" $ do
+      isValidDuration (defaultDuration { durationSeconds = 315576000001, durationNanos = 0 }) `shouldBe` False
 
-  , testProperty "Ord is consistent with compareDuration" $ property $ do
+  , it "Ord is consistent with compareDuration" $ property $ do
       s1 <- forAll $ Gen.int64 (Range.linear (-1000000) 1000000)
       n1 <- forAll $ Gen.int32 (Range.linear 0 999999999)
       s2 <- forAll $ Gen.int64 (Range.linear (-1000000) 1000000)
@@ -210,176 +209,176 @@ durationUtilTests = testGroup "Duration.Util"
 -- FieldMask.Util
 -- --------------------------------------------------------------------------
 
-fieldMaskUtilTests :: TestTree
-fieldMaskUtilTests = testGroup "FieldMask.Util"
-  [ testCase "fromPaths / toPaths" $ do
+fieldMaskUtilTests :: Spec
+fieldMaskUtilTests = describe "FieldMask.Util" $ sequence_
+  [ it "fromPaths / toPaths" $ do
       let fm = fromPaths ["a", "b.c"]
-      toPaths fm @?= ["a", "b.c"]
+      toPaths fm `shouldBe` ["a", "b.c"]
 
-  , testCase "union deduplicates" $ do
+  , it "union deduplicates" $ do
       let a = fromPaths ["x", "y"]
           b = fromPaths ["y", "z"]
-      toPaths (union a b) @?= ["x", "y", "z"]
+      toPaths (union a b) `shouldBe` ["x", "y", "z"]
 
-  , testCase "union removes sub-paths" $ do
+  , it "union removes sub-paths" $ do
       let a = fromPaths ["a.b"]
           b = fromPaths ["a"]
-      toPaths (union a b) @?= ["a"]
+      toPaths (union a b) `shouldBe` ["a"]
 
-  , testCase "intersection" $ do
+  , it "intersection" $ do
       let a = fromPaths ["x", "y"]
           b = fromPaths ["y", "z"]
-      toPaths (intersection a b) @?= ["y"]
+      toPaths (intersection a b) `shouldBe` ["y"]
 
-  , testCase "intersection with parent coverage" $ do
+  , it "intersection with parent coverage" $ do
       let a = fromPaths ["a"]
           b = fromPaths ["a.b"]
-      toPaths (intersection a b) @?= ["a.b"]
+      toPaths (intersection a b) `shouldBe` ["a.b"]
 
-  , testCase "subtractMask" $ do
+  , it "subtractMask" $ do
       let a = fromPaths ["x", "y", "z"]
           b = fromPaths ["y"]
-      toPaths (subtractMask a b) @?= ["x", "z"]
+      toPaths (subtractMask a b) `shouldBe` ["x", "z"]
 
-  , testCase "normalize sorts and deduplicates" $ do
+  , it "normalize sorts and deduplicates" $ do
       let fm = fromPaths ["c", "a", "b", "a"]
-      toPaths (normalize fm) @?= ["a", "b", "c"]
+      toPaths (normalize fm) `shouldBe` ["a", "b", "c"]
 
-  , testCase "normalize removes sub-paths" $ do
+  , it "normalize removes sub-paths" $ do
       let fm = fromPaths ["a.b.c", "a.b", "a", "d"]
-      toPaths (normalize fm) @?= ["a", "d"]
+      toPaths (normalize fm) `shouldBe` ["a", "d"]
 
-  , testCase "contains direct" $ do
-      contains (fromPaths ["a", "b"]) "a" @?= True
-      contains (fromPaths ["a", "b"]) "c" @?= False
+  , it "contains direct" $ do
+      contains (fromPaths ["a", "b"]) "a" `shouldBe` True
+      contains (fromPaths ["a", "b"]) "c" `shouldBe` False
 
-  , testCase "contains parent covers child" $ do
-      contains (fromPaths ["a"]) "a.b.c" @?= True
-      contains (fromPaths ["a.b"]) "a" @?= False
+  , it "contains parent covers child" $ do
+      contains (fromPaths ["a"]) "a.b.c" `shouldBe` True
+      contains (fromPaths ["a.b"]) "a" `shouldBe` False
 
-  , testCase "isEmpty" $ do
-      isEmpty (fromPaths []) @?= True
-      isEmpty (fromPaths ["a"]) @?= False
+  , it "isEmpty" $ do
+      isEmpty (fromPaths []) `shouldBe` True
+      isEmpty (fromPaths ["a"]) `shouldBe` False
 
-  , testCase "allFieldMask for Timestamp" $ do
+  , it "allFieldMask for Timestamp" $ do
       let fm = allFieldMask (Proxy :: Proxy Timestamp)
           paths = toPaths fm
-      assertBool "contains seconds" ("seconds" `elem` paths)
-      assertBool "contains nanos" ("nanos" `elem` paths)
+      ("seconds" `elem` paths) `shouldBe` True
+      ("nanos" `elem` paths) `shouldBe` True
 
-  , testCase "isValid against Timestamp" $ do
-      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds"]) @?= True
-      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds", "nanos"]) @?= True
-      isValid (Proxy :: Proxy Timestamp) (fromPaths ["nonexistent"]) @?= False
+  , it "isValid against Timestamp" $ do
+      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds"]) `shouldBe` True
+      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds", "nanos"]) `shouldBe` True
+      isValid (Proxy :: Proxy Timestamp) (fromPaths ["nonexistent"]) `shouldBe` False
 
-  , testCase "isValid accepts sub-paths when top-level matches" $ do
-      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds.foo"]) @?= True
+  , it "isValid accepts sub-paths when top-level matches" $ do
+      isValid (Proxy :: Proxy Timestamp) (fromPaths ["seconds.foo"]) `shouldBe` True
 
-  , testCase "canonicalForm" $ do
-      canonicalForm (fromPaths ["c", "a.b", "a"]) @?= "a,c"
+  , it "canonicalForm" $ do
+      canonicalForm (fromPaths ["c", "a.b", "a"]) `shouldBe` "a,c"
 
-  , testCase "toCamelCase" $ do
-      toCamelCase "foo_bar" @?= "fooBar"
-      toCamelCase "foo_bar.baz_qux" @?= "fooBar.bazQux"
-      toCamelCase "simple" @?= "simple"
+  , it "toCamelCase" $ do
+      toCamelCase "foo_bar" `shouldBe` "fooBar"
+      toCamelCase "foo_bar.baz_qux" `shouldBe` "fooBar.bazQux"
+      toCamelCase "simple" `shouldBe` "simple"
 
-  , testCase "toSnakeCase" $ do
-      toSnakeCase "fooBar" @?= "foo_bar"
-      toSnakeCase "fooBar.bazQux" @?= "foo_bar.baz_qux"
-      toSnakeCase "simple" @?= "simple"
+  , it "toSnakeCase" $ do
+      toSnakeCase "fooBar" `shouldBe` "foo_bar"
+      toSnakeCase "fooBar.bazQux" `shouldBe` "foo_bar.baz_qux"
+      toSnakeCase "simple" `shouldBe` "simple"
   ]
 
 -- --------------------------------------------------------------------------
 -- Wrappers.Util
 -- --------------------------------------------------------------------------
 
-wrappersUtilTests :: TestTree
-wrappersUtilTests = testGroup "Wrappers.Util"
-  [ testProperty "DoubleValue roundtrip" $ property $ do
+wrappersUtilTests :: Spec
+wrappersUtilTests = describe "Wrappers.Util" $ sequence_
+  [ it "DoubleValue roundtrip" $ property $ do
       v <- forAll $ Gen.double (Range.linearFrac (-1e10) 1e10)
       fromDoubleValue (toDoubleValue v) === v
 
-  , testProperty "FloatValue roundtrip" $ property $ do
+  , it "FloatValue roundtrip" $ property $ do
       v <- forAll $ Gen.float (Range.linearFrac (-1e5) 1e5)
       fromFloatValue (toFloatValue v) === v
 
-  , testProperty "Int64Value roundtrip" $ property $ do
+  , it "Int64Value roundtrip" $ property $ do
       v <- forAll $ Gen.int64 Range.linearBounded
       fromInt64Value (toInt64Value v) === v
 
-  , testProperty "UInt64Value roundtrip" $ property $ do
+  , it "UInt64Value roundtrip" $ property $ do
       v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
       fromUInt64Value (toUInt64Value v) === v
 
-  , testProperty "Int32Value roundtrip" $ property $ do
+  , it "Int32Value roundtrip" $ property $ do
       v <- forAll $ Gen.int32 Range.linearBounded
       fromInt32Value (toInt32Value v) === v
 
-  , testProperty "UInt32Value roundtrip" $ property $ do
+  , it "UInt32Value roundtrip" $ property $ do
       v <- forAll $ Gen.word32 (Range.linear 0 maxBound)
       fromUInt32Value (toUInt32Value v) === v
 
-  , testProperty "BoolValue roundtrip" $ property $ do
+  , it "BoolValue roundtrip" $ property $ do
       v <- forAll Gen.bool
       fromBoolValue (toBoolValue v) === v
 
-  , testProperty "StringValue roundtrip" $ property $ do
+  , it "StringValue roundtrip" $ property $ do
       v <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
       fromStringValue (toStringValue v) === v
 
-  , testProperty "BytesValue roundtrip" $ property $ do
+  , it "BytesValue roundtrip" $ property $ do
       v <- forAll $ Gen.bytes (Range.linear 0 100)
       fromBytesValue (toBytesValue v) === v
 
-  , testCase "Maybe conversions" $ do
-      doubleValueToMaybe (maybeToDoubleValue (Just 3.14)) @?= Just 3.14
-      doubleValueToMaybe (maybeToDoubleValue Nothing) @?= Nothing
-      int64ValueToMaybe (maybeToInt64Value (Just 42)) @?= Just 42
-      boolValueToMaybe (maybeToBoolValue (Just True)) @?= Just True
-      stringValueToMaybe (maybeToStringValue (Just "hello")) @?= Just "hello"
-      bytesValueToMaybe (maybeToBytesValue (Just "bytes")) @?= Just "bytes"
+  , it "Maybe conversions" $ do
+      doubleValueToMaybe (maybeToDoubleValue (Just 3.14)) `shouldBe` Just 3.14
+      doubleValueToMaybe (maybeToDoubleValue Nothing) `shouldBe` Nothing
+      int64ValueToMaybe (maybeToInt64Value (Just 42)) `shouldBe` Just 42
+      boolValueToMaybe (maybeToBoolValue (Just True)) `shouldBe` Just True
+      stringValueToMaybe (maybeToStringValue (Just "hello")) `shouldBe` Just "hello"
+      bytesValueToMaybe (maybeToBytesValue (Just "bytes")) `shouldBe` Just "bytes"
   ]
 
 -- --------------------------------------------------------------------------
 -- Struct.Util
 -- --------------------------------------------------------------------------
 
-structUtilTests :: TestTree
-structUtilTests = testGroup "Struct.Util"
-  [ testCase "fromPairs / toMap" $ do
+structUtilTests :: Spec
+structUtilTests = describe "Struct.Util" $ sequence_
+  [ it "fromPairs / toMap" $ do
       let s = fromPairs [("x", numberValue 1), ("y", stringValue "hello")]
-      Map.size (toMap s) @?= 2
+      Map.size (toMap s) `shouldBe` 2
 
-  , testCase "nullValue extraction" $ do
-      asNull nullValue @?= Just ()
-      asNull (numberValue 1) @?= Nothing
+  , it "nullValue extraction" $ do
+      asNull nullValue `shouldBe` Just ()
+      asNull (numberValue 1) `shouldBe` Nothing
 
-  , testCase "numberValue extraction" $ do
-      asNumber (numberValue 3.14) @?= Just 3.14
-      asNumber (stringValue "nope") @?= Nothing
+  , it "numberValue extraction" $ do
+      asNumber (numberValue 3.14) `shouldBe` Just 3.14
+      asNumber (stringValue "nope") `shouldBe` Nothing
 
-  , testCase "stringValue extraction" $ do
-      asString (stringValue "hello") @?= Just "hello"
-      asString (boolValue True) @?= Nothing
+  , it "stringValue extraction" $ do
+      asString (stringValue "hello") `shouldBe` Just "hello"
+      asString (boolValue True) `shouldBe` Nothing
 
-  , testCase "boolValue extraction" $ do
-      asBool (boolValue True) @?= Just True
-      asBool nullValue @?= Nothing
+  , it "boolValue extraction" $ do
+      asBool (boolValue True) `shouldBe` Just True
+      asBool nullValue `shouldBe` Nothing
 
-  , testCase "structValue extraction" $ do
+  , it "structValue extraction" $ do
       let inner = fromPairs [("k", numberValue 42)]
           v = structValue inner
       case asStruct v of
-        Just s -> Map.size (toMap s) @?= 1
-        Nothing -> assertFailure "expected struct"
+        Just s -> Map.size (toMap s) `shouldBe` 1
+        Nothing -> expectationFailure "expected struct"
 
-  , testCase "listValue extraction" $ do
+  , it "listValue extraction" $ do
       let v = listValue [numberValue 1, numberValue 2, numberValue 3]
       case asList v of
-        Just vs -> length vs @?= 3
-        Nothing -> assertFailure "expected list"
+        Just vs -> length vs `shouldBe` 3
+        Nothing -> expectationFailure "expected list"
 
-  , testCase "Aeson roundtrip via Value" $ do
+  , it "Aeson roundtrip via Value" $ do
       let original = Aeson.object
             [ "name" Aeson..= ("test" :: Text)
             , "count" Aeson..= (42 :: Int)
@@ -389,14 +388,14 @@ structUtilTests = testGroup "Struct.Util"
             ]
           pbValue = valueFromAeson original
           back = valueToAeson pbValue
-      back @?= original
+      back `shouldBe` original
 
-  , testCase "Aeson roundtrip via Struct" $ do
+  , it "Aeson roundtrip via Struct" $ do
       let original = Aeson.object
             [ "x" Aeson..= (1.0 :: Double)
             , "y" Aeson..= ("hello" :: Text)
             ]
           s = structFromAeson original
           back = structToAeson s
-      back @?= original
+      back `shouldBe` original
   ]

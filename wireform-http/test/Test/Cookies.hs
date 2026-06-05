@@ -11,8 +11,7 @@ import qualified Data.ByteString as BS
 
 import Network.HTTP.Client.Cookies
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 baseCookie :: Cookie
 baseCookie = Cookie
@@ -32,52 +31,52 @@ withJarThat k = do
   jar <- newCookieJar
   k jar
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.Cookies"
-  [ testGroup "validateCookieName / validateCookieValue"
-      [ testCase "valid token name accepted" $
-          validateCookieName "session" @?= Right ()
-      , testCase "empty name rejected" $
-          validateCookieName "" @?= Left (CookieNameInvalid "")
-      , testCase "name with whitespace rejected" $
+tests :: Spec
+tests = describe "Network.HTTP.Client.Cookies" $ sequence_
+  [ describe "validateCookieName / validateCookieValue" $ sequence_
+      [ it "valid token name accepted" $
+          validateCookieName "session" `shouldBe` Right ()
+      , it "empty name rejected" $
+          validateCookieName "" `shouldBe` Left (CookieNameInvalid "")
+      , it "name with whitespace rejected" $
           validateCookieName "bad name"
-            @?= Left (CookieNameInvalid "bad name")
-      , testCase "valid cookie-octet value accepted" $
-          validateCookieValue "opaque-token.123" @?= Right ()
-      , testCase "value with comma rejected" $
+            `shouldBe` Left (CookieNameInvalid "bad name")
+      , it "valid cookie-octet value accepted" $
+          validateCookieValue "opaque-token.123" `shouldBe` Right ()
+      , it "value with comma rejected" $
           validateCookieValue "has,comma"
-            @?= Left (CookieValueInvalid "has,comma")
+            `shouldBe` Left (CookieValueInvalid "has,comma")
       ]
-  , testGroup "insertCookieChecked"
-      [ testCase "SameSite=None without Secure is rejected" $ withJarThat $ \jar -> do
+  , describe "insertCookieChecked" $ sequence_
+      [ it "SameSite=None without Secure is rejected" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieSecure   = False
                 , cookieSameSite = SameSiteNone
                 }
           r <- insertCookieChecked jar c
-          r @?= Left (CookieSameSiteNoneRequiresSecure "session")
-      , testCase "SameSite=None with Secure is accepted" $ withJarThat $ \jar -> do
+          r `shouldBe` Left (CookieSameSiteNoneRequiresSecure "session")
+      , it "SameSite=None with Secure is accepted" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieSecure   = True
                 , cookieSameSite = SameSiteNone
                 }
           r <- insertCookieChecked jar c
-          assertBool "should accept" (r == Right ())
-      , testCase "__Secure- prefix without Secure flag is rejected" $ withJarThat $ \jar -> do
+          (r == Right ()) `shouldBe` True
+      , it "__Secure- prefix without Secure flag is rejected" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieName   = "__Secure-token"
                 , cookieSecure = False
                 }
           r <- insertCookieChecked jar c
-          r @?= Left (CookieSecurePrefixWithoutSecure "__Secure-token")
-      , testCase "__Secure- prefix with Secure flag is accepted" $ withJarThat $ \jar -> do
+          r `shouldBe` Left (CookieSecurePrefixWithoutSecure "__Secure-token")
+      , it "__Secure- prefix with Secure flag is accepted" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieName   = "__Secure-token"
                 , cookieSecure = True
                 }
           r <- insertCookieChecked jar c
-          assertBool "should accept" (r == Right ())
-      , testCase "__Host- prefix requires Secure + Path=/ + no Domain" $ withJarThat $ \jar -> do
+          (r == Right ()) `shouldBe` True
+      , it "__Host- prefix requires Secure + Path=/ + no Domain" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieName           = "__Host-id"
                 , cookieDomainExplicit = True
@@ -85,8 +84,8 @@ tests = testGroup "Network.HTTP.Client.Cookies"
                 , cookiePath           = "/"
                 }
           r <- insertCookieChecked jar c
-          r @?= Left (CookieHostPrefixViolation "__Host-id")
-      , testCase "__Host- with no Domain, Path=/, Secure is accepted" $ withJarThat $ \jar -> do
+          r `shouldBe` Left (CookieHostPrefixViolation "__Host-id")
+      , it "__Host- with no Domain, Path=/, Secure is accepted" $ withJarThat $ \jar -> do
           let c = baseCookie
                 { cookieName           = "__Host-id"
                 , cookieDomainExplicit = False
@@ -94,8 +93,8 @@ tests = testGroup "Network.HTTP.Client.Cookies"
                 , cookiePath           = "/"
                 }
           r <- insertCookieChecked jar c
-          assertBool "should accept" (r == Right ())
-      , testCase "size limit rejects oversize cookies" $ withJarThat $ \jar -> do
+          (r == Right ()) `shouldBe` True
+      , it "size limit rejects oversize cookies" $ withJarThat $ \jar -> do
           let c = baseCookie { cookieValue = BS.replicate 5000 0x78 }
           r <- insertCookieChecked jar c
           case r of

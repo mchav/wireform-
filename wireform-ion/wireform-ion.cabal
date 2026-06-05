@@ -93,5 +93,4 @@ test-suite wireform-ion-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

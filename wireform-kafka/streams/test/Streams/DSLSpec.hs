@@ -7,13 +7,12 @@ module Streams.DSLSpec (tests) where
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "DSL (KTable)"
+tests :: Spec
+tests = describe "DSL (KTable)" $ sequence_
   [ table_from_topic_basic
   , table_filter_with_tombstone
   , table_mapvalues_updates_store
@@ -26,9 +25,9 @@ bytes = BSC.pack . T.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-table_from_topic_basic :: TestTree
+table_from_topic_basic :: Spec
 table_from_topic_basic =
-  testCase "tableFromTopic materialises latest-per-key into store" $ do
+  it "tableFromTopic materialises latest-per-key into store" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -44,14 +43,14 @@ table_from_topic_basic =
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "a" >>= (@?= Just "3")
-        kvsGet kvs "b" >>= (@?= Just "1")
+        kvsGet kvs "a" >>= (`shouldBe` Just "3")
+        kvsGet kvs "b" >>= (`shouldBe` Just "1")
       Nothing -> error "store missing"
     closeDriver driver
 
-table_filter_with_tombstone :: TestTree
+table_filter_with_tombstone :: Spec
 table_filter_with_tombstone =
-  testCase "filterTable drops non-matching values" $ do
+  it "filterTable drops non-matching values" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -70,15 +69,15 @@ table_filter_with_tombstone =
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt2)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "a" >>= (@?= Nothing)
-        kvsGet kvs "b" >>= (@?= Just "abcd")
-        kvsGet kvs "c" >>= (@?= Just "abcde")
+        kvsGet kvs "a" >>= (`shouldBe` Nothing)
+        kvsGet kvs "b" >>= (`shouldBe` Just "abcd")
+        kvsGet kvs "c" >>= (`shouldBe` Just "abcde")
       Nothing -> error "filtered store missing"
     closeDriver driver
 
-table_mapvalues_updates_store :: TestTree
+table_mapvalues_updates_store :: Spec
 table_mapvalues_updates_store =
-  testCase "mapValuesTable derives a new store" $ do
+  it "mapValuesTable derives a new store" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -95,14 +94,14 @@ table_mapvalues_updates_store =
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt2)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "a" >>= (@?= Just "HELLO")
-        kvsGet kvs "b" >>= (@?= Just "WORLD")
+        kvsGet kvs "a" >>= (`shouldBe` Just "HELLO")
+        kvsGet kvs "b" >>= (`shouldBe` Just "WORLD")
       Nothing -> error "mapped store missing"
     closeDriver driver
 
-table_tombstone_via_null_value :: TestTree
+table_tombstone_via_null_value :: Spec
 table_tombstone_via_null_value =
-  testCase "filterTable produces tombstones when value drops out of filter" $ do
+  it "filterTable produces tombstones when value drops out of filter" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -120,6 +119,6 @@ table_tombstone_via_null_value =
 
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt2)
     case mStore of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Nothing)
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Nothing)
       Nothing -> error "filt2 store missing"
     closeDriver driver

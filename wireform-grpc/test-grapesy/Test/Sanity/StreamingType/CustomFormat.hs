@@ -11,8 +11,7 @@ import Data.Kind
 import Data.List
 import Data.Proxy
 import Data.Typeable
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client (rpc)
 import Network.GRPC.Client qualified as Client
@@ -119,10 +118,10 @@ instance CalculatorFunction fun => SupportsServerRpc (Calc fun) where
   Tests proper
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
+tests :: Spec
 tests =
-    testGroup "Test.Sanity.StreamingType.CustomFormat" [
-        testCase "calculator" test_calculator_cbor
+    describe "Test.Sanity.StreamingType.CustomFormat" $ sequence_ [
+        it "calculator" test_calculator_cbor
       ]
 
 test_calculator_cbor :: IO ()
@@ -163,7 +162,7 @@ test_calculator_cbor = do
     nonStreamingSumCheck :: Client.Connection -> IO ()
     nonStreamingSumCheck conn = do
         resp <- Client.nonStreaming conn (rpc @(Calc SumQuick)) nums
-        assertEqual "" (sum nums) resp
+        resp `shouldBe` (sum nums)
 
     -- Return the sum of a list of numbers
     nonStreamingSumHandler :: ServerHandler' NonStreaming IO (Calc SumQuick)
@@ -175,7 +174,7 @@ test_calculator_cbor = do
     serverStreamingSumCheck conn = do
         resp <- Client.serverStreaming conn (rpc @(Calc SumFromTo)) (start, end) $ \recv ->
                   NextElem.collect recv
-        assertEqual "" intermediateSums resp
+        resp `shouldBe` intermediateSums
 
     -- Stream the intermediate sums while summing a whole range of numbers
     serverStreamingSumHandler :: ServerHandler' ServerStreaming IO (Calc SumFromTo)
@@ -188,7 +187,7 @@ test_calculator_cbor = do
     clientStreamingSumCheck conn = do
         resp <- Client.clientStreaming_ conn (rpc @(Calc SumListen)) $ \send ->
                   NextElem.mapM_ send nums
-        assertEqual "" (sum nums) resp
+        resp `shouldBe` (sum nums)
 
     -- Receive a stream of numbers, return the sum
     clientStreamingSumHandler :: ServerHandler' ClientStreaming IO (Calc SumListen)
@@ -203,7 +202,7 @@ test_calculator_cbor = do
           concurrently
             (NextElem.mapM_ send nums)
             (NextElem.collect recv)
-        assertEqual "" intermediateSums recvdNums
+        recvdNums `shouldBe` intermediateSums
 
     -- Receive numbers and stream the intermediate sums back
     biDiStreamingSumHandler :: ServerHandler' BiDiStreaming IO (Calc SumChat)

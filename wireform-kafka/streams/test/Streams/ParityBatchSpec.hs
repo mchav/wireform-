@@ -10,8 +10,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Serde.Windowed (windowedSerde)
@@ -23,8 +22,8 @@ bytes = BSC.pack . T.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "ParityBatch"
+tests :: Spec
+tests = describe "ParityBatch" $ sequence_
   [ windowed_serde_round_trip
   , windowed_serde_rejects_short_input
   , properties_style_config
@@ -33,26 +32,26 @@ tests = testGroup "ParityBatch"
   , record_headers_visible_in_context
   ]
 
-windowed_serde_round_trip :: TestTree
+windowed_serde_round_trip :: Spec
 windowed_serde_round_trip =
-  testCase "windowedSerde round-trips a (key, windowStart) pair" $ do
+  it "windowedSerde round-trips a (key, windowStart) pair" $ do
     let s = windowedSerde textSerde
         wk = WindowedKey "alpha" (Timestamp 12345)
     case deserialize s (serialize s wk) of
-      Right wk' -> wk' @?= wk
-      Left  e   -> error (T.unpack e)
+      Right wk' -> wk' `shouldBe` wk
+      Left  e   -> expectationFailure (T.unpack e)
 
-windowed_serde_rejects_short_input :: TestTree
+windowed_serde_rejects_short_input :: Spec
 windowed_serde_rejects_short_input =
-  testCase "windowedSerde rejects truncated input" $ do
+  it "windowedSerde rejects truncated input" $ do
     let s = windowedSerde textSerde
     case deserialize s (BSC.pack "x") of
       Left  _ -> pure ()
-      Right _ -> error "expected short-input rejection"
+      Right _ -> expectationFailure "expected short-input rejection"
 
-properties_style_config :: TestTree
+properties_style_config :: Spec
 properties_style_config =
-  testCase "streamsConfigFromMap applies recognised keys" $ do
+  it "streamsConfigFromMap applies recognised keys" $ do
     let m = Map.fromList
           [ ("application.id",         "my-app")
           , ("bootstrap.servers",      "h1:9092,h2:9092")
@@ -61,24 +60,24 @@ properties_style_config =
           , ("commit.interval.ms",     "5000")
           ]
         cfg = streamsConfigFromMap m
-    applicationId cfg              @?= "my-app"
-    bootstrapServers cfg           @?= ["h1:9092", "h2:9092"]
-    numStreamThreads cfg           @?= 4
-    processingGuarantee cfg        @?= ExactlyOnceV2
-    commitIntervalMs cfg           @?= 5000
+    applicationId cfg              `shouldBe` "my-app"
+    bootstrapServers cfg           `shouldBe` ["h1:9092", "h2:9092"]
+    numStreamThreads cfg           `shouldBe` 4
+    processingGuarantee cfg        `shouldBe` ExactlyOnceV2
+    commitIntervalMs cfg           `shouldBe` 5000
 
-properties_style_unknown_key_is_ignored :: TestTree
+properties_style_unknown_key_is_ignored :: Spec
 properties_style_unknown_key_is_ignored =
-  testCase "streamsConfigFromMap silently ignores unknown keys" $ do
+  it "streamsConfigFromMap silently ignores unknown keys" $ do
     let m = Map.fromList [("application.id", "x"), ("bogus.key", "1")]
         cfg = streamsConfigFromMap m
-    applicationId cfg @?= "x"
+    applicationId cfg `shouldBe` "x"
     -- the rest stays at defaults
-    numStreamThreads cfg @?= numStreamThreads defaultStreamsConfig
+    numStreamThreads cfg `shouldBe` numStreamThreads defaultStreamsConfig
 
-test_record_round_trip :: TestTree
+test_record_round_trip :: Spec
 test_record_round_trip =
-  testCase "toTestRecord round-trips through the bound serdes" $ do
+  it "toTestRecord round-trips through the bound serdes" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     toTopic (topicName "out") (produced textSerde textSerde) s
@@ -89,14 +88,14 @@ test_record_round_trip =
     [cr] <- readOutput driver (topicName "out")
     case toTestRecord textSerde textSerde cr of
       Right tr -> do
-        trKey   tr @?= Just "k"
-        trValue tr @?= "v"
-      Left e   -> error (T.unpack e)
+        trKey   tr `shouldBe` Just "k"
+        trValue tr `shouldBe` "v"
+      Left e   -> expectationFailure (T.unpack e)
     closeDriver driver
 
-record_headers_visible_in_context :: TestTree
+record_headers_visible_in_context :: Spec
 record_headers_visible_in_context =
-  testCase "ctxRecordHeaders + ctxAddHeader expose mutable headers" $ do
+  it "ctxRecordHeaders + ctxAddHeader expose mutable headers" $ do
     seenHeaders <- newIORef ([] :: [Header])
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -120,4 +119,4 @@ record_headers_visible_in_context =
     -- The structural test: the processor was reachable and returned
     -- without exception; headers integration is exercised via
     -- ctxAddHeader/ctxRecordHeaders directly elsewhere.
-    readIORef seenHeaders >>= ((@?= 0) . length)
+    readIORef seenHeaders >>= ((`shouldBe` 0) . length)

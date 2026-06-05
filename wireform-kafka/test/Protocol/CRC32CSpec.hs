@@ -8,9 +8,8 @@ import Data.Word (Word8, Word32)
 import Hedgehog (Property, forAll, property, (===))
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Protocol.CRC32C as CRC
 
@@ -50,8 +49,8 @@ naiveCrc32cAppend crc bs = BS.foldl' crc32cByte crc bs
 -- -----------------------------------------------------------------------------
 
 -- | Test suite for CRC32C implementation
-spec :: TestTree
-spec = testGroup "CRC32C"
+spec :: Spec
+spec = describe "CRC32C" $ sequence_
   [ testKnownValues
   , testIncremental
   , testEmpty
@@ -61,42 +60,42 @@ spec = testGroup "CRC32C"
 
 -- | Test against known CRC32C values
 -- These test vectors are from various CRC32C implementations
-testKnownValues :: TestTree
-testKnownValues = testGroup "Known values"
-  [ testCase "empty string" $
-      CRC.crc32c "" @?= 0x00000000
+testKnownValues :: Spec
+testKnownValues = describe "Known values" $ sequence_
+  [ it "empty string" $
+      CRC.crc32c "" `shouldBe` 0x00000000
   
-  , testCase "single byte '0'" $
-      CRC.crc32c "0" @?= 0x629E1AE0
+  , it "single byte '0'" $
+      CRC.crc32c "0" `shouldBe` 0x629E1AE0
   
-  , testCase "\"123456789\"" $
-      CRC.crc32c "123456789" @?= 0xE3069283
+  , it "\"123456789\"" $
+      CRC.crc32c "123456789" `shouldBe` 0xE3069283
   
-  , testCase "\"Hello, World!\"" $
-      CRC.crc32c "Hello, World!" @?= 1297420392  -- 0x4D555368
+  , it "\"Hello, World!\"" $
+      CRC.crc32c "Hello, World!" `shouldBe` 1297420392  -- 0x4D555368
   
-  , testCase "\"The quick brown fox jumps over the lazy dog\"" $
-      CRC.crc32c "The quick brown fox jumps over the lazy dog" @?= 0x22620404
+  , it "\"The quick brown fox jumps over the lazy dog\"" $
+      CRC.crc32c "The quick brown fox jumps over the lazy dog" `shouldBe` 0x22620404
   
-  , testCase "all zeros (32 bytes)" $
-      CRC.crc32c (BS.replicate 32 0) @?= 0x8A9136AA
+  , it "all zeros (32 bytes)" $
+      CRC.crc32c (BS.replicate 32 0) `shouldBe` 0x8A9136AA
   
-  , testCase "all 0xFF (32 bytes)" $
-      CRC.crc32c (BS.replicate 32 0xFF) @?= 0x62A8AB43
+  , it "all 0xFF (32 bytes)" $
+      CRC.crc32c (BS.replicate 32 0xFF) `shouldBe` 0x62A8AB43
   ]
 
 -- | Test incremental CRC computation
-testIncremental :: TestTree
-testIncremental = testGroup "Incremental"
-  [ testCase "one-shot vs incremental (two chunks)" $ do
+testIncremental :: Spec
+testIncremental = describe "Incremental" $ sequence_
+  [ it "one-shot vs incremental (two chunks)" $ do
       let input = "Hello, World!"
           (chunk1, chunk2) = BS.splitAt 7 input
           oneShot = CRC.crc32c input
           incremental = CRC.crc32cFinalize $
                         CRC.crc32cAppend (CRC.crc32cAppend CRC.crc32cInit chunk1) chunk2
-      incremental @?= oneShot
+      incremental `shouldBe` oneShot
   
-  , testCase "one-shot vs incremental (three chunks)" $ do
+  , it "one-shot vs incremental (three chunks)" $ do
       let input = "The quick brown fox jumps over the lazy dog"
           chunk1 = BS.take 15 input
           chunk2 = BS.take 15 (BS.drop 15 input)
@@ -104,56 +103,56 @@ testIncremental = testGroup "Incremental"
           oneShot = CRC.crc32c input
           incremental = CRC.crc32cFinalize $
                         CRC.crc32cAppend (CRC.crc32cAppend (CRC.crc32cAppend CRC.crc32cInit chunk1) chunk2) chunk3
-      incremental @?= oneShot
+      incremental `shouldBe` oneShot
   
-  , testCase "byte-by-byte vs one-shot" $ do
+  , it "byte-by-byte vs one-shot" $ do
       let input = "123456789"
           oneShot = CRC.crc32c input
           byteByByte = CRC.crc32cFinalize $
                        foldl CRC.crc32cAppend CRC.crc32cInit (map BS.singleton (BS.unpack input))
-      byteByByte @?= oneShot
+      byteByByte `shouldBe` oneShot
   ]
 
 -- | Test empty input
-testEmpty :: TestTree
-testEmpty = testGroup "Empty input"
-  [ testCase "empty ByteString" $
-      CRC.crc32c BS.empty @?= 0x00000000
+testEmpty :: Spec
+testEmpty = describe "Empty input" $ sequence_
+  [ it "empty ByteString" $
+      CRC.crc32c BS.empty `shouldBe` 0x00000000
   
-  , testCase "incremental with empty chunks" $ do
+  , it "incremental with empty chunks" $ do
       let crc = CRC.crc32cFinalize $
                 CRC.crc32cAppend (CRC.crc32cAppend CRC.crc32cInit "Hello") ""
-      crc @?= CRC.crc32c "Hello"
+      crc `shouldBe` CRC.crc32c "Hello"
   ]
 
 -- | Test large inputs (to exercise vectorized code paths)
-testLarge :: TestTree
-testLarge = testGroup "Large inputs"
-  [ testCase "1KB of zeros" $ do
+testLarge :: Spec
+testLarge = describe "Large inputs" $ sequence_
+  [ it "1KB of zeros" $ do
       let input = BS.replicate 1024 0
       -- Just verify it doesn't crash and produces consistent results
-      CRC.crc32c input @?= CRC.crc32c input
+      CRC.crc32c input `shouldBe` CRC.crc32c input
   
-  , testCase "1KB incremental matches one-shot" $ do
+  , it "1KB incremental matches one-shot" $ do
       let input = BS.replicate 1024 42
           (chunk1, chunk2) = BS.splitAt 512 input
           oneShot = CRC.crc32c input
           incremental = CRC.crc32cFinalize $
                         CRC.crc32cAppend (CRC.crc32cAppend CRC.crc32cInit chunk1) chunk2
-      incremental @?= oneShot
+      incremental `shouldBe` oneShot
   
-  , testCase "4KB of pattern" $ do
+  , it "4KB of pattern" $ do
       let input = BS.concat (replicate 64 "0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789abcdef")
       -- Just verify it doesn't crash and produces consistent results
-      CRC.crc32c input @?= CRC.crc32c input
+      CRC.crc32c input `shouldBe` CRC.crc32c input
   
-  , testCase "64-byte boundary (tests SSE4.2 code path)" $ do
+  , it "64-byte boundary (tests SSE4.2 code path)" $ do
       let input = BS.replicate 64 0xAA
           oneShot = CRC.crc32c input
           (chunk1, chunk2) = BS.splitAt 32 input
           incremental = CRC.crc32cFinalize $
                         CRC.crc32cAppend (CRC.crc32cAppend CRC.crc32cInit chunk1) chunk2
-      incremental @?= oneShot
+      incremental `shouldBe` oneShot
   ]
 
 -- -----------------------------------------------------------------------------
@@ -161,16 +160,16 @@ testLarge = testGroup "Large inputs"
 -- -----------------------------------------------------------------------------
 
 -- | Property-based tests comparing optimized implementation with naive reference
-testProperties :: TestTree
-testProperties = testGroup "Properties (vs naive implementation)"
-  [ testProperty "matches naive implementation (small)" prop_matchesNaiveSmall
-  , testProperty "matches naive implementation (medium)" prop_matchesNaiveMedium
-  , testProperty "matches naive implementation (large)" prop_matchesNaiveLarge
-  , testProperty "incremental matches naive (2 chunks)" prop_incrementalMatchesNaive2
-  , testProperty "incremental matches naive (3 chunks)" prop_incrementalMatchesNaive3
-  , testProperty "incremental matches naive (many chunks)" prop_incrementalMatchesNaiveMany
-  , testProperty "empty input" prop_emptyInput
-  , testProperty "single byte" prop_singleByte
+testProperties :: Spec
+testProperties = describe "Properties (vs naive implementation)" $ sequence_
+  [ it "matches naive implementation (small)" prop_matchesNaiveSmall
+  , it "matches naive implementation (medium)" prop_matchesNaiveMedium
+  , it "matches naive implementation (large)" prop_matchesNaiveLarge
+  , it "incremental matches naive (2 chunks)" prop_incrementalMatchesNaive2
+  , it "incremental matches naive (3 chunks)" prop_incrementalMatchesNaive3
+  , it "incremental matches naive (many chunks)" prop_incrementalMatchesNaiveMany
+  , it "empty input" prop_emptyInput
+  , it "single byte" prop_singleByte
   ]
 
 -- | Test that optimized implementation matches naive for small inputs (0-100 bytes)

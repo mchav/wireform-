@@ -6,8 +6,8 @@ module Test.Regression.Issue238 (tests) where
 import Control.Exception
 import Data.ByteString.Lazy (ByteString)
 import Data.Text qualified as Text
-import Test.Tasty
-import Test.Tasty.HUnit
+import GHC.Stack (HasCallStack)
+import Test.Syd
 
 import Network.GRPC.Client (rpc)
 import Network.GRPC.Client qualified as Client
@@ -26,20 +26,20 @@ import Proto.API.Trivial
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Issue238" [
-      testGroup "Trivial" [
-          testCase "nonStreaming1" test_trivial_nonStreaming1
-        , testCase "nonStreaming2" test_trivial_nonStreaming2
+tests :: Spec
+tests = describe "Issue238" $ sequence_ [
+      describe "Trivial" $ sequence_ [
+          it "nonStreaming1" test_trivial_nonStreaming1
+        , it "nonStreaming2" test_trivial_nonStreaming2
         ]
-    , testGroup "LowLevel" [
-          testCase "nonStreaming1" test_lowLevel_nonStreaming1
-        , testCase "nonStreaming2" test_lowLevel_nonStreaming2
+    , describe "LowLevel" $ sequence_ [
+          it "nonStreaming1" test_lowLevel_nonStreaming1
+        , it "nonStreaming2" test_lowLevel_nonStreaming2
         ]
-    , testGroup "RouteGuide" [
-          testCase "nonStreaming1" test_routeGuide_nonStreaming1
-        , testCase "nonStreaming2" test_routeGuide_nonStreaming2
-        , testCase "nonStreaming3" test_routeGuide_nonStreaming3
+    , describe "RouteGuide" $ sequence_ [
+          it "nonStreaming1" test_routeGuide_nonStreaming1
+        , it "nonStreaming2" test_routeGuide_nonStreaming2
+        , it "nonStreaming3" test_routeGuide_nonStreaming3
         ]
     ]
 
@@ -48,7 +48,7 @@ tests = testGroup "Issue238" [
 -------------------------------------------------------------------------------}
 
 -- | Undefined handler body
-test_trivial_nonStreaming1 :: Assertion
+test_trivial_nonStreaming1 :: IO ()
 test_trivial_nonStreaming1 =
     testWith handlers client
   where
@@ -61,7 +61,7 @@ test_trivial_nonStreaming1 =
 -- | Like 'test_trivial_nonStreaming1', but without the call to @mkRpcHandler@
 --
 -- This matters, because 'mkRpcHandler' sets the initial metadata.
-test_trivial_nonStreaming2 :: Assertion
+test_trivial_nonStreaming2 :: IO ()
 test_trivial_nonStreaming2 =
     testWith handlers client
   where
@@ -80,7 +80,7 @@ test_trivial_nonStreaming2 =
 -------------------------------------------------------------------------------}
 
 -- | Direct equivalent of 'test_trivial_nonStreaming2'
-test_lowLevel_nonStreaming1 :: Assertion
+test_lowLevel_nonStreaming1 :: IO ()
 test_lowLevel_nonStreaming1 =
     testWith handlers client
   where
@@ -94,7 +94,7 @@ test_lowLevel_nonStreaming1 =
           fst <$> Client.recvFinalOutput call
 
 -- | Like 'test_lowLevel_nonStreaming1, but without sending the input
-test_lowLevel_nonStreaming2 :: Assertion
+test_lowLevel_nonStreaming2 :: IO ()
 test_lowLevel_nonStreaming2 =
     testWith handlers client
   where
@@ -122,7 +122,7 @@ test_lowLevel_nonStreaming2 =
 -- is defined but the individual handlers are not: here we cannot even construct
 -- the list without triggering an exception, forcing us to be very careful with
 -- exception handling during lookup.
-test_routeGuide_nonStreaming1 :: Assertion
+test_routeGuide_nonStreaming1 :: IO ()
 test_routeGuide_nonStreaming1 =
     testWith (Server.fromMethods methods) client
   where
@@ -132,7 +132,7 @@ test_routeGuide_nonStreaming1 =
     client :: Client.Connection -> IO (Proto Feature)
     client conn = Client.nonStreaming conn (rpc @GetFeature) (mempty)
 
-test_routeGuide_nonStreaming2 :: Assertion
+test_routeGuide_nonStreaming2 :: IO ()
 test_routeGuide_nonStreaming2 =
     testWith (Server.fromMethods methods) client
   where
@@ -147,7 +147,7 @@ test_routeGuide_nonStreaming2 =
     client :: Client.Connection -> IO (Proto Feature)
     client conn = Client.nonStreaming conn (rpc @GetFeature) (mempty)
 
-test_routeGuide_nonStreaming3 :: Assertion
+test_routeGuide_nonStreaming3 :: IO ()
 test_routeGuide_nonStreaming3 =
     testWith (Server.fromMethods methods) client
   where
@@ -173,7 +173,7 @@ test_routeGuide_nonStreaming3 =
 testWith ::
      [Server.SomeRpcHandler IO]
   -> (Client.Connection -> IO a)
-  -> Assertion
+  -> IO ()
 testWith handlers client = do
     server <- Server.mkGrpcServer serverParams handlers
     Server.forkServer def serverConfig server $ \runningServer -> do
@@ -204,16 +204,15 @@ testWith handlers client = do
 -- | Verify that the client  is notified of the undefined handler
 checkClientReceivesUndefined ::
      HasCallStack
-  => IO a -> Assertion
+  => IO a -> IO ()
 checkClientReceivesUndefined k = do
     result <- try k
     case result of
       Right _ ->
-        assertFailure "Unexpected successful response"
+        expectationFailure "Unexpected successful response"
       Left err ->
         case grpcErrorMessage err of
           Just msg ->
-            assertBool (show (Text.unpack msg) ++ " contains \"undefined\"") $
-              "undefined" `Text.isInfixOf` msg
+            (if ("undefined" `Text.isInfixOf` msg) then pure () else expectationFailure (show (Text.unpack msg) ++ " contains \"undefined\""))
           Nothing ->
-            assertFailure "Missing error message"
+            expectationFailure "Missing error message"

@@ -17,8 +17,7 @@ import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
   (Result (..), RFC8941String, mkRFC8941String, runParser, rfc8941String, unsafeToRFC8941String)
 import qualified Network.HTTP.Headers.Rendering.Util as R
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
 
 -- Build an RFC8941String value from a 'ByteString' for tests; the
 -- input is restricted to bytes the parser will accept later.
@@ -42,47 +41,43 @@ parseValue bs = case runParser rfc8941String bs of
   Fail    -> Left "parse failed"
   Err err -> Left err
 
-unit_simple :: TestTree
-unit_simple = testCase "no escaping for plain ASCII" $
+unit_simple :: Spec
+unit_simple = it "no escaping for plain ASCII" $
   let v   = mkVal "hello world"
       out = renderToBytes v
-  in assertEqual "rendered" "\"hello world\"" out
+  in out `shouldBe` "\"hello world\""
 
-unit_escape_quote :: TestTree
-unit_escape_quote = testCase "embedded DQUOTE is escaped" $
+unit_escape_quote :: Spec
+unit_escape_quote = it "embedded DQUOTE is escaped" $
   let v   = mkVal "a\"b"
       out = renderToBytes v
   in do
-    assertEqual "rendered" "\"a\\\"b\"" out
+    out `shouldBe` "\"a\\\"b\""
     -- Parser recovers the original payload.
     case parseValue out of
-      Right v' -> assertEqual "decoded"
-                    (ST.toByteString (unsafeToRFC8941String v))
-                    (ST.toByteString (unsafeToRFC8941String v'))
+      Right v' -> (ST.toByteString (unsafeToRFC8941String v')) `shouldBe` (ST.toByteString (unsafeToRFC8941String v))
       Left err -> error err
 
-unit_escape_backslash :: TestTree
-unit_escape_backslash = testCase "embedded backslash is escaped" $
+unit_escape_backslash :: Spec
+unit_escape_backslash = it "embedded backslash is escaped" $
   let v   = mkVal "a\\b"
       out = renderToBytes v
   in do
-    assertEqual "rendered" "\"a\\\\b\"" out
+    out `shouldBe` "\"a\\\\b\""
     case parseValue out of
-      Right v' -> assertEqual "decoded"
-                    (ST.toByteString (unsafeToRFC8941String v))
-                    (ST.toByteString (unsafeToRFC8941String v'))
+      Right v' -> (ST.toByteString (unsafeToRFC8941String v')) `shouldBe` (ST.toByteString (unsafeToRFC8941String v))
       Left err -> error err
 
-unit_double_escape :: TestTree
-unit_double_escape = testCase "both DQUOTE and backslash" $
+unit_double_escape :: Spec
+unit_double_escape = it "both DQUOTE and backslash" $
   let v   = mkVal "a\"b\\c"
       out = renderToBytes v
   in do
-    assertBool ("\\\" in " <> show out) ("\\\"" `BS.isInfixOf` out)
-    assertBool ("\\\\ in " <> show out) ("\\\\" `BS.isInfixOf` out)
+    (if ("\\\"" `BS.isInfixOf` out) then pure () else expectationFailure ("\\\" in " <> show out))
+    (if ("\\\\" `BS.isInfixOf` out) then pure () else expectationFailure ("\\\\ in " <> show out))
 
-tests :: TestTree
-tests = testGroup "RenderingUtil"
+tests :: Spec
+tests = describe "RenderingUtil" $ sequence_
   [ unit_simple
   , unit_escape_quote
   , unit_escape_backslash

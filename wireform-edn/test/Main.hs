@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.EDN.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-edn-derive"
+main = sydTest $ describe "wireform-edn-derive" $ sequence_
   [ Test.EDN.Derive.tests
   ]

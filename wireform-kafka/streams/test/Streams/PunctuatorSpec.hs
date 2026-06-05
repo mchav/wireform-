@@ -8,13 +8,12 @@ import Data.IORef
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "Punctuator"
+tests :: Spec
+tests = describe "Punctuator" $ sequence_
   [ stream_time_punctuator
   , wall_clock_punctuator
   , punctuator_can_be_cancelled
@@ -42,9 +41,9 @@ mkProc accRef intervalMs ptype = do
     , procProcess = \_ -> pure ()
     }
 
-stream_time_punctuator :: TestTree
+stream_time_punctuator :: Spec
 stream_time_punctuator =
-  testCase "stream-time punctuator fires as time advances" $ do
+  it "stream-time punctuator fires as time advances" $ do
     fired <- newIORef ([] :: [Timestamp])
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -60,23 +59,23 @@ stream_time_punctuator =
     -- punctuator fires once.
     pipeInput driver (topicName "in") Nothing (bytes "x") (Timestamp 50) 0
     f1 <- readIORef fired
-    length f1 @?= 1
+    length f1 `shouldBe` 1
 
     -- Stream time now 50, next-fire at 150. Pushing ts=120 should
     -- not fire.
     pipeInput driver (topicName "in") Nothing (bytes "x") (Timestamp 120) 0
     f2 <- readIORef fired
-    length f2 @?= 1
+    length f2 `shouldBe` 1
 
     -- ts=250 crosses 150: one more fire.
     pipeInput driver (topicName "in") Nothing (bytes "x") (Timestamp 250) 0
     f3 <- readIORef fired
-    length f3 @?= 2
+    length f3 `shouldBe` 2
     closeDriver driver
 
-wall_clock_punctuator :: TestTree
+wall_clock_punctuator :: Spec
 wall_clock_punctuator =
-  testCase "wall-clock punctuator fires after advanceWallClockTime" $ do
+  it "wall-clock punctuator fires after advanceWallClockTime" $ do
     fired <- newIORef ([] :: [Timestamp])
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -90,20 +89,20 @@ wall_clock_punctuator =
 
     advanceWallClockTime driver 50
     f1 <- readIORef fired
-    length f1 @?= 0
+    length f1 `shouldBe` 0
 
     advanceWallClockTime driver 60
     f2 <- readIORef fired
-    length f2 @?= 1
+    length f2 `shouldBe` 1
 
     advanceWallClockTime driver 100
     f3 <- readIORef fired
-    length f3 @?= 2
+    length f3 `shouldBe` 2
     closeDriver driver
 
-punctuator_can_be_cancelled :: TestTree
+punctuator_can_be_cancelled :: Spec
 punctuator_can_be_cancelled =
-  testCase "schedule returns a cancel that suppresses future fires" $ do
+  it "schedule returns a cancel that suppresses future fires" $ do
     fired <- newIORef ([] :: [Timestamp])
     cancelRef <- newIORef Nothing
     b <- newStreamsBuilder
@@ -130,19 +129,19 @@ punctuator_can_be_cancelled =
 
     advanceWallClockTime driver 200    -- fires
     f1 <- readIORef fired
-    length f1 @?= 1
+    length f1 `shouldBe` 1
 
     Just tok <- readIORef cancelRef
     cancel tok
 
     advanceWallClockTime driver 500    -- should not fire
     f2 <- readIORef fired
-    length f2 @?= 1
+    length f2 `shouldBe` 1
     closeDriver driver
 
-punctuator_no_fire_before_due :: TestTree
+punctuator_no_fire_before_due :: Spec
 punctuator_no_fire_before_due =
-  testCase "punctuators do not fire before the due time" $ do
+  it "punctuators do not fire before the due time" $ do
     fired <- newIORef ([] :: [Timestamp])
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -158,5 +157,5 @@ punctuator_no_fire_before_due =
     advanceWallClockTime driver 100
     advanceWallClockTime driver 100
     f1 <- readIORef fired
-    length f1 @?= 0
+    length f1 `shouldBe` 0
     closeDriver driver

@@ -2,19 +2,18 @@
 
 module Client.ShareConsumerHelpersSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.ShareConsumer as SC
 import qualified Kafka.Client.ShareConsumer as SGE
 
-tests :: TestTree
-tests = testGroup "ShareConsumer helpers"
-  [ testCase "pause + resume round-trip"
+tests :: Spec
+tests = describe "ShareConsumer helpers" $ sequence_
+  [ it "pause + resume round-trip"
       pause_resume
-  , testCase "decideDlq: under threshold -> Retry"
+  , it "decideDlq: under threshold -> Retry"
       dlq_retry
-  , testCase "decideDlq: at threshold -> Deliver"
+  , it "decideDlq: at threshold -> Deliver"
       dlq_deliver
   ]
 
@@ -23,12 +22,12 @@ pause_resume = do
   ps <- SGE.newPauseSet
   SGE.pausePartitions ps [("t", 0), ("t", 1)]
   paused <- SGE.isPaused ps "t" 0
-  paused @?= True
+  paused `shouldBe` True
   SGE.resumePartitions ps [("t", 0)]
   notP <- SGE.isPaused ps "t" 0
-  notP @?= False
+  notP `shouldBe` False
   stillP <- SGE.isPaused ps "t" 1
-  stillP @?= True
+  stillP `shouldBe` True
 
 mkRec :: Int -> SC.ShareRecord
 mkRec n = SC.ShareRecord
@@ -45,8 +44,8 @@ mkRec n = SC.ShareRecord
 
 dlq_retry :: IO ()
 dlq_retry = SGE.decideDlq 5 (mkRec 2) (SGE.DlqRouteTo "dlq")
-  @?= SGE.DlqDecisionRetry
+  `shouldBe` SGE.DlqDecisionRetry
 
 dlq_deliver :: IO ()
 dlq_deliver = SGE.decideDlq 5 (mkRec 5) (SGE.DlqRouteTo "dlq")
-  @?= SGE.DlqDecisionDeliver (SGE.DlqRouteTo "dlq")
+  `shouldBe` SGE.DlqDecisionDeliver (SGE.DlqRouteTo "dlq")

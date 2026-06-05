@@ -13,8 +13,7 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.IORef
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP1.Client
 import Network.HTTP1.Server
@@ -22,8 +21,8 @@ import Network.HTTP1.Status
 import Network.HTTP1.Types
 import Network.HTTP1.Version
 
-tests :: TestTree
-tests = testGroup "Server edge cases"
+tests :: Spec
+tests = describe "Server edge cases" $ sequence_
   [ largeBodyTest
   , binaryBodyTest
   , errorStatusTest
@@ -36,42 +35,42 @@ tests = testGroup "Server edge cases"
 
 ------------------------------------------------------------------------
 
-largeBodyTest :: TestTree
-largeBodyTest = testCase "8 KiB POST body round-trips" $
+largeBodyTest :: Spec
+largeBodyTest = it "8 KiB POST body round-trips" $
   withServer echo $ \port -> do
     let payload = BS.replicate 8192 0x42
     withClientConnection (clientCfg port) $ \conn -> do
       Right r <- sendRequestOn conn (mkReq POST "/large" port (BodyBytes payload) [])
       body <- bodyOf r
-      BS.length body @?= 8192
-      body @?= payload
+      BS.length body `shouldBe` 8192
+      body `shouldBe` payload
   where
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
-binaryBodyTest :: TestTree
-binaryBodyTest = testCase "all 256 byte values survive round-trip" $
+binaryBodyTest :: Spec
+binaryBodyTest = it "all 256 byte values survive round-trip" $
   withServer echo $ \port -> do
     let payload = BS.pack [0..255]
         req = mkReq POST "/binary" port (BodyBytes payload) []
     Right r <- sendRequest (clientCfg port) req
     body <- bodyOf r
-    body @?= payload
+    body `shouldBe` payload
   where
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
-errorStatusTest :: TestTree
-errorStatusTest = testCase "server returns 404, 500" $
+errorStatusTest :: Spec
+errorStatusTest = it "server returns 404, 500" $
   withServer handler $ \port -> do
     Right r404 <- sendRequest (clientCfg port) (mkReq GET "/404" port BodyEmpty [])
-    responseStatus r404 @?= NotFound
+    responseStatus r404 `shouldBe` NotFound
     _ <- bodyOf r404
 
     Right r500 <- sendRequest (clientCfg port) (mkReq GET "/500" port BodyEmpty [])
-    responseStatus r500 @?= InternalServerError
+    responseStatus r500 `shouldBe` InternalServerError
     _ <- bodyOf r500
     pure ()
   where
@@ -80,17 +79,17 @@ errorStatusTest = testCase "server returns 404, 500" $
       "/500" -> pure $ Response InternalServerError HTTP_1_1 [] (BodyBytes "error") (pure [])
       _      -> pure $ resp200 "ok"
 
-emptyBodyResponseTest :: TestTree
-emptyBodyResponseTest = testCase "204 No Content has empty body" $
+emptyBodyResponseTest :: Spec
+emptyBodyResponseTest = it "204 No Content has empty body" $
   withServer (\_ -> pure (Response NoContent HTTP_1_1 [] BodyEmpty (pure []))) $ \port -> do
     Right r <- sendRequest (clientCfg port) (mkReq GET "/" port BodyEmpty [])
-    responseStatus r @?= NoContent
+    responseStatus r `shouldBe` NoContent
     body <- bodyOf r
-    body @?= ""
+    body `shouldBe` ""
 
-manySequentialRequestsTest :: TestTree
+manySequentialRequestsTest :: Spec
 manySequentialRequestsTest =
-  testCase "10 sequential requests on one keep-alive connection" $
+  it "10 sequential requests on one keep-alive connection" $
     withServer (\_ -> pure (resp200 "ok")) $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         results <- mapM (\i -> do
@@ -99,11 +98,10 @@ manySequentialRequestsTest =
           pure (responseStatus r, body)
           ) [1 :: Int .. 10]
         let statuses = map fst results
-        all (== OK) statuses @?
-          ("all should be OK, got: " <> show statuses)
+        all (== OK) statuses `shouldBe` True
 
-streamingRequestEchoTest :: TestTree
-streamingRequestEchoTest = testCase "streaming chunked request body echo" $
+streamingRequestEchoTest :: Spec
+streamingRequestEchoTest = it "streaming chunked request body echo" $
   withServer echo $ \port -> do
     let chunks = ["alpha", "beta", "gamma", "delta"]
     ref <- newIORef chunks
@@ -115,14 +113,14 @@ streamingRequestEchoTest = testCase "streaming chunked request body echo" $
         req = mkReq POST "/stream" port (BodyStream producer) []
     Right r <- sendRequest (clientCfg port) req
     body <- bodyOf r
-    body @?= "alphabetagammadelta"
+    body `shouldBe` "alphabetagammadelta"
   where
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
-concurrentConnectionsTest :: TestTree
-concurrentConnectionsTest = testCase "3 concurrent connections" $
+concurrentConnectionsTest :: Spec
+concurrentConnectionsTest = it "3 concurrent connections" $
   withServer (\_ -> pure (resp200 "concurrent-ok")) $ \port -> do
     results <- newIORef ([] :: [BS.ByteString])
     doneVar <- newEmptyMVar
@@ -134,18 +132,17 @@ concurrentConnectionsTest = testCase "3 concurrent connections" $
     mapM_ (\_ -> forkIO go) [1 :: Int .. 3]
     mapM_ (\_ -> takeMVar doneVar) [1 :: Int .. 3]
     bodies <- readIORef results
-    length bodies @?= 3
-    all (== "concurrent-ok") bodies @?
-      "all concurrent responses should match"
+    length bodies `shouldBe` 3
+    all (== "concurrent-ok") bodies `shouldBe` True
 
-responseHeaderPreservationTest :: TestTree
-responseHeaderPreservationTest = testCase "custom response headers preserved" $
+responseHeaderPreservationTest :: Spec
+responseHeaderPreservationTest = it "custom response headers preserved" $
   withServer handler $ \port -> do
     Right r <- sendRequest (clientCfg port) (mkReq GET "/" port BodyEmpty [])
-    responseStatus r @?= OK
+    responseStatus r `shouldBe` OK
     let hdrs = responseHeaders r
-    lookup "x-custom" hdrs @?= Just "test-value"
-    lookup "x-another" hdrs @?= Just "another-value"
+    lookup "x-custom" hdrs `shouldBe` Just "test-value"
+    lookup "x-another" hdrs `shouldBe` Just "another-value"
     _ <- bodyOf r
     pure ()
   where
@@ -170,7 +167,7 @@ withServer handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr"
+    [] -> expectationFailure "no addr"
     (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close

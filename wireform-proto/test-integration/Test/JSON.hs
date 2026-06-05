@@ -18,43 +18,42 @@ import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Proto.Internal.JSON
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 
-jsonTests :: TestTree
+jsonTests :: Spec
 jsonTests =
-  testGroup
-    "JSON representation helpers"
-    [ testGroup
-        "Strict ByteString (base64)"
-        [ testProperty "roundtrip via Value" $ property $ do
+  describe
+    "JSON representation helpers" $ sequence_
+    [ describe
+        "Strict ByteString (base64)" $ sequence_
+        [ it "roundtrip via Value" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let val = protoBytesToJSON bs
             parsed <- evalEither (AesonT.parseEither protoBytesFromJSON val)
             parsed === bs
-        , testCase "encodes as base64 string" $ do
+        , it "encodes as base64 string" $ do
             let val = protoBytesToJSON (BS.pack [0x00, 0xFF, 0x42])
             case val of
               Aeson.String _ -> pure ()
-              other -> assertFailure ("Expected String, got " <> show other)
-        , testProperty "field helper roundtrip" $ property $ do
+              other -> expectationFailure ("Expected String, got " <> show other)
+        , it "field helper roundtrip" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let (_, val) = bytesFieldToJSON "data" bs
                 obj = mkObj [("data", val)]
             result <- evalEither (AesonT.parseEither (parseBytesFieldMaybe obj) "data")
             result === Just bs
         ]
-    , testGroup
-        "Lazy ByteString (base64)"
-        [ testProperty "roundtrip via Value" $ property $ do
+    , describe
+        "Lazy ByteString (base64)" $ sequence_
+        [ it "roundtrip via Value" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let lbs = BL.fromStrict bs
                 val = protoLazyBytesToJSON lbs
             parsed <- evalEither (AesonT.parseEither protoLazyBytesFromJSON val)
             parsed === lbs
-        , testProperty "field helper roundtrip" $ property $ do
+        , it "field helper roundtrip" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let lbs = BL.fromStrict bs
                 (_, val) = lazyBytesFieldToJSON "blob" lbs
@@ -62,15 +61,15 @@ jsonTests =
             result <- evalEither (AesonT.parseEither (parseLazyBytesFieldMaybe obj) "blob")
             result === Just lbs
         ]
-    , testGroup
-        "ShortByteString (base64)"
-        [ testProperty "roundtrip via Value" $ property $ do
+    , describe
+        "ShortByteString (base64)" $ sequence_
+        [ it "roundtrip via Value" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let sbs = SBS.toShort bs
                 val = protoShortBytesToJSON sbs
             parsed <- evalEither (AesonT.parseEither protoShortBytesFromJSON val)
             parsed === sbs
-        , testProperty "field helper roundtrip" $ property $ do
+        , it "field helper roundtrip" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let sbs = SBS.toShort bs
                 (_, val) = shortBytesFieldToJSON "compact" sbs
@@ -78,18 +77,18 @@ jsonTests =
             result <- evalEither (AesonT.parseEither (parseShortBytesFieldMaybe obj) "compact")
             result === Just sbs
         ]
-    , testGroup
-        "Strict Text"
-        [ testProperty ".=: / parseFieldMaybe roundtrip" $ property $ do
+    , describe
+        "Strict Text" $ sequence_
+        [ it ".=: / parseFieldMaybe roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
             let (_, val) = "name" .=: t
                 obj = mkObj [("name", val)]
             result <- evalEither (AesonT.parseEither (parseFieldMaybe obj) "name")
             result === Just t
         ]
-    , testGroup
-        "Lazy Text"
-        [ testProperty "field helper roundtrip" $ property $ do
+    , describe
+        "Lazy Text" $ sequence_
+        [ it "field helper roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
             let lt = TL.fromStrict t
                 (_, val) = lazyTextFieldToJSON "desc" lt
@@ -97,9 +96,9 @@ jsonTests =
             result <- evalEither (AesonT.parseEither (parseLazyTextFieldMaybe obj) "desc")
             result === Just lt
         ]
-    , testGroup
-        "ShortByteString as text (UTF-8)"
-        [ testProperty "field helper roundtrip" $ property $ do
+    , describe
+        "ShortByteString as text (UTF-8)" $ sequence_
+        [ it "field helper roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
             let sbs = SBS.toShort (TE.encodeUtf8 t)
                 (_, val) = shortTextFieldToJSON "tag" sbs
@@ -107,9 +106,9 @@ jsonTests =
             result <- evalEither (AesonT.parseEither (parseShortTextFieldMaybe obj) "tag")
             result === Just sbs
         ]
-    , testGroup
-        "Haskell String"
-        [ testProperty "field helper roundtrip" $ property $ do
+    , describe
+        "Haskell String" $ sequence_
+        [ it "field helper roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
             let s = T.unpack t
                 (_, val) = hsStringFieldToJSON "label" s
@@ -117,51 +116,51 @@ jsonTests =
             result <- evalEither (AesonT.parseEither (parseHsStringFieldMaybe obj) "label")
             result === Just s
         ]
-    , testGroup
-        "Missing / null field handling"
-        [ testCase "parseBytesFieldMaybe missing -> Nothing" $ do
+    , describe
+        "Missing / null field handling" $ sequence_
+        [ it "parseBytesFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseBytesFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseBytesFieldMaybe null -> Nothing" $ do
+            runParserOK (parseBytesFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseBytesFieldMaybe null -> Nothing" $ do
             let obj = mkObj [("x", Aeson.Null)]
-            runParserOK (parseBytesFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseLazyBytesFieldMaybe missing -> Nothing" $ do
+            runParserOK (parseBytesFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseLazyBytesFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseLazyBytesFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseShortBytesFieldMaybe missing -> Nothing" $ do
+            runParserOK (parseLazyBytesFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseShortBytesFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseShortBytesFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseLazyTextFieldMaybe missing -> Nothing" $ do
+            runParserOK (parseShortBytesFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseLazyTextFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseLazyTextFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseShortTextFieldMaybe missing -> Nothing" $ do
+            runParserOK (parseLazyTextFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseShortTextFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseShortTextFieldMaybe obj "x") >>= (@?= Nothing)
-        , testCase "parseHsStringFieldMaybe missing -> Nothing" $ do
+            runParserOK (parseShortTextFieldMaybe obj "x") >>= (`shouldBe` Nothing)
+        , it "parseHsStringFieldMaybe missing -> Nothing" $ do
             let obj = mkObj []
-            runParserOK (parseHsStringFieldMaybe obj "x") >>= (@?= Nothing)
+            runParserOK (parseHsStringFieldMaybe obj "x") >>= (`shouldBe` Nothing)
         ]
-    , testGroup
-        "Type mismatch errors"
-        [ testCase "parseBytesFieldMaybe non-string -> fail" $
+    , describe
+        "Type mismatch errors" $ sequence_
+        [ it "parseBytesFieldMaybe non-string -> fail" $
             assertParserFails (parseBytesFieldMaybe (mkObj [("x", Aeson.Number 42)]) "x")
-        , testCase "parseLazyTextFieldMaybe non-string -> fail" $
+        , it "parseLazyTextFieldMaybe non-string -> fail" $
             assertParserFails (parseLazyTextFieldMaybe (mkObj [("x", Aeson.Bool True)]) "x")
-        , testCase "parseShortTextFieldMaybe non-string -> fail" $
+        , it "parseShortTextFieldMaybe non-string -> fail" $
             assertParserFails (parseShortTextFieldMaybe (mkObj [("x", Aeson.Number 1)]) "x")
-        , testCase "parseHsStringFieldMaybe non-string -> fail" $
+        , it "parseHsStringFieldMaybe non-string -> fail" $
             assertParserFails (parseHsStringFieldMaybe (mkObj [("x", Aeson.Array mempty)]) "x")
         ]
-    , testGroup
-        "Cross-representation consistency"
-        [ testProperty "all bytes reps produce same base64" $ property $ do
+    , describe
+        "Cross-representation consistency" $ sequence_
+        [ it "all bytes reps produce same base64" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 200)
             let strict = protoBytesToJSON bs
                 lazy = protoLazyBytesToJSON (BL.fromStrict bs)
                 short = protoShortBytesToJSON (SBS.toShort bs)
             strict === lazy
             strict === short
-        , testProperty "all text reps produce same JSON string" $ property $ do
+        , it "all text reps produce same JSON string" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
             let (_, strictVal) = "k" .=: t
                 (_, lazyVal) = lazyTextFieldToJSON "k" (TL.fromStrict t)
@@ -171,11 +170,11 @@ jsonTests =
             strictVal === shortVal
             strictVal === stringVal
         ]
-    , testGroup
-        "Map representations"
-        [ testGroup
-            "Ordered Map (Map.Map)"
-            [ testProperty "ordMapToJSON roundtrip" $ property $ do
+    , describe
+        "Map representations" $ sequence_
+        [ describe
+            "Ordered Map (Map.Map)" $ sequence_
+            [ it "ordMapToJSON roundtrip" $ property $ do
                 keys <-
                   forAll $
                     Gen.list
@@ -190,18 +189,18 @@ jsonTests =
                     encoded = ordMapToJSON m
                 parsed <- evalEither (AesonT.parseEither parseOrdMapFromJSON encoded)
                 parsed === m
-            , testCase "ordMapToJSON empty" $ do
+            , it "ordMapToJSON empty" $ do
                 let m = Map.empty :: Map.Map Text Int
                     encoded = ordMapToJSON m
-                encoded @?= Aeson.object []
-            , testCase "ordMapToJSON preserves entries" $ do
+                encoded `shouldBe` Aeson.object []
+            , it "ordMapToJSON preserves entries" $ do
                 let m = Map.fromList [("a" :: Text, 1 :: Int), ("b", 2)]
                     Aeson.Object o = ordMapToJSON m
-                AesonT.parseEither (parseOrdMapFromJSON . Aeson.Object) o @?= Right m
+                AesonT.parseEither (parseOrdMapFromJSON . Aeson.Object) o `shouldBe` Right m
             ]
-        , testGroup
-            "HashMap"
-            [ testProperty "hashMapToJSON roundtrip" $ property $ do
+        , describe
+            "HashMap" $ sequence_
+            [ it "hashMapToJSON roundtrip" $ property $ do
                 keys <-
                   forAll $
                     Gen.list
@@ -216,18 +215,18 @@ jsonTests =
                     encoded = hashMapToJSON m
                 parsed <- evalEither (AesonT.parseEither parseHashMapFromJSON encoded)
                 parsed === m
-            , testCase "hashMapToJSON empty" $ do
+            , it "hashMapToJSON empty" $ do
                 let m = HM.empty :: HM.HashMap Text Int
                     encoded = hashMapToJSON m
-                encoded @?= Aeson.object []
-            , testCase "hashMapToJSON preserves entries" $ do
+                encoded `shouldBe` Aeson.object []
+            , it "hashMapToJSON preserves entries" $ do
                 let m = HM.fromList [("x" :: Text, True), ("y", False)]
                     Aeson.Object o = hashMapToJSON m
-                AesonT.parseEither (parseHashMapFromJSON . Aeson.Object) o @?= Right m
+                AesonT.parseEither (parseHashMapFromJSON . Aeson.Object) o `shouldBe` Right m
             ]
-        , testGroup
-            "Cross-representation consistency"
-            [ testProperty "ordMap and hashMap produce same JSON" $ property $ do
+        , describe
+            "Cross-representation consistency" $ sequence_
+            [ it "ordMap and hashMap produce same JSON" $ property $ do
                 keys <-
                   forAll $
                     Gen.list
@@ -243,7 +242,7 @@ jsonTests =
                     ordJSON = ordMapToJSON ordM
                     hashJSON = hashMapToJSON hashM
                 normalizeObject ordJSON === normalizeObject hashJSON
-            , testProperty "ordMap JSON parses as hashMap and vice versa" $ property $ do
+            , it "ordMap JSON parses as hashMap and vice versa" $ property $ do
                 keys <-
                   forAll $
                     Gen.list
@@ -259,9 +258,9 @@ jsonTests =
                 parsedAsHash <- evalEither (AesonT.parseEither parseHashMapFromJSON encoded)
                 Map.fromList (HM.toList parsedAsHash) === ordM
             ]
-        , testCase "parseOrdMapFromJSON non-object -> fail" $
+        , it "parseOrdMapFromJSON non-object -> fail" $
             assertParserFails (parseOrdMapFromJSON (Aeson.String "nope") :: AesonT.Parser (Map.Map Text Int))
-        , testCase "parseHashMapFromJSON non-object -> fail" $
+        , it "parseHashMapFromJSON non-object -> fail" $
             assertParserFails (parseHashMapFromJSON (Aeson.Number 42) :: AesonT.Parser (HM.HashMap Text Int))
         ]
     ]
@@ -276,13 +275,13 @@ mkObj kvs = case Aeson.object (fmap (\(k, v) -> AesonKey.fromText k Aeson..= v) 
 runParserOK :: (Show a, Eq a) => AesonT.Parser a -> IO a
 runParserOK p = case AesonT.parseEither (const p) () of
   Right a -> pure a
-  Left e -> assertFailure ("Parser failed: " <> e) >> error "unreachable"
+  Left e -> expectationFailure ("Parser failed: " <> e) >> error "unreachable"
 
 
 assertParserFails :: AesonT.Parser a -> IO ()
 assertParserFails p = case AesonT.parseEither (const p) () of
   Left _ -> pure ()
-  Right _ -> assertFailure "Expected parser to fail"
+  Right _ -> expectationFailure "Expected parser to fail"
 
 
 normalizeObject :: Aeson.Value -> Map.Map Text Aeson.Value

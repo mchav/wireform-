@@ -141,7 +141,7 @@ test-suite wireform-core-test
     base,
     bytestring,
     wireform-core,
-    hspec,
+    sydtest,
     QuickCheck
 
 benchmark parser-bench

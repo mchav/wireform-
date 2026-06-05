@@ -9,9 +9,8 @@ import qualified Hedgehog
 import Hedgehog ((===), forAll, property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStore
@@ -22,71 +21,71 @@ import Kafka.Streams.State.Store
   , storeName
   )
 
-tests :: TestTree
-tests = testGroup "State store (in-memory KV)"
-  [ testCase "put then get" $ do
+tests :: Spec
+tests = describe "State store (in-memory KV)" $ sequence_
+  [ it "put then get" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       kvsPut kvs 1 100
       v <- kvsGet kvs 1
-      v @?= Just 100
+      v `shouldBe` Just 100
 
-  , testCase "get missing returns Nothing" $ do
+  , it "get missing returns Nothing" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       v <- kvsGet kvs 99
-      v @?= Nothing
+      v `shouldBe` Nothing
 
-  , testCase "putIfAbsent does not overwrite" $ do
+  , it "putIfAbsent does not overwrite" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       kvsPut kvs 1 100
       r <- kvsPutIfAbsent kvs 1 200
-      r @?= Just 100
+      r `shouldBe` Just 100
       v <- kvsGet kvs 1
-      v @?= Just 100
+      v `shouldBe` Just 100
 
-  , testCase "putIfAbsent inserts when absent" $ do
+  , it "putIfAbsent inserts when absent" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       r <- kvsPutIfAbsent kvs 1 200
-      r @?= Nothing
+      r `shouldBe` Nothing
       v <- kvsGet kvs 1
-      v @?= Just 200
+      v `shouldBe` Just 200
 
-  , testCase "delete removes" $ do
+  , it "delete removes" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       kvsPut kvs 1 100
       r <- kvsDelete kvs 1
-      r @?= Just 100
+      r `shouldBe` Just 100
       v <- kvsGet kvs 1
-      v @?= Nothing
+      v `shouldBe` Nothing
 
-  , testCase "delete on missing key is Nothing" $ do
+  , it "delete on missing key is Nothing" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       r <- kvsDelete kvs 99
-      r @?= Nothing
+      r `shouldBe` Nothing
 
-  , testCase "range bounds inclusive" $ do
+  , it "range bounds inclusive" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       mapM_ (\n -> kvsPut kvs n (n * 10)) [1..10]
       it <- kvsRange kvs 3 7
       xs <- kvIteratorToList it
-      xs @?= [(3,30),(4,40),(5,50),(6,60),(7,70)]
+      xs `shouldBe` [(3,30),(4,40),(5,50),(6,60),(7,70)]
 
-  , testCase "all returns sorted" $ do
+  , it "all returns sorted" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       mapM_ (\n -> kvsPut kvs n (n * 10)) [5,3,7,1,9]
       it <- kvsAll kvs
       xs <- kvIteratorToList it
-      xs @?= [(1,10),(3,30),(5,50),(7,70),(9,90)]
+      xs `shouldBe` [(1,10),(3,30),(5,50),(7,70),(9,90)]
 
-  , testCase "approximateNumEntries tracks size" $ do
+  , it "approximateNumEntries tracks size" $ do
       kvs <- inMemoryKeyValueStore @Int @Int (storeName "s")
       mapM_ (\n -> kvsPut kvs n (n * 10)) [1..5]
       n <- kvsApproxEntries kvs
-      n @?= 5
+      n `shouldBe` 5
       _ <- kvsDelete kvs 3
       n2 <- kvsApproxEntries kvs
-      n2 @?= 4
+      n2 `shouldBe` 4
 
-  , testProperty "behaves like Data.Map" $ property $ do
+  , it "behaves like Data.Map" $ property $ do
       ops <- forAll (Gen.list (Range.linear 0 100) genOp)
       kvs <- liftIO (inMemoryKeyValueStore @Int @Int (storeName "s"))
       runOps kvs ops Map.empty

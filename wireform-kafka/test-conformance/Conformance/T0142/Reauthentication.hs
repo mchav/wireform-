@@ -20,8 +20,7 @@ module Conformance.T0142.Reauthentication (tests) where
 
 import qualified Data.ByteString as BS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Network.Auth.AwsMskIam as Iam
 import qualified Kafka.Network.Auth.OAuthBearer as OAuth
@@ -29,30 +28,28 @@ import qualified Kafka.Network.Auth.Plain as Plain
 import qualified Kafka.Network.Auth.SASL as SASL
 import qualified Kafka.Network.Auth.Scram as Scram
 
-tests :: TestTree
-tests = testGroup "0142-reauthentication"
-  [ testCase "PLAIN payload bytes are deterministic across re-auth attempts" $ do
+tests :: Spec
+tests = describe "0142-reauthentication" $ sequence_
+  [ it "PLAIN payload bytes are deterministic across re-auth attempts" $ do
       Plain.generatePlainAuth "alice" "secret"
-        @?= Plain.generatePlainAuth "alice" "secret"
+        `shouldBe` Plain.generatePlainAuth "alice" "secret"
 
-  , testCase "SCRAM client-first nonces differ across sessions" $ do
+  , it "SCRAM client-first nonces differ across sessions" $ do
       s1 <- Scram.newScramSession Scram.ScramSHA256 "alice" "secret"
       s2 <- Scram.newScramSession Scram.ScramSHA256 "alice" "secret"
       -- Two independent sessions must roll fresh nonces; otherwise
       -- a re-authentication could be replayed.
-      assertBool "client nonces differ"
-        (Scram.ssClientNonce s1 /= Scram.ssClientNonce s2)
+      (Scram.ssClientNonce s1 /= Scram.ssClientNonce s2) `shouldBe` True
 
-  , testCase "OAUTHBEARER token can be rotated between sessions" $ do
+  , it "OAUTHBEARER token can be rotated between sessions" $ do
       -- OAuth tokens rotate; the framing layer must accept any
       -- token bytes without caching across calls.
       let p1 = OAuth.buildOAuthPayload (OAuth.OAuthToken "tok-1" Nothing Nothing)
           p2 = OAuth.buildOAuthPayload (OAuth.OAuthToken "tok-2" Nothing Nothing)
-      assertBool "rotated token produces different payload" (p1 /= p2)
-      assertBool "old token still encodable later"
-        (p1 == OAuth.buildOAuthPayload (OAuth.OAuthToken "tok-1" Nothing Nothing))
+      (p1 /= p2) `shouldBe` True
+      (p1 == OAuth.buildOAuthPayload (OAuth.OAuthToken "tok-1" Nothing Nothing)) `shouldBe` True
 
-  , testCase "AWS MSK IAM payload re-resolves credentials each session" $ do
+  , it "AWS MSK IAM payload re-resolves credentials each session" $ do
       let creds1 = Iam.AwsCredentials "AKIA-1" "s1" Nothing
           creds2 = Iam.AwsCredentials "AKIA-2" "s2" Nothing
           mk c = Iam.buildIamPayload Iam.IamPayloadInput
@@ -63,10 +60,9 @@ tests = testGroup "0142-reauthentication"
             , Iam.iiUserAgent   = "wireform-conformance"
             , Iam.iiExpires     = 900
             }
-      assertBool "rotated credentials produce different SigV4 signature"
-        (mk creds1 /= mk creds2)
+      (mk creds1 /= mk creds2) `shouldBe` True
 
-  , testCase "SaslConfig values are pure (no I/O at construction)" $ do
+  , it "SaslConfig values are pure (no I/O at construction)" $ do
       let _ = SASL.SaslPlain "u" "p"
           _ = SASL.SaslScram Scram.ScramSHA512 "u" "p"
           _ = SASL.SaslOAuthBearer (OAuth.OAuthStaticToken
@@ -75,5 +71,5 @@ tests = testGroup "0142-reauthentication"
                   (Iam.AwsStaticCredentials (Iam.AwsCredentials "k" "s" Nothing))
                   "us-east-1"
           _ = BS.empty   -- keep BS import alive
-      pure ()
+      pure () :: IO ()
   ]

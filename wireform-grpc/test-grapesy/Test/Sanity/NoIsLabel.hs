@@ -7,13 +7,12 @@ module Test.Sanity.NoIsLabel (tests) where
 
 #if !defined(TEST_NO_ISLABEL)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.NoIsLabel" [
-      testCaseInfo "Data.ProtoLens.Labels not in scope" $
-        return "Skipped (requires proto-lens-protobuf-types >= 0.7.2.3)"
+tests :: Spec
+tests = describe "Test.Sanity.NoIsLabel" $ sequence_ [
+      pendingWith "Data.ProtoLens.Labels not in scope"
+        "Skipped (requires proto-lens-protobuf-types >= 0.7.2.3)"
     ]
 
 #else
@@ -22,8 +21,6 @@ import Data.Proxy
 import Data.String
 import GHC.OverloadedLabels
 import GHC.TypeLits
-import Test.Tasty
-import Test.Tasty.HUnit
 
 import Network.GRPC.Common.Protobuf ()
 import Network.GRPC.Common.Protobuf.Any ()
@@ -41,14 +38,14 @@ import Network.GRPC.Common.Protobuf.Any ()
 instance (KnownSymbol symb, IsString q) => IsLabel symb (p -> q) where
  fromLabel = \_ -> fromString (symbolVal (Proxy @symb))
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.NoIsLabel" [
-      testCase "Data.ProtoLens.Labels not in scope" thisShouldCompile
+tests :: Spec
+tests = describe "Test.Sanity.NoIsLabel" $ sequence_ [
+      it "Data.ProtoLens.Labels not in scope" thisShouldCompile
     ]
 
-thisShouldCompile :: Assertion
+thisShouldCompile :: IO ()
 thisShouldCompile =
-    assertEqual "" "hi" $ f 5
+    f 5 `shouldBe` "hi"
   where
     f :: Int -> String
     f = #hi

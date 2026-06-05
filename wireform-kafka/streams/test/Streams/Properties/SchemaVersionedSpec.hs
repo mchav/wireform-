@@ -28,9 +28,8 @@ import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
 import Kafka.Streams.State.KeyValue.SchemaVersioned
@@ -93,60 +92,60 @@ writeRaw inner ver k i s lbl =
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_round_trip_current :: TestTree
+unit_round_trip_current :: Spec
 unit_round_trip_current =
-  testCase "put@current, get@current: identity" $ do
+  it "put@current, get@current: identity" $ do
     (inner, kv) <- newPair
     kvsPut kv 1 V { vInt = 7, vSum = 70, vLabel = "n7" }
-    kvsGet kv 1 >>= (@?= Just V { vInt = 7, vSum = 70, vLabel = "n7" })
+    kvsGet kv 1 >>= (`shouldBe` Just V { vInt = 7, vSum = 70, vLabel = "n7" })
     -- Underlying really tagged @current.
     readCurrentVersionEntry inner 1
-      >>= (@?= Just (current, V { vInt = 7, vSum = 70, vLabel = "n7" }))
+      >>= (`shouldBe` Just (current, V { vInt = 7, vSum = 70, vLabel = "n7" }))
 
-unit_migrate_v1_to_v3 :: TestTree
+unit_migrate_v1_to_v3 :: Spec
 unit_migrate_v1_to_v3 =
-  testCase "v1 entry reads as fully-migrated v3 value" $ do
+  it "v1 entry reads as fully-migrated v3 value" $ do
     (inner, kv) <- newPair
     -- The v1 encoding leaves the other fields blank; migrations
     -- fill them in.
     writeRaw inner (SchemaVersion 1) 5 5 0 ""
-    kvsGet kv 5 >>= (@?= Just V { vInt = 5, vSum = 50, vLabel = "n5" })
+    kvsGet kv 5 >>= (`shouldBe` Just V { vInt = 5, vSum = 50, vLabel = "n5" })
 
-unit_migrate_v2_to_v3 :: TestTree
+unit_migrate_v2_to_v3 :: Spec
 unit_migrate_v2_to_v3 =
-  testCase "v2 entry reads as fully-migrated v3 value" $ do
+  it "v2 entry reads as fully-migrated v3 value" $ do
     (inner, kv) <- newPair
     writeRaw inner (SchemaVersion 2) 3 3 30 ""
-    kvsGet kv 3 >>= (@?= Just V { vInt = 3, vSum = 30, vLabel = "n3" })
+    kvsGet kv 3 >>= (`shouldBe` Just V { vInt = 3, vSum = 30, vLabel = "n3" })
 
-unit_newer_than_current_invisible :: TestTree
+unit_newer_than_current_invisible :: Spec
 unit_newer_than_current_invisible =
-  testCase "entry tagged newer than @current is invisible" $ do
+  it "entry tagged newer than @current is invisible" $ do
     (inner, kv) <- newPair
     writeRaw inner (SchemaVersion 99) 1 1 1 "?"
-    kvsGet kv 1 >>= (@?= Nothing)
+    kvsGet kv 1 >>= (`shouldBe` Nothing)
 
 ----------------------------------------------------------------------
 -- Burn-in
 ----------------------------------------------------------------------
 
-unit_burnin_rewrites_old_entries :: TestTree
+unit_burnin_rewrites_old_entries :: Spec
 unit_burnin_rewrites_old_entries =
-  testCase "burn-in migrates old entries onto @current" $ do
+  it "burn-in migrates old entries onto @current" $ do
     (inner, _kv) <- newPair
     writeRaw inner (SchemaVersion 1) 1 1 0 ""
     writeRaw inner (SchemaVersion 2) 2 2 20 ""
     writeRaw inner (SchemaVersion 3) 3 3 30 "n3"
     ref <- burnInMigrate current migrations inner
     p <- readBurnInProgress ref
-    bipScanned  p @?= 3
-    bipMigrated p @?= 2
-    bipFailed   p @?= 0
-    bipComplete p @?= True
+    bipScanned  p `shouldBe` 3
+    bipMigrated p `shouldBe` 2
+    bipFailed   p `shouldBe` 0
+    bipComplete p `shouldBe` True
     -- Every underlying entry now stamped @current.
     rs <- kvsAll inner >>= kvIteratorToList
     let vers = map (fst . snd) rs
-    all (== current) vers @?= True
+    all (== current) vers `shouldBe` True
 
 ----------------------------------------------------------------------
 -- Properties
@@ -205,17 +204,17 @@ prop_burnin_then_read_zero_migrate = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Schema-versioned KV store"
+tests :: Spec
+tests = describe "Schema-versioned KV store" $ sequence_
   [ unit_round_trip_current
   , unit_migrate_v1_to_v3
   , unit_migrate_v2_to_v3
   , unit_newer_than_current_invisible
   , unit_burnin_rewrites_old_entries
-  , testProperty "round-trip at current is identity" $
+  , it "round-trip at current is identity" $
       H.withTests 100 prop_round_trip_at_current
-  , testProperty "v1/v2/v3 entries all read back as v3" $
+  , it "v1/v2/v3 entries all read back as v3" $
       H.withTests 100 prop_migrate_any_version
-  , testProperty "second burn-in migrates zero entries" $
+  , it "second burn-in migrates zero entries" $
       H.withTests 80 prop_burnin_then_read_zero_migrate
   ]

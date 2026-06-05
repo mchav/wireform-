@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Http1Integration
 import qualified Test.Http1EdgeCases
@@ -26,7 +26,7 @@ import qualified Test.VersionTypes
 import qualified Test.Client
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-http"
+main = sydTest $ describe "wireform-http" $ sequence_
   [ Test.VersionTypes.tests
   , Test.Negotiation.tests
   , Test.Http1Integration.tests

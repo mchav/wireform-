@@ -15,36 +15,35 @@ import Test.Proto.Derive.TopEnumInstances (
   defaultAccount,
   defaultPackedBag,
  )
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Syd
 
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "Proto.TH top-level enum + packed scalar"
-    [ testGroup
-        "top-level enum field encodes as varint, not submessage"
-        [ testCase "default Status (UNSPECIFIED = 0) is skipped" $ do
+  describe
+    "Proto.TH top-level enum + packed scalar" $ sequence_
+    [ describe
+        "top-level enum field encodes as varint, not submessage" $ sequence_
+        [ it "default Status (UNSPECIFIED = 0) is skipped" $ do
             let a = defaultAccount
-            PE.encodeMessage a @?= BS.empty
-        , testCase "Status = STATUS_ACTIVE encodes as varint 1, not as a submessage" $ do
+            PE.encodeMessage a `shouldBe` BS.empty
+        , it "Status = STATUS_ACTIVE encodes as varint 1, not as a submessage" $ do
             let a = defaultAccount {accountAcctStatus = Status'StatusActive}
             -- field 2 (varint) tag = (2<<3)|0 = 0x10; payload = 1.
             -- If the bridge had wrongly chosen PFSubmessage we'd
             -- see 0x12 ((2<<3)|2) followed by a length prefix here.
-            PE.encodeMessage a @?= BS.pack [0x10, 0x01]
-        , testCase "Status = STATUS_BANNED round-trips" $ do
+            PE.encodeMessage a `shouldBe` BS.pack [0x10, 0x01]
+        , it "Status = STATUS_BANNED round-trips" $ do
             let a =
                   defaultAccount
                     { accountAcctName = T.pack "anon"
                     , accountAcctStatus = Status'StatusBanned
                     }
-            PD.decodeMessage (PE.encodeMessage a) @?= Right a
-        , testCase "all four Status values round-trip" $ do
+            PD.decodeMessage (PE.encodeMessage a) `shouldBe` Right a
+        , it "all four Status values round-trip" $ do
             let go st = do
                   let a = defaultAccount {accountAcctStatus = st}
-                  PD.decodeMessage (PE.encodeMessage a) @?= Right a
+                  PD.decodeMessage (PE.encodeMessage a) `shouldBe` Right a
             mapM_
               go
               [ Status'StatusUnspecified
@@ -52,7 +51,7 @@ tests =
               , Status'StatusRetired
               , Status'StatusBanned
               ]
-        , testCase "enum decoder truncates oversized varint to int32" $ do
+        , it "enum decoder truncates oversized varint to int32" $ do
             -- Proto3 wire spec: enum values are int32 on the wire
             -- even though varints can carry larger values. A sender
             -- that writes a 10-byte varint of @kInt64Max@ for an
@@ -81,25 +80,25 @@ tests =
                     ]
             case PD.decodeMessage bs :: Either PD.DecodeError Account of
               Right _ -> pure () -- decode succeeded; that's what matters
-              Left e -> assertFailure ("expected decode success, got " <> show e)
+              Left e -> expectationFailure ("expected decode success, got " <> show e)
         ]
-    , testGroup
-        "packed scalar (proto3 spec default for repeated int32)"
-        [ testCase "empty bag encodes to 0 bytes" $ do
-            PE.encodeMessage defaultPackedBag @?= BS.empty
-        , testCase "Vector [1,2,3] is one length-delimited block" $ do
+    , describe
+        "packed scalar (proto3 spec default for repeated int32)" $ sequence_
+        [ it "empty bag encodes to 0 bytes" $ do
+            PE.encodeMessage defaultPackedBag `shouldBe` BS.empty
+        , it "Vector [1,2,3] is one length-delimited block" $ do
             let p = defaultPackedBag {packedBagBagNums = V.fromList [1, 2, 3]}
-            PE.encodeMessage p @?= BS.pack [0x0A, 0x03, 0x01, 0x02, 0x03]
-            PD.decodeMessage (PE.encodeMessage p) @?= Right p
-        , testCase "decoder still accepts unpacked encoding" $ do
+            PE.encodeMessage p `shouldBe` BS.pack [0x0A, 0x03, 0x01, 0x02, 0x03]
+            PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+        , it "decoder still accepts unpacked encoding" $ do
             -- Hand-craft an unpacked stream, assert it produces
             -- the same Vector.
             let unpacked =
                   BS.pack
                     [0x08, 0x01, 0x08, 0x02, 0x08, 0x03]
                 expected = defaultPackedBag {packedBagBagNums = V.fromList [1, 2, 3]}
-            PD.decodeMessage unpacked @?= Right expected
-        , testCase "encoded length stays small as element count grows" $ do
+            PD.decodeMessage unpacked `shouldBe` Right expected
+        , it "encoded length stays small as element count grows" $ do
             -- Strongest packed-vs-unpacked check that doesn't depend
             -- on counting tag bytes (which can collide with payload
             -- values for small ints). Unpacked would emit
@@ -110,10 +109,8 @@ tests =
             -- the 200 bytes an unpacked stream would take.
             let p = defaultPackedBag {packedBagBagNums = V.fromList [1 .. 100]}
                 bs = PE.encodeMessage p
-            assertBool
-              ( "expected packed encoding (≤ 110 bytes), got "
+            (if (BS.length bs <= 110) then pure () else expectationFailure ( "expected packed encoding (≤ 110 bytes), got "
                   <> show (BS.length bs)
-              )
-              (BS.length bs <= 110)
+              ))
         ]
     ]

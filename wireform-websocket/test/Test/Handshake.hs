@@ -5,8 +5,7 @@ module Test.Handshake (tests) where
 import qualified Data.ByteString as BS
 import qualified Data.CaseInsensitive as CI
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as M
@@ -16,8 +15,8 @@ import Network.HTTP.Message
 
 import Network.WebSocket.Handshake
 
-tests :: TestTree
-tests = testGroup "Handshake"
+tests :: Spec
+tests = describe "Handshake" $ sequence_
   [ rfcAcceptVector
   , acceptsValidRequest
   , rejectsMissingKey
@@ -27,13 +26,13 @@ tests = testGroup "Handshake"
 -- The canonical RFC 6455 sec 1.3 / sec 4.2.2 vector:
 --   key    = "dGhlIHNhbXBsZSBub25jZQ=="
 --   accept = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-rfcAcceptVector :: TestTree
-rfcAcceptVector = testCase "RFC 6455 sec 4.2.2 Sec-WebSocket-Accept vector" $
+rfcAcceptVector :: Spec
+rfcAcceptVector = it "RFC 6455 sec 4.2.2 Sec-WebSocket-Accept vector" $
   computeAccept "dGhlIHNhbXBsZSBub25jZQ=="
-    @?= "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    `shouldBe` "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
 
-acceptsValidRequest :: TestTree
-acceptsValidRequest = testCase "parses a valid handshake request" $ do
+acceptsValidRequest :: Spec
+acceptsValidRequest = it "parses a valid handshake request" $ do
   let req = mkReq
         [ (H.hHost,                "example.com")
         , (H.hUpgrade,             "websocket")
@@ -42,11 +41,11 @@ acceptsValidRequest = testCase "parses a valid handshake request" $ do
         , (CI.mk "Sec-WebSocket-Version", "13")
         ]
   case parseWebSocketRequest req of
-    Right ws -> wsReqKey ws @?= "dGhlIHNhbXBsZSBub25jZQ=="
-    Left e   -> assertFailure ("rejected valid request: " <> show e)
+    Right ws -> wsReqKey ws `shouldBe` "dGhlIHNhbXBsZSBub25jZQ=="
+    Left e   -> expectationFailure ("rejected valid request: " <> show e)
 
-rejectsMissingKey :: TestTree
-rejectsMissingKey = testCase "rejects missing Sec-WebSocket-Key" $ do
+rejectsMissingKey :: Spec
+rejectsMissingKey = it "rejects missing Sec-WebSocket-Key" $ do
   let req = mkReq
         [ (H.hHost,                "example.com")
         , (H.hUpgrade,             "websocket")
@@ -55,15 +54,15 @@ rejectsMissingKey = testCase "rejects missing Sec-WebSocket-Key" $ do
         ]
   case parseWebSocketRequest req of
     Left _  -> pure ()
-    Right _ -> assertFailure "accepted a request without Sec-WebSocket-Key"
+    Right _ -> expectationFailure "accepted a request without Sec-WebSocket-Key"
 
-clientHandshakeRoundTrip :: TestTree
-clientHandshakeRoundTrip = testCase "client handshake -> server verifies" $ do
+clientHandshakeRoundTrip :: Spec
+clientHandshakeRoundTrip = it "client handshake -> server verifies" $ do
   let opts = (defaultWebSocketHandshakeOpts "/chat" "example.com")
         { wsOptProtocols = ["chat"] }
   (reqBytes, key) <- buildClientHandshake opts
   -- Sanity check: GET line is correct.
-  assertBool "starts with GET /chat" (BS.isPrefixOf "GET /chat HTTP/1.1" reqBytes)
+  (BS.isPrefixOf "GET /chat HTTP/1.1" reqBytes) `shouldBe` True
   -- Server replies with computed accept; client verifies.
   let acceptVal = computeAccept key
       hdrs = [ (H.hUpgrade,    "websocket")
@@ -72,7 +71,7 @@ clientHandshakeRoundTrip = testCase "client handshake -> server verifies" $ do
              ]
   case verifyServerHandshake key 101 hdrs of
     Right () -> pure ()
-    Left e   -> assertFailure ("client verify failed: " <> show e)
+    Left e   -> expectationFailure ("client verify failed: " <> show e)
 
   -- Negative case: wrong accept value rejected.
   let hdrsBad = [ (H.hUpgrade,    "websocket")
@@ -81,7 +80,7 @@ clientHandshakeRoundTrip = testCase "client handshake -> server verifies" $ do
                 ]
   case verifyServerHandshake key 101 hdrsBad of
     Left _  -> pure ()
-    Right _ -> assertFailure "accepted a bogus Sec-WebSocket-Accept"
+    Right _ -> expectationFailure "accepted a bogus Sec-WebSocket-Accept"
 
 mkReq :: H.Headers -> Request
 mkReq hdrs = Request

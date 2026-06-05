@@ -19,23 +19,22 @@ module Conformance.T0072.Headers (tests) where
 
 import qualified Data.ByteString as BS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Protocol.RecordBatch as RB
 
-tests :: TestTree
-tests = testGroup "0072-headers_ut"
-  [ testCase "RecordHeader: present value is returned verbatim" $ do
+tests :: Spec
+tests = describe "0072-headers_ut" $ sequence_
+  [ it "RecordHeader: present value is returned verbatim" $ do
       let h = RB.RecordHeader "trace-id" (Just "abc123")
-      RB.headerKey h   @?= "trace-id"
-      RB.headerValue h @?= Just "abc123"
+      RB.headerKey h   `shouldBe` "trace-id"
+      RB.headerValue h `shouldBe` Just "abc123"
 
-  , testCase "RecordHeader: absent value (Nothing) is preserved" $ do
+  , it "RecordHeader: absent value (Nothing) is preserved" $ do
       let h = RB.RecordHeader "x-debug" Nothing
-      RB.headerValue h @?= Nothing
+      RB.headerValue h `shouldBe` Nothing
 
-  , testCase "Empty header list is a valid Record" $ do
+  , it "Empty header list is a valid Record" $ do
       let r = RB.Record
             { RB.recordOffsetDelta    = 0
             , RB.recordTimestampDelta = 0
@@ -43,14 +42,14 @@ tests = testGroup "0072-headers_ut"
             , RB.recordValue          = "payload"
             , RB.recordHeaders        = []
             }
-      length (RB.recordHeaders r) @?= 0
+      length (RB.recordHeaders r) `shouldBe` 0
 
-  , testCase "Multiple headers preserve order" $ do
+  , it "Multiple headers preserve order" $ do
       let hs = [ RB.RecordHeader "a" (Just "1")
                , RB.RecordHeader "b" Nothing
                , RB.RecordHeader "c" (Just "3")
                ]
           r  = RB.Record 0 0 Nothing BS.empty hs
-      map RB.headerKey   (RB.recordHeaders r) @?= ["a","b","c"]
-      map RB.headerValue (RB.recordHeaders r) @?= [Just "1", Nothing, Just "3"]
+      map RB.headerKey   (RB.recordHeaders r) `shouldBe` ["a","b","c"]
+      map RB.headerValue (RB.recordHeaders r) `shouldBe` [Just "1", Nothing, Just "3"]
   ]

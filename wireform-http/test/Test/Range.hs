@@ -16,62 +16,61 @@ import qualified Data.ByteString as BS
 import qualified Network.HTTP.Headers.ContentRange as HCR
 import Network.HTTP.Client.Range
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase, (@?=))
+import Test.Syd
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.Range"
-  [ testGroup "rangeHeader"
-      [ testCase "closed range" $
-          rangeHeader [byteRange 0 99] @?= "bytes=0-99"
-      , testCase "open range from offset" $
-          rangeHeader [byteRangeFrom 1000] @?= "bytes=1000-"
-      , testCase "suffix range" $
-          rangeHeader [byteRangeSuffix 500] @?= "bytes=-500"
-      , testCase "comma-joined multi range" $
+tests :: Spec
+tests = describe "Network.HTTP.Client.Range" $ sequence_
+  [ describe "rangeHeader" $ sequence_
+      [ it "closed range" $
+          rangeHeader [byteRange 0 99] `shouldBe` "bytes=0-99"
+      , it "open range from offset" $
+          rangeHeader [byteRangeFrom 1000] `shouldBe` "bytes=1000-"
+      , it "suffix range" $
+          rangeHeader [byteRangeSuffix 500] `shouldBe` "bytes=-500"
+      , it "comma-joined multi range" $
           rangeHeader [byteRange 0 99, byteRangeFrom 200, byteRangeSuffix 50]
-            @?= "bytes=0-99,200-,-50"
+            `shouldBe` "bytes=0-99,200-,-50"
       ]
-  , testGroup "parseRange"
-      [ testCase "round-trips closed" $
-          parseRange "bytes=0-99" @?= Just [byteRange 0 99]
-      , testCase "round-trips open" $
-          parseRange "bytes=1000-" @?= Just [byteRangeFrom 1000]
-      , testCase "round-trips suffix" $
-          parseRange "bytes=-500" @?= Just [byteRangeSuffix 500]
-      , testCase "round-trips multi" $
+  , describe "parseRange" $ sequence_
+      [ it "round-trips closed" $
+          parseRange "bytes=0-99" `shouldBe` Just [byteRange 0 99]
+      , it "round-trips open" $
+          parseRange "bytes=1000-" `shouldBe` Just [byteRangeFrom 1000]
+      , it "round-trips suffix" $
+          parseRange "bytes=-500" `shouldBe` Just [byteRangeSuffix 500]
+      , it "round-trips multi" $
           parseRange "bytes=0-99,200-,-50"
-            @?= Just [byteRange 0 99, byteRangeFrom 200, byteRangeSuffix 50]
-      , testCase "rejects other range-units" $
-          parseRange "rows=0-9" @?= Nothing
+            `shouldBe` Just [byteRange 0 99, byteRangeFrom 200, byteRangeSuffix 50]
+      , it "rejects other range-units" $
+          parseRange "rows=0-9" `shouldBe` Nothing
       ]
-  , testGroup "parseContentRange / parseContentRangeFull"
-      [ testCase "satisfied returns the legacy shape" $
+  , describe "parseContentRange / parseContentRangeFull" $ sequence_
+      [ it "satisfied returns the legacy shape" $
           parseContentRange "bytes 0-499/1234"
-            @?= Just (ContentRange 0 499 (Just 1234))
-      , testCase "satisfied with unknown total" $
+            `shouldBe` Just (ContentRange 0 499 (Just 1234))
+      , it "satisfied with unknown total" $
           parseContentRange "bytes 0-9/*"
-            @?= Just (ContentRange 0 9 Nothing)
-      , testCase "unsatisfied is Nothing through parseContentRange" $
-          parseContentRange "bytes */4096" @?= Nothing
-      , testCase "unsatisfied is detectable through parseContentRangeFull" $
+            `shouldBe` Just (ContentRange 0 9 Nothing)
+      , it "unsatisfied is Nothing through parseContentRange" $
+          parseContentRange "bytes */4096" `shouldBe` Nothing
+      , it "unsatisfied is detectable through parseContentRangeFull" $
           case parseContentRangeFull "bytes */4096" of
             Just (HCR.ContentRange _ (HCR.RangeRespUnsatisfied (Just 4096))) -> pure ()
-            other -> error (show other)
+            other -> expectationFailure (show other)
       ]
-  , testGroup "parseAcceptRanges"
-      [ testCase "literal none" $
-          parseAcceptRanges "none" @?= Just AcceptRangesNone
-      , testCase "single unit" $
-          parseAcceptRanges "bytes" @?= Just (AcceptRangesUnits ["bytes"])
-      , testCase "comma list" $
+  , describe "parseAcceptRanges" $ sequence_
+      [ it "literal none" $
+          parseAcceptRanges "none" `shouldBe` Just AcceptRangesNone
+      , it "single unit" $
+          parseAcceptRanges "bytes" `shouldBe` Just (AcceptRangesUnits ["bytes"])
+      , it "comma list" $
           parseAcceptRanges "bytes, custom-unit"
-            @?= Just (AcceptRangesUnits ["bytes", "custom-unit"])
-      , testCase "rejects junk" $
-          parseAcceptRanges "" @?= Nothing
+            `shouldBe` Just (AcceptRangesUnits ["bytes", "custom-unit"])
+      , it "rejects junk" $
+          parseAcceptRanges "" `shouldBe` Nothing
       ]
-  , testGroup "parseMultipartByteranges"
-      [ testCase "two parts with explicit boundaries" $
+  , describe "parseMultipartByteranges" $ sequence_
+      [ it "two parts with explicit boundaries" $
           let boundary = "BOUNDARY"
               body = BS.concat
                 [ "--BOUNDARY\r\n"
@@ -88,17 +87,17 @@ tests = testGroup "Network.HTTP.Client.Range"
                 ]
           in case parseMultipartByteranges boundary body of
                Just [a, b] -> do
-                 mbContentType a @?= Just "text/plain"
-                 mbContentType b @?= Just "text/plain"
-                 crStart (mbRange a) @?= 0
-                 crEnd   (mbRange a) @?= 9
-                 crTotal (mbRange a) @?= Just 200
-                 mbBody  a @?= "0123456789"
-                 crStart (mbRange b) @?= 100
-                 crEnd   (mbRange b) @?= 109
-                 mbBody  b @?= "ABCDEFGHIJ"
+                 mbContentType a `shouldBe` Just "text/plain"
+                 mbContentType b `shouldBe` Just "text/plain"
+                 crStart (mbRange a) `shouldBe` 0
+                 crEnd   (mbRange a) `shouldBe` 9
+                 crTotal (mbRange a) `shouldBe` Just 200
+                 mbBody  a `shouldBe` "0123456789"
+                 crStart (mbRange b) `shouldBe` 100
+                 crEnd   (mbRange b) `shouldBe` 109
+                 mbBody  b `shouldBe` "ABCDEFGHIJ"
                other -> error (show other)
-      , testCase "skips a part with no Content-Range" $
+      , it "skips a part with no Content-Range" $
           let boundary = "B"
               body = BS.concat
                 [ "--B\r\n"
@@ -116,18 +115,18 @@ tests = testGroup "Network.HTTP.Client.Range"
                  -- The garbage part is dropped because its
                  -- header block carries no Content-Range; we
                  -- get only the valid second part.
-                 assertEqual "kept parts" 1 (length xs)
-                 assertEqual "kept body" "abc" (mbBody (head xs))
+                 (length xs) `shouldBe` 1
+                 (mbBody (head xs)) `shouldBe` "abc"
                Nothing -> error "expected a result"
       ]
-  , testGroup "withRange"
-      [ testCase "sets Range header on a Request" $
+  , describe "withRange" $ sequence_
+      [ it "sets Range header on a Request" $
           -- This is more of a smoke-test: 'withRange' is a thin
           -- wrapper over 'setHeader' and the header bytes come
           -- from 'rangeHeader' which is exercised above.  We
           -- mostly want to know it compiles and produces a
           -- non-empty value.
-          assertBool "rangeHeader non-empty" (BS.length (rangeHeader [byteRange 0 1]) > 0)
+          (BS.length (rangeHeader [byteRange 0 1]) > 0) `shouldBe` True
       ]
   ]
 

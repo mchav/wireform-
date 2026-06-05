@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Chunked
 import qualified Test.Encode
@@ -10,7 +10,7 @@ import qualified Test.RoundTrip
 import qualified Test.ServerEdgeCases
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-http1"
+main = sydTest $ describe "wireform-http1" $ sequence_
   [ Test.Parser.tests
   , Test.Encode.tests
   , Test.Chunked.tests

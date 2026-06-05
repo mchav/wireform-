@@ -99,9 +99,8 @@ test-suite wireform-fory-test
     text,
     unordered-containers,
     vector,
-    tasty,
-    tasty-hunit,
-    tasty-hedgehog,
+    sydtest,
+    sydtest-hedgehog,
     hedgehog
 
 flag python-interop

@@ -10,8 +10,7 @@ module Test.Proxy (tests) where
 import qualified Network.HTTP.Client.Proxy as P
 import qualified Network.HTTP.Client.URI as WURI
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase, (@?=))
+import Test.Syd
 
 proxyHttp :: P.Proxy
 proxyHttp = P.Proxy
@@ -39,34 +38,34 @@ cfg = P.ProxyConfig
       ]
   }
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.Proxy"
-  [ testGroup "shouldBypass"
-      [ testCase "exact host bypass" $
-          P.shouldBypass cfg "localhost" @?= True
-      , testCase "exact host bypass (IP)" $
-          P.shouldBypass cfg "127.0.0.1" @?= True
-      , testCase "subdomain-only pattern matches a subdomain" $
-          P.shouldBypass cfg "host.internal" @?= True
-      , testCase "subdomain-only pattern does NOT match the bare suffix" $
-          P.shouldBypass cfg "internal" @?= False
-      , testCase "literal pattern matches an exact host" $
-          P.shouldBypass cfg "metrics.example.com" @?= True
-      , testCase "literal pattern matches a subdomain too" $
-          P.shouldBypass cfg "api.metrics.example.com" @?= True
-      , testCase "different host is not bypassed" $
-          P.shouldBypass cfg "api.example.com" @?= False
+tests :: Spec
+tests = describe "Network.HTTP.Client.Proxy" $ sequence_
+  [ describe "shouldBypass" $ sequence_
+      [ it "exact host bypass" $
+          P.shouldBypass cfg "localhost" `shouldBe` True
+      , it "exact host bypass (IP)" $
+          P.shouldBypass cfg "127.0.0.1" `shouldBe` True
+      , it "subdomain-only pattern matches a subdomain" $
+          P.shouldBypass cfg "host.internal" `shouldBe` True
+      , it "subdomain-only pattern does NOT match the bare suffix" $
+          P.shouldBypass cfg "internal" `shouldBe` False
+      , it "literal pattern matches an exact host" $
+          P.shouldBypass cfg "metrics.example.com" `shouldBe` True
+      , it "literal pattern matches a subdomain too" $
+          P.shouldBypass cfg "api.metrics.example.com" `shouldBe` True
+      , it "different host is not bypassed" $
+          P.shouldBypass cfg "api.example.com" `shouldBe` False
       ]
-  , testGroup "proxy resolution"
-      [ testCase "HTTP target uses proxyForHttp" $
-          P.proxyForHttp cfg @?= Just proxyHttp
-      , testCase "HTTPS target uses proxyForHttps" $
-          P.proxyForHttps cfg @?= Just proxyHttps
+  , describe "proxy resolution" $ sequence_
+      [ it "HTTP target uses proxyForHttp" $
+          P.proxyForHttp cfg `shouldBe` Just proxyHttp
+      , it "HTTPS target uses proxyForHttps" $
+          P.proxyForHttps cfg `shouldBe` Just proxyHttps
       ]
-  , testGroup "ProxyConfig defaults"
-      [ testCase "noProxyConfig has no proxies set" $ do
-          P.proxyForHttp  P.noProxyConfig @?= Nothing
-          P.proxyForHttps P.noProxyConfig @?= Nothing
-          assertEqual "empty bypass list" [] (P.proxyBypass P.noProxyConfig)
+  , describe "ProxyConfig defaults" $ sequence_
+      [ it "noProxyConfig has no proxies set" $ do
+          P.proxyForHttp  P.noProxyConfig `shouldBe` Nothing
+          P.proxyForHttps P.noProxyConfig `shouldBe` Nothing
+          P.proxyBypass P.noProxyConfig `shouldBe` []
       ]
   ]

@@ -2,8 +2,7 @@ module Test.Iceberg.SequenceInheritance (tests) where
 
 import Data.Int (Int64)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Read (inheritSequenceNumbers)
 import Iceberg.Types
@@ -28,30 +27,30 @@ mkEntry status sq fsq = ManifestEntry
   , meDataFile = Nothing
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Read inheritSequenceNumbers"
-  [ testCase "ADDED entry inherits the parent manifest's sequence number" $ do
+tests :: Spec
+tests = describe "Iceberg.Read inheritSequenceNumbers" $ sequence_
+  [ it "ADDED entry inherits the parent manifest's sequence number" $ do
       let mf = mkMf 7
           me = mkEntry Added Nothing Nothing
           me' = inheritSequenceNumbers mf me
-      meSequenceNumber me' @?= Just 7
-      meFileSequenceNumber me' @?= Just 7
+      meSequenceNumber me' `shouldBe` Just 7
+      meFileSequenceNumber me' `shouldBe` Just 7
 
-  , testCase "EXISTING entry retains its own sequence number" $ do
+  , it "EXISTING entry retains its own sequence number" $ do
       let mf = mkMf 7
           me = mkEntry Existing (Just 3) (Just 3)
           me' = inheritSequenceNumbers mf me
-      meSequenceNumber me' @?= Just 3
-      meFileSequenceNumber me' @?= Just 3
+      meSequenceNumber me' `shouldBe` Just 3
+      meFileSequenceNumber me' `shouldBe` Just 3
 
-  , testCase "DELETED entry without seq stays nullable" $ do
+  , it "DELETED entry without seq stays nullable" $ do
       let mf = mkMf 7
           me = mkEntry Deleted Nothing Nothing
           me' = inheritSequenceNumbers mf me
-      meSequenceNumber me' @?= Nothing
-      meFileSequenceNumber me' @?= Nothing
+      meSequenceNumber me' `shouldBe` Nothing
+      meFileSequenceNumber me' `shouldBe` Nothing
 
-  , testCase "Existing minimal manifest example does not crash" $ do
+  , it "Existing minimal manifest example does not crash" $ do
       let mf = mkMf 0
-      mfPath mf @?= "m.avro"
+      mfPath mf `shouldBe` "m.avro"
   ]

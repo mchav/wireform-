@@ -32,8 +32,8 @@ import Data.Map.Strict (Map)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStore
@@ -187,15 +187,15 @@ runAgainst mkStore cmds = do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "KVStore state-machine"
-  [ testProperty "in-memory backend matches Data.Map" $
+tests :: Spec
+tests = describe "KVStore state-machine" $ sequence_
+  [ it "in-memory backend matches Data.Map" $
       H.withTests 80 $ propAgainstModel inMemoryStore
-  , testProperty "transactional buffer (read-your-writes) matches Data.Map" $
+  , it "transactional buffer (read-your-writes) matches Data.Map" $
       H.withTests 60 $ propAgainstModel txnStoreReadYourWrites
-  , testProperty "transactional commit drains buffer onto underlying" $
+  , it "transactional commit drains buffer onto underlying" $
       H.withTests 40 propTxnCommitBatched
-  , testProperty "transactional abort discards buffered writes" $
+  , it "transactional abort discards buffered writes" $
       H.withTests 40 propTxnAbortDiscards
   ]
 

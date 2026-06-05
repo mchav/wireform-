@@ -13,37 +13,36 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 import qualified Kafka.Protocol.RecordBatchWire as RBW
 
-tests :: TestTree
-tests = testGroup "RecordBatchWire round-trips"
-  [ testCase "empty batch round-trips"
+tests :: Spec
+tests = describe "RecordBatchWire round-trips" $ sequence_
+  [ it "empty batch round-trips"
       empty_round_trip
-  , testCase "single-record batch round-trips"
+  , it "single-record batch round-trips"
       single_round_trip
-  , testProperty "any uncompressed batch round-trips"
+  , it "any uncompressed batch round-trips"
       prop_round_trip_uncompressed
-  , testGroup "compressed encoder"
-      [ testProperty "gzip: encode . decode == id"
+  , describe "compressed encoder" $ sequence_
+      [ it "gzip: encode . decode == id"
           (prop_round_trip_compressed Compression.Gzip)
-      , testProperty "snappy: encode . decode == id"
+      , it "snappy: encode . decode == id"
           (prop_round_trip_compressed Compression.Snappy)
-      , testProperty "lz4: encode . decode == id"
+      , it "lz4: encode . decode == id"
           (prop_round_trip_compressed Compression.Lz4)
-      , testProperty "zstd: encode . decode == id"
+      , it "zstd: encode . decode == id"
           (prop_round_trip_compressed Compression.Zstd)
       ]
-  , testGroup "sliced decoder"
-      [ testProperty
+  , describe "sliced decoder" $ sequence_
+      [ it
           "agrees with V.Vector Record decoder on key + value + offsets"
           prop_sliced_matches_record
-      , testCase
+      , it
           "empty batch returns sbCount=0 + empty slice vectors"
           sliced_empty_batch
       ]

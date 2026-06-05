@@ -13,69 +13,68 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import Data.Word (Word64)
 import Numeric (showHex)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
+import Test.Syd
 
 import qualified Fory.MetaString.Encoder as MSE
 import qualified Fory.MetaString.Hash as MSH
 
-tests :: TestTree
-tests = testGroup "Fory.MetaString.Encoder vs pyfory"
-  [ testCase "namespace 'example' (LOWER_SPECIAL, length 5)" $
+tests :: Spec
+tests = describe "Fory.MetaString.Encoder vs pyfory" $ sequence_
+  [ it "namespace 'example' (LOWER_SPECIAL, length 5)" $
       check MSE.namespaceSpecialChars "example"
         MSE.LowerSpecial
         "12e063d640"
         0xea8563ec8fce1001
 
-  , testCase "typename 'Person' (FIRST_TO_LOWER_SPECIAL, length 4)" $
+  , it "typename 'Person' (FIRST_TO_LOWER_SPECIAL, length 4)" $
       check MSE.typenameSpecialChars "Person"
         MSE.FirstToLowerSpecial
         "3c91939a"
         0x97ac20e26842ba03
 
-  , testCase "typename 'MyType' (LOWER_UPPER_DIGIT_SPECIAL, length 5)" $
+  , it "typename 'MyType' (LOWER_UPPER_DIGIT_SPECIAL, length 5)" $
       check MSE.typenameSpecialChars "MyType"
         MSE.LowerUpperDigitSpecial
         "4cc5ac1e20"
         0x9129d23a71594702
 
-  , testCase "field 'camelCase' (ALL_TO_LOWER_SPECIAL, length 7)" $
+  , it "field 'camelCase' (ALL_TO_LOWER_SPECIAL, length 7)" $
       check MSE.namespaceSpecialChars "camelCase"
         MSE.AllToLowerSpecial
         "880c22fa204880"
         0x231cc2193c726904
 
-  , testCase "field 'snake_case' (LOWER_SPECIAL, length 7)" $
+  , it "field 'snake_case' (LOWER_SPECIAL, length 7)" $
       check MSE.namespaceSpecialChars "snake_case"
         MSE.LowerSpecial
         "c9a05136204880"
         0xd8b44642d0f5a201
 
-  , testCase "namespace 'with.dots' (LOWER_SPECIAL, length 6)" $
+  , it "namespace 'with.dots' (LOWER_SPECIAL, length 6)" $
       check MSE.namespaceSpecialChars "with.dots"
         MSE.LowerSpecial
         "59133e86e9c8"
         0xa4e0fa301e3d4f01
 
-  , testCase "typename 'Hello' (FIRST_TO_LOWER_SPECIAL, length 4)" $
+  , it "typename 'Hello' (FIRST_TO_LOWER_SPECIAL, length 4)" $
       check MSE.typenameSpecialChars "Hello"
         MSE.FirstToLowerSpecial
         "9c8b5b80"
         0xaad3b322bd1aa403
 
-  , testCase "field 'a' (LOWER_SPECIAL, length 1)" $
+  , it "field 'a' (LOWER_SPECIAL, length 1)" $
       check MSE.namespaceSpecialChars "a"
         MSE.LowerSpecial
         "00"
         0xe01f8b1e4cad3601
 
-  , testCase "typename 'ABC123' (LOWER_UPPER_DIGIT_SPECIAL, length 5)" $
+  , it "typename 'ABC123' (LOWER_UPPER_DIGIT_SPECIAL, length 5)" $
       check MSE.typenameSpecialChars "ABC123"
         MSE.LowerUpperDigitSpecial
         "34db9aedb8"
         0xb79cd8bd004ee702
 
-  , testCase "long field (LOWER_SPECIAL, length 30, exercises MurmurHash3)" $
+  , it "long field (LOWER_SPECIAL, length 30, exercises MurmurHash3)" $
       check MSE.namespaceSpecialChars
         "a_long_field_name_more_than_sixteen_bytes_total"
         MSE.LowerSpecial
@@ -83,9 +82,9 @@ tests = testGroup "Fory.MetaString.Encoder vs pyfory"
          <> "0ddc9179908dd871324b7374c0b0")
         0x0f36e3d542bc8901
 
-  , testGroup "decoder round-trip"
-      [ testCase ("decodes " ++ show s)
-          (MSE.decodeMetaString sc enc bs @?= s)
+  , describe "decoder round-trip" $ sequence_
+      [ it ("decodes " ++ show s)
+          (MSE.decodeMetaString sc enc bs `shouldBe` s)
       | (s, sc, enc, bs) <-
           [ ("example",     MSE.namespaceSpecialChars, MSE.LowerSpecial,           BS.pack [0x12,0xe0,0x63,0xd6,0x40])
           , ("Person",      MSE.typenameSpecialChars,  MSE.FirstToLowerSpecial,    BS.pack [0x3c,0x91,0x93,0x9a])
@@ -103,8 +102,8 @@ tests = testGroup "Fory.MetaString.Encoder vs pyfory"
           actualHex = concatMap (pad2 . flip showHex "") (BS.unpack bs)
           actualHash = MSH.metaStringHashcode bs
                          (fromIntegral (MSE.encodingId enc) :: Word64)
-      enc       @?= expEnc
-      actualHex @?= expHexData
+      enc       `shouldBe` expEnc
+      actualHex `shouldBe` expHexData
       actualHash `assertEqHash` expHash
 
     pad2 s | length s == 1 = '0' : s
@@ -113,7 +112,7 @@ tests = testGroup "Fory.MetaString.Encoder vs pyfory"
     assertEqHash got expected =
       if got == expected
         then pure ()
-        else assertFailure $ unwords
+        else expectationFailure $ unwords
           [ "hash mismatch:"
           , "got"
           , "0x" ++ pad16 (showHex got "")

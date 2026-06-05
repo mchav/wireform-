@@ -7,13 +7,12 @@ module Streams.MorePartiyTwoSpec (tests) where
 
 import Data.IORef
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "ParityRoundTwo"
+tests :: Spec
+tests = describe "ParityRoundTwo" $ sequence_
   [ optimize_topology_is_identity_when_off
   , optimize_topology_with_default_config
   , lag_listener_receives_published_snapshot
@@ -27,9 +26,9 @@ mkSimpleTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   buildTopology b
 
-optimize_topology_is_identity_when_off :: TestTree
+optimize_topology_is_identity_when_off :: Spec
 optimize_topology_is_identity_when_off =
-  testCase "optimizeTopology is the identity when no toggles are enabled" $ do
+  it "optimizeTopology is the identity when no toggles are enabled" $ do
     topo <- mkSimpleTopo
     let cfg = OptimizationConfig
           { optMergeRepartitionTopics = False
@@ -37,11 +36,11 @@ optimize_topology_is_identity_when_off =
           }
         topo' = optimizeTopology cfg topo
     -- Same node count after optimisation (currently a no-op).
-    length (topoOrder topo') @?= length (topoOrder topo)
+    length (topoOrder topo') `shouldBe` length (topoOrder topo)
 
-optimize_topology_with_default_config :: TestTree
+optimize_topology_with_default_config :: Spec
 optimize_topology_with_default_config =
-  testCase "optimizeTopology with the default config still yields a valid topology" $ do
+  it "optimizeTopology with the default config still yields a valid topology" $ do
     topo <- mkSimpleTopo
     let topo' = optimizeTopology defaultOptimizationConfig topo
     case validateTopology topo' of
@@ -58,9 +57,9 @@ mkRuntime = do
                     , bootstrapServers = ["mock:0"]
                     } v
 
-lag_listener_receives_published_snapshot :: TestTree
+lag_listener_receives_published_snapshot :: Spec
 lag_listener_receives_published_snapshot =
-  testCase "publishLag dispatches to the registered listener" $ do
+  it "publishLag dispatches to the registered listener" $ do
     ks <- mkRuntime
     received <- newIORef ([] :: [LagInfo])
     setLagListener ks (writeIORef received)
@@ -70,12 +69,12 @@ lag_listener_receives_published_snapshot =
           , LagInfo (TaskId 0 1) 300 305
           ]
     publishLag ks snapshot
-    readIORef received >>= (@?= snapshot)
+    readIORef received >>= (`shouldBe` snapshot)
     closeKafkaStreams ks
 
-lag_listener_default_does_nothing :: TestTree
+lag_listener_default_does_nothing :: Spec
 lag_listener_default_does_nothing =
-  testCase "default lag listener is a no-op (no exception when called)" $ do
+  it "default lag listener is a no-op (no exception when called)" $ do
     ks <- mkRuntime
     publishLag ks [LagInfo (TaskId 0 0) 0 0]
     closeKafkaStreams ks

@@ -15,7 +15,7 @@ the two implementations side by side.
 -}
 module Main (main) where
 
-import Test.Tasty
+import Test.Syd
 
 import qualified Conformance.T0000.Unittests
 import qualified Conformance.T0004.Conf
@@ -34,7 +34,7 @@ import qualified Conformance.T0144.IdempotenceMock
 import qualified Conformance.T0145.PauseResumeMock
 
 main :: IO ()
-main = defaultMain $ testGroup "librdkafka conformance"
+main = sydTest $ describe "librdkafka conformance" $ sequence_
   -- Tests are grouped by the librdkafka test file they correspond to.
   -- Test number prefix matches librdkafka's NNNN- convention so the
   -- two suites can be diffed by `ls`.

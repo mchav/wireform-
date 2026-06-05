@@ -7,8 +7,7 @@ module Streams.Properties.OrphanTopicsSpec (tests) where
 
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.State.Store as Store
@@ -68,8 +67,8 @@ repartitionTopology = do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "OrphanTopics"
+tests :: Spec
+tests = describe "OrphanTopics" $ sequence_
   [ expected_set_contains_changelog_for_logged_store
   , expected_set_empty_for_storeless
   , detect_orphan_changelog_from_old_deploy
@@ -80,25 +79,23 @@ tests = testGroup "OrphanTopics"
 
 ----------------------------------------------------------------------
 
-expected_set_contains_changelog_for_logged_store :: TestTree
+expected_set_contains_changelog_for_logged_store :: Spec
 expected_set_contains_changelog_for_logged_store =
-  testCase "expectedInternalTopics names the logged store's changelog" $ do
+  it "expectedInternalTopics names the logged store's changelog" $ do
     topo <- loggedStoreTopology
     let s = expectedInternalTopics topo "app1"
-    assertBool
-      ("expected to find app1-logged-store-changelog; got "
-        <> show s)
-      (Set.member (changelogTopic "app1" (Store.storeName "logged-store")) s)
+    (if (Set.member (changelogTopic "app1" (Store.storeName "logged-store")) s) then pure () else expectationFailure ("expected to find app1-logged-store-changelog; got "
+        <> show s))
 
-expected_set_empty_for_storeless :: TestTree
+expected_set_empty_for_storeless :: Spec
 expected_set_empty_for_storeless =
-  testCase "expectedInternalTopics is empty for a storeless passthrough" $ do
+  it "expectedInternalTopics is empty for a storeless passthrough" $ do
     topo <- storelessTopology
-    expectedInternalTopics topo "app-empty" @?= Set.empty
+    expectedInternalTopics topo "app-empty" `shouldBe` Set.empty
 
-detect_orphan_changelog_from_old_deploy :: TestTree
+detect_orphan_changelog_from_old_deploy :: Spec
 detect_orphan_changelog_from_old_deploy =
-  testCase "detectOrphans flags a leftover changelog from a renamed store" $ do
+  it "detectOrphans flags a leftover changelog from a renamed store" $ do
     topo <- loggedStoreTopology
     let broker =
           [ topicName "in"                                  -- input topic
@@ -109,12 +106,12 @@ detect_orphan_changelog_from_old_deploy =
           ]
         orphans = detectOrphans topo "app1" broker
     map orphanTopic orphans
-      @?= [changelogTopic "app1" (Store.storeName "removed-store")]
-    map orphanReason orphans @?= [OrphanChangelog]
+      `shouldBe` [changelogTopic "app1" (Store.storeName "removed-store")]
+    map orphanReason orphans `shouldBe` [OrphanChangelog]
 
-detect_does_not_flag_legit_topics :: TestTree
+detect_does_not_flag_legit_topics :: Spec
 detect_does_not_flag_legit_topics =
-  testCase "detectOrphans ignores topics that don't match the internal-topic naming scheme" $ do
+  it "detectOrphans ignores topics that don't match the internal-topic naming scheme" $ do
     topo <- loggedStoreTopology
     let broker =
           [ topicName "in"
@@ -123,11 +120,11 @@ detect_does_not_flag_legit_topics =
           , topicName "app1-some-business-topic"    -- prefixed but not -changelog/-repartition
           ]
         orphans = detectOrphans topo "app1" broker
-    orphans @?= []
+    orphans `shouldBe` []
 
-detect_orphan_repartition :: TestTree
+detect_orphan_repartition :: Spec
 detect_orphan_repartition =
-  testCase "detectOrphans flags a leftover repartition topic" $ do
+  it "detectOrphans flags a leftover repartition topic" $ do
     topo <- repartitionTopology
     let broker =
           [ topicName "in"
@@ -136,18 +133,18 @@ detect_orphan_repartition =
         orphans = detectOrphans topo "app3" broker
     -- The current topology owns its own repartition node, which
     -- is in 'expectedInternalTopics'; the stale name is orphan.
-    map orphanReason orphans @?= [OrphanRepartition]
+    map orphanReason orphans `shouldBe` [OrphanRepartition]
 
-is_internal_topic_name_matches_convention :: TestTree
+is_internal_topic_name_matches_convention :: Spec
 is_internal_topic_name_matches_convention =
-  testCase "isInternalTopicName recognises -changelog and -repartition suffixes" $ do
-    isInternalTopicName "app" (topicName "app-store-changelog")     @?= True
-    isInternalTopicName "app" (topicName "app-node-repartition")    @?= True
-    isInternalTopicName "app" (topicName "app-business-data")       @?= False
-    isInternalTopicName "app" (topicName "other-store-changelog")   @?= False
+  it "isInternalTopicName recognises -changelog and -repartition suffixes" $ do
+    isInternalTopicName "app" (topicName "app-store-changelog")     `shouldBe` True
+    isInternalTopicName "app" (topicName "app-node-repartition")    `shouldBe` True
+    isInternalTopicName "app" (topicName "app-business-data")       `shouldBe` False
+    isInternalTopicName "app" (topicName "other-store-changelog")   `shouldBe` False
     -- Also check the conventional helpers round-trip:
     let t = changelogTopic "app" (Store.storeName "s")
-    isInternalTopicName "app" t @?= True
+    isInternalTopicName "app" t `shouldBe` True
     -- Repartition:
     isInternalTopicName "app" (repartitionTopic "app" (Topo.NodeName "n"))
-      @?= True
+      `shouldBe` True

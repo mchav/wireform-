@@ -5,8 +5,7 @@ import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Avro.Container (writeContainer)
 import Avro.Schema (AvroType (..))
@@ -53,8 +52,8 @@ mkSnap sid pid sn ts ml summ = Snapshot
   , snapSchemaId = Nothing, snapFirstRowId = Nothing, snapKeyId = Nothing
   }
 
-icebergTests :: TestTree
-icebergTests = testGroup "Iceberg"
+icebergTests :: Spec
+icebergTests = describe "Iceberg" $ sequence_
   [ jsonRoundtripTests
   , schemaTypeTests
   , partitionSpecTests
@@ -74,14 +73,14 @@ icebergTests = testGroup "Iceberg"
 -- JSON roundtrip
 -- ============================================================
 
-jsonRoundtripTests :: TestTree
-jsonRoundtripTests = testGroup "JSON roundtrip"
-  [ testCase "Minimal table metadata roundtrip" $ do
+jsonRoundtripTests :: Spec
+jsonRoundtripTests = describe "JSON roundtrip" $ sequence_
+  [ it "Minimal table metadata roundtrip" $ do
       let tm = minimalMetadata
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Table metadata with snapshots" $ do
+  , it "Table metadata with snapshots" $ do
       let snap = (mkSnap 100 Nothing 1 1672531200000
                          "s3://bucket/manifest-list.avro"
                          (Map.fromList [("operation", "append")]))
@@ -91,9 +90,9 @@ jsonRoundtripTests = testGroup "JSON roundtrip"
             , tmSnapshotLog = V.singleton (SnapshotLogEntry 1672531200000 100)
             }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Table metadata with snapshot parent" $ do
+  , it "Table metadata with snapshot parent" $ do
       let snap = (mkSnap 200 (Just 100) 2 1672531300000
                          "s3://bucket/manifest-list-2.avro"
                          (Map.fromList [("operation", "overwrite")]))
@@ -102,9 +101,9 @@ jsonRoundtripTests = testGroup "JSON roundtrip"
             , tmSnapshots = V.singleton snap
             }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Table metadata with properties" $ do
+  , it "Table metadata with properties" $ do
       let tm = minimalMetadata
             { tmProperties = Map.fromList
                 [ ("write.format.default", "parquet")
@@ -112,16 +111,16 @@ jsonRoundtripTests = testGroup "JSON roundtrip"
                 ]
             }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
   ]
 
 -- ============================================================
 -- Schema with various types
 -- ============================================================
 
-schemaTypeTests :: TestTree
-schemaTypeTests = testGroup "Schema types"
-  [ testCase "Primitive types roundtrip" $ do
+schemaTypeTests :: Spec
+schemaTypeTests = describe "Schema types" $ sequence_
+  [ it "Primitive types roundtrip" $ do
       let fields = V.fromList
             [ mkSF 1 "bool_col" True TBoolean Nothing
             , mkSF 2 "int_col" True TInt Nothing
@@ -135,9 +134,9 @@ schemaTypeTests = testGroup "Schema types"
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Date/time types roundtrip" $ do
+  , it "Date/time types roundtrip" $ do
       let fields = V.fromList
             [ mkSF 1 "date_col" True TDate Nothing
             , mkSF 2 "time_col" True TTime Nothing
@@ -147,9 +146,9 @@ schemaTypeTests = testGroup "Schema types"
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Fixed and Decimal types roundtrip" $ do
+  , it "Fixed and Decimal types roundtrip" $ do
       let fields = V.fromList
             [ mkSF 1 "fixed_col" True (TFixed 16) Nothing
             , mkSF 2 "dec_col" True (TDecimal 10 2) Nothing
@@ -157,9 +156,9 @@ schemaTypeTests = testGroup "Schema types"
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Nested struct type roundtrip" $ do
+  , it "Nested struct type roundtrip" $ do
       let innerFields = V.fromList
             [ mkSF 10 "x" True TInt Nothing
             , mkSF 11 "y" True TInt Nothing
@@ -170,52 +169,52 @@ schemaTypeTests = testGroup "Schema types"
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "List type roundtrip" $ do
+  , it "List type roundtrip" $ do
       let fields = V.fromList
             [ mkSF 1 "tags" True (TList 100 TString) Nothing
             ]
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Map type roundtrip" $ do
+  , it "Map type roundtrip" $ do
       let fields = V.fromList
             [ mkSF 1 "attrs" True (TMap 100 TString 101 TLong) Nothing
             ]
           schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
   ]
 
 -- ============================================================
 -- PartitionSpec with transforms
 -- ============================================================
 
-partitionSpecTests :: TestTree
-partitionSpecTests = testGroup "PartitionSpec"
-  [ testCase "Identity transform" $ do
+partitionSpecTests :: Spec
+partitionSpecTests = describe "PartitionSpec" $ sequence_
+  [ it "Identity transform" $ do
       let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "id_part" Identity))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Bucket transform" $ do
+  , it "Bucket transform" $ do
       let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "bucket_part" (Bucket 16)))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Truncate transform" $ do
+  , it "Truncate transform" $ do
       let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 2) 1001 "trunc_part" (Truncate 10)))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Time-based transforms" $ do
+  , it "Time-based transforms" $ do
       let ps = PartitionSpec 0 (V.fromList
             [ PartitionField (V.singleton 1) 1000 "year_part" Year
             , PartitionField (V.singleton 2) 1001 "month_part" Month
@@ -224,59 +223,59 @@ partitionSpecTests = testGroup "PartitionSpec"
             ])
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Void transform" $ do
+  , it "Void transform" $ do
       let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "void_part" Void))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "Sort orders roundtrip" $ do
+  , it "Sort orders roundtrip" $ do
       let so = SortOrder 1 (V.fromList
             [ SortField 1 Identity Asc NullsFirst
             , SortField 2 (Bucket 8) Desc NullsLast
             ])
           tm = minimalMetadata { tmSortOrders = V.singleton so }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
   ]
 
 -- ============================================================
 -- Manifest schema construction
 -- ============================================================
 
-manifestSchemaTests :: TestTree
-manifestSchemaTests = testGroup "Manifest schemas"
-  [ testCase "manifestEntrySchema is an AvroRecord" $
+manifestSchemaTests :: Spec
+manifestSchemaTests = describe "Manifest schemas" $ sequence_
+  [ it "manifestEntrySchema is an AvroRecord" $
       case manifestEntrySchema of
-        AvroRecord{avroRecordName = name} -> name @?= "manifest_entry"
-        _ -> assertFailure "expected AvroRecord"
+        AvroRecord{avroRecordName = name} -> name `shouldBe` "manifest_entry"
+        _ -> expectationFailure "expected AvroRecord"
 
-  , testCase "manifestFileSchema is an AvroRecord" $
+  , it "manifestFileSchema is an AvroRecord" $
       case manifestFileSchema of
-        AvroRecord{avroRecordName = name} -> name @?= "manifest_file"
-        _ -> assertFailure "expected AvroRecord"
+        AvroRecord{avroRecordName = name} -> name `shouldBe` "manifest_file"
+        _ -> expectationFailure "expected AvroRecord"
 
-  , testCase "manifestEntrySchema has correct namespace" $
+  , it "manifestEntrySchema has correct namespace" $
       case manifestEntrySchema of
-        AvroRecord{avroRecordNamespace = ns} -> ns @?= Just "org.apache.iceberg"
-        _ -> assertFailure "expected AvroRecord"
+        AvroRecord{avroRecordNamespace = ns} -> ns `shouldBe` Just "org.apache.iceberg"
+        _ -> expectationFailure "expected AvroRecord"
 
-  , testCase "manifestFileSchema has expected fields" $
+  , it "manifestFileSchema has expected fields" $
       case manifestFileSchema of
         AvroRecord{avroRecordFields = fields} ->
-          V.length fields > 0 @?= True
-        _ -> assertFailure "expected AvroRecord"
+          V.length fields > 0 `shouldBe` True
+        _ -> expectationFailure "expected AvroRecord"
   ]
 
 -- ============================================================
 -- Avro manifest / manifest-list containers
 -- ============================================================
 
-manifestAvroTests :: TestTree
-manifestAvroTests = testGroup "Manifest Avro"
-  [ testCase "roundtrip manifest entry container" $ do
+manifestAvroTests :: Spec
+manifestAvroTests = describe "Manifest Avro" $ sequence_
+  [ it "roundtrip manifest entry container" $ do
       let u0 = AV.Union 0 AV.Null
           dataFile =
             AV.Record $
@@ -304,21 +303,21 @@ manifestAvroTests = testGroup "Manifest Avro"
                 ]
           bs = writeContainer manifestEntrySchema (V.singleton entry)
       case readManifestEntries bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (_, vec) -> do
-          V.length vec @?= 1
+          V.length vec `shouldBe` 1
           let me = V.unsafeIndex vec 0
-          meStatus me @?= Added
-          meSnapshotId me @?= Just 99
-          meSequenceNumber me @?= Nothing
-          meFileSequenceNumber me @?= Just 7
-          meFilePath me @?= "s3://b/f.parquet"
-          meFileFormat me @?= ParquetFormat
-          meRecordCount me @?= 42
-          meFileSizeBytes me @?= 2048
-          V.length (mePartition me) @?= 0
+          meStatus me `shouldBe` Added
+          meSnapshotId me `shouldBe` Just 99
+          meSequenceNumber me `shouldBe` Nothing
+          meFileSequenceNumber me `shouldBe` Just 7
+          meFilePath me `shouldBe` "s3://b/f.parquet"
+          meFileFormat me `shouldBe` ParquetFormat
+          meRecordCount me `shouldBe` 42
+          meFileSizeBytes me `shouldBe` 2048
+          V.length (mePartition me) `shouldBe` 0
 
-  , testCase "roundtrip manifest list container" $ do
+  , it "roundtrip manifest list container" $ do
       let u0 = AV.Union 0 AV.Null
           mf =
             AV.Record $
@@ -339,32 +338,32 @@ manifestAvroTests = testGroup "Manifest Avro"
                 ]
           bs = writeContainer manifestFileSchema (V.singleton mf)
       case readManifestList bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (_, vec) -> do
-          V.length vec @?= 1
+          V.length vec `shouldBe` 1
           let m = V.unsafeIndex vec 0
-          mfPath m @?= "s3://bucket/m1.avro"
-          mfLength m @?= 500
-          mfPartitionSpecId m @?= 0
-          mfContent m @?= DataContent
-          mfSequenceNumber m @?= 10
-          mfMinSequenceNumber m @?= 5
-          mfAddedSnapshotId m @?= 99
-          mfAddedDataFilesCount m @?= Nothing
-          mfExistingDataFilesCount m @?= Nothing
-          mfDeletedDataFilesCount m @?= Nothing
-          mfAddedRowsCount m @?= Nothing
-          mfExistingRowsCount m @?= Nothing
-          mfDeletedRowsCount m @?= Nothing
+          mfPath m `shouldBe` "s3://bucket/m1.avro"
+          mfLength m `shouldBe` 500
+          mfPartitionSpecId m `shouldBe` 0
+          mfContent m `shouldBe` DataContent
+          mfSequenceNumber m `shouldBe` 10
+          mfMinSequenceNumber m `shouldBe` 5
+          mfAddedSnapshotId m `shouldBe` 99
+          mfAddedDataFilesCount m `shouldBe` Nothing
+          mfExistingDataFilesCount m `shouldBe` Nothing
+          mfDeletedDataFilesCount m `shouldBe` Nothing
+          mfAddedRowsCount m `shouldBe` Nothing
+          mfExistingRowsCount m `shouldBe` Nothing
+          mfDeletedRowsCount m `shouldBe` Nothing
   ]
 
 -- ============================================================
 -- Snapshot operations
 -- ============================================================
 
-snapshotTests :: TestTree
-snapshotTests = testGroup "Snapshot operations"
-  [ testCase "currentSnapshot returns matching snapshot" $ do
+snapshotTests :: Spec
+snapshotTests = describe "Snapshot operations" $ sequence_
+  [ it "currentSnapshot returns matching snapshot" $ do
       let snap = Snapshot
             { snapId = 42
             , snapParentId = Nothing
@@ -380,29 +379,29 @@ snapshotTests = testGroup "Snapshot operations"
             { tmCurrentSnapshotId = Just 42
             , tmSnapshots = V.singleton snap
             }
-      currentSnapshot tm @?= Just snap
+      currentSnapshot tm `shouldBe` Just snap
 
-  , testCase "currentSnapshot returns Nothing when no current ID" $ do
+  , it "currentSnapshot returns Nothing when no current ID" $ do
       let tm = minimalMetadata { tmCurrentSnapshotId = Nothing }
-      currentSnapshot tm @?= Nothing
+      currentSnapshot tm `shouldBe` Nothing
 
-  , testCase "currentSnapshot returns Nothing for missing ID" $ do
+  , it "currentSnapshot returns Nothing for missing ID" $ do
       let snap = mkSnap 1 Nothing 1 1000 "ml.avro" Map.empty
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 999
             , tmSnapshots = V.singleton snap
             }
-      currentSnapshot tm @?= Nothing
+      currentSnapshot tm `shouldBe` Nothing
 
-  , testCase "snapshotById finds the right snapshot" $ do
+  , it "snapshotById finds the right snapshot" $ do
       let s1 = mkSnap 10 Nothing 1 1000 "ml1.avro" Map.empty
           s2 = mkSnap 20 (Just 10) 2 2000 "ml2.avro" Map.empty
           tm = minimalMetadata { tmSnapshots = V.fromList [s1, s2] }
-      snapshotById tm 20 @?= Just s2
-      snapshotById tm 10 @?= Just s1
-      snapshotById tm 99 @?= Nothing
+      snapshotById tm 20 `shouldBe` Just s2
+      snapshotById tm 10 `shouldBe` Just s1
+      snapshotById tm 99 `shouldBe` Nothing
 
-  , testCase "snapshotParentChain with 3 snapshots" $ do
+  , it "snapshotParentChain with 3 snapshots" $ do
       let s1 = mkSnap 1 Nothing   1 1000 "ml1.avro" Map.empty
           s2 = mkSnap 2 (Just 1)  2 2000 "ml2.avro" Map.empty
           s3 = mkSnap 3 (Just 2)  3 3000 "ml3.avro" Map.empty
@@ -411,16 +410,16 @@ snapshotTests = testGroup "Snapshot operations"
           chain = snapshotParentChain tm s3
       case chain of
         [p1, p2] -> do
-          snapId p1 @?= 2
-          snapId p2 @?= 1
-        _ -> assertFailure ("expected 2-element chain, got " ++ show (length chain))
+          snapId p1 `shouldBe` 2
+          snapId p2 `shouldBe` 1
+        _ -> expectationFailure ("expected 2-element chain, got " ++ show (length chain))
 
-  , testCase "snapshotParentChain stops at root" $ do
+  , it "snapshotParentChain stops at root" $ do
       let s1 = mkSnap 1 Nothing 1 1000 "ml1.avro" Map.empty
           tm = minimalMetadata { tmSnapshots = V.singleton s1 }
-      snapshotParentChain tm s1 @?= []
+      snapshotParentChain tm s1 `shouldBe` []
 
-  , testCase "currentPartitionSpec returns default spec" $ do
+  , it "currentPartitionSpec returns default spec" $ do
       let ps = PartitionSpec 5 (V.singleton (PartitionField (V.singleton 1) 1000 "p" Identity))
           tm = minimalMetadata
             { tmPartitionSpecs = V.fromList
@@ -429,46 +428,46 @@ snapshotTests = testGroup "Snapshot operations"
                 ]
             , tmDefaultSpecId = 5
             }
-      currentPartitionSpec tm @?= Just ps
+      currentPartitionSpec tm `shouldBe` Just ps
 
-  , testCase "currentPartitionSpec returns Nothing for missing ID" $ do
+  , it "currentPartitionSpec returns Nothing for missing ID" $ do
       let tm = minimalMetadata { tmDefaultSpecId = 99 }
-      currentPartitionSpec tm @?= Nothing
+      currentPartitionSpec tm `shouldBe` Nothing
   ]
 
 -- ============================================================
 -- Schema evolution
 -- ============================================================
 
-schemaEvolutionTests :: TestTree
-schemaEvolutionTests = testGroup "Schema evolution"
-  [ testCase "schemaById lookup" $ do
+schemaEvolutionTests :: Spec
+schemaEvolutionTests = describe "Schema evolution" $ sequence_
+  [ it "schemaById lookup" $ do
       let s0 = mkSchema 0 V.empty
           s1 = mkSchema 1 (V.singleton (mkSF 1 "x" True TInt Nothing))
           tm = minimalMetadata { tmSchemas = V.fromList [s0, s1] }
-      schemaById tm 1 @?= Just s1
-      schemaById tm 0 @?= Just s0
-      schemaById tm 99 @?= Nothing
+      schemaById tm 1 `shouldBe` Just s1
+      schemaById tm 0 `shouldBe` Just s0
+      schemaById tm 99 `shouldBe` Nothing
 
-  , testCase "currentSchema matches tmCurrentSchemaId" $ do
+  , it "currentSchema matches tmCurrentSchemaId" $ do
       let s0 = mkSchema 0 V.empty
           s1 = mkSchema 1 (V.singleton (mkSF 1 "x" True TLong Nothing))
           tm = minimalMetadata
             { tmSchemas = V.fromList [s0, s1]
             , tmCurrentSchemaId = 1
             }
-      fmap schemaId (currentSchema tm) @?= Just 1
+      fmap schemaId (currentSchema tm) `shouldBe` Just 1
 
-  , testCase "findFieldById at top level" $ do
+  , it "findFieldById at top level" $ do
       let fields = V.fromList
             [ mkSF 1 "a" True TInt Nothing
             , mkSF 2 "b" True TString Nothing
             ]
           schema = mkSchema 0 fields
-      fmap sfName (findFieldById schema 2) @?= Just "b"
-      findFieldById schema 99 @?= Nothing
+      fmap sfName (findFieldById schema 2) `shouldBe` Just "b"
+      findFieldById schema 99 `shouldBe` Nothing
 
-  , testCase "findFieldById in nested struct" $ do
+  , it "findFieldById in nested struct" $ do
       let inner = V.fromList
             [ mkSF 10 "x" True TInt Nothing
             , mkSF 11 "y" True TInt Nothing
@@ -478,11 +477,11 @@ schemaEvolutionTests = testGroup "Schema evolution"
             , mkSF 2 "point" True (TStruct inner) Nothing
             ]
           schema = mkSchema 0 fields
-      fmap sfName (findFieldById schema 11) @?= Just "y"
-      fmap sfName (findFieldById schema 10) @?= Just "x"
-      fmap sfName (findFieldById schema 1) @?= Just "id"
+      fmap sfName (findFieldById schema 11) `shouldBe` Just "y"
+      fmap sfName (findFieldById schema 10) `shouldBe` Just "x"
+      fmap sfName (findFieldById schema 1) `shouldBe` Just "id"
 
-  , testCase "findFieldById in list element struct" $ do
+  , it "findFieldById in list element struct" $ do
       let elemFields = V.fromList
             [ mkSF 20 "name" True TString Nothing
             , mkSF 21 "val" True TDouble Nothing
@@ -490,18 +489,18 @@ schemaEvolutionTests = testGroup "Schema evolution"
           fields = V.singleton
             (mkSF 1 "items" True (TList 100 (TStruct elemFields)) Nothing)
           schema = mkSchema 0 fields
-      fmap sfName (findFieldById schema 20) @?= Just "name"
-      fmap sfName (findFieldById schema 21) @?= Just "val"
+      fmap sfName (findFieldById schema 20) `shouldBe` Just "name"
+      fmap sfName (findFieldById schema 21) `shouldBe` Just "val"
 
-  , testCase "findFieldById in map value struct" $ do
+  , it "findFieldById in map value struct" $ do
       let valFields = V.singleton (mkSF 30 "score" True TFloat Nothing)
           fields = V.singleton
             (mkSF 1 "scores" True
               (TMap 100 TString 101 (TStruct valFields)) Nothing)
           schema = mkSchema 0 fields
-      fmap sfName (findFieldById schema 30) @?= Just "score"
+      fmap sfName (findFieldById schema 30) `shouldBe` Just "score"
 
-  , testCase "projectSchema keeping subset of fields" $ do
+  , it "projectSchema keeping subset of fields" $ do
       let fields = V.fromList
             [ mkSF 1 "a" True TInt Nothing
             , mkSF 2 "b" True TString Nothing
@@ -510,25 +509,25 @@ schemaEvolutionTests = testGroup "Schema evolution"
             ]
           schema = mkSchema 0 fields
       case projectSchema schema [2, 4] of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right projected -> do
-          V.length (schemaFields projected) @?= 2
-          sfName (V.unsafeIndex (schemaFields projected) 0) @?= "b"
-          sfName (V.unsafeIndex (schemaFields projected) 1) @?= "d"
+          V.length (schemaFields projected) `shouldBe` 2
+          sfName (V.unsafeIndex (schemaFields projected) 0) `shouldBe` "b"
+          sfName (V.unsafeIndex (schemaFields projected) 1) `shouldBe` "d"
 
-  , testCase "projectSchema with empty field list" $ do
+  , it "projectSchema with empty field list" $ do
       let schema = mkSchema 0 (V.singleton (mkSF 1 "a" True TInt Nothing))
       case projectSchema schema [] of
-        Left _  -> assertFailure "empty field list should succeed"
-        Right s -> V.length (schemaFields s) @?= 0
+        Left _  -> expectationFailure "empty field list should succeed"
+        Right s -> V.length (schemaFields s) `shouldBe` 0
 
-  , testCase "projectSchema with no matching IDs fails" $ do
+  , it "projectSchema with no matching IDs fails" $ do
       let schema = mkSchema 0 (V.singleton (mkSF 1 "a" True TInt Nothing))
       case projectSchema schema [99, 100] of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected Left for no matching IDs"
+        Right _ -> expectationFailure "expected Left for no matching IDs"
 
-  , testCase "JSON roundtrip -> currentSnapshot -> verify" $ do
+  , it "JSON roundtrip -> currentSnapshot -> verify" $ do
       let snap1 = mkSnap 10 Nothing  1 1000 "s3://b/ml1.avro"
                     (Map.singleton "operation" "append")
           snap2 = mkSnap 20 (Just 10) 2 2000 "s3://b/ml2.avro"
@@ -550,24 +549,24 @@ schemaEvolutionTests = testGroup "Schema evolution"
             }
           json = metadataToJSON tm
       case metadataFromJSON json of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right tm' -> do
-          tm' @?= tm
+          tm' `shouldBe` tm
           let mSnap = currentSnapshot tm'
-          fmap snapId mSnap @?= Just 20
-          fmap snapParentId mSnap @?= Just (Just 10)
+          fmap snapId mSnap `shouldBe` Just 20
+          fmap snapParentId mSnap `shouldBe` Just (Just 10)
           let mSchema = currentSchema tm'
-          fmap schemaId mSchema @?= Just 1
-          fmap (V.length . schemaFields) mSchema @?= Just 2
+          fmap schemaId mSchema `shouldBe` Just 1
+          fmap (V.length . schemaFields) mSchema `shouldBe` Just 2
   ]
 
 -- ============================================================
 -- Delete file types
 -- ============================================================
 
-deleteFileTests :: TestTree
-deleteFileTests = testGroup "Delete file types"
-  [ testCase "DeleteFile construction" $ do
+deleteFileTests :: Spec
+deleteFileTests = describe "Delete file types" $ sequence_
+  [ it "DeleteFile construction" $ do
       let df = DeleteFile
             { dfFilePath = "s3://b/del.parquet"
             , dfFileFormat = ParquetFormat
@@ -578,11 +577,11 @@ deleteFileTests = testGroup "Delete file types"
             , dfPartition = Map.empty
             , dfSequenceNumber = Just 5
             }
-      dfFilePath df @?= "s3://b/del.parquet"
-      dfContent df @?= PositionDeletes
-      dfRecordCount df @?= 100
+      dfFilePath df `shouldBe` "s3://b/del.parquet"
+      dfContent df `shouldBe` PositionDeletes
+      dfRecordCount df `shouldBe` 100
 
-  , testCase "EqualityDeletes variant" $ do
+  , it "EqualityDeletes variant" $ do
       let df = DeleteFile
             { dfFilePath = "s3://b/eq-del.parquet"
             , dfFileFormat = ParquetFormat
@@ -593,27 +592,27 @@ deleteFileTests = testGroup "Delete file types"
             , dfPartition = Map.singleton "region" (AV.String "us-east")
             , dfSequenceNumber = Nothing
             }
-      dfContent df @?= EqualityDeletes
-      V.length (dfEqualityFieldIds df) @?= 3
+      dfContent df `shouldBe` EqualityDeletes
+      V.length (dfEqualityFieldIds df) `shouldBe` 3
   ]
 
 -- ============================================================
 -- Position deletes
 -- ============================================================
 
-positionDeleteTests :: TestTree
-positionDeleteTests = testGroup "Position deletes"
-  [ testCase "positionDeletesFromColumns zips correctly" $ do
+positionDeleteTests :: Spec
+positionDeleteTests = describe "Position deletes" $ sequence_
+  [ it "positionDeletesFromColumns zips correctly" $ do
       let paths = V.fromList ["f1.parquet", "f1.parquet", "f2.parquet"]
           positions = V.fromList [0, 5, 3]
           pds = positionDeletesFromColumns paths positions
-      V.length pds @?= 3
-      pdFilePath (V.unsafeIndex pds 0) @?= "f1.parquet"
-      pdPosition (V.unsafeIndex pds 0) @?= 0
-      pdFilePath (V.unsafeIndex pds 2) @?= "f2.parquet"
-      pdPosition (V.unsafeIndex pds 2) @?= 3
+      V.length pds `shouldBe` 3
+      pdFilePath (V.unsafeIndex pds 0) `shouldBe` "f1.parquet"
+      pdPosition (V.unsafeIndex pds 0) `shouldBe` 0
+      pdFilePath (V.unsafeIndex pds 2) `shouldBe` "f2.parquet"
+      pdPosition (V.unsafeIndex pds 2) `shouldBe` 3
 
-  , testCase "applyPositionDeletes removes correct rows" $ do
+  , it "applyPositionDeletes removes correct rows" $ do
       let deletes = V.fromList
             [ PositionDelete "data.parquet" 1
             , PositionDelete "data.parquet" 3
@@ -621,52 +620,52 @@ positionDeleteTests = testGroup "Position deletes"
             ]
           rows = V.fromList ["a", "b", "c", "d", "e" :: String]
           result = applyPositionDeletes deletes "data.parquet" rows
-      result @?= V.fromList ["a", "c", "e"]
+      result `shouldBe` V.fromList ["a", "c", "e"]
 
-  , testCase "applyPositionDeletes with no matching deletes" $ do
+  , it "applyPositionDeletes with no matching deletes" $ do
       let deletes = V.fromList [PositionDelete "other.parquet" 0]
           rows = V.fromList [10, 20, 30 :: Int]
-      applyPositionDeletes deletes "data.parquet" rows @?= rows
+      applyPositionDeletes deletes "data.parquet" rows `shouldBe` rows
 
-  , testCase "applyPositionDeletes with empty deletes" $ do
+  , it "applyPositionDeletes with empty deletes" $ do
       let rows = V.fromList [1, 2, 3 :: Int]
-      applyPositionDeletes V.empty "data.parquet" rows @?= rows
+      applyPositionDeletes V.empty "data.parquet" rows `shouldBe` rows
   ]
 
 -- ============================================================
 -- Manifest path filtering
 -- ============================================================
 
-manifestPathFilterTests :: TestTree
-manifestPathFilterTests = testGroup "Manifest path filtering"
-  [ testCase "deleteManifestPaths filters to DeletesContent" $ do
+manifestPathFilterTests :: Spec
+manifestPathFilterTests = describe "Manifest path filtering" $ sequence_
+  [ it "deleteManifestPaths filters to DeletesContent" $ do
       let mfs = V.fromList
             [ mkManifestFile "m1.avro" DataContent 10
             , mkManifestFile "m2.avro" DeletesContent 10
             , mkManifestFile "m3.avro" DataContent 10
             , mkManifestFile "m4.avro" DeletesContent 10
             ]
-      deleteManifestPaths mfs @?= V.fromList ["m2.avro", "m4.avro"]
+      deleteManifestPaths mfs `shouldBe` V.fromList ["m2.avro", "m4.avro"]
 
-  , testCase "dataManifestPaths filters to DataContent" $ do
+  , it "dataManifestPaths filters to DataContent" $ do
       let mfs = V.fromList
             [ mkManifestFile "m1.avro" DataContent 10
             , mkManifestFile "m2.avro" DeletesContent 10
             ]
-      dataManifestPaths mfs @?= V.fromList ["m1.avro"]
+      dataManifestPaths mfs `shouldBe` V.fromList ["m1.avro"]
 
-  , testCase "both filters on empty input" $ do
-      deleteManifestPaths V.empty @?= V.empty
-      dataManifestPaths V.empty @?= V.empty
+  , it "both filters on empty input" $ do
+      deleteManifestPaths V.empty `shouldBe` V.empty
+      dataManifestPaths V.empty `shouldBe` V.empty
   ]
 
 -- ============================================================
 -- Sequence number filtering
 -- ============================================================
 
-sequenceNumberTests :: TestTree
-sequenceNumberTests = testGroup "Sequence number filtering"
-  [ testCase "filterBySequenceNumber keeps entries <= threshold" $ do
+sequenceNumberTests :: Spec
+sequenceNumberTests = describe "Sequence number filtering" $ sequence_
+  [ it "filterBySequenceNumber keeps entries <= threshold" $ do
       let entries = V.fromList
             [ mkEntry (Just 3) "f1.parquet"
             , mkEntry (Just 5) "f2.parquet"
@@ -674,10 +673,10 @@ sequenceNumberTests = testGroup "Sequence number filtering"
             , mkEntry Nothing  "f4.parquet"
             ]
           result = filterBySequenceNumber 5 entries
-      V.length result @?= 3
-      V.map meFilePath result @?= V.fromList ["f1.parquet", "f2.parquet", "f4.parquet"]
+      V.length result `shouldBe` 3
+      V.map meFilePath result `shouldBe` V.fromList ["f1.parquet", "f2.parquet", "f4.parquet"]
 
-  , testCase "applicableDeletes filters delete manifests by sequence number" $ do
+  , it "applicableDeletes filters delete manifests by sequence number" $ do
       let snap = mkSnap 1 Nothing 5 1000 "ml.avro" Map.empty
           mfs = V.fromList
             [ mkManifestFile "d1.avro" DeletesContent 3
@@ -686,17 +685,17 @@ sequenceNumberTests = testGroup "Sequence number filtering"
             , mkManifestFile "d4.avro" DeletesContent 5
             ]
           result = applicableDeletes snap mfs
-      V.length result @?= 2
-      V.map mfPath result @?= V.fromList ["d1.avro", "d4.avro"]
+      V.length result `shouldBe` 2
+      V.map mfPath result `shouldBe` V.fromList ["d1.avro", "d4.avro"]
   ]
 
 -- ============================================================
 -- ScanPlan with delete file paths
 -- ============================================================
 
-scanPlanDeleteTests :: TestTree
-scanPlanDeleteTests = testGroup "ScanPlan with deletes"
-  [ testCase "planScan sets empty delete file paths" $ do
+scanPlanDeleteTests :: Spec
+scanPlanDeleteTests = describe "ScanPlan with deletes" $ sequence_
+  [ it "planScan sets empty delete file paths" $ do
       let snap = mkSnap 1 Nothing 1 1000 "s3://b/ml.avro" (Map.singleton "operation" "append")
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 1
@@ -718,19 +717,19 @@ scanPlanDeleteTests = testGroup "ScanPlan with deletes"
           mlBs = writeContainer manifestFileSchema (V.singleton mfRec)
           readManifest _ = Right manifestBs
       case planScan tm mlBs readManifest of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right sp -> do
-          spDeleteFilePaths sp @?= V.empty
-          V.length (spDataFilePaths sp) @?= 1
+          spDeleteFilePaths sp `shouldBe` V.empty
+          V.length (spDataFilePaths sp) `shouldBe` 1
   ]
 
 -- ============================================================
 -- SnapshotRef JSON roundtrip
 -- ============================================================
 
-snapshotRefTests :: TestTree
-snapshotRefTests = testGroup "SnapshotRef"
-  [ testCase "JSON roundtrip with snapshot refs" $ do
+snapshotRefTests :: Spec
+snapshotRefTests = describe "SnapshotRef" $ sequence_
+  [ it "JSON roundtrip with snapshot refs" $ do
       let ref = SnapshotRef
             { srSnapshotId = 100
             , srType = "branch"
@@ -741,14 +740,14 @@ snapshotRefTests = testGroup "SnapshotRef"
           tm = minimalMetadata
             { tmSnapshotRefs = Map.singleton "main" ref }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "JSON roundtrip with empty snapshot refs" $ do
+  , it "JSON roundtrip with empty snapshot refs" $ do
       let tm = minimalMetadata
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
 
-  , testCase "JSON roundtrip with format version 2 and all v2 fields" $ do
+  , it "JSON roundtrip with format version 2 and all v2 fields" $ do
       let ref = SnapshotRef
             { srSnapshotId = 200
             , srType = "tag"
@@ -768,7 +767,7 @@ snapshotRefTests = testGroup "SnapshotRef"
                 ]
             }
           json = metadataToJSON tm
-      metadataFromJSON json @?= Right tm
+      metadataFromJSON json `shouldBe` Right tm
   ]
 
 -- ============================================================

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (TestTree, defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Derive.Aeson
 import qualified Test.Derive.Extension
@@ -9,10 +9,10 @@ import qualified Test.Derive.Modifier
 import qualified Test.Derive.NameStyle
 
 main :: IO ()
-main = defaultMain tests
+main = sydTest tests
 
-tests :: TestTree
-tests = testGroup "wireform-derive"
+tests :: Spec
+tests = describe "wireform-derive" $ sequence_
   [ Test.Derive.NameStyle.tests
   , Test.Derive.Modifier.tests
   , Test.Derive.Extension.tests

@@ -35,8 +35,7 @@ import           Network.HTTP.Client.Send       (prepareRequest)
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI        as WURI
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -79,8 +78,8 @@ makePost = do
 -- Idempotency
 -- ---------------------------------------------------------------------------
 
-unit_retries_get :: TestTree
-unit_retries_get = testCase "default policy retries GET on 503" $ do
+unit_retries_get :: Spec
+unit_retries_get = it "default policy retries GET on 503" $ do
   (t, calls) <- mkTransport
     [ (S.status503, [], "")
     , (S.status503, [], "")
@@ -94,10 +93,10 @@ unit_retries_get = testCase "default policy retries GET on 503" $ do
   req <- makeGet
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 3 n
+  n `shouldBe` 3
 
-unit_does_not_retry_post_by_default :: TestTree
-unit_does_not_retry_post_by_default = testCase "default policy does NOT retry POST" $ do
+unit_does_not_retry_post_by_default :: Spec
+unit_does_not_retry_post_by_default = it "default policy does NOT retry POST" $ do
   (t, calls) <- mkTransport
     [ (S.status503, [], "")
     , (S.status503, [], "")
@@ -111,10 +110,10 @@ unit_does_not_retry_post_by_default = testCase "default policy does NOT retry PO
   req <- makePost
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 1 n
+  n `shouldBe` 1
 
-unit_retries_post_when_opted_in :: TestTree
-unit_retries_post_when_opted_in = testCase
+unit_retries_post_when_opted_in :: Spec
+unit_retries_post_when_opted_in = it
   "retrySafeMethodsOnly=False lets POST retry" $ do
   (t, calls) <- mkTransport
     [ (S.status503, [], "")
@@ -130,10 +129,10 @@ unit_retries_post_when_opted_in = testCase
   req <- makePost
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 3 n
+  n `shouldBe` 3
 
-unit_429_is_retried :: TestTree
-unit_429_is_retried = testCase "429 is retried by default" $ do
+unit_429_is_retried :: Spec
+unit_429_is_retried = it "429 is retried by default" $ do
   (t, calls) <- mkTransport
     [ (S.status429, [], "")
     , (S.status200, [], "ok")
@@ -146,14 +145,14 @@ unit_429_is_retried = testCase "429 is retried by default" $ do
   req <- makeGet
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 2 n
+  n `shouldBe` 2
 
 -- ---------------------------------------------------------------------------
 -- Retry-After
 -- ---------------------------------------------------------------------------
 
-unit_retry_after_delta_seconds :: TestTree
-unit_retry_after_delta_seconds = testCase
+unit_retry_after_delta_seconds :: Spec
+unit_retry_after_delta_seconds = it
   "Retry-After in delta-seconds is honoured (clamped)" $ do
   -- A short Retry-After overrides the (much shorter) backoff
   -- delay; the value is clamped to maxDelay so the test stays
@@ -170,10 +169,10 @@ unit_retry_after_delta_seconds = testCase
   req <- makeGet
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 2 n
+  n `shouldBe` 2
 
-unit_retry_after_http_date :: TestTree
-unit_retry_after_http_date = testCase
+unit_retry_after_http_date :: Spec
+unit_retry_after_http_date = it
   "Retry-After as HTTP-date is parsed without crashing" $ do
   -- We can't pin a real date to "5ms from now", so we just check
   -- that an HTTP-date Retry-After doesn't break the loop. We use
@@ -191,14 +190,14 @@ unit_retry_after_http_date = testCase
   req <- makeGet
   _   <- sendRaw (withRetry cfg t) req
   n   <- readIORef calls
-  assertEqual "upstream calls" 2 n
+  n `shouldBe` 2
 
 -- ---------------------------------------------------------------------------
 -- Circuit breaker
 -- ---------------------------------------------------------------------------
 
-unit_breaker_opens_after_threshold :: TestTree
-unit_breaker_opens_after_threshold = testCase
+unit_breaker_opens_after_threshold :: Spec
+unit_breaker_opens_after_threshold = it
   "breaker opens after consecutive failures" $ do
   -- A 5xx response counts as a failure (per cbFailureOn=5xx).
   -- After 3 consecutive failures the breaker opens; the next
@@ -219,13 +218,13 @@ unit_breaker_opens_after_threshold = testCase
   -- Underlying transport saw exactly 3 calls (the open breaker
   -- short-circuits the 4th).
   n <- readIORef calls
-  assertEqual "underlying calls" 3 n
+  n `shouldBe` 3
   where
     drain :: RawResponse -> IO ByteString
     drain = BSm.popperBytes . Resp.bodyPopper
 
-unit_breaker_passes_when_healthy :: TestTree
-unit_breaker_passes_when_healthy = testCase
+unit_breaker_passes_when_healthy :: Spec
+unit_breaker_passes_when_healthy = it
   "breaker does not interfere on successful calls" $ do
   (t, calls) <- mkTransport (replicate 5 (S.status200, [], "ok"))
   cb <- newCircuitBreaker defaultCircuitBreakerConfig
@@ -234,14 +233,14 @@ unit_breaker_passes_when_healthy = testCase
   mapM_ (\_ -> sendRaw trans req >>= (BSm.popperBytes . Resp.bodyPopper))
         [(1 :: Int) .. 5]
   n <- readIORef calls
-  assertEqual "all five reached upstream" 5 n
+  n `shouldBe` 5
 
 -- ---------------------------------------------------------------------------
 -- Top-level
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.Middleware.Retry"
+tests :: Spec
+tests = describe "Network.HTTP.Client.Middleware.Retry" $ sequence_
   [ unit_retries_get
   , unit_does_not_retry_post_by_default
   , unit_retries_post_when_opted_in

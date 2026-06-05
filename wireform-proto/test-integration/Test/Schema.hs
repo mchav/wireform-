@@ -4,25 +4,24 @@
 module Test.Schema (schemaTests) where
 
 import Data.Int (Int32, Int64)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Proto.Google.Protobuf.Timestamp
 
-schemaTests :: TestTree
-schemaTests = testGroup "Schema (generated record fields)"
-  [ testCase "generated field names" $ do
+schemaTests :: Spec
+schemaTests = describe "Schema (generated record fields)" $ sequence_
+  [ it "generated field names" $ do
       let ts = defaultTimestamp { timestampSeconds = 42, timestampNanos = 99 }
-      timestampSeconds ts @?= (42 :: Int64)
-      timestampNanos ts @?= (99 :: Int32)
+      timestampSeconds ts `shouldBe` (42 :: Int64)
+      timestampNanos ts `shouldBe` (99 :: Int32)
 
-  , testCase "default value" $ do
-      timestampSeconds defaultTimestamp @?= (0 :: Int64)
-      timestampNanos defaultTimestamp @?= (0 :: Int32)
+  , it "default value" $ do
+      timestampSeconds defaultTimestamp `shouldBe` (0 :: Int64)
+      timestampNanos defaultTimestamp `shouldBe` (0 :: Int32)
 
-  , testCase "record update" $ do
+  , it "record update" $ do
       let ts = defaultTimestamp { timestampSeconds = 100, timestampNanos = 200 }
           ts' = ts { timestampSeconds = 300 }
-      timestampSeconds ts' @?= (300 :: Int64)
-      timestampNanos ts' @?= (200 :: Int32)
+      timestampSeconds ts' `shouldBe` (300 :: Int64)
+      timestampNanos ts' `shouldBe` (200 :: Int32)
   ]

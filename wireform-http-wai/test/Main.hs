@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.WAI
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-http-wai"
+main = sydTest $ describe "wireform-http-wai" $ sequence_
   [ Test.WAI.tests
   ]

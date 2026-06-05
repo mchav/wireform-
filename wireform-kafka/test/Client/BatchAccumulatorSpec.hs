@@ -18,8 +18,8 @@ import qualified Data.Set as Set
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Compression.Types as Compression
@@ -346,16 +346,16 @@ prop_appendAndSealRaceIsLossless = withTests 50 . property $ do
   duplicates === 0
 
 -- | All tests for BatchAccumulator
-tests :: TestTree
-tests = testGroup "BatchAccumulator"
-  [ testProperty "Can append records" prop_canAppendRecords
-  , testProperty "Batch ready when full" prop_batchReadyWhenFull
-  , testProperty "Batch ready after linger time" prop_batchReadyAfterLingerTime
-  , testProperty "Per-partition accumulation" prop_perPartitionAccumulation
-  , testProperty "Concurrent appends" prop_concurrentAppends
-  , testProperty "Close marks all ready" prop_closeMarksAllReady
-  , testProperty "Append after close returns false" prop_appendAfterCloseReturnsFalse
-  , testProperty "Batch state transitions" prop_batchStateTransitions
-  , testProperty "Append-vs-seal race is lossless" prop_appendAndSealRaceIsLossless
+tests :: Spec
+tests = describe "BatchAccumulator" $ sequence_
+  [ it "Can append records" prop_canAppendRecords
+  , it "Batch ready when full" prop_batchReadyWhenFull
+  , it "Batch ready after linger time" prop_batchReadyAfterLingerTime
+  , it "Per-partition accumulation" prop_perPartitionAccumulation
+  , it "Concurrent appends" prop_concurrentAppends
+  , it "Close marks all ready" prop_closeMarksAllReady
+  , it "Append after close returns false" prop_appendAfterCloseReturnsFalse
+  , it "Batch state transitions" prop_batchStateTransitions
+  , it "Append-vs-seal race is lossless" prop_appendAndSealRaceIsLossless
   ]
 

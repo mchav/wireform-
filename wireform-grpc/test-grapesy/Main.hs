@@ -7,7 +7,7 @@ import Control.Exception
 import Data.Maybe (fromMaybe)
 import GHC.Conc (setUncaughtExceptionHandler)
 import System.IO
-import Test.Tasty
+import Test.Syd
 
 #if MIN_VERSION_base(4,18,0)
 import GHC.Conc.Sync (threadLabel)
@@ -30,10 +30,10 @@ main :: IO ()
 main = do
     setUncaughtExceptionHandler uncaughtExceptionHandler
 
-    defaultMain $ testGroup "grapesy" [
-        testGroup "Sanity" [
+    sydTest $ describe "grapesy" $ sequence_ [
+        describe "Sanity" $ sequence_ [
             EndOfStream.tests
-          , testGroup "StreamingType" [
+          , describe "StreamingType" $ sequence_ [
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
               ]
@@ -44,11 +44,11 @@ main = do
           , BrokenDeployments.tests
           , NoIsLabel.tests
           ]
-      , testGroup "Regression" [
+      , describe "Regression" $ sequence_ [
             Issue102.tests
           , Issue238.tests
           ]
-      , testGroup "Prop" [
+      , describe "Prop" $ sequence_ [
             Dialogue.tests
           ]
       ]

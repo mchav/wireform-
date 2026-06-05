@@ -27,8 +27,7 @@ import Data.Version (makeVersion)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified MsgPack.Value as MV
 import qualified MsgPack.Class as MC
@@ -70,8 +69,8 @@ data Address = Address
     deriving anyclass (BC.ToBSON, BC.FromBSON)
     deriving anyclass (IC.ToIon, IC.FromIon)
 
-classTests :: TestTree
-classTests = testGroup "Typeclass encode/decode"
+classTests :: Spec
+classTests = describe "Typeclass encode/decode" $ sequence_
   [ msgPackClassTests
   , cborClassTests
   , bsonClassTests
@@ -90,258 +89,258 @@ classTests = testGroup "Typeclass encode/decode"
 -- MsgPack typeclass instances
 --------------------------------------------------------------------------------
 
-msgPackClassTests :: TestTree
-msgPackClassTests = testGroup "MsgPack.Class instances"
-  [ testCase "Bool roundtrip" $ do
-      MC.fromMsgPack (MC.toMsgPack True) @?= Right True
-      MC.fromMsgPack (MC.toMsgPack False) @?= Right False
+msgPackClassTests :: Spec
+msgPackClassTests = describe "MsgPack.Class instances" $ sequence_
+  [ it "Bool roundtrip" $ do
+      MC.fromMsgPack (MC.toMsgPack True) `shouldBe` Right True
+      MC.fromMsgPack (MC.toMsgPack False) `shouldBe` Right False
 
-  , testCase "Int roundtrip" $ do
-      MC.fromMsgPack (MC.toMsgPack (42 :: Int)) @?= Right (42 :: Int)
-      MC.fromMsgPack (MC.toMsgPack (-7 :: Int)) @?= Right (-7 :: Int)
+  , it "Int roundtrip" $ do
+      MC.fromMsgPack (MC.toMsgPack (42 :: Int)) `shouldBe` Right (42 :: Int)
+      MC.fromMsgPack (MC.toMsgPack (-7 :: Int)) `shouldBe` Right (-7 :: Int)
 
-  , testCase "Text roundtrip" $
-      MC.fromMsgPack (MC.toMsgPack ("hello" :: Text)) @?= Right ("hello" :: Text)
+  , it "Text roundtrip" $
+      MC.fromMsgPack (MC.toMsgPack ("hello" :: Text)) `shouldBe` Right ("hello" :: Text)
 
-  , testCase "Maybe roundtrip" $ do
-      MC.fromMsgPack (MC.toMsgPack (Just (42 :: Int))) @?= Right (Just (42 :: Int))
-      MC.fromMsgPack (MC.toMsgPack (Nothing :: Maybe Int)) @?= Right (Nothing :: Maybe Int)
+  , it "Maybe roundtrip" $ do
+      MC.fromMsgPack (MC.toMsgPack (Just (42 :: Int))) `shouldBe` Right (Just (42 :: Int))
+      MC.fromMsgPack (MC.toMsgPack (Nothing :: Maybe Int)) `shouldBe` Right (Nothing :: Maybe Int)
 
-  , testCase "List roundtrip" $
-      MC.fromMsgPack (MC.toMsgPack [1, 2, 3 :: Int]) @?= Right [1, 2, 3 :: Int]
+  , it "List roundtrip" $
+      MC.fromMsgPack (MC.toMsgPack [1, 2, 3 :: Int]) `shouldBe` Right [1, 2, 3 :: Int]
 
-  , testCase "Vector roundtrip" $ do
+  , it "Vector roundtrip" $ do
       let v = V.fromList [10, 20, 30 :: Int]
-      MC.fromMsgPack (MC.toMsgPack v) @?= Right v
+      MC.fromMsgPack (MC.toMsgPack v) `shouldBe` Right v
 
-  , testCase "Map roundtrip" $ do
+  , it "Map roundtrip" $ do
       let m = Map.fromList [("a" :: Text, 1 :: Int), ("b", 2)]
-      MC.fromMsgPack (MC.toMsgPack m) @?= Right m
+      MC.fromMsgPack (MC.toMsgPack m) `shouldBe` Right m
 
-  , testCase "(a,b) roundtrip" $
-      MC.fromMsgPack (MC.toMsgPack ("x" :: Text, 42 :: Int)) @?= Right ("x" :: Text, 42 :: Int)
+  , it "(a,b) roundtrip" $
+      MC.fromMsgPack (MC.toMsgPack ("x" :: Text, 42 :: Int)) `shouldBe` Right ("x" :: Text, 42 :: Int)
 
-  , testCase "() roundtrip" $
-      MC.fromMsgPack (MC.toMsgPack ()) @?= Right ()
+  , it "() roundtrip" $
+      MC.fromMsgPack (MC.toMsgPack ()) `shouldBe` Right ()
 
-  , testCase "Double roundtrip" $
-      MC.fromMsgPack (MC.toMsgPack (3.14 :: Double)) @?= Right (3.14 :: Double)
+  , it "Double roundtrip" $
+      MC.fromMsgPack (MC.toMsgPack (3.14 :: Double)) `shouldBe` Right (3.14 :: Double)
 
-  , testCase "Binary encode/decode via ByteString" $ do
+  , it "Binary encode/decode via ByteString" $ do
       let bs = MC.encodeMsgPack (42 :: Int)
-      MC.decodeMsgPack bs @?= Right (42 :: Int)
+      MC.decodeMsgPack bs `shouldBe` Right (42 :: Int)
   ]
 
 --------------------------------------------------------------------------------
 -- CBOR typeclass instances
 --------------------------------------------------------------------------------
 
-cborClassTests :: TestTree
-cborClassTests = testGroup "CBOR.Class instances"
-  [ testCase "Bool roundtrip" $ do
-      CC.fromCBOR (CC.toCBOR True) @?= Right True
-      CC.fromCBOR (CC.toCBOR False) @?= Right False
+cborClassTests :: Spec
+cborClassTests = describe "CBOR.Class instances" $ sequence_
+  [ it "Bool roundtrip" $ do
+      CC.fromCBOR (CC.toCBOR True) `shouldBe` Right True
+      CC.fromCBOR (CC.toCBOR False) `shouldBe` Right False
 
-  , testCase "Int roundtrip" $ do
-      CC.fromCBOR (CC.toCBOR (42 :: Int)) @?= Right (42 :: Int)
-      CC.fromCBOR (CC.toCBOR (-7 :: Int)) @?= Right (-7 :: Int)
+  , it "Int roundtrip" $ do
+      CC.fromCBOR (CC.toCBOR (42 :: Int)) `shouldBe` Right (42 :: Int)
+      CC.fromCBOR (CC.toCBOR (-7 :: Int)) `shouldBe` Right (-7 :: Int)
 
-  , testCase "Text roundtrip" $
-      CC.fromCBOR (CC.toCBOR ("hello" :: Text)) @?= Right ("hello" :: Text)
+  , it "Text roundtrip" $
+      CC.fromCBOR (CC.toCBOR ("hello" :: Text)) `shouldBe` Right ("hello" :: Text)
 
-  , testCase "Maybe roundtrip" $ do
-      CC.fromCBOR (CC.toCBOR (Just (42 :: Int))) @?= Right (Just (42 :: Int))
-      CC.fromCBOR (CC.toCBOR (Nothing :: Maybe Int)) @?= Right (Nothing :: Maybe Int)
+  , it "Maybe roundtrip" $ do
+      CC.fromCBOR (CC.toCBOR (Just (42 :: Int))) `shouldBe` Right (Just (42 :: Int))
+      CC.fromCBOR (CC.toCBOR (Nothing :: Maybe Int)) `shouldBe` Right (Nothing :: Maybe Int)
 
-  , testCase "List roundtrip" $
-      CC.fromCBOR (CC.toCBOR [1, 2, 3 :: Int]) @?= Right [1, 2, 3 :: Int]
+  , it "List roundtrip" $
+      CC.fromCBOR (CC.toCBOR [1, 2, 3 :: Int]) `shouldBe` Right [1, 2, 3 :: Int]
 
-  , testCase "Binary encode/decode via ByteString" $ do
+  , it "Binary encode/decode via ByteString" $ do
       let bs = CC.encodeCBOR (42 :: Int)
-      CC.decodeCBOR bs @?= Right (42 :: Int)
+      CC.decodeCBOR bs `shouldBe` Right (42 :: Int)
   ]
 
 --------------------------------------------------------------------------------
 -- BSON typeclass instances
 --------------------------------------------------------------------------------
 
-bsonClassTests :: TestTree
-bsonClassTests = testGroup "BSON.Class instances"
-  [ testCase "Bool roundtrip" $ do
-      BC.fromBSON (BC.toBSON True) @?= Right True
-      BC.fromBSON (BC.toBSON False) @?= Right False
+bsonClassTests :: Spec
+bsonClassTests = describe "BSON.Class instances" $ sequence_
+  [ it "Bool roundtrip" $ do
+      BC.fromBSON (BC.toBSON True) `shouldBe` Right True
+      BC.fromBSON (BC.toBSON False) `shouldBe` Right False
 
-  , testCase "Int32 roundtrip" $ do
-      BC.fromBSON (BC.toBSON (42 :: Int)) @?= Right (42 :: Int)
-      BC.fromBSON (BC.toBSON (-7 :: Int)) @?= Right (-7 :: Int)
+  , it "Int32 roundtrip" $ do
+      BC.fromBSON (BC.toBSON (42 :: Int)) `shouldBe` Right (42 :: Int)
+      BC.fromBSON (BC.toBSON (-7 :: Int)) `shouldBe` Right (-7 :: Int)
 
-  , testCase "Text roundtrip" $
-      BC.fromBSON (BC.toBSON ("hello" :: Text)) @?= Right ("hello" :: Text)
+  , it "Text roundtrip" $
+      BC.fromBSON (BC.toBSON ("hello" :: Text)) `shouldBe` Right ("hello" :: Text)
 
-  , testCase "Double roundtrip" $
-      BC.fromBSON (BC.toBSON (3.14 :: Double)) @?= Right (3.14 :: Double)
+  , it "Double roundtrip" $
+      BC.fromBSON (BC.toBSON (3.14 :: Double)) `shouldBe` Right (3.14 :: Double)
 
-  , testCase "List roundtrip" $
-      BC.fromBSON (BC.toBSON [1, 2, 3 :: Int]) @?= Right [1, 2, 3 :: Int]
+  , it "List roundtrip" $
+      BC.fromBSON (BC.toBSON [1, 2, 3 :: Int]) `shouldBe` Right [1, 2, 3 :: Int]
   ]
 
 --------------------------------------------------------------------------------
 -- EDN typeclass instances
 --------------------------------------------------------------------------------
 
-ednClassTests :: TestTree
-ednClassTests = testGroup "EDN.Class instances"
-  [ testCase "Bool roundtrip" $ do
-      EC.fromEDN (EC.toEDN True) @?= Right True
-      EC.fromEDN (EC.toEDN False) @?= Right False
+ednClassTests :: Spec
+ednClassTests = describe "EDN.Class instances" $ sequence_
+  [ it "Bool roundtrip" $ do
+      EC.fromEDN (EC.toEDN True) `shouldBe` Right True
+      EC.fromEDN (EC.toEDN False) `shouldBe` Right False
 
-  , testCase "Int roundtrip" $
-      EC.fromEDN (EC.toEDN (42 :: Int)) @?= Right (42 :: Int)
+  , it "Int roundtrip" $
+      EC.fromEDN (EC.toEDN (42 :: Int)) `shouldBe` Right (42 :: Int)
 
-  , testCase "Text roundtrip" $
-      EC.fromEDN (EC.toEDN ("hello" :: Text)) @?= Right ("hello" :: Text)
+  , it "Text roundtrip" $
+      EC.fromEDN (EC.toEDN ("hello" :: Text)) `shouldBe` Right ("hello" :: Text)
 
-  , testCase "List roundtrip" $
-      EC.fromEDN (EC.toEDN [1, 2, 3 :: Int]) @?= Right [1, 2, 3 :: Int]
+  , it "List roundtrip" $
+      EC.fromEDN (EC.toEDN [1, 2, 3 :: Int]) `shouldBe` Right [1, 2, 3 :: Int]
   ]
 
 --------------------------------------------------------------------------------
 -- Ion typeclass instances
 --------------------------------------------------------------------------------
 
-ionClassTests :: TestTree
-ionClassTests = testGroup "Ion.Class instances"
-  [ testCase "Bool roundtrip" $ do
-      IC.fromIon (IC.toIon True) @?= Right True
-      IC.fromIon (IC.toIon False) @?= Right False
+ionClassTests :: Spec
+ionClassTests = describe "Ion.Class instances" $ sequence_
+  [ it "Bool roundtrip" $ do
+      IC.fromIon (IC.toIon True) `shouldBe` Right True
+      IC.fromIon (IC.toIon False) `shouldBe` Right False
 
-  , testCase "Int roundtrip" $
-      IC.fromIon (IC.toIon (42 :: Int)) @?= Right (42 :: Int)
+  , it "Int roundtrip" $
+      IC.fromIon (IC.toIon (42 :: Int)) `shouldBe` Right (42 :: Int)
 
-  , testCase "Text roundtrip" $
-      IC.fromIon (IC.toIon ("hello" :: Text)) @?= Right ("hello" :: Text)
+  , it "Text roundtrip" $
+      IC.fromIon (IC.toIon ("hello" :: Text)) `shouldBe` Right ("hello" :: Text)
 
-  , testCase "List roundtrip" $
-      IC.fromIon (IC.toIon [1, 2, 3 :: Int]) @?= Right [1, 2, 3 :: Int]
+  , it "List roundtrip" $
+      IC.fromIon (IC.toIon [1, 2, 3 :: Int]) `shouldBe` Right [1, 2, 3 :: Int]
   ]
 
 --------------------------------------------------------------------------------
 -- MsgPack Generic deriving
 --------------------------------------------------------------------------------
 
-msgPackGenericTests :: TestTree
-msgPackGenericTests = testGroup "MsgPack Generic deriving"
-  [ testCase "Person to/from MsgPack value" $ do
+msgPackGenericTests :: Spec
+msgPackGenericTests = describe "MsgPack Generic deriving" $ sequence_
+  [ it "Person to/from MsgPack value" $ do
       let p = Person "Alice" 30
           v = MC.toMsgPack p
           expected = MV.Map (V.fromList
             [ (MV.String "name", MV.String "Alice")
             , (MV.String "age", MV.Word 30)
             ])
-      v @?= expected
-      MC.fromMsgPack v @?= Right p
+      v `shouldBe` expected
+      MC.fromMsgPack v `shouldBe` Right p
 
-  , testCase "Person binary roundtrip" $ do
+  , it "Person binary roundtrip" $ do
       let p = Person "Bob" 25
-      MC.decodeMsgPack (MC.encodeMsgPack p) @?= Right p
+      MC.decodeMsgPack (MC.encodeMsgPack p) `shouldBe` Right p
 
-  , testCase "Address generic roundtrip" $ do
+  , it "Address generic roundtrip" $ do
       let a = Address "123 Main St" "Springfield" 62701
-      MC.fromMsgPack (MC.toMsgPack a) @?= Right a
+      MC.fromMsgPack (MC.toMsgPack a) `shouldBe` Right a
 
-  , testCase "Address binary roundtrip" $ do
+  , it "Address binary roundtrip" $ do
       let a = Address "456 Oak Ave" "Shelbyville" 62702
-      MC.decodeMsgPack (MC.encodeMsgPack a) @?= Right a
+      MC.decodeMsgPack (MC.encodeMsgPack a) `shouldBe` Right a
   ]
 
 --------------------------------------------------------------------------------
 -- CBOR Generic deriving
 --------------------------------------------------------------------------------
 
-cborGenericTests :: TestTree
-cborGenericTests = testGroup "CBOR Generic deriving"
-  [ testCase "Person to/from CBOR value" $ do
+cborGenericTests :: Spec
+cborGenericTests = describe "CBOR Generic deriving" $ sequence_
+  [ it "Person to/from CBOR value" $ do
       let p = Person "Alice" 30
           v = CC.toCBOR p
           expected = CV.Map (V.fromList
             [ (CV.TextString "name", CV.TextString "Alice")
             , (CV.TextString "age", CV.UInt 30)
             ])
-      v @?= expected
-      CC.fromCBOR v @?= Right p
+      v `shouldBe` expected
+      CC.fromCBOR v `shouldBe` Right p
 
-  , testCase "Person binary roundtrip" $ do
+  , it "Person binary roundtrip" $ do
       let p = Person "Bob" 25
-      CC.decodeCBOR (CC.encodeCBOR p) @?= Right p
+      CC.decodeCBOR (CC.encodeCBOR p) `shouldBe` Right p
 
-  , testCase "Address generic roundtrip" $ do
+  , it "Address generic roundtrip" $ do
       let a = Address "123 Main St" "Springfield" 62701
-      CC.fromCBOR (CC.toCBOR a) @?= Right a
+      CC.fromCBOR (CC.toCBOR a) `shouldBe` Right a
   ]
 
 --------------------------------------------------------------------------------
 -- BSON Generic deriving
 --------------------------------------------------------------------------------
 
-bsonGenericTests :: TestTree
-bsonGenericTests = testGroup "BSON Generic deriving"
-  [ testCase "Person to/from BSON value" $ do
+bsonGenericTests :: Spec
+bsonGenericTests = describe "BSON Generic deriving" $ sequence_
+  [ it "Person to/from BSON value" $ do
       let p = Person "Alice" 30
           v = BC.toBSON p
       case v of
         BV.Document _ -> pure ()
-        _ -> assertFailure "expected Document"
-      BC.fromBSON v @?= Right p
+        _ -> expectationFailure "expected Document"
+      BC.fromBSON v `shouldBe` Right p
 
-  , testCase "Person binary roundtrip" $ do
+  , it "Person binary roundtrip" $ do
       let p = Person "Bob" 25
-      BC.decodeBSON (BC.encodeBSON p) @?= Right p
+      BC.decodeBSON (BC.encodeBSON p) `shouldBe` Right p
 
-  , testCase "Address generic roundtrip" $ do
+  , it "Address generic roundtrip" $ do
       let a = Address "123 Main St" "Springfield" 62701
-      BC.fromBSON (BC.toBSON a) @?= Right a
+      BC.fromBSON (BC.toBSON a) `shouldBe` Right a
   ]
 
 --------------------------------------------------------------------------------
 -- EDN Generic deriving
 --------------------------------------------------------------------------------
 
-ednGenericTests :: TestTree
-ednGenericTests = testGroup "EDN Generic deriving"
-  [ testCase "Person to/from EDN value" $ do
+ednGenericTests :: Spec
+ednGenericTests = describe "EDN Generic deriving" $ sequence_
+  [ it "Person to/from EDN value" $ do
       let p = Person "Alice" 30
           v = EC.toEDN p
       case v of
         EV.Map _ -> pure ()
-        _ -> assertFailure "expected Map"
-      EC.fromEDN v @?= Right p
+        _ -> expectationFailure "expected Map"
+      EC.fromEDN v `shouldBe` Right p
 
-  , testCase "Person text roundtrip" $ do
+  , it "Person text roundtrip" $ do
       let p = Person "Bob" 25
-      EC.decodeEDN (EC.encodeEDN p) @?= Right p
+      EC.decodeEDN (EC.encodeEDN p) `shouldBe` Right p
   ]
 
 --------------------------------------------------------------------------------
 -- Ion Generic deriving
 --------------------------------------------------------------------------------
 
-ionGenericTests :: TestTree
-ionGenericTests = testGroup "Ion Generic deriving"
-  [ testCase "Person to/from Ion value" $ do
+ionGenericTests :: Spec
+ionGenericTests = describe "Ion Generic deriving" $ sequence_
+  [ it "Person to/from Ion value" $ do
       let p = Person "Alice" 30
           v = IC.toIon p
       case v of
         IV.Struct _ -> pure ()
-        _ -> assertFailure "expected Struct"
-      IC.fromIon v @?= Right p
+        _ -> expectationFailure "expected Struct"
+      IC.fromIon v `shouldBe` Right p
 
-  , testCase "Person binary roundtrip" $ do
+  , it "Person binary roundtrip" $ do
       let p = Person "Bob" 25
-      IC.decodeIon (IC.encodeIon p) @?= Right p
+      IC.decodeIon (IC.encodeIon p) `shouldBe` Right p
 
-  , testCase "Address generic roundtrip" $ do
+  , it "Address generic roundtrip" $ do
       let a = Address "123 Main St" "Springfield" 62701
-      IC.fromIon (IC.toIon a) @?= Right a
+      IC.fromIon (IC.toIon a) `shouldBe` Right a
   ]
 
 --------------------------------------------------------------------------------
@@ -350,8 +349,8 @@ ionGenericTests = testGroup "Ion Generic deriving"
 -- Natural, lazy Text, etc.) -- spot-check round-trips across formats.
 --------------------------------------------------------------------------------
 
-aesonParityTests :: TestTree
-aesonParityTests = testGroup "Aeson-parity round-trips"
+aesonParityTests :: Spec
+aesonParityTests = describe "Aeson-parity round-trips" $ sequence_
   [ msgPackParityTests
   , cborParityTests
   , bsonParityTests
@@ -362,125 +361,125 @@ aesonParityTests = testGroup "Aeson-parity round-trips"
 
 -- Helpers to make explicit type signatures on the recovered value the only
 -- annotation site needed.
-rtMP :: forall a. (MC.ToMsgPack a, MC.FromMsgPack a, Eq a, Show a) => a -> Assertion
-rtMP x = MC.fromMsgPack (MC.toMsgPack x) @?= Right x
+rtMP :: forall a. (MC.ToMsgPack a, MC.FromMsgPack a, Eq a, Show a) => a -> IO ()
+rtMP x = MC.fromMsgPack (MC.toMsgPack x) `shouldBe` Right x
 
-rtCC :: forall a. (CC.ToCBOR a, CC.FromCBOR a, Eq a, Show a) => a -> Assertion
-rtCC x = CC.fromCBOR (CC.toCBOR x) @?= Right x
+rtCC :: forall a. (CC.ToCBOR a, CC.FromCBOR a, Eq a, Show a) => a -> IO ()
+rtCC x = CC.fromCBOR (CC.toCBOR x) `shouldBe` Right x
 
-rtBC :: forall a. (BC.ToBSON a, BC.FromBSON a, Eq a, Show a) => a -> Assertion
-rtBC x = BC.fromBSON (BC.toBSON x) @?= Right x
+rtBC :: forall a. (BC.ToBSON a, BC.FromBSON a, Eq a, Show a) => a -> IO ()
+rtBC x = BC.fromBSON (BC.toBSON x) `shouldBe` Right x
 
-rtEC :: forall a. (EC.ToEDN a, EC.FromEDN a, Eq a, Show a) => a -> Assertion
-rtEC x = EC.fromEDN (EC.toEDN x) @?= Right x
+rtEC :: forall a. (EC.ToEDN a, EC.FromEDN a, Eq a, Show a) => a -> IO ()
+rtEC x = EC.fromEDN (EC.toEDN x) `shouldBe` Right x
 
-rtIC :: forall a. (IC.ToIon a, IC.FromIon a, Eq a, Show a) => a -> Assertion
-rtIC x = IC.fromIon (IC.toIon x) @?= Right x
+rtIC :: forall a. (IC.ToIon a, IC.FromIon a, Eq a, Show a) => a -> IO ()
+rtIC x = IC.fromIon (IC.toIon x) `shouldBe` Right x
 
-msgPackParityTests :: TestTree
-msgPackParityTests = testGroup "MsgPack"
-  [ testCase "Integer roundtrip"   $ do rtMP (12345678901234567 :: Integer); rtMP (-1 :: Integer)
-  , testCase "Natural roundtrip"   $ rtMP (42 :: Natural)
-  , testCase "Lazy Text roundtrip" $ rtMP (TL.pack "hello lazy world")
-  , testCase "NonEmpty roundtrip"  $ rtMP (1 :| [2, 3 :: Int])
-  , testCase "Either roundtrip"    $ do
+msgPackParityTests :: Spec
+msgPackParityTests = describe "MsgPack" $ sequence_
+  [ it "Integer roundtrip"   $ do rtMP (12345678901234567 :: Integer); rtMP (-1 :: Integer)
+  , it "Natural roundtrip"   $ rtMP (42 :: Natural)
+  , it "Lazy Text roundtrip" $ rtMP (TL.pack "hello lazy world")
+  , it "NonEmpty roundtrip"  $ rtMP (1 :| [2, 3 :: Int])
+  , it "Either roundtrip"    $ do
       rtMP (Left  "left"  :: Either Text Int)
       rtMP (Right 99      :: Either Text Int)
-  , testCase "Set roundtrip"     $ rtMP (Set.fromList [1, 2, 3 :: Int])
-  , testCase "Seq roundtrip"     $ rtMP (Seq.fromList [10, 20 :: Int])
-  , testCase "IntMap roundtrip"  $ rtMP (IntMap.fromList [(1, "a" :: Text), (2, "b")])
-  , testCase "IntSet roundtrip"  $ rtMP (IntSet.fromList [3, 4, 5])
-  , testCase "HashMap roundtrip" $ rtMP (HM.fromList [("k" :: Text, 1 :: Int)])
-  , testCase "HashSet roundtrip" $ rtMP (HS.fromList [1, 2 :: Int])
-  , testCase "3-tuple roundtrip" $ rtMP ("x" :: Text, 1 :: Int, True)
-  , testCase "4-tuple roundtrip" $ rtMP (1 :: Int, 2 :: Int, 3 :: Int, 4 :: Int)
-  , testCase "Identity roundtrip" $ rtMP (Identity (5 :: Int))
-  , testCase "Down roundtrip"     $ rtMP (Down (7 :: Int))
-  , testCase "Version roundtrip"  $ rtMP (makeVersion [1, 2, 3])
-  , testCase "Ratio roundtrip"    $ rtMP (3 % 4 :: Rational)
+  , it "Set roundtrip"     $ rtMP (Set.fromList [1, 2, 3 :: Int])
+  , it "Seq roundtrip"     $ rtMP (Seq.fromList [10, 20 :: Int])
+  , it "IntMap roundtrip"  $ rtMP (IntMap.fromList [(1, "a" :: Text), (2, "b")])
+  , it "IntSet roundtrip"  $ rtMP (IntSet.fromList [3, 4, 5])
+  , it "HashMap roundtrip" $ rtMP (HM.fromList [("k" :: Text, 1 :: Int)])
+  , it "HashSet roundtrip" $ rtMP (HS.fromList [1, 2 :: Int])
+  , it "3-tuple roundtrip" $ rtMP ("x" :: Text, 1 :: Int, True)
+  , it "4-tuple roundtrip" $ rtMP (1 :: Int, 2 :: Int, 3 :: Int, 4 :: Int)
+  , it "Identity roundtrip" $ rtMP (Identity (5 :: Int))
+  , it "Down roundtrip"     $ rtMP (Down (7 :: Int))
+  , it "Version roundtrip"  $ rtMP (makeVersion [1, 2, 3])
+  , it "Ratio roundtrip"    $ rtMP (3 % 4 :: Rational)
   ]
 
-cborParityTests :: TestTree
-cborParityTests = testGroup "CBOR"
-  [ testCase "Integer roundtrip"  $ do rtCC (98765432109876 :: Integer); rtCC (-3 :: Integer)
-  , testCase "Natural roundtrip"  $ rtCC (42 :: Natural)
-  , testCase "Lazy Text roundtrip" $ rtCC (TL.pack "lazy")
-  , testCase "NonEmpty roundtrip" $ rtCC (1 :| [2 :: Int])
-  , testCase "Either roundtrip"   $ do
+cborParityTests :: Spec
+cborParityTests = describe "CBOR" $ sequence_
+  [ it "Integer roundtrip"  $ do rtCC (98765432109876 :: Integer); rtCC (-3 :: Integer)
+  , it "Natural roundtrip"  $ rtCC (42 :: Natural)
+  , it "Lazy Text roundtrip" $ rtCC (TL.pack "lazy")
+  , it "NonEmpty roundtrip" $ rtCC (1 :| [2 :: Int])
+  , it "Either roundtrip"   $ do
       rtCC (Left  "x" :: Either Text Int)
       rtCC (Right 1   :: Either Text Int)
-  , testCase "Set roundtrip"     $ rtCC (Set.fromList [1, 2 :: Int])
-  , testCase "Seq roundtrip"     $ rtCC (Seq.fromList ["a" :: Text, "b"])
-  , testCase "IntMap roundtrip"  $ rtCC (IntMap.fromList [(1, True), (2, False)])
-  , testCase "IntSet roundtrip"  $ rtCC (IntSet.fromList [10, 20])
-  , testCase "HashMap roundtrip" $ rtCC (HM.fromList [("k" :: Text, 5 :: Int)])
-  , testCase "HashSet roundtrip" $ rtCC (HS.fromList [1, 2 :: Int])
-  , testCase "3-tuple roundtrip" $ rtCC ("x" :: Text, 1 :: Int, True)
-  , testCase "4-tuple roundtrip" $ rtCC (1 :: Int, "b" :: Text, True, 4 :: Int)
-  , testCase "Identity roundtrip" $ rtCC (Identity ("hi" :: Text))
-  , testCase "Down roundtrip"     $ rtCC (Down (7 :: Int))
-  , testCase "Version roundtrip"  $ rtCC (makeVersion [2])
-  , testCase "Ratio roundtrip"    $ rtCC (5 % 7 :: Rational)
+  , it "Set roundtrip"     $ rtCC (Set.fromList [1, 2 :: Int])
+  , it "Seq roundtrip"     $ rtCC (Seq.fromList ["a" :: Text, "b"])
+  , it "IntMap roundtrip"  $ rtCC (IntMap.fromList [(1, True), (2, False)])
+  , it "IntSet roundtrip"  $ rtCC (IntSet.fromList [10, 20])
+  , it "HashMap roundtrip" $ rtCC (HM.fromList [("k" :: Text, 5 :: Int)])
+  , it "HashSet roundtrip" $ rtCC (HS.fromList [1, 2 :: Int])
+  , it "3-tuple roundtrip" $ rtCC ("x" :: Text, 1 :: Int, True)
+  , it "4-tuple roundtrip" $ rtCC (1 :: Int, "b" :: Text, True, 4 :: Int)
+  , it "Identity roundtrip" $ rtCC (Identity ("hi" :: Text))
+  , it "Down roundtrip"     $ rtCC (Down (7 :: Int))
+  , it "Version roundtrip"  $ rtCC (makeVersion [2])
+  , it "Ratio roundtrip"    $ rtCC (5 % 7 :: Rational)
   ]
 
-bsonParityTests :: TestTree
-bsonParityTests = testGroup "BSON"
-  [ testCase "Integer (small) roundtrip" $ rtBC (123 :: Integer)
-  , testCase "Natural roundtrip"   $ rtBC (42 :: Natural)
-  , testCase "NonEmpty roundtrip"  $ rtBC (1 :| [2 :: Int])
-  , testCase "Either roundtrip"    $ do
+bsonParityTests :: Spec
+bsonParityTests = describe "BSON" $ sequence_
+  [ it "Integer (small) roundtrip" $ rtBC (123 :: Integer)
+  , it "Natural roundtrip"   $ rtBC (42 :: Natural)
+  , it "NonEmpty roundtrip"  $ rtBC (1 :| [2 :: Int])
+  , it "Either roundtrip"    $ do
       rtBC (Left  "x" :: Either Text Int)
       rtBC (Right 7   :: Either Text Int)
-  , testCase "Set roundtrip"      $ rtBC (Set.fromList [1, 2 :: Int])
-  , testCase "Seq roundtrip"      $ rtBC (Seq.fromList [10, 20 :: Int])
-  , testCase "IntMap roundtrip"   $ rtBC (IntMap.fromList [(1, "a" :: Text)])
-  , testCase "IntSet roundtrip"   $ rtBC (IntSet.fromList [3, 4])
-  , testCase "3-tuple roundtrip"  $ rtBC ("x" :: Text, 1 :: Int, True)
-  , testCase "Identity roundtrip" $ rtBC (Identity (5 :: Int))
-  , testCase "Down roundtrip"     $ rtBC (Down (7 :: Int))
-  , testCase "Version roundtrip"  $ rtBC (makeVersion [1, 2])
+  , it "Set roundtrip"      $ rtBC (Set.fromList [1, 2 :: Int])
+  , it "Seq roundtrip"      $ rtBC (Seq.fromList [10, 20 :: Int])
+  , it "IntMap roundtrip"   $ rtBC (IntMap.fromList [(1, "a" :: Text)])
+  , it "IntSet roundtrip"   $ rtBC (IntSet.fromList [3, 4])
+  , it "3-tuple roundtrip"  $ rtBC ("x" :: Text, 1 :: Int, True)
+  , it "Identity roundtrip" $ rtBC (Identity (5 :: Int))
+  , it "Down roundtrip"     $ rtBC (Down (7 :: Int))
+  , it "Version roundtrip"  $ rtBC (makeVersion [1, 2])
   ]
 
-ednParityTests :: TestTree
-ednParityTests = testGroup "EDN"
-  [ testCase "Char roundtrip"      $ rtEC 'x'
-  , testCase "Integer roundtrip"   $ rtEC (12345 :: Integer)
-  , testCase "Natural roundtrip"   $ rtEC (42 :: Natural)
-  , testCase "Lazy Text roundtrip" $ rtEC (TL.pack "lazy")
-  , testCase "NonEmpty roundtrip"  $ rtEC (1 :| [2 :: Int])
-  , testCase "Either roundtrip"    $ do
+ednParityTests :: Spec
+ednParityTests = describe "EDN" $ sequence_
+  [ it "Char roundtrip"      $ rtEC 'x'
+  , it "Integer roundtrip"   $ rtEC (12345 :: Integer)
+  , it "Natural roundtrip"   $ rtEC (42 :: Natural)
+  , it "Lazy Text roundtrip" $ rtEC (TL.pack "lazy")
+  , it "NonEmpty roundtrip"  $ rtEC (1 :| [2 :: Int])
+  , it "Either roundtrip"    $ do
       rtEC (Left  "x" :: Either Text Int)
       rtEC (Right 1   :: Either Text Int)
-  , testCase "Set roundtrip"     $ rtEC (Set.fromList [1, 2 :: Int])
-  , testCase "Seq roundtrip"     $ rtEC (Seq.fromList ["a" :: Text])
-  , testCase "IntMap roundtrip"  $ rtEC (IntMap.fromList [(1, True)])
-  , testCase "IntSet roundtrip"  $ rtEC (IntSet.fromList [10])
-  , testCase "HashSet roundtrip" $ rtEC (HS.fromList [1, 2 :: Int])
-  , testCase "3-tuple roundtrip" $ rtEC ("x" :: Text, 1 :: Int, True)
-  , testCase "Identity roundtrip" $ rtEC (Identity ("hi" :: Text))
-  , testCase "Version roundtrip"  $ rtEC (makeVersion [3])
+  , it "Set roundtrip"     $ rtEC (Set.fromList [1, 2 :: Int])
+  , it "Seq roundtrip"     $ rtEC (Seq.fromList ["a" :: Text])
+  , it "IntMap roundtrip"  $ rtEC (IntMap.fromList [(1, True)])
+  , it "IntSet roundtrip"  $ rtEC (IntSet.fromList [10])
+  , it "HashSet roundtrip" $ rtEC (HS.fromList [1, 2 :: Int])
+  , it "3-tuple roundtrip" $ rtEC ("x" :: Text, 1 :: Int, True)
+  , it "Identity roundtrip" $ rtEC (Identity ("hi" :: Text))
+  , it "Version roundtrip"  $ rtEC (makeVersion [3])
   ]
 
-ionParityTests :: TestTree
-ionParityTests = testGroup "Ion"
-  [ testCase "Char roundtrip"      $ rtIC 'x'
-  , testCase "Integer (small) roundtrip" $ rtIC (12345 :: Integer)
-  , testCase "Natural roundtrip"   $ rtIC (42 :: Natural)
-  , testCase "Lazy Text roundtrip" $ rtIC (TL.pack "lazy")
-  , testCase "NonEmpty roundtrip"  $ rtIC (1 :| [2 :: Int])
-  , testCase "Either roundtrip"    $ do
+ionParityTests :: Spec
+ionParityTests = describe "Ion" $ sequence_
+  [ it "Char roundtrip"      $ rtIC 'x'
+  , it "Integer (small) roundtrip" $ rtIC (12345 :: Integer)
+  , it "Natural roundtrip"   $ rtIC (42 :: Natural)
+  , it "Lazy Text roundtrip" $ rtIC (TL.pack "lazy")
+  , it "NonEmpty roundtrip"  $ rtIC (1 :| [2 :: Int])
+  , it "Either roundtrip"    $ do
       rtIC (Left  "x" :: Either Text Int)
       rtIC (Right 1   :: Either Text Int)
-  , testCase "Set roundtrip"     $ rtIC (Set.fromList [1, 2 :: Int])
-  , testCase "Seq roundtrip"     $ rtIC (Seq.fromList [10, 20 :: Int])
-  , testCase "IntMap roundtrip"  $ rtIC (IntMap.fromList [(1, "a" :: Text)])
-  , testCase "IntSet roundtrip"  $ rtIC (IntSet.fromList [10])
-  , testCase "HashMap (Text k) roundtrip" $ rtIC (HM.fromList [("k" :: Text, 1 :: Int)])
-  , testCase "HashSet roundtrip" $ rtIC (HS.fromList [1, 2 :: Int])
-  , testCase "3-tuple roundtrip" $ rtIC ("x" :: Text, 1 :: Int, True)
-  , testCase "Identity roundtrip" $ rtIC (Identity (5 :: Int))
-  , testCase "Down roundtrip"     $ rtIC (Down (7 :: Int))
-  , testCase "Version roundtrip"  $ rtIC (makeVersion [1])
+  , it "Set roundtrip"     $ rtIC (Set.fromList [1, 2 :: Int])
+  , it "Seq roundtrip"     $ rtIC (Seq.fromList [10, 20 :: Int])
+  , it "IntMap roundtrip"  $ rtIC (IntMap.fromList [(1, "a" :: Text)])
+  , it "IntSet roundtrip"  $ rtIC (IntSet.fromList [10])
+  , it "HashMap (Text k) roundtrip" $ rtIC (HM.fromList [("k" :: Text, 1 :: Int)])
+  , it "HashSet roundtrip" $ rtIC (HS.fromList [1, 2 :: Int])
+  , it "3-tuple roundtrip" $ rtIC ("x" :: Text, 1 :: Int, True)
+  , it "Identity roundtrip" $ rtIC (Identity (5 :: Int))
+  , it "Down roundtrip"     $ rtIC (Down (7 :: Int))
+  , it "Version roundtrip"  $ rtIC (makeVersion [1])
   ]
 
 --------------------------------------------------------------------------------
@@ -489,56 +488,56 @@ ionParityTests = testGroup "Ion"
 -- coverage is broad without exploding the test count.
 --------------------------------------------------------------------------------
 
-functorNewtypeTests :: TestTree
-functorNewtypeTests = testGroup "Functor / monoid newtypes"
-  [ testGroup "MsgPack"
-      [ testCase "Sum"           $ rtMP (Mon.Sum     (5 :: Int))
-      , testCase "Product"       $ rtMP (Mon.Product (6 :: Int))
-      , testCase "Dual"          $ rtMP (Mon.Dual    ("x" :: Text))
-      , testCase "All"           $ rtMP (Mon.All True)
-      , testCase "Any"           $ rtMP (Mon.Any True)
-      , testCase "First"         $ rtMP (Mon.First (Just (1 :: Int)))
-      , testCase "Last"          $ rtMP (Mon.Last  (Just (2 :: Int)))
-      , testCase "Min"           $ rtMP (Semi.Min (3 :: Int))
-      , testCase "Max"           $ rtMP (Semi.Max (4 :: Int))
-      , testCase "Semi.First"    $ rtMP (Semi.First (5 :: Int))
-      , testCase "Semi.Last"     $ rtMP (Semi.Last  (6 :: Int))
-      , testCase "WrappedMonoid" $ rtMP (Semi.WrapMonoid ("hi" :: Text))
-      , testCase "Arg"           $ rtMP (Semi.Arg (1 :: Int) ("x" :: Text))
-      , testCase "Compose"       $ rtMP (Compose [Just (1 :: Int), Nothing, Just 2])
-      , testCase "Functor.Product" $
+functorNewtypeTests :: Spec
+functorNewtypeTests = describe "Functor / monoid newtypes" $ sequence_
+  [ describe "MsgPack" $ sequence_
+      [ it "Sum"           $ rtMP (Mon.Sum     (5 :: Int))
+      , it "Product"       $ rtMP (Mon.Product (6 :: Int))
+      , it "Dual"          $ rtMP (Mon.Dual    ("x" :: Text))
+      , it "All"           $ rtMP (Mon.All True)
+      , it "Any"           $ rtMP (Mon.Any True)
+      , it "First"         $ rtMP (Mon.First (Just (1 :: Int)))
+      , it "Last"          $ rtMP (Mon.Last  (Just (2 :: Int)))
+      , it "Min"           $ rtMP (Semi.Min (3 :: Int))
+      , it "Max"           $ rtMP (Semi.Max (4 :: Int))
+      , it "Semi.First"    $ rtMP (Semi.First (5 :: Int))
+      , it "Semi.Last"     $ rtMP (Semi.Last  (6 :: Int))
+      , it "WrappedMonoid" $ rtMP (Semi.WrapMonoid ("hi" :: Text))
+      , it "Arg"           $ rtMP (Semi.Arg (1 :: Int) ("x" :: Text))
+      , it "Compose"       $ rtMP (Compose [Just (1 :: Int), Nothing, Just 2])
+      , it "Functor.Product" $
           rtMP (FProduct.Pair (Identity (1 :: Int)) (Identity (2 :: Int)))
-      , testCase "Functor.Sum (InL)" $
+      , it "Functor.Sum (InL)" $
           rtMP (FSum.InL (Identity (1 :: Int)) :: FSum.Sum Identity Identity Int)
-      , testCase "Functor.Sum (InR)" $
+      , it "Functor.Sum (InR)" $
           rtMP (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
       ]
-  , testGroup "CBOR"
-      [ testCase "Sum"           $ rtCC (Mon.Sum     (5 :: Int))
-      , testCase "Min"           $ rtCC (Semi.Min    (3 :: Int))
-      , testCase "Arg"           $ rtCC (Semi.Arg (1 :: Int) ("x" :: Text))
-      , testCase "Compose"       $ rtCC (Compose [Just (1 :: Int), Nothing])
-      , testCase "Functor.Product" $
+  , describe "CBOR" $ sequence_
+      [ it "Sum"           $ rtCC (Mon.Sum     (5 :: Int))
+      , it "Min"           $ rtCC (Semi.Min    (3 :: Int))
+      , it "Arg"           $ rtCC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , it "Compose"       $ rtCC (Compose [Just (1 :: Int), Nothing])
+      , it "Functor.Product" $
           rtCC (FProduct.Pair (Identity (1 :: Int)) (Identity (2 :: Int)))
-      , testCase "Functor.Sum (InR)" $
+      , it "Functor.Sum (InR)" $
           rtCC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
       ]
-  , testGroup "BSON"
-      [ testCase "Sum"           $ rtBC (Mon.Sum (5 :: Int))
-      , testCase "Arg"           $ rtBC (Semi.Arg (1 :: Int) ("x" :: Text))
-      , testCase "Functor.Sum (InL)" $
+  , describe "BSON" $ sequence_
+      [ it "Sum"           $ rtBC (Mon.Sum (5 :: Int))
+      , it "Arg"           $ rtBC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , it "Functor.Sum (InL)" $
           rtBC (FSum.InL (Identity (1 :: Int)) :: FSum.Sum Identity Identity Int)
       ]
-  , testGroup "EDN"
-      [ testCase "Sum"           $ rtEC (Mon.Sum (5 :: Int))
-      , testCase "Compose"       $ rtEC (Compose [Just (1 :: Int)])
-      , testCase "Functor.Sum (InR)" $
+  , describe "EDN" $ sequence_
+      [ it "Sum"           $ rtEC (Mon.Sum (5 :: Int))
+      , it "Compose"       $ rtEC (Compose [Just (1 :: Int)])
+      , it "Functor.Sum (InR)" $
           rtEC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
       ]
-  , testGroup "Ion"
-      [ testCase "Sum"           $ rtIC (Mon.Sum (5 :: Int))
-      , testCase "Arg"           $ rtIC (Semi.Arg (1 :: Int) ("x" :: Text))
-      , testCase "Functor.Sum (InR)" $
+  , describe "Ion" $ sequence_
+      [ it "Sum"           $ rtIC (Mon.Sum (5 :: Int))
+      , it "Arg"           $ rtIC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , it "Functor.Sum (InR)" $
           rtIC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
       ]
   ]
@@ -548,50 +547,50 @@ functorNewtypeTests = testGroup "Functor / monoid newtypes"
 -- bytes as the AST path.
 --------------------------------------------------------------------------------
 
-directEncodingTests :: TestTree
-directEncodingTests = testGroup "Direct toEncoding parity"
-  [ testGroup "MsgPack"
-      [ testCase "Bool"     $ MC.encodeMsgPackDirect True              @?= MC.encodeMsgPack True
-      , testCase "Int"      $ MC.encodeMsgPackDirect (123 :: Int)      @?= MC.encodeMsgPack (123 :: Int)
-      , testCase "Negative" $ MC.encodeMsgPackDirect (-7 :: Int)       @?= MC.encodeMsgPack (-7 :: Int)
-      , testCase "Text"     $ MC.encodeMsgPackDirect ("hello" :: Text) @?= MC.encodeMsgPack ("hello" :: Text)
-      , testCase "List"     $ MC.encodeMsgPackDirect [1,2,3 :: Int]    @?= MC.encodeMsgPack [1,2,3 :: Int]
-      , testCase "Maybe"    $ MC.encodeMsgPackDirect (Just (5 :: Int)) @?= MC.encodeMsgPack (Just (5 :: Int))
-      , testCase "Map"      $ MC.encodeMsgPackDirect (Map.fromList [("a" :: Text, 1 :: Int)])
-                                @?= MC.encodeMsgPack (Map.fromList [("a" :: Text, 1 :: Int)])
-      , testCase "Person (default through Value)" $
-          MC.encodeMsgPackDirect (Person "Alice" 30) @?= MC.encodeMsgPack (Person "Alice" 30)
+directEncodingTests :: Spec
+directEncodingTests = describe "Direct toEncoding parity" $ sequence_
+  [ describe "MsgPack" $ sequence_
+      [ it "Bool"     $ MC.encodeMsgPackDirect True              `shouldBe` MC.encodeMsgPack True
+      , it "Int"      $ MC.encodeMsgPackDirect (123 :: Int)      `shouldBe` MC.encodeMsgPack (123 :: Int)
+      , it "Negative" $ MC.encodeMsgPackDirect (-7 :: Int)       `shouldBe` MC.encodeMsgPack (-7 :: Int)
+      , it "Text"     $ MC.encodeMsgPackDirect ("hello" :: Text) `shouldBe` MC.encodeMsgPack ("hello" :: Text)
+      , it "List"     $ MC.encodeMsgPackDirect [1,2,3 :: Int]    `shouldBe` MC.encodeMsgPack [1,2,3 :: Int]
+      , it "Maybe"    $ MC.encodeMsgPackDirect (Just (5 :: Int)) `shouldBe` MC.encodeMsgPack (Just (5 :: Int))
+      , it "Map"      $ MC.encodeMsgPackDirect (Map.fromList [("a" :: Text, 1 :: Int)])
+                                `shouldBe` MC.encodeMsgPack (Map.fromList [("a" :: Text, 1 :: Int)])
+      , it "Person (default through Value)" $
+          MC.encodeMsgPackDirect (Person "Alice" 30) `shouldBe` MC.encodeMsgPack (Person "Alice" 30)
       ]
-  , testGroup "CBOR"
-      [ testCase "Bool"     $ CC.encodeCBORDirect True              @?= CC.encodeCBOR True
-      , testCase "Int"      $ CC.encodeCBORDirect (123 :: Int)      @?= CC.encodeCBOR (123 :: Int)
-      , testCase "Negative" $ CC.encodeCBORDirect (-7 :: Int)       @?= CC.encodeCBOR (-7 :: Int)
-      , testCase "Text"     $ CC.encodeCBORDirect ("hello" :: Text) @?= CC.encodeCBOR ("hello" :: Text)
-      , testCase "List"     $ CC.encodeCBORDirect [1,2,3 :: Int]    @?= CC.encodeCBOR [1,2,3 :: Int]
-      , testCase "Maybe"    $ CC.encodeCBORDirect (Just (5 :: Int)) @?= CC.encodeCBOR (Just (5 :: Int))
-      , testCase "Map"      $ CC.encodeCBORDirect (Map.fromList [("a" :: Text, 1 :: Int)])
-                                @?= CC.encodeCBOR (Map.fromList [("a" :: Text, 1 :: Int)])
-      , testCase "Person (default through Value)" $
-          CC.encodeCBORDirect (Person "Alice" 30) @?= CC.encodeCBOR (Person "Alice" 30)
+  , describe "CBOR" $ sequence_
+      [ it "Bool"     $ CC.encodeCBORDirect True              `shouldBe` CC.encodeCBOR True
+      , it "Int"      $ CC.encodeCBORDirect (123 :: Int)      `shouldBe` CC.encodeCBOR (123 :: Int)
+      , it "Negative" $ CC.encodeCBORDirect (-7 :: Int)       `shouldBe` CC.encodeCBOR (-7 :: Int)
+      , it "Text"     $ CC.encodeCBORDirect ("hello" :: Text) `shouldBe` CC.encodeCBOR ("hello" :: Text)
+      , it "List"     $ CC.encodeCBORDirect [1,2,3 :: Int]    `shouldBe` CC.encodeCBOR [1,2,3 :: Int]
+      , it "Maybe"    $ CC.encodeCBORDirect (Just (5 :: Int)) `shouldBe` CC.encodeCBOR (Just (5 :: Int))
+      , it "Map"      $ CC.encodeCBORDirect (Map.fromList [("a" :: Text, 1 :: Int)])
+                                `shouldBe` CC.encodeCBOR (Map.fromList [("a" :: Text, 1 :: Int)])
+      , it "Person (default through Value)" $
+          CC.encodeCBORDirect (Person "Alice" 30) `shouldBe` CC.encodeCBOR (Person "Alice" 30)
       ]
-  , testGroup "BSON"
-      [ testCase "Person (Encoding wraps Value)" $
-          BC.encodeBSONDirect (Person "Alice" 30) @?= BC.encodeBSON (Person "Alice" 30)
+  , describe "BSON" $ sequence_
+      [ it "Person (Encoding wraps Value)" $
+          BC.encodeBSONDirect (Person "Alice" 30) `shouldBe` BC.encodeBSON (Person "Alice" 30)
       ]
-  , testGroup "EDN"
-      [ testCase "Bool" $ EC.encodeEDNDirect True              @?= EC.encodeEDN True
-      , testCase "Int"  $ EC.encodeEDNDirect (5 :: Int)        @?= EC.encodeEDN (5 :: Int)
-      , testCase "Text" $ EC.encodeEDNDirect ("hello" :: Text) @?= EC.encodeEDN ("hello" :: Text)
-      , testCase "List" $ EC.encodeEDNDirect [1,2 :: Int]      @?= EC.encodeEDN [1,2 :: Int]
-      , testCase "Person (default through Value)" $
-          EC.encodeEDNDirect (Person "Alice" 30) @?= EC.encodeEDN (Person "Alice" 30)
+  , describe "EDN" $ sequence_
+      [ it "Bool" $ EC.encodeEDNDirect True              `shouldBe` EC.encodeEDN True
+      , it "Int"  $ EC.encodeEDNDirect (5 :: Int)        `shouldBe` EC.encodeEDN (5 :: Int)
+      , it "Text" $ EC.encodeEDNDirect ("hello" :: Text) `shouldBe` EC.encodeEDN ("hello" :: Text)
+      , it "List" $ EC.encodeEDNDirect [1,2 :: Int]      `shouldBe` EC.encodeEDN [1,2 :: Int]
+      , it "Person (default through Value)" $
+          EC.encodeEDNDirect (Person "Alice" 30) `shouldBe` EC.encodeEDN (Person "Alice" 30)
       ]
-  , testGroup "Ion"
-      [ testCase "Person (Encoding wraps Value)" $
-          IC.encodeIonDirect (Person "Alice" 30) @?= IC.encodeIon (Person "Alice" 30)
+  , describe "Ion" $ sequence_
+      [ it "Person (Encoding wraps Value)" $
+          IC.encodeIonDirect (Person "Alice" 30) `shouldBe` IC.encodeIon (Person "Alice" 30)
       ]
-  , testGroup "Bencode (BEP-3 dict-key sort)"
-      [ testCase "encode sorts dict keys (raw byte order)" $ do
+  , describe "Bencode (BEP-3 dict-key sort)" $ sequence_
+      [ it "encode sorts dict keys (raw byte order)" $ do
           -- "z" should land after "a" regardless of insertion order.
           let v = BencodeV.BDict (V.fromList
                     [ ("z", BencodeV.BInteger 26)
@@ -601,16 +600,16 @@ directEncodingTests = testGroup "Direct toEncoding parity"
                     [ ("a", BencodeV.BInteger 1)
                     , ("z", BencodeV.BInteger 26)
                     ]))
-          BencodeE.encode v @?= expected
-      , testCase "encode sorts by raw byte order, not numeric" $ do
+          BencodeE.encode v `shouldBe` expected
+      , it "encode sorts by raw byte order, not numeric" $ do
           -- "10" sorts before "2" lex / byte-wise even though 2 < 10.
           let v = BencodeV.BDict (V.fromList
                     [ ("2",  BencodeV.BInteger 2)
                     , ("10", BencodeV.BInteger 10)
                     ])
               encoded = BencodeE.encode v
-          encoded @?= "d2:10i10e1:2i2ee"
-      , testCase "encode sorts nested dicts" $ do
+          encoded `shouldBe` "d2:10i10e1:2i2ee"
+      , it "encode sorts nested dicts" $ do
           let v = BencodeV.BDict (V.fromList
                     [ ("outer", BencodeV.BDict (V.fromList
                         [ ("z", BencodeV.BInteger 1)
@@ -618,13 +617,13 @@ directEncodingTests = testGroup "Direct toEncoding parity"
                         ]))
                     ])
               encoded = BencodeE.encode v
-          encoded @?= "d5:outerd1:ai2e1:zi1eee"
-      , testCase "direct encoding sorts dict keys too" $ do
+          encoded `shouldBe` "d5:outerd1:ai2e1:zi1eee"
+      , it "direct encoding sorts dict keys too" $ do
           let direct = BencodeEncoding.encodingToByteString
                          (BencodeEncoding.dictFromList
                            [ ("z", BencodeEncoding.int 1)
                            , ("a", BencodeEncoding.int 2)
                            ])
-          direct @?= "d1:ai2e1:zi1ee"
+          direct `shouldBe` "d1:ai2e1:zi1ee"
       ]
   ]

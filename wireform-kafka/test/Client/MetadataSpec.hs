@@ -12,9 +12,8 @@ import Control.Monad (replicateM)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Client.Metadata
 import Kafka.Network.Connection (BrokerAddress(..))
@@ -69,13 +68,13 @@ genClusterMetadata = do
   return $ ClusterMetadata brokerMap topicMap controllerId cId
 
 -- | Test creating an empty metadata cache
-unit_createMetadataCache :: Assertion
+unit_createMetadataCache :: IO ()
 unit_createMetadataCache = do
   cache <- createMetadataCache
   
   -- Query should return Nothing for empty cache
   result <- atomically $ getPartitionLeader cache "test-topic" 0
-  assertEqual "Empty cache should return Nothing" Nothing result
+  result `shouldBe` Nothing
 
 -- | Test querying partition leader from empty cache returns Nothing
 prop_getPartitionLeaderEmpty :: Property
@@ -138,19 +137,19 @@ prop_emptyCacheReturnsNothing = property $ do
   brokersM === Nothing
 
 -- | All tests for metadata caching
-tests :: TestTree
-tests = testGroup "Metadata"
-  [ testGroup "Metadata Cache"
-      [ testCase "Create empty cache" unit_createMetadataCache
-      , testProperty "Empty cache returns Nothing" prop_emptyCacheReturnsNothing
+tests :: Spec
+tests = describe "Metadata" $ sequence_
+  [ describe "Metadata Cache" $ sequence_
+      [ it "Create empty cache" unit_createMetadataCache
+      , it "Empty cache returns Nothing" prop_emptyCacheReturnsNothing
       ]
-  , testGroup "Partition Leader Lookup"
-      [ testProperty "Get partition leader from empty cache" prop_getPartitionLeaderEmpty
-      , testProperty "Get topic partition from empty cache" prop_getNonExistentTopicPartition
+  , describe "Partition Leader Lookup" $ sequence_
+      [ it "Get partition leader from empty cache" prop_getPartitionLeaderEmpty
+      , it "Get topic partition from empty cache" prop_getNonExistentTopicPartition
       ]
-  , testGroup "Topic and Broker Queries"
-      [ testProperty "Get topic partitions from empty cache" prop_getTopicPartitionsEmpty
-      , testProperty "Get all brokers from empty cache" prop_getAllBrokersEmpty
+  , describe "Topic and Broker Queries" $ sequence_
+      [ it "Get topic partitions from empty cache" prop_getTopicPartitionsEmpty
+      , it "Get all brokers from empty cache" prop_getAllBrokersEmpty
       ]
   ]
 

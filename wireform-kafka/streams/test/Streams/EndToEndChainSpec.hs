@@ -10,8 +10,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
@@ -27,15 +26,15 @@ i64Bytes = serialize int64Serde
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "EndToEndChain"
+tests :: Spec
+tests = describe "EndToEndChain" $ sequence_
   [ filter_select_groupby_count_chain
   , merge_then_groupby_aggregate
   ]
 
-filter_select_groupby_count_chain :: TestTree
+filter_select_groupby_count_chain :: Spec
 filter_select_groupby_count_chain =
-  testCase "filter -> selectKey -> groupByKey -> count materialises per-bucket counts" $ do
+  it "filter -> selectKey -> groupByKey -> count materialises per-bucket counts" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     -- Drop \"skip\" tokens, take everything else as a record.
@@ -53,14 +52,14 @@ filter_select_groupby_count_chain =
 
     Just kvs <- getKeyValueStore @Text @Int64 driver (ctlStore table)
     -- Three "a"s alpha/ant/abacus, two "b"s bravo/barn, "skip" filtered
-    kvsGet kvs "a" >>= (@?= Just 3)
-    kvsGet kvs "b" >>= (@?= Just 2)
-    kvsGet kvs "s" >>= (@?= Nothing)
+    kvsGet kvs "a" >>= (`shouldBe` Just 3)
+    kvsGet kvs "b" >>= (`shouldBe` Just 2)
+    kvsGet kvs "s" >>= (`shouldBe` Nothing)
     closeDriver driver
 
-merge_then_groupby_aggregate :: TestTree
+merge_then_groupby_aggregate :: Spec
 merge_then_groupby_aggregate =
-  testCase "mergeStreamsN -> groupByKey -> aggregate sums values across N inputs" $ do
+  it "mergeStreamsN -> groupByKey -> aggregate sums values across N inputs" $ do
     b <- newStreamsBuilder
     s1 <- streamFromTopic b (topicName "in1") (consumed textSerde int64Serde)
     s2 <- streamFromTopic b (topicName "in2") (consumed textSerde int64Serde)
@@ -81,5 +80,5 @@ merge_then_groupby_aggregate =
     pipeInput driver (topicName "in1") (Just (bytes "k")) (i64Bytes 8) (t 3) 0
 
     Just kvs <- getKeyValueStore @Text @Int64 driver (ctlStore table)
-    kvsGet kvs "k" >>= (@?= Just 15)
+    kvsGet kvs "k" >>= (`shouldBe` Just 15)
     closeDriver driver

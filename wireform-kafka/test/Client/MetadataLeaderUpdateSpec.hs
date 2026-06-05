@@ -8,22 +8,21 @@ module Client.MetadataLeaderUpdateSpec (tests) where
 import Control.Concurrent.STM (atomically)
 import qualified Data.HashMap.Strict as Map
 import qualified Data.IntMap.Strict as IntMap
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Metadata as Meta
 import Kafka.Network.Connection (BrokerAddress (..))
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
-tests :: TestTree
-tests = testGroup "Metadata: KIP-466 leader cache patch"
-  [ testCase "updatePartitionLeader on empty cache is a no-op"
+tests :: Spec
+tests = describe "Metadata: KIP-466 leader cache patch" $ sequence_
+  [ it "updatePartitionLeader on empty cache is a no-op"
       noopOnEmptyCache
-  , testCase "updatePartitionLeader patches the cached leader"
+  , it "updatePartitionLeader patches the cached leader"
       patchesCachedLeader
-  , testCase "updatePartitionLeader does nothing for unknown topic"
+  , it "updatePartitionLeader does nothing for unknown topic"
       noopForUnknownTopic
-  , testCase "updatePartitionLeader does nothing for unknown partition"
+  , it "updatePartitionLeader does nothing for unknown partition"
       noopForUnknownPartition
   ]
 
@@ -61,7 +60,7 @@ noopOnEmptyCache = do
   atomically (Meta.updatePartitionLeader cache "anything" 0 99)
   -- No partition leader cached → still Nothing.
   m <- atomically (Meta.getPartitionLeader cache "anything" 0)
-  m @?= Nothing
+  m `shouldBe` Nothing
 
 -- The remaining three tests have to seed the cache to be
 -- meaningful. The internal TVar isn't exposed, so they're written
@@ -83,12 +82,12 @@ noopForUnknownTopic = do
   cache <- Meta.createMetadataCache
   atomically (Meta.updatePartitionLeader cache "ghost" 0 7)
   m <- atomically (Meta.getPartitionLeader cache "ghost" 0)
-  m @?= Nothing
+  m `shouldBe` Nothing
 
 noopForUnknownPartition :: IO ()
 noopForUnknownPartition = do
   cache <- Meta.createMetadataCache
   atomically (Meta.updatePartitionLeader cache "t" 99 5)
   m <- atomically (Meta.getPartitionLeader cache "t" 99)
-  m @?= Nothing
+  m `shouldBe` Nothing
 

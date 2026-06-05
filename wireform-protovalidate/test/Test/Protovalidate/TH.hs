@@ -7,8 +7,7 @@ module Test.Protovalidate.TH (tests) where
 
 import Data.List (sort)
 import Data.Text (Text)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL (Duration (..), Timestamp (..), Value (..), celMapFromList)
 import Protovalidate
@@ -29,11 +28,11 @@ msg fs = VMap (celMapFromList [(VString k, v) | (k, v) <- fs])
 ids :: [Violation] -> [Text]
 ids = sort . map violationConstraintId
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "compile-time validator (Protovalidate.TH)"
-    [ testCase "valid message: no violations" $
+  describe
+    "compile-time validator (Protovalidate.TH)" $ sequence_
+    [ it "valid message: no violations" $
         userValidator
           ( msg
               [ ("id", VString "abc")
@@ -41,8 +40,8 @@ tests =
               , ("email", VString "alice@example.com")
               ]
           )
-          @?= []
-    , testCase "invalid message: all compiled predicates fire" $
+          `shouldBe` []
+    , it "invalid message: all compiled predicates fire" $
         ids
           ( userValidator
               ( msg
@@ -52,8 +51,8 @@ tests =
                   ]
               )
           )
-          @?= sort ["string.min_len", "uint32.lte", "string.email", "id_required_with_age"]
-    , testCase "compiled time bounds + enum defined_only: valid" $
+          `shouldBe` sort ["string.min_len", "uint32.lte", "string.email", "id_required_with_age"]
+    , it "compiled time bounds + enum defined_only: valid" $
         eventValidator
           ( msg
               [ ("at", VTimestamp (Timestamp 2000 0))
@@ -61,8 +60,8 @@ tests =
               , ("kind", VInt 1)
               ]
           )
-          @?= []
-    , testCase "compiled time bounds + enum defined_only: violations" $
+          `shouldBe` []
+    , it "compiled time bounds + enum defined_only: violations" $
         ids
           ( eventValidator
               ( msg
@@ -72,5 +71,5 @@ tests =
                   ]
               )
           )
-          @?= sort ["timestamp.gt", "duration.lte", "enum.defined_only"]
+          `shouldBe` sort ["timestamp.gt", "duration.lte", "enum.defined_only"]
     ]

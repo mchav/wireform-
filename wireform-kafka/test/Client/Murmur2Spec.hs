@@ -15,34 +15,33 @@ module Client.Murmur2Spec (tests) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int32)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Client.Internal.Murmur2 (murmur2, partitionForKey, toPositive)
 
-tests :: TestTree
-tests = testGroup "Murmur2 (Kafka-compatible partitioner hash)"
-  [ testGroup "matches JVM Utils.murmur2 reference vectors"
+tests :: Spec
+tests = describe "Murmur2 (Kafka-compatible partitioner hash)" $ sequence_
+  [ describe "matches JVM Utils.murmur2 reference vectors" $ sequence_
       -- Sourced verbatim from
       -- @org.apache.kafka.common.utils.UtilsTest.testMurmur2@
       -- in Kafka 3.7.0. Any change that breaks these WILL split
       -- per-key ordering with every other Kafka client.
-      [ testCase "vector \"21\"" $
-          murmur2 (BSC.pack "21") @?= -973932308
-      , testCase "vector \"foobar\"" $
-          murmur2 (BSC.pack "foobar") @?= -790332482
-      , testCase "vector \"a-little-bit-long-string\"" $
-          murmur2 (BSC.pack "a-little-bit-long-string") @?= -985981536
-      , testCase "vector \"a-little-bit-longer-string\"" $
-          murmur2 (BSC.pack "a-little-bit-longer-string") @?= -1486304829
-      , testCase "vector \"lkjh234lh9fiuh90y23oiuhsafujhadof229phr9h19h89h8\"" $
+      [ it "vector \"21\"" $
+          murmur2 (BSC.pack "21") `shouldBe` -973932308
+      , it "vector \"foobar\"" $
+          murmur2 (BSC.pack "foobar") `shouldBe` -790332482
+      , it "vector \"a-little-bit-long-string\"" $
+          murmur2 (BSC.pack "a-little-bit-long-string") `shouldBe` -985981536
+      , it "vector \"a-little-bit-longer-string\"" $
+          murmur2 (BSC.pack "a-little-bit-longer-string") `shouldBe` -1486304829
+      , it "vector \"lkjh234lh9fiuh90y23oiuhsafujhadof229phr9h19h89h8\"" $
           murmur2 (BSC.pack "lkjh234lh9fiuh90y23oiuhsafujhadof229phr9h19h89h8")
-            @?= -58897971
-      , testCase "vector new byte[]{'a', 'b', 'c'}" $
-          murmur2 (BSC.pack "abc") @?= 479470107
+            `shouldBe` -58897971
+      , it "vector new byte[]{'a', 'b', 'c'}" $
+          murmur2 (BSC.pack "abc") `shouldBe` 479470107
       ]
 
-  , testGroup "boundary inputs"
+  , describe "boundary inputs" $ sequence_
       -- The boundary set the original JVM 'UtilsTest' doesn't
       -- exercise. The expected outputs are pinned to whatever the
       -- 'murmur2' implementation produced when this test was
@@ -57,27 +56,27 @@ tests = testGroup "Murmur2 (Kafka-compatible partitioner hash)"
       -- explicit @Just BS.empty@ key (which JVM treats as "use
       -- the key" rather than "no key", landing every empty-key
       -- message on the same partition).
-      [ testCase "empty bytestring (length=0 tail path)" $
-          murmur2 BS.empty @?= 275646681
-      , testCase "single null byte (length=1 tail path)" $
-          murmur2 (BS.singleton 0) @?= 375494588
-      , testCase "single 0xFF byte (length=1 tail path, sign bit set)" $
-          murmur2 (BS.singleton 0xFF) @?= -311467685
-      , testCase "four-byte aligned input \"abcd\" (one body iter, no tail)" $
-          murmur2 (BSC.pack "abcd") @?= -1323649548
+      [ it "empty bytestring (length=0 tail path)" $
+          murmur2 BS.empty `shouldBe` 275646681
+      , it "single null byte (length=1 tail path)" $
+          murmur2 (BS.singleton 0) `shouldBe` 375494588
+      , it "single 0xFF byte (length=1 tail path, sign bit set)" $
+          murmur2 (BS.singleton 0xFF) `shouldBe` -311467685
+      , it "four-byte aligned input \"abcd\" (one body iter, no tail)" $
+          murmur2 (BSC.pack "abcd") `shouldBe` -1323649548
       ]
-  , testGroup "partitionForKey is in range"
-      [ testCase "always non-negative for any partition count" $ do
+  , describe "partitionForKey is in range" $ sequence_
+      [ it "always non-negative for any partition count" $ do
           let !p = partitionForKey (BSC.pack "any-key") 16
-          assertBool ("partition was " ++ show p) (p >= 0 && p < 16)
-      , testCase "single partition always maps to 0" $
-          partitionForKey (BSC.pack "anything") 1 @?= 0
-      , testCase "zero / negative partitions are clamped to 0" $ do
-          partitionForKey (BSC.pack "x") 0     @?= 0
-          partitionForKey (BSC.pack "x") (-3)  @?= 0
-      , testCase "toPositive clears the sign bit" $ do
-          toPositive (-1)                @?= 0x7FFFFFFF
-          toPositive (minBound :: Int32) @?= 0
-          toPositive 42                  @?= 42
+          (if (p >= 0 && p < 16) then pure () else expectationFailure ("partition was " ++ show p))
+      , it "single partition always maps to 0" $
+          partitionForKey (BSC.pack "anything") 1 `shouldBe` 0
+      , it "zero / negative partitions are clamped to 0" $ do
+          partitionForKey (BSC.pack "x") 0     `shouldBe` 0
+          partitionForKey (BSC.pack "x") (-3)  `shouldBe` 0
+      , it "toPositive clears the sign bit" $ do
+          toPositive (-1)                `shouldBe` 0x7FFFFFFF
+          toPositive (minBound :: Int32) `shouldBe` 0
+          toPositive 42                  `shouldBe` 42
       ]
   ]

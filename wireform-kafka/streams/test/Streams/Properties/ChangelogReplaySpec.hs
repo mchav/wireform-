@@ -53,8 +53,8 @@ import Data.Text (Text)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Runtime.Standby
   ( StandbyTask
@@ -406,14 +406,14 @@ prop_per_store_isolation = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Changelog replay"
-  [ testProperty "standby replay stays in sync after every advance" $
+tests :: Spec
+tests = describe "Changelog replay" $ sequence_
+  [ it "standby replay stays in sync after every advance" $
       H.withTests 120 prop_sequential_consistency
-  , testProperty "two standbys with independent schedules converge" $
+  , it "two standbys with independent schedules converge" $
       H.withTests 80 prop_multi_replica_convergence
-  , testProperty "promote-on-failover: 2nd-gen standby converges via replay" $
+  , it "promote-on-failover: 2nd-gen standby converges via replay" $
       H.withTests 80 prop_failover_promote
-  , testProperty "per-store isolation on a shared changelog topic" $
+  , it "per-store isolation on a shared changelog topic" $
       H.withTests 60 prop_per_store_isolation
   ]

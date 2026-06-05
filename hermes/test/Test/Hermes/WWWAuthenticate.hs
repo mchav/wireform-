@@ -32,9 +32,8 @@ import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
   (Result (..), RFC8941String, mkRFC8941String, runParser, unsafeToRFC8941String)
 import qualified Network.HTTP.Headers.WWWAuthenticate as W
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -123,79 +122,79 @@ challengeGen = do
 -- Unit tests
 -- ---------------------------------------------------------------------------
 
-unit_basic :: TestTree
-unit_basic = testCase "Basic realm" $
+unit_basic :: Spec
+unit_basic = it "Basic realm" $
   case parseOk "Basic realm=\"example\"" of
     Right [ch] -> do
-      assertEqual "scheme" (scheme "Basic") (W.challengeScheme ch)
+      (W.challengeScheme ch) `shouldBe` (scheme "Basic")
       case W.challengeContents ch of
-        W.ChallengeParams ps -> assertEqual "params length" 1 (length ps)
+        W.ChallengeParams ps -> (length ps) `shouldBe` 1
         _ -> error "expected ChallengeParams"
     other -> error ("unexpected parse result: " <> show other)
 
-unit_multi_challenge :: TestTree
-unit_multi_challenge = testCase "multi-challenge values" $
+unit_multi_challenge :: Spec
+unit_multi_challenge = it "multi-challenge values" $
   let raw = "Basic realm=\"x\", Bearer realm=\"y\", scope=\"r\""
   in case parseOk raw of
        Right [b, br] -> do
-         assertEqual "first scheme"  (scheme "Basic")  (W.challengeScheme b)
-         assertEqual "second scheme" (scheme "Bearer") (W.challengeScheme br)
+         (W.challengeScheme b) `shouldBe` (scheme "Basic")
+         (W.challengeScheme br) `shouldBe` (scheme "Bearer")
          case W.challengeContents br of
            W.ChallengeParams ps ->
-             assertEqual "bearer param count" 2 (length ps)
+             (length ps) `shouldBe` 2
            _ -> error "expected ChallengeParams for Bearer"
        other -> error ("expected exactly two challenges, got: " <> show other)
 
-unit_token68 :: TestTree
-unit_token68 = testCase "token68 payload" $
+unit_token68 :: Spec
+unit_token68 = it "token68 payload" $
   case parseOk "Bearer abc.def_ghi+jKL/=" of
     Right [ch] -> case W.challengeContents ch of
-      W.ChallengeToken68 t -> assertEqual "token68 bytes" "abc.def_ghi+jKL/=" t
+      W.ChallengeToken68 t -> t `shouldBe` "abc.def_ghi+jKL/="
       _ -> error "expected ChallengeToken68"
     other -> error ("unexpected parse: " <> show other)
 
-unit_digest_qop_list :: TestTree
-unit_digest_qop_list = testCase "Digest challenge with multi-token qop" $
+unit_digest_qop_list :: Spec
+unit_digest_qop_list = it "Digest challenge with multi-token qop" $
   let raw = "Digest realm=\"api\", qop=\"auth,auth-int\", nonce=\"abc\", \
             \algorithm=SHA-256, opaque=\"o\""
   in case parseOk raw of
        Right [ch] -> case W.challengeContents ch of
          W.ChallengeParams ps ->
-           assertEqual "param count" 5 (length ps)
+           (length ps) `shouldBe` 5
          _ -> error "expected ChallengeParams"
        other -> error ("expected one challenge, got: " <> show other)
 
-unit_empty_list_form :: TestTree
-unit_empty_list_form = testCase "RFC 9110 §5.6.1 stacked-comma form" $
+unit_empty_list_form :: Spec
+unit_empty_list_form = it "RFC 9110 §5.6.1 stacked-comma form" $
   case parseOk ", Basic realm=\"x\" ,," of
-    Right [ch] -> assertEqual "scheme" (scheme "Basic") (W.challengeScheme ch)
+    Right [ch] -> (W.challengeScheme ch) `shouldBe` (scheme "Basic")
     other     -> error ("expected one challenge, got: " <> show other)
 
-unit_quoted_with_comma :: TestTree
-unit_quoted_with_comma = testCase "comma inside quoted-string is not a separator" $
+unit_quoted_with_comma :: Spec
+unit_quoted_with_comma = it "comma inside quoted-string is not a separator" $
   case parseOk "Bearer realm=\"a, b\"" of
     Right [ch] -> case W.challengeContents ch of
       W.ChallengeParams [(k, W.CredentialParamString s)] -> do
-        assertEqual "key"   (st "realm") k
-        assertEqual "value" "a, b"       (bytesOfRFC8941 s)
+        k `shouldBe` (st "realm")
+        (bytesOfRFC8941 s) `shouldBe` "a, b"
       _ -> error "expected single quoted param"
     other -> error ("expected one challenge, got: " <> show other)
 
-unit_quoted_escape_render :: TestTree
-unit_quoted_escape_render = testCase "renderer escapes \" and \\ in quoted-string" $ do
+unit_quoted_escape_render :: Spec
+unit_quoted_escape_render = it "renderer escapes \" and \\ in quoted-string" $ do
   let v   = "a\"b\\c"
       ch  = W.AuthChallenge
         { W.challengeScheme   = scheme "Basic"
         , W.challengeContents = W.ChallengeParams [paramString "realm" v]
         }
       out = render [ch]
-  assertBool ("backslash-quote in: " <> show out) ("\\\"" `BS.isInfixOf` out)
-  assertBool ("double-backslash in: " <> show out) ("\\\\" `BS.isInfixOf` out)
+  (if ("\\\"" `BS.isInfixOf` out) then pure () else expectationFailure ("backslash-quote in: " <> show out))
+  (if ("\\\\" `BS.isInfixOf` out) then pure () else expectationFailure ("double-backslash in: " <> show out))
   -- And the round-trip recovers the original payload.
   case parseOk out of
     Right [ch'] -> case W.challengeContents ch' of
       W.ChallengeParams [(_, W.CredentialParamString s)] ->
-        assertEqual "decoded value" v (bytesOfRFC8941 s)
+        (bytesOfRFC8941 s) `shouldBe` v
       _ -> error "expected single quoted param after round-trip"
     other -> error ("round-trip parse failed: " <> show other)
 
@@ -240,8 +239,8 @@ prop_roundtrip = property $ do
 -- Top-level
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "WWWAuthenticate"
+tests :: Spec
+tests = describe "WWWAuthenticate" $ sequence_
   [ unit_basic
   , unit_multi_challenge
   , unit_token68
@@ -249,5 +248,5 @@ tests = testGroup "WWWAuthenticate"
   , unit_empty_list_form
   , unit_quoted_with_comma
   , unit_quoted_escape_render
-  , testProperty "challenges round-trip through render → parse" prop_roundtrip
+  , it "challenges round-trip through render → parse" prop_roundtrip
   ]

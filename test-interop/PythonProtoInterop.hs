@@ -20,9 +20,8 @@ import System.Directory (getCurrentDirectory)
 import System.Exit (ExitCode(..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Proto.Encode
 import Proto.Decode
@@ -37,104 +36,104 @@ main = do
     ["-c", "import sys; sys.path.insert(0,'" <> pd <> "'); import interop_pb2"]
     ""
   case ec of
-    ExitSuccess -> defaultMain tests
+    ExitSuccess -> sydTest tests
     ExitFailure _ -> do
       putStrLn ("Python interop_pb2 not available: " <> err)
       putStrLn ("Ensure protoc has been run on " <> pd <> "/interop.proto")
       putStrLn "Skipping interop tests."
 
-tests :: TestTree
-tests = testGroup "Python Interop Conformance"
-  [ testGroup "Haskell-encode → Python-decode → re-encode → Haskell-decode"
-      [ testProperty "Scalars" $ withTests 200 $ property $ do
+tests :: Spec
+tests = describe "Python Interop Conformance" $ sequence_
+  [ describe "Haskell-encode → Python-decode → re-encode → Haskell-decode" $ sequence_
+      [ it "Scalars" $ withTests 200 $ property $ do
           msg <- forAll genScalars
           roundtripViaPython "Scalars" msg
 
-      , testProperty "Nested" $ withTests 100 $ property $ do
+      , it "Nested" $ withTests 100 $ property $ do
           msg <- forAll genNested
           roundtripViaPython "Nested" msg
 
-      , testProperty "Repeated" $ withTests 100 $ property $ do
+      , it "Repeated" $ withTests 100 $ property $ do
           msg <- forAll genRepeated
           roundtripViaPython "Repeated" msg
       ]
 
-  , testGroup "Python-encode → Haskell-decode"
-      [ testCase "Scalars with all fields" $ do
+  , describe "Python-encode → Haskell-decode" $ sequence_
+      [ it "Scalars with all fields" $ do
           bs <- pythonEncode "Scalars" $
             "{\"fDouble\":3.14,\"fFloat\":1.5,\"fInt32\":42,\"fInt64\":\"100\""
             <> ",\"fUint32\":7,\"fUint64\":\"8\",\"fSint32\":-5,\"fSint64\":\"-10\""
             <> ",\"fFixed32\":99,\"fFixed64\":\"200\",\"fSfixed32\":-30,\"fSfixed64\":\"-40\""
             <> ",\"fBool\":true,\"fString\":\"hello\",\"fBytes\":\"AQID\"}"
           case decodeMessage bs of
-            Left err -> assertFailure (show err)
+            Left err -> expectationFailure (show err)
             Right (s :: Scalars) -> do
-              sfInt32 s @?= 42
-              sfString s @?= "hello"
-              sfBool s @?= True
-              sfSint32 s @?= (-5)
-              sfFixed32 s @?= 99
+              sfInt32 s `shouldBe` 42
+              sfString s `shouldBe` "hello"
+              sfBool s `shouldBe` True
+              sfSint32 s `shouldBe` (-5)
+              sfFixed32 s `shouldBe` 99
 
-      , testCase "Nested with submessage" $ do
+      , it "Nested with submessage" $ do
           bs <- pythonEncode "Nested" "{\"label\":\"test\",\"payload\":{\"fInt32\":99},\"color\":\"COLOR_BLUE\"}"
           case decodeMessage bs of
-            Left err -> assertFailure (show err)
+            Left err -> expectationFailure (show err)
             Right (n :: Nested) -> do
-              nLabel n @?= "test"
-              nColor n @?= ColorBlue
+              nLabel n `shouldBe` "test"
+              nColor n `shouldBe` ColorBlue
               case nPayload n of
-                Nothing -> assertFailure "Expected payload"
-                Just s  -> sfInt32 s @?= 99
+                Nothing -> expectationFailure "Expected payload"
+                Just s  -> sfInt32 s `shouldBe` 99
 
-      , testCase "Repeated with packed ints" $ do
+      , it "Repeated with packed ints" $ do
           bs <- pythonEncode "Repeated" "{\"ints\":[1,2,3],\"strings\":[\"a\",\"b\"]}"
           case decodeMessage bs of
-            Left err -> assertFailure (show err)
+            Left err -> expectationFailure (show err)
             Right (r :: Repeated) -> do
-              V.toList (rInts r) @?= [1, 2, 3]
-              V.toList (rStrings r) @?= ["a", "b"]
+              V.toList (rInts r) `shouldBe` [1, 2, 3]
+              V.toList (rStrings r) `shouldBe` ["a", "b"]
 
-      , testCase "Empty message" $ do
+      , it "Empty message" $ do
           bs <- pythonEncode "Scalars" "{}"
           case decodeMessage bs of
-            Left err -> assertFailure (show err)
-            Right (s :: Scalars) -> s @?= defaultScalars
+            Left err -> expectationFailure (show err)
+            Right (s :: Scalars) -> s `shouldBe` defaultScalars
       ]
 
-  , testGroup "Edge cases"
-      [ testCase "Max int32" $ do
+  , describe "Edge cases" $ sequence_
+      [ it "Max int32" $ do
           let msg = defaultScalars { sfInt32 = maxBound }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Min int32" $ do
+      , it "Min int32" $ do
           let msg = defaultScalars { sfInt32 = minBound }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Max uint64" $ do
+      , it "Max uint64" $ do
           let msg = defaultScalars { sfUint64 = maxBound }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Empty string" $ do
+      , it "Empty string" $ do
           let msg = defaultScalars { sfString = "" }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Unicode string" $ do
+      , it "Unicode string" $ do
           let msg = defaultScalars { sfString = "こんにちは世界" }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Large bytes" $ do
+      , it "Large bytes" $ do
           let msg = defaultScalars { sfBytes = BS.replicate 1000 0xAB }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Negative sint32" $ do
+      , it "Negative sint32" $ do
           let msg = defaultScalars { sfSint32 = -12345 }
           roundtripViaPythonIO "Scalars" msg
 
-      , testCase "Nested with no payload" $ do
+      , it "Nested with no payload" $ do
           let msg = Nested "label" Nothing ColorRed
           roundtripViaPythonIO "Nested" msg
 
-      , testCase "Repeated empty" $ do
+      , it "Repeated empty" $ do
           let msg = Repeated V.empty V.empty V.empty
           roundtripViaPythonIO "Repeated" msg
       ]
@@ -237,7 +236,7 @@ roundtripViaPython msgType msg = do
           failure
         Right decoded -> decoded === msg
 
--- Same thing but for HUnit testCase.
+-- Same thing but for HUnit it.
 roundtripViaPythonIO
   :: (MessageEncode a, MessageDecode a, Show a, Eq a)
   => String -> a -> IO ()
@@ -245,8 +244,8 @@ roundtripViaPythonIO msgType msg = do
   let encoded = encodeMessage msg
   result <- callPythonRoundtrip msgType encoded
   case result of
-    Left err -> assertFailure ("Python error: " <> err)
+    Left err -> expectationFailure ("Python error: " <> err)
     Right reencoded ->
       case decodeMessage reencoded of
-        Left decErr -> assertFailure ("Decode failed: " <> show decErr)
-        Right decoded -> decoded @?= msg
+        Left decErr -> expectationFailure ("Decode failed: " <> show decErr)
+        Right decoded -> decoded `shouldBe` msg

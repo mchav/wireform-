@@ -10,8 +10,7 @@
 -- @ProducerConfig.postProcessAndValidateIdempotenceConfigs@ flow.
 module Client.ConfigValidationSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Data.Text as T
 
@@ -29,71 +28,71 @@ import Kafka.Client.Consumer
   , validateConsumerConfig
   )
 
-tests :: TestTree
-tests = testGroup "KIP-360 config validation"
-  [ testGroup "Producer"
-      [ testCase "default config is valid" prop_producerDefaultsValid
-      , testCase "empty client.id is rejected"
+tests :: Spec
+tests = describe "KIP-360 config validation" $ sequence_
+  [ describe "Producer" $ sequence_
+      [ it "default config is valid" prop_producerDefaultsValid
+      , it "empty client.id is rejected"
           prop_producerEmptyClientIdRejected
-      , testCase "negative batch.size is rejected"
+      , it "negative batch.size is rejected"
           prop_producerNegativeBatchSizeRejected
-      , testCase "max.in.flight = 0 is rejected"
+      , it "max.in.flight = 0 is rejected"
           prop_producerZeroInFlightRejected
-      , testCase "delivery.timeout.ms < request.timeout.ms is rejected"
+      , it "delivery.timeout.ms < request.timeout.ms is rejected"
           prop_producerDeliveryShorterThanRequestRejected
-      , testCase "idempotent producer with in-flight > 5 is rejected"
+      , it "idempotent producer with in-flight > 5 is rejected"
           prop_producerIdempotentInFlightCapEnforced
-      , testCase "transactional producer requires idempotence"
+      , it "transactional producer requires idempotence"
           prop_producerTxnRequiresIdempotence
-      , testCase "transactional producer requires acks=all"
+      , it "transactional producer requires acks=all"
           prop_producerTxnRequiresAcksAll
-      , testCase "all errors are accumulated, not short-circuited"
+      , it "all errors are accumulated, not short-circuited"
           prop_producerErrorsAccumulated
       ]
-  , testGroup "Consumer"
-      [ testCase "default config is valid" prop_consumerDefaultsValid
-      , testCase "heartbeat.interval.ms >= session.timeout.ms is rejected"
+  , describe "Consumer" $ sequence_
+      [ it "default config is valid" prop_consumerDefaultsValid
+      , it "heartbeat.interval.ms >= session.timeout.ms is rejected"
           prop_consumerHeartbeatTooHighRejected
-      , testCase "max.poll.interval.ms < session.timeout.ms is rejected"
+      , it "max.poll.interval.ms < session.timeout.ms is rejected"
           prop_consumerPollIntervalTooLowRejected
-      , testCase "fetch.min.bytes > fetch.max.bytes is rejected"
+      , it "fetch.min.bytes > fetch.max.bytes is rejected"
           prop_consumerFetchMinExceedsMaxRejected
-      , testCase "auto-commit interval must be > 0 when auto-commit is on"
+      , it "auto-commit interval must be > 0 when auto-commit is on"
           prop_consumerAutoCommitIntervalRequiredWhenEnabled
-      , testCase "auto-commit interval is ignored when auto-commit is off"
+      , it "auto-commit interval is ignored when auto-commit is off"
           prop_consumerAutoCommitIntervalIgnoredWhenDisabled
       ]
-  , testCase "renderConfigErrors prints field + message" prop_renderConfigErrors
+  , it "renderConfigErrors prints field + message" prop_renderConfigErrors
   ]
 
 ------------------------------------------------------------------
 -- Producer rules
 ------------------------------------------------------------------
 
-prop_producerDefaultsValid :: Assertion
+prop_producerDefaultsValid :: IO ()
 prop_producerDefaultsValid =
-  validateProducerConfig defaultProducerConfig @?= []
+  validateProducerConfig defaultProducerConfig `shouldBe` []
 
-prop_producerEmptyClientIdRejected :: Assertion
+prop_producerEmptyClientIdRejected :: IO ()
 prop_producerEmptyClientIdRejected = do
   let cfg = defaultProducerConfig { producerClientId = "" }
       errs = validateProducerConfig cfg
-  fmap configErrorField errs @?= ["client.id"]
+  fmap configErrorField errs `shouldBe` ["client.id"]
 
-prop_producerNegativeBatchSizeRejected :: Assertion
+prop_producerNegativeBatchSizeRejected :: IO ()
 prop_producerNegativeBatchSizeRejected = do
   let cfg = defaultProducerConfig { producerBatchSize = -1 }
       errs = validateProducerConfig cfg
-  fmap configErrorField errs @?= ["batch.size"]
+  fmap configErrorField errs `shouldBe` ["batch.size"]
 
-prop_producerZeroInFlightRejected :: Assertion
+prop_producerZeroInFlightRejected :: IO ()
 prop_producerZeroInFlightRejected = do
   let cfg = defaultProducerConfig { producerMaxInFlight = 0 }
       errs = validateProducerConfig cfg
   fmap configErrorField errs
-    @?= ["max.in.flight.requests.per.connection"]
+    `shouldBe` ["max.in.flight.requests.per.connection"]
 
-prop_producerDeliveryShorterThanRequestRejected :: Assertion
+prop_producerDeliveryShorterThanRequestRejected :: IO ()
 prop_producerDeliveryShorterThanRequestRejected = do
   let cfg = defaultProducerConfig
         { producerRequestTimeoutMs   = 30_000
@@ -101,19 +100,18 @@ prop_producerDeliveryShorterThanRequestRejected = do
         , producerLingerMs           = 0
         }
       errs = validateProducerConfig cfg
-  fmap configErrorField errs @?= ["delivery.timeout.ms"]
+  fmap configErrorField errs `shouldBe` ["delivery.timeout.ms"]
 
-prop_producerIdempotentInFlightCapEnforced :: Assertion
+prop_producerIdempotentInFlightCapEnforced :: IO ()
 prop_producerIdempotentInFlightCapEnforced = do
   let cfg = defaultProducerConfig
         { producerIdempotent = True
         , producerMaxInFlight = 6
         }
       fields = configErrorField <$> validateProducerConfig cfg
-  assertBool ("expected in-flight cap, got " <> show fields)
-    ("max.in.flight.requests.per.connection" `elem` fields)
+  (if ("max.in.flight.requests.per.connection" `elem` fields) then pure () else expectationFailure ("expected in-flight cap, got " <> show fields))
 
-prop_producerTxnRequiresIdempotence :: Assertion
+prop_producerTxnRequiresIdempotence :: IO ()
 prop_producerTxnRequiresIdempotence = do
   let cfg = defaultProducerConfig
         { producerTransactional = Just "txn-1"
@@ -121,11 +119,9 @@ prop_producerTxnRequiresIdempotence = do
         , producerDelivery      = ExactlyOnce
         }
       fields = configErrorField <$> validateProducerConfig cfg
-  assertBool
-    ("expected enable.idempotence error, got " <> show fields)
-    ("enable.idempotence" `elem` fields)
+  (if ("enable.idempotence" `elem` fields) then pure () else expectationFailure ("expected enable.idempotence error, got " <> show fields))
 
-prop_producerTxnRequiresAcksAll :: Assertion
+prop_producerTxnRequiresAcksAll :: IO ()
 prop_producerTxnRequiresAcksAll = do
   let cfg = defaultProducerConfig
         { producerTransactional = Just "txn-1"
@@ -133,10 +129,9 @@ prop_producerTxnRequiresAcksAll = do
         , producerDelivery      = AtLeastOnce
         }
       fields = configErrorField <$> validateProducerConfig cfg
-  assertBool ("expected acks error, got " <> show fields)
-    ("acks" `elem` fields)
+  (if ("acks" `elem` fields) then pure () else expectationFailure ("expected acks error, got " <> show fields))
 
-prop_producerErrorsAccumulated :: Assertion
+prop_producerErrorsAccumulated :: IO ()
 prop_producerErrorsAccumulated = do
   let cfg = defaultProducerConfig
         { producerClientId          = ""
@@ -146,75 +141,69 @@ prop_producerErrorsAccumulated = do
       fields = configErrorField <$> validateProducerConfig cfg
   -- All three errors should surface in one pass; the validator must
   -- not bail on the first failure.
-  assertBool ("expected three errors, got " <> show fields)
-    (length fields >= 3)
+  (if (length fields >= 3) then pure () else expectationFailure ("expected three errors, got " <> show fields))
 
 ------------------------------------------------------------------
 -- Consumer rules
 ------------------------------------------------------------------
 
-prop_consumerDefaultsValid :: Assertion
+prop_consumerDefaultsValid :: IO ()
 prop_consumerDefaultsValid =
-  validateConsumerConfig defaultConsumerConfig @?= []
+  validateConsumerConfig defaultConsumerConfig `shouldBe` []
 
-prop_consumerHeartbeatTooHighRejected :: Assertion
+prop_consumerHeartbeatTooHighRejected :: IO ()
 prop_consumerHeartbeatTooHighRejected = do
   let cfg = defaultConsumerConfig
         { consumerSessionTimeoutMs    = 10_000
         , consumerHeartbeatIntervalMs = 10_000
         }
       fields = configErrorField <$> validateConsumerConfig cfg
-  assertBool ("expected heartbeat error, got " <> show fields)
-    ("heartbeat.interval.ms" `elem` fields)
+  (if ("heartbeat.interval.ms" `elem` fields) then pure () else expectationFailure ("expected heartbeat error, got " <> show fields))
 
-prop_consumerPollIntervalTooLowRejected :: Assertion
+prop_consumerPollIntervalTooLowRejected :: IO ()
 prop_consumerPollIntervalTooLowRejected = do
   let cfg = defaultConsumerConfig
         { consumerSessionTimeoutMs   = 60_000
         , consumerMaxPollIntervalMs  = 30_000
         }
       fields = configErrorField <$> validateConsumerConfig cfg
-  assertBool ("expected max.poll.interval.ms, got " <> show fields)
-    ("max.poll.interval.ms" `elem` fields)
+  (if ("max.poll.interval.ms" `elem` fields) then pure () else expectationFailure ("expected max.poll.interval.ms, got " <> show fields))
 
-prop_consumerFetchMinExceedsMaxRejected :: Assertion
+prop_consumerFetchMinExceedsMaxRejected :: IO ()
 prop_consumerFetchMinExceedsMaxRejected = do
   let cfg = defaultConsumerConfig
         { consumerFetchMinBytes = 1024
         , consumerFetchMaxBytes = 512
         }
       fields = configErrorField <$> validateConsumerConfig cfg
-  assertBool ("expected fetch.min.bytes, got " <> show fields)
-    ("fetch.min.bytes" `elem` fields)
+  (if ("fetch.min.bytes" `elem` fields) then pure () else expectationFailure ("expected fetch.min.bytes, got " <> show fields))
 
-prop_consumerAutoCommitIntervalRequiredWhenEnabled :: Assertion
+prop_consumerAutoCommitIntervalRequiredWhenEnabled :: IO ()
 prop_consumerAutoCommitIntervalRequiredWhenEnabled = do
   let cfg = defaultConsumerConfig
         { consumerAutoCommit = True
         , consumerAutoCommitIntervalMs = 0
         }
       fields = configErrorField <$> validateConsumerConfig cfg
-  fields @?= ["auto.commit.interval.ms"]
+  fields `shouldBe` ["auto.commit.interval.ms"]
 
-prop_consumerAutoCommitIntervalIgnoredWhenDisabled :: Assertion
+prop_consumerAutoCommitIntervalIgnoredWhenDisabled :: IO ()
 prop_consumerAutoCommitIntervalIgnoredWhenDisabled = do
   let cfg = defaultConsumerConfig
         { consumerAutoCommit = False
         , consumerAutoCommitIntervalMs = 0
         }
-  validateConsumerConfig cfg @?= []
+  validateConsumerConfig cfg `shouldBe` []
 
 ------------------------------------------------------------------
 -- Render
 ------------------------------------------------------------------
 
-prop_renderConfigErrors :: Assertion
+prop_renderConfigErrors :: IO ()
 prop_renderConfigErrors = do
   let rendered = renderConfigErrors
         [ ConfigError "batch.size" "must be >= 0"
         , ConfigError "client.id" "must be non-empty"
         ]
-  assertBool ("rendered: " <> rendered)
-    ("batch.size: must be >= 0"   `T.isInfixOf` T.pack rendered)
-  assertBool ("rendered: " <> rendered)
-    ("client.id: must be non-empty" `T.isInfixOf` T.pack rendered)
+  (if ("batch.size: must be >= 0"   `T.isInfixOf` T.pack rendered) then pure () else expectationFailure ("rendered: " <> rendered))
+  (if ("client.id: must be non-empty" `T.isInfixOf` T.pack rendered) then pure () else expectationFailure ("rendered: " <> rendered))

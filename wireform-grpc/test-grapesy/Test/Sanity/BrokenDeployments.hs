@@ -12,8 +12,7 @@ import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.IORef
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.StreamType.IO qualified as Client
@@ -30,33 +29,33 @@ import Proto.API.Ping
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.BrokenDeployments" [
-      testGroup "status" [
-          testCase "non200"     test_statusNon200
-        , testCase "non200Body" test_statusNon200Body
+tests :: Spec
+tests = describe "Test.Sanity.BrokenDeployments" $ sequence_ [
+      describe "status" $ sequence_ [
+          it "non200"     test_statusNon200
+        , it "non200Body" test_statusNon200Body
         ]
-    , testGroup "ContentType" [
-          testCase "nonGrpcRegular"      test_nonGrpcContentTypeRegular
-        , testCase "missingRegular"      test_missingContentTypeRegular
-        , testCase "nonGrpcTrailersOnly" test_nonGrpcContentTypeTrailersOnly
-        , testCase "missingTrailersOnly" test_missingContentTypeTrailersOnly
+    , describe "ContentType" $ sequence_ [
+          it "nonGrpcRegular"      test_nonGrpcContentTypeRegular
+        , it "missingRegular"      test_missingContentTypeRegular
+        , it "nonGrpcTrailersOnly" test_nonGrpcContentTypeTrailersOnly
+        , it "missingTrailersOnly" test_missingContentTypeTrailersOnly
       ]
-    , testGroup "Omit" [
-         testCase "status"        test_omitStatus
-       , testCase "statusMessage" test_omitStatusMessage
-       , testCase "allTrailers"   test_omitAllTrailers
+    , describe "Omit" $ sequence_ [
+         it "status"        test_omitStatus
+       , it "statusMessage" test_omitStatusMessage
+       , it "allTrailers"   test_omitAllTrailers
        ]
-    , testGroup "Invalid" [
-          testCase "statusMessage"   test_invalidStatusMessage
-        , testCase "requestMetadata" test_invalidRequestMetadata
-        , testCase "trailerMetadata" test_invalidTrailerMetadata
+    , describe "Invalid" $ sequence_ [
+          it "statusMessage"   test_invalidStatusMessage
+        , it "requestMetadata" test_invalidRequestMetadata
+        , it "trailerMetadata" test_invalidTrailerMetadata
         ]
-    , testGroup "Undefined" [
-          testCase "output" test_undefinedOutput
+    , describe "Undefined" $ sequence_ [
+          it "output" test_undefinedOutput
         ]
-    , testGroup "Timeout" [
-          testCase "serverIgnoresTimeout" test_serverIgnoresTimeout
+    , describe "Timeout" $ sequence_ [
+          it "serverIgnoresTimeout" test_serverIgnoresTimeout
         ]
     ]
 
@@ -73,7 +72,7 @@ connParams = def {
 --
 -- We don't test all codes here; we'd just end up duplicating the logic in
 -- 'classifyServerResponse'. We just check one representative value.
-test_statusNon200 :: Assertion
+test_statusNon200 :: IO ()
 test_statusNon200 = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -84,7 +83,7 @@ test_statusNon200 = respondWith (\_reqBody -> response) $ \addr -> do
       Left err | grpcError err == GrpcInternal ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -92,7 +91,7 @@ test_statusNon200 = respondWith (\_reqBody -> response) $ \addr -> do
         }
 
 -- | Ensure that we include the response body for errors, if any
-test_statusNon200Body :: Assertion
+test_statusNon200Body :: IO ()
 test_statusNon200Body = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -106,7 +105,7 @@ test_statusNon200Body = respondWith (\_reqBody -> response) $ \addr -> do
         , Text.pack "Server supplied custom error" `Text.isInfixOf` msg ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -121,7 +120,7 @@ test_statusNon200Body = respondWith (\_reqBody -> response) $ \addr -> do
   Content-type
 -------------------------------------------------------------------------------}
 
-test_invalidContentType :: Response -> Assertion
+test_invalidContentType :: Response -> IO ()
 test_invalidContentType response = respondWith (\_reqBody -> response) $ \addr -> do
     mResp <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -132,21 +131,21 @@ test_invalidContentType response = respondWith (\_reqBody -> response) $ \addr -
       Left GrpcException{grpcError = GrpcUnknown} ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
 
-test_nonGrpcContentTypeRegular :: Assertion
+test_nonGrpcContentTypeRegular :: IO ()
 test_nonGrpcContentTypeRegular = test_invalidContentType def {
       responseHeaders = [
           asciiHeader "content-type" "someInvalidContentType"
         ]
     }
 
-test_missingContentTypeRegular :: Assertion
+test_missingContentTypeRegular :: IO ()
 test_missingContentTypeRegular = test_invalidContentType def {
       responseHeaders = [ ]
     }
 
-test_nonGrpcContentTypeTrailersOnly :: Assertion
+test_nonGrpcContentTypeTrailersOnly :: IO ()
 test_nonGrpcContentTypeTrailersOnly = test_invalidContentType def {
       responseHeaders = [
           asciiHeader "grpc-status" "0"
@@ -154,7 +153,7 @@ test_nonGrpcContentTypeTrailersOnly = test_invalidContentType def {
         ]
     }
 
-test_missingContentTypeTrailersOnly :: Assertion
+test_missingContentTypeTrailersOnly :: IO ()
 test_missingContentTypeTrailersOnly = test_invalidContentType def {
       responseHeaders = [
           asciiHeader "grpc-status" "0"
@@ -165,7 +164,7 @@ test_missingContentTypeTrailersOnly = test_invalidContentType def {
   Omit trailers
 -------------------------------------------------------------------------------}
 
-test_omitStatus :: Assertion
+test_omitStatus :: IO ()
 test_omitStatus = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
@@ -179,7 +178,7 @@ test_omitStatus = respondWith (\_reqBody -> response) $ \addr -> do
         , grpcMessageContains err "grpc-status" ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -188,7 +187,7 @@ test_omitStatus = respondWith (\_reqBody -> response) $ \addr -> do
             ]
         }
 
-test_omitStatusMessage :: Assertion
+test_omitStatusMessage :: IO ()
 test_omitStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
@@ -200,7 +199,7 @@ test_omitStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
       Right (NoMoreElems _) ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -209,7 +208,7 @@ test_omitStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
             ]
         }
 
-test_omitAllTrailers :: Assertion
+test_omitAllTrailers :: IO ()
 test_omitAllTrailers = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
@@ -223,7 +222,7 @@ test_omitAllTrailers = respondWith (\_reqBody -> response) $ \addr -> do
         , grpcMessageContains err "closed without trailers" ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -239,7 +238,7 @@ test_omitAllTrailers = respondWith (\_reqBody -> response) $ \addr -> do
   however need to use the low-level API.
 -------------------------------------------------------------------------------}
 
-test_invalidStatusMessage :: Assertion
+test_invalidStatusMessage :: IO ()
 test_invalidStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: StreamElem
                Client.ProperTrailers'
@@ -256,7 +255,7 @@ test_invalidStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
         ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -269,7 +268,7 @@ test_invalidStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
     someInvalidMessage :: String
     someInvalidMessage = "This is invalid: %X"
 
-test_invalidRequestMetadata :: Assertion
+test_invalidRequestMetadata :: IO ()
 test_invalidRequestMetadata = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either
                (Client.TrailersOnly'    HandledSynthesized)
@@ -286,7 +285,7 @@ test_invalidRequestMetadata = respondWith (\_reqBody -> response) $ \addr -> do
         ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     -- In this case we do /NOT/ want to verify all headers
     -- (the whole point is that we can access the invalid header value)
@@ -304,7 +303,7 @@ test_invalidRequestMetadata = respondWith (\_reqBody -> response) $ \addr -> do
     someInvalidMetadata :: String
     someInvalidMetadata = "This is invalid: 你好"
 
-test_invalidTrailerMetadata :: Assertion
+test_invalidTrailerMetadata :: IO ()
 test_invalidTrailerMetadata = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: StreamElem
                Client.ProperTrailers'
@@ -321,7 +320,7 @@ test_invalidTrailerMetadata = respondWith (\_reqBody -> response) $ \addr -> do
         ->
         return ()
       _otherwise ->
-        assertFailure $ "Unexpected response: " ++ show mResp
+        expectationFailure $ "Unexpected response: " ++ show mResp
   where
     response :: Response
     response = def {
@@ -344,7 +343,7 @@ grpcMessageContains GrpcException{grpcErrorMessage} str =
   Undefined values
 -------------------------------------------------------------------------------}
 
-test_undefinedOutput :: Assertion
+test_undefinedOutput :: IO ()
 test_undefinedOutput = do
     st <- newIORef 0
     testClientServer $ ClientServerTest {
@@ -364,9 +363,9 @@ test_undefinedOutput = do
             Client.nonStreaming conn (Client.rpc @Ping) ((mempty) & #id .~ 1)
           case mResp1 of
             Left err | Just msg <- grpcErrorMessage err ->
-              assertBool "" $ Text.pack "DeliberateServerException" `Text.isInfixOf` msg
+              (Text.pack "DeliberateServerException" `Text.isInfixOf` msg) `shouldBe` True
             _otherwise ->
-              assertFailure "Unexpected response"
+              expectationFailure "Unexpected response"
 
           -- Meanwhile, the server should just continue running; the /second/
           -- invocation of the handler should succeed normally.
@@ -374,9 +373,9 @@ test_undefinedOutput = do
             Client.nonStreaming conn (Client.rpc @Ping) ((mempty) & #id .~ 2)
           case mResp2 of
             Right resp ->
-              assertEqual "" 2 $ resp ^. #id
+              resp ^. #id `shouldBe` 2
             _otherwise ->
-              assertFailure "Unexpected response"
+              expectationFailure "Unexpected response"
       }
   where
     -- Server handler attempts to enqueue an undefined message
@@ -397,7 +396,7 @@ test_undefinedOutput = do
 -- client should not /depend/ on the server respecting it.
 --
 -- See also <https://github.com/well-typed/grapesy/issues/221>.
-test_serverIgnoresTimeout :: Assertion
+test_serverIgnoresTimeout :: IO ()
 test_serverIgnoresTimeout = respondWithIO (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
@@ -409,9 +408,9 @@ test_serverIgnoresTimeout = respondWithIO (\_reqBody -> response) $ \addr -> do
       Left e | grpcError e == GrpcDeadlineExceeded ->
         return ()
       Left e ->
-        assertFailure $ "unexpected error: " ++ show e
+        expectationFailure $ "unexpected error: " ++ show e
       Right _ ->
-        assertFailure "Timeout did not trigger"
+        expectationFailure "Timeout did not trigger"
   where
     response :: IO Response
     response = do

@@ -2,8 +2,7 @@
 module Test.Iceberg.Sort (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Avro.Value as AV
 import Iceberg.Sort
@@ -25,21 +24,21 @@ descOrder = SortOrder 2 (V.singleton
   (SortField { sortSourceId = 1, sortTransform = Identity
              , sortDirection = Desc, sortNullOrder = NullsLast }))
 
-tests :: TestTree
-tests = testGroup "Iceberg.Sort"
-  [ testCase "ASC keys compare numerically" $ do
+tests :: Spec
+tests = describe "Iceberg.Sort" $ sequence_
+  [ it "ASC keys compare numerically" $ do
       Right a <- pure $ buildSortKey ascOrder schema (\_ -> Just (AV.Long 1))
       Right b <- pure $ buildSortKey ascOrder schema (\_ -> Just (AV.Long 2))
-      compareSortKeys a b @?= LT
-      compareSortKeys b a @?= GT
+      compareSortKeys a b `shouldBe` LT
+      compareSortKeys b a `shouldBe` GT
 
-  , testCase "DESC inverts the order" $ do
+  , it "DESC inverts the order" $ do
       Right a <- pure $ buildSortKey descOrder schema (\_ -> Just (AV.Long 1))
       Right b <- pure $ buildSortKey descOrder schema (\_ -> Just (AV.Long 2))
-      compareSortKeys a b @?= GT
+      compareSortKeys a b `shouldBe` GT
 
-  , testCase "NullsLast: null > non-null in ASC order" $ do
+  , it "NullsLast: null > non-null in ASC order" $ do
       Right a <- pure $ buildSortKey ascOrder schema (\_ -> Just (AV.Long 1))
       Right b <- pure $ buildSortKey ascOrder schema (\_ -> Nothing)
-      compareSortKeys a b @?= LT
+      compareSortKeys a b `shouldBe` LT
   ]

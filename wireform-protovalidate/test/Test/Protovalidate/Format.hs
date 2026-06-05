@@ -5,23 +5,22 @@ module Test.Protovalidate.Format (tests) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Protovalidate.Format
 
-yes :: (Text -> Bool) -> Text -> TestTree
-yes f s = testCase (T.unpack s) (assertBool "expected valid" (f s))
+yes :: (Text -> Bool) -> Text -> Spec
+yes f s = it (T.unpack s) ((f s) `shouldBe` True)
 
-no :: (Text -> Bool) -> Text -> TestTree
-no f s = testCase (T.unpack s ++ " [invalid]") (assertBool "expected invalid" (not (f s)))
+no :: (Text -> Bool) -> Text -> Spec
+no f s = it (T.unpack s ++ " [invalid]") ((not (f s)) `shouldBe` True)
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "format"
-    [ testGroup
-        "hostname"
+  describe
+    "format" $ sequence_
+    [ describe
+        "hostname" $ sequence_
         [ yes isHostname "example.com"
         , yes isHostname "a.b.c.example.com"
         , yes isHostname "localhost"
@@ -34,8 +33,8 @@ tests =
         , no isHostname "example..com"
         , no isHostname "123.456" -- all-numeric TLD
         ]
-    , testGroup
-        "email"
+    , describe
+        "email" $ sequence_
         [ yes isEmail "user@example.com"
         , yes isEmail "first.last@sub.example.com"
         , yes isEmail "a+b@example.com"
@@ -45,8 +44,8 @@ tests =
         , no isEmail "user@"
         , no isEmail "user@-bad.com"
         ]
-    , testGroup
-        "ipv4"
+    , describe
+        "ipv4" $ sequence_
         [ yes isIpv4 "0.0.0.0"
         , yes isIpv4 "192.168.1.1"
         , yes isIpv4 "255.255.255.255"
@@ -55,8 +54,8 @@ tests =
         , no isIpv4 "01.2.3.4" -- leading zero
         , no isIpv4 "1.2.3.4.5"
         ]
-    , testGroup
-        "ipv6"
+    , describe
+        "ipv6" $ sequence_
         [ yes isIpv6 "::"
         , yes isIpv6 "::1"
         , yes isIpv6 "2001:db8::1"
@@ -68,8 +67,8 @@ tests =
         , no isIpv6 "12345::" -- group too long
         , no isIpv6 "1:2:3:4:5:6:7:8:9"
         ]
-    , testGroup
-        "ip prefix"
+    , describe
+        "ip prefix" $ sequence_
         [ yes (isIpPrefix Nothing False) "192.168.0.0/16"
         , yes (isIpPrefix (Just 4) False) "10.0.0.5/8"
         , yes (isIpPrefix (Just 4) True) "10.0.0.0/8" -- strict: host bits zero
@@ -78,8 +77,8 @@ tests =
         , no (isIpPrefix Nothing False) "10.0.0.0/33" -- prefix too long
         , no (isIpPrefix Nothing False) "10.0.0.0"
         ]
-    , testGroup
-        "host and port"
+    , describe
+        "host and port" $ sequence_
         [ yes (\s -> isHostAndPort s True) "example.com:8080"
         , yes (\s -> isHostAndPort s True) "127.0.0.1:80"
         , yes (\s -> isHostAndPort s True) "[::1]:443"
@@ -87,8 +86,8 @@ tests =
         , yes (\s -> isHostAndPort s False) "example.com"
         , no (\s -> isHostAndPort s True) "example.com:99999"
         ]
-    , testGroup
-        "uri"
+    , describe
+        "uri" $ sequence_
         [ yes isUri "https://example.com/path?q=1#frag"
         , yes isUri "mailto:user@example.com"
         , yes isUri "urn:isbn:0451450523"

@@ -8,32 +8,31 @@ import Proto.CodeGen.Types
 import Proto.IDL.AST
 import Proto.IDL.Annotations
 import Proto.IDL.Parser
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 
-codeGenTests :: TestTree
+codeGenTests :: Spec
 codeGenTests =
-  testGroup
-    "Code Generation"
-    [ testGroup
-        "Type name conversion"
-        [ testCase "simple name" $
-            hsTypeName "person" @?= "Person"
-        , testCase "already capitalized" $
-            hsTypeName "Person" @?= "Person"
-        , testCase "field name conversion" $
-            hsFieldName "first_name" @?= "firstName"
-        , testCase "field name no underscore" $
-            hsFieldName "name" @?= "name"
-        , testCase "enum constructor" $
-            hsEnumCon "Status" "STATUS_ACTIVE" @?= "StatusActive"
-        , testCase "module name" $
-            hsModuleName "com.example.api" @?= "Com.Example.Api"
+  describe
+    "Code Generation" $ sequence_
+    [ describe
+        "Type name conversion" $ sequence_
+        [ it "simple name" $
+            hsTypeName "person" `shouldBe` "Person"
+        , it "already capitalized" $
+            hsTypeName "Person" `shouldBe` "Person"
+        , it "field name conversion" $
+            hsFieldName "first_name" `shouldBe` "firstName"
+        , it "field name no underscore" $
+            hsFieldName "name" `shouldBe` "name"
+        , it "enum constructor" $
+            hsEnumCon "Status" "STATUS_ACTIVE" `shouldBe` "StatusActive"
+        , it "module name" $
+            hsModuleName "com.example.api" `shouldBe` "Com.Example.Api"
         ]
-    , testGroup
-        "Code generation from parsed proto"
-        [ testCase "generates module for simple message" $ do
+    , describe
+        "Code generation from parsed proto" $ sequence_
+        [ it "generates module for simple message" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
@@ -44,14 +43,14 @@ codeGenTests =
                     , "}"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let emptyReg = Map.empty :: TypeRegistry
                     code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
-                assertBool "Should contain data Person" (T.isInfixOf "data Person" code)
-                assertBool "Should contain name field" (T.isInfixOf "name" code)
-                assertBool "Should contain module header" (T.isInfixOf "module" code)
-        , testCase "proto3 optional scalar gets Maybe wrapper" $ do
+                (T.isInfixOf "data Person" code) `shouldBe` True
+                (T.isInfixOf "name" code) `shouldBe` True
+                (T.isInfixOf "module" code) `shouldBe` True
+        , it "proto3 optional scalar gets Maybe wrapper" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
@@ -63,20 +62,14 @@ codeGenTests =
                     , "}"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let emptyReg = Map.empty :: TypeRegistry
                     code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
-                assertBool
-                  "optional int32 should be Maybe Int32"
-                  (T.isInfixOf "Maybe Int32" code)
-                assertBool
-                  "optional string should be Maybe Text"
-                  (T.isInfixOf "Maybe Text" code)
-                assertBool
-                  "required int32 should not be Maybe (bare Int32)"
-                  (T.isInfixOf "Int32" code)
-        , testCase "generates enum" $ do
+                (T.isInfixOf "Maybe Int32" code) `shouldBe` True
+                (T.isInfixOf "Maybe Text" code) `shouldBe` True
+                (T.isInfixOf "Int32" code) `shouldBe` True
+        , it "generates enum" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
@@ -86,16 +79,16 @@ codeGenTests =
                     , "}"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let emptyReg = Map.empty :: TypeRegistry
                     code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
-                assertBool "Should contain data Status" (T.isInfixOf "data Status" code)
-                assertBool "Should contain Active" (T.isInfixOf "Active" code)
+                (T.isInfixOf "data Status" code) `shouldBe` True
+                (T.isInfixOf "Active" code) `shouldBe` True
         ]
-    , testGroup
-        "Annotations"
-        [ testCase "extract custom annotation" $ do
+    , describe
+        "Annotations" $ sequence_
+        [ it "extract custom annotation" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
@@ -103,56 +96,56 @@ codeGenTests =
                     , "option (another_opt) = { key: \"value\" };"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 let anns = extractAnnotations (protoOptions pf)
-                length anns @?= 2
+                length anns `shouldBe` 2
                 case lookupAnnotation "my_annotation" anns of
                   Just (CBool True) -> pure ()
-                  other -> assertFailure ("Expected CBool True, got: " <> show other)
-        , testCase "lookup simple option" $ do
+                  other -> expectationFailure ("Expected CBool True, got: " <> show other)
+        , it "lookup simple option" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
                     , "option java_package = \"com.example\";"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 case lookupSimpleOption "java_package" (protoOptions pf) of
                   Just (CString "com.example") -> pure ()
-                  other -> assertFailure ("Expected CString, got: " <> show other)
-        , testCase "extension option lookup" $ do
+                  other -> expectationFailure ("Expected CString, got: " <> show other)
+        , it "extension option lookup" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
                     , "option (custom.opt) = 42;"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
                 case lookupExtensionOption "custom.opt" (protoOptions pf) of
                   Just (CInt 42) -> pure ()
-                  other -> assertFailure ("Expected CInt 42, got: " <> show other)
-        , testCase "hasOption check" $ do
+                  other -> expectationFailure ("Expected CInt 42, got: " <> show other)
+        , it "hasOption check" $ do
             let input =
                   unlines'
                     [ "syntax = \"proto3\";"
                     , "option deprecated = true;"
                     ]
             case parseProtoFile "<test>" input of
-              Left e -> assertFailure (show e)
+              Left e -> expectationFailure (show e)
               Right pf -> do
-                assertBool "Should have deprecated" (hasOption "deprecated" (protoOptions pf))
-                assertBool "Should not have java_package" (not (hasOption "java_package" (protoOptions pf)))
-        , testCase "typed option extraction" $ do
-            optionAsInt (CInt 42) @?= Just 42
-            optionAsFloat (CFloat 3.14) @?= Just 3.14
-            optionAsBool (CBool True) @?= Just True
-            optionAsString (CString "hello") @?= Just "hello"
-            optionAsIdent (CIdent "FOO") @?= Just "FOO"
-            optionAsAggregate (CAggregate [("k", CInt 1)]) @?= Just [("k", CInt 1)]
-            optionAsInt (CString "nope") @?= Nothing
+                (hasOption "deprecated" (protoOptions pf)) `shouldBe` True
+                (not (hasOption "java_package" (protoOptions pf))) `shouldBe` True
+        , it "typed option extraction" $ do
+            optionAsInt (CInt 42) `shouldBe` Just 42
+            optionAsFloat (CFloat 3.14) `shouldBe` Just 3.14
+            optionAsBool (CBool True) `shouldBe` Just True
+            optionAsString (CString "hello") `shouldBe` Just "hello"
+            optionAsIdent (CIdent "FOO") `shouldBe` Just "FOO"
+            optionAsAggregate (CAggregate [("k", CInt 1)]) `shouldBe` Just [("k", CInt 1)]
+            optionAsInt (CString "nope") `shouldBe` Nothing
         ]
     ]
 

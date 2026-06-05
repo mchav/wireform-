@@ -128,9 +128,7 @@ test-suite wireform-http1-test
     wireform-core,
     wireform-http1,
     wireform-network,
-    tasty >= 1.4,
-    tasty-hunit >= 0.10,
-    tasty-quickcheck >= 0.10,
+    sydtest,
     QuickCheck >= 2.14
 
 benchmark wireform-http1-bench
@@ -212,8 +210,7 @@ test-suite wireform-http1-conformance
     filepath,
     network,
     process >= 1.6,
-    tasty >= 1.4,
-    tasty-hunit >= 0.10,
+    sydtest,
     wireform-http1
   -- Drivers shell out to deno (h1spec) and dotnet (Http11Probe).
   -- The test silently skips probes whose driver isn't on PATH, so

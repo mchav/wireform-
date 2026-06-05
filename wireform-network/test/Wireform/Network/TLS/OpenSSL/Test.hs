@@ -26,7 +26,7 @@ import Network.Socket
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (sendAll)
 import System.Directory (doesFileExist)
-import Test.Hspec
+import Test.Syd
 
 import Wireform.Network.TLS.OpenSSL
 import Wireform.Parser
@@ -73,9 +73,13 @@ skipIfNoCert :: FilePath -> FilePath -> IO ()
 skipIfNoCert cert key = do
   hasCert <- doesFileExist cert
   hasKey  <- doesFileExist key
+  -- sydtest has no in-body "pending" (unlike hspec's pendingWith), so a
+  -- missing fixture surfaces as a failure rather than a skip. The CI
+  -- runner and the repo both ship these fixtures, so this branch only
+  -- fires on a local clone that skipped fixture generation.
   if hasCert && hasKey
     then pure ()
-    else pendingWith ("missing TLS fixtures: " <> cert <> " / " <> key)
+    else expectationFailure ("missing TLS fixtures: " <> cert <> " / " <> key)
 
 withTlsPair
   :: FilePath

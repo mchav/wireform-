@@ -2,9 +2,8 @@
 
 module Client.ConsumerConfigSpec where
 
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -15,28 +14,28 @@ import qualified Data.Text as T
 import Kafka.Client.Consumer
 
 -- | Test suite for consumer configuration (KIP-256, KIP-392)
-consumerConfigSpec :: TestTree
-consumerConfigSpec = testGroup "Consumer Configuration"
-  [ testGroup "KIP-256: Max Poll Interval"
-      [ testCase "unit_defaultMaxPollInterval" unit_defaultMaxPollInterval
-      , testCase "unit_maxPollIntervalSeparateFromSessionTimeout" unit_maxPollIntervalSeparateFromSessionTimeout
-      , testProperty "prop_maxPollIntervalConfigurable" prop_maxPollIntervalConfigurable
+consumerConfigSpec :: Spec
+consumerConfigSpec = describe "Consumer Configuration" $ sequence_
+  [ describe "KIP-256: Max Poll Interval" $ sequence_
+      [ it "unit_defaultMaxPollInterval" unit_defaultMaxPollInterval
+      , it "unit_maxPollIntervalSeparateFromSessionTimeout" unit_maxPollIntervalSeparateFromSessionTimeout
+      , it "prop_maxPollIntervalConfigurable" prop_maxPollIntervalConfigurable
       ]
-  , testGroup "KIP-392: Rack-Aware Fetching"
-      [ testCase "unit_defaultRackIdIsNothing" unit_defaultRackIdIsNothing
-      , testCase "unit_canSetRackId" unit_canSetRackId
-      , testProperty "prop_rackIdConfigurable" prop_rackIdConfigurable
+  , describe "KIP-392: Rack-Aware Fetching" $ sequence_
+      [ it "unit_defaultRackIdIsNothing" unit_defaultRackIdIsNothing
+      , it "unit_canSetRackId" unit_canSetRackId
+      , it "prop_rackIdConfigurable" prop_rackIdConfigurable
       ]
   ]
 
 -- | KIP-256: Default max poll interval should be 300000ms (5 minutes)
-unit_defaultMaxPollInterval :: Assertion
+unit_defaultMaxPollInterval :: IO ()
 unit_defaultMaxPollInterval = do
   let config = defaultConsumerConfig
-  consumerMaxPollIntervalMs config @?= 300000
+  consumerMaxPollIntervalMs config `shouldBe` 300000
 
 -- | KIP-256: Max poll interval should be separate from session timeout.
-unit_maxPollIntervalSeparateFromSessionTimeout :: Assertion
+unit_maxPollIntervalSeparateFromSessionTimeout :: IO ()
 unit_maxPollIntervalSeparateFromSessionTimeout = do
   let config = defaultConsumerConfig
       maxPollInterval = consumerMaxPollIntervalMs config
@@ -44,15 +43,14 @@ unit_maxPollIntervalSeparateFromSessionTimeout = do
 
   -- Max poll interval (5 min) should be longer than session timeout
   -- (45s, post-KIP-735).
-  assertBool "Max poll interval should be longer than session timeout"
-    (maxPollInterval > sessionTimeout)
+  (maxPollInterval > sessionTimeout) `shouldBe` True
 
   -- Default max poll interval is still 300000ms.
-  maxPollInterval @?= 300000
+  maxPollInterval `shouldBe` 300000
 
   -- KIP-735 widened the default session timeout from 10000ms to
   -- 45000ms (Kafka 3.0). We track the JVM client's default.
-  sessionTimeout @?= 45000
+  sessionTimeout `shouldBe` 45000
 
 -- | KIP-256: Max poll interval should be configurable
 prop_maxPollIntervalConfigurable :: H.Property
@@ -65,18 +63,18 @@ prop_maxPollIntervalConfigurable = H.property $ do
   consumerMaxPollIntervalMs config H.=== customInterval
 
 -- | KIP-392: Default rack ID should be Nothing (disabled by default)
-unit_defaultRackIdIsNothing :: Assertion
+unit_defaultRackIdIsNothing :: IO ()
 unit_defaultRackIdIsNothing = do
   let config = defaultConsumerConfig
-  consumerRackId config @?= Nothing
+  consumerRackId config `shouldBe` Nothing
 
 -- | KIP-392: Should be able to set rack ID
-unit_canSetRackId :: Assertion
+unit_canSetRackId :: IO ()
 unit_canSetRackId = do
   let rackId = "us-east-1a"
       config = defaultConsumerConfig { consumerRackId = Just rackId }
   
-  consumerRackId config @?= Just rackId
+  consumerRackId config `shouldBe` Just rackId
 
 -- | KIP-392: Rack ID should be configurable
 prop_rackIdConfigurable :: H.Property

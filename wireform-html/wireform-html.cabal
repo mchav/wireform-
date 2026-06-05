@@ -90,8 +90,7 @@ test-suite wireform-html-derive-test
     wireform-derive,
     text,
     primitive,
-    tasty,
-    tasty-hunit
+    sydtest
 
 -- The html5lib-test / html-dom-test / html-rewriter-test test suites
 -- live in the umbrella wireform.cabal at the workspace root. They drive

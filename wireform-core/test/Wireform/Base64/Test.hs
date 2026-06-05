@@ -4,7 +4,7 @@ module Wireform.Base64.Test (spec) where
 
 import qualified Data.ByteString as BS
 import Data.Word (Word8)
-import Test.Hspec
+import Test.Syd
 import Test.QuickCheck
 
 import Wireform.Base64

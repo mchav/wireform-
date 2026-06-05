@@ -7,115 +7,114 @@ import qualified Data.Text as T
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Wireform.Derive.NameStyle
 
-tests :: TestTree
-tests = testGroup "NameStyle"
-  [ testGroup "applyStyle / golden"
-      [ testCase "snake personName"
-          (applyStyle SnakeCase "personName"  @?= "person_name")
-      , testCase "snake HTTPRequest"
-          (applyStyle SnakeCase "HTTPRequest" @?= "http_request")
-      , testCase "snake httpRequest"
-          (applyStyle SnakeCase "httpRequest" @?= "http_request")
-      , testCase "snake-of-snake personName"
-          (applyStyle SnakeCase "person_name" @?= "person_name")
-      , testCase "kebab personName"
-          (applyStyle KebabCase "personName"  @?= "person-name")
-      , testCase "kebab HTTPRequest"
-          (applyStyle KebabCase "HTTPRequest" @?= "http-request")
-      , testCase "camel of snake"
-          (applyStyle CamelCase  "person_name" @?= "personName")
-      , testCase "camel idempotent"
-          (applyStyle CamelCase  "personName"  @?= "personName")
-      , testCase "pascal of snake"
-          (applyStyle PascalCase "person_name" @?= "PersonName")
-      , testCase "pascal idempotent"
-          (applyStyle PascalCase "PersonName"  @?= "PersonName")
-      , testCase "upper snake"
-          (applyStyle UpperSnake "personName"  @?= "PERSON_NAME")
-      , testCase "upper kebab"
-          (applyStyle UpperKebab "personName"  @?= "PERSON-NAME")
-      , testCase "strip prefix present"
-          (applyStyle (StripPrefix "person") "personName" @?= "Name")
-      , testCase "strip prefix absent"
-          (applyStyle (StripPrefix "other") "personName" @?= "personName")
-      , testCase "strip prefix CI"
-          (applyStyle (StripPrefixCI "PERSON") "personName" @?= "Name")
-      , testCase "strip suffix present"
-          (applyStyle (StripSuffix "Name") "personName" @?= "person")
-      , testCase "compose strip + snake"
+tests :: Spec
+tests = describe "NameStyle" $ sequence_
+  [ describe "applyStyle / golden" $ sequence_
+      [ it "snake personName"
+          (applyStyle SnakeCase "personName"  `shouldBe` "person_name")
+      , it "snake HTTPRequest"
+          (applyStyle SnakeCase "HTTPRequest" `shouldBe` "http_request")
+      , it "snake httpRequest"
+          (applyStyle SnakeCase "httpRequest" `shouldBe` "http_request")
+      , it "snake-of-snake personName"
+          (applyStyle SnakeCase "person_name" `shouldBe` "person_name")
+      , it "kebab personName"
+          (applyStyle KebabCase "personName"  `shouldBe` "person-name")
+      , it "kebab HTTPRequest"
+          (applyStyle KebabCase "HTTPRequest" `shouldBe` "http-request")
+      , it "camel of snake"
+          (applyStyle CamelCase  "person_name" `shouldBe` "personName")
+      , it "camel idempotent"
+          (applyStyle CamelCase  "personName"  `shouldBe` "personName")
+      , it "pascal of snake"
+          (applyStyle PascalCase "person_name" `shouldBe` "PersonName")
+      , it "pascal idempotent"
+          (applyStyle PascalCase "PersonName"  `shouldBe` "PersonName")
+      , it "upper snake"
+          (applyStyle UpperSnake "personName"  `shouldBe` "PERSON_NAME")
+      , it "upper kebab"
+          (applyStyle UpperKebab "personName"  `shouldBe` "PERSON-NAME")
+      , it "strip prefix present"
+          (applyStyle (StripPrefix "person") "personName" `shouldBe` "Name")
+      , it "strip prefix absent"
+          (applyStyle (StripPrefix "other") "personName" `shouldBe` "personName")
+      , it "strip prefix CI"
+          (applyStyle (StripPrefixCI "PERSON") "personName" `shouldBe` "Name")
+      , it "strip suffix present"
+          (applyStyle (StripSuffix "Name") "personName" `shouldBe` "person")
+      , it "compose strip + snake"
           (applyStyle
               (StripPrefix "person" `andThen` SnakeCase)
               "personHttpRequest"
-              @?= "http_request")
-      , testCase "replace"
-          (applyStyle (Replace "Name" "Label") "personName" @?= "personLabel")
-      , testCase "drop / take"
-          (applyStyle (DropChars 6 `andThen` TakeChars 2) "personName" @?= "Na")
-      , testCase "Idiomatic falls through to NoStyle without resolution"
-          (applyStyle Idiomatic "personName" @?= "personName")
+              `shouldBe` "http_request")
+      , it "replace"
+          (applyStyle (Replace "Name" "Label") "personName" `shouldBe` "personLabel")
+      , it "drop / take"
+          (applyStyle (DropChars 6 `andThen` TakeChars 2) "personName" `shouldBe` "Na")
+      , it "Idiomatic falls through to NoStyle without resolution"
+          (applyStyle Idiomatic "personName" `shouldBe` "personName")
       ]
 
-  , testGroup "Idiomatic resolution"
-      [ testCase "JSON resolves to CamelCase"
+  , describe "Idiomatic resolution" $ sequence_
+      [ it "JSON resolves to CamelCase"
           (applyStyle (resolveIdiomatic "json" Idiomatic) "person_name"
-             @?= "personName")
-      , testCase "EDN resolves to KebabCase"
+             `shouldBe` "personName")
+      , it "EDN resolves to KebabCase"
           (applyStyle (resolveIdiomatic "edn" Idiomatic) "personName"
-             @?= "person-name")
-      , testCase "Proto resolves to CamelCase"
+             `shouldBe` "person-name")
+      , it "Proto resolves to CamelCase"
           (applyStyle (resolveIdiomatic "proto" Idiomatic) "person_name"
-             @?= "personName")
-      , testCase "TOML resolves to SnakeCase"
+             `shouldBe` "personName")
+      , it "TOML resolves to SnakeCase"
           (applyStyle (resolveIdiomatic "toml" Idiomatic) "personName"
-             @?= "person_name")
-      , testCase "YAML resolves to KebabCase"
+             `shouldBe` "person_name")
+      , it "YAML resolves to KebabCase"
           (applyStyle (resolveIdiomatic "yaml" Idiomatic) "personName"
-             @?= "person-name")
-      , testCase "XML resolves to PascalCase"
+             `shouldBe` "person-name")
+      , it "XML resolves to PascalCase"
           (applyStyle (resolveIdiomatic "xml" Idiomatic) "person_name"
-             @?= "PersonName")
-      , testCase "CBOR resolves to NoStyle (verbatim)"
+             `shouldBe` "PersonName")
+      , it "CBOR resolves to NoStyle (verbatim)"
           (applyStyle (resolveIdiomatic "cbor" Idiomatic) "personName"
-             @?= "personName")
-      , testCase "compose preserves outer style"
+             `shouldBe` "personName")
+      , it "compose preserves outer style"
           (applyStyle (resolveIdiomatic "edn"
               (StripPrefix "person" `andThen` Idiomatic))
               "personHttpRequest"
-              @?= "http-request")
+              `shouldBe` "http-request")
       ]
 
-  , testGroup "properties"
-      [ testProperty "NoStyle is identity" $ property $ do
+  , describe "properties" $ sequence_
+      [ it "NoStyle is identity" $ property $ do
           t <- forAll genIdent
           applyStyle NoStyle t === t
 
-      , testProperty "Compose NoStyle a == a" $ property $ do
+      , it "Compose NoStyle a == a" $ property $ do
           t <- forAll genIdent
           applyStyle (Compose NoStyle SnakeCase) t === applyStyle SnakeCase t
 
-      , testProperty "snake then camel preserves alpha" $ property $ do
+      , it "snake then camel preserves alpha" $ property $ do
           t <- forAll genCamelIdent
           let snaked = applyStyle SnakeCase t
               roundTripped = applyStyle CamelCase snaked
           T.toLower roundTripped === T.toLower t
 
-      , testProperty "snake produces lowercase output" $ property $ do
+      , it "snake produces lowercase output" $ property $ do
           t <- forAll genIdent
           let s = applyStyle SnakeCase t
           assert (T.all (\c -> not (Char.isUpper c)) s)
 
-      , testProperty "kebab produces lowercase output" $ property $ do
+      , it "kebab produces lowercase output" $ property $ do
           t <- forAll genIdent
           let s = applyStyle KebabCase t
           assert (T.all (\c -> not (Char.isUpper c)) s)
 
-      , testProperty "applyStyle is total (never bottom)" $ property $ do
+      , it "applyStyle is total (never bottom)" $ property $ do
           t <- forAll genIdent
           let len = T.length (applyStyle SnakeCase t)
           assert (len >= 0)

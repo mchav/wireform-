@@ -7,7 +7,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int
 import Data.Word
-import Test.Hspec
+import Test.Syd
 import Test.QuickCheck
 
 import Wireform.Parser

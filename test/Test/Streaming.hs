@@ -9,9 +9,8 @@ import Data.Word (Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified MsgPack.Value as MV
 import MsgPack.Encode (encode)
@@ -21,8 +20,8 @@ import qualified CBOR.Value as C
 import CBOR.Encode (encode)
 import qualified CBOR.Stream as CS
 
-streamingTests :: TestTree
-streamingTests = testGroup "Streaming Decode"
+streamingTests :: Spec
+streamingTests = describe "Streaming Decode" $ sequence_
   [ msgpackStreamTests
   , cborStreamTests
   ]
@@ -31,9 +30,9 @@ streamingTests = testGroup "Streaming Decode"
 -- MsgPack streaming
 ------------------------------------------------------------------------
 
-msgpackStreamTests :: TestTree
-msgpackStreamTests = testGroup "MsgPack Stream"
-  [ testProperty "single value all-at-once" $ property $ do
+msgpackStreamTests :: Spec
+msgpackStreamTests = describe "MsgPack Stream" $ sequence_
+  [ it "single value all-at-once" $ property $ do
       val <- forAll genMsgPackValue
       let bs = MsgPack.Encode.encode val
       case MS.streamDecode bs of
@@ -47,7 +46,7 @@ msgpackStreamTests = testGroup "MsgPack Stream"
           annotate e
           failure
 
-  , testProperty "single value byte-by-byte" $ property $ do
+  , it "single value byte-by-byte" $ property $ do
       val <- forAll genMsgPackValue
       let bs = MsgPack.Encode.encode val
           chunks = map BS.singleton (BS.unpack bs)
@@ -62,7 +61,7 @@ msgpackStreamTests = testGroup "MsgPack Stream"
           annotate "still partial after all bytes"
           failure
 
-  , testProperty "preserves leftover" $ property $ do
+  , it "preserves leftover" $ property $ do
       val <- forAll genMsgPackValue
       extra <- forAll $ Gen.bytes (Range.linear 1 20)
       let bs = MsgPack.Encode.encode val <> extra
@@ -74,7 +73,7 @@ msgpackStreamTests = testGroup "MsgPack Stream"
           annotate (show other)
           failure
 
-  , testProperty "two values concatenated" $ property $ do
+  , it "two values concatenated" $ property $ do
       v1 <- forAll genMsgPackValue
       v2 <- forAll genMsgPackValue
       let bs = MsgPack.Encode.encode v1 <> MsgPack.Encode.encode v2
@@ -92,19 +91,19 @@ msgpackStreamTests = testGroup "MsgPack Stream"
           annotate ("first: " ++ show other)
           failure
 
-  , testCase "empty input returns Partial" $
+  , it "empty input returns Partial" $
       case MS.streamDecode BS.empty of
         MS.Partial _ -> pure ()
-        other -> assertFailure $ "expected Partial, got " ++ show other
+        other -> expectationFailure $ "expected Partial, got " ++ show other
 
-  , testCase "Partial then empty fails" $
+  , it "Partial then empty fails" $
       case MS.streamDecode BS.empty of
         MS.Partial k -> case k BS.empty of
           MS.Fail _ -> pure ()
-          other -> assertFailure $ "expected Fail, got " ++ show other
-        other -> assertFailure $ "expected Partial, got " ++ show other
+          other -> expectationFailure $ "expected Fail, got " ++ show other
+        other -> expectationFailure $ "expected Partial, got " ++ show other
 
-  , testProperty "split at arbitrary boundary" $ property $ do
+  , it "split at arbitrary boundary" $ property $ do
       val <- forAll genMsgPackValue
       let bs = MsgPack.Encode.encode val
       splitPos <- forAll $ Gen.int (Range.linear 0 (BS.length bs))
@@ -130,9 +129,9 @@ msgpackStreamTests = testGroup "MsgPack Stream"
 -- CBOR streaming
 ------------------------------------------------------------------------
 
-cborStreamTests :: TestTree
-cborStreamTests = testGroup "CBOR Stream"
-  [ testProperty "single value all-at-once" $ property $ do
+cborStreamTests :: Spec
+cborStreamTests = describe "CBOR Stream" $ sequence_
+  [ it "single value all-at-once" $ property $ do
       val <- forAll genCBORValue
       let bs = CBOR.Encode.encode val
       case CS.streamDecode bs of
@@ -146,7 +145,7 @@ cborStreamTests = testGroup "CBOR Stream"
           annotate e
           failure
 
-  , testProperty "single value byte-by-byte" $ property $ do
+  , it "single value byte-by-byte" $ property $ do
       val <- forAll genCBORValue
       let bs = CBOR.Encode.encode val
           chunks = map BS.singleton (BS.unpack bs)
@@ -161,7 +160,7 @@ cborStreamTests = testGroup "CBOR Stream"
           annotate "still partial after all bytes"
           failure
 
-  , testProperty "preserves leftover" $ property $ do
+  , it "preserves leftover" $ property $ do
       val <- forAll genCBORValue
       extra <- forAll $ Gen.bytes (Range.linear 1 20)
       let bs = CBOR.Encode.encode val <> extra
@@ -173,7 +172,7 @@ cborStreamTests = testGroup "CBOR Stream"
           annotate (show other)
           failure
 
-  , testProperty "two values concatenated" $ property $ do
+  , it "two values concatenated" $ property $ do
       v1 <- forAll genCBORValue
       v2 <- forAll genCBORValue
       let bs = CBOR.Encode.encode v1 <> CBOR.Encode.encode v2
@@ -191,19 +190,19 @@ cborStreamTests = testGroup "CBOR Stream"
           annotate ("first: " ++ show other)
           failure
 
-  , testCase "empty input returns Partial" $
+  , it "empty input returns Partial" $
       case CS.streamDecode BS.empty of
         CS.Partial _ -> pure ()
-        other -> assertFailure $ "expected Partial, got " ++ show other
+        other -> expectationFailure $ "expected Partial, got " ++ show other
 
-  , testCase "Partial then empty fails" $
+  , it "Partial then empty fails" $
       case CS.streamDecode BS.empty of
         CS.Partial k -> case k BS.empty of
           CS.Fail _ -> pure ()
-          other -> assertFailure $ "expected Fail, got " ++ show other
-        other -> assertFailure $ "expected Partial, got " ++ show other
+          other -> expectationFailure $ "expected Fail, got " ++ show other
+        other -> expectationFailure $ "expected Partial, got " ++ show other
 
-  , testProperty "split at arbitrary boundary" $ property $ do
+  , it "split at arbitrary boundary" $ property $ do
       val <- forAll genCBORValue
       let bs = CBOR.Encode.encode val
       splitPos <- forAll $ Gen.int (Range.linear 0 (BS.length bs))

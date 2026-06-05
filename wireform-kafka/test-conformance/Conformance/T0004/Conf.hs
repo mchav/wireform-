@@ -21,43 +21,42 @@ module Conformance.T0004.Conf (tests) where
 import Control.Exception (try)
 import Kafka.Errors (KafkaException)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Group as G
 
-tests :: TestTree
-tests = testGroup "0004-conf"
-  [ testCase "empty bootstrap brokers rejected" $ rejects
+tests :: Spec
+tests = describe "0004-conf" $ sequence_
+  [ it "empty bootstrap brokers rejected" $ rejects
       G.defaultGroupConfig
         { G.bootstrapBrokers = []
         , G.groupId = "g"
         , G.topics  = ["t"]
         }
 
-  , testCase "empty group id rejected" $ rejects
+  , it "empty group id rejected" $ rejects
       G.defaultGroupConfig
         { G.groupId = ""
         , G.topics  = ["t"]
         }
 
-  , testCase "empty topics list rejected" $ rejects
+  , it "empty topics list rejected" $ rejects
       G.defaultGroupConfig
         { G.groupId = "g"
         , G.topics  = []
         }
 
-  , testCase "default knobs round-trip" $ do
+  , it "default knobs round-trip" $ do
       let cfg = G.defaultGroupConfig
-      G.sessionTimeoutMs   cfg @?= 10000
-      G.maxPollIntervalMs  cfg @?= 300000
-      G.maxPollRecords     cfg @?= 500
-      G.pollTimeoutMs      cfg @?= 1000
-      G.closeTimeoutMs     cfg @?= 30000
+      G.sessionTimeoutMs   cfg `shouldBe` 10000
+      G.maxPollIntervalMs  cfg `shouldBe` 300000
+      G.maxPollRecords     cfg `shouldBe` 500
+      G.pollTimeoutMs      cfg `shouldBe` 1000
+      G.closeTimeoutMs     cfg `shouldBe` 30000
   ]
   where
     rejects cfg = do
       r <- try (G.runConsumer cfg (\_ -> pure ()))
       case (r :: Either KafkaException ()) of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected validation failure, got success"
+        Right _ -> expectationFailure "expected validation failure, got success"

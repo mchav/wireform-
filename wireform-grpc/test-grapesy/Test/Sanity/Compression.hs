@@ -7,8 +7,7 @@ import Control.Monad
 import Data.IORef
 import Data.Maybe (isJust)
 import Data.Text (Text)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
@@ -25,10 +24,10 @@ import Proto.Interop ()
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.Compression" [
-      testCase "multipleRPC"  test_multipleRPC
-    , testCase "multipleMsgs" test_multipleMsgs
+tests :: Spec
+tests = describe "Test.Sanity.Compression" $ sequence_ [
+      it "multipleRPC"  test_multipleRPC
+    , it "multipleMsgs" test_multipleMsgs
     ]
 
 {-------------------------------------------------------------------------------
@@ -36,7 +35,7 @@ tests = testGroup "Test.Sanity.Compression" [
 -------------------------------------------------------------------------------}
 
 -- | Test that compression is enabled for the /second/ RPC
-test_multipleRPC :: Assertion
+test_multipleRPC :: IO ()
 test_multipleRPC = do
     counter <- newIORef 0
     testClientServer $ ClientServerTest {
@@ -48,14 +47,12 @@ test_multipleRPC = do
                 Client.sendFinalInput call req
                 mResp <- StreamElem.value <$> Client.recvOutputWithMeta call
                 case mResp of
-                  Nothing -> assertFailure "Expected response"
+                  Nothing -> expectationFailure "Expected response"
                   Just (meta, resp) -> do
                     -- /All/ responses from the server should be compressed
                     -- (the request tells the server what the client supports)
-                    assertEqual "" True $
-                      isJust (inboundCompressedSize meta)
-                    assertEqual "" compressibleName $
-                      resp ^. #message
+                    isJust (inboundCompressedSize meta) `shouldBe` True
+                    resp ^. #message `shouldBe` compressibleName
     }
   where
     req :: Proto HelloRequest
@@ -63,7 +60,7 @@ test_multipleRPC = do
 
 -- | Test that multiple messages on /one/ RPC will either all be compressed or
 -- all uncompressed.
-test_multipleMsgs :: Assertion
+test_multipleMsgs :: IO ()
 test_multipleMsgs = do
     counter <- newIORef 0
     testClientServer $ ClientServerTest {
@@ -76,14 +73,12 @@ test_multipleMsgs = do
                 Client.sendNextInput call req
                 mResp <- StreamElem.value <$> Client.recvOutputWithMeta call
                 case mResp of
-                  Nothing -> assertFailure "Expected response"
+                  Nothing -> expectationFailure "Expected response"
                   Just (meta, resp) -> do
                     -- /All/ responses from the server should be compressed
                     -- (the request tells the server what the client supports)
-                    assertEqual "" True $
-                      isJust (inboundCompressedSize meta)
-                    assertEqual "" compressibleName $
-                      resp ^. #message
+                    isJust (inboundCompressedSize meta) `shouldBe` True
+                    resp ^. #message `shouldBe` compressibleName
 
 
               -- Make sure to wait for the trailers, so that the handler doesn't
@@ -111,15 +106,14 @@ handleNonStreaming counter = Server.mkRpcHandler $ \call -> do
         -- does not yet know which compression algorithms the server supports)
         let expectCompression :: Bool
             expectCompression = callNo > 0
-        assertEqual "" expectCompression $
-          isJust (inboundCompressedSize meta)
+        isJust (inboundCompressedSize meta) `shouldBe` expectCompression
 
         Server.sendFinalOutput call (
             (mempty) & #message .~ (req ^. #name)
           , NoMetadata
           )
       _otherwise ->
-        assertFailure "expected FinalElem"
+        expectationFailure "expected FinalElem"
 
 handleBidiStreaming :: IORef Int -> Server.RpcHandler IO SayHelloBidiStream
 handleBidiStreaming counter = Server.mkRpcHandler $ \call -> do
@@ -136,14 +130,13 @@ handleBidiStreaming counter = Server.mkRpcHandler $ \call -> do
               -- the request; we cannot start compression halfway a conversation
               let expectCompression :: Bool
                   expectCompression = not isFirstCall
-              assertEqual "" expectCompression $
-                isJust (inboundCompressedSize meta)
+              isJust (inboundCompressedSize meta) `shouldBe` expectCompression
 
               Server.sendNextOutput call $
                 (mempty) & #message .~ (req ^. #name)
               loop
             FinalElem{} ->
-              assertFailure "Unexpected FinalElem"
+              expectationFailure "Unexpected FinalElem"
 
     loop
 

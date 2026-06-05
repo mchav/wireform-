@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.NDJSON.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-ndjson-derive"
+main = sydTest $ describe "wireform-ndjson-derive" $ sequence_
   [ Test.NDJSON.Derive.tests
   ]

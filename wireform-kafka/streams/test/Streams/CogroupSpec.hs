@@ -7,8 +7,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
@@ -21,15 +20,15 @@ i64Bytes = serialize int64Serde
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "Cogroup"
+tests :: Spec
+tests = describe "Cogroup" $ sequence_
   [ cogroup_two_sources_share_state
   , cogroup_three_sources
   ]
 
-cogroup_two_sources_share_state :: TestTree
+cogroup_two_sources_share_state :: Spec
 cogroup_two_sources_share_state =
-  testCase "cogroup of two text streams shares the aggregator state" $ do
+  it "cogroup of two text streams shares the aggregator state" $ do
     b <- newStreamsBuilder
     s1 <- streamFromTopic b (topicName "in1") (consumed textSerde textSerde)
     s2 <- streamFromTopic b (topicName "in2") (consumed textSerde textSerde)
@@ -48,12 +47,12 @@ cogroup_two_sources_share_state =
 
     Just kvs <- getKeyValueStore @Text @Text driver (ctlStore table)
     -- Expected: "" -> /a -> /a+b -> /a+b/c
-    kvsGet kvs "k" >>= (@?= Just "/a+b/c")
+    kvsGet kvs "k" >>= (`shouldBe` Just "/a+b/c")
     closeDriver driver
 
-cogroup_three_sources :: TestTree
+cogroup_three_sources :: Spec
 cogroup_three_sources =
-  testCase "cogroup with three int streams sums into one Int64" $ do
+  it "cogroup with three int streams sums into one Int64" $ do
     b <- newStreamsBuilder
     s1 <- streamFromTopic b (topicName "x") (consumed textSerde int64Serde)
     s2 <- streamFromTopic b (topicName "y") (consumed textSerde int64Serde)
@@ -80,5 +79,5 @@ cogroup_three_sources =
 
     Just kvs <- getKeyValueStore @Text @Int64 driver (ctlStore table)
     -- 0 + 1 (x) + 20 (y) + 300 (z) + 4 (x) = 325
-    kvsGet kvs "k" >>= (@?= Just 325)
+    kvsGet kvs "k" >>= (`shouldBe` Just 325)
     closeDriver driver

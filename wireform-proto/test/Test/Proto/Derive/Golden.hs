@@ -26,25 +26,24 @@ import Test.Proto.Derive.RegressionInstances (
   defaultRegInventory,
   defaultRegItem,
  )
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "Proto.TH.Derive byte-exact golden vectors"
-    [ testCase "empty RegItem encodes to 0 bytes" $ do
+  describe
+    "Proto.TH.Derive byte-exact golden vectors" $ sequence_
+    [ it "empty RegItem encodes to 0 bytes" $ do
         let p = defaultRegItem
-        PE.encodeMessage p @?= BS.empty
-    , testCase "RegItem { regi_name = \"widget\", regi_count = 99 }" $ do
+        PE.encodeMessage p `shouldBe` BS.empty
+    , it "RegItem { regi_name = \"widget\", regi_count = 99 }" $ do
         let p =
               defaultRegItem
                 { regItemRegiName = T.pack "widget"
                 , regItemRegiCount = 99
                 }
         PE.encodeMessage p
-          @?= bytes
+          `shouldBe` bytes
             [ 0x0A
             , 0x06 -- field 1 (string), len 6
             , 0x77
@@ -56,18 +55,18 @@ tests =
             , 0x10
             , 0x63 -- field 2 (varint int32), 99
             ]
-    , testCase "RegItem { regi_count = 1 } skips empty name" $ do
+    , it "RegItem { regi_count = 1 } skips empty name" $ do
         let p = defaultRegItem {regItemRegiCount = 1}
         PE.encodeMessage p
-          @?= bytes
+          `shouldBe` bytes
             [0x10, 0x01]
-    , testCase "empty RegInventory encodes to 0 bytes" $ do
+    , it "empty RegInventory encodes to 0 bytes" $ do
         let p = defaultRegInventory
-        PE.encodeMessage p @?= BS.empty
-    , testCase "RegInventory { name = \"warehouse-7\" }" $ do
+        PE.encodeMessage p `shouldBe` BS.empty
+    , it "RegInventory { name = \"warehouse-7\" }" $ do
         let p = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
         PE.encodeMessage p
-          @?= bytes
+          `shouldBe` bytes
             [ 0x0A
             , 0x0B
             , 0x77
@@ -82,7 +81,7 @@ tests =
             , 0x2D
             , 0x37
             ]
-    , testCase "RegInventory { name = \"depot\", items = 3 entries }" $ do
+    , it "RegInventory { name = \"depot\", items = 3 entries }" $ do
         let p =
               defaultRegInventory
                 { regInventoryReginvName = T.pack "depot"
@@ -94,7 +93,7 @@ tests =
                       ]
                 }
         PE.encodeMessage p
-          @?= bytes
+          `shouldBe` bytes
             -- field 1 (name): tag, len, "depot"
             [ 0x0A
             , 0x05

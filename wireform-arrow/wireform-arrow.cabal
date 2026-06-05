@@ -122,5 +122,4 @@ test-suite wireform-arrow-derive-test
     template-haskell,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

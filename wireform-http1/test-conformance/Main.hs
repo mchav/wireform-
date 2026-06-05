@@ -27,7 +27,7 @@ test prints @SKIPPED@ instead of failing.
 module Main (main) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, try)
 import qualified Data.ByteString as BS
 import qualified Network.Socket as NS
 import System.Directory (doesFileExist, findExecutable)
@@ -35,21 +35,20 @@ import System.Environment (lookupEnv)
 import System.IO (Handle, hGetContents)
 import System.Process
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
 
 main :: IO ()
-main = defaultMain tests
+main = sydTest tests
 
-tests :: TestTree
-tests = withResource startEchoServer stopEchoServer $ \getCtx ->
-  testGroup "wireform-http1 external conformance"
-    [ h1specTest getCtx
-    , http11ProbeTest getCtx
+tests :: Spec
+tests =
+  describe "wireform-http1 external conformance" $ sequence_
+    [ h1specTest
+    , http11ProbeTest
     ]
 
 ------------------------------------------------------------------------
@@ -66,7 +65,7 @@ startEchoServer = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> fail "could not resolve 127.0.0.1"
+    [] -> expectationFailure "could not resolve 127.0.0.1"
     (addr : _) -> do
       sock <- NS.openSocket addr
       NS.setSocketOption sock NS.ReuseAddr 1
@@ -129,9 +128,8 @@ drainAll (BodyStream producer) = go []
 
 -- | Run h1spec under @deno@. Pass criterion: every test must be ✅,
 -- i.e. the trailer line must say @33 out of 33 tests passed.@
-h1specTest :: IO EchoCtx -> TestTree
-h1specTest getCtx = testCase "h1spec (33 tests, RFC 9112)" $ do
-  ctx <- getCtx
+h1specTest :: Spec
+h1specTest = it "h1spec (33 tests, RFC 9112)" $ bracket startEchoServer stopEchoServer $ \ctx -> do
   deno <- findExecutable "deno"
   script <- resolveH1specScript
   case (deno, script) of
@@ -144,9 +142,9 @@ h1specTest getCtx = testCase "h1spec (33 tests, RFC 9112)" $ do
         ["run", "--allow-net", path, "127.0.0.1", show (ecPort ctx)]
       case parseH1specSummary output of
         Nothing ->
-          assertFailure $ "could not parse h1spec summary.\nOutput:\n" <> output
+          expectationFailure $ "could not parse h1spec summary.\nOutput:\n" <> output
         Just (passed, total) ->
-          assertEqual ("h1spec output:\n" <> output) (total, total) (passed, total)
+          (passed, total) `shouldBe` (total, total)
 
 parseH1specSummary :: String -> Maybe (Int, Int)
 parseH1specSummary out =
@@ -169,9 +167,8 @@ parseH1specSummary out =
 http11ProbeBaseline :: (Int, Int)
 http11ProbeBaseline = (161, 161)
 
-http11ProbeTest :: IO EchoCtx -> TestTree
-http11ProbeTest getCtx = testCase "Http11Probe (215 tests, baseline >= 161/161)" $ do
-  ctx <- getCtx
+http11ProbeTest :: Spec
+http11ProbeTest = it "Http11Probe (215 tests, baseline >= 161/161)" $ bracket startEchoServer stopEchoServer $ \ctx -> do
   dotnet <- findExecutable "dotnet"
   dll <- resolveHttp11ProbeDll
   case (dotnet, dll) of
@@ -183,17 +180,15 @@ http11ProbeTest getCtx = testCase "Http11Probe (215 tests, baseline >= 161/161)"
       output <- runProc dnExe [path, "--host", "127.0.0.1", "--port", show (ecPort ctx)]
       case parseHttp11ProbeSummary output of
         Nothing ->
-          assertFailure $ "could not parse Http11Probe summary.\nOutput:\n" <> output
+          expectationFailure $ "could not parse Http11Probe summary.\nOutput:\n" <> output
         Just (passed, total) ->
-          assertBool
-            (concat
+          (if (passed >= fst http11ProbeBaseline && total >= snd http11ProbeBaseline) then pure () else expectationFailure (concat
               [ "Http11Probe regression: ", show passed, "/", show total
               , " (baseline ", show (fst http11ProbeBaseline)
               , "/", show (snd http11ProbeBaseline), ")\n"
               , "Output tail:\n"
               , unlines (drop (max 0 (length (lines output) - 6)) (lines output))
-              ])
-            (passed >= fst http11ProbeBaseline && total >= snd http11ProbeBaseline)
+              ]))
 
 parseHttp11ProbeSummary :: String -> Maybe (Int, Int)
 parseHttp11ProbeSummary out =
@@ -249,7 +244,7 @@ pickFirst p (x : xs) = do
   ok <- p x
   if ok then pure (Just x) else pickFirst p xs
 
-assertSkip :: String -> Assertion
+assertSkip :: String -> IO ()
 assertSkip reason = putStrLn ("  SKIPPED: " <> reason)
 
 -- | Run a process, capture stdout, wait for exit. Stderr is forwarded

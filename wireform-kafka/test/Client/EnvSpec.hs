@@ -10,8 +10,7 @@
 -- a list.
 module Client.EnvSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified System.Environment as SE
@@ -38,77 +37,77 @@ import qualified Kafka.Network.Connection as Conn
 
 import Kafka.Client.ConfigValidation (ConfigError (..))
 
-tests :: TestTree
-tests = testGroup "Kafka.Client.Env"
-  [ testGroup "scalar parsers"
-      [ testCase "parseBool accepts true/false/1/0/yes/no/on/off" prop_parseBool
-      , testCase "parseBool rejects garbage" prop_parseBoolBad
-      , testCase "parseAcks accepts 0/1/-1/all" prop_parseAcks
-      , testCase "parseCompression delegates to codec parser" prop_parseCompression
-      , testCase "parseBootstrapServers splits and trims" prop_parseBootstrapServers
-      , testCase "parseBootstrapServers rejects empty string" prop_parseBootstrapServersEmpty
+tests :: Spec
+tests = describe "Kafka.Client.Env" $ sequence_
+  [ describe "scalar parsers" $ sequence_
+      [ it "parseBool accepts true/false/1/0/yes/no/on/off" prop_parseBool
+      , it "parseBool rejects garbage" prop_parseBoolBad
+      , it "parseAcks accepts 0/1/-1/all" prop_parseAcks
+      , it "parseCompression delegates to codec parser" prop_parseCompression
+      , it "parseBootstrapServers splits and trims" prop_parseBootstrapServers
+      , it "parseBootstrapServers rejects empty string" prop_parseBootstrapServersEmpty
       ]
-  , testGroup "parseKafkaEnvList"
-      [ testCase "empty env yields empty KafkaEnv" prop_emptyEnv
-      , testCase "ignores unrelated KAFKA_* variables" prop_ignoresUnknown
-      , testCase "lookup is case-insensitive" prop_caseInsensitive
-      , testCase "trims whitespace" prop_trimsWhitespace
-      , testCase "reports parse errors with the librdkafka field name"
+  , describe "parseKafkaEnvList" $ sequence_
+      [ it "empty env yields empty KafkaEnv" prop_emptyEnv
+      , it "ignores unrelated KAFKA_* variables" prop_ignoresUnknown
+      , it "lookup is case-insensitive" prop_caseInsensitive
+      , it "trims whitespace" prop_trimsWhitespace
+      , it "reports parse errors with the librdkafka field name"
           prop_reportsParseErrors
-      , testCase "accumulates multiple parse errors" prop_accumulatesErrors
-      , testCase "fills every relevant field" prop_fullEnv
+      , it "accumulates multiple parse errors" prop_accumulatesErrors
+      , it "fills every relevant field" prop_fullEnv
       ]
-  , testGroup "applyKafkaEnvToConnectionConfig"
-      [ testCase "absent vars leave defaults intact" prop_connDefaults
-      , testCase "client.id is overridden" prop_connClientId
-      , testCase "socket timeout overrides read/write" prop_connSocketTimeout
-      , testCase "SSL flips connUseTls and supplies default TLS settings"
+  , describe "applyKafkaEnvToConnectionConfig" $ sequence_
+      [ it "absent vars leave defaults intact" prop_connDefaults
+      , it "client.id is overridden" prop_connClientId
+      , it "socket timeout overrides read/write" prop_connSocketTimeout
+      , it "SSL flips connUseTls and supplies default TLS settings"
           prop_connSsl
-      , testCase "SSL preserves caller-supplied TLS settings" prop_connSslPreservesTls
-      , testCase "SASL_SSL with PLAIN sets connSasl and TLS"
+      , it "SSL preserves caller-supplied TLS settings" prop_connSslPreservesTls
+      , it "SASL_SSL with PLAIN sets connSasl and TLS"
           prop_connSaslSsl
-      , testCase "SASL_SSL with SCRAM-SHA-512 picks the right algo"
+      , it "SASL_SSL with SCRAM-SHA-512 picks the right algo"
           prop_connSaslScramSha512
-      , testCase "SASL_PLAINTEXT skips TLS but sets connSasl"
+      , it "SASL_PLAINTEXT skips TLS but sets connSasl"
           prop_connSaslPlaintext
-      , testCase "SASL_SSL without mechanism is an error"
+      , it "SASL_SSL without mechanism is an error"
           prop_connSaslSslNoMechanism
-      , testCase "SASL_SSL with PLAIN and missing password is an error"
+      , it "SASL_SSL with PLAIN and missing password is an error"
           prop_connSaslMissingPassword
-      , testCase "SASL_SSL with OAUTHBEARER and static token sets connSasl"
+      , it "SASL_SSL with OAUTHBEARER and static token sets connSasl"
           prop_connSaslOAuthStaticToken
-      , testCase "SASL_SSL with OAUTHBEARER and no token is rejected with guidance"
+      , it "SASL_SSL with OAUTHBEARER and no token is rejected with guidance"
           prop_connSaslOAuthMissingToken
-      , testCase "SASL_SSL with AWS_MSK_IAM is rejected with guidance"
+      , it "SASL_SSL with AWS_MSK_IAM is rejected with guidance"
           prop_connSaslAwsRejected
       ]
-  , testGroup "applyKafkaEnvToProducerConfig"
-      [ testCase "absent vars leave defaults intact" prop_prodDefaults
-      , testCase "overrides batch.size + linger.ms + compression"
+  , describe "applyKafkaEnvToProducerConfig" $ sequence_
+      [ it "absent vars leave defaults intact" prop_prodDefaults
+      , it "overrides batch.size + linger.ms + compression"
           prop_prodOverrides
-      , testCase "acks=all maps to ExactlyOnce" prop_prodAcksAll
-      , testCase "enable.idempotence=true flips the flag" prop_prodIdempotence
-      , testCase "transactional.id is propagated" prop_prodTransactional
+      , it "acks=all maps to ExactlyOnce" prop_prodAcksAll
+      , it "enable.idempotence=true flips the flag" prop_prodIdempotence
+      , it "transactional.id is propagated" prop_prodTransactional
       ]
-  , testGroup "applyKafkaEnvToConsumerConfig"
-      [ testCase "absent vars leave defaults intact" prop_consDefaults
-      , testCase "group.id + group.instance.id are propagated"
+  , describe "applyKafkaEnvToConsumerConfig" $ sequence_
+      [ it "absent vars leave defaults intact" prop_consDefaults
+      , it "group.id + group.instance.id are propagated"
           prop_consGroupId
-      , testCase "auto.offset.reset=earliest is applied" prop_consAutoOffsetReset
-      , testCase "isolation.level=read_committed is applied"
+      , it "auto.offset.reset=earliest is applied" prop_consAutoOffsetReset
+      , it "isolation.level=read_committed is applied"
           prop_consIsolation
-      , testCase "session/heartbeat overrides apply" prop_consTimeouts
-      , testCase "partition.assignment.strategy accepts JVM class names"
+      , it "session/heartbeat overrides apply" prop_consTimeouts
+      , it "partition.assignment.strategy accepts JVM class names"
           prop_consAssignmentJvmName
-      , testCase "consumer pulls connection-level env via embedded ConnectionConfig"
+      , it "consumer pulls connection-level env via embedded ConnectionConfig"
           prop_consInheritsConnection
       ]
-  , testGroup "createProducer / createConsumer"
-      [ testCase "createProducer reads KAFKA_BOOTSTRAP_SERVERS from the env"
+  , describe "createProducer / createConsumer" $ sequence_
+      [ it "createProducer reads KAFKA_BOOTSTRAP_SERVERS from the env"
           prop_createProducerReadsBootstrap
-      , testCase "createConsumer reads KAFKA_BOOTSTRAP_SERVERS from the env"
+      , it "createConsumer reads KAFKA_BOOTSTRAP_SERVERS from the env"
           prop_createConsumerReadsBootstrap
-      , testCase "createProducer surfaces malformed env-var values"
+      , it "createProducer surfaces malformed env-var values"
           prop_createProducerMalformedEnv
       ]
   ]
@@ -117,61 +116,61 @@ tests = testGroup "Kafka.Client.Env"
 -- Scalar parsers
 ------------------------------------------------------------------
 
-prop_parseBool :: Assertion
+prop_parseBool :: IO ()
 prop_parseBool = do
-  Env.parseBool "true"  @?= Right True
-  Env.parseBool "TRUE"  @?= Right True
-  Env.parseBool "1"     @?= Right True
-  Env.parseBool "yes"   @?= Right True
-  Env.parseBool "on"    @?= Right True
-  Env.parseBool "false" @?= Right False
-  Env.parseBool "0"     @?= Right False
-  Env.parseBool "no"    @?= Right False
-  Env.parseBool "off"   @?= Right False
+  Env.parseBool "true"  `shouldBe` Right True
+  Env.parseBool "TRUE"  `shouldBe` Right True
+  Env.parseBool "1"     `shouldBe` Right True
+  Env.parseBool "yes"   `shouldBe` Right True
+  Env.parseBool "on"    `shouldBe` Right True
+  Env.parseBool "false" `shouldBe` Right False
+  Env.parseBool "0"     `shouldBe` Right False
+  Env.parseBool "no"    `shouldBe` Right False
+  Env.parseBool "off"   `shouldBe` Right False
 
-prop_parseBoolBad :: Assertion
+prop_parseBoolBad :: IO ()
 prop_parseBoolBad = case Env.parseBool "maybe" of
   Left _  -> pure ()
-  Right b -> assertFailure ("expected Left, got Right " <> show b)
+  Right b -> expectationFailure ("expected Left, got Right " <> show b)
 
-prop_parseAcks :: Assertion
+prop_parseAcks :: IO ()
 prop_parseAcks = do
-  Env.parseAcks "0"   @?= Right EnvAcksZero
-  Env.parseAcks "1"   @?= Right EnvAcksOne
-  Env.parseAcks "-1"  @?= Right EnvAcksAll
-  Env.parseAcks "all" @?= Right EnvAcksAll
-  Env.parseAcks "ALL" @?= Right EnvAcksAll
+  Env.parseAcks "0"   `shouldBe` Right EnvAcksZero
+  Env.parseAcks "1"   `shouldBe` Right EnvAcksOne
+  Env.parseAcks "-1"  `shouldBe` Right EnvAcksAll
+  Env.parseAcks "all" `shouldBe` Right EnvAcksAll
+  Env.parseAcks "ALL" `shouldBe` Right EnvAcksAll
 
-prop_parseCompression :: Assertion
+prop_parseCompression :: IO ()
 prop_parseCompression = do
-  Env.parseCompression "gzip"   @?= Right Compression.Gzip
-  Env.parseCompression "ZSTD"   @?= Right Compression.Zstd
-  Env.parseCompression "snappy" @?= Right Compression.Snappy
-  Env.parseCompression "lz4"    @?= Right Compression.Lz4
-  Env.parseCompression "none"   @?= Right Compression.NoCompression
+  Env.parseCompression "gzip"   `shouldBe` Right Compression.Gzip
+  Env.parseCompression "ZSTD"   `shouldBe` Right Compression.Zstd
+  Env.parseCompression "snappy" `shouldBe` Right Compression.Snappy
+  Env.parseCompression "lz4"    `shouldBe` Right Compression.Lz4
+  Env.parseCompression "none"   `shouldBe` Right Compression.NoCompression
 
-prop_parseBootstrapServers :: Assertion
+prop_parseBootstrapServers :: IO ()
 prop_parseBootstrapServers = do
   Env.parseBootstrapServers "a:1, b:2 ,c:3"
-    @?= Right ["a:1", "b:2", "c:3"]
+    `shouldBe` Right ["a:1", "b:2", "c:3"]
   Env.parseBootstrapServers "a:1  b:2\tc:3"
-    @?= Right ["a:1", "b:2", "c:3"]
+    `shouldBe` Right ["a:1", "b:2", "c:3"]
 
-prop_parseBootstrapServersEmpty :: Assertion
+prop_parseBootstrapServersEmpty :: IO ()
 prop_parseBootstrapServersEmpty = case Env.parseBootstrapServers "   " of
   Left _  -> pure ()
-  Right s -> assertFailure ("expected Left, got " <> show s)
+  Right s -> expectationFailure ("expected Left, got " <> show s)
 
 ------------------------------------------------------------------
 -- parseKafkaEnvList
 ------------------------------------------------------------------
 
-prop_emptyEnv :: Assertion
+prop_emptyEnv :: IO ()
 prop_emptyEnv = case parseKafkaEnvList [] of
-  Right env -> env @?= Env.emptyKafkaEnv
-  Left  e   -> assertFailure ("expected Right, got " <> show e)
+  Right env -> env `shouldBe` Env.emptyKafkaEnv
+  Left  e   -> expectationFailure ("expected Right, got " <> show e)
 
-prop_ignoresUnknown :: Assertion
+prop_ignoresUnknown :: IO ()
 prop_ignoresUnknown =
   -- Confluent's Docker images set tons of KAFKA_BROKER_*,
   -- KAFKA_LISTENERS, KAFKA_ZOOKEEPER_CONNECT, … - all of which
@@ -183,45 +182,45 @@ prop_ignoresUnknown =
          , ("PATH", "/usr/bin")
          , ("KAFKA_CLIENT_ID", "alice")
          ] of
-    Right env -> envClientId env @?= Just "alice"
-    Left e    -> assertFailure ("expected Right, got " <> show e)
+    Right env -> envClientId env `shouldBe` Just "alice"
+    Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_caseInsensitive :: Assertion
+prop_caseInsensitive :: IO ()
 prop_caseInsensitive = case parseKafkaEnvList
          [ ("kafka_client_id", "casey")
          , ("Kafka_Group_Id", "g1")
          ] of
     Right env -> do
-      envClientId env @?= Just "casey"
-      envGroupId  env @?= Just "g1"
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      envClientId env `shouldBe` Just "casey"
+      envGroupId  env `shouldBe` Just "g1"
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_trimsWhitespace :: Assertion
+prop_trimsWhitespace :: IO ()
 prop_trimsWhitespace = case parseKafkaEnvList
          [ ("KAFKA_CLIENT_ID", "  ringo  ")
          , ("KAFKA_BATCH_SIZE", " 4096 ")
          ] of
     Right env -> do
-      envClientId  env @?= Just "ringo"
-      envBatchSize env @?= Just 4096
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      envClientId  env `shouldBe` Just "ringo"
+      envBatchSize env `shouldBe` Just 4096
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_reportsParseErrors :: Assertion
+prop_reportsParseErrors :: IO ()
 prop_reportsParseErrors = case parseKafkaEnvList
          [ ("KAFKA_BATCH_SIZE", "not-a-number") ] of
-    Left [ConfigError field _] -> field @?= "batch.size"
-    other -> assertFailure ("expected one batch.size error, got " <> show other)
+    Left [ConfigError field _] -> field `shouldBe` "batch.size"
+    other -> expectationFailure ("expected one batch.size error, got " <> show other)
 
-prop_accumulatesErrors :: Assertion
+prop_accumulatesErrors :: IO ()
 prop_accumulatesErrors = case parseKafkaEnvList
          [ ("KAFKA_BATCH_SIZE", "x")
          , ("KAFKA_LINGER_MS", "y")
          , ("KAFKA_ENABLE_AUTO_COMMIT", "maybe")
          ] of
-    Left errs -> length errs @?= 3
-    Right _   -> assertFailure "expected Left with 3 errors"
+    Left errs -> length errs `shouldBe` 3
+    Right _   -> expectationFailure "expected Left with 3 errors"
 
-prop_fullEnv :: Assertion
+prop_fullEnv :: IO ()
 prop_fullEnv = case parseKafkaEnvList
          [ ("KAFKA_BOOTSTRAP_SERVERS", "b1:9092,b2:9092")
          , ("KAFKA_CLIENT_ID", "ci")
@@ -236,18 +235,18 @@ prop_fullEnv = case parseKafkaEnvList
          , ("KAFKA_AUTO_OFFSET_RESET", "earliest")
          ] of
     Right env -> do
-      envBootstrapServers env @?= Just ["b1:9092", "b2:9092"]
-      envClientId         env @?= Just "ci"
-      envSecurityProtocol env @?= Just SecSaslSsl
-      envSaslMechanism    env @?= Just MechScramSha256
-      envSaslUsername     env @?= Just "u"
-      envSaslPassword     env @?= Just "p"
-      envSaslOAuthBearerToken env @?= Just "oauth-token"
-      envAcks             env @?= Just EnvAcksAll
-      envCompressionType  env @?= Just Compression.Zstd
-      envGroupId          env @?= Just "grp"
-      envAutoOffsetReset  env @?= Just EnvOffsetEarliest
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      envBootstrapServers env `shouldBe` Just ["b1:9092", "b2:9092"]
+      envClientId         env `shouldBe` Just "ci"
+      envSecurityProtocol env `shouldBe` Just SecSaslSsl
+      envSaslMechanism    env `shouldBe` Just MechScramSha256
+      envSaslUsername     env `shouldBe` Just "u"
+      envSaslPassword     env `shouldBe` Just "p"
+      envSaslOAuthBearerToken env `shouldBe` Just "oauth-token"
+      envAcks             env `shouldBe` Just EnvAcksAll
+      envCompressionType  env `shouldBe` Just Compression.Zstd
+      envGroupId          env `shouldBe` Just "grp"
+      envAutoOffsetReset  env `shouldBe` Just EnvOffsetEarliest
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
 ------------------------------------------------------------------
 -- ConnectionConfig overlay
@@ -256,32 +255,32 @@ prop_fullEnv = case parseKafkaEnvList
 baseConn :: Conn.ConnectionConfig
 baseConn = Conn.defaultConnectionConfig
 
-prop_connDefaults :: Assertion
+prop_connDefaults :: IO ()
 prop_connDefaults = withEnv [] $ \env ->
   case applyKafkaEnvToConnectionConfig env baseConn of
     Right cfg -> do
-      Conn.connClientId            cfg @?= Conn.connClientId baseConn
-      Conn.connUseTls              cfg @?= Conn.connUseTls baseConn
+      Conn.connClientId            cfg `shouldBe` Conn.connClientId baseConn
+      Conn.connUseTls              cfg `shouldBe` Conn.connUseTls baseConn
       Conn.connSasl                cfg `assertSameSaslNothing` Conn.connSasl baseConn
-      Conn.connRequestTimeoutMs    cfg @?= Conn.connRequestTimeoutMs baseConn
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      Conn.connRequestTimeoutMs    cfg `shouldBe` Conn.connRequestTimeoutMs baseConn
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connClientId :: Assertion
+prop_connClientId :: IO ()
 prop_connClientId = withEnv [("KAFKA_CLIENT_ID", "rocky")] $ \env ->
   case applyKafkaEnvToConnectionConfig env baseConn of
-    Right cfg -> Conn.connClientId cfg @?= "rocky"
-    Left e    -> assertFailure ("expected Right, got " <> show e)
+    Right cfg -> Conn.connClientId cfg `shouldBe` "rocky"
+    Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSocketTimeout :: Assertion
+prop_connSocketTimeout :: IO ()
 prop_connSocketTimeout =
   withEnv [("KAFKA_SOCKET_TIMEOUT_MS", "45000")] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> do
-        Conn.connReadTimeout  cfg @?= 45
-        Conn.connWriteTimeout cfg @?= 45
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        Conn.connReadTimeout  cfg `shouldBe` 45
+        Conn.connWriteTimeout cfg `shouldBe` 45
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSsl :: Assertion
+prop_connSsl :: IO ()
 prop_connSsl =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SSL")
@@ -289,14 +288,13 @@ prop_connSsl =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> do
-        Conn.connUseTls cfg @?= True
-        assertBool "connTlsSettings populated from bootstrap host"
-          (case Conn.connTlsSettings cfg of
+        Conn.connUseTls cfg `shouldBe` True
+        (case Conn.connTlsSettings cfg of
              Just _  -> True
-             Nothing -> False)
-      Left e -> assertFailure ("expected Right, got " <> show e)
+             Nothing -> False) `shouldBe` True
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSslPreservesTls :: Assertion
+prop_connSslPreservesTls :: IO ()
 prop_connSslPreservesTls = do
   let pinned = Conn.defaultTlsSettings "pinned.example.com"
       cfg0   = baseConn { Conn.connTlsSettings = Just pinned }
@@ -306,16 +304,15 @@ prop_connSslPreservesTls = do
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env cfg0 of
       Right cfg -> do
-        Conn.connUseTls cfg @?= True
+        Conn.connUseTls cfg `shouldBe` True
         -- We can't inspect the inner ClientParams equality easily,
         -- but at minimum the slot is occupied.
-        assertBool "connTlsSettings retained"
-          (case Conn.connTlsSettings cfg of
+        (case Conn.connTlsSettings cfg of
              Just _  -> True
-             Nothing -> False)
-      Left e -> assertFailure ("expected Right, got " <> show e)
+             Nothing -> False) `shouldBe` True
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSaslSsl :: Assertion
+prop_connSaslSsl :: IO ()
 prop_connSaslSsl =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -326,15 +323,15 @@ prop_connSaslSsl =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> do
-        Conn.connUseTls cfg @?= True
+        Conn.connUseTls cfg `shouldBe` True
         case Conn.connSasl cfg of
           Just (SASL.SaslPlain u p) -> do
-            u @?= "user"
-            p @?= "pass"
-          other -> assertFailure ("expected SaslPlain, got " <> show (saslDescr other))
-      Left e -> assertFailure ("expected Right, got " <> show e)
+            u `shouldBe` "user"
+            p `shouldBe` "pass"
+          other -> expectationFailure ("expected SaslPlain, got " <> show (saslDescr other))
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSaslScramSha512 :: Assertion
+prop_connSaslScramSha512 :: IO ()
 prop_connSaslScramSha512 =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -346,10 +343,10 @@ prop_connSaslScramSha512 =
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> case Conn.connSasl cfg of
         Just (SASL.SaslScram Scram.ScramSHA512 _ _) -> pure ()
-        other -> assertFailure ("expected SCRAM-SHA-512, got " <> show (saslDescr other))
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        other -> expectationFailure ("expected SCRAM-SHA-512, got " <> show (saslDescr other))
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSaslPlaintext :: Assertion
+prop_connSaslPlaintext :: IO ()
 prop_connSaslPlaintext =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
@@ -359,21 +356,21 @@ prop_connSaslPlaintext =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> do
-        Conn.connUseTls cfg @?= False
+        Conn.connUseTls cfg `shouldBe` False
         case Conn.connSasl cfg of
           Just (SASL.SaslPlain _ _) -> pure ()
-          other -> assertFailure ("expected SaslPlain, got " <> show (saslDescr other))
-      Left e -> assertFailure ("expected Right, got " <> show e)
+          other -> expectationFailure ("expected SaslPlain, got " <> show (saslDescr other))
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSaslSslNoMechanism :: Assertion
+prop_connSaslSslNoMechanism :: IO ()
 prop_connSaslSslNoMechanism =
   withEnv [("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
-      Left [ConfigError field _] -> field @?= "sasl.mechanism"
-      other -> assertFailure ("expected sasl.mechanism error, got "
+      Left [ConfigError field _] -> field `shouldBe` "sasl.mechanism"
+      other -> expectationFailure ("expected sasl.mechanism error, got "
                                <> describeResult other)
 
-prop_connSaslMissingPassword :: Assertion
+prop_connSaslMissingPassword :: IO ()
 prop_connSaslMissingPassword =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -382,11 +379,11 @@ prop_connSaslMissingPassword =
     , ("KAFKA_BOOTSTRAP_SERVERS", "h:1")
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
-      Left [ConfigError field _] -> field @?= "sasl.password"
-      other -> assertFailure ("expected sasl.password error, got "
+      Left [ConfigError field _] -> field `shouldBe` "sasl.password"
+      other -> expectationFailure ("expected sasl.password error, got "
                               <> describeResult other)
 
-prop_connSaslOAuthStaticToken :: Assertion
+prop_connSaslOAuthStaticToken :: IO ()
 prop_connSaslOAuthStaticToken =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -397,12 +394,12 @@ prop_connSaslOAuthStaticToken =
     case applyKafkaEnvToConnectionConfig env baseConn of
       Right cfg -> case Conn.connSasl cfg of
         Just (SASL.SaslOAuthBearer (OAuth.OAuthStaticToken tok)) ->
-          OAuth.oauthTokenBytes tok @?= "static-token"
-        other -> assertFailure ("expected static OAUTHBEARER, got "
+          OAuth.oauthTokenBytes tok `shouldBe` "static-token"
+        other -> expectationFailure ("expected static OAUTHBEARER, got "
                                 <> show (saslDescr other))
-      Left e -> assertFailure ("expected Right, got " <> show e)
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_connSaslOAuthMissingToken :: Assertion
+prop_connSaslOAuthMissingToken :: IO ()
 prop_connSaslOAuthMissingToken =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -411,13 +408,12 @@ prop_connSaslOAuthMissingToken =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Left [ConfigError field msg] -> do
-        field @?= "sasl.oauthbearer.token"
-        assertBool "msg mentions OAUTHBEARER"
-          ("OAUTHBEARER" `T.isInfixOf` msg)
-      other -> assertFailure ("expected sasl.oauthbearer.token error, got "
+        field `shouldBe` "sasl.oauthbearer.token"
+        ("OAUTHBEARER" `T.isInfixOf` msg) `shouldBe` True
+      other -> expectationFailure ("expected sasl.oauthbearer.token error, got "
                               <> describeResult other)
 
-prop_connSaslAwsRejected :: Assertion
+prop_connSaslAwsRejected :: IO ()
 prop_connSaslAwsRejected =
   withEnv
     [ ("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
@@ -426,10 +422,9 @@ prop_connSaslAwsRejected =
     ] $ \env ->
     case applyKafkaEnvToConnectionConfig env baseConn of
       Left [ConfigError field msg] -> do
-        field @?= "sasl.mechanism"
-        assertBool "msg mentions AWS_MSK_IAM"
-          ("AWS_MSK_IAM" `T.isInfixOf` msg)
-      other -> assertFailure ("expected sasl.mechanism error, got "
+        field `shouldBe` "sasl.mechanism"
+        ("AWS_MSK_IAM" `T.isInfixOf` msg) `shouldBe` True
+      other -> expectationFailure ("expected sasl.mechanism error, got "
                               <> describeResult other)
 
 ------------------------------------------------------------------
@@ -439,18 +434,18 @@ prop_connSaslAwsRejected =
 baseProd :: P.ProducerConfig
 baseProd = P.defaultProducerConfig
 
-prop_prodDefaults :: Assertion
+prop_prodDefaults :: IO ()
 prop_prodDefaults = withEnv [] $ \env ->
   case applyKafkaEnvToProducerConfig env baseProd of
     Right cfg -> do
-      P.producerClientId    cfg @?= P.producerClientId baseProd
-      P.producerCompression cfg @?= P.producerCompression baseProd
-      P.producerBatchSize   cfg @?= P.producerBatchSize baseProd
-      P.producerLingerMs    cfg @?= P.producerLingerMs baseProd
-      P.producerIdempotent  cfg @?= P.producerIdempotent baseProd
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      P.producerClientId    cfg `shouldBe` P.producerClientId baseProd
+      P.producerCompression cfg `shouldBe` P.producerCompression baseProd
+      P.producerBatchSize   cfg `shouldBe` P.producerBatchSize baseProd
+      P.producerLingerMs    cfg `shouldBe` P.producerLingerMs baseProd
+      P.producerIdempotent  cfg `shouldBe` P.producerIdempotent baseProd
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_prodOverrides :: Assertion
+prop_prodOverrides :: IO ()
 prop_prodOverrides =
   withEnv
     [ ("KAFKA_BATCH_SIZE", "32768")
@@ -460,32 +455,32 @@ prop_prodOverrides =
     ] $ \env ->
     case applyKafkaEnvToProducerConfig env baseProd of
       Right cfg -> do
-        P.producerBatchSize   cfg @?= 32768
-        P.producerLingerMs    cfg @?= 20
-        P.producerCompression cfg @?= Compression.Lz4
-        P.producerRetries     cfg @?= 7
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        P.producerBatchSize   cfg `shouldBe` 32768
+        P.producerLingerMs    cfg `shouldBe` 20
+        P.producerCompression cfg `shouldBe` Compression.Lz4
+        P.producerRetries     cfg `shouldBe` 7
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_prodAcksAll :: Assertion
+prop_prodAcksAll :: IO ()
 prop_prodAcksAll =
   withEnv [("KAFKA_ACKS", "all")] $ \env ->
     case applyKafkaEnvToProducerConfig env baseProd of
-      Right cfg -> P.producerDelivery cfg @?= P.ExactlyOnce
-      Left e    -> assertFailure ("expected Right, got " <> show e)
+      Right cfg -> P.producerDelivery cfg `shouldBe` P.ExactlyOnce
+      Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_prodIdempotence :: Assertion
+prop_prodIdempotence :: IO ()
 prop_prodIdempotence =
   withEnv [("KAFKA_ENABLE_IDEMPOTENCE", "true")] $ \env ->
     case applyKafkaEnvToProducerConfig env baseProd of
-      Right cfg -> P.producerIdempotent cfg @?= True
-      Left e    -> assertFailure ("expected Right, got " <> show e)
+      Right cfg -> P.producerIdempotent cfg `shouldBe` True
+      Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_prodTransactional :: Assertion
+prop_prodTransactional :: IO ()
 prop_prodTransactional =
   withEnv [("KAFKA_TRANSACTIONAL_ID", "tx-1")] $ \env ->
     case applyKafkaEnvToProducerConfig env baseProd of
-      Right cfg -> P.producerTransactional cfg @?= Just "tx-1"
-      Left e    -> assertFailure ("expected Right, got " <> show e)
+      Right cfg -> P.producerTransactional cfg `shouldBe` Just "tx-1"
+      Left e    -> expectationFailure ("expected Right, got " <> show e)
 
 ------------------------------------------------------------------
 -- ConsumerConfig overlay
@@ -494,16 +489,16 @@ prop_prodTransactional =
 baseCons :: C.ConsumerConfig
 baseCons = C.defaultConsumerConfig
 
-prop_consDefaults :: Assertion
+prop_consDefaults :: IO ()
 prop_consDefaults = withEnv [] $ \env ->
   case applyKafkaEnvToConsumerConfig env baseCons of
     Right cfg -> do
-      C.consumerClientId  cfg @?= C.consumerClientId baseCons
-      C.consumerGroupId   cfg @?= C.consumerGroupId baseCons
-      C.consumerAutoOffsetReset cfg @?= C.consumerAutoOffsetReset baseCons
-    Left e -> assertFailure ("expected Right, got " <> show e)
+      C.consumerClientId  cfg `shouldBe` C.consumerClientId baseCons
+      C.consumerGroupId   cfg `shouldBe` C.consumerGroupId baseCons
+      C.consumerAutoOffsetReset cfg `shouldBe` C.consumerAutoOffsetReset baseCons
+    Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consGroupId :: Assertion
+prop_consGroupId :: IO ()
 prop_consGroupId =
   withEnv
     [ ("KAFKA_GROUP_ID", "team-a")
@@ -511,25 +506,25 @@ prop_consGroupId =
     ] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
       Right cfg -> do
-        C.consumerGroupId         cfg @?= "team-a"
-        C.consumerGroupInstanceId cfg @?= Just "pod-1"
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        C.consumerGroupId         cfg `shouldBe` "team-a"
+        C.consumerGroupInstanceId cfg `shouldBe` Just "pod-1"
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consAutoOffsetReset :: Assertion
+prop_consAutoOffsetReset :: IO ()
 prop_consAutoOffsetReset =
   withEnv [("KAFKA_AUTO_OFFSET_RESET", "earliest")] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
-      Right cfg -> C.consumerAutoOffsetReset cfg @?= C.Earliest
-      Left e    -> assertFailure ("expected Right, got " <> show e)
+      Right cfg -> C.consumerAutoOffsetReset cfg `shouldBe` C.Earliest
+      Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consIsolation :: Assertion
+prop_consIsolation :: IO ()
 prop_consIsolation =
   withEnv [("KAFKA_ISOLATION_LEVEL", "read_committed")] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
-      Right cfg -> C.consumerIsolationLevel cfg @?= C.ReadCommitted
-      Left e    -> assertFailure ("expected Right, got " <> show e)
+      Right cfg -> C.consumerIsolationLevel cfg `shouldBe` C.ReadCommitted
+      Left e    -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consTimeouts :: Assertion
+prop_consTimeouts :: IO ()
 prop_consTimeouts =
   withEnv
     [ ("KAFKA_SESSION_TIMEOUT_MS", "60000")
@@ -539,13 +534,13 @@ prop_consTimeouts =
     ] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
       Right cfg -> do
-        C.consumerSessionTimeoutMs    cfg @?= 60_000
-        C.consumerHeartbeatIntervalMs cfg @?= 5_000
-        C.consumerMaxPollIntervalMs   cfg @?= 120_000
-        C.consumerMaxPollRecords      cfg @?= 250
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        C.consumerSessionTimeoutMs    cfg `shouldBe` 60_000
+        C.consumerHeartbeatIntervalMs cfg `shouldBe` 5_000
+        C.consumerMaxPollIntervalMs   cfg `shouldBe` 120_000
+        C.consumerMaxPollRecords      cfg `shouldBe` 250
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consAssignmentJvmName :: Assertion
+prop_consAssignmentJvmName :: IO ()
 prop_consAssignmentJvmName =
   withEnv
     [ ("KAFKA_PARTITION_ASSIGNMENT_STRATEGY"
@@ -553,10 +548,10 @@ prop_consAssignmentJvmName =
     ] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
       Right cfg ->
-        C.consumerAssignmentStrategy cfg @?= C.RoundRobinAssignment
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        C.consumerAssignmentStrategy cfg `shouldBe` C.RoundRobinAssignment
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
-prop_consInheritsConnection :: Assertion
+prop_consInheritsConnection :: IO ()
 prop_consInheritsConnection =
   withEnv
     [ ("KAFKA_REQUEST_TIMEOUT_MS", "12345")
@@ -564,9 +559,9 @@ prop_consInheritsConnection =
     ] $ \env ->
     case applyKafkaEnvToConsumerConfig env baseCons of
       Right cfg -> do
-        C.consumerClientId cfg @?= "consumer-a"
-        Conn.connRequestTimeoutMs (C.consumerConnectionConfig cfg) @?= 12345
-      Left e -> assertFailure ("expected Right, got " <> show e)
+        C.consumerClientId cfg `shouldBe` "consumer-a"
+        Conn.connRequestTimeoutMs (C.consumerConnectionConfig cfg) `shouldBe` 12345
+      Left e -> expectationFailure ("expected Right, got " <> show e)
 
 ------------------------------------------------------------------
 -- createProducer / createConsumer wiring
@@ -590,37 +585,31 @@ withTempEnv kvs body = do
 -- nothing is listening on; the connect attempt fails, but the
 -- failure message contains the host:port the env var supplied,
 -- proving the env was consulted.
-prop_createProducerReadsBootstrap :: Assertion
+prop_createProducerReadsBootstrap :: IO ()
 prop_createProducerReadsBootstrap =
   withTempEnv [("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:1")] $ do
     r <- P.createProducer [] P.defaultProducerConfig
     case r of
-      Left msg -> assertBool
-        ("expected error to mention 127.0.0.1, got " <> msg)
-        ("127.0.0.1" `isInfixOfS` msg)
-      Right _ -> assertFailure
+      Left msg -> (if ("127.0.0.1" `isInfixOfS` msg) then pure () else expectationFailure ("expected error to mention 127.0.0.1, got " <> msg))
+      Right _ -> expectationFailure
         "expected createProducer to fail connecting to 127.0.0.1:1"
 
-prop_createConsumerReadsBootstrap :: Assertion
+prop_createConsumerReadsBootstrap :: IO ()
 prop_createConsumerReadsBootstrap =
   withTempEnv [("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:1")] $ do
     r <- C.createConsumer [] "" C.defaultConsumerConfig
     case r of
-      Left msg -> assertBool
-        ("expected error to mention 127.0.0.1, got " <> msg)
-        ("127.0.0.1" `isInfixOfS` msg)
-      Right _ -> assertFailure
+      Left msg -> (if ("127.0.0.1" `isInfixOfS` msg) then pure () else expectationFailure ("expected error to mention 127.0.0.1, got " <> msg))
+      Right _ -> expectationFailure
         "expected createConsumer to fail connecting to 127.0.0.1:1"
 
-prop_createProducerMalformedEnv :: Assertion
+prop_createProducerMalformedEnv :: IO ()
 prop_createProducerMalformedEnv =
   withTempEnv [("KAFKA_BATCH_SIZE", "not-a-number")] $ do
     r <- P.createProducer ["127.0.0.1:1"] P.defaultProducerConfig
     case r of
-      Left msg -> assertBool
-        ("expected the rendered error to mention batch.size, got " <> msg)
-        ("batch.size" `isInfixOfS` msg)
-      Right _ -> assertFailure
+      Left msg -> (if ("batch.size" `isInfixOfS` msg) then pure () else expectationFailure ("expected the rendered error to mention batch.size, got " <> msg))
+      Right _ -> expectationFailure
         "expected createProducer to refuse the malformed env"
 
 -- | 'Data.List.isInfixOf' specialised for 'String'. Avoids
@@ -642,18 +631,18 @@ isInfixOfS needle haystack = go haystack
 -- continuation. We fail the test if parsing itself returns
 -- errors, since every test that uses this helper exercises the
 -- /successful/ path of 'parseKafkaEnvList'.
-withEnv :: [(String, String)] -> (KafkaEnv -> Assertion) -> Assertion
+withEnv :: [(String, String)] -> (KafkaEnv -> IO ()) -> IO ()
 withEnv kvs k = case parseKafkaEnvList (fmap (\(a, b) -> (T.pack a, T.pack b)) kvs) of
   Right env -> k env
-  Left  errs -> assertFailure ("parseKafkaEnvList failed: " <> show errs)
+  Left  errs -> expectationFailure ("parseKafkaEnvList failed: " <> show errs)
 
 -- | Compare two SASL configs by structural intent. We don't get
 -- an 'Eq' instance for 'SASL.SaslConfig' (it contains function
 -- callbacks for OAUTHBEARER) so we settle for 'Nothing == Nothing'.
-assertSameSaslNothing :: Maybe SASL.SaslConfig -> Maybe SASL.SaslConfig -> Assertion
+assertSameSaslNothing :: Maybe SASL.SaslConfig -> Maybe SASL.SaslConfig -> IO ()
 assertSameSaslNothing Nothing Nothing = pure ()
 assertSameSaslNothing a       b       =
-  assertFailure ("expected both Nothing, got "
+  expectationFailure ("expected both Nothing, got "
                   <> show (fmap saslName a) <> " / "
                   <> show (fmap saslName b))
 

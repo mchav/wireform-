@@ -7,8 +7,7 @@ import Data.IORef
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Runtime.EOS
 import qualified Kafka.Streams.State.KeyValue.InMemory as Mem
@@ -59,8 +58,8 @@ failingAt failStep = do
         }
   pure (coord, reverse <$> readIORef buf)
 
-tests :: TestTree
-tests = testGroup "EOS"
+tests :: Spec
+tests = describe "EOS" $ sequence_
   [ eos_happy_path_order
   , eos_flush_failure_aborts
   , eos_commit_offsets_failure_aborts
@@ -70,23 +69,23 @@ tests = testGroup "EOS"
   , eos_transactional_stores_revert_on_abort
   ]
 
-eos_happy_path_order :: TestTree
+eos_happy_path_order :: Spec
 eos_happy_path_order =
-  testCase "happy-path commit cycle: begin → flush → commitOffsets → commit" $ do
+  it "happy-path commit cycle: begin → flush → commitOffsets → commit" $ do
     (coord, drain) <- recordingCoordinator
     flushed <- newIORef False
     let getOffsets = pure Map.empty
         flushBody  = writeIORef flushed True
     outcome <- runCommitCycle coord "g" getOffsets flushBody
-    outcome @?= CommitSucceeded
+    outcome `shouldBe` CommitSucceeded
     flushFlag <- readIORef flushed
-    flushFlag @?= True
+    flushFlag `shouldBe` True
     log_ <- drain
-    log_ @?= ["begin", "commitOffsets", "commit", "storeCommit"]
+    log_ `shouldBe` ["begin", "commitOffsets", "commit", "storeCommit"]
 
-eos_flush_failure_aborts :: TestTree
+eos_flush_failure_aborts :: Spec
 eos_flush_failure_aborts =
-  testCase "exception during flush -> abort, return CommitAborted" $ do
+  it "exception during flush -> abort, return CommitAborted" $ do
     (coord, drain) <- recordingCoordinator
     let flushBody = error "boom"
     outcome <- runCommitCycle coord "g" (pure Map.empty) flushBody
@@ -94,44 +93,44 @@ eos_flush_failure_aborts =
       CommitAborted msg -> assertContains "boom" msg
       _                  -> error ("unexpected outcome: " <> show outcome)
     log_ <- drain
-    log_ @?= ["begin", "abort", "storeAbort"]
+    log_ `shouldBe` ["begin", "abort", "storeAbort"]
 
-eos_commit_offsets_failure_aborts :: TestTree
+eos_commit_offsets_failure_aborts :: Spec
 eos_commit_offsets_failure_aborts =
-  testCase "commitOffsets fail -> abort" $ do
+  it "commitOffsets fail -> abort" $ do
     (coord, drain) <- failingAt "commitOffsets"
     outcome <- runCommitCycle coord "g" (pure Map.empty) (pure ())
     case outcome of
       CommitAborted msg -> assertContains "forced-fail-commitOffsets" msg
       _                  -> error ("unexpected outcome: " <> show outcome)
     log_ <- drain
-    log_ @?= ["begin", "commitOffsets", "abort", "storeAbort"]
+    log_ `shouldBe` ["begin", "commitOffsets", "abort", "storeAbort"]
 
-eos_begin_failure_is_fatal :: TestTree
+eos_begin_failure_is_fatal :: Spec
 eos_begin_failure_is_fatal =
-  testCase "begin fail -> CommitFatal, abort NOT called (we never began)" $ do
+  it "begin fail -> CommitFatal, abort NOT called (we never began)" $ do
     (coord, drain) <- failingAt "begin"
     outcome <- runCommitCycle coord "g" (pure Map.empty) (pure ())
     case outcome of
       CommitFatal msg -> assertContains "forced-fail-begin" msg
       _                -> error ("unexpected outcome: " <> show outcome)
     log_ <- drain
-    log_ @?= ["begin"]
+    log_ `shouldBe` ["begin"]
 
-eos_noop_returns_succeeded :: TestTree
+eos_noop_returns_succeeded :: Spec
 eos_noop_returns_succeeded =
-  testCase "noopEOSCoordinator: every commit succeeds with no protocol traffic" $ do
+  it "noopEOSCoordinator: every commit succeeds with no protocol traffic" $ do
     outcome <- runCommitCycle noopEOSCoordinator "g" (pure Map.empty) (pure ())
-    outcome @?= CommitSucceeded
+    outcome `shouldBe` CommitSucceeded
 
 -- | KIP-892: when the producer commit succeeds, every
 -- 'TransactionalStore' that was wired in via
 -- 'withTransactionalStores' gets its buffer drained onto the
 -- underlying store. Verifies the order: producer commit
 -- FIRST, store commit SECOND.
-eos_transactional_stores_drain_on_commit :: TestTree
+eos_transactional_stores_drain_on_commit :: Spec
 eos_transactional_stores_drain_on_commit =
-  testCase "withTransactionalStores: producer commit -> store commit, in order" $ do
+  it "withTransactionalStores: producer commit -> store commit, in order" $ do
     underlying <- Mem.inMemoryKeyValueStore @Text @Text
                     (Store.storeName "x")
     ts <- TX.newTransactionalStore underlying
@@ -139,22 +138,22 @@ eos_transactional_stores_drain_on_commit =
     Store.kvsPut kvs "k" "v"
     -- Pre-commit: underlying is empty (matches the
     -- TransactionalStore contract).
-    Store.kvsGet underlying "k" >>= (@?= Nothing)
+    Store.kvsGet underlying "k" >>= (`shouldBe` Nothing)
     let coord = withTransactionalStores
                   noopEOSCoordinator
                   [TX.txnCommit ts]
                   [TX.txnAbort  ts]
     outcome <- runCommitCycle coord "g" (pure Map.empty) (pure ())
-    outcome @?= CommitSucceeded
+    outcome `shouldBe` CommitSucceeded
     -- Post-commit: underlying now has the buffered write.
-    Store.kvsGet underlying "k" >>= (@?= Just "v")
-    TX.txnPendingCount ts >>= (@?= 0)
+    Store.kvsGet underlying "k" >>= (`shouldBe` Just "v")
+    TX.txnPendingCount ts >>= (`shouldBe` 0)
 
 -- | KIP-892: when the producer commit aborts, the
 -- TransactionalStore's buffer is discarded.
-eos_transactional_stores_revert_on_abort :: TestTree
+eos_transactional_stores_revert_on_abort :: Spec
 eos_transactional_stores_revert_on_abort =
-  testCase "withTransactionalStores: abort path runs storeAbort" $ do
+  it "withTransactionalStores: abort path runs storeAbort" $ do
     underlying <- Mem.inMemoryKeyValueStore @Text @Text
                     (Store.storeName "x2")
     ts <- TX.newTransactionalStore underlying
@@ -171,8 +170,8 @@ eos_transactional_stores_revert_on_abort =
       _ -> error ("unexpected outcome: " <> show outcome)
     -- Underlying never received the put; pending was
     -- discarded by storeAbort.
-    Store.kvsGet underlying "k" >>= (@?= Nothing)
-    TX.txnPendingCount ts >>= (@?= 0)
+    Store.kvsGet underlying "k" >>= (`shouldBe` Nothing)
+    TX.txnPendingCount ts >>= (`shouldBe` 0)
 
 assertContains :: Text -> Text -> IO ()
 assertContains needle hay

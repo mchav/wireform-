@@ -11,8 +11,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Internal.RecordCollector (collectorTake)
@@ -30,8 +29,8 @@ t = Timestamp . fromIntegral
 owned :: [(Text, Int)] -> HashSet (TopicName, Int.Int32)
 owned = HashSet.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
 
-tests :: TestTree
-tests = testGroup "WorkerPool"
+tests :: Spec
+tests = describe "WorkerPool" $ sequence_
   [ pool_routes_to_owner
   , pool_per_worker_state_isolation
   , pool_count_processed
@@ -47,9 +46,9 @@ passthroughTopo = do
     Left  err -> error (show err)
     Right v   -> pure v
 
-pool_routes_to_owner :: TestTree
+pool_routes_to_owner :: Spec
 pool_routes_to_owner =
-  testCase "submitRecord delivers to the worker that owns the partition" $ do
+  it "submitRecord delivers to the worker that owns the partition" $ do
     topo <- passthroughTopo
     let perWorker =
           [ owned [("in", 0), ("in", 1)]
@@ -70,15 +69,15 @@ pool_routes_to_owner =
         out0 <- collectorTake (workerCollector w0) (topicName "out")
         out1 <- collectorTake (workerCollector w1) (topicName "out")
         Set.fromList (map (unbytes . crValue) out0)
-          @?= Set.fromList ["p0", "p1"]
+          `shouldBe` Set.fromList ["p0", "p1"]
         Set.fromList (map (unbytes . crValue) out1)
-          @?= Set.fromList ["p2", "p3"]
+          `shouldBe` Set.fromList ["p2", "p3"]
       _ -> error "expected 2 workers"
     closeWorkerPool pool
 
-pool_per_worker_state_isolation :: TestTree
+pool_per_worker_state_isolation :: Spec
 pool_per_worker_state_isolation =
-  testCase "each worker has its own engine state" $ do
+  it "each worker has its own engine state" $ do
     topo <- passthroughTopo
     let perWorker =
           [ owned [("in", 0)]
@@ -98,14 +97,14 @@ pool_per_worker_state_isolation =
       [w0, w1] -> do
         c0 <- workerProcessedCount w0
         c1 <- workerProcessedCount w1
-        c0 @?= 3
-        c1 @?= 1
+        c0 `shouldBe` 3
+        c1 `shouldBe` 1
       _ -> error "expected 2 workers"
     closeWorkerPool pool
 
-pool_count_processed :: TestTree
+pool_count_processed :: Spec
 pool_count_processed =
-  testCase "workerProcessedCount tracks records consumed" $ do
+  it "workerProcessedCount tracks records consumed" $ do
     topo <- passthroughTopo
     pool <- newWorkerPool topo "wp-app" [owned [("in", 0)]]
     mapM_
@@ -113,6 +112,6 @@ pool_count_processed =
       ["v1", "v2", "v3", "v4", "v5"]
     waitForQuiescence pool
     case V.toList (poolWorkers pool) of
-      [w] -> workerProcessedCount w >>= (@?= 5)
+      [w] -> workerProcessedCount w >>= (`shouldBe` 5)
       _   -> error "expected 1 worker"
     closeWorkerPool pool

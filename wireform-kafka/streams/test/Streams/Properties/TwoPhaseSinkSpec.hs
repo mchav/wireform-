@@ -41,9 +41,8 @@ import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Data.ByteString.Char8 as BSC
 
@@ -70,33 +69,33 @@ bytes = BSC.pack . T.unpack
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_inmem_prepare_then_commit_visible :: TestTree
+unit_inmem_prepare_then_commit_visible :: Spec
 unit_inmem_prepare_then_commit_visible =
-  testCase "in-memory: prepare + commit yields the rows" $ do
+  it "in-memory: prepare + commit yields the rows" $ do
     (sink, st) <- inMemoryTwoPhaseSink "u"
     _ <- tpsPrepare sink (mkTxn 1) ["a", "b" :: Text]
     -- Before commit, no rows are visible.
-    readCommittedRows st >>= (@?= [])
+    readCommittedRows st >>= (`shouldBe` [])
     _ <- tpsCommit sink (mkTxn 1)
-    readCommittedRows st >>= (@?= ["a", "b"])
+    readCommittedRows st >>= (`shouldBe` ["a", "b"])
 
-unit_inmem_abort_discards :: TestTree
+unit_inmem_abort_discards :: Spec
 unit_inmem_abort_discards =
-  testCase "in-memory: aborted txn rows never appear" $ do
+  it "in-memory: aborted txn rows never appear" $ do
     (sink, st) <- inMemoryTwoPhaseSink "u"
     _ <- tpsPrepare sink (mkTxn 1) ["a" :: Text]
     _ <- tpsAbort sink (mkTxn 1)
     _ <- tpsCommit sink (mkTxn 1)  -- idempotent: txn already gone
-    readCommittedRows st >>= (@?= [])
+    readCommittedRows st >>= (`shouldBe` [])
 
-unit_inmem_commit_is_idempotent :: TestTree
+unit_inmem_commit_is_idempotent :: Spec
 unit_inmem_commit_is_idempotent =
-  testCase "in-memory: double commit returns SinkOK and doesn't duplicate" $ do
+  it "in-memory: double commit returns SinkOK and doesn't duplicate" $ do
     (sink, st) <- inMemoryTwoPhaseSink "u"
     _ <- tpsPrepare sink (mkTxn 1) ["a", "b" :: Text]
     SinkOK <- tpsCommit sink (mkTxn 1)
     SinkOK <- tpsCommit sink (mkTxn 1)
-    readCommittedRows st >>= (@?= ["a", "b"])
+    readCommittedRows st >>= (`shouldBe` ["a", "b"])
 
 ----------------------------------------------------------------------
 -- Property: arbitrary {prepare, commit, abort} schedules
@@ -269,18 +268,18 @@ prop_eos_integration = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Two-phase-commit sink"
+tests :: Spec
+tests = describe "Two-phase-commit sink" $ sequence_
   [ unit_inmem_prepare_then_commit_visible
   , unit_inmem_abort_discards
   , unit_inmem_commit_is_idempotent
-  , testProperty "in-memory sink matches the pure prepare/commit/abort model" $
+  , it "in-memory sink matches the pure prepare/commit/abort model" $
       H.withTests 200 prop_inmem_matches_model
-  , testProperty "HTTP echo sink fires onCommit once per committed txn" $
+  , it "HTTP echo sink fires onCommit once per committed txn" $
       H.withTests 120 prop_http_echo_fires_once
-  , testProperty "filesystem sink survives prepare-without-commit crashes" $
+  , it "filesystem sink survives prepare-without-commit crashes" $
       H.withTests 60 prop_filesystem_crash_consistency
-  , testProperty "withTwoPhaseSinks ties commit to runCommitCycle outcome" $
+  , it "withTwoPhaseSinks ties commit to runCommitCycle outcome" $
       H.withTests 80 prop_eos_integration
   , unit_stage_then_prepare_includes_staged
   , unit_five_step_cycle_order
@@ -290,9 +289,9 @@ tests = testGroup "Two-phase-commit sink"
 -- subsequent 'tpsPrepare' picks them up alongside any
 -- caller-supplied @[r]@. Verifies the contract change that
 -- introduced 'tpsStage' for the Riffle \xc2\xa74 SinkTwoPhase Prim.
-unit_stage_then_prepare_includes_staged :: TestTree
+unit_stage_then_prepare_includes_staged :: Spec
 unit_stage_then_prepare_includes_staged =
-  testCase "tpsStage rows surface through tpsPrepare and reach the committed view" $ do
+  it "tpsStage rows surface through tpsPrepare and reach the committed view" $ do
     (sink, st) <- inMemoryTwoPhaseSink "stage"
     tpsStage sink "a"
     tpsStage sink "b"
@@ -301,13 +300,13 @@ unit_stage_then_prepare_includes_staged =
     _ <- tpsPrepare sink (mkTxn 1) []
     _ <- tpsCommit sink (mkTxn 1)
     rs <- readCommittedRows st
-    rs @?= ["a", "b" :: Text]
+    rs `shouldBe` ["a", "b" :: Text]
 
 -- | Drives the 5-step cycle and asserts the prepare \xe2\x86\x92 commit
 -- \xe2\x86\x92 storeCommit invocation order recorded by the coordinator.
-unit_five_step_cycle_order :: TestTree
+unit_five_step_cycle_order :: Spec
 unit_five_step_cycle_order =
-  testCase "runCommitCycle invokes preCommit2PC \xe2\x86\x92 commitTxn \xe2\x86\x92 commit2PC \xe2\x86\x92 storeCommit in order" $ do
+  it "runCommitCycle invokes preCommit2PC \xe2\x86\x92 commitTxn \xe2\x86\x92 commit2PC \xe2\x86\x92 storeCommit in order" $ do
     trace <- newIORef ([] :: [Text])
     let bump t = atomicModifyIORef' trace (\xs -> (t : xs, ()))
         coord = noopEOSCoordinator
@@ -324,7 +323,7 @@ unit_five_step_cycle_order =
       CommitSucceeded -> pure ()
       _ -> error ("expected CommitSucceeded, got " <> show out)
     got <- reverse <$> readIORef trace
-    got @?= [ "begin"
+    got `shouldBe` [ "begin"
             , "flushBody"
             , "commitOffsets"
             , "preCommit2PC"

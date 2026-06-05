@@ -3,23 +3,22 @@
 module Client.BatchSplittingSpec (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.BatchSplitting as BS
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 
-tests :: TestTree
-tests = testGroup "BatchSplitting (KIP-126)"
-  [ testCase "splitBatch halves a multi-record batch"
+tests :: Spec
+tests = describe "BatchSplitting (KIP-126)" $ sequence_
+  [ it "splitBatch halves a multi-record batch"
       half_split
-  , testCase "single-record batches cannot be split"
+  , it "single-record batches cannot be split"
       single
-  , testCase "isOversizedSingle matches the single-record case"
+  , it "isOversizedSingle matches the single-record case"
       isSingle
-  , testCase "metadata (txn flag, producer-id, base-seq) preserved"
+  , it "metadata (txn flag, producer-id, base-seq) preserved"
       metadata_preserved
   ]
 
@@ -49,11 +48,11 @@ half_split :: IO ()
 half_split = case BS.splitBatch (mkBatch False 6) of
   Nothing -> error "expected split"
   Just (l, r) -> do
-    V.length (BA.batchRecords l) @?= 3
-    V.length (BA.batchRecords r) @?= 3
+    V.length (BA.batchRecords l) `shouldBe` 3
+    V.length (BA.batchRecords r) `shouldBe` 3
     -- Callbacks split on the same boundary.
-    V.length (BA.batchCallbacks l) @?= 3
-    V.length (BA.batchCallbacks r) @?= 3
+    V.length (BA.batchCallbacks l) `shouldBe` 3
+    V.length (BA.batchCallbacks r) `shouldBe` 3
 
 single :: IO ()
 single = case BS.splitBatch (mkBatch False 1) of
@@ -62,14 +61,14 @@ single = case BS.splitBatch (mkBatch False 1) of
 
 isSingle :: IO ()
 isSingle = do
-  BS.isOversizedSingle (mkBatch False 1) @?= True
-  BS.isOversizedSingle (mkBatch False 2) @?= False
+  BS.isOversizedSingle (mkBatch False 1) `shouldBe` True
+  BS.isOversizedSingle (mkBatch False 2) `shouldBe` False
 
 metadata_preserved :: IO ()
 metadata_preserved = case BS.splitBatch (mkBatch True 4) of
   Nothing -> error "expected split"
   Just (l, r) -> do
-    BA.batchIsTransactional l @?= True
-    BA.batchIsTransactional r @?= True
-    BA.batchProducerId l      @?= 12345
-    BA.batchProducerId r      @?= 12345
+    BA.batchIsTransactional l `shouldBe` True
+    BA.batchIsTransactional r `shouldBe` True
+    BA.batchProducerId l      `shouldBe` 12345
+    BA.batchProducerId r      `shouldBe` 12345

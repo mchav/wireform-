@@ -21,8 +21,7 @@ import Data.Int (Int64)
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Processor (TaskId (..))
@@ -30,8 +29,8 @@ import qualified Kafka.Streams.State.KeyValue.InMemory as KVInMem
 import Kafka.Streams.Runtime.StandbyTask
 import Kafka.Streams.Runtime.StandbyDriver
 
-tests :: TestTree
-tests = testGroup "Standby driver (changelog poll-loop)"
+tests :: Spec
+tests = describe "Standby driver (changelog poll-loop)" $ sequence_
   [ tick_dispatches_to_right_task
   , unknown_partition_is_dropped
   , lag_reports_make_it_through
@@ -41,9 +40,9 @@ tests = testGroup "Standby driver (changelog poll-loop)"
 -- 1. Two tasks, one tick, each gets its own records
 ----------------------------------------------------------------------
 
-tick_dispatches_to_right_task :: TestTree
+tick_dispatches_to_right_task :: Spec
 tick_dispatches_to_right_task =
-  testCase "standbyDriverTick dispatches each batch to the matching task" $ do
+  it "standbyDriverTick dispatches each batch to the matching task" $ do
     mgr <- newStandbyManager
     a <- newStandbyTask (TaskId 0 0) "cl" 0 (storeName "store-a")
     b <- newStandbyTask (TaskId 0 1) "cl" 1 (storeName "store-b")
@@ -67,16 +66,16 @@ tick_dispatches_to_right_task =
     drv <- newStandbyDriver mgr pollFn lookupFn (\_ _ -> pure ()) 0
     standbyDriverTick drv
 
-    kvsGet storeA "k0" >>= (@?= Just (Just "v0"))
-    kvsGet storeB "k1" >>= (@?= Just (Just "v1"))
+    kvsGet storeA "k0" >>= (`shouldBe` Just (Just "v0"))
+    kvsGet storeB "k1" >>= (`shouldBe` Just (Just "v1"))
 
 ----------------------------------------------------------------------
 -- 2. Records for an unknown (topic, partition) are silently dropped
 ----------------------------------------------------------------------
 
-unknown_partition_is_dropped :: TestTree
+unknown_partition_is_dropped :: Spec
 unknown_partition_is_dropped =
-  testCase "standbyDriverTick: records for an unregistered partition don't crash" $ do
+  it "standbyDriverTick: records for an unregistered partition don't crash" $ do
     mgr <- newStandbyManager
     t <- newStandbyTask (TaskId 0 0) "cl" 0 (storeName "store-a")
     addStandbyTask mgr t
@@ -95,16 +94,16 @@ unknown_partition_is_dropped =
     drv <- newStandbyDriver mgr pollFn lookupFn (\_ _ -> pure ()) 0
     standbyDriverTick drv
 
-    kvsGet storeA "k"      >>= (@?= Just (Just "v"))
-    kvsGet storeA "ignore" >>= (@?= Nothing)
+    kvsGet storeA "k"      >>= (`shouldBe` Just (Just "v"))
+    kvsGet storeA "ignore" >>= (`shouldBe` Nothing)
 
 ----------------------------------------------------------------------
 -- 3. The driver fires the warmup-lag reporter end-to-end
 ----------------------------------------------------------------------
 
-lag_reports_make_it_through :: TestTree
+lag_reports_make_it_through :: Spec
 lag_reports_make_it_through =
-  testCase "standbyDriverTick: lag reports flow into the supplied callback" $ do
+  it "standbyDriverTick: lag reports flow into the supplied callback" $ do
     mgr <- newStandbyManager
     t <- newStandbyTask (TaskId 0 0) "cl" 0 (storeName "store-a")
     addStandbyTask mgr t
@@ -129,4 +128,4 @@ lag_reports_make_it_through =
     standbyDriverTick drv
 
     seen <- readIORef seenRef
-    Map.lookup (TaskId 0 0) seen @?= Just 7
+    Map.lookup (TaskId 0 0) seen `shouldBe` Just 7

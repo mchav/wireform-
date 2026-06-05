@@ -11,8 +11,7 @@ import Data.Text qualified as T
 import HTML.DOM
 import HTML.Selector qualified as Sel
 import HTML.Value (Doctype (..), HTMLAttribute (..), HTMLNode (..), TreeEvent (..))
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd hiding (Selector)
 import Wireform.Builder qualified as BB
 
 
@@ -51,211 +50,211 @@ builderToBS = BL.toStrict . BB.toLazyByteString
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "HTML.DOM"
-      [ testGroup "Parsing" parsingTests
-      , testGroup "Document access" docAccessTests
-      , testGroup "Navigation" navigationTests
-      , testGroup "Node inspection" inspectionTests
-      , testGroup "Serialization" serializationTests
-      , testGroup "CSS selectors" selectorTests
-      , testGroup "CSS selectors (extended)" extendedSelectorTests
-      , testGroup "Incremental parser" incrementalTests
-      , testGroup "Streaming tree events" streamingTests
+  sydTest $
+    describe
+      "HTML.DOM" $ sequence_
+      [ describe "Parsing" $ sequence_ parsingTests
+      , describe "Document access" $ sequence_ docAccessTests
+      , describe "Navigation" $ sequence_ navigationTests
+      , describe "Node inspection" $ sequence_ inspectionTests
+      , describe "Serialization" $ sequence_ serializationTests
+      , describe "CSS selectors" $ sequence_ selectorTests
+      , describe "CSS selectors (extended)" $ sequence_ extendedSelectorTests
+      , describe "Incremental parser" $ sequence_ incrementalTests
+      , describe "Streaming tree events" $ sequence_ streamingTests
       ]
 
 
-parsingTests :: [TestTree]
+parsingTests :: [Spec]
 parsingTests =
-  [ testCase "parseDocument produces a document" $ do
+  [ it "parseDocument produces a document" $ do
       let doc = parseDocument "<p>hi</p>"
           root = documentElement doc
-      tagName root @?= Just "html"
-  , testCase "parseDocument handles doctype" $ do
+      tagName root `shouldBe` Just "html"
+  , it "parseDocument handles doctype" $ do
       let doc = parseDocument "<!DOCTYPE html><html></html>"
-      isJust (documentDoctype doc) @? "expected doctype"
+      isJust (documentDoctype doc) `shouldBe` True
   ]
 
 
-docAccessTests :: [TestTree]
+docAccessTests :: [Spec]
 docAccessTests =
-  [ testCase "documentElement returns root" $ do
-      tagName (documentElement simpleDoc) @?= Just "html"
-  , testCase "documentDoctype returns doctype" $ do
+  [ it "documentElement returns root" $ do
+      tagName (documentElement simpleDoc) `shouldBe` Just "html"
+  , it "documentDoctype returns doctype" $ do
       let mdt = documentDoctype simpleDoc
-      isJust mdt @? "expected doctype"
+      isJust mdt `shouldBe` True
   ]
 
 
-navigationTests :: [TestTree]
+navigationTests :: [Spec]
 navigationTests =
-  [ testCase "childNodes of element" $ do
+  [ it "childNodes of element" $ do
       let root = documentElement simpleDoc
           kids = childNodes root
-      length kids @?= 2
-      tagName (head kids) @?= Just "head"
-      tagName (kids !! 1) @?= Just "body"
-  , testCase "childNodes of text node is empty" $ do
+      length kids `shouldBe` 2
+      tagName (head kids) `shouldBe` Just "head"
+      tagName (kids !! 1) `shouldBe` Just "body"
+  , it "childNodes of text node is empty" $ do
       let p1 = head (childNodes mainDiv)
           textKids = childNodes p1
-      length textKids @?= 1
-      childNodes (head textKids) @?= []
-  , testCase "firstChild / lastChild" $ do
+      length textKids `shouldBe` 1
+      childNodes (head textKids) `shouldBe` []
+  , it "firstChild / lastChild" $ do
       let fc = firstChild mainDiv
           lc = lastChild mainDiv
-      isJust fc @? "expected firstChild"
-      isJust lc @? "expected lastChild"
-      tagName (fromJust fc) @?= Just "p"
-      tagName (fromJust lc) @?= Just "p"
-      textContent (fromJust fc) @?= "Hello"
-      textContent (fromJust lc) @?= "World"
-  , testCase "firstChild of text node is Nothing" $ do
+      isJust fc `shouldBe` True
+      isJust lc `shouldBe` True
+      tagName (fromJust fc) `shouldBe` Just "p"
+      tagName (fromJust lc) `shouldBe` Just "p"
+      textContent (fromJust fc) `shouldBe` "Hello"
+      textContent (fromJust lc) `shouldBe` "World"
+  , it "firstChild of text node is Nothing" $ do
       let textNode = head (childNodes (head (childNodes mainDiv)))
-      firstChild textNode @?= Nothing
-  , testCase "nextSibling / prevSibling" $ do
+      firstChild textNode `shouldBe` Nothing
+  , it "nextSibling / prevSibling" $ do
       let p1 = fromJust (firstChild mainDiv)
           p2 = fromJust (nextSibling p1)
-      textContent p2 @?= "World"
+      textContent p2 `shouldBe` "World"
       let p1' = fromJust (prevSibling p2)
-      textContent p1' @?= "Hello"
-  , testCase "nextSibling of last is Nothing" $ do
+      textContent p1' `shouldBe` "Hello"
+  , it "nextSibling of last is Nothing" $ do
       let p2 = fromJust (lastChild mainDiv)
-      nextSibling p2 @?= Nothing
-  , testCase "prevSibling of first is Nothing" $ do
+      nextSibling p2 `shouldBe` Nothing
+  , it "prevSibling of first is Nothing" $ do
       let p1 = fromJust (firstChild mainDiv)
-      prevSibling p1 @?= Nothing
-  , testCase "parentNode" $ do
+      prevSibling p1 `shouldBe` Nothing
+  , it "parentNode" $ do
       let p1 = fromJust (firstChild mainDiv)
           parent = fromJust (parentNode p1)
-      tagName parent @?= Just "div"
-      getAttribute parent "id" @?= Just "main"
-  , testCase "parentNode of root is Nothing" $ do
+      tagName parent `shouldBe` Just "div"
+      getAttribute parent "id" `shouldBe` Just "main"
+  , it "parentNode of root is Nothing" $ do
       let root = documentElement simpleDoc
-      parentNode root @?= Nothing
-  , testCase "round-trip: parent then child" $ do
+      parentNode root `shouldBe` Nothing
+  , it "round-trip: parent then child" $ do
       let p1 = fromJust (firstChild mainDiv)
           backToDiv = fromJust (parentNode p1)
           backToP1 = fromJust (firstChild backToDiv)
-      textContent backToP1 @?= "Hello"
+      textContent backToP1 `shouldBe` "Hello"
   ]
 
 
-inspectionTests :: [TestTree]
+inspectionTests :: [Spec]
 inspectionTests =
-  [ testCase "nodeName for elements" $ do
-      nodeName mainDiv @?= "div"
-  , testCase "nodeName for text" $ do
+  [ it "nodeName for elements" $ do
+      nodeName mainDiv `shouldBe` "div"
+  , it "nodeName for text" $ do
       let textNode = head (childNodes (head (childNodes mainDiv)))
-      nodeName textNode @?= "#text"
-  , testCase "nodeType for elements" $ do
-      nodeType mainDiv @?= ElementNode
-  , testCase "nodeType for text" $ do
+      nodeName textNode `shouldBe` "#text"
+  , it "nodeType for elements" $ do
+      nodeType mainDiv `shouldBe` ElementNode
+  , it "nodeType for text" $ do
       let textNode = head (childNodes (head (childNodes mainDiv)))
-      nodeType textNode @?= TextNode
-  , testCase "textContent" $ do
-      textContent mainDiv @?= "HelloWorld"
-  , testCase "tagName for element" $ do
-      tagName mainDiv @?= Just "div"
-  , testCase "tagName for non-element" $ do
+      nodeType textNode `shouldBe` TextNode
+  , it "textContent" $ do
+      textContent mainDiv `shouldBe` "HelloWorld"
+  , it "tagName for element" $ do
+      tagName mainDiv `shouldBe` Just "div"
+  , it "tagName for non-element" $ do
       let textNode = head (childNodes (head (childNodes mainDiv)))
-      tagName textNode @?= Nothing
-  , testCase "getAttribute" $ do
-      getAttribute mainDiv "id" @?= Just "main"
-      getAttribute mainDiv "class" @?= Just "foo bar"
-      getAttribute mainDiv "nonexistent" @?= Nothing
-  , testCase "getAttributes" $ do
+      tagName textNode `shouldBe` Nothing
+  , it "getAttribute" $ do
+      getAttribute mainDiv "id" `shouldBe` Just "main"
+      getAttribute mainDiv "class" `shouldBe` Just "foo bar"
+      getAttribute mainDiv "nonexistent" `shouldBe` Nothing
+  , it "getAttributes" $ do
       let attrs = getAttributes mainDiv
-      length attrs @?= 2
-  , testCase "hasAttribute" $ do
-      hasAttribute mainDiv "id" @? "should have id"
-      not (hasAttribute mainDiv "nope") @? "should not have nope"
-  , testCase "classList" $ do
-      classList mainDiv @?= ["foo", "bar"]
-  , testCase "classList empty" $ do
+      length attrs `shouldBe` 2
+  , it "hasAttribute" $ do
+      hasAttribute mainDiv "id" `shouldBe` True
+      not (hasAttribute mainDiv "nope") `shouldBe` True
+  , it "classList" $ do
+      classList mainDiv `shouldBe` ["foo", "bar"]
+  , it "classList empty" $ do
       let p1 = fromJust (firstChild mainDiv)
-      classList p1 @?= []
-  , testCase "rawNode returns HTMLNode" $ do
+      classList p1 `shouldBe` []
+  , it "rawNode returns HTMLNode" $ do
       case rawNode mainDiv of
-        HTMLElement tag _ _ -> tag @?= "div"
-        _ -> assertFailure "expected HTMLElement"
+        HTMLElement tag _ _ -> tag `shouldBe` "div"
+        _ -> expectationFailure "expected HTMLElement"
   ]
 
 
-serializationTests :: [TestTree]
+serializationTests :: [Spec]
 serializationTests =
-  [ testCase "serialize element" $ do
+  [ it "serialize element" $ do
       let bs = builderToBS (serialize mainDiv)
-      BS.isInfixOf "<div" bs @? "should contain <div"
-      BS.isInfixOf "</div>" bs @? "should contain </div>"
-      BS.isInfixOf "Hello" bs @? "should contain Hello"
-  , testCase "serializeDocument includes doctype" $ do
+      BS.isInfixOf "<div" bs `shouldBe` True
+      BS.isInfixOf "</div>" bs `shouldBe` True
+      BS.isInfixOf "Hello" bs `shouldBe` True
+  , it "serializeDocument includes doctype" $ do
       let bs = builderToBS (serializeDocument simpleDoc)
-      BS.isInfixOf "<!DOCTYPE" bs @? "should contain doctype"
-      BS.isInfixOf "<html>" bs @? "should contain <html>"
-  , testCase "innerHTML" $ do
+      BS.isInfixOf "<!DOCTYPE" bs `shouldBe` True
+      BS.isInfixOf "<html>" bs `shouldBe` True
+  , it "innerHTML" $ do
       let h = innerHTML mainDiv
-      T.isInfixOf "<p>" h @? "should contain <p>"
-      T.isInfixOf "Hello" h @? "should contain Hello"
-      not (T.isInfixOf "<div" h) @? "should not contain <div (inner only)"
-  , testCase "outerHTML" $ do
+      T.isInfixOf "<p>" h `shouldBe` True
+      T.isInfixOf "Hello" h `shouldBe` True
+      not (T.isInfixOf "<div" h) `shouldBe` True
+  , it "outerHTML" $ do
       let h = outerHTML mainDiv
-      T.isInfixOf "<div" h @? "should contain <div"
-      T.isInfixOf "Hello" h @? "should contain Hello"
-  , testCase "innerHTML of text node" $ do
+      T.isInfixOf "<div" h `shouldBe` True
+      T.isInfixOf "Hello" h `shouldBe` True
+  , it "innerHTML of text node" $ do
       let textNode = head (childNodes (head (childNodes mainDiv)))
-      innerHTML textNode @?= ""
-  , testCase "round-trip: serialize -> parse" $ do
+      innerHTML textNode `shouldBe` ""
+  , it "round-trip: serialize -> parse" $ do
       let bs = builderToBS (serializeDocument simpleDoc)
           doc2 = parseDocument bs
           root2 = documentElement doc2
-      tagName root2 @?= Just "html"
+      tagName root2 `shouldBe` Just "html"
       let kids2 = childNodes root2
-      length kids2 @?= 2
+      length kids2 `shouldBe` 2
   ]
 
 
-selectorTests :: [TestTree]
+selectorTests :: [Spec]
 selectorTests =
-  [ testCase "querySelector by tag" $ do
+  [ it "querySelector by tag" $ do
       let root = documentElement simpleDoc
           result = querySelector root "p"
-      isJust result @? "should find <p>"
-      textContent (fromJust result) @?= "Hello"
-  , testCase "querySelectorAll by tag" $ do
+      isJust result `shouldBe` True
+      textContent (fromJust result) `shouldBe` "Hello"
+  , it "querySelectorAll by tag" $ do
       let root = documentElement simpleDoc
           results = querySelectorAll root "p"
-      length results @?= 2
-  , testCase "querySelector by class" $ do
+      length results `shouldBe` 2
+  , it "querySelector by class" $ do
       let root = documentElement simpleDoc
           result = querySelector root ".foo"
-      isJust result @? "should find .foo"
-      tagName (fromJust result) @?= Just "div"
-  , testCase "querySelector by id" $ do
+      isJust result `shouldBe` True
+      tagName (fromJust result) `shouldBe` Just "div"
+  , it "querySelector by id" $ do
       let root = documentElement simpleDoc
           result = querySelector root "#main"
-      isJust result @? "should find #main"
-      tagName (fromJust result) @?= Just "div"
-  , testCase "querySelector tag.class" $ do
+      isJust result `shouldBe` True
+      tagName (fromJust result) `shouldBe` Just "div"
+  , it "querySelector tag.class" $ do
       let root = documentElement simpleDoc
           result = querySelector root "div.foo"
-      isJust result @? "should find div.foo"
-  , testCase "querySelector no match" $ do
+      isJust result `shouldBe` True
+  , it "querySelector no match" $ do
       let root = documentElement simpleDoc
-      querySelector root ".nonexistent" @?= Nothing
-  , testCase "querySelectorAll wildcard" $ do
+      querySelector root ".nonexistent" `shouldBe` Nothing
+  , it "querySelectorAll wildcard" $ do
       let results = querySelectorAll mainDiv "*"
-      length results >= 2 @? "should match at least div + children"
-  , testCase "querySelector descendant combinator" $ do
+      length results >= 2 `shouldBe` True
+  , it "querySelector descendant combinator" $ do
       let root = documentElement simpleDoc
           result = querySelector root "div p"
-      isJust result @? "should find div p"
-      textContent (fromJust result) @?= "Hello"
-  , testCase "selector result preserves navigation context" $ do
+      isJust result `shouldBe` True
+      textContent (fromJust result) `shouldBe` "Hello"
+  , it "selector result preserves navigation context" $ do
       let root = documentElement simpleDoc
           result = fromJust (querySelector root "p")
-      isJust (parentNode result) @? "selector result should have parent"
-      tagName (fromJust (parentNode result)) @?= Just "div"
+      isJust (parentNode result) `shouldBe` True
+      tagName (fromJust (parentNode result)) `shouldBe` Just "div"
   ]
 
 
@@ -320,176 +319,176 @@ qs :: Text -> Maybe Node
 qs sel = querySelector selRoot sel
 
 
-extendedSelectorTests :: [TestTree]
+extendedSelectorTests :: [Spec]
 extendedSelectorTests =
   -- === Structural pseudo-classes ===
-  [ testCase ":first-child" $ do
-      qsaLen "li:first-child" @?= 1
-      textContent (head (qsa "li:first-child")) @?= "One"
-  , testCase ":last-child" $ do
-      qsaLen "li:last-child" @?= 1
-      textContent (head (qsa "li:last-child")) @?= "Four"
-  , testCase ":only-child" $ do
-      qsaLen "ul:only-child" @?= 0
-      qsaLen "h1:only-child" @?= 0
-  , testCase ":nth-child(odd)" $ do
+  [ it ":first-child" $ do
+      qsaLen "li:first-child" `shouldBe` 1
+      textContent (head (qsa "li:first-child")) `shouldBe` "One"
+  , it ":last-child" $ do
+      qsaLen "li:last-child" `shouldBe` 1
+      textContent (head (qsa "li:last-child")) `shouldBe` "Four"
+  , it ":only-child" $ do
+      qsaLen "ul:only-child" `shouldBe` 0
+      qsaLen "h1:only-child" `shouldBe` 0
+  , it ":nth-child(odd)" $ do
       let items = qsa "li:nth-child(odd)"
-      length items @?= 2
-      textContent (head items) @?= "One"
-  , testCase ":nth-child(even)" $ do
+      length items `shouldBe` 2
+      textContent (head items) `shouldBe` "One"
+  , it ":nth-child(even)" $ do
       let items = qsa "li:nth-child(even)"
-      length items @?= 2
-      textContent (head items) @?= "Two"
-  , testCase ":nth-child(2n+1)" $ do
-      qsaLen "li:nth-child(2n+1)" @?= 2
-  , testCase ":nth-last-child(1)" $ do
-      qsaLen "li:nth-last-child(1)" @?= 1
-      textContent (head (qsa "li:nth-last-child(1)")) @?= "Four"
-  , testCase ":first-of-type" $ do
-      qsaLen "li:first-of-type" @?= 1
-  , testCase ":last-of-type" $ do
-      qsaLen "li:last-of-type" @?= 1
-  , testCase ":nth-of-type(2)" $ do
-      qsaLen "li:nth-of-type(2)" @?= 1
-      textContent (head (qsa "li:nth-of-type(2)")) @?= "Two"
-  , testCase ":only-of-type" $ do
-      qsaLen "h1:only-of-type" @?= 1
-      qsaLen "li:only-of-type" @?= 0
-  , testCase ":root" $ do
+      length items `shouldBe` 2
+      textContent (head items) `shouldBe` "Two"
+  , it ":nth-child(2n+1)" $ do
+      qsaLen "li:nth-child(2n+1)" `shouldBe` 2
+  , it ":nth-last-child(1)" $ do
+      qsaLen "li:nth-last-child(1)" `shouldBe` 1
+      textContent (head (qsa "li:nth-last-child(1)")) `shouldBe` "Four"
+  , it ":first-of-type" $ do
+      qsaLen "li:first-of-type" `shouldBe` 1
+  , it ":last-of-type" $ do
+      qsaLen "li:last-of-type" `shouldBe` 1
+  , it ":nth-of-type(2)" $ do
+      qsaLen "li:nth-of-type(2)" `shouldBe` 1
+      textContent (head (qsa "li:nth-of-type(2)")) `shouldBe` "Two"
+  , it ":only-of-type" $ do
+      qsaLen "h1:only-of-type" `shouldBe` 1
+      qsaLen "li:only-of-type" `shouldBe` 0
+  , it ":root" $ do
       let Right sel = Sel.parseSelector ":root"
           roots = querySelectorAllDoc sel selectorDoc
-      length roots @?= 1
-      tagName (head roots) @?= Just "html"
-  , testCase ":empty" $ do
+      length roots `shouldBe` 1
+      tagName (head roots) `shouldBe` Just "html"
+  , it ":empty" $ do
       let empties = qsa "div:empty"
-      length empties >= 1 @? "should find the empty div"
-  , testCase ":blank" $ do
-      qsaLen "div.blank:blank" @?= 1
-      qsaLen "div.empty:blank" @?= 1
-      qsaLen "div.has-comment:blank" @?= 1
+      length empties >= 1 `shouldBe` True
+  , it ":blank" $ do
+      qsaLen "div.blank:blank" `shouldBe` 1
+      qsaLen "div.empty:blank" `shouldBe` 1
+      qsaLen "div.has-comment:blank" `shouldBe` 1
   , -- === :nth-child(An+B of S) ===
-    testCase ":nth-child(1 of .item)" $ do
-      qsaLen "li:nth-child(1 of .item)" @?= 1
-      textContent (head (qsa "li:nth-child(1 of .item)")) @?= "One"
-  , testCase ":nth-child(2 of .item)" $ do
-      qsaLen ":nth-child(2 of .item)" @?= 1
-      textContent (head (qsa ":nth-child(2 of .item)")) @?= "Two"
-  , testCase ":nth-last-child(1 of .item)" $ do
-      qsaLen ":nth-last-child(1 of .item)" @?= 1
-      textContent (head (qsa ":nth-last-child(1 of .item)")) @?= "Four"
+    it ":nth-child(1 of .item)" $ do
+      qsaLen "li:nth-child(1 of .item)" `shouldBe` 1
+      textContent (head (qsa "li:nth-child(1 of .item)")) `shouldBe` "One"
+  , it ":nth-child(2 of .item)" $ do
+      qsaLen ":nth-child(2 of .item)" `shouldBe` 1
+      textContent (head (qsa ":nth-child(2 of .item)")) `shouldBe` "Two"
+  , it ":nth-last-child(1 of .item)" $ do
+      qsaLen ":nth-last-child(1 of .item)" `shouldBe` 1
+      textContent (head (qsa ":nth-last-child(1 of .item)")) `shouldBe` "Four"
   , -- === Logical pseudo-classes ===
-    testCase ":not(.item)" $ do
+    it ":not(.item)" $ do
       let items = qsa "li:not(.active)"
-      length items @?= 3
-  , testCase ":is(.intro, .item)" $ do
-      qsaLen ":is(.intro, .item)" @?= 5
-  , testCase ":where(.intro)" $ do
-      qsaLen ":where(.intro)" @?= 1
-  , testCase ":is() with invalid branch (forgiving)" $ do
-      qsaLen ":is(.intro, ::fake, .item)" @?= 5
-  , testCase ":has(> li)" $ do
-      qsaLen "ul:has(> li)" @?= 1
-  , testCase ":has(.item)" $ do
-      qsaLen "ul:has(.item)" @?= 1
-  , testCase ":has(+ .last)" $ do
-      qsaLen "li:has(+ .last)" @?= 1
-      textContent (head (qsa "li:has(+ .last)")) @?= "Three"
-  , testCase ":has(~ .last)" $ do
-      qsaLen "li.active:has(~ .last)" @?= 1
+      length items `shouldBe` 3
+  , it ":is(.intro, .item)" $ do
+      qsaLen ":is(.intro, .item)" `shouldBe` 5
+  , it ":where(.intro)" $ do
+      qsaLen ":where(.intro)" `shouldBe` 1
+  , it ":is() with invalid branch (forgiving)" $ do
+      qsaLen ":is(.intro, ::fake, .item)" `shouldBe` 5
+  , it ":has(> li)" $ do
+      qsaLen "ul:has(> li)" `shouldBe` 1
+  , it ":has(.item)" $ do
+      qsaLen "ul:has(.item)" `shouldBe` 1
+  , it ":has(+ .last)" $ do
+      qsaLen "li:has(+ .last)" `shouldBe` 1
+      textContent (head (qsa "li:has(+ .last)")) `shouldBe` "Three"
+  , it ":has(~ .last)" $ do
+      qsaLen "li.active:has(~ .last)" `shouldBe` 1
   , -- === :scope ===
-    testCase ":scope" $ do
+    it ":scope" $ do
       let Right sel = Sel.parseSelector ":scope"
           scopes = querySelectorAllDoc sel selectorDoc
-      length scopes @?= 1
-      tagName (head scopes) @?= Just "html"
+      length scopes `shouldBe` 1
+      tagName (head scopes) `shouldBe` Just "html"
   , -- === :defined ===
-    testCase ":defined matches all elements" $ do
-      qsaLen "li:defined" @?= 4
+    it ":defined matches all elements" $ do
+      qsaLen "li:defined" `shouldBe` 4
   , -- === :dir() ===
-    testCase ":dir(ltr)" $ do
+    it ":dir(ltr)" $ do
       let ltrSpans = qsa "span:dir(ltr)"
-      length ltrSpans >= 1 @? "should find ltr spans"
-  , testCase ":dir(rtl)" $ do
-      qsaLen "span:dir(rtl)" @?= 1
+      length ltrSpans >= 1 `shouldBe` True
+  , it ":dir(rtl)" $ do
+      qsaLen "span:dir(rtl)" `shouldBe` 1
   , -- === :lang() ===
-    testCase ":lang(en)" $ do
+    it ":lang(en)" $ do
       let enNodes = qsa ":lang(en)"
-      length enNodes >= 1 @? "should match elements inheriting lang=en"
-  , testCase ":lang(fr)" $ do
-      qsaLen "span:lang(fr)" @?= 1
-      textContent (head (qsa "span:lang(fr)")) @?= "Bonjour"
-  , testCase ":lang(en, fr) multi-argument" $ do
-      qsaLen "span:lang(en, fr)" @?= 3
+      length enNodes >= 1 `shouldBe` True
+  , it ":lang(fr)" $ do
+      qsaLen "span:lang(fr)" `shouldBe` 1
+      textContent (head (qsa "span:lang(fr)")) `shouldBe` "Bonjour"
+  , it ":lang(en, fr) multi-argument" $ do
+      qsaLen "span:lang(en, fr)" `shouldBe` 3
   , -- === Form pseudo-classes ===
-    testCase ":enabled / :disabled" $ do
-      qsaLen "input:enabled" @?= 6
-      qsaLen "input:disabled" @?= 2
-  , testCase ":checked" $ do
-      qsaLen "input:checked" @?= 1
-      qsaLen "option:checked" @?= 1
-  , testCase ":required / :optional" $ do
-      qsaLen "input:required" @?= 1
-      qsaLen "input:optional" @?= 7
-  , testCase ":read-only / :read-write" $ do
-      qsaLen "textarea:read-only" @?= 1
-      qsaLen "input[type=text]:read-write" @?= 2
-  , testCase ":placeholder-shown" $
-      qsaLen "input:placeholder-shown" @?= 3
-  , testCase ":indeterminate" $ do
-      qsaLen "input:indeterminate" @?= 1
-  , testCase ":default" $ do
+    it ":enabled / :disabled" $ do
+      qsaLen "input:enabled" `shouldBe` 6
+      qsaLen "input:disabled" `shouldBe` 2
+  , it ":checked" $ do
+      qsaLen "input:checked" `shouldBe` 1
+      qsaLen "option:checked" `shouldBe` 1
+  , it ":required / :optional" $ do
+      qsaLen "input:required" `shouldBe` 1
+      qsaLen "input:optional" `shouldBe` 7
+  , it ":read-only / :read-write" $ do
+      qsaLen "textarea:read-only" `shouldBe` 1
+      qsaLen "input[type=text]:read-write" `shouldBe` 2
+  , it ":placeholder-shown" $
+      qsaLen "input:placeholder-shown" `shouldBe` 3
+  , it ":indeterminate" $ do
+      qsaLen "input:indeterminate" `shouldBe` 1
+  , it ":default" $ do
       let defaults = qsa ":default"
-      length defaults >= 1 @? "should find default button/submit"
+      length defaults >= 1 `shouldBe` True
   , -- === Fieldset disabled inheritance ===
-    testCase "fieldset disabled inherits to descendants" $ do
-      qsaLen "input[name=fs-inner]:disabled" @?= 1
-      qsaLen "input[name=fs-inner]:enabled" @?= 0
-  , testCase "first legend child exemption" $ do
-      qsaLen "input[name=legend-input]:disabled" @?= 0
-      qsaLen "input[name=legend-input]:enabled" @?= 1
-  , testCase "fieldset itself matches :disabled" $ do
-      qsaLen "fieldset:disabled" @?= 1
+    it "fieldset disabled inherits to descendants" $ do
+      qsaLen "input[name=fs-inner]:disabled" `shouldBe` 1
+      qsaLen "input[name=fs-inner]:enabled" `shouldBe` 0
+  , it "first legend child exemption" $ do
+      qsaLen "input[name=legend-input]:disabled" `shouldBe` 0
+      qsaLen "input[name=legend-input]:enabled" `shouldBe` 1
+  , it "fieldset itself matches :disabled" $ do
+      qsaLen "fieldset:disabled" `shouldBe` 1
   , -- === HTML attribute case-insensitivity ===
-    testCase "[type=text] matches case-insensitively" $ do
+    it "[type=text] matches case-insensitively" $ do
       let doc' =
             parseDocument
               "<html><body><input type=\"TEXT\"><input type=\"text\"></body></html>"
           root' = documentElement doc'
-      length (querySelectorAll root' "input[type=text]") @?= 2
-  , testCase "[type=text s] forces case-sensitive" $ do
+      length (querySelectorAll root' "input[type=text]") `shouldBe` 2
+  , it "[type=text s] forces case-sensitive" $ do
       let doc' =
             parseDocument
               "<html><body><input type=\"TEXT\"><input type=\"text\"></body></html>"
           root' = documentElement doc'
-      length (querySelectorAll root' "input[type=text s]") @?= 1
+      length (querySelectorAll root' "input[type=text s]") `shouldBe` 1
   , -- === Dynamic pseudo-classes (always false in static DOM) ===
-    testCase ":hover never matches" $
-      qsaLen ":hover" @?= 0
-  , testCase ":focus never matches" $
-      qsaLen ":focus" @?= 0
-  , testCase ":visited never matches" $
-      qsaLen ":visited" @?= 0
+    it ":hover never matches" $
+      qsaLen ":hover" `shouldBe` 0
+  , it ":focus never matches" $
+      qsaLen ":focus" `shouldBe` 0
+  , it ":visited never matches" $
+      qsaLen ":visited" `shouldBe` 0
   , -- === querySelector document-order correctness ===
-    testCase "querySelector returns earliest match across comma branches" $ do
+    it "querySelector returns earliest match across comma branches" $ do
       let result = qs "li.last, li.active"
-      isJust result @? "should find a match"
-      textContent (fromJust result) @?= "One"
+      isJust result `shouldBe` True
+      textContent (fromJust result) `shouldBe` "One"
   , -- === Combinators ===
-    testCase "descendant combinator" $
-      qsaLen "ul li" @?= 4
-  , testCase "child combinator" $
-      qsaLen "ul > li" @?= 4
-  , testCase "adjacent sibling" $ do
-      qsaLen "h1 + p" @?= 1
-      textContent (head (qsa "h1 + p")) @?= "Intro"
-  , testCase "general sibling" $
-      qsaLen "h1 ~ ul" @?= 1
+    it "descendant combinator" $
+      qsaLen "ul li" `shouldBe` 4
+  , it "child combinator" $
+      qsaLen "ul > li" `shouldBe` 4
+  , it "adjacent sibling" $ do
+      qsaLen "h1 + p" `shouldBe` 1
+      textContent (head (qsa "h1 + p")) `shouldBe` "Intro"
+  , it "general sibling" $
+      qsaLen "h1 ~ ul" `shouldBe` 1
   ]
 
 
-incrementalTests :: [TestTree]
+incrementalTests :: [Spec]
 incrementalTests =
-  [ testCase "single chunk matches one-shot" $ do
+  [ it "single chunk matches one-shot" $ do
       let input = "<!DOCTYPE html><html><body><p>Hi</p></body></html>"
           oneShot = parseDocument input
       p <- newParser
@@ -497,9 +496,9 @@ incrementalTests =
       doc <- finishParser p
       let osRoot = documentElement oneShot
           incRoot = documentElement doc
-      tagName osRoot @?= tagName incRoot
-      textContent osRoot @?= textContent incRoot
-  , testCase "multiple chunks produce same result" $ do
+      tagName osRoot `shouldBe` tagName incRoot
+      textContent osRoot `shouldBe` textContent incRoot
+  , it "multiple chunks produce same result" $ do
       let full = "<!DOCTYPE html><html><head><title>T</title></head><body><div>Content</div></body></html>"
           oneShot = parseDocument full
       p <- newParser
@@ -510,22 +509,22 @@ incrementalTests =
       doc <- finishParser p
       let osRoot = documentElement oneShot
           incRoot = documentElement doc
-      textContent osRoot @?= textContent incRoot
+      textContent osRoot `shouldBe` textContent incRoot
       let osKids = childNodes osRoot
           incKids = childNodes incRoot
-      length osKids @?= length incKids
-  , testCase "empty parser produces valid document" $ do
+      length osKids `shouldBe` length incKids
+  , it "empty parser produces valid document" $ do
       p <- newParser
       doc <- finishParser p
       let root = documentElement doc
-      tagName root @?= Just "html"
-  , testCase "byte-at-a-time feeding" $ do
+      tagName root `shouldBe` Just "html"
+  , it "byte-at-a-time feeding" $ do
       let full = "<p>Hello</p>"
           oneShot = parseDocument full
       p <- newParser
       mapM_ (\b -> feedParser p (BS.singleton b)) (BS.unpack full)
       doc <- finishParser p
-      textContent (documentElement doc) @?= textContent (documentElement oneShot)
+      textContent (documentElement doc) `shouldBe` textContent (documentElement oneShot)
   ]
 
 
@@ -542,49 +541,49 @@ collectEvents act = do
     stepToList (Yield evt rest) = evt : stepToList rest
 
 
-streamingTests :: [TestTree]
+streamingTests :: [Spec]
 streamingTests =
-  [ testCase "streamHTML emits open/close for simple doc" $ do
+  [ it "streamHTML emits open/close for simple doc" $ do
       evts <- collectEvents (streamHTML "<p>hi</p>")
       let opens = [t | TreeOpen t _ <- evts]
           closes = [t | TreeClose t <- evts]
           texts = [t | TreeText t <- evts]
-      assertBool "has <html>" ("html" `elem` opens)
-      assertBool "has <head>" ("head" `elem` opens)
-      assertBool "has <body>" ("body" `elem` opens)
-      assertBool "has <p>" ("p" `elem` opens)
-      assertBool "closes <html>" ("html" `elem` closes)
-      assertBool "closes <p>" ("p" `elem` closes)
-      assertBool "has text 'hi'" ("hi" `elem` texts)
-  , testCase "streamHTML emits doctype" $ do
+      ("html" `elem` opens) `shouldBe` True
+      ("head" `elem` opens) `shouldBe` True
+      ("body" `elem` opens) `shouldBe` True
+      ("p" `elem` opens) `shouldBe` True
+      ("html" `elem` closes) `shouldBe` True
+      ("p" `elem` closes) `shouldBe` True
+      ("hi" `elem` texts) `shouldBe` True
+  , it "streamHTML emits doctype" $ do
       evts <- collectEvents (streamHTML "<!DOCTYPE html><html><body></body></html>")
       let doctypes = [n | TreeDoctype n _ _ <- evts]
-      assertBool "has doctype" (not (null doctypes))
-  , testCase "streamHTML events have correct nesting order" $ do
+      (not (null doctypes)) `shouldBe` True
+  , it "streamHTML events have correct nesting order" $ do
       evts <- collectEvents (streamHTML "<div><span>x</span></div>")
       let relevant = filter isStructural evts
       case dropWhile (not . isOpenTag "div") relevant of
         (TreeOpen "div" _ : rest) ->
           case dropWhile (not . isOpenTag "span") rest of
             (TreeOpen "span" _ : rest2) -> do
-              assertBool "text before span close" (any isText (takeWhile (not . isCloseTag "span") rest2))
+              (any isText (takeWhile (not . isCloseTag "span") rest2)) `shouldBe` True
               let afterSpan = dropWhile (not . isCloseTag "span") rest2
-              assertBool "span closes" (not (null afterSpan))
+              (not (null afterSpan)) `shouldBe` True
               let afterSpanClose = drop 1 afterSpan
-              assertBool "div closes after span" (any (isCloseTag "div") afterSpanClose)
-            _ -> assertFailure "no span open after div"
-        _ -> assertFailure "no div open"
-  , testCase "streamHTML with void element emits open+close" $ do
+              (any (isCloseTag "div") afterSpanClose) `shouldBe` True
+            _ -> expectationFailure "no span open after div"
+        _ -> expectationFailure "no div open"
+  , it "streamHTML with void element emits open+close" $ do
       evts <- collectEvents (streamHTML "<div><br></div>")
       let opens = [t | TreeOpen t _ <- evts]
           closes = [t | TreeClose t <- evts]
-      assertBool "br opens" ("br" `elem` opens)
-      assertBool "br closes" ("br" `elem` closes)
-  , testCase "streamHTML preserves attributes" $ do
+      ("br" `elem` opens) `shouldBe` True
+      ("br" `elem` closes) `shouldBe` True
+  , it "streamHTML preserves attributes" $ do
       evts <- collectEvents (streamHTML "<div class=\"foo\" id=\"bar\">x</div>")
       let divOpens = [() | TreeOpen "div" _ <- evts]
-      assertBool "has div open event" (not (null divOpens))
-  , testCase "incremental streaming matches one-shot" $ do
+      (not (null divOpens)) `shouldBe` True
+  , it "incremental streaming matches one-shot" $ do
       let html = "<html><body><div><p>hello</p><p>world</p></div></body></html>"
       oneShotEvts <- collectEvents (streamHTML html)
       sp <- newStreamParser
@@ -593,8 +592,8 @@ streamingTests =
       evts3 <- collectEvents (feedChunk sp "</div></body></html>")
       evtsFinal <- collectEvents (finishStream sp)
       let incrEvts = evts1 ++ evts2 ++ evts3 ++ evtsFinal
-      length (filter isOpen incrEvts) @?= length (filter isOpen oneShotEvts)
-      length (filter isClose incrEvts) @?= length (filter isClose oneShotEvts)
+      length (filter isOpen incrEvts) `shouldBe` length (filter isOpen oneShotEvts)
+      length (filter isClose incrEvts) `shouldBe` length (filter isClose oneShotEvts)
   ]
   where
     isStructural (TreeOpen _ _) = True

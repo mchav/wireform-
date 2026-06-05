@@ -2,8 +2,8 @@
 
 module Client.PartitionerSpec where
 
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -19,23 +19,23 @@ import qualified Data.Text as T
 import Kafka.Client.Producer
 
 -- | Test suite for KIP-480 and partitioner functionality
-partitionerSpec :: TestTree
-partitionerSpec = testGroup "Partitioner (KIP-480)"
-  [ testGroup "Sticky Partitioner"
-      [ testProperty "prop_sticky_partitioner_consistent" prop_sticky_partitioner_consistent
-      , testProperty "prop_sticky_switches_eventually" prop_sticky_switches_eventually
+partitionerSpec :: Spec
+partitionerSpec = describe "Partitioner (KIP-480)" $ sequence_
+  [ describe "Sticky Partitioner" $ sequence_
+      [ it "prop_sticky_partitioner_consistent" prop_sticky_partitioner_consistent
+      , it "prop_sticky_switches_eventually" prop_sticky_switches_eventually
       ]
-  , testGroup "Round-Robin Partitioner"
-      [ testProperty "prop_roundrobin_cycles" prop_roundrobin_cycles
-      , testProperty "prop_roundrobin_distribution" prop_roundrobin_distribution
+  , describe "Round-Robin Partitioner" $ sequence_
+      [ it "prop_roundrobin_cycles" prop_roundrobin_cycles
+      , it "prop_roundrobin_distribution" prop_roundrobin_distribution
       ]
-  , testGroup "Hash Partitioner"
-      [ testProperty "prop_hash_deterministic" prop_hash_deterministic
-      , testProperty "prop_hash_distributes" prop_hash_distributes
+  , describe "Hash Partitioner" $ sequence_
+      [ it "prop_hash_deterministic" prop_hash_deterministic
+      , it "prop_hash_distributes" prop_hash_distributes
       ]
-  , testGroup "Default Partitioner"
-      [ testProperty "prop_default_uses_hash_with_key" prop_default_uses_hash_with_key
-      , testProperty "prop_default_uses_sticky_without_key" prop_default_uses_sticky_without_key
+  , describe "Default Partitioner" $ sequence_
+      [ it "prop_default_uses_hash_with_key" prop_default_uses_hash_with_key
+      , it "prop_default_uses_sticky_without_key" prop_default_uses_sticky_without_key
       ]
   ]
 

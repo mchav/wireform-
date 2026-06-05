@@ -157,5 +157,4 @@ test-suite wireform-orc-derive-test
     text,
     vector,
     bytestring,
-    tasty,
-    tasty-hunit
+    sydtest

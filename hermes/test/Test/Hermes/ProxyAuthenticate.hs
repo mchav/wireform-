@@ -13,8 +13,7 @@ import qualified Data.Text.Short as ST
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 import qualified Network.HTTP.Headers.ProxyAuthenticate as P
 import qualified Network.HTTP.Headers.WWWAuthenticate as W
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
 
 parseOk :: ByteString -> Either String P.ProxyAuthenticate
 parseOk bs = case runParser P.proxyAuthenticateParser bs of
@@ -25,13 +24,13 @@ parseOk bs = case runParser P.proxyAuthenticateParser bs of
   Fail    -> Left "parse failed"
   Err err -> Left err
 
-unit_smoke :: TestTree
-unit_smoke = testCase "Proxy-Authenticate roundtrip" $
+unit_smoke :: Spec
+unit_smoke = it "Proxy-Authenticate roundtrip" $
   case parseOk "Basic realm=\"corp\", Digest realm=\"api\", qop=\"auth\", nonce=\"n\"" of
     Right (P.ProxyAuthenticate [b, d]) -> do
-      assertEqual "first scheme"  (W.AuthScheme (ST.fromString "Basic"))  (W.challengeScheme b)
-      assertEqual "second scheme" (W.AuthScheme (ST.fromString "Digest")) (W.challengeScheme d)
+      (W.challengeScheme b) `shouldBe` (W.AuthScheme (ST.fromString "Basic"))
+      (W.challengeScheme d) `shouldBe` (W.AuthScheme (ST.fromString "Digest"))
     other -> error ("unexpected parse: " <> show other)
 
-tests :: TestTree
-tests = testGroup "ProxyAuthenticate" [unit_smoke]
+tests :: Spec
+tests = describe "ProxyAuthenticate" $ sequence_ [unit_smoke]

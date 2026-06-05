@@ -3,13 +3,12 @@
 module Streams.StateListenerSpec (tests) where
 
 import Data.IORef
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "StateListener"
+tests :: Spec
+tests = describe "StateListener" $ sequence_
   [ listener_observes_close_transition
   , listener_default_does_nothing
   , listener_can_be_replaced
@@ -28,30 +27,30 @@ mkHandle = do
                    , bootstrapServers = ["mock:0"]
                    } v
 
-listener_observes_close_transition :: TestTree
+listener_observes_close_transition :: Spec
 listener_observes_close_transition =
-  testCase "the listener observes the Closing -> Closed transition" $ do
+  it "the listener observes the Closing -> Closed transition" $ do
     ks <- mkHandle
     log_ <- newIORef ([] :: [(StreamsStatus, StreamsStatus)])
     setStateListener ks (\old new -> modifyIORef' log_ ((old, new) :))
     closeKafkaStreams ks
     -- closeKafkaStreams transitions Created -> Closing -> Closed.
     seen <- reverse <$> readIORef log_
-    seen @?= [ (StreamsCreated, StreamsClosing)
+    seen `shouldBe` [ (StreamsCreated, StreamsClosing)
              , (StreamsClosing, StreamsClosed)
              ]
 
-listener_default_does_nothing :: TestTree
+listener_default_does_nothing :: Spec
 listener_default_does_nothing =
-  testCase "default listener does not raise on transitions" $ do
+  it "default listener does not raise on transitions" $ do
     ks <- mkHandle
     closeKafkaStreams ks
     -- If we reached here without exception, default works.
-    streamsStatus ks >>= (@?= StreamsClosed)
+    streamsStatus ks >>= (`shouldBe` StreamsClosed)
 
-listener_can_be_replaced :: TestTree
+listener_can_be_replaced :: Spec
 listener_can_be_replaced =
-  testCase "setting a listener twice keeps the most recent" $ do
+  it "setting a listener twice keeps the most recent" $ do
     ks <- mkHandle
     a <- newIORef (0 :: Int)
     b <- newIORef (0 :: Int)
@@ -60,5 +59,5 @@ listener_can_be_replaced =
     closeKafkaStreams ks
     aN <- readIORef a
     bN <- readIORef b
-    aN @?= 0     -- replaced before any transition
-    bN @?= 2     -- two transitions (Closing, Closed)
+    aN `shouldBe` 0     -- replaced before any transition
+    bN `shouldBe` 2     -- two transitions (Closing, Closed)

@@ -1,23 +1,22 @@
 module Test.BondCodeGen (bondCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 
 import Bond.Schema
 import Bond.CodeGen (generateBondTypes)
 
-bondCodeGenTests :: TestTree
-bondCodeGenTests = testGroup "Bond.CodeGen"
+bondCodeGenTests :: Spec
+bondCodeGenTests = describe "Bond.CodeGen" $ sequence_
   [ testStructCodeGen
   , testEnumCodeGen
   , testOptionalFieldCodeGen
   , testContainerFieldCodeGen
   ]
 
-testStructCodeGen :: TestTree
-testStructCodeGen = testCase "generates struct data type from Bond schema" $ do
+testStructCodeGen :: Spec
+testStructCodeGen = it "generates struct data type from Bond schema" $ do
   let schema = BondSchema
         { bondNamespace = Just "example"
         , bondImports = []
@@ -34,16 +33,16 @@ testStructCodeGen = testCase "generates struct data type from Bond schema" $ do
             ]
         }
       code = generateBondTypes schema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "personName is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "personAge is Int32" ("!Int32" `T.isInfixOf` code)
-  assertBool "contains ToBond instance" ("instance ToBond Person" `T.isInfixOf` code)
-  assertBool "contains FromBond instance" ("instance FromBond Person" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int32" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToBond Person" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromBond Person" `T.isInfixOf` code) `shouldBe` True
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "generates enum sum type from Bond schema" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "generates enum sum type from Bond schema" $ do
   let schema = BondSchema
         { bondNamespace = Nothing
         , bondImports = []
@@ -59,15 +58,15 @@ testEnumCodeGen = testCase "generates enum sum type from Bond schema" $ do
             ]
         }
       code = generateBondTypes schema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
-  assertBool "contains ToBond instance" ("instance ToBond Color" `T.isInfixOf` code)
-  assertBool "contains FromBond instance" ("instance FromBond Color" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToBond Color" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromBond Color" `T.isInfixOf` code) `shouldBe` True
 
-testOptionalFieldCodeGen :: TestTree
-testOptionalFieldCodeGen = testCase "optional fields produce Maybe types" $ do
+testOptionalFieldCodeGen :: Spec
+testOptionalFieldCodeGen = it "optional fields produce Maybe types" $ do
   let schema = BondSchema
         { bondNamespace = Nothing
         , bondImports = []
@@ -83,10 +82,10 @@ testOptionalFieldCodeGen = testCase "optional fields produce Maybe types" $ do
             ]
         }
       code = generateBondTypes schema
-  assertBool "contains Maybe Int64" ("Maybe Int64" `T.isInfixOf` code)
+  ("Maybe Int64" `T.isInfixOf` code) `shouldBe` True
 
-testContainerFieldCodeGen :: TestTree
-testContainerFieldCodeGen = testCase "containers produce Vector/Map types" $ do
+testContainerFieldCodeGen :: Spec
+testContainerFieldCodeGen = it "containers produce Vector/Map types" $ do
   let schema = BondSchema
         { bondNamespace = Nothing
         , bondImports = []
@@ -103,5 +102,5 @@ testContainerFieldCodeGen = testCase "containers produce Vector/Map types" $ do
             ]
         }
       code = generateBondTypes schema
-  assertBool "list -> Vector Text" ("Vector Text" `T.isInfixOf` code)
-  assertBool "map -> Map Text Int32" ("Map Text Int32" `T.isInfixOf` code)
+  ("Vector Text" `T.isInfixOf` code) `shouldBe` True
+  ("Map Text Int32" `T.isInfixOf` code) `shouldBe` True

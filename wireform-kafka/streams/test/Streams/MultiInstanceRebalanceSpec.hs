@@ -30,9 +30,8 @@ import Data.Text (Text)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Mock.Cluster as MC
@@ -47,8 +46,8 @@ unbytes = T.pack . BSC.unpack
 ts0 :: Timestamp
 ts0 = Timestamp 0
 
-tests :: TestTree
-tests = testGroup "Multi-instance rebalance (mock cluster harness)"
+tests :: Spec
+tests = describe "Multi-instance rebalance (mock cluster harness)" $ sequence_
   [ assignments_cover_every_partition
   , records_route_to_partition_owner
   , surviving_instance_inherits_orphans
@@ -76,9 +75,9 @@ passthroughTopo = do
 -- Test cases
 ----------------------------------------------------------------------
 
-assignments_cover_every_partition :: TestTree
+assignments_cover_every_partition :: Spec
 assignments_cover_every_partition =
-  testCase
+  it
     "two instances split a 4-partition input — union covers every partition exactly once"
     $ do
         topo <- passthroughTopo
@@ -86,20 +85,20 @@ assignments_cover_every_partition =
 
         asg <- H.instanceAssignments set
         -- Both instances are subscribed.
-        map fst asg @?= ["i0", "i1"]
+        map fst asg `shouldBe` ["i0", "i1"]
         -- The union spans every partition; the intersection is
         -- empty.
         let union = Set.fromList (concatMap snd asg)
             expected = Set.fromList
               [(topicName "in", p) | p <- [0 .. 3]]
-        union @?= expected
+        union `shouldBe` expected
         let totalLength = sum (map (length . snd) asg)
-        totalLength @?= Set.size expected
+        totalLength `shouldBe` Set.size expected
         H.closeMockSet set
 
-records_route_to_partition_owner :: TestTree
+records_route_to_partition_owner :: Spec
 records_route_to_partition_owner =
-  testCase "records sent to each input partition show up in the sink, end-to-end" $ do
+  it "records sent to each input partition show up in the sink, end-to-end" $ do
     topo <- passthroughTopo
     set  <- H.newMockSet topo 4 "shared" 2
 
@@ -114,19 +113,19 @@ records_route_to_partition_owner =
     -- Without a key, the driver hashes 'Nothing' to partition 0
     -- of the output topic, so every output value lands there.
     out0 <- map (unbytes . MC.srValue) <$> H.readSink set (topicName "out") 0
-    L.sort out0 @?= L.sort [v | (_, v) <- pairs]
+    L.sort out0 `shouldBe` L.sort [v | (_, v) <- pairs]
 
     H.closeMockSet set
 
-surviving_instance_inherits_orphans :: TestTree
+surviving_instance_inherits_orphans :: Spec
 surviving_instance_inherits_orphans =
-  testCase "crashing one instance migrates its partitions to the survivor" $ do
+  it "crashing one instance migrates its partitions to the survivor" $ do
     topo <- passthroughTopo
     set  <- H.newMockSet topo 4 "shared" 2
 
     -- Baseline: each instance has 2 of 4 partitions.
     before <- H.instanceAssignments set
-    map (length . snd) before @?= [2, 2]
+    map (length . snd) before `shouldBe` [2, 2]
 
     -- Crash i0. The mock cluster evicts its membership; refresh
     -- every survivor so the assignor redeals.
@@ -134,10 +133,10 @@ surviving_instance_inherits_orphans =
     H.refreshAll set
 
     after <- H.instanceAssignments set
-    map fst after @?= ["i1"]
+    map fst after `shouldBe` ["i1"]
     -- The lone survivor now owns every partition.
     Set.fromList (concatMap snd after)
-      @?= Set.fromList [(topicName "in", p) | p <- [0 .. 3]]
+      `shouldBe` Set.fromList [(topicName "in", p) | p <- [0 .. 3]]
 
     -- And it still processes records sent post-rebalance.
     mapM_
@@ -153,13 +152,11 @@ surviving_instance_inherits_orphans =
     H.closeMockSet set
   where
     assertSupersetOf got expect =
-      assertBool
-        ("expected " <> show expect <> " ⊆ " <> show got)
-        (expect `Set.isSubsetOf` got)
+      (if (expect `Set.isSubsetOf` got) then pure () else expectationFailure ("expected " <> show expect <> " ⊆ " <> show got))
 
-prop_assignments_cover_and_disjoint :: TestTree
+prop_assignments_cover_and_disjoint :: Spec
 prop_assignments_cover_and_disjoint =
-  testProperty
+  it
     "assignor partitions cover & are disjoint for every (instances, parts) shape"
     $ property $ do
         parts     <- forAll (Gen.int (Range.linear 1 8))

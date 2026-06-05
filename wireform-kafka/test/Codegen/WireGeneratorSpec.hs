@@ -24,8 +24,7 @@ module Codegen.WireGeneratorSpec (tests) where
 import qualified Data.Text as T
 import Data.Text (Text)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, testCase)
+import Test.Syd
 
 import Prettyprinter
 import Prettyprinter.Render.Text
@@ -37,24 +36,24 @@ import Kafka.Protocol.Codegen.WireGenerator
   , isWireSupported
   )
 
-tests :: TestTree
-tests = testGroup "WireGenerator (codegen snapshot)"
-  [ testGroup "RequestHeader"
-      [ testCase "isWireSupported = True"
+tests :: Spec
+tests = describe "WireGenerator (codegen snapshot)" $ sequence_
+  [ describe "RequestHeader" $ sequence_
+      [ it "isWireSupported = True"
           (assertSupported requestHeader)
-      , testCase "renders wireMaxSize / wirePoke / wirePeek"
+      , it "renders wireMaxSize / wirePoke / wirePeek"
           (assertRendersFunctions requestHeader)
-      , testCase "uses pokeKafkaString for ClientId (flexibleVersions: none opt-out)"
+      , it "uses pokeKafkaString for ClientId (flexibleVersions: none opt-out)"
           (assertRenderedContains requestHeader
              [ "WP.pokeKafkaString p3 (requestHeaderClientId msg)"
              , "WP.peekKafkaString p3 endPtr"
              ])
-      , testCase "v2 emits the empty tagged-fields trailer"
+      , it "v2 emits the empty tagged-fields trailer"
           (assertRenderedContains requestHeader
              [ "WP.pokeEmptyTaggedFields p4"
              , "WP.peekAndSkipTaggedFields p4 endPtr"
              ])
-      , testCase "WireCodec override points at the natives"
+      , it "WireCodec override points at the natives"
           (assertOverrideContains requestHeader
              [ "instance WC.WireCodec RequestHeader where"
              , -- After the no-Maybe migration the codec is a direct
@@ -65,10 +64,10 @@ tests = testGroup "WireGenerator (codegen snapshot)"
              , "wirePeekRequestHeader"
              ])
       ]
-  , testGroup "ResponseHeader"
-      [ testCase "isWireSupported = True"
+  , describe "ResponseHeader" $ sequence_
+      [ it "isWireSupported = True"
           (assertSupported responseHeader)
-      , testCase "v0 has no tagged-fields trailer; v1 does"
+      , it "v0 has no tagged-fields trailer; v1 does"
           (assertRenderedContains responseHeader
              [ "version == 0"
              , "version == 1"
@@ -76,15 +75,15 @@ tests = testGroup "WireGenerator (codegen snapshot)"
              , "WP.peekAndSkipTaggedFields p1 endPtr"
              ])
       ]
-  , testGroup "ApiVersionsRequest"
-      [ testCase "isWireSupported = True"
+  , describe "ApiVersionsRequest" $ sequence_
+      [ it "isWireSupported = True"
           (assertSupported apiVersionsRequest)
-      , testCase "v3-4 uses pokeCompactString for both string fields"
+      , it "v3-4 uses pokeCompactString for both string fields"
           (assertRenderedContains apiVersionsRequest
              [ "WP.pokeCompactString p0 (P.toCompactString (apiVersionsRequestClientSoftwareName msg))"
              , "WP.pokeCompactString p1 (P.toCompactString (apiVersionsRequestClientSoftwareVersion msg))"
              ])
-      , testCase "v0-2 decode falls through to defaulted KafkaString Null"
+      , it "v0-2 decode falls through to defaulted KafkaString Null"
           (assertRenderedContains apiVersionsRequest
              [ "P.KafkaString Null" ])
       ]
@@ -94,15 +93,14 @@ tests = testGroup "WireGenerator (codegen snapshot)"
 -- assertions
 ----------------------------------------------------------------------
 
-assertSupported :: ProtocolSchema -> Assertion
+assertSupported :: ProtocolSchema -> IO ()
 assertSupported sch =
-  assertBool ("isWireSupported should be True for "
-                 <> T.unpack (schemaName sch))
-             (isWireSupported sch)
+  (if (isWireSupported sch) then pure () else expectationFailure ("isWireSupported should be True for "
+                 <> T.unpack (schemaName sch)))
 
-assertRendersFunctions :: ProtocolSchema -> Assertion
+assertRendersFunctions :: ProtocolSchema -> IO ()
 assertRendersFunctions sch = case generateWireFunctions sch of
-  Nothing -> assertBool "expected Just from generateWireFunctions" False
+  Nothing -> (False) `shouldBe` True
   Just docs -> do
     let !rendered = T.unlines (map render docs)
     mapM_ (assertSubstring sch rendered)
@@ -111,14 +109,14 @@ assertRendersFunctions sch = case generateWireFunctions sch of
       , "wirePeek"    <> schemaName sch
       ]
 
-assertRenderedContains :: ProtocolSchema -> [Text] -> Assertion
+assertRenderedContains :: ProtocolSchema -> [Text] -> IO ()
 assertRenderedContains sch needles = case generateWireFunctions sch of
-  Nothing -> assertBool "expected Just from generateWireFunctions" False
+  Nothing -> (False) `shouldBe` True
   Just docs -> do
     let !rendered = T.unlines (map render docs)
     mapM_ (assertSubstring sch rendered) needles
 
-assertOverrideContains :: ProtocolSchema -> [Text] -> Assertion
+assertOverrideContains :: ProtocolSchema -> [Text] -> IO ()
 assertOverrideContains sch needles = do
   -- 'generateWireCodecOverride' now /always/ returns a Doc (no
   -- Nothing fallback after the no-fallback migration). The branch
@@ -126,11 +124,9 @@ assertOverrideContains sch needles = do
   let !rendered = render (generateWireCodecOverride sch)
   mapM_ (assertSubstring sch rendered) needles
 
-assertSubstring :: ProtocolSchema -> Text -> Text -> Assertion
-assertSubstring sch hay needle = assertBool
-  (T.unpack (schemaName sch) <> ": expected substring "
-    <> show needle <> " in rendered output:\n" <> T.unpack hay)
-  (needle `T.isInfixOf` hay)
+assertSubstring :: ProtocolSchema -> Text -> Text -> IO ()
+assertSubstring sch hay needle = (if (needle `T.isInfixOf` hay) then pure () else expectationFailure (T.unpack (schemaName sch) <> ": expected substring "
+    <> show needle <> " in rendered output:\n" <> T.unpack hay))
 
 render :: Doc ann -> Text
 render = renderStrict . layoutPretty defaultLayoutOptions

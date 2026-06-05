@@ -12,8 +12,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Vector (Vector)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Catalog.Sql
 
@@ -198,94 +197,94 @@ mkCat = do
   ref <- newIORef emptyMem
   pure (mkSqlCatalog "main" (memBackend ref), ref)
 
-tests :: TestTree
-tests = testGroup "Iceberg.Catalog.Sql"
-  [ testCase "createTable + currentMetadataLocation" $ do
+tests :: Spec
+tests = describe "Iceberg.Catalog.Sql" $ sequence_
+  [ it "createTable + currentMetadataLocation" $ do
       (cat, _) <- mkCat
       r <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
-      r @?= Right ()
+      r `shouldBe` Right ()
       loc <- currentMetadataLocation cat ns1 "orders"
-      loc @?= Just "s3://b/m/v0.json"
+      loc `shouldBe` Just "s3://b/m/v0.json"
 
-  , testCase "createTable rejects duplicates" $ do
+  , it "createTable rejects duplicates" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
       r <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
       case r of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected TableAlreadyExists"
+        Right _ -> expectationFailure "expected TableAlreadyExists"
 
-  , testCase "commitTable advances metadata location with valid CAS" $ do
+  , it "commitTable advances metadata location with valid CAS" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
       r <- commitTable cat ns1 "orders" (Just "s3://b/m/v0.json")
                        "s3://b/m/v1.json"
-      r @?= Right ()
+      r `shouldBe` Right ()
       loc <- currentMetadataLocation cat ns1 "orders"
-      loc @?= Just "s3://b/m/v1.json"
+      loc `shouldBe` Just "s3://b/m/v1.json"
 
-  , testCase "commitTable rejects stale CAS" $ do
+  , it "commitTable rejects stale CAS" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
       _ <- commitTable cat ns1 "orders" (Just "s3://b/m/v0.json") "s3://b/m/v1.json"
       r <- commitTable cat ns1 "orders" (Just "s3://b/m/v0.json") "s3://b/m/v2.json"
       case r of
         Left (CommitConflict _ _) -> pure ()
-        _ -> assertFailure "expected CommitConflict"
+        _ -> expectationFailure "expected CommitConflict"
 
-  , testCase "commitTable from staged-create (NULL previous)" $ do
+  , it "commitTable from staged-create (NULL previous)" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" Nothing
       r <- commitTable cat ns1 "orders" Nothing "s3://b/m/v1.json"
-      r @?= Right ()
+      r `shouldBe` Right ()
 
-  , testCase "renameTable" $ do
+  , it "renameTable" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "s3://b/m/v0.json")
       r <- renameTable cat ns1 "orders" ns1 "orders_v2"
-      r @?= Right ()
+      r `shouldBe` Right ()
       old <- currentMetadataLocation cat ns1 "orders"
-      old @?= Nothing
+      old `shouldBe` Nothing
       new <- currentMetadataLocation cat ns1 "orders_v2"
-      new @?= Just "s3://b/m/v0.json"
+      new `shouldBe` Just "s3://b/m/v0.json"
 
-  , testCase "listTables in namespace" $ do
+  , it "listTables in namespace" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "a" (Just "x")
       _ <- createTable cat ns1 "b" (Just "y")
       _ <- createTable cat (V.singleton "other") "c" (Just "z")
       ts <- listTables cat ns1
-      V.toList ts @?= ["a", "b"]
+      V.toList ts `shouldBe` ["a", "b"]
 
-  , testCase "dropTable removes the row" $ do
+  , it "dropTable removes the row" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "x")
       _ <- dropTable cat ns1 "orders"
       loc <- currentMetadataLocation cat ns1 "orders"
-      loc @?= Nothing
+      loc `shouldBe` Nothing
 
-  , testCase "namespace property updates round-trip" $ do
+  , it "namespace property updates round-trip" $ do
       (cat, _) <- mkCat
       _ <- createNamespace cat ns1 (Map.fromList [("owner", "team-a")])
       props0 <- loadNamespaceProperties cat ns1
-      Map.lookup "owner" props0 @?= Just "team-a"
+      Map.lookup "owner" props0 `shouldBe` Just "team-a"
       updateNamespaceProperties cat ns1
         (V.singleton "owner")
         (Map.fromList [("retention", "30d"), ("owner", "team-b")])
       props1 <- loadNamespaceProperties cat ns1
-      Map.lookup "owner" props1     @?= Just "team-b"
-      Map.lookup "retention" props1 @?= Just "30d"
+      Map.lookup "owner" props1     `shouldBe` Just "team-b"
+      Map.lookup "retention" props1 `shouldBe` Just "30d"
 
-  , testCase "dropNamespace refuses non-empty" $ do
+  , it "dropNamespace refuses non-empty" $ do
       (cat, _) <- mkCat
       _ <- createNamespace cat ns1 Map.empty
       _ <- createTable cat ns1 "orders" (Just "x")
       r <- dropNamespace cat ns1
       case r of
         Left (NamespaceNotEmpty _) -> pure ()
-        _ -> assertFailure "expected NamespaceNotEmpty"
+        _ -> expectationFailure "expected NamespaceNotEmpty"
 
-  , testCase "listNamespaces unions tables + properties" $ do
+  , it "listNamespaces unions tables + properties" $ do
       (cat, _) <- mkCat
       _ <- createTable cat ns1 "orders" (Just "x")
       _ <- createNamespace cat (V.singleton "marketing")
@@ -293,6 +292,6 @@ tests = testGroup "Iceberg.Catalog.Sql"
       nss <- listNamespaces cat
       let names = map (T.intercalate (T.singleton '\x1F') . V.toList)
                       (V.toList nss)
-      ("sales" `elem` names) @?= True
-      ("marketing" `elem` names) @?= True
+      ("sales" `elem` names) `shouldBe` True
+      ("marketing" `elem` names) `shouldBe` True
   ]

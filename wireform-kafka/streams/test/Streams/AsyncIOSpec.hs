@@ -48,9 +48,8 @@ import Data.Void (Void)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import qualified Kafka.Streams.Topology.Free as F
 
 import Kafka.Streams.Imperative
@@ -111,9 +110,9 @@ fireDrainPunctuator d = advanceWallClockTime d 250
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "AsyncIO"
-  [ testGroup "Baseline"
+tests :: Spec
+tests = describe "AsyncIO" $ sequence_
+  [ describe "Baseline" $ sequence_
       [ ordered_preserves_input_order
       , drain_via_punctuator
       , drop_and_continue_skips_failure
@@ -123,44 +122,44 @@ tests = testGroup "AsyncIO"
       , topology_free_async_map_values_smoke
       , fusion_hoists_pure_into_async
       ]
-  , testGroup "EOS commit drain"
+  , describe "EOS commit drain" $ sequence_
       [ commit_drains_in_flight_work
       , commit_waits_for_slow_user_io
       , commit_drains_unordered
       ]
-  , testGroup "Chaos: permutations"
+  , describe "Chaos: permutations" $ sequence_
       [ prop_ordered_under_completion_permutation
       , prop_unordered_is_permutation_of_input
       , prop_per_key_ordering_preserved
       , prop_identical_drivers_produce_identical_output
       ]
-  , testGroup "Chaos: failures"
+  , describe "Chaos: failures" $ sequence_
       [ prop_drop_and_continue_keeps_survivors_in_order
       , prop_custom_failure_handler_runs_for_each_failure
       , custom_failure_handler_blocking_blocks_drain
       , custom_failure_handler_throwing_doesnt_lose_other_records
       ]
-  , testGroup "Chaos: retry & timeout"
+  , describe "Chaos: retry & timeout" $ sequence_
       [ retry_fixed_eventually_succeeds
       , retry_fixed_exhausts_then_applies_policy
       , retry_backoff_recovers
       , timeout_fires_for_blocked_io
       ]
-  , testGroup "Chaos: concurrency"
+  , describe "Chaos: concurrency" $ sequence_
       [ backpressure_no_deadlock_buffer_one
       , backpressure_blocks_pipe_when_buffer_full
       , pipe_then_commit_pipe_then_commit_preserves_all
       , drain_during_active_workload
       , buffer_capacity_one_serialises_records
       ]
-  , testGroup "Chaos: lifecycle"
+  , describe "Chaos: lifecycle" $ sequence_
       [ close_after_construction_clean
       , close_with_idle_workers_clean
       , close_with_workers_blocked_mid_io_clean
       , double_commit_after_drain_idempotent
       , observer_hook_failure_surfaces_but_other_records_continue
       ]
-  , testGroup "Chaos: stress"
+  , describe "Chaos: stress" $ sequence_
       [ stress_many_records_few_workers_ordered
       , stress_many_workers_few_records
       , stress_mixed_success_and_failure
@@ -171,9 +170,9 @@ tests = testGroup "AsyncIO"
 -- Ordered: 5 records, completes in input order
 ----------------------------------------------------------------------
 
-ordered_preserves_input_order :: TestTree
+ordered_preserves_input_order :: Spec
 ordered_preserves_input_order =
-  testCase "ordered output preserves input order across the worker pool" $ do
+  it "ordered output preserves input order across the worker pool" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 8
           , aioWorkers        = 4
@@ -190,16 +189,16 @@ ordered_preserves_input_order =
     fireDrainPunctuator driver
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= map T.toUpper inputs
+    map (unbytes . crValue) out `shouldBe` map T.toUpper inputs
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- Drain via punctuator (no more input arrives)
 ----------------------------------------------------------------------
 
-drain_via_punctuator :: TestTree
+drain_via_punctuator :: Spec
 drain_via_punctuator =
-  testCase "drain-on-punctuator emits completed work without further input" $ do
+  it "drain-on-punctuator emits completed work without further input" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -218,16 +217,16 @@ drain_via_punctuator =
     fireDrainPunctuator driver
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["ONCE"]
+    map (unbytes . crValue) out `shouldBe` ["ONCE"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- DropAndContinue: failing record is skipped silently
 ----------------------------------------------------------------------
 
-drop_and_continue_skips_failure :: TestTree
+drop_and_continue_skips_failure :: Spec
 drop_and_continue_skips_failure =
-  testCase "DropAndContinue skips the failing slot, keeps the rest" $ do
+  it "DropAndContinue skips the failing slot, keeps the rest" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 8
           , aioWorkers        = 2
@@ -248,16 +247,16 @@ drop_and_continue_skips_failure =
 
     out <- readOutput driver "out"
     -- "boom" drops, the surviving three preserve input order.
-    map (unbytes . crValue) out @?= ["A", "B", "C"]
+    map (unbytes . crValue) out `shouldBe` ["A", "B", "C"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- LogAndContinue: same as DropAndContinue but logged
 ----------------------------------------------------------------------
 
-log_and_continue_skips_failure :: TestTree
+log_and_continue_skips_failure :: Spec
 log_and_continue_skips_failure =
-  testCase "LogAndContinue behaves like DropAndContinue downstream" $ do
+  it "LogAndContinue behaves like DropAndContinue downstream" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 1
@@ -275,16 +274,16 @@ log_and_continue_skips_failure =
     fireDrainPunctuator driver
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["K", "Q"]
+    map (unbytes . crValue) out `shouldBe` ["K", "Q"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- FailTask: exception surfaces on the next drain
 ----------------------------------------------------------------------
 
-fail_task_surfaces_exception :: TestTree
+fail_task_surfaces_exception :: Spec
 fail_task_surfaces_exception =
-  testCase "FailTask re-throws on the stream thread at the next drain" $ do
+  it "FailTask re-throws on the stream thread at the next drain" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 1
@@ -307,7 +306,7 @@ fail_task_surfaces_exception =
     case result of
       Left _  -> pure ()
       Right _ ->
-        assertBool "expected FailTask to re-throw on drain" False
+        (False) `shouldBe` True
 
     closeDriver driver
 
@@ -318,9 +317,9 @@ fail_task_surfaces_exception =
 -- | Block each worker on a per-record MVar. The test signals them
 -- in reverse to force out-of-order completion, then verifies the
 -- output ordering matches the signal order.
-unordered_emits_in_completion_order :: TestTree
+unordered_emits_in_completion_order :: Spec
 unordered_emits_in_completion_order =
-  testCase "unordered output emits in completion order" $ do
+  it "unordered output emits in completion order" $ do
     gateA <- newEmptyMVar
     gateB <- newEmptyMVar
     gateC <- newEmptyMVar
@@ -358,16 +357,16 @@ unordered_emits_in_completion_order =
     fireDrainPunctuator driver
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["C", "A", "B"]
+    map (unbytes . crValue) out `shouldBe` ["C", "A", "B"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- Topology.Free AST: AsyncMapValues Prim compiles + runs
 ----------------------------------------------------------------------
 
-topology_free_async_map_values_smoke :: TestTree
+topology_free_async_map_values_smoke :: Spec
 topology_free_async_map_values_smoke =
-  testCase "Topology.Free asyncMapValues compiles and forwards" $ do
+  it "Topology.Free asyncMapValues compiles and forwards" $ do
     deposits <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
@@ -393,7 +392,7 @@ topology_free_async_map_values_smoke =
     advanceWallClockTime driver 250
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["X", "Y", "Z"]
+    map (unbytes . crValue) out `shouldBe` ["X", "Y", "Z"]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -401,9 +400,9 @@ topology_free_async_map_values_smoke =
 -- into a single AsyncMapValues with the composed function.
 ----------------------------------------------------------------------
 
-fusion_hoists_pure_into_async :: TestTree
+fusion_hoists_pure_into_async :: Spec
 fusion_hoists_pure_into_async =
-  testCase "optFuseSyncIntoAsync collapses MapValues >>> AsyncMapValues" $ do
+  it "optFuseSyncIntoAsync collapses MapValues >>> AsyncMapValues" $ do
     deposits <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
@@ -426,10 +425,8 @@ fusion_hoists_pure_into_async =
         unoptimised = F.optimizeWith F.noOptimization topology
         nFused      = F.countNodes optimised
         nRaw        = F.countNodes unoptimised
-    assertBool
-      ("expected fused topology to have fewer nodes; raw="
-         <> show nRaw <> " fused=" <> show nFused)
-      (nFused < nRaw)
+    (if (nFused < nRaw) then pure () else expectationFailure ("expected fused topology to have fewer nodes; raw="
+         <> show nRaw <> " fused=" <> show nFused))
 
     -- And the fused topology still runs to the same output.
     (_, topo) <- F.compile topology
@@ -441,7 +438,7 @@ fusion_hoists_pure_into_async =
       if n >= 2 then pure () else retry
     advanceWallClockTime driver 250
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["ALPHA", "BRAVO"]
+    map (unbytes . crValue) out `shouldBe` ["ALPHA", "BRAVO"]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -449,9 +446,9 @@ fusion_hoists_pure_into_async =
 -- it returns, without relying on the wall-clock punctuator.
 ----------------------------------------------------------------------
 
-commit_drains_in_flight_work :: TestTree
+commit_drains_in_flight_work :: Spec
 commit_drains_in_flight_work =
-  testCase "commitDriver drains async work even with no punctuator" $ do
+  it "commitDriver drains async work even with no punctuator" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -473,7 +470,7 @@ commit_drains_in_flight_work =
     commitDriver driver
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= map T.toUpper inputs
+    map (unbytes . crValue) out `shouldBe` map T.toUpper inputs
     closeDriver driver
 
 -- | The user IO blocks until the test releases its MVar. Without
@@ -487,9 +484,9 @@ commit_drains_in_flight_work =
 -- workers are parked before we schedule the background commit.
 -- That removes any race between the test thread and the runtime
 -- scheduler.
-commit_waits_for_slow_user_io :: TestTree
+commit_waits_for_slow_user_io :: Spec
 commit_waits_for_slow_user_io =
-  testCase "commitDriver blocks until slow async IO has completed" $ do
+  it "commitDriver blocks until slow async IO has completed" $ do
     gateA   <- newEmptyMVar
     gateB   <- newEmptyMVar
     started <- newTVarIO (0 :: Int)
@@ -530,9 +527,7 @@ commit_waits_for_slow_user_io =
     -- If the drain were skipped, commitDriver would return and
     -- this snapshot would observe a filled TMVar.
     notDoneYet <- atomically (isEmptyTMVar commitDone)
-    assertBool
-      "expected commitDriver to be blocked on in-flight IO"
-      notDoneYet
+    (notDoneYet) `shouldBe` True
 
     -- Releasing the gates lets the workers complete; commit
     -- should now finish and forward both records.
@@ -541,14 +536,14 @@ commit_waits_for_slow_user_io =
     atomically (takeTMVar commitDone)
 
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["A", "B"]
+    map (unbytes . crValue) out `shouldBe` ["A", "B"]
     closeDriver driver
 
 -- | UnorderedOutput: the drain forwards the completed unordered
 -- queue regardless of input ordering.
-commit_drains_unordered :: TestTree
+commit_drains_unordered :: Spec
 commit_drains_unordered =
-  testCase "commit drains UnorderedOutput too" $ do
+  it "commit drains UnorderedOutput too" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -572,11 +567,9 @@ commit_drains_unordered =
     closeDriver driver
   where
     shouldContainAll got expected =
-      assertBool
-        ("expected " <> show expected
-           <> " to be a permutation of " <> show got)
-        (length got == length expected
-         && all (`elem` got) expected)
+      (if (length got == length expected
+         && all (`elem` got) expected) then pure () else expectationFailure ("expected " <> show expected
+           <> " to be a permutation of " <> show got))
 
 ----------------------------------------------------------------------
 -- Chaos suite helpers
@@ -630,9 +623,9 @@ genPermutation n = Gen.shuffle [0 .. n - 1]
 -- This is the headline invariant of 'OrderedOutput': the
 -- operator's reorder buffer absorbs whatever order the worker
 -- pool happens to deposit results in.
-prop_ordered_under_completion_permutation :: TestTree
+prop_ordered_under_completion_permutation :: Spec
 prop_ordered_under_completion_permutation =
-  testProperty "ordered output preserves input order under any completion permutation" $
+  it "ordered output preserves input order under any completion permutation" $
     H.withTests 60 $ H.property $ do
       n        <- H.forAll (Gen.int (Range.linear 1 12))
       workers  <- H.forAll (Gen.int (Range.linear 1 8))
@@ -674,9 +667,9 @@ prop_ordered_under_completion_permutation =
 -- | For 'UnorderedOutput', the multiset of outputs must equal
 -- the multiset of inputs — regardless of completion order or
 -- worker pool size.
-prop_unordered_is_permutation_of_input :: TestTree
+prop_unordered_is_permutation_of_input :: Spec
 prop_unordered_is_permutation_of_input =
-  testProperty "unordered output is a permutation of the inputs" $
+  it "unordered output is a permutation of the inputs" $
     H.withTests 40 $ H.property $ do
       n       <- H.forAll (Gen.int (Range.linear 1 12))
       workers <- H.forAll (Gen.int (Range.linear 1 8))
@@ -713,9 +706,9 @@ prop_unordered_is_permutation_of_input =
 -- records downstream matches their relative order upstream,
 -- regardless of how the worker pool interleaves completions
 -- with other keys.
-prop_per_key_ordering_preserved :: TestTree
+prop_per_key_ordering_preserved :: Spec
 prop_per_key_ordering_preserved =
-  testProperty "ordered output preserves per-key order" $
+  it "ordered output preserves per-key order" $
     H.withTests 40 $ H.property $ do
       n       <- H.forAll (Gen.int (Range.linear 2 12))
       workers <- H.forAll (Gen.int (Range.linear 1 6))
@@ -754,9 +747,9 @@ prop_per_key_ordering_preserved =
 -- the same ordered outputs — the operator's behaviour is a pure
 -- function of the input sequence even though its implementation
 -- uses worker threads.
-prop_identical_drivers_produce_identical_output :: TestTree
+prop_identical_drivers_produce_identical_output :: Spec
 prop_identical_drivers_produce_identical_output =
-  testProperty "two identical drivers produce identical outputs" $
+  it "two identical drivers produce identical outputs" $
     H.withTests 30 $ H.property $ do
       n       <- H.forAll (Gen.int (Range.linear 1 16))
       workers <- H.forAll (Gen.int (Range.linear 1 6))
@@ -790,9 +783,9 @@ prop_identical_drivers_produce_identical_output =
 -- | Inject failures at random indices with 'DropAndContinue':
 -- the surviving records appear downstream in their original
 -- input order; failed indices contribute nothing.
-prop_drop_and_continue_keeps_survivors_in_order :: TestTree
+prop_drop_and_continue_keeps_survivors_in_order :: Spec
 prop_drop_and_continue_keeps_survivors_in_order =
-  testProperty "DropAndContinue keeps surviving records in input order" $
+  it "DropAndContinue keeps surviving records in input order" $
     H.withTests 50 $ H.property $ do
       n        <- H.forAll (Gen.int (Range.linear 1 16))
       failIxs  <- H.forAll
@@ -833,9 +826,9 @@ prop_drop_and_continue_keeps_survivors_in_order =
 -- | Every failure routes through the user's 'CustomFailure'
 -- handler exactly once, even with several concurrent workers
 -- and random failure indices.
-prop_custom_failure_handler_runs_for_each_failure :: TestTree
+prop_custom_failure_handler_runs_for_each_failure :: Spec
 prop_custom_failure_handler_runs_for_each_failure =
-  testProperty "CustomFailure handler runs once per failed record" $
+  it "CustomFailure handler runs once per failed record" $
     H.withTests 30 $ H.property $ do
       n        <- H.forAll (Gen.int (Range.linear 1 12))
       failIxs  <- H.forAll
@@ -873,9 +866,9 @@ prop_custom_failure_handler_runs_for_each_failure =
 -- | A 'CustomFailure' handler that blocks must block the
 -- pre-commit drain too — the operator must not declare the
 -- record complete until the user's handler has returned.
-custom_failure_handler_blocking_blocks_drain :: TestTree
+custom_failure_handler_blocking_blocks_drain :: Spec
 custom_failure_handler_blocking_blocks_drain =
-  testCase "CustomFailure that blocks holds the drain back" $ do
+  it "CustomFailure that blocks holds the drain back" $ do
     gate     <- newEmptyMVar
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
@@ -895,9 +888,7 @@ custom_failure_handler_blocking_blocks_drain =
       commitDriver driver
       atomically (putTMVar commitDone ())
     notDoneYet <- atomically (isEmptyTMVar commitDone)
-    assertBool
-      "expected drain to wait for the CustomFailure handler"
-      notDoneYet
+    (notDoneYet) `shouldBe` True
 
     putMVar gate ()
     atomically (takeTMVar commitDone)
@@ -909,9 +900,9 @@ custom_failure_handler_blocking_blocks_drain =
 -- successful records must still be forwarded. We use
 -- 'commitDriver' to drain (rather than the punctuator) so the
 -- test is independent of wall-clock interactions.
-custom_failure_handler_throwing_doesnt_lose_other_records :: TestTree
+custom_failure_handler_throwing_doesnt_lose_other_records :: Spec
 custom_failure_handler_throwing_doesnt_lose_other_records =
-  testCase "throwing CustomFailure doesn't lose neighbouring records" $ do
+  it "throwing CustomFailure doesn't lose neighbouring records" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 8
           , aioWorkers        = 2
@@ -935,7 +926,7 @@ custom_failure_handler_throwing_doesnt_lose_other_records =
     let observed = map (unbytes . crValue) out
     -- Order-preserving: "A" then "B". The failing "bang" slot
     -- became a skip, so it doesn't show up.
-    observed @?= ["A", "B"]
+    observed `shouldBe` ["A", "B"]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -943,9 +934,9 @@ custom_failure_handler_throwing_doesnt_lose_other_records =
 ----------------------------------------------------------------------
 
 -- | 'RetryFixed' retries until the IO eventually succeeds.
-retry_fixed_eventually_succeeds :: TestTree
+retry_fixed_eventually_succeeds :: Spec
 retry_fixed_eventually_succeeds =
-  testCase "RetryFixed: transient failures recover before retries exhaust" $ do
+  it "RetryFixed: transient failures recover before retries exhaust" $ do
     attempts <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 2
@@ -967,17 +958,17 @@ retry_fixed_eventually_succeeds =
     waitDeposits depositsTV 1
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["OK"]
+    map (unbytes . crValue) out `shouldBe` ["OK"]
     -- The work fired 3 times: 2 failures + 1 success.
-    readTVarIO attempts >>= (@?= 3)
+    readTVarIO attempts >>= (`shouldBe` 3)
     closeDriver driver
 
 -- | 'RetryFixed' eventually exhausts attempts; the configured
 -- 'aioOnFailure' policy then decides what to do — here
 -- 'DropAndContinue' silently drops.
-retry_fixed_exhausts_then_applies_policy :: TestTree
+retry_fixed_exhausts_then_applies_policy :: Spec
 retry_fixed_exhausts_then_applies_policy =
-  testCase "RetryFixed: exhaustion routes through the failure policy" $ do
+  it "RetryFixed: exhaustion routes through the failure policy" $ do
     attempts <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 2
@@ -995,17 +986,17 @@ retry_fixed_exhausts_then_applies_policy =
     waitDeposits depositsTV 1
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= []
+    map (unbytes . crValue) out `shouldBe` []
     -- Initial attempt + 2 retries.
-    readTVarIO attempts >>= (@?= 3)
+    readTVarIO attempts >>= (`shouldBe` 3)
     closeDriver driver
 
 -- | 'RetryBackoff' uses an exponentially-growing delay. Verify
 -- the operator wires the constructor through correctly and the
 -- IO eventually succeeds.
-retry_backoff_recovers :: TestTree
+retry_backoff_recovers :: Spec
 retry_backoff_recovers =
-  testCase "RetryBackoff: works with a tiny initial delay" $ do
+  it "RetryBackoff: works with a tiny initial delay" $ do
     attempts <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 2
@@ -1027,15 +1018,15 @@ retry_backoff_recovers =
     waitDeposits depositsTV 1
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["v"]
+    map (unbytes . crValue) out `shouldBe` ["v"]
     closeDriver driver
 
 -- | An IO that blocks past 'aioTimeout' must be treated as a
 -- timed-out failure; with 'DropAndContinue' the slot is
 -- silently skipped.
-timeout_fires_for_blocked_io :: TestTree
+timeout_fires_for_blocked_io :: Spec
 timeout_fires_for_blocked_io =
-  testCase "aioTimeout converts a blocked IO into a failure" $ do
+  it "aioTimeout converts a blocked IO into a failure" $ do
     gate <- newEmptyMVar
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 2
@@ -1057,7 +1048,7 @@ timeout_fires_for_blocked_io =
     waitDeposits depositsTV 1
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= []
+    map (unbytes . crValue) out `shouldBe` []
     -- Release the gate so closeDriver doesn't have to send a
     -- cancellation through the racy timeout / shutdown
     -- interleaving. The runner async inside 'runOnce' has
@@ -1074,9 +1065,9 @@ timeout_fires_for_blocked_io =
 -- serially with no deadlock. The test pumps many records;
 -- pipeInput intermittently blocks on the bounded TBQueue and
 -- unblocks when the worker pulls.
-backpressure_no_deadlock_buffer_one :: TestTree
+backpressure_no_deadlock_buffer_one :: Spec
 backpressure_no_deadlock_buffer_one =
-  testCase "buffer=1, workers=1: many records flow without deadlock" $ do
+  it "buffer=1, workers=1: many records flow without deadlock" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 1
           , aioWorkers        = 1
@@ -1092,7 +1083,7 @@ backpressure_no_deadlock_buffer_one =
     waitDeposits depositsTV n
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?=
+    map (unbytes . crValue) out `shouldBe`
       map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
 
@@ -1101,9 +1092,9 @@ backpressure_no_deadlock_buffer_one =
 -- Asserted via STM: we schedule the third 'pipeInput' on a
 -- background thread, confirm via an STM snapshot that it
 -- hasn't returned, then release the gate.
-backpressure_blocks_pipe_when_buffer_full :: TestTree
+backpressure_blocks_pipe_when_buffer_full :: Spec
 backpressure_blocks_pipe_when_buffer_full =
-  testCase "pipeInput blocks when the bounded buffer is saturated" $ do
+  it "pipeInput blocks when the bounded buffer is saturated" $ do
     gate <- newEmptyMVar
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 2
@@ -1129,9 +1120,7 @@ backpressure_blocks_pipe_when_buffer_full =
       atomically (putTMVar pipeDone ())
 
     notDoneYet <- atomically (isEmptyTMVar pipeDone)
-    assertBool
-      "expected pipeInput to block when the buffer is full"
-      notDoneYet
+    (notDoneYet) `shouldBe` True
 
     -- Release the gate four times so all four records pass
     -- through; pipeInput "d" should unblock as soon as the
@@ -1144,14 +1133,14 @@ backpressure_blocks_pipe_when_buffer_full =
 
     commitDriver driver
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["A", "B", "C", "D"]
+    map (unbytes . crValue) out `shouldBe` ["A", "B", "C", "D"]
     closeDriver driver
 
 -- | Multiple commit cycles partition records correctly: each
 -- 'commitDriver' drains exactly its own in-flight batch.
-pipe_then_commit_pipe_then_commit_preserves_all :: TestTree
+pipe_then_commit_pipe_then_commit_preserves_all :: Spec
 pipe_then_commit_pipe_then_commit_preserves_all =
-  testCase "interleaved pipe/commit cycles preserve every record" $ do
+  it "interleaved pipe/commit cycles preserve every record" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -1169,15 +1158,15 @@ pipe_then_commit_pipe_then_commit_preserves_all =
 
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= map T.toUpper (concat batches)
+      `shouldBe` map T.toUpper (concat batches)
     closeDriver driver
 
 -- | Active workload interleaved with periodic drain via
 -- punctuator: the operator never loses a record across drain
 -- boundaries even when work is continuously flowing.
-drain_during_active_workload :: TestTree
+drain_during_active_workload :: Spec
 drain_during_active_workload =
-  testCase "punctuator drains interleave cleanly with active workload" $ do
+  it "punctuator drains interleave cleanly with active workload" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -1200,15 +1189,15 @@ drain_during_active_workload =
 
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= map (T.toUpper . T.pack . show) [0 .. total - 1]
+      `shouldBe` map (T.toUpper . T.pack . show) [0 .. total - 1]
     closeDriver driver
 
 -- | Buffer capacity = 1 with multiple workers: only one record
 -- can be in the buffer at a time, so the workers serialise on
 -- the buffer's STM read.
-buffer_capacity_one_serialises_records :: TestTree
+buffer_capacity_one_serialises_records :: Spec
 buffer_capacity_one_serialises_records =
-  testCase "buffer=1 with workers=4 still flows correctly" $ do
+  it "buffer=1 with workers=4 still flows correctly" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 1
           , aioWorkers        = 4
@@ -1227,7 +1216,7 @@ buffer_capacity_one_serialises_records =
 
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
+      `shouldBe` map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -1237,9 +1226,9 @@ buffer_capacity_one_serialises_records =
 -- | A freshly-constructed driver with no pipeInputs at all
 -- closes cleanly — workers never had any work, the registry is
 -- empty, no hangs.
-close_after_construction_clean :: TestTree
+close_after_construction_clean :: Spec
 close_after_construction_clean =
-  testCase "closeDriver on a freshly-built driver returns promptly" $ do
+  it "closeDriver on a freshly-built driver returns promptly" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -1254,9 +1243,9 @@ close_after_construction_clean =
 
 -- | After a clean drain, closing is a no-op: the workers are
 -- idle, the buffers are empty, no cancellation is needed.
-close_with_idle_workers_clean :: TestTree
+close_with_idle_workers_clean :: Spec
 close_with_idle_workers_clean =
-  testCase "closeDriver after a clean drain returns promptly" $ do
+  it "closeDriver after a clean drain returns promptly" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -1274,9 +1263,9 @@ close_with_idle_workers_clean =
 -- | Worker mid-IO when close is called: the user IO is
 -- cancelled, the worker exits, close returns promptly. Without
 -- the Async.cancel in 'closeProc', this hangs forever.
-close_with_workers_blocked_mid_io_clean :: TestTree
+close_with_workers_blocked_mid_io_clean :: Spec
 close_with_workers_blocked_mid_io_clean =
-  testCase "closeDriver with workers blocked on user IO completes" $ do
+  it "closeDriver with workers blocked on user IO completes" $ do
     gate <- newEmptyMVar
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
@@ -1306,9 +1295,9 @@ close_with_workers_blocked_mid_io_clean =
 -- | Calling commit a second time after a successful first
 -- commit on a quiescent operator returns promptly with no work
 -- to do.
-double_commit_after_drain_idempotent :: TestTree
+double_commit_after_drain_idempotent :: Spec
 double_commit_after_drain_idempotent =
-  testCase "back-to-back commits on a quiescent operator are no-ops" $ do
+  it "back-to-back commits on a quiescent operator are no-ops" $ do
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
           , aioWorkers        = 2
@@ -1322,15 +1311,15 @@ double_commit_after_drain_idempotent =
     commitDriver driver
     commitDriver driver   -- second commit: nothing in flight
     out <- readOutput driver "out"
-    map (unbytes . crValue) out @?= ["P"]
+    map (unbytes . crValue) out `shouldBe` ["P"]
     closeDriver driver
 
 -- | A throwing 'aioOnDeposit' hook captures the failure in
 -- 'apsFailure' but the worker keeps running so other records
 -- aren't lost. The failure surfaces on the next drain.
-observer_hook_failure_surfaces_but_other_records_continue :: TestTree
+observer_hook_failure_surfaces_but_other_records_continue :: Spec
 observer_hook_failure_surfaces_but_other_records_continue =
-  testCase "throwing aioOnDeposit doesn't stop the worker" $ do
+  it "throwing aioOnDeposit doesn't stop the worker" $ do
     callCount <- newTVarIO (0 :: Int)
     let cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 4
@@ -1386,16 +1375,13 @@ observer_hook_failure_surfaces_but_other_records_continue =
       if or fedFailures
         then tolerate (commitDriver driver) >> pure True
         else drainUntilFailure 10000
-    assertBool
-      "expected the throwing deposit hook to surface on a drain" surfaced
+    (surfaced) `shouldBe` True
     -- The worker kept running, so at least the first deposit ("X")
     -- still flows downstream.
     out <- readOutput driver "out"
     let observed = map (unbytes . crValue) out
-    assertBool
-      ("expected the worker to keep forwarding records; got "
-         <> show observed)
-      (not (null observed))
+    (if (not (null observed)) then pure () else expectationFailure ("expected the worker to keep forwarding records; got "
+         <> show observed))
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -1405,9 +1391,9 @@ observer_hook_failure_surfaces_but_other_records_continue =
 -- | Many records, few workers, ordered output: the reorder
 -- buffer absorbs the worker race and downstream sees the input
 -- order.
-stress_many_records_few_workers_ordered :: TestTree
+stress_many_records_few_workers_ordered :: Spec
 stress_many_records_few_workers_ordered =
-  testCase "stress: 200 records / 2 workers / ordered" $ do
+  it "stress: 200 records / 2 workers / ordered" $ do
     let n = 200 :: Int
         cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 8
@@ -1424,15 +1410,15 @@ stress_many_records_few_workers_ordered =
     commitDriver driver
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
+      `shouldBe` map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
 
 -- | Many workers and few records: the operator doesn't starve
 -- — only as many workers as needed pick up work; the rest park
 -- on the input queue.
-stress_many_workers_few_records :: TestTree
+stress_many_workers_few_records :: Spec
 stress_many_workers_few_records =
-  testCase "stress: 32 workers / 4 records / no starvation" $ do
+  it "stress: 32 workers / 4 records / no starvation" $ do
     let n   = 4 :: Int
         cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 8
@@ -1449,16 +1435,16 @@ stress_many_workers_few_records =
     commitDriver driver
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= map (T.toUpper . T.pack . show) [0 .. n - 1]
+      `shouldBe` map (T.toUpper . T.pack . show) [0 .. n - 1]
     closeDriver driver
 
 -- | A stress workload mixing successes and failures: half the
 -- records throw, the other half succeed, with random
 -- interleaving. The surviving records are forwarded in input
 -- order; the operator never loses or duplicates.
-stress_mixed_success_and_failure :: TestTree
+stress_mixed_success_and_failure :: Spec
 stress_mixed_success_and_failure =
-  testCase "stress: half-failures, ordered survivor preservation" $ do
+  it "stress: half-failures, ordered survivor preservation" $ do
     let n = 50 :: Int
         cfg = defaultAsyncIOConfig
           { aioBufferCapacity = 16
@@ -1480,5 +1466,5 @@ stress_mixed_success_and_failure =
     commitDriver driver
     out <- readOutput driver "out"
     map (unbytes . crValue) out
-      @?= [T.pack (show i) | i <- [0 .. n - 1], odd i]
+      `shouldBe` [T.pack (show i) | i <- [0 .. n - 1], odd i]
     closeDriver driver

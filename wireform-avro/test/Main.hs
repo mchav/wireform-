@@ -1,9 +1,7 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd (sydTest, describe)
 import qualified Test.Avro.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-avro-derive"
-  [ Test.Avro.Derive.tests
-  ]
+main = sydTest $ describe "wireform-avro-derive" Test.Avro.Derive.spec

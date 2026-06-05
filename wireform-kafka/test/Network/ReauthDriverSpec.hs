@@ -10,23 +10,22 @@ module Network.ReauthDriverSpec (tests) where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import Data.IORef
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Client.ReauthDriver as RD
 import qualified Kafka.Network.Auth.SASL as SASL
 
-tests :: TestTree
-tests = testGroup "Reauth driver (KIP-368)"
-  [ testCase "newly created state has no deadline + no in-flight handshake"
+tests :: Spec
+tests = describe "Reauth driver (KIP-368)" $ sequence_
+  [ it "newly created state has no deadline + no in-flight handshake"
       fresh_state
-  , testCase "forceReauthNow triggers a handshake on the next driver tick"
+  , it "forceReauthNow triggers a handshake on the next driver tick"
       force_now
-  , testCase "successful runner records the broker lifetime and a new deadline"
+  , it "successful runner records the broker lifetime and a new deadline"
       success_path
-  , testCase "failing runner records the error and clears in-flight"
+  , it "failing runner records the error and clears in-flight"
       failure_path
-  , testCase "awaitReauthQuiet returns immediately when no handshake is in flight"
+  , it "awaitReauthQuiet returns immediately when no handshake is in flight"
       quiet_returns_now
   ]
 
@@ -34,9 +33,9 @@ fresh_state :: IO ()
 fresh_state = do
   st <- RD.createReauthState 60_000
   d <- RD.currentDeadlineMs st
-  d @?= Nothing
+  d `shouldBe` Nothing
   inFlight <- RD.reauthInProgress st
-  inFlight @?= False
+  inFlight `shouldBe` False
 
 force_now :: IO ()
 force_now = do
@@ -59,7 +58,7 @@ force_now = do
   waitFor 20
   RD.stopReauthThread st
   c <- readIORef callsRef
-  assertBool "handshake fired at least once" (c >= 1)
+  (c >= 1) `shouldBe` True
 
 success_path :: IO ()
 success_path = do
@@ -82,7 +81,7 @@ success_path = do
   waitFor 40
   RD.stopReauthThread st
   d <- RD.currentDeadlineMs st
-  assertBool "deadline populated" (maybe False (> 0) d)
+  (maybe False (> 0) d) `shouldBe` True
 
 failure_path :: IO ()
 failure_path = do
@@ -104,7 +103,7 @@ failure_path = do
   waitFor 40
   RD.stopReauthThread st
   inFlight <- RD.reauthInProgress st
-  inFlight @?= False
+  inFlight `shouldBe` False
 
 quiet_returns_now :: IO ()
 quiet_returns_now = do

@@ -12,8 +12,7 @@ import Data.Text (Text)
 
 import Data.IORef (modifyIORef', newIORef, readIORef)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
+import Test.Syd
 
 import Control.Category ((>>>))
 import Data.Void (Void)
@@ -70,8 +69,8 @@ validPassthrough = do
 line :: Text -> Int64 -> ReplayRecord
 line v ts = replayRecord textSerde textSerde (topicName "lines") Nothing v (Timestamp ts)
 
-tests :: TestTree
-tests = testGroup "Replay"
+tests :: Spec
+tests = describe "Replay" $ sequence_
   [ select_window_and_shift
   , replay_reprocesses_through_topology
   , replay_window_skips_out_of_range
@@ -91,9 +90,9 @@ schemaSerde =
 
 ----------------------------------------------------------------------
 
-select_window_and_shift :: TestTree
+select_window_and_shift :: Spec
 select_window_and_shift =
-  testCase "selectForReplay filters [from,to) then shifts timestamps" $ do
+  it "selectForReplay filters [from,to) then shifts timestamps" $ do
     let recs = [ line "a" 10, line "b" 20, line "c" 30, line "d" 40 ]
         plan = defaultReplayPlan
                  { replayFrom = Just (Timestamp 20)
@@ -101,14 +100,14 @@ select_window_and_shift =
                  , replayTimeShiftMs = 1000
                  }
         out = selectForReplay plan recs
-    map rrValue out @?= [valueBytes "b", valueBytes "c"]
-    map rrTimestamp out @?= [Timestamp 1020, Timestamp 1030]
+    map rrValue out `shouldBe` [valueBytes "b", valueBytes "c"]
+    map rrTimestamp out `shouldBe` [Timestamp 1020, Timestamp 1030]
   where
     valueBytes v = rrValue (line v 0)
 
-replay_reprocesses_through_topology :: TestTree
+replay_reprocesses_through_topology :: Spec
 replay_reprocesses_through_topology =
-  testCase "runReplay feeds records and produces count output" $ do
+  it "runReplay feeds records and produces count output" $ do
     topo <- validTopology
     let recs =
           [ line "the quick brown fox" 1
@@ -116,49 +115,49 @@ replay_reprocesses_through_topology =
           , line "the the the" 3
           ]
     res <- runReplay topo "replay-test" defaultReplayPlan recs
-    replayConsumed res @?= 3
-    replaySkipped res  @?= 0
+    replayConsumed res `shouldBe` 3
+    replaySkipped res  `shouldBe` 0
     -- The "counts" sink should carry the running count for "the".
     let counts = decodedCounts res
-    lookup "the" counts @?= Just 5   -- 1 + 1 + 3
-    lookup "fox" counts @?= Just 1
+    lookup "the" counts `shouldBe` Just 5   -- 1 + 1 + 3
+    lookup "fox" counts `shouldBe` Just 1
 
-replay_window_skips_out_of_range :: TestTree
+replay_window_skips_out_of_range :: Spec
 replay_window_skips_out_of_range =
-  testCase "runReplay honours the plan window" $ do
+  it "runReplay honours the plan window" $ do
     topo <- validTopology
     let recs = [ line "alpha" 5, line "beta" 15, line "gamma" 25 ]
         plan = defaultReplayPlan { replayFrom = Just (Timestamp 10)
                                  , replayTo   = Just (Timestamp 20) }
     res <- runReplay topo "replay-win" plan recs
-    replayConsumed res @?= 1
-    replaySkipped res  @?= 2
-    replayMinTimestamp res @?= Just (Timestamp 15)
+    replayConsumed res `shouldBe` 1
+    replaySkipped res  `shouldBe` 2
+    replayMinTimestamp res `shouldBe` Just (Timestamp 15)
 
-backfill_builds_state :: TestTree
+backfill_builds_state :: Spec
 backfill_builds_state =
-  testCase "withReplayDriver builds queryable state from history" $ do
+  it "withReplayDriver builds queryable state from history" $ do
     topo <- validTopology
     let recs = [ line "x y" 1, line "x x" 2 ]
     total <- withReplayDriver topo "backfill" defaultReplayPlan recs $ \d _res -> do
       entries <- dumpKeyValueStore @Text @Int64 d (storeName "counts-store")
       pure (lookup "x" entries)
-    total @?= Just 3
+    total `shouldBe` Just 3
 
-capture_roundtrips :: TestTree
+capture_roundtrips :: Spec
 capture_roundtrips =
-  testCase "encodeReplayLog / decodeReplayLog round-trips" $ do
+  it "encodeReplayLog / decodeReplayLog round-trips" $ do
     let recs =
           [ replayRecordBytes (topicName "t") (Just "k1") "v1" (Timestamp 7) 0
           , replayRecordBytes (topicName "t") Nothing "\x00\xff\x10" (Timestamp 9) 2
           ]
     case decodeReplayLog (encodeReplayLog recs) of
-      Left err  -> assertBool ("decode failed: " <> err) False
-      Right out -> out @?= recs
+      Left err  -> (if (False) then pure () else expectationFailure ("decode failed: " <> err))
+      Right out -> out `shouldBe` recs
 
-headers_survive_replay :: TestTree
+headers_survive_replay :: Spec
 headers_survive_replay =
-  testCase "record headers flow through replay to the sink" $ do
+  it "record headers flow through replay to the sink" $ do
     topo <- validPassthrough
     let hs = headersFromList [Header "trace-id" "abc", Header "bin" "\x01\x02"]
         rec = replayWithHeaders hs
@@ -167,14 +166,14 @@ headers_survive_replay =
     res <- runReplay topo "hdr" defaultReplayPlan [rec]
     case lookup (topicName "out") (replayOutputs res) of
       Just [cr] -> case decodeOutput textSerde textSerde cr of
-        Right o -> orHeaders o @?= hs
-        Left e  -> assertFailure ("decode failed: " <> show e)
-      other -> assertFailure ("expected one output record, got "
+        Right o -> orHeaders o `shouldBe` hs
+        Left e  -> expectationFailure ("decode failed: " <> show e)
+      other -> expectationFailure ("expected one output record, got "
                                 <> show (fmap length other))
 
-offset_window_selects :: TestTree
+offset_window_selects :: Spec
 offset_window_selects =
-  testCase "selectForReplay honours the offset window" $ do
+  it "selectForReplay honours the offset window" $ do
     let recs =
           [ replayWithOffset 100 (line "a" 1)
           , replayWithOffset 150 (line "b" 2)
@@ -184,29 +183,29 @@ offset_window_selects =
         plan = defaultReplayPlan
                  { replayFromOffset = Just 120, replayToOffset = Just 200 }
         out = selectForReplay plan recs
-    map rrValue out @?= [rrValue (line "b" 0)]
+    map rrValue out `shouldBe` [rrValue (line "b" 0)]
 
-pacer_sees_gaps :: TestTree
+pacer_sees_gaps :: Spec
 pacer_sees_gaps =
-  testCase "runReplayPaced calls the pacer with inter-record gaps" $ do
+  it "runReplayPaced calls the pacer with inter-record gaps" $ do
     topo <- validTopology
     ref <- newIORef []
     let pacer gap = modifyIORef' ref (gap :)
         recs = [ line "a" 10, line "b" 35, line "c" 40 ]
     _ <- runReplayPaced topo "pace" defaultReplayPlan pacer recs
     gaps <- readIORef ref
-    reverse gaps @?= [25, 5]
+    reverse gaps `shouldBe` [25, 5]
 
-replay_record_seeds_serde_headers :: TestTree
+replay_record_seeds_serde_headers :: Spec
 replay_record_seeds_serde_headers =
-  testCase "replayRecord seeds headers from the serdes' serializeHeaders" $ do
+  it "replayRecord seeds headers from the serdes' serializeHeaders" $ do
     let r = replayRecord textSerde schemaSerde (topicName "in")
                          (Just "k") "v" (Timestamp 0)
-    headersToList (rrHeaders r) @?= [Header "schema-id" "42"]
+    headersToList (rrHeaders r) `shouldBe` [Header "schema-id" "42"]
 
-sink_stamps_serde_headers :: TestTree
+sink_stamps_serde_headers :: Spec
 sink_stamps_serde_headers =
-  testCase "the sink stamps the value serde's headers on output" $ do
+  it "the sink stamps the value serde's headers on output" $ do
     topo <- sinkTopo
     -- Input record with no headers; the sink's value serde contributes
     -- the schema-id header on the way out.
@@ -214,9 +213,9 @@ sink_stamps_serde_headers =
     res <- runReplay topo "sink-hdr" defaultReplayPlan [rec]
     case lookup (topicName "out") (replayOutputs res) of
       Just [cr] -> case decodeOutput textSerde textSerde cr of
-        Right o -> headersToList (orHeaders o) @?= [Header "schema-id" "42"]
-        Left e  -> assertFailure ("decode failed: " <> show e)
-      other -> assertFailure ("expected one output, got "
+        Right o -> headersToList (orHeaders o) `shouldBe` [Header "schema-id" "42"]
+        Left e  -> expectationFailure ("decode failed: " <> show e)
+      other -> expectationFailure ("expected one output, got "
                                 <> show (fmap length other))
 
 -- Passthrough whose sink uses a header-stamping value serde.

@@ -1,7 +1,6 @@
 module Test.CapnProtoCodeGen (capnProtoCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,16 +8,16 @@ import qualified Data.Vector as V
 import CapnProto.Schema
 import CapnProto.CodeGen (generateCapnProtoTypes)
 
-capnProtoCodeGenTests :: TestTree
-capnProtoCodeGenTests = testGroup "CapnProto.CodeGen"
+capnProtoCodeGenTests :: Spec
+capnProtoCodeGenTests = describe "CapnProto.CodeGen" $ sequence_
   [ testStructCodeGen
   , testEnumCodeGen
   , testNestedStructCodeGen
   , testListFieldCodeGen
   ]
 
-testStructCodeGen :: TestTree
-testStructCodeGen = testCase "generates struct data type from Cap'n Proto schema" $ do
+testStructCodeGen :: Spec
+testStructCodeGen = it "generates struct data type from Cap'n Proto schema" $ do
   let schema = CapnProtoSchema
         { csFileId = Nothing
         , csImports = V.empty
@@ -35,14 +34,14 @@ testStructCodeGen = testCase "generates struct data type from Cap'n Proto schema
             ]
         }
       code = generateCapnProtoTypes schema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "personName is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "personAge is Int32" ("!Int32" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int32" `T.isInfixOf` code) `shouldBe` True
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "generates enum sum type from Cap'n Proto schema" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "generates enum sum type from Cap'n Proto schema" $ do
   let schema = CapnProtoSchema
         { csFileId = Nothing
         , csImports = V.empty
@@ -54,14 +53,14 @@ testEnumCodeGen = testCase "generates enum sum type from Cap'n Proto schema" $ d
             ]
         }
       code = generateCapnProtoTypes schema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
-  assertBool "contains Enum deriving" ("Enum" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
+  ("Enum" `T.isInfixOf` code) `shouldBe` True
 
-testNestedStructCodeGen :: TestTree
-testNestedStructCodeGen = testCase "nested structs become separate types" $ do
+testNestedStructCodeGen :: Spec
+testNestedStructCodeGen = it "nested structs become separate types" $ do
   let schema = CapnProtoSchema
         { csFileId = Nothing
         , csImports = V.empty
@@ -86,11 +85,11 @@ testNestedStructCodeGen = testCase "nested structs become separate types" $ do
             ]
         }
       code = generateCapnProtoTypes schema
-  assertBool "contains data Outer" ("data Outer = Outer" `T.isInfixOf` code)
-  assertBool "contains data Inner" ("data Inner = Inner" `T.isInfixOf` code)
+  ("data Outer = Outer" `T.isInfixOf` code) `shouldBe` True
+  ("data Inner = Inner" `T.isInfixOf` code) `shouldBe` True
 
-testListFieldCodeGen :: TestTree
-testListFieldCodeGen = testCase "lists -> Vector fields" $ do
+testListFieldCodeGen :: Spec
+testListFieldCodeGen = it "lists -> Vector fields" $ do
   let schema = CapnProtoSchema
         { csFileId = Nothing
         , csImports = V.empty
@@ -106,4 +105,4 @@ testListFieldCodeGen = testCase "lists -> Vector fields" $ do
             ]
         }
       code = generateCapnProtoTypes schema
-  assertBool "contains Vector Text" ("Vector Text" `T.isInfixOf` code)
+  ("Vector Text" `T.isInfixOf` code) `shouldBe` True

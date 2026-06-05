@@ -1,10 +1,10 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.MsgPack.Derive
 
 main :: IO ()
-main = defaultMain (testGroup "wireform-msgpack"
+main = sydTest (describe "wireform-msgpack" $ sequence_
   [ Test.MsgPack.Derive.tests
   ])

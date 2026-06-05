@@ -11,8 +11,7 @@ import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL
 
@@ -40,31 +39,31 @@ structuralEq a b = case (a, b) of
           && and (zipWith (\(k1, v1) (k2, v2) -> structuralEq k1 k2 && structuralEq v1 v2) ex ey)
   _ -> False
 
-ok :: Text -> Value -> TestTree
+ok :: Text -> Value -> Spec
 ok = okEnv emptyEnv
 
-okEnv :: Env -> Text -> Value -> TestTree
-okEnv env src expected = testCase (T.unpack src) $
+okEnv :: Env -> Text -> Value -> Spec
+okEnv env src expected = it (T.unpack src) $
   case run env src of
     Right v
       | structuralEq v expected -> pure ()
-      | otherwise -> assertFailure ("expected " ++ show expected ++ " but got " ++ show v)
-    Left e -> assertFailure ("expected a value but got error: " ++ show e)
+      | otherwise -> expectationFailure ("expected " ++ show expected ++ " but got " ++ show v)
+    Left e -> expectationFailure ("expected a value but got error: " ++ show e)
 
-err :: Text -> TestTree
-err src = testCase (T.unpack src ++ " [error]") $
+err :: Text -> Spec
+err src = it (T.unpack src ++ " [error]") $
   case run emptyEnv src of
     Left _ -> pure ()
-    Right v -> assertFailure ("expected an error but got " ++ show v)
+    Right v -> expectationFailure ("expected an error but got " ++ show v)
 
-true, false :: Text -> TestTree
+true, false :: Text -> Spec
 true s = ok s (VBool True)
 false s = ok s (VBool False)
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "conformance"
+  describe
+    "conformance" $ sequence_
     [ literals
     , arithmetic
     , comparisons
@@ -81,10 +80,10 @@ tests =
     , parseErrors
     ]
 
-literals :: TestTree
+literals :: Spec
 literals =
-  testGroup
-    "literals"
+  describe
+    "literals" $ sequence_
     [ ok "1" (VInt 1)
     , ok "7u" (VUInt 7)
     , ok "7.0" (VDouble 7.0)
@@ -100,10 +99,10 @@ literals =
     , ok "'world'" (VString "world")
     ]
 
-arithmetic :: TestTree
+arithmetic :: Spec
 arithmetic =
-  testGroup
-    "arithmetic"
+  describe
+    "arithmetic" $ sequence_
     [ ok "1 + 2" (VInt 3)
     , ok "3.14 + 1.59" (VDouble 4.73)
     , ok "5 - 3" (VInt 2)
@@ -132,10 +131,10 @@ arithmetic =
     , ok "9223372036854775807 + 0" (VInt maxBound)
     ]
 
-comparisons :: TestTree
+comparisons :: Spec
 comparisons =
-  testGroup
-    "comparisons"
+  describe
+    "comparisons" $ sequence_
     [ true "2 < 3"
     , true "2 <= 3"
     , true "3 >= 2"
@@ -155,10 +154,10 @@ comparisons =
       err "1 < 'a'"
     ]
 
-equality :: TestTree
+equality :: Spec
 equality =
-  testGroup
-    "equality"
+  describe
+    "equality" $ sequence_
     [ true "1 == 1"
     , false "\"hello\" == \"world\""
     , true "1 != 2"
@@ -179,10 +178,10 @@ equality =
     , true "bytes('hello') == b'hello'"
     ]
 
-logical :: TestTree
+logical :: Spec
 logical =
-  testGroup
-    "logical operators (error-absorbing)"
+  describe
+    "logical operators (error-absorbing)" $ sequence_
     [ true "true || false"
     , false "false || false"
     , true "true && true"
@@ -201,10 +200,10 @@ logical =
     , err "!(1/0 == 0)"
     ]
 
-conditionals :: TestTree
+conditionals :: Spec
 conditionals =
-  testGroup
-    "conditional"
+  describe
+    "conditional" $ sequence_
     [ ok "true ? 1 : 2" (VInt 1)
     , ok "false ? \"a\" : \"b\"" (VString "b")
     , ok "(2 < 5) ? 'yes' : 'no'" (VString "yes")
@@ -214,10 +213,10 @@ conditionals =
     , err "true ? (1/0) : 42"
     ]
 
-stringsAndBytes :: TestTree
+stringsAndBytes :: Spec
 stringsAndBytes =
-  testGroup
-    "strings and bytes"
+  describe
+    "strings and bytes" $ sequence_
     [ ok "\"Hello, \" + \"world!\"" (VString "Hello, world!")
     , true "\"hello world\".contains(\"world\")"
     , false "\"foobar\".contains(\"baz\")"
@@ -240,10 +239,10 @@ stringsAndBytes =
     , ok "bytes('🤪')" (VBytes (BS.pack [0xF0, 0x9F, 0xA4, 0xAA]))
     ]
 
-collections :: TestTree
+collections :: Spec
 collections =
-  testGroup
-    "lists and maps"
+  describe
+    "lists and maps" $ sequence_
     [ ok "[1, 2, 3]" (VList (V.fromList [VInt 1, VInt 2, VInt 3]))
     , ok "[1] + [2, 3]" (VList (V.fromList [VInt 1, VInt 2, VInt 3]))
     , ok "[1, 2, 3][1]" (VInt 2)
@@ -271,10 +270,10 @@ collections =
       err "{[1]: 2}"
     ]
 
-macros :: TestTree
+macros :: Spec
 macros =
-  testGroup
-    "macros"
+  describe
+    "macros" $ sequence_
     [ true "[1, 2, 3].all(x, x > 0)"
     , false "[1, 2, 0].all(x, x > 0)"
     , true "['apple', 'banana', 'cherry'].all(fruit, fruit.size() > 3)"
@@ -301,10 +300,10 @@ macros =
     , true "has({'a': null}.a)"
     ]
 
-conversions :: TestTree
+conversions :: Spec
 conversions =
-  testGroup
-    "conversions"
+  describe
+    "conversions" $ sequence_
     [ ok "bool(true)" (VBool True)
     , ok "bool(\"true\")" (VBool True)
     , ok "bool(\"FALSE\")" (VBool False)
@@ -332,10 +331,10 @@ conversions =
     , err "bool(\"maybe\")"
     ]
 
-typeValues :: TestTree
+typeValues :: Spec
 typeValues =
-  testGroup
-    "type values"
+  describe
+    "type values" $ sequence_
     [ ok "type(1)" (VType (typeOfName "int"))
     , ok "type(\"a\")" (VType (typeOfName "string"))
     , false "type(1) == string"
@@ -353,10 +352,10 @@ typeValues =
       Right (VType t) -> t
       _ -> error ("not a type: " <> T.unpack n)
 
-datetime :: TestTree
+datetime :: Spec
 datetime =
-  testGroup
-    "date/time"
+  describe
+    "date/time" $ sequence_
     [ ok "duration('1m') + duration('1s')" (durSecs 61)
     , ok "duration('1m') - duration('1s')" (durSecs 59)
     , ok "duration('-1.5h')" (durSecs (-5400))
@@ -383,10 +382,10 @@ datetime =
   where
     durSecs n = VDuration (Duration n 0)
 
-names :: TestTree
+names :: Spec
 names =
-  testGroup
-    "name resolution"
+  describe
+    "name resolution" $ sequence_
     [ okEnv (bind "x" (VInt 5) emptyEnv) "x + 1" (VInt 6)
     , okEnv (bind "name" (VString "world") emptyEnv) "'Hello, ' + name + '!'" (VString "Hello, world!")
     , okEnv (bind "a" mapAB emptyEnv) "a.b" (VInt 1)
@@ -403,10 +402,10 @@ names =
     mapAB = VMap (celMapFromList [(VString "b", VInt 1)])
     nestedMap = VMap (celMapFromList [(VString "b", VMap (celMapFromList [(VString "c", VInt 7)]))])
 
-parseErrors :: TestTree
+parseErrors :: Spec
 parseErrors =
-  testGroup
-    "parse errors"
+  describe
+    "parse errors" $ sequence_
     [ err "1 +"
     , err "(1"
     , err "for"

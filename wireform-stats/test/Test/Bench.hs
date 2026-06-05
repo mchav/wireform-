@@ -4,18 +4,17 @@ module Test.Bench (tests) where
 import qualified Data.Aeson as A
 import Data.Time.Clock (UTCTime (..))
 import Data.Time.Calendar (fromGregorian)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Wireform.Stats.Bench as Bench
 import qualified Wireform.Stats.SVG   as SVG
 import qualified Wireform.Stats.Table as Tbl
 
-tests :: TestTree
-tests = testGroup "Bench"
-  [ testCase "summary JSON round-trips" jsonRoundTrip
-  , testCase "summaryToTable: header columns + row count"  tableShape
-  , testCase "summaryToBarChart: series + groups preserved" chartShape
+tests :: Spec
+tests = describe "Bench" $ sequence_
+  [ it "summary JSON round-trips" jsonRoundTrip
+  , it "summaryToTable: header columns + row count"  tableShape
+  , it "summaryToBarChart: series + groups preserved" chartShape
   ]
 
 sampleSummary :: Bench.BenchSummary
@@ -34,27 +33,27 @@ sampleSummary = Bench.BenchSummary
   , Bench.bsToolchain      = "ghc-9.8.4 on darwin-aarch64"
   }
 
-jsonRoundTrip :: Assertion
+jsonRoundTrip :: IO ()
 jsonRoundTrip = do
   let bytes = A.encode sampleSummary
   case A.eitherDecode bytes of
-    Right (back :: Bench.BenchSummary) -> back @?= sampleSummary
-    Left  err                          -> assertFailure err
+    Right (back :: Bench.BenchSummary) -> back `shouldBe` sampleSummary
+    Left  err                          -> expectationFailure err
 
-tableShape :: Assertion
+tableShape :: IO ()
 tableShape = do
   let t = Bench.summaryToTable sampleSummary
   -- 4 header columns: Operation + 2 series + ratio.
-  length (Tbl.tableHeader t) @?= 4
+  length (Tbl.tableHeader t) `shouldBe` 4
   -- 2 rows: one per group.
-  length (Tbl.tableRows t)   @?= 2
+  length (Tbl.tableRows t)   `shouldBe` 2
   -- Each row has the same arity as the header.
-  mapM_ (\r -> length r @?= 4) (Tbl.tableRows t)
+  mapM_ (\r -> length r `shouldBe` 4) (Tbl.tableRows t)
 
-chartShape :: Assertion
+chartShape :: IO ()
 chartShape = do
   let c = Bench.summaryToBarChart sampleSummary
-  length (SVG.chartGroups c) @?= 2
-  length (SVG.chartSeries c) @?= 2
-  SVG.chartUnit c @?= "ns"
-  SVG.chartHigherIsBetter c @?= False
+  length (SVG.chartGroups c) `shouldBe` 2
+  length (SVG.chartSeries c) `shouldBe` 2
+  SVG.chartUnit c `shouldBe` "ns"
+  SVG.chartHigherIsBetter c `shouldBe` False

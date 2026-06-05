@@ -3,8 +3,7 @@
 module Test.YAML.Derive (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified YAML.Class as Y
 import qualified YAML.Value as YV
@@ -12,102 +11,98 @@ import qualified YAML.Value as YV
 import Test.YAML.Derive.Instances ()
 import Test.YAML.Derive.Types
 
-tests :: TestTree
-tests = testGroup "YAML.Derive"
+tests :: Spec
+tests = describe "YAML.Derive" $ sequence_
   [ recordTests
   , newtypeTests
   , enumTests
   , sumTests
   ]
 
-recordTests :: TestTree
-recordTests = testGroup "record"
-  [ testCase "encode applies rename + renameStyle, drops skipped" $ do
+recordTests :: Spec
+recordTests = describe "record" $ sequence_
+  [ it "encode applies rename + renameStyle, drops skipped" $ do
       let p = Profile "Alice" 30 "a@x" "secret"
       case Y.toYAML p of
         YV.YMap kvs -> do
-          assertBool "name key present"
-            (V.elem (YV.YString "name", YV.YString "Alice") kvs)
-          assertBool "snake-cased age key present"
-            (V.any (keyIs "profile_age") kvs)
-          assertBool "email key (StripPrefix + snake)"
-            (V.any (keyIs "email") kvs)
-          assertBool "private skipped"
-            (not (V.any (keyIs "profilePrivate") kvs))
-        v -> fail ("expected YMap, got " ++ show v)
+          (V.elem (YV.YString "name", YV.YString "Alice") kvs) `shouldBe` True
+          (V.any (keyIs "profile_age") kvs) `shouldBe` True
+          (V.any (keyIs "email") kvs) `shouldBe` True
+          (not (V.any (keyIs "profilePrivate") kvs)) `shouldBe` True
+        v -> expectationFailure ("expected YMap, got " ++ show v)
 
-  , testCase "round-trip fills skipped from defaults" $ do
+  , it "round-trip fills skipped from defaults" $ do
       let p = Profile "Alice" 30 "a@x" "secret"
       case Y.fromYAML (Y.toYAML p) of
         Right p' -> do
-          profileName  p' @?= profileName p
-          profileAge   p' @?= profileAge p
-          profileEmail p' @?= profileEmail p
-          profilePrivate p' @?= defaultPrivate
-        Left e -> fail e
+          profileName  p' `shouldBe` profileName p
+          profileAge   p' `shouldBe` profileAge p
+          profileEmail p' `shouldBe` profileEmail p
+          profilePrivate p' `shouldBe` defaultPrivate
+        Left e -> expectationFailure e
   ]
   where
     keyIs t (YV.YString k, _) = k == t
     keyIs _ _                 = False
 
-newtypeTests :: TestTree
-newtypeTests = testGroup "newtype"
-  [ testCase "pass-through" $
-      Y.toYAML (Tag 42) @?= YV.YInt 42
-  , testCase "round-trip" $
-      Y.fromYAML (Y.toYAML (Tag 7)) @?= Right (Tag 7)
+newtypeTests :: Spec
+newtypeTests = describe "newtype" $ sequence_
+  [ it "pass-through" $
+      Y.toYAML (Tag 42) `shouldBe` YV.YInt 42
+  , it "round-trip" $
+      Y.fromYAML (Y.toYAML (Tag 7)) `shouldBe` Right (Tag 7)
   ]
 
-enumTests :: TestTree
-enumTests = testGroup "enum"
-  [ testCase "Red"      $ Y.toYAML Red      @?= YV.YString "red"
-  , testCase "DarkBlue" $ Y.toYAML DarkBlue @?= YV.YString "dark-blue"
-  , testCase "round-trip" $
+enumTests :: Spec
+enumTests = describe "enum" $ sequence_
+  [ it "Red"      $ Y.toYAML Red      `shouldBe` YV.YString "red"
+  , it "DarkBlue" $ Y.toYAML DarkBlue `shouldBe` YV.YString "dark-blue"
+  , it "round-trip" $
       mapM_ rt [Red, Green, DarkBlue]
-  , testCase "unknown fails" $
+  , it "unknown fails" $
       case Y.fromYAML (YV.YString "purple") :: Either String Color of
         Left _  -> pure ()
-        Right c -> fail ("unexpected " ++ show c)
+        Right c -> expectationFailure ("unexpected " ++ show c)
   ]
   where
     rt :: Color -> IO ()
-    rt c = Y.fromYAML (Y.toYAML c) @?= Right c
+    rt c = Y.fromYAML (Y.toYAML c) `shouldBe` Right c
 
-sumTests :: TestTree
-sumTests = testGroup "sum"
-  [ testCase "Origin (nullary) -> tag only, no contents" $
-      Y.toYAML Origin @?=
+sumTests :: Spec
+sumTests = describe "sum" $ sequence_
+  [ it "Origin (nullary) -> tag only, no contents" $
+      Y.toYAML Origin `shouldBe`
         YV.YMap (V.fromList
           [ (YV.YString "tag", YV.YString "origin")
           ])
 
-  , testCase "Circle (unary)   -> contents = inner value" $
-      Y.toYAML (Circle 1.5) @?=
+  , it "Circle (unary)   -> contents = inner value" $
+      Y.toYAML (Circle 1.5) `shouldBe`
         YV.YMap (V.fromList
           [ (YV.YString "tag",      YV.YString "circle")
           , (YV.YString "contents", YV.YFloat 1.5)
           ])
 
-  , testCase "Rect   (n-ary)   -> contents = YSeq" $
-      Y.toYAML (Rect 2 3) @?=
+  , it "Rect   (n-ary)   -> contents = YSeq" $
+      Y.toYAML (Rect 2 3) `shouldBe`
         YV.YMap (V.fromList
           [ (YV.YString "tag",      YV.YString "rect")
           , (YV.YString "contents",
               YV.YSeq (V.fromList [YV.YFloat 2, YV.YFloat 3]))
           ])
 
-  , testCase "round-trip Origin" $ rt Origin
-  , testCase "round-trip Circle" $ rt (Circle 2.5)
-  , testCase "round-trip Rect"   $ rt (Rect 4 5)
+  , it "round-trip Origin" $ rt Origin
+  , it "round-trip Circle" $ rt (Circle 2.5)
+  , it "round-trip Rect"   $ rt (Rect 4 5)
 
-  , testCase "unknown tag fails" $ do
+  , it "unknown tag fails" $ do
       let bad = YV.YMap (V.fromList
             [ (YV.YString "tag", YV.YString "ellipse")
             ])
       case Y.fromYAML bad :: Either String Shape of
         Left _ -> pure ()
-        Right s -> fail ("unexpected " ++ show s)
+        Right s -> expectationFailure ("unexpected " ++ show s)
   ]
   where
     rt :: Shape -> IO ()
-    rt s = Y.fromYAML (Y.toYAML s) @?= Right s
+    rt s = Y.fromYAML (Y.toYAML s) `shouldBe` Right s

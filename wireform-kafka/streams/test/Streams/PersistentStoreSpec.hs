@@ -3,8 +3,7 @@
 module Streams.PersistentStoreSpec (tests) where
 
 import qualified Data.ByteString.Char8 as BSC
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 import qualified System.IO.Temp as Temp
 
 import Kafka.Streams.State.KeyValue.Persistent
@@ -18,17 +17,17 @@ import Kafka.Streams.State.Store
   , storeName
   )
 
-tests :: TestTree
-tests = testGroup "Persistent KV store"
+tests :: Spec
+tests = describe "Persistent KV store" $ sequence_
   [ basic_persist_and_recover
   , delete_persisted
   , range_iterator
   , two_writers_then_reopen
   ]
 
-basic_persist_and_recover :: TestTree
+basic_persist_and_recover :: Spec
 basic_persist_and_recover =
-  testCase "values written then snapshot survive a reopen" $
+  it "values written then snapshot survive a reopen" $
     Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
       let cfg = defaultPersistentConfig dir
           nm  = storeName "p"
@@ -40,14 +39,14 @@ basic_persist_and_recover =
       storeClose (kvsBase kvs)
       -- Reopen.
       kvs2 <- persistentKeyValueStore nm cfg
-      kvsGet kvs2 "k1" >>= (@?= Just "v1")
-      kvsGet kvs2 "k2" >>= (@?= Just "v2")
-      kvsGet kvs2 "k3" >>= (@?= Just "v3")
+      kvsGet kvs2 "k1" >>= (`shouldBe` Just "v1")
+      kvsGet kvs2 "k2" >>= (`shouldBe` Just "v2")
+      kvsGet kvs2 "k3" >>= (`shouldBe` Just "v3")
       storeClose (kvsBase kvs2)
 
-two_writers_then_reopen :: TestTree
+two_writers_then_reopen :: Spec
 two_writers_then_reopen =
-  testCase "two open/close cycles preserve cumulative state" $
+  it "two open/close cycles preserve cumulative state" $
     Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
       let cfg = defaultPersistentConfig dir
           nm  = storeName "p"
@@ -64,13 +63,13 @@ two_writers_then_reopen =
       storeClose (kvsBase kvs2)
       -- 3rd cycle: verify cumulative state.
       kvs3 <- persistentKeyValueStore nm cfg
-      kvsGet kvs3 "a" >>= (@?= Nothing)
-      kvsGet kvs3 "b" >>= (@?= Just "two")
-      kvsGet kvs3 "c" >>= (@?= Just "3")
+      kvsGet kvs3 "a" >>= (`shouldBe` Nothing)
+      kvsGet kvs3 "b" >>= (`shouldBe` Just "two")
+      kvsGet kvs3 "c" >>= (`shouldBe` Just "3")
       storeClose (kvsBase kvs3)
 
-delete_persisted :: TestTree
-delete_persisted = testCase "deletes persist across snapshot+reopen" $
+delete_persisted :: Spec
+delete_persisted = it "deletes persist across snapshot+reopen" $
   Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
     let cfg = defaultPersistentConfig dir
         nm  = storeName "p"
@@ -81,12 +80,12 @@ delete_persisted = testCase "deletes persist across snapshot+reopen" $
     storeClose (kvsBase kvs)
 
     kvs2 <- persistentKeyValueStore nm cfg
-    kvsGet kvs2 "a" >>= (@?= Nothing)
-    kvsGet kvs2 "b" >>= (@?= Just "2")
+    kvsGet kvs2 "a" >>= (`shouldBe` Nothing)
+    kvsGet kvs2 "b" >>= (`shouldBe` Just "2")
     storeClose (kvsBase kvs2)
 
-range_iterator :: TestTree
-range_iterator = testCase "range iterator returns sorted slice" $
+range_iterator :: Spec
+range_iterator = it "range iterator returns sorted slice" $
   Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
     let cfg = defaultPersistentConfig dir
         nm  = storeName "p"
@@ -97,5 +96,5 @@ range_iterator = testCase "range iterator returns sorted slice" $
            ["v01","v02","v03","v04","v05","v06"])
     it <- kvsRange kvs "k02" "k04"
     xs <- kvIteratorToList it
-    xs @?= [("k02","v02"), ("k03","v03"), ("k04","v04")]
+    xs `shouldBe` [("k02","v02"), ("k03","v03"), ("k04","v04")]
     storeClose (kvsBase kvs)

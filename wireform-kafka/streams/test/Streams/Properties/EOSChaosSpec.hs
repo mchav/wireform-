@@ -30,8 +30,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Runtime.EOS
   ( CommitOutcome (..)
@@ -167,18 +167,18 @@ mkCoord s = do
 -- Property
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "EOS chaos"
-  [ testProperty
+tests :: Spec
+tests = describe "EOS chaos" $ sequence_
+  [ it
       "runCommitCycle outcome + trace matches the state-machine model" $
       H.withTests 200 propMatchesModel
-  , testProperty
+  , it
       "getOffsets throwing aborts cleanly (never escapes runCommitCycle)"
       $ H.withTests 100 propGetOffsetsThrows
-  , testProperty
+  , it
       "abortTxn returning Left does not destabilise the cycle outcome"
       $ H.withTests 100 propAbortTxnLeftIsTolerated
-  , testProperty
+  , it
       "storeAbort returning Left does not destabilise the cycle outcome"
       $ H.withTests 80 propStoreAbortLeftIsTolerated
   ]

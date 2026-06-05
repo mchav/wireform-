@@ -14,8 +14,7 @@ import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (castPtr, plusPtr)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
+import Test.Syd
 
 import qualified Kafka.Compression.Ring as Ring
 import qualified Kafka.Compression.Types as Compression
@@ -23,9 +22,9 @@ import Kafka.Compression.Types (CompressionCodec (..))
 import qualified Wireform.Ring
 import Wireform.Ring (ringBase, withMagicRing)
 
-ringCompressionTests :: TestTree
-ringCompressionTests = testGroup "Compression.Ring (pointer-input decompress)"
-  [ testGroup "decompressFromPtr (fresh ByteString output)"
+ringCompressionTests :: Spec
+ringCompressionTests = describe "Compression.Ring (pointer-input decompress)" $ sequence_
+  [ describe "decompressFromPtr (fresh ByteString output)" $ sequence_
       [ roundTrip "NoCompression"            NoCompression sampleSmall
       , roundTrip "NoCompression / 64 KiB"   NoCompression sampleBig
       , roundTrip "Snappy / small"           Snappy        sampleSmall
@@ -40,10 +39,10 @@ ringCompressionTests = testGroup "Compression.Ring (pointer-input decompress)"
       , roundTrip "Lz4  / small"             Lz4           sampleSmall
       , roundTrip "Lz4  / 64 KiB"            Lz4           sampleBig
       , roundTrip "Lz4  / 1 MiB"             Lz4           sampleMega
-      , testCase  "empty input -> empty output (all codecs)" $
+      , it  "empty input -> empty output (all codecs)" $
           mapM_ (\c -> roundtripBs c BS.empty) [NoCompression, Gzip, Snappy, Lz4, Zstd]
       ]
-  , testGroup "decompressIntoRing (caller-supplied magic ring)"
+  , describe "decompressIntoRing (caller-supplied magic ring)" $ sequence_
       [ ringRoundTrip "NoCompression / 64 KiB" NoCompression sampleBig
       , ringRoundTrip "Snappy / 64 KiB"        Snappy        sampleBig
       , ringRoundTrip "Snappy / 1 MiB"         Snappy        sampleMega
@@ -53,17 +52,17 @@ ringCompressionTests = testGroup "Compression.Ring (pointer-input decompress)"
       , ringRoundTrip "Gzip   / 1 MiB"         Gzip          sampleMega
       , ringRoundTrip "Lz4    / 64 KiB"        Lz4           sampleBig
       , ringRoundTrip "Lz4    / 1 MiB"         Lz4           sampleMega
-      , testCase "snappy reuses the same ring across two decompressions" $ do
+      , it "snappy reuses the same ring across two decompressions" $ do
           compE1 <- Compression.compress Snappy sampleSmall
           compE2 <- Compression.compress Snappy sampleBig
           case (compE1, compE2) of
             (Right c1, Right c2) ->
               withMagicRing (4 * 1024 * 1024) $ \dst -> do
                 r1 <- decompressViaRing Snappy c1 dst
-                r1 @?= Right sampleSmall
+                r1 `shouldBe` Right sampleSmall
                 r2 <- decompressViaRing Snappy c2 dst
-                r2 @?= Right sampleBig
-            _ -> assertFailure "compress failed"
+                r2 `shouldBe` Right sampleBig
+            _ -> expectationFailure "compress failed"
       ]
   ]
 
@@ -71,20 +70,20 @@ ringCompressionTests = testGroup "Compression.Ring (pointer-input decompress)"
 -- decompress the resulting bytes via the ring entry point that
 -- takes a raw pointer (matching what the magic-ring transport
 -- hands to 'Kafka.Protocol.RecordBatchWire').
-roundTrip :: String -> CompressionCodec -> BS.ByteString -> TestTree
-roundTrip label codec payload = testCase label (roundtripBs codec payload)
+roundTrip :: String -> CompressionCodec -> BS.ByteString -> Spec
+roundTrip label codec payload = it label (roundtripBs codec payload)
 
 roundtripBs :: CompressionCodec -> BS.ByteString -> IO ()
 roundtripBs codec payload = do
   compE <- Compression.compress codec payload
   case compE of
-    Left err -> assertFailure ("compress failed: " <> err)
+    Left err -> expectationFailure ("compress failed: " <> err)
     Right compressed -> do
       decompE <- BSU.unsafeUseAsCStringLen compressed $ \(p, l) ->
         Ring.decompressFromPtr codec (castPtr p) l
       case decompE of
-        Left err -> assertFailure ("decompressFromPtr failed: " <> err)
-        Right got -> got @?= payload
+        Left err -> expectationFailure ("decompressFromPtr failed: " <> err)
+        Right got -> got `shouldBe` payload
 
 sampleSmall :: BS.ByteString
 sampleSmall = "the quick brown fox jumps over the lazy dog"
@@ -99,15 +98,15 @@ sampleMega = BS.concat (replicate (16 * 1024) sampleSmall)
 -- decompressIntoRing helpers
 ------------------------------------------------------------------------
 
-ringRoundTrip :: String -> CompressionCodec -> BS.ByteString -> TestTree
-ringRoundTrip label codec payload = testCase label $ do
+ringRoundTrip :: String -> CompressionCodec -> BS.ByteString -> Spec
+ringRoundTrip label codec payload = it label $ do
   compE <- Compression.compress codec payload
   case compE of
-    Left err -> assertFailure ("compress failed: " <> err)
+    Left err -> expectationFailure ("compress failed: " <> err)
     Right compressed ->
       withMagicRing (4 * 1024 * 1024) $ \dst -> do
         r <- decompressViaRing codec compressed dst
-        r @?= Right payload
+        r `shouldBe` Right payload
 
 -- | Convenience: drive 'Ring.decompressIntoRing' against the given
 -- magic ring and snapshot the result as a fresh 'BS.ByteString' so

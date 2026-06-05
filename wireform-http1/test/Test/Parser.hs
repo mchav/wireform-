@@ -4,15 +4,14 @@ module Test.Parser (tests) where
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import Test.Syd
+import Test.QuickCheck
 
 import Network.HTTP1.Parser
 import Network.HTTP1.Types
 
-tests :: TestTree
-tests = testGroup "Parser"
+tests :: Spec
+tests = describe "Parser" $ sequence_
   [ requestLineTests
   , statusLineTests
   , headerBlockTests
@@ -24,87 +23,87 @@ tests = testGroup "Parser"
 
 ------------------------------------------------------------------------
 
-requestLineTests :: TestTree
-requestLineTests = testGroup "request line"
-  [ testCase "GET / HTTP/1.1" $
+requestLineTests :: Spec
+requestLineTests = describe "request line" $ sequence_
+  [ it "GET / HTTP/1.1" $
       parseRequestLine "GET / HTTP/1.1"
-        @?= Right (GET, "/", HTTP_1_1)
-  , testCase "POST with absolute path" $
+        `shouldBe` Right (GET, "/", HTTP_1_1)
+  , it "POST with absolute path" $
       parseRequestLine "POST /api/v1/things HTTP/1.1"
-        @?= Right (POST, "/api/v1/things", HTTP_1_1)
-  , testCase "extension method" $
+        `shouldBe` Right (POST, "/api/v1/things", HTTP_1_1)
+  , it "extension method" $
       parseRequestLine "PROPFIND / HTTP/1.1"
-        @?= Right (MethodOther "PROPFIND", "/", HTTP_1_1)
-  , testCase "missing target" $
+        `shouldBe` Right (MethodOther "PROPFIND", "/", HTTP_1_1)
+  , it "missing target" $
       parseRequestLine "GET  HTTP/1.1"
-        @?= Left ParseBadRequestLine
-  , testCase "unsupported version" $
+        `shouldBe` Left ParseBadRequestLine
+  , it "unsupported version" $
       parseRequestLine "GET / HTTP/2.0"
-        @?= Left ParseUnsupportedVersion
+        `shouldBe` Left ParseUnsupportedVersion
   ]
 
-statusLineTests :: TestTree
-statusLineTests = testGroup "status line"
-  [ testCase "200 OK" $
+statusLineTests :: Spec
+statusLineTests = describe "status line" $ sequence_
+  [ it "200 OK" $
       fmap dropReason (parseStatusLine "HTTP/1.1 200 OK")
-        @?= Right (HTTP_1_1, Status 200)
-  , testCase "404 Not Found" $
+        `shouldBe` Right (HTTP_1_1, Status 200)
+  , it "404 Not Found" $
       fmap dropReason (parseStatusLine "HTTP/1.1 404 Not Found")
-        @?= Right (HTTP_1_1, NotFound)
-  , testCase "non-numeric code" $
-      parseStatusLine "HTTP/1.1 OK OK" @?= Left ParseBadStatusLine
+        `shouldBe` Right (HTTP_1_1, NotFound)
+  , it "non-numeric code" $
+      parseStatusLine "HTTP/1.1 OK OK" `shouldBe` Left ParseBadStatusLine
   ]
   where
     dropReason (a, b, _) = (a, b)
 
 ------------------------------------------------------------------------
 
-headerBlockTests :: TestTree
-headerBlockTests = testGroup "header block"
-  [ testCase "single header" $
+headerBlockTests :: Spec
+headerBlockTests = describe "header block" $ sequence_
+  [ it "single header" $
       parseHeaderBlock "Host: example.com"
-        @?= Right [("Host", "example.com")]
-  , testCase "two headers, CRLF separator" $
+        `shouldBe` Right [("Host", "example.com")]
+  , it "two headers, CRLF separator" $
       parseHeaderBlock "Host: example.com\r\nAccept: */*"
-        @?= Right [("Host", "example.com"), ("Accept", "*/*")]
-  , testCase "OWS trimming on value" $
+        `shouldBe` Right [("Host", "example.com"), ("Accept", "*/*")]
+  , it "OWS trimming on value" $
       parseHeaderBlock "X-Test:   spaces and tabs\t  "
-        @?= Right [("X-Test", "spaces and tabs")]
-  , testCase "rejects bare LF in value" $
+        `shouldBe` Right [("X-Test", "spaces and tabs")]
+  , it "rejects bare LF in value" $
       parseHeaderBlock "X-Bad: line1\nline2"
-        @?= Left ParseInvalidHeaderValue
-  , testCase "rejects empty name" $
+        `shouldBe` Left ParseInvalidHeaderValue
+  , it "rejects empty name" $
       parseHeaderBlock ": value"
-        @?= Left ParseBadHeaderName
-  , testCase "rejects obs-fold" $
+        `shouldBe` Left ParseBadHeaderName
+  , it "rejects obs-fold" $
       parseHeaderBlock " continuation"
-        @?= Left ParseInvalidHeaderValue
-  , testCase "rejects NUL in value" $
+        `shouldBe` Left ParseInvalidHeaderValue
+  , it "rejects NUL in value" $
       parseHeaderBlock "X: bad\x00stuff"
-        @?= Left ParseInvalidHeaderValue
-  , testCase "accepts obs-text (high bytes)" $
+        `shouldBe` Left ParseInvalidHeaderValue
+  , it "accepts obs-text (high bytes)" $
       let high = BS.pack [0x58, 0x3a, 0x20, 0xc3, 0xa9]
-      in parseHeaderBlock high @?= Right [("X", BS.pack [0xc3, 0xa9])]
+      in parseHeaderBlock high `shouldBe` Right [("X", BS.pack [0xc3, 0xa9])]
   ]
 
 ------------------------------------------------------------------------
 
-requestFramingTests :: TestTree
-requestFramingTests = testGroup "request framing"
-  [ testCase "GET no body" $ runReq "GET / HTTP/1.1\r\nHost: x\r\n\r\n"
-      @?= Right (GET, NoBody)
-  , testCase "POST with content-length" $
+requestFramingTests :: Spec
+requestFramingTests = describe "request framing" $ sequence_
+  [ it "GET no body" $ runReq "GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+      `shouldBe` Right (GET, NoBody)
+  , it "POST with content-length" $
       runReq "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n"
-        @?= Right (POST, ContentLength 4)
-  , testCase "POST chunked" $
+        `shouldBe` Right (POST, ContentLength 4)
+  , it "POST chunked" $
       runReq "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
-        @?= Right (POST, Chunked)
-  , testCase "TE with non-chunked-last is rejected" $
+        `shouldBe` Right (POST, Chunked)
+  , it "TE with non-chunked-last is rejected" $
       runReq "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n"
-        @?= Left ParseChunkedNotFinal
-  , testCase "HTTP/1.1 GET missing Host rejected" $
+        `shouldBe` Left ParseChunkedNotFinal
+  , it "HTTP/1.1 GET missing Host rejected" $
       runReq "GET / HTTP/1.1\r\n\r\n"
-        @?= Left ParseMissingHost
+        `shouldBe` Left ParseMissingHost
   ]
   where
     runReq bs = fmap (\(r, f) -> (requestMethod r, f)) (parseHeadAndFraming bs)
@@ -117,20 +116,20 @@ parseHeadAndFraming bs = case BS.breakSubstring "\r\n\r\n" bs of
 
 ------------------------------------------------------------------------
 
-responseFramingTests :: TestTree
-responseFramingTests = testGroup "response framing"
-  [ testCase "204 has no body even if CL present" $
+responseFramingTests :: Spec
+responseFramingTests = describe "response framing" $ sequence_
+  [ it "204 has no body even if CL present" $
       runResp GET "HTTP/1.1 204 No Content\r\nContent-Length: 5\r\n\r\n"
-        @?= Right NoBody
-  , testCase "HEAD has no body" $
+        `shouldBe` Right NoBody
+  , it "HEAD has no body" $
       runResp HEAD "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"
-        @?= Right NoBody
-  , testCase "1.0 no framing => close-delimited" $
+        `shouldBe` Right NoBody
+  , it "1.0 no framing => close-delimited" $
       runResp GET "HTTP/1.0 200 OK\r\n\r\n"
-        @?= Right CloseDelimited
-  , testCase "1.1 no framing => zero-length" $
+        `shouldBe` Right CloseDelimited
+  , it "1.1 no framing => zero-length" $
       runResp GET "HTTP/1.1 200 OK\r\n\r\n"
-        @?= Right NoBody
+        `shouldBe` Right NoBody
   ]
   where
     runResp m bs = case BS.breakSubstring "\r\n\r\n" bs of
@@ -138,25 +137,25 @@ responseFramingTests = testGroup "response framing"
 
 ------------------------------------------------------------------------
 
-chunkHeaderTests :: TestTree
-chunkHeaderTests = testGroup "chunked TE"
-  [ testCase "0 size" $
+chunkHeaderTests :: Spec
+chunkHeaderTests = describe "chunked TE" $ sequence_
+  [ it "0 size" $
       parseChunkHeader "0\r\n" 0
-        @?= Right (Just (ChunkHeader 0 3))
-  , testCase "hex size" $
+        `shouldBe` Right (Just (ChunkHeader 0 3))
+  , it "hex size" $
       parseChunkHeader "ff\r\n" 0
-        @?= Right (Just (ChunkHeader 0xff 4))
-  , testCase "with extension" $
+        `shouldBe` Right (Just (ChunkHeader 0xff 4))
+  , it "with extension" $
       parseChunkHeader "10;ext=value\r\n" 0
-        @?= Right (Just (ChunkHeader 0x10 14))
-  , testCase "needs more input" $
+        `shouldBe` Right (Just (ChunkHeader 0x10 14))
+  , it "needs more input" $
       parseChunkHeader "10" 0
-        @?= Right Nothing
-  , testCase "rejects bare CR in extension" $
+        `shouldBe` Right Nothing
+  , it "rejects bare CR in extension" $
       parseChunkHeader "10\rnotlf" 0
-        @?= Left ParseBadChunkHeader
-  , testProperty "decimal sizes round-trip via hex" $
-      \n -> n >= 0 && n < (2^(40::Int)) ==>
+        `shouldBe` Left ParseBadChunkHeader
+  , it "decimal sizes round-trip via hex" $
+      property $ \n -> n >= 0 && n < (2^(40::Int)) ==>
         let hex = showHex' n ""
             input = BS.pack (map (fromIntegral . fromEnum) hex) <> "\r\n"
         in parseChunkHeader input 0
@@ -175,32 +174,32 @@ showHex' n acc
 -- Request smuggling guards
 ------------------------------------------------------------------------
 
-smugglingGuardTests :: TestTree
-smugglingGuardTests = testGroup "request smuggling guards"
-  [ testCase "CL + TE both present" $
+smugglingGuardTests :: Spec
+smugglingGuardTests = describe "request smuggling guards" $ sequence_
+  [ it "CL + TE both present" $
       runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n"
-        @?= Left ParseLengthAndTransferEncoding
-  , testCase "duplicate disagreeing CL" $
+        `shouldBe` Left ParseLengthAndTransferEncoding
+  , it "duplicate disagreeing CL" $
       runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n"
-        @?= Left ParseLengthConflict
-  , testCase "duplicate agreeing CL is fine" $
+        `shouldBe` Left ParseLengthConflict
+  , it "duplicate agreeing CL is fine" $
       runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n"
-        @?= Right (ContentLength 4)
-  , testCase "non-numeric CL rejected" $
+        `shouldBe` Right (ContentLength 4)
+  , it "non-numeric CL rejected" $
       runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: lots\r\n\r\n"
-        @?= Left ParseInvalidLength
-  , testCase "negative CL rejected" $
+        `shouldBe` Left ParseInvalidLength
+  , it "negative CL rejected" $
       runFraming "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n\r\n"
-        @?= Left ParseInvalidLength
-  , testCase "HTTP/1.1 missing Host rejected" $
+        `shouldBe` Left ParseInvalidLength
+  , it "HTTP/1.1 missing Host rejected" $
       runFraming "GET / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"
-        @?= Left ParseMissingHost
-  , testCase "HTTP/1.1 multiple Host rejected" $
+        `shouldBe` Left ParseMissingHost
+  , it "HTTP/1.1 multiple Host rejected" $
       runFraming "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n"
-        @?= Left ParseMultipleHosts
-  , testCase "HTTP/1.0 missing Host is fine" $
+        `shouldBe` Left ParseMultipleHosts
+  , it "HTTP/1.0 missing Host is fine" $
       runFraming "GET / HTTP/1.0\r\n\r\n"
-        @?= Right NoBody
+        `shouldBe` Right NoBody
   ]
   where
     runFraming :: ByteString -> Either ParseError Framing

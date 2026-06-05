@@ -4,8 +4,7 @@ module Test.ASN1.Derive (tests) where
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Syd
 
 import qualified ASN1.Value as AV
 import ASN1.Derive
@@ -13,8 +12,8 @@ import ASN1.Derive
 import Test.ASN1.Derive.Instances ()
 import Test.ASN1.Derive.Types
 
-tests :: TestTree
-tests = testGroup "ASN1.Derive"
+tests :: Spec
+tests = describe "ASN1.Derive" $ sequence_
   [ recordTests
   , newtypeTests
   , enumTests
@@ -26,102 +25,102 @@ tests = testGroup "ASN1.Derive"
 -- Record
 -- ---------------------------------------------------------------------------
 
-recordTests :: TestTree
-recordTests = testGroup "record (Person)"
-  [ testCase "structure is SEQUENCE of 3 with one Tagged" $ do
+recordTests :: Spec
+recordTests = describe "record (Person)" $ sequence_
+  [ it "structure is SEQUENCE of 3 with one Tagged" $ do
       case toASN1 (Person 7 "Alice" True) of
         AV.Sequence vs -> do
-          V.length vs @?= 3
+          V.length vs `shouldBe` 3
           assertIsInteger 7 (vs V.! 0)
           assertIsUTF8 "Alice" (vs V.! 1)
           case vs V.! 2 of
             AV.Tagged AV.ContextSpecific 0 (AV.Boolean True) -> pure ()
-            other -> assertFailure
+            other -> expectationFailure
               ("expected Tagged ContextSpecific 0 (Boolean True), got "
                ++ show other)
-        v -> assertFailure ("expected Sequence, got " ++ show v)
+        v -> expectationFailure ("expected Sequence, got " ++ show v)
 
-  , testCase "round-trip via ASN.1 Value" $ do
+  , it "round-trip via ASN.1 Value" $ do
       let p = Person 42 "Bob" False
-      fromASN1 (toASN1 p) @?= Right p
+      fromASN1 (toASN1 p) `shouldBe` Right p
 
-  , testCase "round-trip Person { admin = True }" $ do
+  , it "round-trip Person { admin = True }" $ do
       let p = Person 1 "Carol" True
-      fromASN1 (toASN1 p) @?= Right p
+      fromASN1 (toASN1 p) `shouldBe` Right p
   ]
 
 -- ---------------------------------------------------------------------------
 -- Newtype
 -- ---------------------------------------------------------------------------
 
-newtypeTests :: TestTree
-newtypeTests = testGroup "newtype (Wrapper)"
-  [ testCase "encodes as inner Int" $
-      toASN1 (Wrapper 99) @?= AV.Integer 99
-  , testCase "round-trip" $
-      fromASN1 (toASN1 (Wrapper 17)) @?= Right (Wrapper 17)
+newtypeTests :: Spec
+newtypeTests = describe "newtype (Wrapper)" $ sequence_
+  [ it "encodes as inner Int" $
+      toASN1 (Wrapper 99) `shouldBe` AV.Integer 99
+  , it "round-trip" $
+      fromASN1 (toASN1 (Wrapper 17)) `shouldBe` Right (Wrapper 17)
   ]
 
 -- ---------------------------------------------------------------------------
 -- Enum
 -- ---------------------------------------------------------------------------
 
-enumTests :: TestTree
-enumTests = testGroup "enum (Color)"
-  [ testCase "Red = INTEGER 0"   $ toASN1 Red   @?= AV.Integer 0
-  , testCase "Green = INTEGER 1" $ toASN1 Green @?= AV.Integer 1
-  , testCase "Blue = INTEGER 2"  $ toASN1 Blue  @?= AV.Integer 2
-  , testCase "round-trip"        $ mapM_ rt [Red, Green, Blue]
+enumTests :: Spec
+enumTests = describe "enum (Color)" $ sequence_
+  [ it "Red = INTEGER 0"   $ toASN1 Red   `shouldBe` AV.Integer 0
+  , it "Green = INTEGER 1" $ toASN1 Green `shouldBe` AV.Integer 1
+  , it "Blue = INTEGER 2"  $ toASN1 Blue  `shouldBe` AV.Integer 2
+  , it "round-trip"        $ mapM_ rt [Red, Green, Blue]
   ]
   where
     rt :: Color -> IO ()
-    rt c = fromASN1 (toASN1 c) @?= Right c
+    rt c = fromASN1 (toASN1 c) `shouldBe` Right c
 
 -- ---------------------------------------------------------------------------
 -- Sum
 -- ---------------------------------------------------------------------------
 
-sumTests :: TestTree
-sumTests = testGroup "sum (Shape)"
-  [ testCase "Origin = [CONTEXT 0] NULL" $
-      toASN1 Origin @?= AV.Tagged AV.ContextSpecific 0 AV.Null
+sumTests :: Spec
+sumTests = describe "sum (Shape)" $ sequence_
+  [ it "Origin = [CONTEXT 0] NULL" $
+      toASN1 Origin `shouldBe` AV.Tagged AV.ContextSpecific 0 AV.Null
 
-  , testCase "Square 5 = [CONTEXT 1] INTEGER 5" $
-      toASN1 (Square 5) @?= AV.Tagged AV.ContextSpecific 1 (AV.Integer 5)
+  , it "Square 5 = [CONTEXT 1] INTEGER 5" $
+      toASN1 (Square 5) `shouldBe` AV.Tagged AV.ContextSpecific 1 (AV.Integer 5)
 
-  , testCase "Rect 3 4 = [CONTEXT 2] SEQUENCE { 3, 4 }" $
+  , it "Rect 3 4 = [CONTEXT 2] SEQUENCE { 3, 4 }" $
       toASN1 (Rect 3 4)
-        @?= AV.Tagged AV.ContextSpecific 2
+        `shouldBe` AV.Tagged AV.ContextSpecific 2
               (AV.Sequence (V.fromList [AV.Integer 3, AV.Integer 4]))
 
-  , testCase "round-trip" $ do
-      fromASN1 (toASN1 Origin)        @?= Right Origin
-      fromASN1 (toASN1 (Square 11))   @?= Right (Square 11)
-      fromASN1 (toASN1 (Rect 12 34))  @?= Right (Rect 12 34)
+  , it "round-trip" $ do
+      fromASN1 (toASN1 Origin)        `shouldBe` Right Origin
+      fromASN1 (toASN1 (Square 11))   `shouldBe` Right (Square 11)
+      fromASN1 (toASN1 (Rect 12 34))  `shouldBe` Right (Rect 12 34)
   ]
 
 -- ---------------------------------------------------------------------------
 -- Round trip through the actual BER bytes
 -- ---------------------------------------------------------------------------
 
-wireRoundTripTests :: TestTree
-wireRoundTripTests = testGroup "wire round-trip"
-  [ testCase "Person via encodeASN1 / decodeASN1" $ do
+wireRoundTripTests :: Spec
+wireRoundTripTests = describe "wire round-trip" $ sequence_
+  [ it "Person via encodeASN1 / decodeASN1" $ do
       let p  = Person 1234 "Dora" True
           bs = encodeASN1 p
-      assertBool "non-empty bytes" (not (null (show bs)))
-      decodeASN1 bs @?= Right p
+      (not (null (show bs))) `shouldBe` True
+      decodeASN1 bs `shouldBe` Right p
 
-  , testCase "Wrapper via encodeASN1 / decodeASN1" $ do
+  , it "Wrapper via encodeASN1 / decodeASN1" $ do
       let w  = Wrapper 7
           bs = encodeASN1 w
-      decodeASN1 bs @?= Right w
+      decodeASN1 bs `shouldBe` Right w
 
-  , testCase "Color via encodeASN1 / decodeASN1" $
-      decodeASN1 (encodeASN1 Green) @?= Right Green
+  , it "Color via encodeASN1 / decodeASN1" $
+      decodeASN1 (encodeASN1 Green) `shouldBe` Right Green
 
-  , testCase "Shape via encodeASN1 / decodeASN1" $
-      decodeASN1 (encodeASN1 (Square 99)) @?= Right (Square 99)
+  , it "Shape via encodeASN1 / decodeASN1" $
+      decodeASN1 (encodeASN1 (Square 99)) `shouldBe` Right (Square 99)
   ]
 
 -- ---------------------------------------------------------------------------
@@ -131,9 +130,9 @@ wireRoundTripTests = testGroup "wire round-trip"
 assertIsInteger :: Integer -> AV.Value -> IO ()
 assertIsInteger expected = \case
   AV.Integer n | n == expected -> pure ()
-  v -> assertFailure ("expected INTEGER " ++ show expected ++ ", got " ++ show v)
+  v -> expectationFailure ("expected INTEGER " ++ show expected ++ ", got " ++ show v)
 
 assertIsUTF8 :: T.Text -> AV.Value -> IO ()
 assertIsUTF8 expected = \case
   AV.UTF8String t | t == expected -> pure ()
-  v -> assertFailure ("expected UTF8String " ++ show expected ++ ", got " ++ show v)
+  v -> expectationFailure ("expected UTF8String " ++ show expected ++ ", got " ++ show v)

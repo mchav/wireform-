@@ -11,9 +11,8 @@ import qualified Network.HTTP.ContentCoding as CC
 import qualified Network.HTTP.Headers.AcceptEncoding as AE
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 parseOk :: ByteString -> Either String AE.AcceptEncoding
 parseOk bs = case runParser AE.acceptEncodingParser bs of
@@ -27,10 +26,10 @@ parseOk bs = case runParser AE.acceptEncodingParser bs of
 render :: AE.AcceptEncoding -> ByteString
 render = M.toStrictByteString . AE.renderAcceptEncoding
 
-unit_single :: TestTree
-unit_single = testCase "single coding" $
+unit_single :: Spec
+unit_single = it "single coding" $
   case parseOk "gzip" of
-    Right (AE.AcceptEncoding [AE.WeightedEncoding (AE.NamedEncoding CC.GZip) 1]) -> pure ()
+    Right (AE.AcceptEncoding [AE.WeightedEncoding (AE.NamedEncoding CC.GZip) 1]) -> pure () :: IO ()
     other -> error ("unexpected parse: " <> show other)
 
 -- Regression for the wireform-core switch bug fixed alongside
@@ -40,32 +39,32 @@ unit_single = testCase "single coding" $
 -- broke every quality-weighted Accept-* parser whose first
 -- entry's @q=1.0@ ended at a separator (the parser would eat
 -- the comma too, then refuse to continue).
-unit_q1_followed_by_more :: TestTree
-unit_q1_followed_by_more = testCase "q=1.0 followed by another entry" $
+unit_q1_followed_by_more :: Spec
+unit_q1_followed_by_more = it "q=1.0 followed by another entry" $
   case parseOk "br;q=1.0, gzip;q=0.5, *;q=0" of
     Right (AE.AcceptEncoding xs) ->
-      assertEqual "entry count" 3 (length xs)
+      (length xs) `shouldBe` 3
     other -> error (show other)
 
-unit_multi_with_q :: TestTree
-unit_multi_with_q = testCase "multi-coding with q values" $
+unit_multi_with_q :: Spec
+unit_multi_with_q = it "multi-coding with q values" $
   case parseOk "br;q=1.0, gzip;q=0.5, *;q=0" of
     Right (AE.AcceptEncoding [b, g, w]) -> do
-      assertEqual "br tag"     (AE.NamedEncoding CC.Brotli) (AE.encodingTag b)
-      assertEqual "br weight"  1                            (AE.encodingWeight b)
-      assertEqual "gzip tag"   (AE.NamedEncoding CC.GZip)   (AE.encodingTag g)
-      assertEqual "gzip q"     0.5                          (AE.encodingWeight g)
-      assertEqual "* tag"      AE.AnyEncoding               (AE.encodingTag w)
-      assertEqual "* q"        0                            (AE.encodingWeight w)
+      (AE.encodingTag b) `shouldBe` (AE.NamedEncoding CC.Brotli)
+      (AE.encodingWeight b) `shouldBe` 1
+      (AE.encodingTag g) `shouldBe` (AE.NamedEncoding CC.GZip)
+      (AE.encodingWeight g) `shouldBe` 0.5
+      (AE.encodingTag w) `shouldBe` AE.AnyEncoding
+      (AE.encodingWeight w) `shouldBe` 0
     other -> error ("unexpected parse: " <> show other)
 
-unit_render_omits_q1 :: TestTree
-unit_render_omits_q1 = testCase "renderer omits q=1.0" $
+unit_render_omits_q1 :: Spec
+unit_render_omits_q1 = it "renderer omits q=1.0" $
   let v = AE.AcceptEncoding
         [ AE.WeightedEncoding (AE.NamedEncoding CC.GZip) 1
         , AE.WeightedEncoding (AE.NamedEncoding CC.Brotli) 0.8
         ]
-  in assertEqual "rendered" "gzip, br;q=0.8" (render v)
+  in (render v) `shouldBe` "gzip, br;q=0.8"
 
 -- ---------------------------------------------------------------------------
 -- Property: render → parse round-trip
@@ -97,11 +96,11 @@ prop_roundtrip = property $ do
     Right (AE.AcceptEncoding ws') -> ws === ws'
     Left err -> error ("round-trip failed: " <> err <> " on " <> show bs)
 
-tests :: TestTree
-tests = testGroup "AcceptEncoding"
+tests :: Spec
+tests = describe "AcceptEncoding" $ sequence_
   [ unit_single
   , unit_q1_followed_by_more
   , unit_multi_with_q
   , unit_render_omits_q1
-  , testProperty "round-trip" prop_roundtrip
+  , it "round-trip" prop_roundtrip
   ]

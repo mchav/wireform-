@@ -1,8 +1,8 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain)
+import Test.Syd
 
 import qualified Test.TLS
 
 main :: IO ()
-main = defaultMain Test.TLS.tests
+main = sydTest Test.TLS.tests

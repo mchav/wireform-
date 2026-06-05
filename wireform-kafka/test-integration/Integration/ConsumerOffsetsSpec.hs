@@ -18,8 +18,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import System.Environment (lookupEnv)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool, assertEqual, assertFailure, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.Producer as KP
@@ -28,15 +27,15 @@ import qualified Kafka.Client.Producer as KP
 -- Public group
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Integration: Consumer offset / seek APIs"
-  [ testCase "endOffsets / beginningOffsets reflect produced records" $
+tests :: Spec
+tests = describe "Integration: Consumer offset / seek APIs" $ sequence_
+  [ it "endOffsets / beginningOffsets reflect produced records" $
       withBroker testEndAndBeginning
-  , testCase "seekToEnd / seek + position behave consistently" $
+  , it "seekToEnd / seek + position behave consistently" $
       withBroker testSeekAndPosition
-  , testCase "produce + assign + poll round-trips records (Produce v13 / Fetch v12 / OffsetFetch v8)" $
+  , it "produce + assign + poll round-trips records (Produce v13 / Fetch v12 / OffsetFetch v8)" $
       withBroker testProduceAndPollRoundTrip
-  , testCase "offsetsForTimesFull surfaces timestamp + leader epoch (ListOffsets v8)" $
+  , it "offsetsForTimesFull surfaces timestamp + leader epoch (ListOffsets v8)" $
       withBroker testOffsetsForTimesFull
   ]
 
@@ -69,11 +68,9 @@ testEndAndBeginning brokerText = do
       -- All we need is begin >= 0 (i.e. the topic exists) and
       -- end >= begin + 5 (the records we just produced are
       -- visible).
-      assertBool ("begin offset should be >= 0 (got " ++ show begOff ++ ")")
-                 (begOff >= 0)
-      assertBool ("end offset should be >= begin + 5 (got begin=" ++ show begOff
-                    ++ ", end=" ++ show endOff ++ ")")
-                 (endOff >= begOff + 5)
+      (if (begOff >= 0) then pure () else expectationFailure ("begin offset should be >= 0 (got " ++ show begOff ++ ")"))
+      (if (endOff >= begOff + 5) then pure () else expectationFailure ("end offset should be >= begin + 5 (got begin=" ++ show begOff
+                    ++ ", end=" ++ show endOff ++ ")"))
     _ -> error ("offsets failed: beg=" ++ show beg ++ " end=" ++ show end)
   KC.closeConsumer consumer
 
@@ -99,22 +96,20 @@ testSeekAndPosition brokerText = do
           Right m -> fromMaybe (-9999) (HashMap.lookup tp m)
           Left e  -> error e
   pos1 <- KC.position consumer tp
-  pos1 @?= Right begOff
+  pos1 `shouldBe` Right begOff
   -- Now seek to a specific offset (offset 4 — chosen because the
   -- topic always has > 4 records by this point in the test run).
   KC.seek consumer tp (begOff + 4) >>= either error (\_ -> pure ())
   pos2 <- KC.position consumer tp
-  pos2 @?= Right (begOff + 4)
+  pos2 `shouldBe` Right (begOff + 4)
   -- And go to the end; verify it's >= the begin + 10 records we
   -- just produced (the topic may also hold records from prior
   -- test runs, hence the >=).
   KC.seekToEnd consumer [tp] >>= either error (\_ -> pure ())
   pos3 <- KC.position consumer tp
   case pos3 of
-    Right o -> assertBool
-      ("expected position >= begin + 10 (got " ++ show o
-         ++ ", begin = " ++ show begOff ++ ")")
-      (o >= begOff + 10)
+    Right o -> (if (o >= begOff + 10) then pure () else expectationFailure ("expected position >= begin + 10 (got " ++ show o
+         ++ ", begin = " ++ show begOff ++ ")"))
     Left e  -> error e
   KC.closeConsumer consumer
 
@@ -143,7 +138,7 @@ testProduceAndPollRoundTrip brokerText = do
   -- it in the poll output without relying on broker state.
   sendR <- KP.sendMessage pr topic Nothing payload
   case sendR of
-    Left e -> assertFailure ("produce: " <> e)
+    Left e -> expectationFailure ("produce: " <> e)
     Right md -> do
       let producedOffset = md.offset
       KP.closeProducer pr
@@ -158,17 +153,16 @@ testProduceAndPollRoundTrip brokerText = do
       pollR <- KC.poll consumer 2000
       KC.closeConsumer consumer
       case pollR of
-        Left e -> assertFailure ("poll: " <> e)
+        Left e -> expectationFailure ("poll: " <> e)
         Right rs -> do
-          assertBool "expected at least one record from poll"
-                     (not (null rs))
+          (not (null rs)) `shouldBe` True
           let !mr = filter (\r -> r.offset == producedOffset) rs
           case mr of
             (r:_) -> do
-              r.topic     @?= topic
-              r.partition @?= 0
-              r.value     @?= payload
-            [] -> assertFailure
+              r.topic     `shouldBe` topic
+              r.partition `shouldBe` 0
+              r.value     `shouldBe` payload
+            [] -> expectationFailure
               ("poll did not return the record we just produced "
                  <> "(offset=" <> show producedOffset
                  <> "; got offsets=" <> show (map (.offset) rs) <> ")")
@@ -190,19 +184,15 @@ testOffsetsForTimesFull brokerText = do
   r <- KC.offsetsForTimesFull consumer [(tp, -2)]
   KC.closeConsumer consumer
   case r of
-    Left err -> assertFailure ("offsetsForTimesFull: " ++ err)
+    Left err -> expectationFailure ("offsetsForTimesFull: " ++ err)
     Right hm ->
       case HashMap.lookup tp hm of
-        Nothing -> assertFailure
+        Nothing -> expectationFailure
           ("offsetsForTimesFull: no entry for "
              ++ T.unpack topic ++ ":" ++ show tp.partition)
         Just oat -> do
-          assertBool
-            ("expected non-negative offset, got " ++ show (KC.oatOffset oat))
-            (KC.oatOffset oat >= 0)
-          assertBool
-            ("expected leader epoch >= 0, got " ++ show (KC.oatLeaderEpoch oat))
-            (KC.oatLeaderEpoch oat >= 0)
+          (if (KC.oatOffset oat >= 0) then pure () else expectationFailure ("expected non-negative offset, got " ++ show (KC.oatOffset oat)))
+          (if (KC.oatLeaderEpoch oat >= 0) then pure () else expectationFailure ("expected leader epoch >= 0, got " ++ show (KC.oatLeaderEpoch oat)))
           -- Timestamp is the broker-reported value; -2 is a
           -- sentinel meaning "earliest", and the broker may
           -- echo -1 if no record exists. Just check it's a

@@ -17,17 +17,16 @@ module Test.TLS (tests) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Exception (SomeException, bracket, catch)
 import qualified Network.Socket as NS
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP2.Client (clientHandleConnection)
 import Network.HTTP2.Connection (connectionSettings)
 import qualified Network.HTTP2.TLS.Client as TLSClient
 import qualified Network.HTTP2.TLS.Server as TLSServer
 
-tests :: TestTree
-tests = testGroup "TLS"
-  [ testCase "client/server negotiate h2 via ALPN" $ do
+tests :: Spec
+tests = describe "TLS" $ sequence_
+  [ it "client/server negotiate h2 via ALPN" $ do
       let certPath = "test/data/localhost.crt"
           keyPath  = "test/data/localhost.key"
       bracket bindRandomListener NS.close $ \listenSock -> do
@@ -43,7 +42,7 @@ tests = testGroup "TLS"
           (local, _) <- connectionSettings (clientHandleConnection handle)
           pure (local `seq` ())
         killThread serverTid
-        result @?= ()
+        result `shouldBe` ()
   ]
 
 clientCfg :: NS.PortNumber -> TLSClient.TLSClientConfig

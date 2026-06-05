@@ -105,7 +105,7 @@ test-suite wireform-network-test
     network,
     wireform-core,
     wireform-network,
-    hspec,
+    sydtest,
     QuickCheck,
     stm
 

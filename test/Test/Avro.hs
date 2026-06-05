@@ -21,16 +21,15 @@ import Data.Vector qualified as V
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import Wireform.Builder qualified as B
 
 
-avroTests :: TestTree
+avroTests :: Spec
 avroTests =
-  testGroup
-    "Avro Encode/Decode"
+  describe
+    "Avro Encode/Decode" $ sequence_
     [ fingerprintTests
     , aliasResolutionTests
     , protocolTests
@@ -42,87 +41,87 @@ avroTests =
     , deconflictComplianceTests
     , propertyRoundtripComplianceTests
     , avroSpecConformanceVectors
-    , testGroup
-        "Primitive roundtrips (property)"
-        [ testProperty "null roundtrip" $ property $ do
+    , describe
+        "Primitive roundtrips (property)" $ sequence_
+        [ it "null roundtrip" $ property $ do
             let ty = AvroPrimitive AvroNull
             roundtrip ty AV.Null
-        , testProperty "bool roundtrip" $ property $ do
+        , it "bool roundtrip" $ property $ do
             b <- forAll Gen.bool
             roundtrip (AvroPrimitive AvroBool) (AV.Bool b)
-        , testProperty "int roundtrip" $ property $ do
+        , it "int roundtrip" $ property $ do
             n <- forAll $ Gen.int32 Range.linearBounded
             roundtrip (AvroPrimitive AvroInt) (AV.Int n)
-        , testProperty "long roundtrip" $ property $ do
+        , it "long roundtrip" $ property $ do
             n <- forAll $ Gen.int64 Range.linearBounded
             roundtrip (AvroPrimitive AvroLong) (AV.Long n)
-        , testProperty "float roundtrip" $ property $ do
+        , it "float roundtrip" $ property $ do
             f <- forAll $ Gen.float (Range.linearFrac (-1e6) 1e6)
             roundtrip (AvroPrimitive AvroFloat) (AV.Float f)
-        , testProperty "double roundtrip" $ property $ do
+        , it "double roundtrip" $ property $ do
             d <- forAll $ Gen.double (Range.linearFrac (-1e12) 1e12)
             roundtrip (AvroPrimitive AvroDouble) (AV.Double d)
-        , testProperty "bytes roundtrip" $ property $ do
+        , it "bytes roundtrip" $ property $ do
             bs <- forAll $ Gen.bytes (Range.linear 0 256)
             roundtrip (AvroPrimitive AvroBytes) (AV.Bytes bs)
-        , testProperty "string roundtrip" $ property $ do
+        , it "string roundtrip" $ property $ do
             t <- forAll $ Gen.text (Range.linear 0 128) Gen.unicode
             roundtrip (AvroPrimitive AvroString) (AV.String t)
         ]
-    , testGroup
-        "Edge cases (unit)"
-        [ testCase "null encodes to empty" $ do
+    , describe
+        "Edge cases (unit)" $ sequence_
+        [ it "null encodes to empty" $ do
             let bs = encodeAvro (AvroPrimitive AvroNull) AV.Null
-            bs @?= BS.empty
-        , testCase "empty string" $ do
+            bs `shouldBe` BS.empty
+        , it "empty string" $ do
             let ty = AvroPrimitive AvroString
                 val = AV.String ""
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "empty bytes" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "empty bytes" $ do
             let ty = AvroPrimitive AvroBytes
                 val = AV.Bytes ""
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "empty array" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "empty array" $ do
             let ty = AvroArray (AvroPrimitive AvroInt)
                 val = AV.Array V.empty
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "empty map" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "empty map" $ do
             let ty = AvroMap (AvroPrimitive AvroString)
                 val = AV.Map V.empty
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "union index 0 (null)" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "union index 0 (null)" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
                 val = AV.Union 0 AV.Null
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "union index 1 (string)" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "union index 1 (string)" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
                 val = AV.Union 1 (AV.String "hello")
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "bool true" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "bool true" $ do
             let ty = AvroPrimitive AvroBool
-            decodeAvro ty (encodeAvro ty (AV.Bool True)) @?= Right (AV.Bool True)
-        , testCase "bool false" $ do
+            decodeAvro ty (encodeAvro ty (AV.Bool True)) `shouldBe` Right (AV.Bool True)
+        , it "bool false" $ do
             let ty = AvroPrimitive AvroBool
-            decodeAvro ty (encodeAvro ty (AV.Bool False)) @?= Right (AV.Bool False)
-        , testCase "int 0" $ do
+            decodeAvro ty (encodeAvro ty (AV.Bool False)) `shouldBe` Right (AV.Bool False)
+        , it "int 0" $ do
             let ty = AvroPrimitive AvroInt
-            decodeAvro ty (encodeAvro ty (AV.Int 0)) @?= Right (AV.Int 0)
-        , testCase "int min" $ do
+            decodeAvro ty (encodeAvro ty (AV.Int 0)) `shouldBe` Right (AV.Int 0)
+        , it "int min" $ do
             let ty = AvroPrimitive AvroInt
-            decodeAvro ty (encodeAvro ty (AV.Int minBound)) @?= Right (AV.Int minBound)
-        , testCase "int max" $ do
+            decodeAvro ty (encodeAvro ty (AV.Int minBound)) `shouldBe` Right (AV.Int minBound)
+        , it "int max" $ do
             let ty = AvroPrimitive AvroInt
-            decodeAvro ty (encodeAvro ty (AV.Int maxBound)) @?= Right (AV.Int maxBound)
-        , testCase "long min" $ do
+            decodeAvro ty (encodeAvro ty (AV.Int maxBound)) `shouldBe` Right (AV.Int maxBound)
+        , it "long min" $ do
             let ty = AvroPrimitive AvroLong
-            decodeAvro ty (encodeAvro ty (AV.Long minBound)) @?= Right (AV.Long minBound)
-        , testCase "long max" $ do
+            decodeAvro ty (encodeAvro ty (AV.Long minBound)) `shouldBe` Right (AV.Long minBound)
+        , it "long max" $ do
             let ty = AvroPrimitive AvroLong
-            decodeAvro ty (encodeAvro ty (AV.Long maxBound)) @?= Right (AV.Long maxBound)
+            decodeAvro ty (encodeAvro ty (AV.Long maxBound)) `shouldBe` Right (AV.Long maxBound)
         ]
-    , testGroup
-        "Record roundtrip"
-        [ testProperty "mixed-field record" $ property $ do
+    , describe
+        "Record roundtrip" $ sequence_
+        [ it "mixed-field record" $ property $ do
             n <- forAll $ Gen.int32 Range.linearBounded
             t <- forAll $ Gen.text (Range.linear 0 64) Gen.unicode
             b <- forAll Gen.bool
@@ -138,14 +137,14 @@ avroTests =
                 val = AV.Record (V.fromList [AV.Int n, AV.String t, AV.Bool b, AV.Double d])
             roundtrip ty val
         ]
-    , testGroup
-        "Array roundtrip"
-        [ testProperty "array of ints" $ property $ do
+    , describe
+        "Array roundtrip" $ sequence_
+        [ it "array of ints" $ property $ do
             ns <- forAll $ Gen.list (Range.linear 0 50) (Gen.int32 Range.linearBounded)
             let ty = AvroArray (AvroPrimitive AvroInt)
                 val = AV.Array (V.fromList (map AV.Int ns))
             roundtrip ty val
-        , testProperty "array of records" $ property $ do
+        , it "array of records" $ property $ do
             items <- forAll $ Gen.list (Range.linear 0 20) $ do
               i <- Gen.int32 Range.linearBounded
               s <- Gen.text (Range.linear 0 32) Gen.unicode
@@ -160,9 +159,9 @@ avroTests =
                 val = AV.Array (V.fromList [AV.Record (V.fromList [AV.Int i, AV.String s]) | (i, s) <- items])
             roundtrip ty val
         ]
-    , testGroup
-        "Map roundtrip"
-        [ testProperty "map of longs" $ property $ do
+    , describe
+        "Map roundtrip" $ sequence_
+        [ it "map of longs" $ property $ do
             entries <- forAll $ Gen.list (Range.linear 0 30) $ do
               k <- Gen.text (Range.linear 1 32) Gen.alphaNum
               v <- Gen.int64 Range.linearBounded
@@ -171,9 +170,9 @@ avroTests =
                 val = AV.Map (V.fromList [(k, AV.Long v) | (k, v) <- entries])
             roundtrip ty val
         ]
-    , testGroup
-        "Union roundtrip"
-        [ testProperty "null|string union" $ property $ do
+    , describe
+        "Union roundtrip" $ sequence_
+        [ it "null|string union" $ property $ do
             useNull <- forAll Gen.bool
             let branches = V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString]
                 ty = AvroUnion branches
@@ -184,7 +183,7 @@ avroTests =
                   t <- forAll $ Gen.text (Range.linear 0 64) Gen.unicode
                   pure (AV.Union 1 (AV.String t))
             roundtrip ty val
-        , testProperty "int|long|string union" $ property $ do
+        , it "int|long|string union" $ property $ do
             branch <- forAll $ Gen.int (Range.linear 0 2)
             let branches =
                   V.fromList
@@ -199,74 +198,74 @@ avroTests =
               _ -> AV.Union 2 . AV.String <$> forAll (Gen.text (Range.linear 0 32) Gen.unicode)
             roundtrip ty val
         ]
-    , testGroup
-        "Fixed roundtrip"
-        [ testProperty "fixed bytes" $ property $ do
+    , describe
+        "Fixed roundtrip" $ sequence_
+        [ it "fixed bytes" $ property $ do
             sz <- forAll $ Gen.int (Range.linear 0 64)
             bs <- forAll $ Gen.bytes (Range.singleton sz)
             let ty = AvroFixed "TestFixed" Nothing sz V.empty
                 val = AV.Fixed bs
             roundtrip ty val
-        , testCase "fixed empty" $ do
+        , it "fixed empty" $ do
             let ty = AvroFixed "Empty" Nothing 0 V.empty
                 val = AV.Fixed ""
-            decodeAvro ty (encodeAvro ty val) @?= Right val
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
         ]
-    , testGroup
-        "Enum roundtrip"
-        [ testProperty "enum ordinal" $ property $ do
+    , describe
+        "Enum roundtrip" $ sequence_
+        [ it "enum ordinal" $ property $ do
             idx <- forAll $ Gen.int (Range.linear 0 9)
             let syms = V.fromList (map (T.pack . ("S" ++) . show) [0 .. 9 :: Int])
                 ty = AvroEnum "TestEnum" Nothing Nothing V.empty syms Nothing
                 val = AV.Enum idx
             roundtrip ty val
         ]
-    , testGroup
-        "JSON roundtrip — primitives"
-        [ testCase "null JSON roundtrip" $ do
+    , describe
+        "JSON roundtrip — primitives" $ sequence_
+        [ it "null JSON roundtrip" $ do
             let ty = AvroPrimitive AvroNull
                 val = AV.Null
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "bool JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "bool JSON roundtrip" $ do
             let ty = AvroPrimitive AvroBool
-            avroFromJSON ty (avroToJSON ty (AV.Bool True)) @?= Right (AV.Bool True)
-            avroFromJSON ty (avroToJSON ty (AV.Bool False)) @?= Right (AV.Bool False)
-        , testCase "int JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty (AV.Bool True)) `shouldBe` Right (AV.Bool True)
+            avroFromJSON ty (avroToJSON ty (AV.Bool False)) `shouldBe` Right (AV.Bool False)
+        , it "int JSON roundtrip" $ do
             let ty = AvroPrimitive AvroInt
                 val = AV.Int 42
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "long JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "long JSON roundtrip" $ do
             let ty = AvroPrimitive AvroLong
                 val = AV.Long 123456789
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "float JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "float JSON roundtrip" $ do
             let ty = AvroPrimitive AvroFloat
                 val = AV.Float 3.14
                 Right (AV.Float result) = avroFromJSON ty (avroToJSON ty val)
-            abs (result - 3.14) < 0.001 @?= True
-        , testCase "double JSON roundtrip" $ do
+            abs (result - 3.14) < 0.001 `shouldBe` True
+        , it "double JSON roundtrip" $ do
             let ty = AvroPrimitive AvroDouble
                 val = AV.Double 2.71828
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "bytes JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "bytes JSON roundtrip" $ do
             let ty = AvroPrimitive AvroBytes
                 val = AV.Bytes (BS.pack [0, 1, 127, 255])
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "string JSON roundtrip" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "string JSON roundtrip" $ do
             let ty = AvroPrimitive AvroString
                 val = AV.String "hello world"
-            avroFromJSON ty (avroToJSON ty val) @?= Right val
-        , testCase "float NaN JSON" $ do
+            avroFromJSON ty (avroToJSON ty val) `shouldBe` Right val
+        , it "float NaN JSON" $ do
             let ty = AvroPrimitive AvroFloat
-            avroToJSON ty (AV.Float (0 / 0)) @?= Aeson.String "NaN"
-        , testCase "double Infinity JSON" $ do
+            avroToJSON ty (AV.Float (0 / 0)) `shouldBe` Aeson.String "NaN"
+        , it "double Infinity JSON" $ do
             let ty = AvroPrimitive AvroDouble
-            avroToJSON ty (AV.Double (1 / 0)) @?= Aeson.String "Infinity"
-            avroToJSON ty (AV.Double (negate (1 / 0))) @?= Aeson.String "-Infinity"
+            avroToJSON ty (AV.Double (1 / 0)) `shouldBe` Aeson.String "Infinity"
+            avroToJSON ty (AV.Double (negate (1 / 0))) `shouldBe` Aeson.String "-Infinity"
         ]
-    , testGroup
-        "JSON record encode/decode"
-        [ testCase "simple record" $ do
+    , describe
+        "JSON record encode/decode" $ sequence_
+        [ it "simple record" $ do
             let ty =
                   mkRecordType
                     "Person"
@@ -275,8 +274,8 @@ avroTests =
                     ]
                 val = AV.Record (V.fromList [AV.String "Alice", AV.Int 30])
                 json = avroToJSON ty val
-            avroFromJSON ty json @?= Right val
-        , testCase "record JSON structure" $ do
+            avroFromJSON ty json `shouldBe` Right val
+        , it "record JSON structure" $ do
             let ty =
                   mkRecordType
                     "Pair"
@@ -287,25 +286,25 @@ avroTests =
                 json = avroToJSON ty val
             case json of
               Aeson.Object _ -> pure ()
-              _ -> assertFailure "expected JSON object"
-            avroFromJSON ty json @?= Right val
+              _ -> expectationFailure "expected JSON object"
+            avroFromJSON ty json `shouldBe` Right val
         ]
-    , testGroup
-        "JSON union encode/decode"
-        [ testCase "null branch in union" $ do
+    , describe
+        "JSON union encode/decode" $ sequence_
+        [ it "null branch in union" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
                 val = AV.Union 0 AV.Null
-            avroToJSON ty val @?= Aeson.Null
-            avroFromJSON ty Aeson.Null @?= Right val
-        , testCase "string branch in union" $ do
+            avroToJSON ty val `shouldBe` Aeson.Null
+            avroFromJSON ty Aeson.Null `shouldBe` Right val
+        , it "string branch in union" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
                 val = AV.Union 1 (AV.String "hello")
                 json = avroToJSON ty val
-            avroFromJSON ty json @?= Right val
+            avroFromJSON ty json `shouldBe` Right val
         ]
-    , testGroup
-        "Schema to/from JSON roundtrip"
-        [ testCase "primitive schemas" $ do
+    , describe
+        "Schema to/from JSON roundtrip" $ sequence_
+        [ it "primitive schemas" $ do
             let prims =
                   [ AvroPrimitive AvroNull
                   , AvroPrimitive AvroBool
@@ -316,8 +315,8 @@ avroTests =
                   , AvroPrimitive AvroBytes
                   , AvroPrimitive AvroString
                   ]
-            mapM_ (\ty -> avroSchemaFromJSON (avroSchemaToJSON ty) @?= Right ty) prims
-        , testCase "record schema roundtrip" $ do
+            mapM_ (\ty -> avroSchemaFromJSON (avroSchemaToJSON ty) `shouldBe` Right ty) prims
+        , it "record schema roundtrip" $ do
             let ty =
                   mkRecordType
                     "MyRec"
@@ -325,9 +324,9 @@ avroTests =
                     , ("y", AvroPrimitive AvroString)
                     ]
                 Right parsed = avroSchemaFromJSON (avroSchemaToJSON ty)
-            avroRecordName parsed @?= "MyRec"
-            V.length (avroRecordFields parsed) @?= 2
-        , testCase "enum schema roundtrip" $ do
+            avroRecordName parsed `shouldBe` "MyRec"
+            V.length (avroRecordFields parsed) `shouldBe` 2
+        , it "enum schema roundtrip" $ do
             let ty =
                   AvroEnum
                     "Color"
@@ -337,26 +336,26 @@ avroTests =
                     (V.fromList ["RED", "GREEN", "BLUE"])
                     Nothing
                 Right parsed = avroSchemaFromJSON (avroSchemaToJSON ty)
-            avroEnumName parsed @?= "Color"
-            avroEnumSymbols parsed @?= V.fromList ["RED", "GREEN", "BLUE"]
-        , testCase "array schema roundtrip" $ do
+            avroEnumName parsed `shouldBe` "Color"
+            avroEnumSymbols parsed `shouldBe` V.fromList ["RED", "GREEN", "BLUE"]
+        , it "array schema roundtrip" $ do
             let ty = AvroArray (AvroPrimitive AvroInt)
-            avroSchemaFromJSON (avroSchemaToJSON ty) @?= Right ty
-        , testCase "map schema roundtrip" $ do
+            avroSchemaFromJSON (avroSchemaToJSON ty) `shouldBe` Right ty
+        , it "map schema roundtrip" $ do
             let ty = AvroMap (AvroPrimitive AvroString)
-            avroSchemaFromJSON (avroSchemaToJSON ty) @?= Right ty
-        , testCase "union schema roundtrip" $ do
+            avroSchemaFromJSON (avroSchemaToJSON ty) `shouldBe` Right ty
+        , it "union schema roundtrip" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroInt])
-            avroSchemaFromJSON (avroSchemaToJSON ty) @?= Right ty
-        , testCase "fixed schema roundtrip" $ do
+            avroSchemaFromJSON (avroSchemaToJSON ty) `shouldBe` Right ty
+        , it "fixed schema roundtrip" $ do
             let ty = AvroFixed "Hash" Nothing 16 V.empty
                 Right parsed = avroSchemaFromJSON (avroSchemaToJSON ty)
-            avroFixedName parsed @?= "Hash"
-            avroFixedSize parsed @?= 16
+            avroFixedName parsed `shouldBe` "Hash"
+            avroFixedSize parsed `shouldBe` 16
         ]
-    , testGroup
-        "Resolution — compatible schemas"
-        [ testCase "add field with default" $ do
+    , describe
+        "Resolution — compatible schemas" $ sequence_
+        [ it "add field with default" $ do
             let writerTy =
                   mkRecordType
                     "Rec"
@@ -369,8 +368,8 @@ avroTests =
                     ]
                 Right res = resolveSchema writerTy readerTy
                 writerVal = AV.Record (V.fromList [AV.Int 42])
-            resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 42, AV.String ""]))
-        , testCase "remove field" $ do
+            resolveValue res writerVal `shouldBe` Right (AV.Record (V.fromList [AV.Int 42, AV.String ""]))
+        , it "remove field" $ do
             let writerTy =
                   mkRecordType
                     "Rec"
@@ -383,62 +382,62 @@ avroTests =
                     [("a", AvroPrimitive AvroInt)]
                 Right res = resolveSchema writerTy readerTy
                 writerVal = AV.Record (V.fromList [AV.Int 99, AV.String "dropped"])
-            resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 99]))
-        , testCase "promote int -> long" $ do
+            resolveValue res writerVal `shouldBe` Right (AV.Record (V.fromList [AV.Int 99]))
+        , it "promote int -> long" $ do
             let writerTy = AvroPrimitive AvroInt
                 readerTy = AvroPrimitive AvroLong
                 Right res = resolveSchema writerTy readerTy
-            resolveValue res (AV.Int 42) @?= Right (AV.Long 42)
-        , testCase "promote int -> float" $ do
+            resolveValue res (AV.Int 42) `shouldBe` Right (AV.Long 42)
+        , it "promote int -> float" $ do
             let writerTy = AvroPrimitive AvroInt
                 readerTy = AvroPrimitive AvroFloat
                 Right res = resolveSchema writerTy readerTy
-            resolveValue res (AV.Int 7) @?= Right (AV.Float 7.0)
-        , testCase "promote int -> double" $ do
+            resolveValue res (AV.Int 7) `shouldBe` Right (AV.Float 7.0)
+        , it "promote int -> double" $ do
             let writerTy = AvroPrimitive AvroInt
                 readerTy = AvroPrimitive AvroDouble
                 Right res = resolveSchema writerTy readerTy
-            resolveValue res (AV.Int 7) @?= Right (AV.Double 7.0)
-        , testCase "promote long -> float" $ do
+            resolveValue res (AV.Int 7) `shouldBe` Right (AV.Double 7.0)
+        , it "promote long -> float" $ do
             let writerTy = AvroPrimitive AvroLong
                 readerTy = AvroPrimitive AvroFloat
                 Right res = resolveSchema writerTy readerTy
-            resolveValue res (AV.Long 100) @?= Right (AV.Float 100.0)
-        , testCase "promote long -> double" $ do
+            resolveValue res (AV.Long 100) `shouldBe` Right (AV.Float 100.0)
+        , it "promote long -> double" $ do
             let writerTy = AvroPrimitive AvroLong
                 readerTy = AvroPrimitive AvroDouble
                 Right res = resolveSchema writerTy readerTy
-            resolveValue res (AV.Long 100) @?= Right (AV.Double 100.0)
-        , testCase "promote float -> double" $ do
+            resolveValue res (AV.Long 100) `shouldBe` Right (AV.Double 100.0)
+        , it "promote float -> double" $ do
             let writerTy = AvroPrimitive AvroFloat
                 readerTy = AvroPrimitive AvroDouble
                 Right res = resolveSchema writerTy readerTy
                 Right (AV.Double d) = resolveValue res (AV.Float 1.5)
-            abs (d - 1.5) < 0.001 @?= True
-        , testCase "same schema resolves trivially" $ do
+            abs (d - 1.5) < 0.001 `shouldBe` True
+        , it "same schema resolves trivially" $ do
             let ty = AvroPrimitive AvroInt
-            resolveSchema ty ty @?= Right ResolvedSame
-        , testCase "array resolution" $ do
+            resolveSchema ty ty `shouldBe` Right ResolvedSame
+        , it "array resolution" $ do
             let writerTy = AvroArray (AvroPrimitive AvroInt)
                 readerTy = AvroArray (AvroPrimitive AvroLong)
                 Right res = resolveSchema writerTy readerTy
             resolveValue res (AV.Array (V.fromList [AV.Int 1, AV.Int 2]))
-              @?= Right (AV.Array (V.fromList [AV.Long 1, AV.Long 2]))
-        , testCase "map resolution" $ do
+              `shouldBe` Right (AV.Array (V.fromList [AV.Long 1, AV.Long 2]))
+        , it "map resolution" $ do
             let writerTy = AvroMap (AvroPrimitive AvroInt)
                 readerTy = AvroMap (AvroPrimitive AvroLong)
                 Right res = resolveSchema writerTy readerTy
             resolveValue res (AV.Map (V.fromList [("k", AV.Int 5)]))
-              @?= Right (AV.Map (V.fromList [("k", AV.Long 5)]))
+              `shouldBe` Right (AV.Map (V.fromList [("k", AV.Long 5)]))
         ]
-    , testGroup
-        "Resolution — incompatible schemas"
-        [ testCase "type mismatch int vs string" $ do
+    , describe
+        "Resolution — incompatible schemas" $ sequence_
+        [ it "type mismatch int vs string" $ do
             let res = resolveSchema (AvroPrimitive AvroInt) (AvroPrimitive AvroString)
             case res of
               Left _ -> pure ()
-              Right _ -> assertFailure "expected incompatibility error"
-        , testCase "missing required field" $ do
+              Right _ -> expectationFailure "expected incompatibility error"
+        , it "missing required field" $ do
             let writerTy =
                   mkRecordType
                     "Rec"
@@ -451,24 +450,24 @@ avroTests =
                     ]
             case resolveSchema writerTy readerTy of
               Left _ -> pure ()
-              Right _ -> assertFailure "expected missing field error"
-        , testCase "fixed size mismatch" $ do
+              Right _ -> expectationFailure "expected missing field error"
+        , it "fixed size mismatch" $ do
             let w = AvroFixed "Hash" Nothing 16 V.empty
                 r = AvroFixed "Hash" Nothing 32 V.empty
             case resolveSchema w r of
               Left _ -> pure ()
-              Right _ -> assertFailure "expected fixed size mismatch error"
-        , testCase "enum symbol mismatch" $ do
+              Right _ -> expectationFailure "expected fixed size mismatch error"
+        , it "enum symbol mismatch" $ do
             let w = AvroEnum "E" Nothing Nothing V.empty (V.fromList ["A", "B", "C"]) Nothing
                 r = AvroEnum "E" Nothing Nothing V.empty (V.fromList ["A", "B"]) Nothing
             case resolveSchema w r of
               Left _ -> pure ()
-              Right _ -> assertFailure "expected enum symbol mismatch"
-        , testCase "string vs int incompatible" $ do
+              Right _ -> expectationFailure "expected enum symbol mismatch"
+        , it "string vs int incompatible" $ do
             let res = resolveSchema (AvroPrimitive AvroString) (AvroPrimitive AvroInt)
             case res of
               Left _ -> pure ()
-              Right _ -> assertFailure "expected incompatibility error"
+              Right _ -> expectationFailure "expected incompatibility error"
         ]
     ]
 
@@ -477,10 +476,10 @@ avroTests =
 -- Avro Protocol tests
 --------------------------------------------------------------------------------
 
-protocolTests :: TestTree
+protocolTests :: Spec
 protocolTests =
-  testGroup
-    "Avro Protocol"
+  describe
+    "Avro Protocol" $ sequence_
     [ protocolJsonRoundtrip
     , protocolFingerprintTest
     , handshakeTests
@@ -488,8 +487,8 @@ protocolTests =
     ]
 
 
-protocolJsonRoundtrip :: TestTree
-protocolJsonRoundtrip = testCase "Protocol JSON roundtrip" $ do
+protocolJsonRoundtrip :: Spec
+protocolJsonRoundtrip = it "Protocol JSON roundtrip" $ do
   let proto =
         AvroProtocol
           { protoName = "HelloService"
@@ -534,17 +533,17 @@ protocolJsonRoundtrip = testCase "Protocol JSON roundtrip" $ do
           }
       json = protocolToJSON proto
   case protocolFromJSON json of
-    Left err -> assertFailure $ "Failed to parse protocol JSON: " ++ err
+    Left err -> expectationFailure $ "Failed to parse protocol JSON: " ++ err
     Right parsed -> do
-      protoName parsed @?= "HelloService"
-      protoNamespace parsed @?= Just "com.example"
-      protoDoc parsed @?= Just "A simple service"
-      length (protoTypes parsed) @?= 2
-      length (protoMessages parsed) @?= 2
+      protoName parsed `shouldBe` "HelloService"
+      protoNamespace parsed `shouldBe` Just "com.example"
+      protoDoc parsed `shouldBe` Just "A simple service"
+      length (protoTypes parsed) `shouldBe` 2
+      length (protoMessages parsed) `shouldBe` 2
 
 
-protocolFingerprintTest :: TestTree
-protocolFingerprintTest = testCase "Protocol fingerprint is 16 bytes (MD5)" $ do
+protocolFingerprintTest :: Spec
+protocolFingerprintTest = it "Protocol fingerprint is 16 bytes (MD5)" $ do
   let proto =
         AvroProtocol
           { protoName = "TestService"
@@ -564,16 +563,16 @@ protocolFingerprintTest = testCase "Protocol fingerprint is 16 bytes (MD5)" $ do
               ]
           }
       fp = avroProtocolFingerprint proto
-  BS.length fp @?= 16
+  BS.length fp `shouldBe` 16
   let fp2 = avroProtocolFingerprint proto
-  fp @?= fp2
+  fp `shouldBe` fp2
 
 
-handshakeTests :: TestTree
+handshakeTests :: Spec
 handshakeTests =
-  testGroup
-    "Handshake types"
-    [ testCase "HandshakeRequest roundtrip" $ do
+  describe
+    "Handshake types" $ sequence_
+    [ it "HandshakeRequest roundtrip" $ do
         let req =
               HandshakeRequest
                 { hsReqClientHash = BS.replicate 16 0xAA
@@ -583,12 +582,12 @@ handshakeTests =
                 }
             json = handshakeRequestToJSON req
         case handshakeRequestFromJSON json of
-          Left err -> assertFailure $ "Failed to parse handshake request: " ++ err
+          Left err -> expectationFailure $ "Failed to parse handshake request: " ++ err
           Right parsed -> do
-            hsReqClientHash parsed @?= hsReqClientHash req
-            hsReqClientProtocol parsed @?= hsReqClientProtocol req
-            hsReqServerHash parsed @?= hsReqServerHash req
-    , testCase "HandshakeResponse roundtrip" $ do
+            hsReqClientHash parsed `shouldBe` hsReqClientHash req
+            hsReqClientProtocol parsed `shouldBe` hsReqClientProtocol req
+            hsReqServerHash parsed `shouldBe` hsReqServerHash req
+    , it "HandshakeResponse roundtrip" $ do
         let resp =
               HandshakeResponse
                 { hsRespMatch = MatchBoth
@@ -598,11 +597,11 @@ handshakeTests =
                 }
             json = handshakeResponseToJSON resp
         case handshakeResponseFromJSON json of
-          Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+          Left err -> expectationFailure $ "Failed to parse handshake response: " ++ err
           Right parsed -> do
-            hsRespMatch parsed @?= MatchBoth
-            hsRespServerProtocol parsed @?= Nothing
-    , testCase "HandshakeResponse CLIENT match" $ do
+            hsRespMatch parsed `shouldBe` MatchBoth
+            hsRespServerProtocol parsed `shouldBe` Nothing
+    , it "HandshakeResponse CLIENT match" $ do
         let resp =
               HandshakeResponse
                 { hsRespMatch = MatchClient
@@ -612,11 +611,11 @@ handshakeTests =
                 }
             json = handshakeResponseToJSON resp
         case handshakeResponseFromJSON json of
-          Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+          Left err -> expectationFailure $ "Failed to parse handshake response: " ++ err
           Right parsed -> do
-            hsRespMatch parsed @?= MatchClient
-            hsRespServerProtocol parsed @?= Just "{\"protocol\":\"Test\"}"
-    , testCase "HandshakeResponse NONE match" $ do
+            hsRespMatch parsed `shouldBe` MatchClient
+            hsRespServerProtocol parsed `shouldBe` Just "{\"protocol\":\"Test\"}"
+    , it "HandshakeResponse NONE match" $ do
         let resp =
               HandshakeResponse
                 { hsRespMatch = MatchNone
@@ -626,14 +625,14 @@ handshakeTests =
                 }
             json = handshakeResponseToJSON resp
         case handshakeResponseFromJSON json of
-          Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+          Left err -> expectationFailure $ "Failed to parse handshake response: " ++ err
           Right parsed ->
-            hsRespMatch parsed @?= MatchNone
+            hsRespMatch parsed `shouldBe` MatchNone
     ]
 
 
-minimalProtocol :: TestTree
-minimalProtocol = testCase "Minimal protocol (no types, no messages)" $ do
+minimalProtocol :: Spec
+minimalProtocol = it "Minimal protocol (no types, no messages)" $ do
   let proto =
         AvroProtocol
           { protoName = "Empty"
@@ -644,14 +643,14 @@ minimalProtocol = testCase "Minimal protocol (no types, no messages)" $ do
           }
       json = protocolToJSON proto
   case protocolFromJSON json of
-    Left err -> assertFailure $ "Failed to parse minimal protocol: " ++ err
+    Left err -> expectationFailure $ "Failed to parse minimal protocol: " ++ err
     Right parsed -> do
-      protoName parsed @?= "Empty"
-      null (protoTypes parsed) @?= True
-      null (protoMessages parsed) @?= True
+      protoName parsed `shouldBe` "Empty"
+      null (protoTypes parsed) `shouldBe` True
+      null (protoMessages parsed) `shouldBe` True
   let fp1 = avroProtocolFingerprint proto
       fp2 = avroProtocolFingerprint proto
-  fp1 @?= fp2
+  fp1 `shouldBe` fp2
 
 
 --------------------------------------------------------------------------------
@@ -662,79 +661,79 @@ buildBytes :: B.Builder -> BS.ByteString
 buildBytes = BL.toStrict . B.toLazyByteString
 
 
-zigzagComplianceTests :: TestTree
+zigzagComplianceTests :: Spec
 zigzagComplianceTests =
-  testGroup
-    "ZigZag encoding compliance"
-    [ testCase "zigzag(0) = 0x00" $
-        buildBytes (avroEncodeInt 0) @?= BS.pack [0x00]
-    , testCase "zigzag(-1) = 0x01" $
-        buildBytes (avroEncodeInt (-1)) @?= BS.pack [0x01]
-    , testCase "zigzag(1) = 0x02" $
-        buildBytes (avroEncodeInt 1) @?= BS.pack [0x02]
-    , testCase "zigzag(-2) = 0x03" $
-        buildBytes (avroEncodeInt (-2)) @?= BS.pack [0x03]
-    , testCase "zigzag(2147483647) = 4294967294 as ULEB128" $
+  describe
+    "ZigZag encoding compliance" $ sequence_
+    [ it "zigzag(0) = 0x00" $
+        buildBytes (avroEncodeInt 0) `shouldBe` BS.pack [0x00]
+    , it "zigzag(-1) = 0x01" $
+        buildBytes (avroEncodeInt (-1)) `shouldBe` BS.pack [0x01]
+    , it "zigzag(1) = 0x02" $
+        buildBytes (avroEncodeInt 1) `shouldBe` BS.pack [0x02]
+    , it "zigzag(-2) = 0x03" $
+        buildBytes (avroEncodeInt (-2)) `shouldBe` BS.pack [0x03]
+    , it "zigzag(2147483647) = 4294967294 as ULEB128" $
         buildBytes (avroEncodeInt 2147483647)
-          @?= BS.pack [0xFE, 0xFF, 0xFF, 0xFF, 0x0F]
-    , testCase "zigzag(-2147483648) = 4294967295 as ULEB128" $
+          `shouldBe` BS.pack [0xFE, 0xFF, 0xFF, 0xFF, 0x0F]
+    , it "zigzag(-2147483648) = 4294967295 as ULEB128" $
         buildBytes (avroEncodeInt (-2147483648))
-          @?= BS.pack [0xFF, 0xFF, 0xFF, 0xFF, 0x0F]
+          `shouldBe` BS.pack [0xFF, 0xFF, 0xFF, 0xFF, 0x0F]
     ]
 
 
-byteEncodingComplianceTests :: TestTree
+byteEncodingComplianceTests :: Spec
 byteEncodingComplianceTests =
-  testGroup
-    "Byte encoding compliance"
-    [ testCase "bool true = [0x01]" $
-        encodeAvro (AvroPrimitive AvroBool) (AV.Bool True) @?= BS.pack [0x01]
-    , testCase "bool false = [0x00]" $
-        encodeAvro (AvroPrimitive AvroBool) (AV.Bool False) @?= BS.pack [0x00]
-    , testCase "int 0 = [0x00]" $
-        encodeAvro (AvroPrimitive AvroInt) (AV.Int 0) @?= BS.pack [0x00]
-    , testCase "int -1 = [0x01]" $
-        encodeAvro (AvroPrimitive AvroInt) (AV.Int (-1)) @?= BS.pack [0x01]
-    , testCase "int 1 = [0x02]" $
-        encodeAvro (AvroPrimitive AvroInt) (AV.Int 1) @?= BS.pack [0x02]
-    , testCase "int 64 = [0x80, 0x01]" $
-        encodeAvro (AvroPrimitive AvroInt) (AV.Int 64) @?= BS.pack [0x80, 0x01]
-    , testCase "long 90071992547409917 = [0xfa,..,0x02]" $
+  describe
+    "Byte encoding compliance" $ sequence_
+    [ it "bool true = [0x01]" $
+        encodeAvro (AvroPrimitive AvroBool) (AV.Bool True) `shouldBe` BS.pack [0x01]
+    , it "bool false = [0x00]" $
+        encodeAvro (AvroPrimitive AvroBool) (AV.Bool False) `shouldBe` BS.pack [0x00]
+    , it "int 0 = [0x00]" $
+        encodeAvro (AvroPrimitive AvroInt) (AV.Int 0) `shouldBe` BS.pack [0x00]
+    , it "int -1 = [0x01]" $
+        encodeAvro (AvroPrimitive AvroInt) (AV.Int (-1)) `shouldBe` BS.pack [0x01]
+    , it "int 1 = [0x02]" $
+        encodeAvro (AvroPrimitive AvroInt) (AV.Int 1) `shouldBe` BS.pack [0x02]
+    , it "int 64 = [0x80, 0x01]" $
+        encodeAvro (AvroPrimitive AvroInt) (AV.Int 64) `shouldBe` BS.pack [0x80, 0x01]
+    , it "long 90071992547409917 = [0xfa,..,0x02]" $
         encodeAvro (AvroPrimitive AvroLong) (AV.Long 90071992547409917)
-          @?= BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
-    , testCase "double 0.89 = LE IEEE 754" $
+          `shouldBe` BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
+    , it "double 0.89 = LE IEEE 754" $
         encodeAvro (AvroPrimitive AvroDouble) (AV.Double 0.89)
-          @?= BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
-    , testCase "double -2.0 = LE IEEE 754" $
+          `shouldBe` BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
+    , it "double -2.0 = LE IEEE 754" $
         encodeAvro (AvroPrimitive AvroDouble) (AV.Double (-2.0))
-          @?= BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
-    , testCase "double 1.0 = LE IEEE 754" $
+          `shouldBe` BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
+    , it "double 1.0 = LE IEEE 754" $
         encodeAvro (AvroPrimitive AvroDouble) (AV.Double 1.0)
-          @?= BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
-    , testCase "string \"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
+          `shouldBe` BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
+    , it "string \"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
         encodeAvro (AvroPrimitive AvroString) (AV.String "foo")
-          @?= BS.pack [0x06, 0x66, 0x6f, 0x6f]
-    , testCase "string \"This is an unit test\"" $ do
+          `shouldBe` BS.pack [0x06, 0x66, 0x6f, 0x6f]
+    , it "string \"This is an unit test\"" $ do
         let encoded = encodeAvro (AvroPrimitive AvroString) (AV.String "This is an unit test")
             expected = BS.pack (0x28 : BS.unpack (TE.encodeUtf8 "This is an unit test"))
-        encoded @?= expected
-    , testCase "null = []" $
-        encodeAvro (AvroPrimitive AvroNull) AV.Null @?= BS.empty
-    , testCase "float 0.0 = [0, 0, 0, 0]" $
+        encoded `shouldBe` expected
+    , it "null = []" $
+        encodeAvro (AvroPrimitive AvroNull) AV.Null `shouldBe` BS.empty
+    , it "float 0.0 = [0, 0, 0, 0]" $
         encodeAvro (AvroPrimitive AvroFloat) (AV.Float 0.0)
-          @?= BS.pack [0, 0, 0, 0]
+          `shouldBe` BS.pack [0, 0, 0, 0]
     ]
 
 
-nullUnionComplianceTests :: TestTree
+nullUnionComplianceTests :: Spec
 nullUnionComplianceTests =
-  testGroup
-    "Null in union compliance"
-    [ testCase "null first in [null, string] = [0x00]" $ do
+  describe
+    "Null in union compliance" $ sequence_
+    [ it "null first in [null, string] = [0x00]" $ do
         let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
             encoded = encodeAvro ty (AV.Union 0 AV.Null)
-        encoded @?= BS.pack [0x00]
-    , testCase "null third in [string, bool, null] = [0x04]" $ do
+        encoded `shouldBe` BS.pack [0x00]
+    , it "null third in [string, bool, null] = [0x04]" $ do
         let ty =
               AvroUnion
                 ( V.fromList
@@ -744,45 +743,45 @@ nullUnionComplianceTests =
                     ]
                 )
             encoded = encodeAvro ty (AV.Union 2 AV.Null)
-        encoded @?= BS.pack [0x04]
+        encoded `shouldBe` BS.pack [0x04]
     ]
 
 
-arrayEncodingComplianceTests :: TestTree
+arrayEncodingComplianceTests :: Spec
 arrayEncodingComplianceTests =
-  testGroup
-    "Array encoding compliance"
-    [ testCase "empty array = [0x00]" $ do
+  describe
+    "Array encoding compliance" $ sequence_
+    [ it "empty array = [0x00]" $ do
         let ty = AvroArray (AvroPrimitive AvroInt)
             encoded = encodeAvro ty (AV.Array V.empty)
-        encoded @?= BS.pack [0x00]
-    , testCase "array [1,2,3] of int" $ do
+        encoded `shouldBe` BS.pack [0x00]
+    , it "array [1,2,3] of int" $ do
         let ty = AvroArray (AvroPrimitive AvroInt)
             encoded = encodeAvro ty (AV.Array (V.fromList [AV.Int 1, AV.Int 2, AV.Int 3]))
-        encoded @?= BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
+        encoded `shouldBe` BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
     ]
 
 
-mapEncodingComplianceTests :: TestTree
+mapEncodingComplianceTests :: Spec
 mapEncodingComplianceTests =
-  testGroup
-    "Map encoding compliance"
-    [ testCase "empty map = [0x00]" $ do
+  describe
+    "Map encoding compliance" $ sequence_
+    [ it "empty map = [0x00]" $ do
         let ty = AvroMap (AvroPrimitive AvroInt)
             encoded = encodeAvro ty (AV.Map V.empty)
-        encoded @?= BS.pack [0x00]
-    , testCase "map {\"a\": 1}" $ do
+        encoded `shouldBe` BS.pack [0x00]
+    , it "map {\"a\": 1}" $ do
         let ty = AvroMap (AvroPrimitive AvroInt)
             encoded = encodeAvro ty (AV.Map (V.fromList [("a", AV.Int 1)]))
-        encoded @?= BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
+        encoded `shouldBe` BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
     ]
 
 
-deconflictComplianceTests :: TestTree
+deconflictComplianceTests :: Spec
 deconflictComplianceTests =
-  testGroup
-    "Schema resolution (deconflict) compliance"
-    [ testCase "reader adds optional field with null default" $ do
+  describe
+    "Schema resolution (deconflict) compliance" $ sequence_
+    [ it "reader adds optional field with null default" $ do
         let innerWriter =
               mkRecordType
                 "Inner"
@@ -827,64 +826,64 @@ deconflictComplianceTests =
             writerBs = encodeAvro writerTy writerVal
 
         case resolveSchema writerTy readerTy of
-          Left err -> assertFailure $ "resolveSchema failed: " ++ err
+          Left err -> expectationFailure $ "resolveSchema failed: " ++ err
           Right res -> do
             case decodeAvro writerTy writerBs of
-              Left err -> assertFailure $ "decode failed: " ++ err
+              Left err -> expectationFailure $ "decode failed: " ++ err
               Right decoded -> do
                 case resolveValue res decoded of
-                  Left err -> assertFailure $ "resolveValue failed: " ++ err
+                  Left err -> expectationFailure $ "resolveValue failed: " ++ err
                   Right resolved -> do
                     case resolved of
                       AV.Record fields | V.length fields == 3 -> do
                         let AV.String nm = fields V.! 0
                             AV.Record innerFields = fields V.! 1
                             AV.Record otherFields = fields V.! 2
-                        nm @?= "test"
-                        V.length innerFields @?= 2
-                        (innerFields V.! 0) @?= AV.Int 42
-                        (innerFields V.! 1) @?= AV.Null
-                        V.length otherFields @?= 2
-                        (otherFields V.! 0) @?= AV.Int 99
-                        (otherFields V.! 1) @?= AV.Null
-                      other -> assertFailure $ "unexpected resolved value: " ++ show other
+                        nm `shouldBe` "test"
+                        V.length innerFields `shouldBe` 2
+                        (innerFields V.! 0) `shouldBe` AV.Int 42
+                        (innerFields V.! 1) `shouldBe` AV.Null
+                        V.length otherFields `shouldBe` 2
+                        (otherFields V.! 0) `shouldBe` AV.Int 99
+                        (otherFields V.! 1) `shouldBe` AV.Null
+                      other -> expectationFailure $ "unexpected resolved value: " ++ show other
     ]
 
 
-propertyRoundtripComplianceTests :: TestTree
+propertyRoundtripComplianceTests :: Spec
 propertyRoundtripComplianceTests =
-  testGroup
-    "Property-based roundtrip compliance"
-    [ testProperty "int32 full range roundtrip" $ property $ do
+  describe
+    "Property-based roundtrip compliance" $ sequence_
+    [ it "int32 full range roundtrip" $ property $ do
         n <- forAll $ Gen.int32 Range.linearBounded
         let ty = AvroPrimitive AvroInt
             val = AV.Int n
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "int64 full range roundtrip" $ property $ do
+    , it "int64 full range roundtrip" $ property $ do
         n <- forAll $ Gen.int64 Range.linearBounded
         let ty = AvroPrimitive AvroLong
             val = AV.Long n
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "double roundtrip" $ property $ do
+    , it "double roundtrip" $ property $ do
         d <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
         let ty = AvroPrimitive AvroDouble
             val = AV.Double d
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "text roundtrip (unicode)" $ property $ do
+    , it "text roundtrip (unicode)" $ property $ do
         t <- forAll $ Gen.text (Range.linear 0 512) Gen.unicode
         let ty = AvroPrimitive AvroString
             val = AV.String t
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "text roundtrip (empty)" $ property $ do
+    , it "text roundtrip (empty)" $ property $ do
         let ty = AvroPrimitive AvroString
             val = AV.String ""
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "text roundtrip (long strings)" $ property $ do
+    , it "text roundtrip (long strings)" $ property $ do
         t <- forAll $ Gen.text (Range.linear 256 2048) Gen.unicode
         let ty = AvroPrimitive AvroString
             val = AV.String t
         decodeAvro ty (encodeAvro ty val) === Right val
-    , testProperty "bytes roundtrip (random binary)" $ property $ do
+    , it "bytes roundtrip (random binary)" $ property $ do
         bs <- forAll $ Gen.bytes (Range.linear 0 1024)
         let ty = AvroPrimitive AvroBytes
             val = AV.Bytes bs
@@ -892,29 +891,29 @@ propertyRoundtripComplianceTests =
     ]
 
 
-fingerprintTests :: TestTree
+fingerprintTests :: Spec
 fingerprintTests =
-  testGroup
-    "Schema fingerprinting"
-    [ testCase "CRC-64-AVRO fingerprint is 8 bytes" $ do
+  describe
+    "Schema fingerprinting" $ sequence_
+    [ it "CRC-64-AVRO fingerprint is 8 bytes" $ do
         let ty = AvroPrimitive AvroInt
-        BS.length (avroFingerprint ty) @?= 8
-    , testCase "MD5 fingerprint is 16 bytes" $ do
+        BS.length (avroFingerprint ty) `shouldBe` 8
+    , it "MD5 fingerprint is 16 bytes" $ do
         let ty = AvroPrimitive AvroInt
-        BS.length (avroFingerprintMD5 ty) @?= 16
-    , testCase "same schema produces same fingerprint" $ do
+        BS.length (avroFingerprintMD5 ty) `shouldBe` 16
+    , it "same schema produces same fingerprint" $ do
         let ty =
               mkRecordType
                 "User"
                 [ ("name", AvroPrimitive AvroString)
                 , ("age", AvroPrimitive AvroInt)
                 ]
-        avroFingerprint ty @?= avroFingerprint ty
-    , testCase "different schemas produce different fingerprints" $ do
+        avroFingerprint ty `shouldBe` avroFingerprint ty
+    , it "different schemas produce different fingerprints" $ do
         let ty1 = AvroPrimitive AvroInt
             ty2 = AvroPrimitive AvroLong
-        assertBool "fingerprints should differ" (avroFingerprint ty1 /= avroFingerprint ty2)
-    , testCase "parsing canonical form strips doc and aliases" $ do
+        (avroFingerprint ty1 /= avroFingerprint ty2) `shouldBe` True
+    , it "parsing canonical form strips doc and aliases" $ do
         let ty =
               AvroRecord
                 { avroRecordName = "TestRec"
@@ -936,19 +935,19 @@ fingerprintTests =
                 , avroRecordProps = Map.empty
                 }
             pcf = parsingCanonicalForm ty
-        assertBool "PCF should not contain doc" (not $ BS.isInfixOf "doc string" pcf)
-    , testCase "PCF for primitive is quoted string" $ do
-        parsingCanonicalForm (AvroPrimitive AvroNull) @?= "\"null\""
-        parsingCanonicalForm (AvroPrimitive AvroInt) @?= "\"int\""
-        parsingCanonicalForm (AvroPrimitive AvroString) @?= "\"string\""
+        (not $ BS.isInfixOf "doc string" pcf) `shouldBe` True
+    , it "PCF for primitive is quoted string" $ do
+        parsingCanonicalForm (AvroPrimitive AvroNull) `shouldBe` "\"null\""
+        parsingCanonicalForm (AvroPrimitive AvroInt) `shouldBe` "\"int\""
+        parsingCanonicalForm (AvroPrimitive AvroString) `shouldBe` "\"string\""
     ]
 
 
-aliasResolutionTests :: TestTree
+aliasResolutionTests :: Spec
 aliasResolutionTests =
-  testGroup
-    "Alias-aware resolution"
-    [ testCase "reader field alias matches writer field name" $ do
+  describe
+    "Alias-aware resolution" $ sequence_
+    [ it "reader field alias matches writer field name" $ do
         let writerTy =
               mkRecordType
                 "Rec"
@@ -975,9 +974,9 @@ aliasResolutionTests =
                 }
             writerVal = AV.Record (V.fromList [AV.Int 42])
         case resolveSchema writerTy readerTy of
-          Left err -> assertFailure $ "resolveSchema failed: " ++ err
-          Right res -> resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 42]))
-    , testCase "writer field alias matches reader field name" $ do
+          Left err -> expectationFailure $ "resolveSchema failed: " ++ err
+          Right res -> resolveValue res writerVal `shouldBe` Right (AV.Record (V.fromList [AV.Int 42]))
+    , it "writer field alias matches reader field name" $ do
         let writerTy =
               AvroRecord
                 { avroRecordName = "Rec"
@@ -1004,12 +1003,12 @@ aliasResolutionTests =
                 [("new_name", AvroPrimitive AvroInt)]
             writerVal = AV.Record (V.fromList [AV.Int 99])
         case resolveSchema writerTy readerTy of
-          Left err -> assertFailure $ "resolveSchema failed: " ++ err
-          Right res -> resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 99]))
-    , testCase "exact name match still works" $ do
+          Left err -> expectationFailure $ "resolveSchema failed: " ++ err
+          Right res -> resolveValue res writerVal `shouldBe` Right (AV.Record (V.fromList [AV.Int 99]))
+    , it "exact name match still works" $ do
         let writerTy = mkRecordType "Rec" [("x", AvroPrimitive AvroInt)]
             readerTy = mkRecordType "Rec" [("x", AvroPrimitive AvroInt)]
-        resolveSchema writerTy readerTy @?= Right ResolvedSame
+        resolveSchema writerTy readerTy `shouldBe` Right ResolvedSame
     ]
 
 
@@ -1073,166 +1072,166 @@ mkRecordTypeWithDefaults name fields =
 -- Exact byte-level tests for all primitive types.
 --------------------------------------------------------------------------------
 
-avroSpecConformanceVectors :: TestTree
+avroSpecConformanceVectors :: Spec
 avroSpecConformanceVectors =
-  testGroup
-    "Avro spec conformance vectors"
-    [ testGroup
-        "null"
-        [ testCase "null encodes to 0 bytes" $
-            encodeAvro (AvroPrimitive AvroNull) AV.Null @?= BS.empty
-        , testCase "null decodes from 0 bytes" $
-            decodeAvro (AvroPrimitive AvroNull) BS.empty @?= Right AV.Null
+  describe
+    "Avro spec conformance vectors" $ sequence_
+    [ describe
+        "null" $ sequence_
+        [ it "null encodes to 0 bytes" $
+            encodeAvro (AvroPrimitive AvroNull) AV.Null `shouldBe` BS.empty
+        , it "null decodes from 0 bytes" $
+            decodeAvro (AvroPrimitive AvroNull) BS.empty `shouldBe` Right AV.Null
         ]
-    , testGroup
-        "boolean"
-        [ testCase "true = [0x01]" $
-            encodeAvro (AvroPrimitive AvroBool) (AV.Bool True) @?= BS.pack [0x01]
-        , testCase "false = [0x00]" $
-            encodeAvro (AvroPrimitive AvroBool) (AV.Bool False) @?= BS.pack [0x00]
-        , testCase "decode true" $
-            decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x01]) @?= Right (AV.Bool True)
-        , testCase "decode false" $
-            decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x00]) @?= Right (AV.Bool False)
+    , describe
+        "boolean" $ sequence_
+        [ it "true = [0x01]" $
+            encodeAvro (AvroPrimitive AvroBool) (AV.Bool True) `shouldBe` BS.pack [0x01]
+        , it "false = [0x00]" $
+            encodeAvro (AvroPrimitive AvroBool) (AV.Bool False) `shouldBe` BS.pack [0x00]
+        , it "decode true" $
+            decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x01]) `shouldBe` Right (AV.Bool True)
+        , it "decode false" $
+            decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x00]) `shouldBe` Right (AV.Bool False)
         ]
-    , testGroup
-        "int (zigzag)"
-        [ testCase "0 = [0x00]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int 0) @?= BS.pack [0x00]
-        , testCase "-1 = [0x01]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-1)) @?= BS.pack [0x01]
-        , testCase "1 = [0x02]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int 1) @?= BS.pack [0x02]
-        , testCase "-2 = [0x03]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-2)) @?= BS.pack [0x03]
-        , testCase "2 = [0x04]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int 2) @?= BS.pack [0x04]
-        , testCase "-64 = [0x7f]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-64)) @?= BS.pack [0x7f]
-        , testCase "64 = [0x80, 0x01]" $
-            encodeAvro (AvroPrimitive AvroInt) (AV.Int 64) @?= BS.pack [0x80, 0x01]
-        , testCase "max int32 = 5 bytes" $ do
+    , describe
+        "int (zigzag)" $ sequence_
+        [ it "0 = [0x00]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int 0) `shouldBe` BS.pack [0x00]
+        , it "-1 = [0x01]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-1)) `shouldBe` BS.pack [0x01]
+        , it "1 = [0x02]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int 1) `shouldBe` BS.pack [0x02]
+        , it "-2 = [0x03]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-2)) `shouldBe` BS.pack [0x03]
+        , it "2 = [0x04]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int 2) `shouldBe` BS.pack [0x04]
+        , it "-64 = [0x7f]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int (-64)) `shouldBe` BS.pack [0x7f]
+        , it "64 = [0x80, 0x01]" $
+            encodeAvro (AvroPrimitive AvroInt) (AV.Int 64) `shouldBe` BS.pack [0x80, 0x01]
+        , it "max int32 = 5 bytes" $ do
             let bs = encodeAvro (AvroPrimitive AvroInt) (AV.Int maxBound)
-            BS.length bs @?= 5
-            decodeAvro (AvroPrimitive AvroInt) bs @?= Right (AV.Int maxBound)
-        , testCase "min int32 = 5 bytes" $ do
+            BS.length bs `shouldBe` 5
+            decodeAvro (AvroPrimitive AvroInt) bs `shouldBe` Right (AV.Int maxBound)
+        , it "min int32 = 5 bytes" $ do
             let bs = encodeAvro (AvroPrimitive AvroInt) (AV.Int minBound)
-            BS.length bs @?= 5
-            decodeAvro (AvroPrimitive AvroInt) bs @?= Right (AV.Int minBound)
+            BS.length bs `shouldBe` 5
+            decodeAvro (AvroPrimitive AvroInt) bs `shouldBe` Right (AV.Int minBound)
         ]
-    , testGroup
-        "long (zigzag)"
-        [ testCase "long 0 = [0x00]" $
-            encodeAvro (AvroPrimitive AvroLong) (AV.Long 0) @?= BS.pack [0x00]
-        , testCase "long -1 = [0x01]" $
-            encodeAvro (AvroPrimitive AvroLong) (AV.Long (-1)) @?= BS.pack [0x01]
-        , testCase "long 1 = [0x02]" $
-            encodeAvro (AvroPrimitive AvroLong) (AV.Long 1) @?= BS.pack [0x02]
-        , testCase "long max roundtrip" $ do
+    , describe
+        "long (zigzag)" $ sequence_
+        [ it "long 0 = [0x00]" $
+            encodeAvro (AvroPrimitive AvroLong) (AV.Long 0) `shouldBe` BS.pack [0x00]
+        , it "long -1 = [0x01]" $
+            encodeAvro (AvroPrimitive AvroLong) (AV.Long (-1)) `shouldBe` BS.pack [0x01]
+        , it "long 1 = [0x02]" $
+            encodeAvro (AvroPrimitive AvroLong) (AV.Long 1) `shouldBe` BS.pack [0x02]
+        , it "long max roundtrip" $ do
             let ty = AvroPrimitive AvroLong
                 val = AV.Long maxBound
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "long min roundtrip" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "long min roundtrip" $ do
             let ty = AvroPrimitive AvroLong
                 val = AV.Long minBound
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "long 90071992547409917" $
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "long 90071992547409917" $
             encodeAvro (AvroPrimitive AvroLong) (AV.Long 90071992547409917)
-              @?= BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
+              `shouldBe` BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
         ]
-    , testGroup
-        "float (IEEE 754 LE)"
-        [ testCase "float 0.0 = [0,0,0,0]" $
+    , describe
+        "float (IEEE 754 LE)" $ sequence_
+        [ it "float 0.0 = [0,0,0,0]" $
             encodeAvro (AvroPrimitive AvroFloat) (AV.Float 0.0)
-              @?= BS.pack [0, 0, 0, 0]
-        , testCase "float 1.0 = [0x00,0x00,0x80,0x3f]" $
+              `shouldBe` BS.pack [0, 0, 0, 0]
+        , it "float 1.0 = [0x00,0x00,0x80,0x3f]" $
             encodeAvro (AvroPrimitive AvroFloat) (AV.Float 1.0)
-              @?= BS.pack [0x00, 0x00, 0x80, 0x3f]
-        , testCase "float roundtrip -3.14" $ do
+              `shouldBe` BS.pack [0x00, 0x00, 0x80, 0x3f]
+        , it "float roundtrip -3.14" $ do
             let ty = AvroPrimitive AvroFloat
                 val = AV.Float (-3.14)
-            decodeAvro ty (encodeAvro ty val) @?= Right val
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
         ]
-    , testGroup
-        "double (IEEE 754 LE)"
-        [ testCase "double 0.0 = 8 zero bytes" $
+    , describe
+        "double (IEEE 754 LE)" $ sequence_
+        [ it "double 0.0 = 8 zero bytes" $
             encodeAvro (AvroPrimitive AvroDouble) (AV.Double 0.0)
-              @?= BS.pack [0, 0, 0, 0, 0, 0, 0, 0]
-        , testCase "double 1.0" $
+              `shouldBe` BS.pack [0, 0, 0, 0, 0, 0, 0, 0]
+        , it "double 1.0" $
             encodeAvro (AvroPrimitive AvroDouble) (AV.Double 1.0)
-              @?= BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
-        , testCase "double -2.0" $
+              `shouldBe` BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
+        , it "double -2.0" $
             encodeAvro (AvroPrimitive AvroDouble) (AV.Double (-2.0))
-              @?= BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
-        , testCase "double 0.89" $
+              `shouldBe` BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
+        , it "double 0.89" $
             encodeAvro (AvroPrimitive AvroDouble) (AV.Double 0.89)
-              @?= BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
+              `shouldBe` BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
         ]
-    , testGroup
-        "string"
-        [ testCase "\"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
+    , describe
+        "string" $ sequence_
+        [ it "\"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
             encodeAvro (AvroPrimitive AvroString) (AV.String "foo")
-              @?= BS.pack [0x06, 0x66, 0x6f, 0x6f]
-        , testCase "empty string = [0x00]" $
+              `shouldBe` BS.pack [0x06, 0x66, 0x6f, 0x6f]
+        , it "empty string = [0x00]" $
             encodeAvro (AvroPrimitive AvroString) (AV.String "")
-              @?= BS.pack [0x00]
-        , testCase "\"a\" = [0x02, 0x61]" $
+              `shouldBe` BS.pack [0x00]
+        , it "\"a\" = [0x02, 0x61]" $
             encodeAvro (AvroPrimitive AvroString) (AV.String "a")
-              @?= BS.pack [0x02, 0x61]
+              `shouldBe` BS.pack [0x02, 0x61]
         ]
-    , testGroup
-        "bytes"
-        [ testCase "[0xDE, 0xAD] = [0x04, 0xDE, 0xAD]" $
+    , describe
+        "bytes" $ sequence_
+        [ it "[0xDE, 0xAD] = [0x04, 0xDE, 0xAD]" $
             encodeAvro (AvroPrimitive AvroBytes) (AV.Bytes (BS.pack [0xDE, 0xAD]))
-              @?= BS.pack [0x04, 0xDE, 0xAD]
-        , testCase "empty bytes = [0x00]" $
+              `shouldBe` BS.pack [0x04, 0xDE, 0xAD]
+        , it "empty bytes = [0x00]" $
             encodeAvro (AvroPrimitive AvroBytes) (AV.Bytes BS.empty)
-              @?= BS.pack [0x00]
+              `shouldBe` BS.pack [0x00]
         ]
-    , testGroup
-        "array block encoding"
-        [ testCase "empty array = [0x00]" $
+    , describe
+        "array block encoding" $ sequence_
+        [ it "empty array = [0x00]" $
             encodeAvro (AvroArray (AvroPrimitive AvroInt)) (AV.Array V.empty)
-              @?= BS.pack [0x00]
-        , testCase "[1,2,3] = [count=6, zz(1)=2, zz(2)=4, zz(3)=6, 0]" $
+              `shouldBe` BS.pack [0x00]
+        , it "[1,2,3] = [count=6, zz(1)=2, zz(2)=4, zz(3)=6, 0]" $
             encodeAvro
               (AvroArray (AvroPrimitive AvroInt))
               (AV.Array (V.fromList [AV.Int 1, AV.Int 2, AV.Int 3]))
-              @?= BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
-        , testCase "single element [42]" $ do
+              `shouldBe` BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
+        , it "single element [42]" $ do
             let ty = AvroArray (AvroPrimitive AvroInt)
                 val = AV.Array (V.fromList [AV.Int 42])
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "many elements [0..99]" $ do
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "many elements [0..99]" $ do
             let ty = AvroArray (AvroPrimitive AvroInt)
                 val = AV.Array (V.fromList [AV.Int i | i <- [0 .. 99]])
-            decodeAvro ty (encodeAvro ty val) @?= Right val
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
         ]
-    , testGroup
-        "map block encoding"
-        [ testCase "empty map = [0x00]" $
+    , describe
+        "map block encoding" $ sequence_
+        [ it "empty map = [0x00]" $
             encodeAvro (AvroMap (AvroPrimitive AvroInt)) (AV.Map V.empty)
-              @?= BS.pack [0x00]
-        , testCase "{\"a\": 1} = [0x02, 0x02, 0x61, 0x02, 0x00]" $
+              `shouldBe` BS.pack [0x00]
+        , it "{\"a\": 1} = [0x02, 0x02, 0x61, 0x02, 0x00]" $
             encodeAvro
               (AvroMap (AvroPrimitive AvroInt))
               (AV.Map (V.fromList [("a", AV.Int 1)]))
-              @?= BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
-        , testCase "single entry roundtrip" $ do
+              `shouldBe` BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
+        , it "single entry roundtrip" $ do
             let ty = AvroMap (AvroPrimitive AvroString)
                 val = AV.Map (V.fromList [("key", AV.String "value")])
-            decodeAvro ty (encodeAvro ty val) @?= Right val
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
         ]
-    , testGroup
-        "union index encoding"
-        [ testCase "null first in [null, string] = [0x00]" $ do
+    , describe
+        "union index encoding" $ sequence_
+        [ it "null first in [null, string] = [0x00]" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
-            encodeAvro ty (AV.Union 0 AV.Null) @?= BS.pack [0x00]
-        , testCase "string second in [null, string] starts with [0x02]" $ do
+            encodeAvro ty (AV.Union 0 AV.Null) `shouldBe` BS.pack [0x00]
+        , it "string second in [null, string] starts with [0x02]" $ do
             let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
                 bs = encodeAvro ty (AV.Union 1 (AV.String "hi"))
-            BS.index bs 0 @?= 0x02
-        , testCase "null third in [string, bool, null] = [0x04]" $ do
+            BS.index bs 0 `shouldBe` 0x02
+        , it "null third in [string, bool, null] = [0x04]" $ do
             let ty =
                   AvroUnion
                     ( V.fromList
@@ -1241,41 +1240,41 @@ avroSpecConformanceVectors =
                         , AvroPrimitive AvroNull
                         ]
                     )
-            encodeAvro ty (AV.Union 2 AV.Null) @?= BS.pack [0x04]
+            encodeAvro ty (AV.Union 2 AV.Null) `shouldBe` BS.pack [0x04]
         ]
-    , testGroup
-        "fixed encoding"
-        [ testCase "fixed 4 bytes" $ do
+    , describe
+        "fixed encoding" $ sequence_
+        [ it "fixed 4 bytes" $ do
             let ty = AvroFixed "F4" Nothing 4 V.empty
                 val = AV.Fixed (BS.pack [0xDE, 0xAD, 0xBE, 0xEF])
-            encodeAvro ty val @?= BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
-            decodeAvro ty (encodeAvro ty val) @?= Right val
-        , testCase "fixed 0 bytes" $ do
+            encodeAvro ty val `shouldBe` BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
+        , it "fixed 0 bytes" $ do
             let ty = AvroFixed "F0" Nothing 0 V.empty
                 val = AV.Fixed BS.empty
-            encodeAvro ty val @?= BS.empty
-            decodeAvro ty (encodeAvro ty val) @?= Right val
+            encodeAvro ty val `shouldBe` BS.empty
+            decodeAvro ty (encodeAvro ty val) `shouldBe` Right val
         ]
-    , testGroup
-        "enum encoding"
-        [ testCase "enum ordinal 0 = [0x00]" $ do
+    , describe
+        "enum encoding" $ sequence_
+        [ it "enum ordinal 0 = [0x00]" $ do
             let syms = V.fromList ["A", "B", "C"]
                 ty = AvroEnum "E" Nothing Nothing V.empty syms Nothing
-            encodeAvro ty (AV.Enum 0) @?= BS.pack [0x00]
-        , testCase "enum ordinal 1 = [0x02]" $ do
+            encodeAvro ty (AV.Enum 0) `shouldBe` BS.pack [0x00]
+        , it "enum ordinal 1 = [0x02]" $ do
             let syms = V.fromList ["A", "B", "C"]
                 ty = AvroEnum "E" Nothing Nothing V.empty syms Nothing
-            encodeAvro ty (AV.Enum 1) @?= BS.pack [0x02]
+            encodeAvro ty (AV.Enum 1) `shouldBe` BS.pack [0x02]
         ]
-    , testGroup
-        "nested record"
-        [ testCase "3-level nested record roundtrip" $ do
+    , describe
+        "nested record" $ sequence_
+        [ it "3-level nested record roundtrip" $ do
             let innerTy = mkRecordType "Inner" [("val", AvroPrimitive AvroInt)]
                 midTy = mkRecordType "Mid" [("inner", innerTy), ("label", AvroPrimitive AvroString)]
                 outerTy = mkRecordType "Outer" [("mid", midTy), ("flag", AvroPrimitive AvroBool)]
                 innerVal = AV.Record (V.fromList [AV.Int 42])
                 midVal = AV.Record (V.fromList [innerVal, AV.String "hello"])
                 outerVal = AV.Record (V.fromList [midVal, AV.Bool True])
-            decodeAvro outerTy (encodeAvro outerTy outerVal) @?= Right outerVal
+            decodeAvro outerTy (encodeAvro outerTy outerVal) `shouldBe` Right outerVal
         ]
     ]

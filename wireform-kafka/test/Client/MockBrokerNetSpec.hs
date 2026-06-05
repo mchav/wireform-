@@ -12,8 +12,7 @@ import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Client.Mock.Backoff
 import Kafka.Client.Mock.Cluster
@@ -26,8 +25,8 @@ bytes = BSC.pack . T.unpack
 ts :: Integer -> Int64
 ts = fromIntegral
 
-tests :: TestTree
-tests = testGroup "MockBrokerNet"
+tests :: Spec
+tests = describe "MockBrokerNet" $ sequence_
   [ broker_down_propagates_to_producer
   , broker_back_up_resumes_writes
   , reassign_leader_bumps_epoch
@@ -45,9 +44,9 @@ tests = testGroup "MockBrokerNet"
 -- Broker outage propagation
 ----------------------------------------------------------------------
 
-broker_down_propagates_to_producer :: TestTree
+broker_down_propagates_to_producer :: Spec
 broker_down_propagates_to_producer =
-  testCase "marking the partition's leader broker down surfaces a not-leader error to the producer" $ do
+  it "marking the partition's leader broker down surfaces a not-leader error to the producer" $ do
     c <- newMockCluster 2
     createTopic c "t" 1
     Just leader <- partitionLeader c "t" 0
@@ -57,13 +56,12 @@ broker_down_propagates_to_producer =
     r  <- sendMock p "t" 0 Nothing (bytes "v") (ts 0)
     case r of
       MPNoSuchPartition msg ->
-        assertBool ("expected not_leader, got: " <> msg)
-                   ("not_leader" `L.isInfixOf` msg)
+        (if ("not_leader" `L.isInfixOf` msg) then pure () else expectationFailure ("expected not_leader, got: " <> msg))
       other -> error ("expected not_leader error, got " <> show other)
 
-broker_back_up_resumes_writes :: TestTree
+broker_back_up_resumes_writes :: Spec
 broker_back_up_resumes_writes =
-  testCase "markBrokerUp on the leader lets writes succeed again" $ do
+  it "markBrokerUp on the leader lets writes succeed again" $ do
     c <- newMockCluster 2
     createTopic c "t" 1
     Just leader <- partitionLeader c "t" 0
@@ -77,21 +75,21 @@ broker_back_up_resumes_writes =
       MPSent 0 0 -> pure ()
       other      -> error ("expected MPSent, got " <> show other)
 
-reassign_leader_bumps_epoch :: TestTree
+reassign_leader_bumps_epoch :: Spec
 reassign_leader_bumps_epoch =
-  testCase "reassignPartitionLeader bumps the leader epoch by 1" $ do
+  it "reassignPartitionLeader bumps the leader epoch by 1" $ do
     c <- newMockCluster 3
     createTopic c "t" 1
     e0 <- currentLeaderEpoch c "t" 0
-    e0 @?= Just 0
+    e0 `shouldBe` Just 0
     Just newEp <- reassignPartitionLeader c "t" 0 (BrokerId 2)
-    newEp @?= 1
+    newEp `shouldBe` 1
     Just leader <- partitionLeader c "t" 0
-    leader @?= BrokerId 2
+    leader `shouldBe` BrokerId 2
 
-reassign_leader_after_broker_down_lets_writes_through :: TestTree
+reassign_leader_after_broker_down_lets_writes_through :: Spec
 reassign_leader_after_broker_down_lets_writes_through =
-  testCase "after a leader-failover dance, writes succeed again on the new leader" $ do
+  it "after a leader-failover dance, writes succeed again on the new leader" $ do
     c <- newMockCluster 3
     createTopic c "t" 1
     Just oldLeader <- partitionLeader c "t" 0
@@ -115,21 +113,21 @@ reassign_leader_after_broker_down_lets_writes_through =
 -- Cluster metadata
 ----------------------------------------------------------------------
 
-metadata_lists_brokers_and_topics :: TestTree
+metadata_lists_brokers_and_topics :: Spec
 metadata_lists_brokers_and_topics =
-  testCase "describeClusterMetadata lists every broker + topic + partition" $ do
+  it "describeClusterMetadata lists every broker + topic + partition" $ do
     c <- newMockCluster 3
     createTopic c "alpha" 2
     createTopic c "beta"  1
     cm <- describeClusterMetadata c
-    cmClusterId cm @?= "mock-cluster"
-    L.sort (cmBrokers cm) @?= [BrokerId 0, BrokerId 1, BrokerId 2]
-    map tmName (cmTopics cm) @?= ["alpha", "beta"]
-    map (length . tmPartitions) (cmTopics cm) @?= [2, 1]
+    cmClusterId cm `shouldBe` "mock-cluster"
+    L.sort (cmBrokers cm) `shouldBe` [BrokerId 0, BrokerId 1, BrokerId 2]
+    map tmName (cmTopics cm) `shouldBe` ["alpha", "beta"]
+    map (length . tmPartitions) (cmTopics cm) `shouldBe` [2, 1]
 
-metadata_redacts_leader_when_down :: TestTree
+metadata_redacts_leader_when_down :: Spec
 metadata_redacts_leader_when_down =
-  testCase "metadata reports leader=Nothing for partitions whose leader is down" $ do
+  it "metadata reports leader=Nothing for partitions whose leader is down" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     Just leader <- partitionLeader c "t" 0
@@ -137,26 +135,26 @@ metadata_redacts_leader_when_down =
     cm <- describeClusterMetadata c
     case cmTopics cm of
       [tm] -> case tmPartitions tm of
-        [pm] -> pmLeader pm @?= Nothing
+        [pm] -> pmLeader pm `shouldBe` Nothing
         _    -> error "expected one partition"
       _    -> error "expected one topic"
 
-partitionLeader_reflects_round_robin :: TestTree
+partitionLeader_reflects_round_robin :: Spec
 partitionLeader_reflects_round_robin =
-  testCase "createTopic round-robins leaders across the broker set" $ do
+  it "createTopic round-robins leaders across the broker set" $ do
     c <- newMockCluster 3
     createTopic c "t" 6
     leaders <- mapM (\p -> partitionLeader c "t" p) [0 .. 5]
     -- Round-robin: 0,1,2,0,1,2
-    leaders @?= [Just (BrokerId i) | i <- [0, 1, 2, 0, 1, 2]]
+    leaders `shouldBe` [Just (BrokerId i) | i <- [0, 1, 2, 0, 1, 2]]
 
 ----------------------------------------------------------------------
 -- Backoff
 ----------------------------------------------------------------------
 
-default_backoff_is_monotonic_within_cap :: TestTree
+default_backoff_is_monotonic_within_cap :: Spec
 default_backoff_is_monotonic_within_cap =
-  testCase "default backoff rises monotonically until it hits the ceiling" $ do
+  it "default backoff rises monotonically until it hits the ceiling" $ do
     let series = backoffSeries defaultBackoffPolicy 8
     -- First few attempts are below the cap, then the cap holds.
     -- With multiplier 2 + jitter, the curve doesn't have to be
@@ -164,40 +162,36 @@ default_backoff_is_monotonic_within_cap =
     -- non-decreasing once we cross the cap. Check the floor + cap.
     let !mxAllowed = bpMaxMs defaultBackoffPolicy
         !mn        = bpInitialMs defaultBackoffPolicy
-    assertBool ("first below cap: " <> show series)
-               (head series <= mxAllowed)
-    assertBool ("first above floor: " <> show series)
-               (head series >= mn `div` 2)
+    (if (head series <= mxAllowed) then pure () else expectationFailure ("first below cap: " <> show series))
+    (if (head series >= mn `div` 2) then pure () else expectationFailure ("first above floor: " <> show series))
     -- All values bounded by max + jitter ceiling.
     let !ceilingW = round (fromIntegral mxAllowed * (1 + bpJitter defaultBackoffPolicy))
-    mapM_ (\b -> assertBool ("value above ceiling: " <> show b)
-                            (b <= ceilingW)) series
+    mapM_ (\b -> (if (b <= ceilingW) then pure () else expectationFailure ("value above ceiling: " <> show b))) series
 
-default_backoff_caps_at_max :: TestTree
+default_backoff_caps_at_max :: Spec
 default_backoff_caps_at_max =
-  testCase "after enough attempts, backoff hits bpMaxMs" $ do
+  it "after enough attempts, backoff hits bpMaxMs" $ do
     -- attempt 20 with multiplier 2 puts us many orders of magnitude
     -- above the 1s cap; the cap clamps it.
     let !v = nextBackoffMs defaultBackoffPolicy 20
         !ceilingW = round
                       (fromIntegral (bpMaxMs defaultBackoffPolicy)
                        * (1 + bpJitter defaultBackoffPolicy))
-    assertBool ("expected <= ceiling " <> show ceilingW <> ", got " <> show v)
-               (v <= ceilingW)
+    (if (v <= ceilingW) then pure () else expectationFailure ("expected <= ceiling " <> show ceilingW <> ", got " <> show v))
 
-backoff_series_is_deterministic :: TestTree
+backoff_series_is_deterministic :: Spec
 backoff_series_is_deterministic =
-  testCase "backoffSeries produces identical bytes on every call (no random source)" $ do
+  it "backoffSeries produces identical bytes on every call (no random source)" $ do
     let s1 = backoffSeries defaultBackoffPolicy 10
         s2 = backoffSeries defaultBackoffPolicy 10
-    s1 @?= s2
+    s1 `shouldBe` s2
 
-backoff_zero_jitter_doubles_exactly :: TestTree
+backoff_zero_jitter_doubles_exactly :: Spec
 backoff_zero_jitter_doubles_exactly =
-  testCase "with bpJitter = 0, bpMultiplier = 2, the curve doubles cleanly" $ do
+  it "with bpJitter = 0, bpMultiplier = 2, the curve doubles cleanly" $ do
     let bp = defaultBackoffPolicy
               { bpInitialMs = 50
               , bpMaxMs     = 10000
               , bpJitter    = 0
               }
-    backoffSeries bp 5 @?= [50, 100, 200, 400, 800]
+    backoffSeries bp 5 `shouldBe` [50, 100, 200, 400, 800]

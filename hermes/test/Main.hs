@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Hermes.AcceptCharset
 import qualified Test.Hermes.AcceptEncoding
@@ -12,7 +12,7 @@ import qualified Test.Hermes.RenderingUtil
 import qualified Test.Hermes.WWWAuthenticate
 
 main :: IO ()
-main = defaultMain $ testGroup "hermes"
+main = sydTest $ describe "hermes" $ sequence_
   [ Test.Hermes.AcceptCharset.tests
   , Test.Hermes.AcceptEncoding.tests
   , Test.Hermes.AcceptRanges.tests

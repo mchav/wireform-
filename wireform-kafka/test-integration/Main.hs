@@ -22,7 +22,7 @@ import qualified System.Environment as Env
 import qualified System.Exit as Exit
 import qualified System.IO as IO
 
-import Test.Tasty
+import Test.Syd
 import qualified Integration.AdminClientExtendedSpec
 import qualified Integration.BasicSpec
 import qualified Integration.ConsumerOffsetsSpec
@@ -33,14 +33,14 @@ main = do
   m <- Env.lookupEnv "WIREFORM_KAFKA_BROKER"
   case m of
     Just v | not (null v) ->
-      defaultMain tests
+      sydTest tests
     _ -> do
       IO.hPutStrLn IO.stderr
         "wireform-kafka-integration: WIREFORM_KAFKA_BROKER unset, skipping."
       Exit.exitSuccess
 
-tests :: TestTree
-tests = testGroup "Kafka Integration Tests"
+tests :: Spec
+tests = describe "Kafka Integration Tests" $ sequence_
   [ Integration.BasicSpec.tests
   , Integration.ConsumerOffsetsSpec.tests
   , Integration.AdminClientExtendedSpec.tests

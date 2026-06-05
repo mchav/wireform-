@@ -26,9 +26,8 @@ import Data.Map.Strict (Map)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Sources.CDC
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
@@ -50,44 +49,44 @@ type V = Int
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_insert_then_get :: TestTree
+unit_insert_then_get :: Spec
 unit_insert_then_get =
-  testCase "CDCInsert: after-image lands in the store" $ do
+  it "CDCInsert: after-image lands in the store" $ do
     (src, q) <- inMemoryCDCSource @K @V "u"
     kvs <- inMemoryKeyValueStore @K @V (storeName "u")
     pushCDC q (CDCEvent CDCInsert 1 Nothing (Just 100) 0 (Timestamp 0))
     _ <- cdcToKTableStep src kvs
-    kvsGet kvs 1 >>= (@?= Just 100)
+    kvsGet kvs 1 >>= (`shouldBe` Just 100)
 
-unit_update_overwrites :: TestTree
+unit_update_overwrites :: Spec
 unit_update_overwrites =
-  testCase "CDCUpdate: after-image overwrites the value" $ do
+  it "CDCUpdate: after-image overwrites the value" $ do
     (src, q) <- inMemoryCDCSource @K @V "u"
     kvs <- inMemoryKeyValueStore @K @V (storeName "u")
     pushCDC q (CDCEvent CDCInsert 1 Nothing (Just 100) 0 (Timestamp 0))
     pushCDC q (CDCEvent CDCUpdate 1 (Just 100) (Just 200) 1 (Timestamp 1))
     _ <- cdcToKTableStep src kvs
-    kvsGet kvs 1 >>= (@?= Just 200)
+    kvsGet kvs 1 >>= (`shouldBe` Just 200)
 
-unit_delete_removes :: TestTree
+unit_delete_removes :: Spec
 unit_delete_removes =
-  testCase "CDCDelete: removes the key" $ do
+  it "CDCDelete: removes the key" $ do
     (src, q) <- inMemoryCDCSource @K @V "u"
     kvs <- inMemoryKeyValueStore @K @V (storeName "u")
     pushCDC q (CDCEvent CDCInsert 1 Nothing (Just 100) 0 (Timestamp 0))
     pushCDC q (CDCEvent CDCDelete 1 (Just 100) Nothing 1 (Timestamp 1))
     _ <- cdcToKTableStep src kvs
-    kvsGet kvs 1 >>= (@?= Nothing)
+    kvsGet kvs 1 >>= (`shouldBe` Nothing)
 
-unit_tombstone_after_image :: TestTree
+unit_tombstone_after_image :: Spec
 unit_tombstone_after_image =
-  testCase "CDCUpdate with after=Nothing is a logical delete" $ do
+  it "CDCUpdate with after=Nothing is a logical delete" $ do
     (src, q) <- inMemoryCDCSource @K @V "u"
     kvs <- inMemoryKeyValueStore @K @V (storeName "u")
     pushCDC q (CDCEvent CDCInsert 1 Nothing (Just 100) 0 (Timestamp 0))
     pushCDC q (CDCEvent CDCUpdate 1 (Just 100) Nothing 1 (Timestamp 1))
     _ <- cdcToKTableStep src kvs
-    kvsGet kvs 1 >>= (@?= Nothing)
+    kvsGet kvs 1 >>= (`shouldBe` Nothing)
 
 ----------------------------------------------------------------------
 -- Property: arbitrary event sequence matches the pure projection
@@ -160,20 +159,20 @@ prop_drain_in_chunks = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "CDC source"
+tests :: Spec
+tests = describe "CDC source" $ sequence_
   [ unit_insert_then_get
   , unit_update_overwrites
   , unit_delete_removes
   , unit_tombstone_after_image
-  , testProperty "applyCDCToKVStore matches the pure projection" $
+  , it "applyCDCToKVStore matches the pure projection" $
       H.withTests 150 prop_apply_matches_projection
-  , testProperty "polling in chunks does not change the final state" $
+  , it "polling in chunks does not change the final state" $
       H.withTests 100 prop_drain_in_chunks
   , unit_compaction_keeps_last_per_key
   , unit_phase_round_trip
   , unit_schema_changes_surfaced
-  , testProperty "compactCDCBatch is idempotent" $
+  , it "compactCDCBatch is idempotent" $
       H.withTests 100 prop_compaction_idempotent
   ]
 
@@ -181,9 +180,9 @@ tests = testGroup "CDC source"
 -- Compaction
 ----------------------------------------------------------------------
 
-unit_compaction_keeps_last_per_key :: TestTree
+unit_compaction_keeps_last_per_key :: Spec
 unit_compaction_keeps_last_per_key =
-  testCase "compactCDCBatch keeps only the last event per key" $ do
+  it "compactCDCBatch keeps only the last event per key" $ do
     let evs =
           [ CDCEvent CDCInsert 1 Nothing (Just 10) 0 (Timestamp 0)
           , CDCEvent CDCUpdate 1 (Just 10) (Just 20) 1 (Timestamp 1)
@@ -192,7 +191,7 @@ unit_compaction_keeps_last_per_key =
           , CDCEvent CDCDelete 2 (Just 99) Nothing 4 (Timestamp 4)
           ]
         out = compactCDCBatch evs
-    map cdcAfter out @?= [Just 30, Nothing]
+    map cdcAfter out `shouldBe` [Just 30, Nothing]
 
 prop_compaction_idempotent :: H.Property
 prop_compaction_idempotent = H.property $ do
@@ -205,24 +204,24 @@ prop_compaction_idempotent = H.property $ do
 -- Phase
 ----------------------------------------------------------------------
 
-unit_phase_round_trip :: TestTree
+unit_phase_round_trip :: Spec
 unit_phase_round_trip =
-  testCase "setPhase + cdcPoll surface the latest phase" $ do
+  it "setPhase + cdcPoll surface the latest phase" $ do
     (src, h) <- inMemoryCDCSource @K @V "p"
     -- Initial: SnapshotPhase.
     p0 <- cdcPollPhase <$> cdcPoll src
-    p0 @?= SnapshotPhase
+    p0 `shouldBe` SnapshotPhase
     setPhase h StreamingPhase
     p1 <- cdcPollPhase <$> cdcPoll src
-    p1 @?= StreamingPhase
+    p1 `shouldBe` StreamingPhase
 
 ----------------------------------------------------------------------
 -- Schema changes
 ----------------------------------------------------------------------
 
-unit_schema_changes_surfaced :: TestTree
+unit_schema_changes_surfaced :: Spec
 unit_schema_changes_surfaced =
-  testCase "pushSchemaChange events are surfaced through cdcPoll" $ do
+  it "pushSchemaChange events are surfaced through cdcPoll" $ do
     (src, h) <- inMemoryCDCSource @K @V "s"
     pushSchemaChange h SchemaChange
       { scTable = "orders"
@@ -231,4 +230,4 @@ unit_schema_changes_surfaced =
       , scAt      = Timestamp 0
       }
     poll <- cdcPoll src
-    map scTable (cdcPollSchema poll) @?= ["orders"]
+    map scTable (cdcPollSchema poll) `shouldBe` ["orders"]

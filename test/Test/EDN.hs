@@ -5,17 +5,16 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified EDN.Value as E
 import EDN.Encode (encode, encodeBS)
 import EDN.Decode (decode, decodeBS)
 import EDN.JSON (toJSON, fromJSON)
 
-ednTests :: TestTree
-ednTests = testGroup "EDN"
+ednTests :: Spec
+ednTests = describe "EDN" $ sequence_
   [ parseTests
   , encodeTests
   , roundtripTests
@@ -24,237 +23,237 @@ ednTests = testGroup "EDN"
   , jsonTests
   ]
 
-parseTests :: TestTree
-parseTests = testGroup "Parse known EDN strings"
-  [ testCase "nil" $
-      decode "nil" @?= Right E.Nil
+parseTests :: Spec
+parseTests = describe "Parse known EDN strings" $ sequence_
+  [ it "nil" $
+      decode "nil" `shouldBe` Right E.Nil
 
-  , testCase "42" $
-      decode "42" @?= Right (E.Integer 42)
+  , it "42" $
+      decode "42" `shouldBe` Right (E.Integer 42)
 
-  , testCase "-17" $
-      decode "-17" @?= Right (E.Integer (-17))
+  , it "-17" $
+      decode "-17" `shouldBe` Right (E.Integer (-17))
 
-  , testCase "0" $
-      decode "0" @?= Right (E.Integer 0)
+  , it "0" $
+      decode "0" `shouldBe` Right (E.Integer 0)
 
-  , testCase "3.14" $
-      decode "3.14" @?= Right (E.Float 3.14)
+  , it "3.14" $
+      decode "3.14" `shouldBe` Right (E.Float 3.14)
 
-  , testCase "1.0e10" $
-      decode "1.0e10" @?= Right (E.Float 1.0e10)
+  , it "1.0e10" $
+      decode "1.0e10" `shouldBe` Right (E.Float 1.0e10)
 
-  , testCase "\"hello\"" $
-      decode "\"hello\"" @?= Right (E.String "hello")
+  , it "\"hello\"" $
+      decode "\"hello\"" `shouldBe` Right (E.String "hello")
 
-  , testCase "string with escapes" $
-      decode "\"a\\nb\\tc\"" @?= Right (E.String "a\nb\tc")
+  , it "string with escapes" $
+      decode "\"a\\nb\\tc\"" `shouldBe` Right (E.String "a\nb\tc")
 
-  , testCase ":keyword" $
-      decode ":keyword" @?= Right (E.Keyword Nothing "keyword")
+  , it ":keyword" $
+      decode ":keyword" `shouldBe` Right (E.Keyword Nothing "keyword")
 
-  , testCase ":ns/key" $
-      decode ":ns/key" @?= Right (E.Keyword (Just "ns") "key")
+  , it ":ns/key" $
+      decode ":ns/key" `shouldBe` Right (E.Keyword (Just "ns") "key")
 
-  , testCase "\\newline" $
-      decode "\\newline" @?= Right (E.Char '\n')
+  , it "\\newline" $
+      decode "\\newline" `shouldBe` Right (E.Char '\n')
 
-  , testCase "\\space" $
-      decode "\\space" @?= Right (E.Char ' ')
+  , it "\\space" $
+      decode "\\space" `shouldBe` Right (E.Char ' ')
 
-  , testCase "\\tab" $
-      decode "\\tab" @?= Right (E.Char '\t')
+  , it "\\tab" $
+      decode "\\tab" `shouldBe` Right (E.Char '\t')
 
-  , testCase "\\return" $
-      decode "\\return" @?= Right (E.Char '\r')
+  , it "\\return" $
+      decode "\\return" `shouldBe` Right (E.Char '\r')
 
-  , testCase "\\a" $
-      decode "\\a" @?= Right (E.Char 'a')
+  , it "\\a" $
+      decode "\\a" `shouldBe` Right (E.Char 'a')
 
-  , testCase "(1 2 3)" $
-      decode "(1 2 3)" @?= Right (E.List (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
+  , it "(1 2 3)" $
+      decode "(1 2 3)" `shouldBe` Right (E.List (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
 
-  , testCase "[1 \"two\" :three]" $
-      decode "[1 \"two\" :three]" @?= Right (E.Vector (V.fromList
+  , it "[1 \"two\" :three]" $
+      decode "[1 \"two\" :three]" `shouldBe` Right (E.Vector (V.fromList
         [E.Integer 1, E.String "two", E.Keyword Nothing "three"]))
 
-  , testCase "{:a 1 :b 2}" $
-      decode "{:a 1 :b 2}" @?= Right (E.Map (V.fromList
+  , it "{:a 1 :b 2}" $
+      decode "{:a 1 :b 2}" `shouldBe` Right (E.Map (V.fromList
         [(E.Keyword Nothing "a", E.Integer 1), (E.Keyword Nothing "b", E.Integer 2)]))
 
-  , testCase "#{1 2 3}" $
-      decode "#{1 2 3}" @?= Right (E.Set (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
+  , it "#{1 2 3}" $
+      decode "#{1 2 3}" `shouldBe` Right (E.Set (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
 
-  , testCase "#inst \"1985-04-12T23:20:50.52Z\"" $
+  , it "#inst \"1985-04-12T23:20:50.52Z\"" $
       decode "#inst \"1985-04-12T23:20:50.52Z\""
-        @?= Right (E.Tagged "" "inst" (E.String "1985-04-12T23:20:50.52Z"))
+        `shouldBe` Right (E.Tagged "" "inst" (E.String "1985-04-12T23:20:50.52Z"))
 
-  , testCase "#uuid \"f81d4fae-7dec-11d0-a765-00a0c91e6bf6\"" $
+  , it "#uuid \"f81d4fae-7dec-11d0-a765-00a0c91e6bf6\"" $
       decode "#uuid \"f81d4fae-7dec-11d0-a765-00a0c91e6bf6\""
-        @?= Right (E.Tagged "" "uuid" (E.String "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"))
+        `shouldBe` Right (E.Tagged "" "uuid" (E.String "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"))
 
-  , testCase "#myapp/Person {:name \"Joe\"}" $
+  , it "#myapp/Person {:name \"Joe\"}" $
       decode "#myapp/Person {:name \"Joe\"}"
-        @?= Right (E.Tagged "myapp" "Person" (E.Map (V.fromList
+        `shouldBe` Right (E.Tagged "myapp" "Person" (E.Map (V.fromList
               [(E.Keyword Nothing "name", E.String "Joe")])))
 
-  , testCase "comments" $
-      decode "; this is a comment\n42" @?= Right (E.Integer 42)
+  , it "comments" $
+      decode "; this is a comment\n42" `shouldBe` Right (E.Integer 42)
 
-  , testCase "commas as whitespace" $
-      decode "[1, 2, 3]" @?= Right (E.Vector (V.fromList
+  , it "commas as whitespace" $
+      decode "[1, 2, 3]" `shouldBe` Right (E.Vector (V.fromList
         [E.Integer 1, E.Integer 2, E.Integer 3]))
 
-  , testCase "nested structure" $
+  , it "nested structure" $
       decode "{:users [{:name \"Alice\"} {:name \"Bob\"}]}"
-        @?= Right (E.Map (V.fromList
+        `shouldBe` Right (E.Map (V.fromList
               [ (E.Keyword Nothing "users", E.Vector (V.fromList
                   [ E.Map (V.fromList [(E.Keyword Nothing "name", E.String "Alice")])
                   , E.Map (V.fromList [(E.Keyword Nothing "name", E.String "Bob")])
                   ]))
               ]))
 
-  , testCase "##Inf" $
+  , it "##Inf" $
       case decode "##Inf" of
-        Right (E.Float d) -> assertBool "should be positive infinity" (isInfinite d && d > 0)
-        other -> assertFailure $ "expected Float Inf, got: " ++ show other
+        Right (E.Float d) -> (isInfinite d && d > 0) `shouldBe` True
+        other -> expectationFailure $ "expected Float Inf, got: " ++ show other
 
-  , testCase "##-Inf" $
+  , it "##-Inf" $
       case decode "##-Inf" of
-        Right (E.Float d) -> assertBool "should be negative infinity" (isInfinite d && d < 0)
-        other -> assertFailure $ "expected Float -Inf, got: " ++ show other
+        Right (E.Float d) -> (isInfinite d && d < 0) `shouldBe` True
+        other -> expectationFailure $ "expected Float -Inf, got: " ++ show other
 
-  , testCase "##NaN" $
+  , it "##NaN" $
       case decode "##NaN" of
-        Right (E.Float d) -> assertBool "should be NaN" (isNaN d)
-        other -> assertFailure $ "expected Float NaN, got: " ++ show other
+        Right (E.Float d) -> (isNaN d) `shouldBe` True
+        other -> expectationFailure $ "expected Float NaN, got: " ++ show other
 
-  , testCase "discard: [1 #_ 2 3]" $
-      decode "[1 #_ 2 3]" @?= Right (E.Vector (V.fromList [E.Integer 1, E.Integer 3]))
+  , it "discard: [1 #_ 2 3]" $
+      decode "[1 #_ 2 3]" `shouldBe` Right (E.Vector (V.fromList [E.Integer 1, E.Integer 3]))
 
-  , testCase "symbol" $
-      decode "foo" @?= Right (E.Symbol Nothing "foo")
+  , it "symbol" $
+      decode "foo" `shouldBe` Right (E.Symbol Nothing "foo")
 
-  , testCase "namespaced symbol" $
-      decode "my-ns/bar" @?= Right (E.Symbol (Just "my-ns") "bar")
+  , it "namespaced symbol" $
+      decode "my-ns/bar" `shouldBe` Right (E.Symbol (Just "my-ns") "bar")
 
-  , testCase "true" $
-      decode "true" @?= Right (E.Bool True)
+  , it "true" $
+      decode "true" `shouldBe` Right (E.Bool True)
 
-  , testCase "false" $
-      decode "false" @?= Right (E.Bool False)
+  , it "false" $
+      decode "false" `shouldBe` Right (E.Bool False)
 
-  , testCase "empty list" $
-      decode "()" @?= Right (E.List V.empty)
+  , it "empty list" $
+      decode "()" `shouldBe` Right (E.List V.empty)
 
-  , testCase "empty vector" $
-      decode "[]" @?= Right (E.Vector V.empty)
+  , it "empty vector" $
+      decode "[]" `shouldBe` Right (E.Vector V.empty)
 
-  , testCase "empty map" $
-      decode "{}" @?= Right (E.Map V.empty)
+  , it "empty map" $
+      decode "{}" `shouldBe` Right (E.Map V.empty)
 
-  , testCase "empty set" $
-      decode "#{}" @?= Right (E.Set V.empty)
+  , it "empty set" $
+      decode "#{}" `shouldBe` Right (E.Set V.empty)
   ]
 
-encodeTests :: TestTree
-encodeTests = testGroup "Encode"
-  [ testCase "nil" $
-      encode E.Nil @?= "nil"
+encodeTests :: Spec
+encodeTests = describe "Encode" $ sequence_
+  [ it "nil" $
+      encode E.Nil `shouldBe` "nil"
 
-  , testCase "true" $
-      encode (E.Bool True) @?= "true"
+  , it "true" $
+      encode (E.Bool True) `shouldBe` "true"
 
-  , testCase "false" $
-      encode (E.Bool False) @?= "false"
+  , it "false" $
+      encode (E.Bool False) `shouldBe` "false"
 
-  , testCase "integer" $
-      encode (E.Integer 42) @?= "42"
+  , it "integer" $
+      encode (E.Integer 42) `shouldBe` "42"
 
-  , testCase "negative integer" $
-      encode (E.Integer (-17)) @?= "-17"
+  , it "negative integer" $
+      encode (E.Integer (-17)) `shouldBe` "-17"
 
-  , testCase "string" $
-      encode (E.String "hello") @?= "\"hello\""
+  , it "string" $
+      encode (E.String "hello") `shouldBe` "\"hello\""
 
-  , testCase "string with escapes" $
-      encode (E.String "a\nb") @?= "\"a\\nb\""
+  , it "string with escapes" $
+      encode (E.String "a\nb") `shouldBe` "\"a\\nb\""
 
-  , testCase "keyword" $
-      encode (E.Keyword Nothing "foo") @?= ":foo"
+  , it "keyword" $
+      encode (E.Keyword Nothing "foo") `shouldBe` ":foo"
 
-  , testCase "namespaced keyword" $
-      encode (E.Keyword (Just "ns") "key") @?= ":ns/key"
+  , it "namespaced keyword" $
+      encode (E.Keyword (Just "ns") "key") `shouldBe` ":ns/key"
 
-  , testCase "char newline" $
-      encode (E.Char '\n') @?= "\\newline"
+  , it "char newline" $
+      encode (E.Char '\n') `shouldBe` "\\newline"
 
-  , testCase "char a" $
-      encode (E.Char 'a') @?= "\\a"
+  , it "char a" $
+      encode (E.Char 'a') `shouldBe` "\\a"
 
-  , testCase "list" $
-      encode (E.List (V.fromList [E.Integer 1, E.Integer 2])) @?= "(1 2)"
+  , it "list" $
+      encode (E.List (V.fromList [E.Integer 1, E.Integer 2])) `shouldBe` "(1 2)"
 
-  , testCase "vector" $
-      encode (E.Vector (V.fromList [E.Integer 1, E.Integer 2])) @?= "[1 2]"
+  , it "vector" $
+      encode (E.Vector (V.fromList [E.Integer 1, E.Integer 2])) `shouldBe` "[1 2]"
 
-  , testCase "map" $
-      encode (E.Map (V.fromList [(E.Keyword Nothing "a", E.Integer 1)])) @?= "{:a 1}"
+  , it "map" $
+      encode (E.Map (V.fromList [(E.Keyword Nothing "a", E.Integer 1)])) `shouldBe` "{:a 1}"
 
-  , testCase "set" $
-      encode (E.Set (V.fromList [E.Integer 1, E.Integer 2])) @?= "#{1 2}"
+  , it "set" $
+      encode (E.Set (V.fromList [E.Integer 1, E.Integer 2])) `shouldBe` "#{1 2}"
 
-  , testCase "tagged" $
-      encode (E.Tagged "" "inst" (E.String "1985")) @?= "#inst \"1985\""
+  , it "tagged" $
+      encode (E.Tagged "" "inst" (E.String "1985")) `shouldBe` "#inst \"1985\""
 
-  , testCase "namespaced tagged" $
-      encode (E.Tagged "myapp" "Person" (E.String "Joe")) @?= "#myapp/Person \"Joe\""
+  , it "namespaced tagged" $
+      encode (E.Tagged "myapp" "Person" (E.String "Joe")) `shouldBe` "#myapp/Person \"Joe\""
 
-  , testCase "##Inf" $ do
+  , it "##Inf" $ do
       let t = encode (E.Float (1/0))
-      t @?= "##Inf"
+      t `shouldBe` "##Inf"
 
-  , testCase "##-Inf" $ do
+  , it "##-Inf" $ do
       let t = encode (E.Float (-1/0))
-      t @?= "##-Inf"
+      t `shouldBe` "##-Inf"
 
-  , testCase "##NaN" $ do
+  , it "##NaN" $ do
       let t = encode (E.Float (0/0))
-      t @?= "##NaN"
+      t `shouldBe` "##NaN"
 
-  , testCase "encodeBS produces UTF-8" $ do
+  , it "encodeBS produces UTF-8" $ do
       let bs = encodeBS (E.String "hello")
-      bs @?= "\"hello\""
+      bs `shouldBe` "\"hello\""
   ]
 
-roundtripTests :: TestTree
-roundtripTests = testGroup "Roundtrip (encode then decode)"
-  [ testCase "nil" $ rt E.Nil
-  , testCase "true" $ rt (E.Bool True)
-  , testCase "false" $ rt (E.Bool False)
-  , testCase "integer" $ rt (E.Integer 42)
-  , testCase "negative integer" $ rt (E.Integer (-100))
-  , testCase "zero" $ rt (E.Integer 0)
-  , testCase "float" $ rt (E.Float 3.14)
-  , testCase "string" $ rt (E.String "hello world")
-  , testCase "char" $ rt (E.Char 'x')
-  , testCase "char newline" $ rt (E.Char '\n')
-  , testCase "char space" $ rt (E.Char ' ')
-  , testCase "keyword" $ rt (E.Keyword Nothing "key")
-  , testCase "namespaced keyword" $ rt (E.Keyword (Just "ns") "key")
-  , testCase "symbol" $ rt (E.Symbol Nothing "sym")
-  , testCase "namespaced symbol" $ rt (E.Symbol (Just "ns") "sym")
-  , testCase "empty list" $ rt (E.List V.empty)
-  , testCase "list" $ rt (E.List (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
-  , testCase "empty vector" $ rt (E.Vector V.empty)
-  , testCase "vector" $ rt (E.Vector (V.fromList [E.Integer 1, E.String "two", E.Keyword Nothing "three"]))
-  , testCase "empty map" $ rt (E.Map V.empty)
-  , testCase "map" $ rt (E.Map (V.fromList [(E.Keyword Nothing "a", E.Integer 1)]))
-  , testCase "empty set" $ rt (E.Set V.empty)
-  , testCase "set" $ rt (E.Set (V.fromList [E.Integer 1, E.Integer 2]))
-  , testCase "tagged" $ rt (E.Tagged "" "inst" (E.String "1985"))
-  , testCase "namespaced tagged" $ rt (E.Tagged "myapp" "Person" (E.Map (V.fromList [(E.Keyword Nothing "name", E.String "Joe")])))
-  , testCase "nested" $
+roundtripTests :: Spec
+roundtripTests = describe "Roundtrip (encode then decode)" $ sequence_
+  [ it "nil" $ rt E.Nil
+  , it "true" $ rt (E.Bool True)
+  , it "false" $ rt (E.Bool False)
+  , it "integer" $ rt (E.Integer 42)
+  , it "negative integer" $ rt (E.Integer (-100))
+  , it "zero" $ rt (E.Integer 0)
+  , it "float" $ rt (E.Float 3.14)
+  , it "string" $ rt (E.String "hello world")
+  , it "char" $ rt (E.Char 'x')
+  , it "char newline" $ rt (E.Char '\n')
+  , it "char space" $ rt (E.Char ' ')
+  , it "keyword" $ rt (E.Keyword Nothing "key")
+  , it "namespaced keyword" $ rt (E.Keyword (Just "ns") "key")
+  , it "symbol" $ rt (E.Symbol Nothing "sym")
+  , it "namespaced symbol" $ rt (E.Symbol (Just "ns") "sym")
+  , it "empty list" $ rt (E.List V.empty)
+  , it "list" $ rt (E.List (V.fromList [E.Integer 1, E.Integer 2, E.Integer 3]))
+  , it "empty vector" $ rt (E.Vector V.empty)
+  , it "vector" $ rt (E.Vector (V.fromList [E.Integer 1, E.String "two", E.Keyword Nothing "three"]))
+  , it "empty map" $ rt (E.Map V.empty)
+  , it "map" $ rt (E.Map (V.fromList [(E.Keyword Nothing "a", E.Integer 1)]))
+  , it "empty set" $ rt (E.Set V.empty)
+  , it "set" $ rt (E.Set (V.fromList [E.Integer 1, E.Integer 2]))
+  , it "tagged" $ rt (E.Tagged "" "inst" (E.String "1985"))
+  , it "namespaced tagged" $ rt (E.Tagged "myapp" "Person" (E.Map (V.fromList [(E.Keyword Nothing "name", E.String "Joe")])))
+  , it "nested" $
       rt (E.Map (V.fromList
         [(E.Keyword Nothing "users", E.Vector (V.fromList
           [ E.Map (V.fromList [(E.Keyword Nothing "name", E.String "Alice")])
@@ -262,143 +261,143 @@ roundtripTests = testGroup "Roundtrip (encode then decode)"
           ]))]))
   ]
   where
-    rt val = decode (encode val) @?= Right val
+    rt val = decode (encode val) `shouldBe` Right val
 
-propertyRoundtrips :: TestTree
-propertyRoundtrips = testGroup "Property roundtrips"
-  [ testProperty "Integer roundtrip" $ property $ do
+propertyRoundtrips :: Spec
+propertyRoundtrips = describe "Property roundtrips" $ sequence_
+  [ it "Integer roundtrip" $ property $ do
       n <- forAll $ Gen.integral (Range.linear (-10000) 10000)
       let val = E.Integer n
       decode (encode val) === Right val
 
-  , testProperty "String roundtrip" $ property $ do
+  , it "String roundtrip" $ property $ do
       t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
       let val = E.String t
       decode (encode val) === Right val
 
-  , testProperty "Vector of integers roundtrip" $ property $ do
+  , it "Vector of integers roundtrip" $ property $ do
       ns <- forAll $ Gen.list (Range.linear 0 30) $
               Gen.integral (Range.linear (-1000) 1000)
       let val = E.Vector (V.fromList (map E.Integer ns))
       decode (encode val) === Right val
 
-  , testProperty "Keyword roundtrip" $ property $ do
+  , it "Keyword roundtrip" $ property $ do
       name <- forAll $ Gen.text (Range.linear 1 20) Gen.alpha
       let val = E.Keyword Nothing name
       decode (encode val) === Right val
 
-  , testProperty "Bool roundtrip" $ property $ do
+  , it "Bool roundtrip" $ property $ do
       b <- forAll Gen.bool
       let val = E.Bool b
       decode (encode val) === Right val
   ]
 
-edgeCases :: TestTree
-edgeCases = testGroup "Edge cases"
-  [ testCase "large integer" $ do
+edgeCases :: Spec
+edgeCases = describe "Edge cases" $ sequence_
+  [ it "large integer" $ do
       let val = E.Integer 999999999999999999
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "negative large integer" $ do
+  , it "negative large integer" $ do
       let val = E.Integer (-999999999999999999)
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "deeply nested" $ do
+  , it "deeply nested" $ do
       let nest 0 = E.Integer 42
           nest n = E.Vector (V.singleton (nest (n - 1)))
           val = nest (15 :: Int)
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "string with all escape types" $ do
+  , it "string with all escape types" $ do
       let val = E.String "tab:\tnewline:\nreturn:\rquote:\"backslash:\\"
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "multiple comments" $
-      decode "; comment 1\n; comment 2\n42" @?= Right (E.Integer 42)
+  , it "multiple comments" $
+      decode "; comment 1\n; comment 2\n42" `shouldBe` Right (E.Integer 42)
 
-  , testCase "whitespace variations" $
-      decode "  \t\n  42  " @?= Right (E.Integer 42)
+  , it "whitespace variations" $
+      decode "  \t\n  42  " `shouldBe` Right (E.Integer 42)
 
-  , testCase "map with mixed value types" $ do
+  , it "map with mixed value types" $ do
       let val = E.Map (V.fromList
                   [ (E.Keyword Nothing "int", E.Integer 1)
                   , (E.Keyword Nothing "str", E.String "hello")
                   , (E.Keyword Nothing "bool", E.Bool True)
                   , (E.Keyword Nothing "nil", E.Nil)
                   ])
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "discard in map" $
+  , it "discard in map" $
       decode "{:a 1 #_ :b #_ 2 :c 3}"
-        @?= Right (E.Map (V.fromList
+        `shouldBe` Right (E.Map (V.fromList
               [(E.Keyword Nothing "a", E.Integer 1), (E.Keyword Nothing "c", E.Integer 3)]))
 
-  , testCase "decodeBS" $
-      decodeBS "42" @?= Right (E.Integer 42)
+  , it "decodeBS" $
+      decodeBS "42" `shouldBe` Right (E.Integer 42)
 
-  , testCase "empty input" $
+  , it "empty input" $
       case decode "" of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on empty input"
+        Right _ -> expectationFailure "expected error on empty input"
   ]
 
-jsonTests :: TestTree
-jsonTests = testGroup "JSON conversion"
-  [ testCase "Nil to JSON" $
-      toJSON E.Nil @?= Aeson.Null
+jsonTests :: Spec
+jsonTests = describe "JSON conversion" $ sequence_
+  [ it "Nil to JSON" $
+      toJSON E.Nil `shouldBe` Aeson.Null
 
-  , testCase "Bool to JSON" $ do
-      toJSON (E.Bool True) @?= Aeson.Bool True
-      toJSON (E.Bool False) @?= Aeson.Bool False
+  , it "Bool to JSON" $ do
+      toJSON (E.Bool True) `shouldBe` Aeson.Bool True
+      toJSON (E.Bool False) `shouldBe` Aeson.Bool False
 
-  , testCase "Integer to JSON" $
-      toJSON (E.Integer 42) @?= Aeson.Number 42
+  , it "Integer to JSON" $
+      toJSON (E.Integer 42) `shouldBe` Aeson.Number 42
 
-  , testCase "String to JSON" $
-      toJSON (E.String "hello") @?= Aeson.String "hello"
+  , it "String to JSON" $
+      toJSON (E.String "hello") `shouldBe` Aeson.String "hello"
 
-  , testCase "Char to JSON" $
-      toJSON (E.Char 'x') @?= Aeson.String "x"
+  , it "Char to JSON" $
+      toJSON (E.Char 'x') `shouldBe` Aeson.String "x"
 
-  , testCase "Keyword to JSON" $
-      toJSON (E.Keyword Nothing "name") @?= Aeson.String ":name"
+  , it "Keyword to JSON" $
+      toJSON (E.Keyword Nothing "name") `shouldBe` Aeson.String ":name"
 
-  , testCase "Symbol to JSON" $
-      toJSON (E.Symbol Nothing "foo") @?= Aeson.String "foo"
+  , it "Symbol to JSON" $
+      toJSON (E.Symbol Nothing "foo") `shouldBe` Aeson.String "foo"
 
-  , testCase "Vector to JSON" $
+  , it "Vector to JSON" $
       toJSON (E.Vector (V.fromList [E.Integer 1, E.Integer 2]))
-        @?= Aeson.Array (V.fromList [Aeson.Number 1, Aeson.Number 2])
+        `shouldBe` Aeson.Array (V.fromList [Aeson.Number 1, Aeson.Number 2])
 
-  , testCase "Set to JSON" $
+  , it "Set to JSON" $
       toJSON (E.Set (V.fromList [E.Integer 1]))
-        @?= Aeson.Array (V.fromList [Aeson.Number 1])
+        `shouldBe` Aeson.Array (V.fromList [Aeson.Number 1])
 
-  , testCase "Tagged to JSON" $ do
+  , it "Tagged to JSON" $ do
       let json = toJSON (E.Tagged "" "inst" (E.String "1985"))
       case json of
         Aeson.Object _ -> pure ()
-        _ -> assertFailure "expected JSON object for tagged"
+        _ -> expectationFailure "expected JSON object for tagged"
 
-  , testCase "Map with keyword keys to JSON object" $ do
+  , it "Map with keyword keys to JSON object" $ do
       let json = toJSON (E.Map (V.fromList [(E.Keyword Nothing "a", E.Integer 1)]))
       case json of
         Aeson.Object _ -> pure ()
-        _ -> assertFailure "expected JSON object for keyword-keyed map"
+        _ -> expectationFailure "expected JSON object for keyword-keyed map"
 
-  , testCase "fromJSON null" $
-      fromJSON Aeson.Null @?= E.Nil
+  , it "fromJSON null" $
+      fromJSON Aeson.Null `shouldBe` E.Nil
 
-  , testCase "fromJSON bool" $
-      fromJSON (Aeson.Bool True) @?= E.Bool True
+  , it "fromJSON bool" $
+      fromJSON (Aeson.Bool True) `shouldBe` E.Bool True
 
-  , testCase "fromJSON string" $
-      fromJSON (Aeson.String "hi") @?= E.String "hi"
+  , it "fromJSON string" $
+      fromJSON (Aeson.String "hi") `shouldBe` E.String "hi"
 
-  , testCase "fromJSON integer" $
-      fromJSON (Aeson.Number 42) @?= E.Integer 42
+  , it "fromJSON integer" $
+      fromJSON (Aeson.Number 42) `shouldBe` E.Integer 42
 
-  , testCase "fromJSON array" $
+  , it "fromJSON array" $
       fromJSON (Aeson.Array (V.fromList [Aeson.Number 1]))
-        @?= E.Vector (V.fromList [E.Integer 1])
+        `shouldBe` E.Vector (V.fromList [E.Integer 1])
   ]

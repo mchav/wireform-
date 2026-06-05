@@ -7,9 +7,8 @@ import qualified Data.Text
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit hiding (assert)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Data.Int (Int8, Int16)
 import qualified Data.Vector as V
@@ -18,11 +17,11 @@ import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.DescribeConf
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 -- | Test that default admin client config has reasonable values
-unit_defaultConfig :: TestTree
-unit_defaultConfig = testCase "Default admin client config" $ do
+unit_defaultConfig :: Spec
+unit_defaultConfig = it "Default admin client config" $ do
   let config = Admin.defaultAdminClientConfig
-  Admin.adminClientId config @?= "kafka-native-admin"
-  Admin.adminRequestTimeoutMs config @?= 30000
+  Admin.adminClientId config `shouldBe` "kafka-native-admin"
+  Admin.adminRequestTimeoutMs config `shouldBe` 30000
 
 -- | Test NewTopic creation with various configurations
 prop_newTopicCreation :: Property
@@ -64,8 +63,8 @@ prop_newTopicWithConfigs = property $ do
   fst (head (Admin.ntConfigs topic)) === "retention.ms"
 
 -- | Test TopicDescription structure
-unit_topicDescription :: TestTree
-unit_topicDescription = testCase "TopicDescription structure" $ do
+unit_topicDescription :: Spec
+unit_topicDescription = it "TopicDescription structure" $ do
   let partInfo = Admin.PartitionInfo
         { Admin.piPartitionId = 0
         , Admin.piLeader = 1
@@ -79,15 +78,15 @@ unit_topicDescription = testCase "TopicDescription structure" $ do
         , Admin.tdPartitions = [partInfo]
         }
   
-  Admin.tdName topicDesc @?= "test-topic"
-  Admin.tdInternal topicDesc @?= False
-  length (Admin.tdPartitions topicDesc) @?= 1
+  Admin.tdName topicDesc `shouldBe` "test-topic"
+  Admin.tdInternal topicDesc `shouldBe` False
+  length (Admin.tdPartitions topicDesc) `shouldBe` 1
   
   let part = head (Admin.tdPartitions topicDesc)
-  Admin.piPartitionId part @?= 0
-  Admin.piLeader part @?= 1
-  length (Admin.piReplicas part) @?= 3
-  length (Admin.piIsr part) @?= 2
+  Admin.piPartitionId part `shouldBe` 0
+  Admin.piLeader part `shouldBe` 1
+  length (Admin.piReplicas part) `shouldBe` 3
+  length (Admin.piIsr part) `shouldBe` 2
 
 -- | Test ConsumerGroupListing structure
 prop_consumerGroupListing :: Property
@@ -104,8 +103,8 @@ prop_consumerGroupListing = property $ do
   Admin.cglIsSimpleGroup listing === isSimple
 
 -- | Test ConsumerGroupDescription structure
-unit_consumerGroupDescription :: TestTree
-unit_consumerGroupDescription = testCase "ConsumerGroupDescription structure" $ do
+unit_consumerGroupDescription :: Spec
+unit_consumerGroupDescription = it "ConsumerGroupDescription structure" $ do
   let member1 = Admin.MemberDescription
         { Admin.mdMemberId = "member-1"
         , Admin.mdClientId = "client-1"
@@ -124,16 +123,16 @@ unit_consumerGroupDescription = testCase "ConsumerGroupDescription structure" $ 
         , Admin.cgdMembers = [member1, member2]
         }
   
-  Admin.cgdGroupId groupDesc @?= "test-group"
-  Admin.cgdState groupDesc @?= "Stable"
-  length (Admin.cgdMembers groupDesc) @?= 2
+  Admin.cgdGroupId groupDesc `shouldBe` "test-group"
+  Admin.cgdState groupDesc `shouldBe` "Stable"
+  length (Admin.cgdMembers groupDesc) `shouldBe` 2
   
-  Admin.mdMemberId member1 @?= "member-1"
-  Admin.mdClientId member2 @?= "client-2"
+  Admin.mdMemberId member1 `shouldBe` "member-1"
+  Admin.mdClientId member2 `shouldBe` "client-2"
 
 -- | Test ConfigResource types
-unit_configResourceTypes :: TestTree
-unit_configResourceTypes = testCase "ConfigResource types" $ do
+unit_configResourceTypes :: Spec
+unit_configResourceTypes = it "ConfigResource types" $ do
   let topicResource = Admin.ConfigResource
         { Admin.crType = Admin.ConfigResourceTopic
         , Admin.crName = "my-topic"
@@ -144,11 +143,11 @@ unit_configResourceTypes = testCase "ConfigResource types" $ do
         , Admin.crName = "1"
         }
   
-  Admin.crType topicResource @?= Admin.ConfigResourceTopic
-  Admin.crName topicResource @?= "my-topic"
+  Admin.crType topicResource `shouldBe` Admin.ConfigResourceTopic
+  Admin.crName topicResource `shouldBe` "my-topic"
   
-  Admin.crType brokerResource @?= Admin.ConfigResourceBroker
-  Admin.crName brokerResource @?= "1"
+  Admin.crType brokerResource `shouldBe` Admin.ConfigResourceBroker
+  Admin.crName brokerResource `shouldBe` "1"
 
 -- | Test ConfigEntry structure
 prop_configEntry :: Property
@@ -227,17 +226,17 @@ prop_partitionInfoISR = property $ do
   assert $ length (Admin.piIsr partInfo) <= length (Admin.piReplicas partInfo)
 
 -- | Test empty consumer group (no members)
-unit_emptyConsumerGroup :: TestTree
-unit_emptyConsumerGroup = testCase "Empty consumer group" $ do
+unit_emptyConsumerGroup :: Spec
+unit_emptyConsumerGroup = it "Empty consumer group" $ do
   let groupDesc = Admin.ConsumerGroupDescription
         { Admin.cgdGroupId = "empty-group"
         , Admin.cgdState = "Empty"
         , Admin.cgdMembers = []
         }
   
-  Admin.cgdGroupId groupDesc @?= "empty-group"
-  Admin.cgdState groupDesc @?= "Empty"
-  null (Admin.cgdMembers groupDesc) @?= True
+  Admin.cgdGroupId groupDesc `shouldBe` "empty-group"
+  Admin.cgdState groupDesc `shouldBe` "Empty"
+  null (Admin.cgdMembers groupDesc) `shouldBe` True
 
 ----------------------------------------------------------------------
 -- DescribeConfigs response decoding
@@ -283,111 +282,111 @@ mkEntry' nm mval ro sen src = DCResp.DescribeConfigsResourceResult
   , DCResp.describeConfigsResourceResultDocumentation = P.mkKafkaString ""
   }
 
-unit_decodeResourceTypeCode_known :: TestTree
+unit_decodeResourceTypeCode_known :: Spec
 unit_decodeResourceTypeCode_known =
-  testCase "decodeResourceTypeCode: 2/4/8 round-trip to Topic/Broker/BrokerLogger" $ do
-    Admin.decodeResourceTypeCode 2 @?= Admin.ConfigResourceTopic
-    Admin.decodeResourceTypeCode 4 @?= Admin.ConfigResourceBroker
-    Admin.decodeResourceTypeCode 8 @?= Admin.ConfigResourceBrokerLogger
+  it "decodeResourceTypeCode: 2/4/8 round-trip to Topic/Broker/BrokerLogger" $ do
+    Admin.decodeResourceTypeCode 2 `shouldBe` Admin.ConfigResourceTopic
+    Admin.decodeResourceTypeCode 4 `shouldBe` Admin.ConfigResourceBroker
+    Admin.decodeResourceTypeCode 8 `shouldBe` Admin.ConfigResourceBrokerLogger
 
-unit_decodeResourceTypeCode_unknown_falls_back :: TestTree
+unit_decodeResourceTypeCode_unknown_falls_back :: Spec
 unit_decodeResourceTypeCode_unknown_falls_back =
-  testCase "decodeResourceTypeCode: unknown code falls back to Topic" $ do
-    Admin.decodeResourceTypeCode (-1) @?= Admin.ConfigResourceTopic
-    Admin.decodeResourceTypeCode 99   @?= Admin.ConfigResourceTopic
+  it "decodeResourceTypeCode: unknown code falls back to Topic" $ do
+    Admin.decodeResourceTypeCode (-1) `shouldBe` Admin.ConfigResourceTopic
+    Admin.decodeResourceTypeCode 99   `shouldBe` Admin.ConfigResourceTopic
 
-unit_unpackConfigEntry_default_value :: TestTree
+unit_unpackConfigEntry_default_value :: Spec
 unit_unpackConfigEntry_default_value =
-  testCase "unpackConfigEntry: ConfigSource=5 (DEFAULT_CONFIG) sets ceIsDefault=True" $ do
+  it "unpackConfigEntry: ConfigSource=5 (DEFAULT_CONFIG) sets ceIsDefault=True" $ do
     let e = Admin.unpackConfigEntry $
               mkEntry' "retention.ms" (Just "604800000") False False 5
-    Admin.ceName e      @?= "retention.ms"
-    Admin.ceValue e     @?= Just "604800000"
-    Admin.ceReadOnly e  @?= False
-    Admin.ceIsDefault e @?= True
-    Admin.ceSensitive e @?= False
+    Admin.ceName e      `shouldBe` "retention.ms"
+    Admin.ceValue e     `shouldBe` Just "604800000"
+    Admin.ceReadOnly e  `shouldBe` False
+    Admin.ceIsDefault e `shouldBe` True
+    Admin.ceSensitive e `shouldBe` False
 
-unit_unpackConfigEntry_topic_override :: TestTree
+unit_unpackConfigEntry_topic_override :: Spec
 unit_unpackConfigEntry_topic_override =
-  testCase "unpackConfigEntry: ConfigSource=1 (TOPIC_CONFIG) sets ceIsDefault=False" $ do
+  it "unpackConfigEntry: ConfigSource=1 (TOPIC_CONFIG) sets ceIsDefault=False" $ do
     let e = Admin.unpackConfigEntry $
               mkEntry' "cleanup.policy" (Just "compact") False False 1
-    Admin.ceIsDefault e @?= False
+    Admin.ceIsDefault e `shouldBe` False
 
-unit_unpackConfigEntry_null_value :: TestTree
+unit_unpackConfigEntry_null_value :: Spec
 unit_unpackConfigEntry_null_value =
-  testCase "unpackConfigEntry: null KafkaString value yields ceValue=Nothing" $ do
+  it "unpackConfigEntry: null KafkaString value yields ceValue=Nothing" $ do
     let e = Admin.unpackConfigEntry $
               mkEntry' "leader.replication.throttled.replicas" Nothing True False 5
-    Admin.ceValue e    @?= Nothing
-    Admin.ceReadOnly e @?= True
+    Admin.ceValue e    `shouldBe` Nothing
+    Admin.ceReadOnly e `shouldBe` True
 
-unit_unpackConfigEntry_sensitive :: TestTree
+unit_unpackConfigEntry_sensitive :: Spec
 unit_unpackConfigEntry_sensitive =
-  testCase "unpackConfigEntry: sensitive flag is propagated" $ do
+  it "unpackConfigEntry: sensitive flag is propagated" $ do
     let e = Admin.unpackConfigEntry $
               mkEntry' "ssl.keystore.password" (Just "redacted") False True 4
-    Admin.ceSensitive e @?= True
+    Admin.ceSensitive e `shouldBe` True
 
-unit_unpackResourceResult_success :: TestTree
+unit_unpackResourceResult_success :: Spec
 unit_unpackResourceResult_success =
-  testCase "unpackResourceResult: errorCode=0 -> crrError=Nothing" $ do
+  it "unpackResourceResult: errorCode=0 -> crrError=Nothing" $ do
     let r = Admin.unpackResourceResult $
               mkResult 2 "my-topic" 0 ""
                 [ mkEntry' "retention.ms" (Just "604800000") False False 5
                 , mkEntry' "cleanup.policy" (Just "compact")  False False 1
                 ]
-    Admin.crType (Admin.crrResource r) @?= Admin.ConfigResourceTopic
-    Admin.crName (Admin.crrResource r) @?= "my-topic"
-    Admin.crrError r                   @?= Nothing
-    length (Admin.crrEntries r)        @?= 2
+    Admin.crType (Admin.crrResource r) `shouldBe` Admin.ConfigResourceTopic
+    Admin.crName (Admin.crrResource r) `shouldBe` "my-topic"
+    Admin.crrError r                   `shouldBe` Nothing
+    length (Admin.crrEntries r)        `shouldBe` 2
 
-unit_unpackResourceResult_error_with_message :: TestTree
+unit_unpackResourceResult_error_with_message :: Spec
 unit_unpackResourceResult_error_with_message =
-  testCase "unpackResourceResult: non-zero errorCode + message surface in crrError" $ do
+  it "unpackResourceResult: non-zero errorCode + message surface in crrError" $ do
     let r = Admin.unpackResourceResult $
               mkResult 4 "1" 41 "broker not authorized" []
-    Admin.crrError r @?= Just "broker not authorized"
-    Admin.crrEntries r @?= []
+    Admin.crrError r `shouldBe` Just "broker not authorized"
+    Admin.crrEntries r `shouldBe` []
 
-unit_unpackResourceResult_error_blank_message :: TestTree
+unit_unpackResourceResult_error_blank_message :: Spec
 unit_unpackResourceResult_error_blank_message =
-  testCase "unpackResourceResult: non-zero errorCode + blank message synthesises 'Error code N'" $ do
+  it "unpackResourceResult: non-zero errorCode + blank message synthesises 'Error code N'" $ do
     let r = Admin.unpackResourceResult $
               mkResult 2 "topic-x" 3 ""    -- 3 = UNKNOWN_TOPIC_OR_PARTITION
                 []
-    Admin.crrError r @?= Just "Error code 3"
+    Admin.crrError r `shouldBe` Just "Error code 3"
 
-unit_unpackResourceResult_preserves_entry_order :: TestTree
+unit_unpackResourceResult_preserves_entry_order :: Spec
 unit_unpackResourceResult_preserves_entry_order =
-  testCase "unpackResourceResult preserves the order of entries returned by the broker" $ do
+  it "unpackResourceResult preserves the order of entries returned by the broker" $ do
     let r = Admin.unpackResourceResult $
               mkResult 2 "ordered" 0 ""
                 [ mkEntry' "a" (Just "1") False False 5
                 , mkEntry' "b" (Just "2") False False 5
                 , mkEntry' "c" (Just "3") False False 5
                 ]
-    map Admin.ceName (Admin.crrEntries r) @?= ["a", "b", "c"]
+    map Admin.ceName (Admin.crrEntries r) `shouldBe` ["a", "b", "c"]
 
-tests :: TestTree
-tests = testGroup "AdminClient (KIP-117)"
-  [ testGroup "Properties"
-      [ testProperty "NewTopic creation" prop_newTopicCreation
-      , testProperty "NewTopic with configs" prop_newTopicWithConfigs
-      , testProperty "ConsumerGroupListing" prop_consumerGroupListing
-      , testProperty "ConfigEntry" prop_configEntry
-      , testProperty "Partition count positive" prop_partitionCountPositive
-      , testProperty "Replication factor positive" prop_replicationFactorPositive
-      , testProperty "Partition ISR subset of replicas" prop_partitionInfoISR
+tests :: Spec
+tests = describe "AdminClient (KIP-117)" $ sequence_
+  [ describe "Properties" $ sequence_
+      [ it "NewTopic creation" prop_newTopicCreation
+      , it "NewTopic with configs" prop_newTopicWithConfigs
+      , it "ConsumerGroupListing" prop_consumerGroupListing
+      , it "ConfigEntry" prop_configEntry
+      , it "Partition count positive" prop_partitionCountPositive
+      , it "Replication factor positive" prop_replicationFactorPositive
+      , it "Partition ISR subset of replicas" prop_partitionInfoISR
       ]
-  , testGroup "Unit Tests"
+  , describe "Unit Tests" $ sequence_
       [ unit_defaultConfig
       , unit_topicDescription
       , unit_consumerGroupDescription
       , unit_configResourceTypes
       , unit_emptyConsumerGroup
       ]
-  , testGroup "describeConfigs unwrap"
+  , describe "describeConfigs unwrap" $ sequence_
       [ unit_decodeResourceTypeCode_known
       , unit_decodeResourceTypeCode_unknown_falls_back
       , unit_unpackConfigEntry_default_value

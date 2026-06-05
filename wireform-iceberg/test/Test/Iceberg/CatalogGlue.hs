@@ -8,8 +8,7 @@ import Data.Map.Strict (Map)
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Catalog.Glue
 
@@ -78,63 +77,63 @@ mkCat = do
 -- Tests
 -- ============================================================
 
-tests :: TestTree
-tests = testGroup "Iceberg.Catalog.Glue"
-  [ testCase "createTable + currentMetadataLocation" $ do
+tests :: Spec
+tests = describe "Iceberg.Catalog.Glue" $ sequence_
+  [ it "createTable + currentMetadataLocation" $ do
       (cat, _) <- mkCat
       r <- createTable cat "orders" "s3://b/m/v0.json" "s3://b/orders/"
-      r @?= Right ()
+      r `shouldBe` Right ()
       loc <- currentMetadataLocation cat "orders"
-      loc @?= Just "s3://b/m/v0.json"
+      loc `shouldBe` Just "s3://b/m/v0.json"
 
-  , testCase "createTable rejects duplicates" $ do
+  , it "createTable rejects duplicates" $ do
       (cat, _) <- mkCat
       _ <- createTable cat "orders" "s3://b/m/v0.json" "s3://b/orders/"
       r <- createTable cat "orders" "s3://b/m/v0.json" "s3://b/orders/"
       case r of
         Left (GlueTableAlreadyExists _) -> pure ()
-        other -> assertFailure ("expected GlueTableAlreadyExists, got "
+        other -> expectationFailure ("expected GlueTableAlreadyExists, got "
                                   ++ show other)
 
-  , testCase "commitTable: happy path" $ do
+  , it "commitTable: happy path" $ do
       (cat, _) <- mkCat
       _ <- createTable cat "orders" "s3://b/m/v0.json" "s3://b/orders/"
       r <- commitTable cat "orders"
                        (Just "s3://b/m/v0.json") "s3://b/m/v1.json"
-      r @?= Right ()
+      r `shouldBe` Right ()
       loc <- currentMetadataLocation cat "orders"
-      loc @?= Just "s3://b/m/v1.json"
+      loc `shouldBe` Just "s3://b/m/v1.json"
 
-  , testCase "commitTable: rejects stale CAS" $ do
+  , it "commitTable: rejects stale CAS" $ do
       (cat, _) <- mkCat
       _ <- createTable cat "orders" "s3://b/m/v0.json" "s3://b/orders/"
       _ <- commitTable cat "orders" (Just "s3://b/m/v0.json") "s3://b/m/v1.json"
       r <- commitTable cat "orders" (Just "s3://b/m/v0.json") "s3://b/m/v2.json"
       case r of
         Left (GlueCommitConflict _) -> pure ()
-        other -> assertFailure ("expected GlueCommitConflict, got "
+        other -> expectationFailure ("expected GlueCommitConflict, got "
                                   ++ show other)
 
-  , testCase "commitTable: GlueNoSuchTable for missing table" $ do
+  , it "commitTable: GlueNoSuchTable for missing table" $ do
       (cat, _) <- mkCat
       r <- commitTable cat "ghost" Nothing "s3://b/m/v1.json"
       case r of
         Left (GlueNoSuchTable _) -> pure ()
-        other -> assertFailure ("expected GlueNoSuchTable, got "
+        other -> expectationFailure ("expected GlueNoSuchTable, got "
                                   ++ show other)
 
-  , testCase "icebergParameters / parseIcebergParameters round-trip" $ do
+  , it "icebergParameters / parseIcebergParameters round-trip" $ do
       let params = icebergParameters "s3://b/m/v3.json" (Just "s3://b/m/v2.json")
-      Map.lookup "table_type" params @?= Just "ICEBERG"
-      Map.lookup "metadata_location" params @?= Just "s3://b/m/v3.json"
+      Map.lookup "table_type" params `shouldBe` Just "ICEBERG"
+      Map.lookup "metadata_location" params `shouldBe` Just "s3://b/m/v3.json"
       parseIcebergParameters params
-        @?= Just ("s3://b/m/v3.json", Just "s3://b/m/v2.json")
+        `shouldBe` Just ("s3://b/m/v3.json", Just "s3://b/m/v2.json")
 
-  , testCase "parseIcebergParameters rejects non-ICEBERG tables" $ do
+  , it "parseIcebergParameters rejects non-ICEBERG tables" $ do
       let params = Map.fromList [("table_type", "HIVE_TABLE")]
-      parseIcebergParameters params @?= Nothing
+      parseIcebergParameters params `shouldBe` Nothing
 
-  , testCase "currentMetadataLocation skips non-ICEBERG tables" $ do
+  , it "currentMetadataLocation skips non-ICEBERG tables" $ do
       ref <- newIORef Map.empty
       let cat = mkGlueCatalog "db" (memBackend ref)
           hiveTable = GlueTable "hive_t" "db" "s3://b/h/" "EXTERNAL_TABLE"
@@ -142,24 +141,24 @@ tests = testGroup "Iceberg.Catalog.Glue"
                        (Map.fromList [("table_type", "HIVE_TABLE")])
       writeIORef ref (Map.singleton ("db", "hive_t") hiveTable)
       loc <- currentMetadataLocation cat "hive_t"
-      loc @?= Nothing
+      loc `shouldBe` Nothing
 
-  , testCase "listTables returns names" $ do
+  , it "listTables returns names" $ do
       (cat, _) <- mkCat
       _ <- createTable cat "a" "s3://b/m/a.json" "s3://b/a/"
       _ <- createTable cat "b" "s3://b/m/b.json" "s3://b/b/"
       r <- listTables cat
       case r of
         Right names -> do
-          length (V.toList names) @?= 2
-          ("a" `elem` V.toList names) @?= True
-          ("b" `elem` V.toList names) @?= True
-        Left e -> assertFailure (show e)
+          length (V.toList names) `shouldBe` 2
+          ("a" `elem` V.toList names) `shouldBe` True
+          ("b" `elem` V.toList names) `shouldBe` True
+        Left e -> expectationFailure (show e)
 
-  , testCase "dropTable removes the row" $ do
+  , it "dropTable removes the row" $ do
       (cat, _) <- mkCat
       _ <- createTable cat "tmp" "s3://b/m/tmp.json" "s3://b/tmp/"
       _ <- dropTable cat "tmp"
       loc <- currentMetadataLocation cat "tmp"
-      loc @?= Nothing
+      loc `shouldBe` Nothing
   ]

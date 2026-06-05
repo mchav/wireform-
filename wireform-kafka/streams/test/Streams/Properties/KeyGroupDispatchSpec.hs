@@ -29,9 +29,8 @@ import Data.Set (Set)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -97,21 +96,21 @@ totalProcessed pool = do
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_no_assignment_drops :: TestTree
+unit_no_assignment_drops :: Spec
 unit_no_assignment_drops =
-  testCase "submitRecordKeyGrouped: no assignment -> records dropped" $ do
+  it "submitRecordKeyGrouped: no assignment -> records dropped" $ do
     pool <- mkPool 2
     -- No updateKeyGroupAssignment call.
     submitRecordKeyGrouped pool "in" (Just (bytes "k0"))
                             (bytes "v") (Timestamp 0) 0
     waitForQuiescence pool
     processed <- totalProcessed pool
-    processed @?= 0
+    processed `shouldBe` 0
     closeWorkerPool pool
 
-unit_assignment_routes :: TestTree
+unit_assignment_routes :: Spec
 unit_assignment_routes =
-  testCase "after updateKeyGroupAssignment, records process" $ do
+  it "after updateKeyGroupAssignment, records process" $ do
     pool <- mkPool 2
     updateKeyGroupAssignment pool ownEverything
     forM_ [0 .. 9 :: Int] $ \i ->
@@ -119,7 +118,7 @@ unit_assignment_routes =
         (Just (bytes ("k" <> show i))) (bytes "v") (Timestamp 0) 0
     waitForQuiescence pool
     processed <- totalProcessed pool
-    processed @?= 10
+    processed `shouldBe` 10
     closeWorkerPool pool
 
 ----------------------------------------------------------------------
@@ -180,26 +179,26 @@ prop_dispatch_uses_owned_workers = H.property $ do
 -- Sanity: hashing matches
 ----------------------------------------------------------------------
 
-unit_keyGroupOfBytes_matches_keyGroupOf :: TestTree
+unit_keyGroupOfBytes_matches_keyGroupOf :: Spec
 unit_keyGroupOfBytes_matches_keyGroupOf =
-  testCase "keyGroupOfBytes default config bounds match KeyGroupCount" $ do
+  it "keyGroupOfBytes default config bounds match KeyGroupCount" $ do
     let cfg = defaultKeyGroupConfig
         kg  = keyGroupOfBytes cfg (bytes "anything")
         KeyGroupCount n = KG.kgcTotal cfg
         KeyGroupId k    = kg
-    True @?= (k >= 0 && k < n)
+    True `shouldBe` (k >= 0 && k < n)
 
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Key-group dispatch"
+tests :: Spec
+tests = describe "Key-group dispatch" $ sequence_
   [ unit_no_assignment_drops
   , unit_assignment_routes
   , unit_keyGroupOfBytes_matches_keyGroupOf
-  , testProperty "same key always lands on same worker" $
+  , it "same key always lands on same worker" $
       H.withTests 60 prop_sticky_per_key
-  , testProperty "dispatch sums to total submits (no drops)" $
+  , it "dispatch sums to total submits (no drops)" $
       H.withTests 50 prop_dispatch_uses_owned_workers
   ]

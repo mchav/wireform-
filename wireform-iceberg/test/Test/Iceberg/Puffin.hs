@@ -3,14 +3,13 @@ module Test.Iceberg.Puffin (tests) where
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Puffin
 
-tests :: TestTree
-tests = testGroup "Iceberg.Puffin"
-  [ testCase "writePuffin -> readPuffin round-trips one blob" $ do
+tests :: Spec
+tests = describe "Iceberg.Puffin" $ sequence_
+  [ it "writePuffin -> readPuffin round-trips one blob" $ do
       let blob = PuffinBlob
             { pbType = "deletion-vector-v1"
             , pbFields = V.singleton 1
@@ -23,15 +22,15 @@ tests = testGroup "Iceberg.Puffin"
           footer = PuffinFooter (V.singleton blob) Map.empty
           bs = writePuffin footer
       case readPuffin bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right pf -> do
-          V.length (pfBlobs pf) @?= 1
+          V.length (pfBlobs pf) `shouldBe` 1
           let b = V.unsafeIndex (pfBlobs pf) 0
-          pbType b @?= "deletion-vector-v1"
-          pbData b @?= BS.pack [1, 2, 3, 4, 5]
-          pbProperties b @?= Map.fromList [("k", "v")]
+          pbType b `shouldBe` "deletion-vector-v1"
+          pbData b `shouldBe` BS.pack [1, 2, 3, 4, 5]
+          pbProperties b `shouldBe` Map.fromList [("k", "v")]
 
-  , testCase "writePuffin -> readPuffin round-trips multiple blobs" $ do
+  , it "writePuffin -> readPuffin round-trips multiple blobs" $ do
       let mkBlob i bs = PuffinBlob
             { pbType = "test"
             , pbFields = V.singleton i
@@ -48,10 +47,10 @@ tests = testGroup "Iceberg.Puffin"
             ]
           bs = writePuffin (PuffinFooter blobs Map.empty)
       case readPuffin bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right pf -> do
-          V.length (pfBlobs pf) @?= 3
-          V.toList (V.map pbData (pfBlobs pf)) @?=
+          V.length (pfBlobs pf) `shouldBe` 3
+          V.toList (V.map pbData (pfBlobs pf)) `shouldBe`
             [ BS.pack [10, 20, 30]
             , BS.pack [40, 50, 60, 70]
             , BS.pack [80]

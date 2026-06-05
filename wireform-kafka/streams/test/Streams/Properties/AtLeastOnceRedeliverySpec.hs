@@ -38,8 +38,8 @@ import Data.Text (Text)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -242,12 +242,12 @@ multisetSubsetOf a b =
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "AtLeastOnce redelivery"
-  [ testProperty "no rewind: output multiset equals input multiset" $
+tests :: Spec
+tests = describe "AtLeastOnce redelivery" $ sequence_
+  [ it "no rewind: output multiset equals input multiset" $
       H.withTests 80 prop_no_rewind_is_exact
-  , testProperty "induced redelivery: output multiset is superset of input" $
+  , it "induced redelivery: output multiset is superset of input" $
       H.withTests 80 prop_redelivery_is_superset
-  , testProperty "redelivery count is bounded by rewind distance" $
+  , it "redelivery count is bounded by rewind distance" $
       H.withTests 60 prop_redelivery_count_is_bounded
   ]

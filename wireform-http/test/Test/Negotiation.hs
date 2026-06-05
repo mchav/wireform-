@@ -10,53 +10,52 @@ module Test.Negotiation (tests) where
 
 import qualified Data.List.NonEmpty as NE
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP.VersionRange
 import qualified Network.HTTP.Types.Version as V
 
-tests :: TestTree
-tests = testGroup "VersionRange"
+tests :: Spec
+tests = describe "VersionRange" $ sequence_
   [ namedRanges
   , alpnLists
   , membership
   , alpnRoundTrips
   ]
 
-namedRanges :: TestTree
-namedRanges = testCase "named ranges have the documented preference order" $ do
-  NE.toList (versionRangeList anyVersion) @?= [V.HTTP2, V.HTTP1_1, V.HTTP1_0]
-  NE.toList (versionRangeList http2Only)  @?= [V.HTTP2]
-  NE.toList (versionRangeList http1Only)  @?= [V.HTTP1_1, V.HTTP1_0]
-  NE.toList (versionRangeList preferHttp2) @?= [V.HTTP2, V.HTTP1_1, V.HTTP1_0]
-  NE.toList (versionRangeList preferHttp1) @?= [V.HTTP1_1, V.HTTP2, V.HTTP1_0]
-  NE.toList (versionRangeList http2OrHttp11) @?= [V.HTTP2, V.HTTP1_1]
-  preferredVersion http2Only   @?= V.HTTP2
-  preferredVersion preferHttp1 @?= V.HTTP1_1
+namedRanges :: Spec
+namedRanges = it "named ranges have the documented preference order" $ do
+  NE.toList (versionRangeList anyVersion) `shouldBe` [V.HTTP2, V.HTTP1_1, V.HTTP1_0]
+  NE.toList (versionRangeList http2Only)  `shouldBe` [V.HTTP2]
+  NE.toList (versionRangeList http1Only)  `shouldBe` [V.HTTP1_1, V.HTTP1_0]
+  NE.toList (versionRangeList preferHttp2) `shouldBe` [V.HTTP2, V.HTTP1_1, V.HTTP1_0]
+  NE.toList (versionRangeList preferHttp1) `shouldBe` [V.HTTP1_1, V.HTTP2, V.HTTP1_0]
+  NE.toList (versionRangeList http2OrHttp11) `shouldBe` [V.HTTP2, V.HTTP1_1]
+  preferredVersion http2Only   `shouldBe` V.HTTP2
+  preferredVersion preferHttp1 `shouldBe` V.HTTP1_1
 
-alpnLists :: TestTree
-alpnLists = testCase "ALPN protocol lists mirror the range's preference order" $ do
-  versionAlpnProtocols http2Only      @?= ["h2"]
-  versionAlpnProtocols http1Only      @?= ["http/1.1", "http/1.0"]
-  versionAlpnProtocols http2OrHttp11  @?= ["h2", "http/1.1"]
-  versionAlpnProtocols preferHttp1    @?= ["http/1.1", "h2", "http/1.0"]
+alpnLists :: Spec
+alpnLists = it "ALPN protocol lists mirror the range's preference order" $ do
+  versionAlpnProtocols http2Only      `shouldBe` ["h2"]
+  versionAlpnProtocols http1Only      `shouldBe` ["http/1.1", "http/1.0"]
+  versionAlpnProtocols http2OrHttp11  `shouldBe` ["h2", "http/1.1"]
+  versionAlpnProtocols preferHttp1    `shouldBe` ["http/1.1", "h2", "http/1.0"]
 
-membership :: TestTree
-membership = testCase "versionAllowed matches the constructor's allowlist" $ do
-  versionAllowed V.HTTP2 http2Only @?= True
-  versionAllowed V.HTTP1_1 http2Only @?= False
-  versionAllowed V.HTTP1_1 http1Only @?= True
-  versionAllowed V.HTTP2 http1Only @?= False
-  versionAllowed V.HTTP1_0 http1Only @?= True
-  versionAllowed V.HTTP3 anyVersion @?= False
+membership :: Spec
+membership = it "versionAllowed matches the constructor's allowlist" $ do
+  versionAllowed V.HTTP2 http2Only `shouldBe` True
+  versionAllowed V.HTTP1_1 http2Only `shouldBe` False
+  versionAllowed V.HTTP1_1 http1Only `shouldBe` True
+  versionAllowed V.HTTP2 http1Only `shouldBe` False
+  versionAllowed V.HTTP1_0 http1Only `shouldBe` True
+  versionAllowed V.HTTP3 anyVersion `shouldBe` False
 
-alpnRoundTrips :: TestTree
-alpnRoundTrips = testCase "alpnForVersion / versionForAlpn are inverses" $ do
-  alpnForVersion V.HTTP2 @?= Just "h2"
-  alpnForVersion V.HTTP1_1 @?= Just "http/1.1"
-  alpnForVersion V.HTTP1_0 @?= Just "http/1.0"
-  alpnForVersion V.HTTP3 @?= Nothing
-  versionForAlpn "h2" @?= Just V.HTTP2
-  versionForAlpn "http/1.1" @?= Just V.HTTP1_1
-  versionForAlpn "h2c" @?= Nothing
+alpnRoundTrips :: Spec
+alpnRoundTrips = it "alpnForVersion / versionForAlpn are inverses" $ do
+  alpnForVersion V.HTTP2 `shouldBe` Just "h2"
+  alpnForVersion V.HTTP1_1 `shouldBe` Just "http/1.1"
+  alpnForVersion V.HTTP1_0 `shouldBe` Just "http/1.0"
+  alpnForVersion V.HTTP3 `shouldBe` Nothing
+  versionForAlpn "h2" `shouldBe` Just V.HTTP2
+  versionForAlpn "http/1.1" `shouldBe` Just V.HTTP1_1
+  versionForAlpn "h2c" `shouldBe` Nothing

@@ -36,8 +36,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool, assertFailure)
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as Consumer
 import qualified Kafka.Client.Producer as Producer
@@ -53,15 +52,15 @@ sourceTopic, sinkTopic :: T.Text
 sourceTopic = "wireform-kafka-txn-source"
 sinkTopic   = "wireform-kafka-txn-sink"
 
-tests :: TestTree
-tests = testGroup "Transactional producer (live broker)"
-  [ testCase "produce + commitTransaction -> visible to read-committed"
+tests :: Spec
+tests = describe "Transactional producer (live broker)" $ sequence_
+  [ it "produce + commitTransaction -> visible to read-committed"
       txn_commit_visible
-  , testCase "produce + abortTransaction -> invisible to read-committed"
+  , it "produce + abortTransaction -> invisible to read-committed"
       txn_abort_invisible
-  , testCase "second producer with same transactional.id fences the first"
+  , it "second producer with same transactional.id fences the first"
       txn_fences_old_producer
-  , testCase "sendOffsetsToTransaction commits offsets atomically"
+  , it "sendOffsetsToTransaction commits offsets atomically"
       txn_send_offsets_atomically
   ]
 
@@ -153,23 +152,22 @@ txn_commit_visible = do
   withTxnProducer txId $ \p txn -> do
     beginR <- Txn.beginTransaction txn
     case beginR of
-      Left e -> assertFailure ("beginTransaction: " <> show e)
+      Left e -> expectationFailure ("beginTransaction: " <> show e)
       Right () -> pure ()
     sendR <- Producer.sendMessage p sinkTopic Nothing value
     case sendR of
-      Left err -> assertFailure ("sendMessage: " <> err)
+      Left err -> expectationFailure ("sendMessage: " <> err)
       Right _  -> pure ()
     commitR <- Txn.commitTransaction txn
     case commitR of
-      Left e -> assertFailure ("commitTransaction: " <> show e)
+      Left e -> expectationFailure ("commitTransaction: " <> show e)
       Right () -> pure ()
   -- Read back with a read-committed consumer.
   c <- mkRcConsumer "wfkafka-txn-commit-visible-rc" sinkTopic 0
   threadDelay 500_000
   vs <- drainValues c 10
   Consumer.closeConsumer c
-  assertBool ("expected to find " <> show value <> " in " <> show vs)
-             (value `elem` vs)
+  (if (value `elem` vs) then pure () else expectationFailure ("expected to find " <> show value <> " in " <> show vs))
 
 txn_abort_invisible :: IO ()
 txn_abort_invisible = do
@@ -184,8 +182,7 @@ txn_abort_invisible = do
   threadDelay 500_000
   vs <- drainValues c 10
   Consumer.closeConsumer c
-  assertBool ("did not expect " <> show value <> " but saw " <> show vs)
-             (notElem value vs)
+  (if (notElem value vs) then pure () else expectationFailure ("did not expect " <> show value <> " but saw " <> show vs))
 
 txn_fences_old_producer :: IO ()
 txn_fences_old_producer = do
@@ -201,7 +198,7 @@ txn_fences_old_producer = do
     sendR <- Producer.sendMessage p1 sinkTopic Nothing (BSC.pack "second")
     case sendR of
       Left _err -> pure ()
-      Right _   -> assertFailure
+      Right _   -> expectationFailure
         "expected the first producer's send to be rejected after \
         \the second producer fenced it"
     -- Tidy up the second-producer side via the txn handle.
@@ -216,7 +213,7 @@ txn_send_offsets_atomically = do
   -- Seed an input message.
   pSeed <- Producer.createProducer brokers Producer.defaultProducerConfig
   case pSeed of
-    Left err -> assertFailure ("seed producer: " <> err)
+    Left err -> expectationFailure ("seed producer: " <> err)
     Right p  -> do
       _ <- Producer.sendMessage p sourceTopic Nothing payload
       Producer.closeProducer p
@@ -227,7 +224,7 @@ txn_send_offsets_atomically = do
   if not (payload `elem` vs)
     then do
       Consumer.closeConsumer src
-      assertFailure
+      expectationFailure
         "could not read the seed message from sourceTopic — \
         \is wireform-kafka-txn-source created and routed to \
         \partition 0?"

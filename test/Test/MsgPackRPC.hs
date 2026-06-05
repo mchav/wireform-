@@ -6,16 +6,15 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import MsgPack.Encode (encode)
 import MsgPack.RPC (RPCMessage(..), encodeRPC, decodeRPC)
 import qualified MsgPack.Value as MV
 
-msgPackRPCTests :: TestTree
-msgPackRPCTests = testGroup "MsgPack RPC"
+msgPackRPCTests :: Spec
+msgPackRPCTests = describe "MsgPack RPC" $ sequence_
   [ requestRoundtrip
   , responseRoundtrip
   , notificationRoundtrip
@@ -23,9 +22,9 @@ msgPackRPCTests = testGroup "MsgPack RPC"
   , errorTests
   ]
 
-requestRoundtrip :: TestTree
-requestRoundtrip = testGroup "Request roundtrip"
-  [ testProperty "request roundtrip" $ property $ do
+requestRoundtrip :: Spec
+requestRoundtrip = describe "Request roundtrip" $ sequence_
+  [ it "request roundtrip" $ property $ do
       msgid <- forAll $ Gen.word32 Range.linearBounded
       method <- forAll $ Gen.text (Range.linear 1 50) Gen.alphaNum
       nparams <- forAll $ Gen.int (Range.linear 0 10)
@@ -34,29 +33,29 @@ requestRoundtrip = testGroup "Request roundtrip"
       decodeRPC (encodeRPC msg) === Right msg
   ]
 
-responseRoundtrip :: TestTree
-responseRoundtrip = testGroup "Response roundtrip"
-  [ testProperty "response with result" $ property $ do
+responseRoundtrip :: Spec
+responseRoundtrip = describe "Response roundtrip" $ sequence_
+  [ it "response with result" $ property $ do
       msgid <- forAll $ Gen.word32 Range.linearBounded
       result <- forAll genNonNilValue
       let msg = RPCResponse msgid Nothing (Just result)
       decodeRPC (encodeRPC msg) === Right msg
 
-  , testProperty "response with error" $ property $ do
+  , it "response with error" $ property $ do
       msgid <- forAll $ Gen.word32 Range.linearBounded
       err <- forAll genNonNilValue
       let msg = RPCResponse msgid (Just err) Nothing
       decodeRPC (encodeRPC msg) === Right msg
 
-  , testProperty "response with both nil" $ property $ do
+  , it "response with both nil" $ property $ do
       msgid <- forAll $ Gen.word32 Range.linearBounded
       let msg = RPCResponse msgid Nothing Nothing
       decodeRPC (encodeRPC msg) === Right msg
   ]
 
-notificationRoundtrip :: TestTree
-notificationRoundtrip = testGroup "Notification roundtrip"
-  [ testProperty "notification roundtrip" $ property $ do
+notificationRoundtrip :: Spec
+notificationRoundtrip = describe "Notification roundtrip" $ sequence_
+  [ it "notification roundtrip" $ property $ do
       method <- forAll $ Gen.text (Range.linear 1 50) Gen.alphaNum
       nparams <- forAll $ Gen.int (Range.linear 0 10)
       params <- forAll $ V.replicateM nparams genSimpleValue
@@ -64,45 +63,45 @@ notificationRoundtrip = testGroup "Notification roundtrip"
       decodeRPC (encodeRPC msg) === Right msg
   ]
 
-unitTests :: TestTree
-unitTests = testGroup "Unit tests"
-  [ testCase "request with no params" $ do
+unitTests :: Spec
+unitTests = describe "Unit tests" $ sequence_
+  [ it "request with no params" $ do
       let msg = RPCRequest 1 "add" V.empty
-      decodeRPC (encodeRPC msg) @?= Right msg
+      decodeRPC (encodeRPC msg) `shouldBe` Right msg
 
-  , testCase "request with params" $ do
+  , it "request with params" $ do
       let msg = RPCRequest 42 "echo" (V.fromList [MV.String "hello", MV.Word 123])
-      decodeRPC (encodeRPC msg) @?= Right msg
+      decodeRPC (encodeRPC msg) `shouldBe` Right msg
 
-  , testCase "response success" $ do
+  , it "response success" $ do
       let msg = RPCResponse 1 Nothing (Just (MV.Word 42))
-      decodeRPC (encodeRPC msg) @?= Right msg
+      decodeRPC (encodeRPC msg) `shouldBe` Right msg
 
-  , testCase "response error" $ do
+  , it "response error" $ do
       let msg = RPCResponse 1 (Just (MV.String "oops")) Nothing
-      decodeRPC (encodeRPC msg) @?= Right msg
+      decodeRPC (encodeRPC msg) `shouldBe` Right msg
 
-  , testCase "notification" $ do
+  , it "notification" $ do
       let msg = RPCNotification "update" (V.fromList [MV.Bool True])
-      decodeRPC (encodeRPC msg) @?= Right msg
+      decodeRPC (encodeRPC msg) `shouldBe` Right msg
   ]
 
-errorTests :: TestTree
-errorTests = testGroup "Error cases"
-  [ testCase "empty input" $
+errorTests :: Spec
+errorTests = describe "Error cases" $ sequence_
+  [ it "empty input" $
       case decodeRPC BS.empty of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on empty input"
+        Right _ -> expectationFailure "expected error on empty input"
 
-  , testCase "non-array top level" $
+  , it "non-array top level" $
       case decodeRPC (encode (MV.Word 42)) of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on non-array"
+        Right _ -> expectationFailure "expected error on non-array"
 
-  , testCase "wrong array length" $
+  , it "wrong array length" $
       case decodeRPC (encode (MV.Array (V.fromList [MV.Word 0, MV.Word 1]))) of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on wrong array length"
+        Right _ -> expectationFailure "expected error on wrong array length"
   ]
 
 genSimpleValue :: Gen MV.Value

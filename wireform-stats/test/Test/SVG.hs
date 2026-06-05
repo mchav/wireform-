@@ -3,17 +3,16 @@ module Test.SVG (tests) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Wireform.Stats.SVG as SVG
 
-tests :: TestTree
-tests = testGroup "SVG"
-  [ testCase "renders a non-trivial chart" rendersNontrivial
-  , testCase "light + dark differ"          lightDarkDiffer
-  , testCase "single-series chart works"    singleSeries
-  , testCase "empty chart still emits an svg root" emptyChart
+tests :: Spec
+tests = describe "SVG" $ sequence_
+  [ it "renders a non-trivial chart" rendersNontrivial
+  , it "light + dark differ"          lightDarkDiffer
+  , it "single-series chart works"    singleSeries
+  , it "empty chart still emits an svg root" emptyChart
   ]
 
 sampleChart :: SVG.BarChart
@@ -29,29 +28,24 @@ sampleChart = SVG.BarChart
   , SVG.chartHigherIsBetter = False
   }
 
-rendersNontrivial :: Assertion
+rendersNontrivial :: IO ()
 rendersNontrivial = do
   let svg = SVG.renderBarChart SVG.lightTheme sampleChart
-  assertBool "non-empty"
-    (BS.length svg > 256)
-  assertBool "starts with <?xml"
-    (BS.take 5 svg == BS8.pack "<?xml")
-  assertBool "contains <svg"
-    (BS8.pack "<svg" `BS.isInfixOf` svg)
-  assertBool "title text present"
-    (BS8.pack "wireform-cbor vs cborg" `BS.isInfixOf` svg)
-  assertBool "encode label present"
-    (BS8.pack "encode" `BS.isInfixOf` svg)
+  (BS.length svg > 256) `shouldBe` True
+  (BS.take 5 svg == BS8.pack "<?xml") `shouldBe` True
+  (BS8.pack "<svg" `BS.isInfixOf` svg) `shouldBe` True
+  (BS8.pack "wireform-cbor vs cborg" `BS.isInfixOf` svg) `shouldBe` True
+  (BS8.pack "encode" `BS.isInfixOf` svg) `shouldBe` True
 
-lightDarkDiffer :: Assertion
+lightDarkDiffer :: IO ()
 lightDarkDiffer = do
   let (l, d) = SVG.renderBarChartBoth sampleChart
-  assertBool "differ" (l /= d)
+  (l /= d) `shouldBe` True
   -- Light has a near-white background; dark has near-black.
-  assertBool "light has white bg" (BS8.pack "#ffffff" `BS.isInfixOf` l)
-  assertBool "dark has dark bg"   (BS8.pack "#0d1117" `BS.isInfixOf` d)
+  (BS8.pack "#ffffff" `BS.isInfixOf` l) `shouldBe` True
+  (BS8.pack "#0d1117" `BS.isInfixOf` d) `shouldBe` True
 
-singleSeries :: Assertion
+singleSeries :: IO ()
 singleSeries = do
   let chart = sampleChart
         { SVG.chartSeries =
@@ -59,10 +53,10 @@ singleSeries = do
         , SVG.chartGroups = ["a", "b", "c"]
         }
       svg = SVG.renderBarChart SVG.lightTheme chart
-  assertBool "renders" (BS.length svg > 256)
+  (BS.length svg > 256) `shouldBe` True
 
-emptyChart :: Assertion
+emptyChart :: IO ()
 emptyChart = do
   let chart = SVG.defaultGitHubBarChart "empty" "ns"
       svg = SVG.renderBarChart SVG.lightTheme chart
-  assertBool "renders an svg root" (BS8.pack "<svg" `BS.isInfixOf` svg)
+  (BS8.pack "<svg" `BS.isInfixOf` svg) `shouldBe` True

@@ -10,8 +10,7 @@ import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Mock.Cluster as MC
@@ -31,8 +30,8 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "MockDriverModes"
+tests :: Spec
+tests = describe "MockDriverModes" $ sequence_
   [ multi_partition_input
   , key_hashed_routing_to_output_partitions
   , eos_mode_round_trip_visible_to_read_committed
@@ -56,9 +55,9 @@ passthroughTopo = do
 -- Multi-partition routing
 ----------------------------------------------------------------------
 
-multi_partition_input :: TestTree
+multi_partition_input :: Spec
 multi_partition_input =
-  testCase "driver consumes from every partition of a 4-partition input" $ do
+  it "driver consumes from every partition of a 4-partition input" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -75,12 +74,12 @@ multi_partition_input =
     -- output record lands on partition 0 in this test.
     out0 <- map (unbytes . srValue)
               <$> dumpPartition cluster (topicName "out") 0
-    Set.fromList out0 @?= Set.fromList ["p0", "p1", "p2", "p3"]
+    Set.fromList out0 `shouldBe` Set.fromList ["p0", "p1", "p2", "p3"]
     closeMockDriver d
 
-key_hashed_routing_to_output_partitions :: TestTree
+key_hashed_routing_to_output_partitions :: Spec
 key_hashed_routing_to_output_partitions =
-  testCase "key-hashed routing distributes records across N output partitions" $ do
+  it "key-hashed routing distributes records across N output partitions" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -103,22 +102,21 @@ key_hashed_routing_to_output_partitions =
     counts <- mapM
       (\p -> length <$> dumpPartition cluster (topicName "out") p)
       [0, 1, 2]
-    sum counts @?= 6
+    sum counts `shouldBe` 6
     -- And at least two partitions should be non-empty (the hash
     -- function we use is FNV-style and very unlikely to map all
     -- six keys to the same bucket).
     let !nonEmpty = length (filter (> 0) counts)
-    assertBool ("expected >= 2 non-empty output partitions, got " <> show counts)
-               (nonEmpty >= 2)
+    (if (nonEmpty >= 2) then pure () else expectationFailure ("expected >= 2 non-empty output partitions, got " <> show counts))
     closeMockDriver d
 
 ----------------------------------------------------------------------
 -- EOS mode
 ----------------------------------------------------------------------
 
-eos_mode_round_trip_visible_to_read_committed :: TestTree
+eos_mode_round_trip_visible_to_read_committed :: Spec
 eos_mode_round_trip_visible_to_read_committed =
-  testCase "EOS mode: per-tick txn commit; read-committed consumer sees the output" $ do
+  it "EOS mode: per-tick txn commit; read-committed consumer sees the output" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -131,12 +129,12 @@ eos_mode_round_trip_visible_to_read_committed =
     cc <- newMockConsumer cluster fp (GroupId "ext") ReadCommitted 100
     subscribeMC cc [topicName "out"]
     PollResult rs _ <- pollMC cc
-    map (\(_, _, sr) -> unbytes (srValue sr)) rs @?= ["alpha", "bravo"]
+    map (\(_, _, sr) -> unbytes (srValue sr)) rs `shouldBe` ["alpha", "bravo"]
     closeMockDriver d
 
-eos_mode_commit_fault_aborts_records :: TestTree
+eos_mode_commit_fault_aborts_records :: Spec
 eos_mode_commit_fault_aborts_records =
-  testCase "EOS mode: a commitTxn fault aborts the tick; nothing is read-committed visible" $ do
+  it "EOS mode: a commitTxn fault aborts the tick; nothing is read-committed visible" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -152,14 +150,14 @@ eos_mode_commit_fault_aborts_records =
     cc <- newMockConsumer cluster fp (GroupId "ext") ReadCommitted 100
     subscribeMC cc [topicName "out"]
     PollResult rs _ <- pollMC cc
-    rs @?= []
+    rs `shouldBe` []
     -- The txn is aborted, not committed.
-    txnState cluster txn >>= (@?= Just TxnAborted)
+    txnState cluster txn >>= (`shouldBe` Just TxnAborted)
     closeMockDriver d
 
-eos_mode_recovers_after_aborted_tick :: TestTree
+eos_mode_recovers_after_aborted_tick :: Spec
 eos_mode_recovers_after_aborted_tick =
-  testCase "EOS mode: after an aborted tick, the next tick recommits cleanly" $ do
+  it "EOS mode: after an aborted tick, the next tick recommits cleanly" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -182,16 +180,16 @@ eos_mode_recovers_after_aborted_tick =
     subscribeMC cc [topicName "out"]
     PollResult rs _ <- pollMC cc
     -- Read-committed sees only the successfully-committed record.
-    map (\(_, _, sr) -> unbytes (srValue sr)) rs @?= ["second"]
+    map (\(_, _, sr) -> unbytes (srValue sr)) rs `shouldBe` ["second"]
     closeMockDriver d
 
 ----------------------------------------------------------------------
 -- Multi-driver rebalance
 ----------------------------------------------------------------------
 
-two_drivers_split_partitions_same_group :: TestTree
+two_drivers_split_partitions_same_group :: Spec
 two_drivers_split_partitions_same_group =
-  testCase "two drivers in the same group split a 4-partition input" $ do
+  it "two drivers in the same group split a 4-partition input" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -216,17 +214,17 @@ two_drivers_split_partitions_same_group =
     -- since both auto-generated ids are "consumer-N" with N
     -- monotonically increasing, the lower-N driver gets even
     -- partitions and the higher-N driver gets odd ones.
-    map snd aAsg @?= [0, 2]
-    map snd bAsg @?= [1, 3]
+    map snd aAsg `shouldBe` [0, 2]
+    map snd bAsg `shouldBe` [1, 3]
     -- Together they cover every partition.
     Set.fromList (aAsg ++ bAsg)
-      @?= Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
+      `shouldBe` Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
     closeMockDriver a
     closeMockDriver b
 
-driver_picks_up_partitions_after_sibling_leaves :: TestTree
+driver_picks_up_partitions_after_sibling_leaves :: Spec
 driver_picks_up_partitions_after_sibling_leaves =
-  testCase "after a sibling driver leaves, the remaining driver gets all partitions" $ do
+  it "after a sibling driver leaves, the remaining driver gets all partitions" $ do
     cluster <- newMockCluster 1
     fp      <- noFaults
     topo    <- passthroughTopo
@@ -238,6 +236,6 @@ driver_picks_up_partitions_after_sibling_leaves =
                    (consumerMemberId (driverConsumer b))
     refreshAssignment (driverConsumer a)
     asg <- L.sort <$> assignedPartitions (driverConsumer a)
-    map snd asg @?= [0, 1, 2, 3]
+    map snd asg `shouldBe` [0, 1, 2, 3]
     closeMockDriver a
     closeMockDriver b

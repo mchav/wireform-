@@ -4,36 +4,35 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Avro.Schema
 import Avro.Schema.Parse
 import Avro.JSON (avroSchemaToJSON, avroSchemaFromJSON)
 
-avroSchemaParseTests :: TestTree
-avroSchemaParseTests = testGroup "Avro Schema Parse"
-  [ testCase "parse primitive null" $ do
+avroSchemaParseTests :: Spec
+avroSchemaParseTests = describe "Avro Schema Parse" $ sequence_
+  [ it "parse primitive null" $ do
       case parseAvroSchema "\"null\"" of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroPrimitive AvroNull
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroPrimitive AvroNull
 
-  , testCase "parse primitive string" $ do
+  , it "parse primitive string" $ do
       case parseAvroSchema "\"string\"" of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroPrimitive AvroString
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroPrimitive AvroString
 
-  , testCase "parse primitive int" $ do
+  , it "parse primitive int" $ do
       case parseAvroSchema "\"int\"" of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroPrimitive AvroInt
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroPrimitive AvroInt
 
-  , testCase "parse primitive boolean" $ do
+  , it "parse primitive boolean" $ do
       case parseAvroSchema "\"boolean\"" of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroPrimitive AvroBool
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroPrimitive AvroBool
 
-  , testCase "parse record schema" $ do
+  , it "parse record schema" $ do
       let json = BS8.pack $ unlines
             [ "{"
             , "  \"type\": \"record\","
@@ -45,14 +44,14 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             , "}"
             ]
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordName = name, avroRecordFields = fields} -> do
-            name @?= "User"
-            V.length fields @?= 2
-          _ -> assertFailure "expected record type"
+            name `shouldBe` "User"
+            V.length fields `shouldBe` 2
+          _ -> expectationFailure "expected record type"
 
-  , testCase "parse enum schema" $ do
+  , it "parse enum schema" $ do
       let json = BS8.pack $ unlines
             [ "{"
             , "  \"type\": \"enum\","
@@ -61,47 +60,47 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             , "}"
             ]
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroEnum{avroEnumName = name, avroEnumSymbols = syms} -> do
-            name @?= "Color"
-            syms @?= V.fromList ["RED", "GREEN", "BLUE"]
-          _ -> assertFailure "expected enum type"
+            name `shouldBe` "Color"
+            syms `shouldBe` V.fromList ["RED", "GREEN", "BLUE"]
+          _ -> expectationFailure "expected enum type"
 
-  , testCase "parse array schema" $ do
+  , it "parse array schema" $ do
       let json = BS8.pack "{\"type\": \"array\", \"items\": \"int\"}"
       case parseAvroSchema json of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroArray (AvroPrimitive AvroInt)
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroArray (AvroPrimitive AvroInt)
 
-  , testCase "parse map schema" $ do
+  , it "parse map schema" $ do
       let json = BS8.pack "{\"type\": \"map\", \"values\": \"string\"}"
       case parseAvroSchema json of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroMap (AvroPrimitive AvroString)
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroMap (AvroPrimitive AvroString)
 
-  , testCase "parse union schema" $ do
+  , it "parse union schema" $ do
       let json = BS8.pack "[\"null\", \"string\"]"
       case parseAvroSchema json of
-        Left err -> assertFailure err
-        Right ty -> ty @?= AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
 
-  , testCase "parse fixed schema" $ do
+  , it "parse fixed schema" $ do
       let json = BS8.pack "{\"type\": \"fixed\", \"name\": \"MD5\", \"size\": 16}"
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroFixed{avroFixedName = name, avroFixedSize = sz} -> do
-            name @?= "MD5"
-            sz @?= 16
-          _ -> assertFailure "expected fixed type"
+            name `shouldBe` "MD5"
+            sz `shouldBe` 16
+          _ -> expectationFailure "expected fixed type"
 
-  , testCase "invalid JSON rejected" $ do
+  , it "invalid JSON rejected" $ do
       case parseAvroSchema "not valid json" of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error for invalid JSON"
+        Right _ -> expectationFailure "expected error for invalid JSON"
 
-  , testCase "parse all primitive types" $ do
+  , it "parse all primitive types" $ do
       let prims = [ ("\"null\"", AvroPrimitive AvroNull)
                    , ("\"boolean\"", AvroPrimitive AvroBool)
                    , ("\"int\"", AvroPrimitive AvroInt)
@@ -113,41 +112,41 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
                    ]
       mapM_ (\(json, expected) ->
         case parseAvroSchema (BS8.pack json) of
-          Left err -> assertFailure $ "Failed to parse " ++ json ++ ": " ++ err
-          Right ty -> ty @?= expected
+          Left err -> expectationFailure $ "Failed to parse " ++ json ++ ": " ++ err
+          Right ty -> ty `shouldBe` expected
         ) prims
 
-  , testCase "parse logicalType date" $ do
+  , it "parse logicalType date" $ do
       let json = BS8.pack "{\"type\": \"int\", \"logicalType\": \"date\"}"
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroLogical{avroLogicalBase = base, avroLogicalType = lt} -> do
-            base @?= AvroPrimitive AvroInt
-            lt @?= DateLogical
-          _ -> assertFailure "expected AvroLogical"
+            base `shouldBe` AvroPrimitive AvroInt
+            lt `shouldBe` DateLogical
+          _ -> expectationFailure "expected AvroLogical"
 
-  , testCase "parse logicalType timestamp-millis" $ do
+  , it "parse logicalType timestamp-millis" $ do
       let json = BS8.pack "{\"type\": \"long\", \"logicalType\": \"timestamp-millis\"}"
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroLogical{avroLogicalBase = base, avroLogicalType = lt} -> do
-            base @?= AvroPrimitive AvroLong
-            lt @?= TimestampMillisLogical
-          _ -> assertFailure "expected AvroLogical"
+            base `shouldBe` AvroPrimitive AvroLong
+            lt `shouldBe` TimestampMillisLogical
+          _ -> expectationFailure "expected AvroLogical"
 
-  , testCase "logicalType roundtrip" $ do
+  , it "logicalType roundtrip" $ do
       let dateType = AvroLogical
             { avroLogicalBase = AvroPrimitive AvroInt
             , avroLogicalType = DateLogical
             }
       let json = avroSchemaToJSON dateType
       case avroSchemaFromJSON json of
-        Left err -> assertFailure err
-        Right ty -> ty @?= dateType
+        Left err -> expectationFailure err
+        Right ty -> ty `shouldBe` dateType
 
-  , testCase "parse record with aliases" $ do
+  , it "parse record with aliases" $ do
       let json = BS8.pack $ unlines
             [ "{"
             , "  \"type\": \"record\","
@@ -159,13 +158,13 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             , "}"
             ]
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordAliases = aliases} ->
-            aliases @?= V.fromList ["Person", "Account"]
-          _ -> assertFailure "expected record"
+            aliases `shouldBe` V.fromList ["Person", "Account"]
+          _ -> expectationFailure "expected record"
 
-  , testCase "aliases roundtrip" $ do
+  , it "aliases roundtrip" $ do
       let recType = AvroRecord
             { avroRecordName = "User"
             , avroRecordNamespace = Nothing
@@ -176,13 +175,13 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             }
       let json = avroSchemaToJSON recType
       case avroSchemaFromJSON json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordAliases = aliases} ->
-            aliases @?= V.fromList ["Person"]
-          _ -> assertFailure "expected record"
+            aliases `shouldBe` V.fromList ["Person"]
+          _ -> expectationFailure "expected record"
 
-  , testCase "parse field order" $ do
+  , it "parse field order" $ do
       let json = BS8.pack $ unlines
             [ "{"
             , "  \"type\": \"record\","
@@ -195,16 +194,16 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             , "}"
             ]
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordFields = fields} -> do
-            V.length fields @?= 3
-            avroFieldOrder (fields V.! 0) @?= Just Ascending
-            avroFieldOrder (fields V.! 1) @?= Just Descending
-            avroFieldOrder (fields V.! 2) @?= Just Ignore
-          _ -> assertFailure "expected record"
+            V.length fields `shouldBe` 3
+            avroFieldOrder (fields V.! 0) `shouldBe` Just Ascending
+            avroFieldOrder (fields V.! 1) `shouldBe` Just Descending
+            avroFieldOrder (fields V.! 2) `shouldBe` Just Ignore
+          _ -> expectationFailure "expected record"
 
-  , testCase "field order roundtrip" $ do
+  , it "field order roundtrip" $ do
       let field = AvroField
             { avroFieldName = "x"
             , avroFieldType = AvroPrimitive AvroInt
@@ -224,13 +223,13 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             }
       let json = avroSchemaToJSON recType
       case avroSchemaFromJSON json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordFields = fields} ->
-            avroFieldOrder (fields V.! 0) @?= Just Descending
-          _ -> assertFailure "expected record"
+            avroFieldOrder (fields V.! 0) `shouldBe` Just Descending
+          _ -> expectationFailure "expected record"
 
-  , testCase "parse field doc and aliases" $ do
+  , it "parse field doc and aliases" $ do
       let json = BS8.pack $ unlines
             [ "{"
             , "  \"type\": \"record\","
@@ -241,10 +240,10 @@ avroSchemaParseTests = testGroup "Avro Schema Parse"
             , "}"
             ]
       case parseAvroSchema json of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right ty -> case ty of
           AvroRecord{avroRecordFields = fields} -> do
-            avroFieldDoc (fields V.! 0) @?= Just "The X value"
-            avroFieldAliases (fields V.! 0) @?= V.fromList ["old_x"]
-          _ -> assertFailure "expected record"
+            avroFieldDoc (fields V.! 0) `shouldBe` Just "The X value"
+            avroFieldAliases (fields V.! 0) `shouldBe` V.fromList ["old_x"]
+          _ -> expectationFailure "expected record"
   ]

@@ -17,17 +17,16 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Fory.Class as F
 import qualified Fory.Decode as D
 import qualified Fory.Encode as E
 import qualified Fory.Value as VV
 
-tests :: TestTree
-tests = testGroup "Fory.SpecExtensions"
+tests :: Spec
+tests = describe "Fory.SpecExtensions" $ sequence_
   [ refTrackingTests
   , metaShareTests
   , compatibleStructTests
@@ -38,17 +37,17 @@ tests = testGroup "Fory.SpecExtensions"
 -- Reference tracking
 -- ---------------------------------------------------------------------------
 
-refTrackingTests :: TestTree
-refTrackingTests = testGroup "reference tracking"
-  [ testCase "RefVal first occurrence round-trips" $ do
+refTrackingTests :: Spec
+refTrackingTests = describe "reference tracking" $ sequence_
+  [ it "RefVal first occurrence round-trips" $ do
       let v = VV.RefVal 7 (VV.StringVal "hello")
       case D.decode (E.encode v) of
         -- the user's '7' is remapped to the wire ref id (0 here).
         Right (VV.RefVal 0 (VV.StringVal "hello")) -> pure ()
-        Right other -> fail $ "unexpected " ++ show other
-        Left e      -> fail e
+        Right other -> expectationFailure $ "unexpected " ++ show other
+        Left e      -> expectationFailure e
 
-  , testCase "back-reference shares payload bytes" $ do
+  , it "back-reference shares payload bytes" $ do
       let inner = VV.StringVal "lots of repeated content here"
           tagged = VV.RefVal 1 inner
           shared = VV.ListVal (V.fromList [tagged, tagged, tagged])
@@ -56,12 +55,10 @@ refTrackingTests = testGroup "reference tracking"
             VV.ListVal (V.fromList [inner, inner, inner])
           sharedBytes   = BS.length (E.encode shared)
           unsharedBytes = BS.length (E.encode unshared)
-      assertBool
-        ("expected sharing to shrink wire size; shared="
-         ++ show sharedBytes ++ " unshared=" ++ show unsharedBytes)
-        (sharedBytes < unsharedBytes)
+      (if (sharedBytes < unsharedBytes) then pure () else expectationFailure ("expected sharing to shrink wire size; shared="
+         ++ show sharedBytes ++ " unshared=" ++ show unsharedBytes))
 
-  , testCase "back-reference round-trips structurally" $ do
+  , it "back-reference round-trips structurally" $ do
       let inner = VV.StringVal "shared"
           tagged = VV.RefVal 1 inner
           v = VV.ListVal (V.fromList [tagged, tagged])
@@ -74,20 +71,20 @@ refTrackingTests = testGroup "reference tracking"
               -- recorded value).
               case (xs V.! 0, xs V.! 1) of
                 (VV.RefVal 0 v0, VV.RefVal 0 v1) -> do
-                  v0 @?= inner
-                  v1 @?= inner
-                _ -> fail $ "unexpected " ++ show xs
-        Right other -> fail $ "unexpected " ++ show other
-        Left e      -> fail e
+                  v0 `shouldBe` inner
+                  v1 `shouldBe` inner
+                _ -> expectationFailure $ "unexpected " ++ show xs
+        Right other -> expectationFailure $ "unexpected " ++ show other
+        Left e      -> expectationFailure e
 
-  , testCase "Shared newtype convenience round-trips" $ do
+  , it "Shared newtype convenience round-trips" $ do
       let s :: F.Shared Int
           s = F.Shared 42 9
           encoded = F.encodeFory s
       (F.decodeFory encoded :: Either String (F.Shared Int))
-        @?= Right (F.Shared 0 9)
+        `shouldBe` Right (F.Shared 0 9)
 
-  , testProperty "RefVal of arbitrary inner round-trips structurally" $
+  , it "RefVal of arbitrary inner round-trips structurally" $
       H.property $ do
         n <- H.forAll (Gen.int32 (Range.linear 0 1000))
         let v = VV.RefVal (fromIntegral n) (VV.Int32Val n)
@@ -102,9 +99,9 @@ refTrackingTests = testGroup "reference tracking"
 -- Meta-string deduplication
 -- ---------------------------------------------------------------------------
 
-metaShareTests :: TestTree
-metaShareTests = testGroup "meta-string deduplication"
-  [ testCase "two structs of the same type share namespace + type-name" $ do
+metaShareTests :: Spec
+metaShareTests = describe "meta-string deduplication" $ sequence_
+  [ it "two structs of the same type share namespace + type-name" $ do
       let mkS = VV.StructVal "long.namespace.path.example" "MyStruct"
                   (V.fromList [("a_field_with_a_long_name", VV.Int32Val 1)])
           two = VV.ListVal (V.fromList [mkS, mkS])
@@ -114,45 +111,43 @@ metaShareTests = testGroup "meta-string deduplication"
           -- Naive (no-dedup) cost would be ~2x. With dedup,
           -- additional cost is per-back-reference (1-2 bytes).
           overheadBound = 16
-      assertBool
-        ("dedup should keep two copies within "
+      (if (twoBytes - oneBytes <= overheadBound) then pure () else expectationFailure ("dedup should keep two copies within "
          ++ show overheadBound ++ " bytes of one; one="
-         ++ show oneBytes ++ " two=" ++ show twoBytes)
-        (twoBytes - oneBytes <= overheadBound)
+         ++ show oneBytes ++ " two=" ++ show twoBytes))
 
-  , testCase "round-trip preserves struct identity through dedup" $ do
+  , it "round-trip preserves struct identity through dedup" $ do
       let s1 = VV.StructVal "Foo.Bar" "Baz"
                  (V.fromList [("x", VV.Int32Val 7)])
           s2 = VV.StructVal "Foo.Bar" "Baz"
                  (V.fromList [("x", VV.Int32Val 9)])
           v  = VV.ListVal (V.fromList [s1, s2, s1])
-      D.decode (E.encode v) @?= Right v
+      D.decode (E.encode v) `shouldBe` Right v
   ]
 
 -- ---------------------------------------------------------------------------
 -- NAMED_COMPATIBLE_STRUCT + TypeDef
 -- ---------------------------------------------------------------------------
 
-compatibleStructTests :: TestTree
-compatibleStructTests = testGroup "NAMED_COMPATIBLE_STRUCT"
-  [ testCase "single CompatibleStructVal round-trips" $ do
+compatibleStructTests :: Spec
+compatibleStructTests = describe "NAMED_COMPATIBLE_STRUCT" $ sequence_
+  [ it "single CompatibleStructVal round-trips" $ do
       let v = VV.CompatibleStructVal "x.y" "T"
                 (V.fromList
                    [ ("a", VV.Int32Val 1)
                    , ("b", VV.StringVal "hi")
                    ])
-      D.decode (E.encode v) @?= Right v
+      D.decode (E.encode v) `shouldBe` Right v
 
-  , testCase "TypeDef shared across two occurrences" $ do
+  , it "TypeDef shared across two occurrences" $ do
       let mk a b = VV.CompatibleStructVal "x.y" "T"
                     (V.fromList
                        [ ("a", VV.Int32Val a)
                        , ("b", VV.StringVal b)
                        ])
           v = VV.ListVal (V.fromList [mk 1 "x", mk 2 "y"])
-      D.decode (E.encode v) @?= Right v
+      D.decode (E.encode v) `shouldBe` Right v
 
-  , testCase "schema sharing shrinks wire size" $ do
+  , it "schema sharing shrinks wire size" $ do
       let mk i = VV.CompatibleStructVal "long.namespace" "ManyFields"
                   (V.fromList
                      [ ("first_field",        VV.Int32Val i)
@@ -164,12 +159,10 @@ compatibleStructTests = testGroup "NAMED_COMPATIBLE_STRUCT"
           one = VV.ListVal (V.fromList [mk 1])
           twoBytes = BS.length (E.encode two)
           oneBytes = BS.length (E.encode one)
-      assertBool
-        ("schema sharing should keep second copy small; one="
-         ++ show oneBytes ++ " two=" ++ show twoBytes)
-        (twoBytes - oneBytes <= 32)
+      (if (twoBytes - oneBytes <= 32) then pure () else expectationFailure ("schema sharing should keep second copy small; one="
+         ++ show oneBytes ++ " two=" ++ show twoBytes))
 
-  , testProperty "random CompatibleStructVal round-trips" $ H.property $ do
+  , it "random CompatibleStructVal round-trips" $ H.property $ do
       n      <- H.forAll (Gen.int (Range.linear 0 6))
       fields <- H.forAll $ Gen.list (Range.singleton n) $ do
         nm <- Gen.text (Range.linear 1 12) Gen.alpha
@@ -183,58 +176,56 @@ compatibleStructTests = testGroup "NAMED_COMPATIBLE_STRUCT"
 -- Primitive arrays
 -- ---------------------------------------------------------------------------
 
-primitiveArrayTests :: TestTree
-primitiveArrayTests = testGroup "primitive 1-D arrays"
-  [ testCase "BoolArray round-trips" $
+primitiveArrayTests :: Spec
+primitiveArrayTests = describe "primitive 1-D arrays" $ sequence_
+  [ it "BoolArray round-trips" $
       rt (VV.BoolArrayVal (VS.fromList [1, 0, 1]))
-  , testCase "Int8Array round-trips" $
+  , it "Int8Array round-trips" $
       rt (VV.Int8ArrayVal (VS.fromList ([-128, -1, 0, 1, 127] :: [Int8])))
-  , testCase "Int16Array round-trips" $
+  , it "Int16Array round-trips" $
       rt (VV.Int16ArrayVal (VS.fromList ([-32768, 0, 32767] :: [Int16])))
-  , testCase "Int32Array round-trips" $
+  , it "Int32Array round-trips" $
       rt (VV.Int32ArrayVal (VS.fromList ([minBound, 0, maxBound] :: [Int32])))
-  , testCase "Int64Array round-trips" $
+  , it "Int64Array round-trips" $
       rt (VV.Int64ArrayVal (VS.fromList ([minBound, 0, maxBound] :: [Int64])))
-  , testCase "Uint8Array round-trips" $
+  , it "Uint8Array round-trips" $
       rt (VV.Uint8ArrayVal (VS.fromList ([0, 128, 255] :: [Word8])))
-  , testCase "Uint16Array round-trips" $
+  , it "Uint16Array round-trips" $
       rt (VV.Uint16ArrayVal (VS.fromList ([0, 32768, 65535] :: [Word16])))
-  , testCase "Uint32Array round-trips" $
+  , it "Uint32Array round-trips" $
       rt (VV.Uint32ArrayVal (VS.fromList ([0, 1, maxBound] :: [Word32])))
-  , testCase "Uint64Array round-trips" $
+  , it "Uint64Array round-trips" $
       rt (VV.Uint64ArrayVal (VS.fromList ([0, 1, maxBound] :: [Word64])))
-  , testCase "Float32Array round-trips" $
+  , it "Float32Array round-trips" $
       rt (VV.Float32ArrayVal (VS.fromList [-1.5, 0, 3.14]))
-  , testCase "Float64Array round-trips" $
+  , it "Float64Array round-trips" $
       rt (VV.Float64ArrayVal (VS.fromList [-1.5e300, 0, 3.14e-200]))
 
-  , testCase "Int32Array is denser than equivalent ListVal of Int32Val" $ do
+  , it "Int32Array is denser than equivalent ListVal of Int32Val" $ do
       let xs :: [Int32]
           xs = [minBound, -1, 0, 1, maxBound]
           listForm = VV.ListVal (V.fromList (map VV.Int32Val xs))
           arrForm  = VV.Int32ArrayVal (VS.fromList xs)
           listBytes = BS.length (E.encode listForm)
           arrBytes  = BS.length (E.encode arrForm)
-      assertBool
-        ("expected array < list; list=" ++ show listBytes
-         ++ " arr=" ++ show arrBytes)
-        (arrBytes < listBytes)
+      (if (arrBytes < listBytes) then pure () else expectationFailure ("expected array < list; list=" ++ show listBytes
+         ++ " arr=" ++ show arrBytes))
 
-  , testCase "Int32Array typeclass wrapper round-trips" $ do
+  , it "Int32Array typeclass wrapper round-trips" $ do
       let xs = F.Int32Array (VS.fromList [1, 2, 3, 4, 5])
-      F.decodeFory (F.encodeFory xs) @?= Right xs
+      F.decodeFory (F.encodeFory xs) `shouldBe` Right xs
 
-  , testCase "Float64Array typeclass wrapper round-trips" $ do
+  , it "Float64Array typeclass wrapper round-trips" $ do
       let xs = F.Float64Array (VS.fromList [1.0, 2.5, -3.75])
-      F.decodeFory (F.encodeFory xs) @?= Right xs
+      F.decodeFory (F.encodeFory xs) `shouldBe` Right xs
 
-  , testProperty "random Int32Array round-trips" $ H.property $ do
+  , it "random Int32Array round-trips" $ H.property $ do
       xs <- H.forAll $ Gen.list (Range.linear 0 32)
                                 (Gen.int32 Range.linearBounded)
       let v = VV.Int32ArrayVal (VS.fromList xs)
       H.tripping v E.encode D.decode
 
-  , testProperty "random Float64Array round-trips (excluding NaN)" $
+  , it "random Float64Array round-trips (excluding NaN)" $
       H.property $ do
         xs <- H.forAll $ Gen.list (Range.linear 0 32)
                                   (Gen.double (Range.linearFracFrom 0 (-1e9) 1e9))
@@ -243,4 +234,4 @@ primitiveArrayTests = testGroup "primitive 1-D arrays"
   ]
   where
     rt :: VV.Value -> IO ()
-    rt v = D.decode (E.encode v) @?= Right v
+    rt v = D.decode (E.encode v) `shouldBe` Right v

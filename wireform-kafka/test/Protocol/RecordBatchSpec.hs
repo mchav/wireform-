@@ -9,8 +9,8 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
@@ -267,21 +267,21 @@ prop_compression_reduces_size = property $ do
       assert $ compressedSize < uncompressedSize `div` 2
 
 -- | All tests for RecordBatch
-tests :: TestTree
-tests = testGroup "RecordBatch"
-  [ testGroup "Basic Encoding"
-      [ testProperty "RecordBatch round-trip" prop_recordBatch_roundtrip
-      , testProperty "Empty batch round-trip" prop_empty_batch
-      , testProperty "Single record batch round-trip" prop_single_record_batch
-      , testProperty "CRC validation" prop_crc_validation
-      , testProperty "Batch size calculation" prop_batch_size
+tests :: Spec
+tests = describe "RecordBatch" $ sequence_
+  [ describe "Basic Encoding" $ sequence_
+      [ it "RecordBatch round-trip" prop_recordBatch_roundtrip
+      , it "Empty batch round-trip" prop_empty_batch
+      , it "Single record batch round-trip" prop_single_record_batch
+      , it "CRC validation" prop_crc_validation
+      , it "Batch size calculation" prop_batch_size
       ]
-  , testGroup "Compression"
-      [ testProperty "Gzip compression round-trip" prop_compressed_batch_gzip
-      , testProperty "Zstd compression round-trip" prop_compressed_batch_zstd
-      , testProperty "LZ4 compression round-trip" prop_compressed_batch_lz4
-      , testProperty "Snappy compression round-trip" prop_compressed_batch_snappy
-      , testProperty "Compression reduces size" prop_compression_reduces_size
+  , describe "Compression" $ sequence_
+      [ it "Gzip compression round-trip" prop_compressed_batch_gzip
+      , it "Zstd compression round-trip" prop_compressed_batch_zstd
+      , it "LZ4 compression round-trip" prop_compressed_batch_lz4
+      , it "Snappy compression round-trip" prop_compressed_batch_snappy
+      , it "Compression reduces size" prop_compression_reduces_size
       ]
   ]
 

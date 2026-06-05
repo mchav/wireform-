@@ -3,9 +3,8 @@
 
 module Client.TransactionSpec where
 
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -46,16 +45,16 @@ createTestTransaction txnId = do
     60000  -- 60 second timeout
 
 -- | Test suite for transaction support (KIP-98)
-transactionSpec :: TestTree
-transactionSpec = testGroup "Transaction Support (KIP-98)"
-  [ testGroup "State Management"
-      [ testCase "unit_createTransaction" unit_createTransaction
-      , testCase "unit_initialState" unit_initialState
-      , testCase "unit_stateTransitions" unit_stateTransitions
-      , testCase "unit_invalidTransitions" unit_invalidTransitions
-      , testProperty "prop_stateTransitionsThreadSafe" prop_stateTransitionsThreadSafe
+transactionSpec :: Spec
+transactionSpec = describe "Transaction Support (KIP-98)" $ sequence_
+  [ describe "State Management" $ sequence_
+      [ it "unit_createTransaction" unit_createTransaction
+      , it "unit_initialState" unit_initialState
+      , it "unit_stateTransitions" unit_stateTransitions
+      , it "unit_invalidTransitions" unit_invalidTransitions
+      , it "prop_stateTransitionsThreadSafe" prop_stateTransitionsThreadSafe
       ]
-  , testGroup "Transaction Lifecycle (requires broker)"
+  , describe "Transaction Lifecycle (requires broker)" $ sequence_
       [ brokerCase "unit_initTransactions" unit_initTransactions
       , brokerCase "unit_beginTransaction" unit_beginTransaction
       , brokerCase "unit_commitTransaction" unit_commitTransaction
@@ -64,22 +63,22 @@ transactionSpec = testGroup "Transaction Support (KIP-98)"
       , brokerCase "unit_cannotCommitWithoutBegin" unit_cannotCommitWithoutBegin
       , brokerCase "unit_cannotAbortWithoutBegin" unit_cannotAbortWithoutBegin
       ]
-  , testGroup "withTransaction Bracket (requires broker)"
+  , describe "withTransaction Bracket (requires broker)" $ sequence_
       [ brokerCase "unit_withTransactionCommitsOnSuccess" unit_withTransactionCommitsOnSuccess
       , brokerCase "unit_withTransactionAbortsOnException" unit_withTransactionAbortsOnException
       , brokerCase "unit_withTransactionNested" unit_withTransactionNested
       ]
-  , testGroup "Transactional Send (requires broker)"
+  , describe "Transactional Send (requires broker)" $ sequence_
       [ brokerCase "unit_sendInTransaction" unit_sendInTransaction
       , brokerCase "unit_sendTracksPartitions" unit_sendTracksPartitions
       , brokerCase "unit_sendIncrementsSequence" unit_sendIncrementsSequence
       , brokerCase "unit_cannotSendOutsideTransaction" unit_cannotSendOutsideTransaction
       ]
-  , testGroup "Offset Commits (requires broker)"
+  , describe "Offset Commits (requires broker)" $ sequence_
       [ brokerCase "unit_commitOffsetsInTransaction" unit_commitOffsetsInTransaction
       , brokerCase "unit_cannotCommitOffsetsOutsideTransaction" unit_cannotCommitOffsetsOutsideTransaction
       ]
-  , testGroup "Idempotency (requires broker)"
+  , describe "Idempotency (requires broker)" $ sequence_
       [ brokerCase "unit_sequenceNumbersIncrement" unit_sequenceNumbersIncrement
       , brokerCase "unit_sequenceNumbersPerPartition" unit_sequenceNumbersPerPartition
       , brokerProperty "prop_sequenceNumbersMonotonic" prop_sequenceNumbersMonotonic
@@ -90,67 +89,67 @@ transactionSpec = testGroup "Transaction Support (KIP-98)"
 -- State Management Tests
 -- ============================================================================
 
-unit_createTransaction :: Assertion
+unit_createTransaction :: IO ()
 unit_createTransaction = do
   let txnId = TransactionalId "test-txn"
   txn <- createTestTransaction txnId
   
   -- Verify initial state
-  assertEqual "Transactional ID matches" txnId (txnTransactionalId txn)
+  (txnTransactionalId txn) `shouldBe` txnId
   
   state <- getTransactionState txn
-  assertEqual "Initial state is Uninitialized" Uninitialized state
+  state `shouldBe` Uninitialized
   
   producerId <- readIORef (txnProducerId txn)
-  assertEqual "No producer ID initially" Nothing producerId
+  producerId `shouldBe` Nothing
   
   producerEpoch <- readIORef (txnProducerEpoch txn)
-  assertEqual "No producer epoch initially" Nothing producerEpoch
+  producerEpoch `shouldBe` Nothing
   
   partitions <- readTVarIO (txnPartitions txn)
-  assertEqual "No partitions tracked initially" Set.empty partitions
+  partitions `shouldBe` Set.empty
 
-unit_initialState :: Assertion
+unit_initialState :: IO ()
 unit_initialState = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   state <- getTransactionState txn
-  assertEqual "Transaction starts in Uninitialized state" Uninitialized state
+  state `shouldBe` Uninitialized
 
-unit_stateTransitions :: Assertion
+unit_stateTransitions :: IO ()
 unit_stateTransitions = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
   -- Uninitialized -> Ready
   success1 <- transitionState txn Ready
-  assertBool "Can transition from Uninitialized to Ready" success1
+  (success1) `shouldBe` True
   state1 <- getTransactionState txn
-  assertEqual "State is now Ready" Ready state1
+  state1 `shouldBe` Ready
   
   -- Ready -> InTransaction
   success2 <- transitionState txn InTransaction
-  assertBool "Can transition from Ready to InTransaction" success2
+  (success2) `shouldBe` True
   state2 <- getTransactionState txn
-  assertEqual "State is now InTransaction" InTransaction state2
+  state2 `shouldBe` InTransaction
   
   -- InTransaction -> Committing
   success3 <- transitionState txn Committing
-  assertBool "Can transition from InTransaction to Committing" success3
+  (success3) `shouldBe` True
   state3 <- getTransactionState txn
-  assertEqual "State is now Committing" Committing state3
+  state3 `shouldBe` Committing
   
   -- Committing -> Ready
   success4 <- transitionState txn Ready
-  assertBool "Can transition from Committing to Ready" success4
+  (success4) `shouldBe` True
   state4 <- getTransactionState txn
-  assertEqual "State is back to Ready" Ready state4
+  state4 `shouldBe` Ready
 
-unit_invalidTransitions :: Assertion
+unit_invalidTransitions :: IO ()
 unit_invalidTransitions = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
   -- Cannot go from Uninitialized to InTransaction
   success1 <- transitionState txn InTransaction
-  assertBool "Cannot transition from Uninitialized to InTransaction" (not success1)
+  (not success1) `shouldBe` True
   
   -- Initialize properly
   _ <- transitionState txn Ready
@@ -158,7 +157,7 @@ unit_invalidTransitions = do
   
   -- Cannot go from InTransaction to Ready without Committing/Aborting
   success2 <- transitionState txn Ready
-  assertBool "Cannot transition from InTransaction directly to Ready" (not success2)
+  (not success2) `shouldBe` True
 
 prop_stateTransitionsThreadSafe :: H.Property
 prop_stateTransitionsThreadSafe = H.property $ do
@@ -188,24 +187,24 @@ prop_stateTransitionsThreadSafe = H.property $ do
 -- Transaction Lifecycle Tests
 -- ============================================================================
 
-unit_initTransactions :: Assertion
+unit_initTransactions :: IO ()
 unit_initTransactions = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
   result <- initTransactions txn
   case result of
-    Left err -> assertFailure $ "initTransactions failed: " ++ show err
+    Left err -> expectationFailure $ "initTransactions failed: " ++ show err
     Right () -> do
       state <- getTransactionState txn
-      assertEqual "State is Ready after init" Ready state
+      state `shouldBe` Ready
       
       producerId <- readIORef (txnProducerId txn)
-      assertBool "Producer ID is set" (producerId /= Nothing)
+      (producerId /= Nothing) `shouldBe` True
       
       producerEpoch <- readIORef (txnProducerEpoch txn)
-      assertBool "Producer epoch is set" (producerEpoch /= Nothing)
+      (producerEpoch /= Nothing) `shouldBe` True
 
-unit_beginTransaction :: Assertion
+unit_beginTransaction :: IO ()
 unit_beginTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
@@ -214,12 +213,12 @@ unit_beginTransaction = do
   
   result <- beginTransaction txn
   case result of
-    Left err -> assertFailure $ "beginTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "beginTransaction failed: " ++ show err
     Right () -> do
       state <- getTransactionState txn
-      assertEqual "State is InTransaction" InTransaction state
+      state `shouldBe` InTransaction
 
-unit_commitTransaction :: Assertion
+unit_commitTransaction :: IO ()
 unit_commitTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
@@ -229,12 +228,12 @@ unit_commitTransaction = do
   
   result <- commitTransaction txn
   case result of
-    Left err -> assertFailure $ "commitTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "commitTransaction failed: " ++ show err
     Right () -> do
       state <- getTransactionState txn
-      assertEqual "State is Ready after commit" Ready state
+      state `shouldBe` Ready
 
-unit_abortTransaction :: Assertion
+unit_abortTransaction :: IO ()
 unit_abortTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   
@@ -244,12 +243,12 @@ unit_abortTransaction = do
   
   result <- abortTransaction txn
   case result of
-    Left err -> assertFailure $ "abortTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "abortTransaction failed: " ++ show err
     Right () -> do
       state <- getTransactionState txn
-      assertEqual "State is Ready after abort" Ready state
+      state `shouldBe` Ready
 
-unit_cannotBeginTwice :: Assertion
+unit_cannotBeginTwice :: IO ()
 unit_cannotBeginTwice = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -259,10 +258,10 @@ unit_cannotBeginTwice = do
   result <- beginTransaction txn
   case result of
     Left (TransactionAlreadyInProgress _) -> return ()
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right () -> assertFailure "Should not allow beginning transaction twice"
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right () -> expectationFailure "Should not allow beginning transaction twice"
 
-unit_cannotCommitWithoutBegin :: Assertion
+unit_cannotCommitWithoutBegin :: IO ()
 unit_cannotCommitWithoutBegin = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -271,10 +270,10 @@ unit_cannotCommitWithoutBegin = do
   result <- commitTransaction txn
   case result of
     Left (TransactionNotInProgress _) -> return ()
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right () -> assertFailure "Should not allow commit without begin"
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right () -> expectationFailure "Should not allow commit without begin"
 
-unit_cannotAbortWithoutBegin :: Assertion
+unit_cannotAbortWithoutBegin :: IO ()
 unit_cannotAbortWithoutBegin = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -283,14 +282,14 @@ unit_cannotAbortWithoutBegin = do
   result <- abortTransaction txn
   case result of
     Left (TransactionNotInProgress _) -> return ()
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right () -> assertFailure "Should not allow abort without begin"
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right () -> expectationFailure "Should not allow abort without begin"
 
 -- ============================================================================
 -- withTransaction Bracket Tests
 -- ============================================================================
 
-unit_withTransactionCommitsOnSuccess :: Assertion
+unit_withTransactionCommitsOnSuccess :: IO ()
 unit_withTransactionCommitsOnSuccess = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -299,13 +298,13 @@ unit_withTransactionCommitsOnSuccess = do
     return (42 :: Int)
   
   case result of
-    Left err -> assertFailure $ "withTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "withTransaction failed: " ++ show err
     Right value -> do
-      assertEqual "Got correct return value" 42 value
+      value `shouldBe` 42
       state <- getTransactionState txn
-      assertEqual "Transaction was committed" Ready state
+      state `shouldBe` Ready
 
-unit_withTransactionAbortsOnException :: Assertion
+unit_withTransactionAbortsOnException :: IO ()
 unit_withTransactionAbortsOnException = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -316,11 +315,11 @@ unit_withTransactionAbortsOnException = do
   case result of
     Left (TransactionAborted _) -> do
       state <- getTransactionState txn
-      assertEqual "Transaction was aborted" Ready state
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right _ -> assertFailure "Should have aborted on exception"
+      state `shouldBe` Ready
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right _ -> expectationFailure "Should have aborted on exception"
 
-unit_withTransactionNested :: Assertion
+unit_withTransactionNested :: IO ()
 unit_withTransactionNested = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -337,13 +336,13 @@ unit_withTransactionNested = do
   case result of
     Left (TransactionAborted _) -> return ()  -- Expected: inner fails, outer aborts
     Right 0 -> return ()  -- Also acceptable: inner fails gracefully, outer succeeds
-    Right v -> assertFailure $ "Unexpected success with value: " ++ show v
+    Right v -> expectationFailure $ "Unexpected success with value: " ++ show v
 
 -- ============================================================================
 -- Transactional Send Tests
 -- ============================================================================
 
-unit_sendInTransaction :: Assertion
+unit_sendInTransaction :: IO ()
 unit_sendInTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -353,10 +352,10 @@ unit_sendInTransaction = do
   result <- sendInTransaction txn tp
   
   case result of
-    Left err -> assertFailure $ "sendInTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "sendInTransaction failed: " ++ show err
     Right () -> return ()
 
-unit_sendTracksPartitions :: Assertion
+unit_sendTracksPartitions :: IO ()
 unit_sendTracksPartitions = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -371,12 +370,12 @@ unit_sendTracksPartitions = do
   _ <- sendInTransaction txn tp3
   
   partitions <- readTVarIO (txnPartitions txn)
-  assertEqual "All partitions tracked" 3 (Set.size partitions)
-  assertBool "Contains tp1" (Set.member tp1 partitions)
-  assertBool "Contains tp2" (Set.member tp2 partitions)
-  assertBool "Contains tp3" (Set.member tp3 partitions)
+  (Set.size partitions) `shouldBe` 3
+  (Set.member tp1 partitions) `shouldBe` True
+  (Set.member tp2 partitions) `shouldBe` True
+  (Set.member tp3 partitions) `shouldBe` True
 
-unit_sendIncrementsSequence :: Assertion
+unit_sendIncrementsSequence :: IO ()
 unit_sendIncrementsSequence = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -386,17 +385,17 @@ unit_sendIncrementsSequence = do
   
   _ <- sendInTransaction txn tp
   seq1 <- readTVarIO (txnSequenceNumbers txn)
-  assertEqual "Sequence is 1 after first send" (Just 1) (Map.lookup tp seq1)
+  (Map.lookup tp seq1) `shouldBe` (Just 1)
   
   _ <- sendInTransaction txn tp
   seq2 <- readTVarIO (txnSequenceNumbers txn)
-  assertEqual "Sequence is 2 after second send" (Just 2) (Map.lookup tp seq2)
+  (Map.lookup tp seq2) `shouldBe` (Just 2)
   
   _ <- sendInTransaction txn tp
   seq3 <- readTVarIO (txnSequenceNumbers txn)
-  assertEqual "Sequence is 3 after third send" (Just 3) (Map.lookup tp seq3)
+  (Map.lookup tp seq3) `shouldBe` (Just 3)
 
-unit_cannotSendOutsideTransaction :: Assertion
+unit_cannotSendOutsideTransaction :: IO ()
 unit_cannotSendOutsideTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -406,14 +405,14 @@ unit_cannotSendOutsideTransaction = do
   
   case result of
     Left (TransactionNotInProgress _) -> return ()
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right () -> assertFailure "Should not allow send outside transaction"
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right () -> expectationFailure "Should not allow send outside transaction"
 
 -- ============================================================================
 -- Offset Commit Tests
 -- ============================================================================
 
-unit_commitOffsetsInTransaction :: Assertion
+unit_commitOffsetsInTransaction :: IO ()
 unit_commitOffsetsInTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -428,10 +427,10 @@ unit_commitOffsetsInTransaction = do
   result <- commitOffsetsInTransaction txn "consumer-group-1" offsets
   
   case result of
-    Left err -> assertFailure $ "commitOffsetsInTransaction failed: " ++ show err
+    Left err -> expectationFailure $ "commitOffsetsInTransaction failed: " ++ show err
     Right () -> return ()
 
-unit_cannotCommitOffsetsOutsideTransaction :: Assertion
+unit_cannotCommitOffsetsOutsideTransaction :: IO ()
 unit_cannotCommitOffsetsOutsideTransaction = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -441,14 +440,14 @@ unit_cannotCommitOffsetsOutsideTransaction = do
   
   case result of
     Left (TransactionNotInProgress _) -> return ()
-    Left err -> assertFailure $ "Wrong error: " ++ show err
-    Right () -> assertFailure "Should not allow offset commit outside transaction"
+    Left err -> expectationFailure $ "Wrong error: " ++ show err
+    Right () -> expectationFailure "Should not allow offset commit outside transaction"
 
 -- ============================================================================
 -- Idempotency Tests
 -- ============================================================================
 
-unit_sequenceNumbersIncrement :: Assertion
+unit_sequenceNumbersIncrement :: IO ()
 unit_sequenceNumbersIncrement = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -460,9 +459,9 @@ unit_sequenceNumbersIncrement = do
   replicateM_ 10 $ sendInTransaction txn tp
   
   sequences <- readTVarIO (txnSequenceNumbers txn)
-  assertEqual "Sequence number is 10" (Just 10) (Map.lookup tp sequences)
+  (Map.lookup tp sequences) `shouldBe` (Just 10)
 
-unit_sequenceNumbersPerPartition :: Assertion
+unit_sequenceNumbersPerPartition :: IO ()
 unit_sequenceNumbersPerPartition = do
   txn <- createTestTransaction (TransactionalId "test-txn")
   _ <- initTransactions txn
@@ -478,9 +477,9 @@ unit_sequenceNumbersPerPartition = do
   replicateM_ 2 $ sendInTransaction txn tp3
   
   sequences <- readTVarIO (txnSequenceNumbers txn)
-  assertEqual "tp1 sequence is 3" (Just 3) (Map.lookup tp1 sequences)
-  assertEqual "tp2 sequence is 5" (Just 5) (Map.lookup tp2 sequences)
-  assertEqual "tp3 sequence is 2" (Just 2) (Map.lookup tp3 sequences)
+  (Map.lookup tp1 sequences) `shouldBe` (Just 3)
+  (Map.lookup tp2 sequences) `shouldBe` (Just 5)
+  (Map.lookup tp3 sequences) `shouldBe` (Just 2)
 
 prop_sequenceNumbersMonotonic :: H.Property
 prop_sequenceNumbersMonotonic = H.property $ do

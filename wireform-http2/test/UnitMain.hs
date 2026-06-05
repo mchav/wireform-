@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.Frame
 import qualified Test.FrameEdgeCases
@@ -11,7 +11,7 @@ import qualified Test.Connection
 import qualified Test.Defensive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-http2"
+main = sydTest $ describe "wireform-http2" $ sequence_
   [ Test.Frame.tests
   , Test.FrameEdgeCases.tests
   , Test.HPACK.tests

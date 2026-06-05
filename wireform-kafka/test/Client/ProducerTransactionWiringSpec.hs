@@ -23,8 +23,7 @@ import Control.Concurrent.STM
 import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.ProducerSender as Sender
@@ -33,9 +32,9 @@ import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 
-tests :: TestTree
-tests = testGroup "Producer ↔ Transaction wiring"
-  [ testGroup "producerTxnGate"
+tests :: Spec
+tests = describe "Producer ↔ Transaction wiring" $ sequence_
+  [ describe "producerTxnGate" $ sequence_
       [ gate_uninitialized
       , gate_ready_rejects
       , gate_in_txn_with_pid_passes
@@ -44,13 +43,13 @@ tests = testGroup "Producer ↔ Transaction wiring"
       , gate_aborting
       , gate_error
       ]
-  , testGroup "BatchAccumulator stamping"
+  , describe "BatchAccumulator stamping" $ sequence_
       [ stamped_records_carry_stamp_into_new_batch
       , stamped_records_share_existing_batch_stamp
       , noStamp_matches_default_sentinels
       , distinct_partitions_get_distinct_stamps
       ]
-  , testGroup "RecordBatch transactional flag"
+  , describe "RecordBatch transactional flag" $ sequence_
       [ buildRecordBatch_propagates_isTransactional
       , buildRecordBatch_default_is_non_transactional
       ]
@@ -60,60 +59,58 @@ tests = testGroup "Producer ↔ Transaction wiring"
 -- producerTxnGate
 ----------------------------------------------------------------------
 
-gate_uninitialized :: TestTree
-gate_uninitialized = testCase
+gate_uninitialized :: Spec
+gate_uninitialized = it
   "Uninitialized: rejects with 'must call initTransactions'" $
   case Producer.producerTxnGate Txn.Uninitialized Nothing Nothing of
-    Left msg -> assertBool ("got: " <> msg)
-                  ("initTransactions" `infix'` msg)
-    Right _  -> error "expected rejection"
+    Left msg -> (if ("initTransactions" `infix'` msg) then pure () else expectationFailure ("got: " <> msg))
+    Right _  -> expectationFailure "expected rejection"
 
-gate_ready_rejects :: TestTree
-gate_ready_rejects = testCase
+gate_ready_rejects :: Spec
+gate_ready_rejects = it
   "Ready: rejects with 'must call beginTransaction'" $
   case Producer.producerTxnGate Txn.Ready
          (Just (Txn.ProducerId 1)) (Just (Txn.ProducerEpoch 0)) of
-    Left msg -> assertBool ("got: " <> msg)
-                  ("beginTransaction" `infix'` msg)
-    Right _  -> error "expected rejection"
+    Left msg -> (if ("beginTransaction" `infix'` msg) then pure () else expectationFailure ("got: " <> msg))
+    Right _  -> expectationFailure "expected rejection"
 
-gate_in_txn_with_pid_passes :: TestTree
-gate_in_txn_with_pid_passes = testCase
+gate_in_txn_with_pid_passes :: Spec
+gate_in_txn_with_pid_passes = it
   "InTransaction + (pid, epoch): returns the pair to stamp the batch" $
   Producer.producerTxnGate Txn.InTransaction
     (Just (Txn.ProducerId 12345)) (Just (Txn.ProducerEpoch 7))
-    @?= Right (12345, 7)
+    `shouldBe` Right (12345, 7)
 
-gate_in_txn_without_pid_rejects :: TestTree
-gate_in_txn_without_pid_rejects = testCase
+gate_in_txn_without_pid_rejects :: Spec
+gate_in_txn_without_pid_rejects = it
   "InTransaction + Nothing pid: rejects (initTransactions never ran)" $
   case Producer.producerTxnGate Txn.InTransaction Nothing Nothing of
     Left _ -> pure ()
-    Right _ -> error "expected rejection without populated pid/epoch"
+    Right _ -> expectationFailure "expected rejection without populated pid/epoch"
 
-gate_fenced :: TestTree
-gate_fenced = testCase
+gate_fenced :: Spec
+gate_fenced = it
   "Fenced: surfaces 'producer fenced'" $
   case Producer.producerTxnGate Txn.Fenced
          (Just (Txn.ProducerId 1)) (Just (Txn.ProducerEpoch 0)) of
-    Left msg -> assertBool ("got: " <> msg) ("fenced" `infix'` msg)
-    Right _  -> error "expected rejection"
+    Left msg -> (if ("fenced" `infix'` msg) then pure () else expectationFailure ("got: " <> msg))
+    Right _  -> expectationFailure "expected rejection"
 
-gate_aborting :: TestTree
-gate_aborting = testCase
+gate_aborting :: Spec
+gate_aborting = it
   "Aborting: rejects (commit/abort already in flight)" $
   case Producer.producerTxnGate Txn.Aborting
          (Just (Txn.ProducerId 1)) (Just (Txn.ProducerEpoch 0)) of
     Left _ -> pure ()
-    Right _ -> error "expected rejection"
+    Right _ -> expectationFailure "expected rejection"
 
-gate_error :: TestTree
-gate_error = testCase
+gate_error :: Spec
+gate_error = it
   "Error: surfaces the underlying message" $
   case Producer.producerTxnGate (Txn.Error "boom")
          (Just (Txn.ProducerId 1)) (Just (Txn.ProducerEpoch 0)) of
-    Left msg -> assertBool ("got: " <> msg) ("boom" `infix'` msg)
-    Right _  -> error "expected rejection"
+    Left msg -> (if ("boom" `infix'` msg) then pure () else expectationFailure ("got: " <> msg))
+    Right _  -> expectationFailure "expected rejection"
 
 ----------------------------------------------------------------------
 -- BatchAccumulator stamping
@@ -126,8 +123,8 @@ mkAcc = BA.createBatchAccumulator
   Compression.NoCompression
   (Compression.defaultLevel Compression.NoCompression)
 
-stamped_records_carry_stamp_into_new_batch :: TestTree
-stamped_records_carry_stamp_into_new_batch = testCase
+stamped_records_carry_stamp_into_new_batch :: Spec
+stamped_records_carry_stamp_into_new_batch = it
   "appendRecordStamped: a freshly created batch carries the stamp's \
   \(producerId, epoch, baseSeq, isTransactional)" $ do
   acc <- mkAcc
@@ -140,20 +137,20 @@ stamped_records_carry_stamp_into_new_batch = testCase
         }
       rec_ = RB.Record 0 0 Nothing "value" []
   ok <- BA.appendRecordStamped acc tp rec_ BA.NoRecordCallback stamp
-  ok @?= True
+  ok `shouldBe` True
   BA.closeBatchAccumulator acc
   batches <- BA.drainReadyBatches acc
   case batches of
     [b] -> do
-      BA.batchProducerId      b @?= 999
-      BA.batchProducerEpoch   b @?= 3
-      BA.batchBaseSequence    b @?= 17
-      BA.batchIsTransactional b @?= True
-      V.length (BA.batchRecords b) @?= 1
-    _ -> error $ "expected exactly one ready batch, got " <> show (length batches)
+      BA.batchProducerId      b `shouldBe` 999
+      BA.batchProducerEpoch   b `shouldBe` 3
+      BA.batchBaseSequence    b `shouldBe` 17
+      BA.batchIsTransactional b `shouldBe` True
+      V.length (BA.batchRecords b) `shouldBe` 1
+    _ -> expectationFailure $ "expected exactly one ready batch, got " <> show (length batches)
 
-stamped_records_share_existing_batch_stamp :: TestTree
-stamped_records_share_existing_batch_stamp = testCase
+stamped_records_share_existing_batch_stamp :: Spec
+stamped_records_share_existing_batch_stamp = it
   "appendRecordStamped: records appended to a /filling/ batch \
   \inherit that batch's stamp; producer-side seq advancement is the \
   \producer's responsibility" $ do
@@ -173,22 +170,22 @@ stamped_records_share_existing_batch_stamp = testCase
       -- All three records ended up in the single filling batch;
       -- the batch's base_sequence is whatever the /first/ stamp
       -- carried.
-      V.length (BA.batchRecords b) @?= 3
-      BA.batchBaseSequence b @?= 17
-      BA.batchIsTransactional b @?= True
-    other -> error $
+      V.length (BA.batchRecords b) `shouldBe` 3
+      BA.batchBaseSequence b `shouldBe` 17
+      BA.batchIsTransactional b `shouldBe` True
+    other -> expectationFailure $
       "expected one batch, got " <> show (length other)
 
-noStamp_matches_default_sentinels :: TestTree
-noStamp_matches_default_sentinels = testCase
+noStamp_matches_default_sentinels :: Spec
+noStamp_matches_default_sentinels = it
   "noStamp produces no-producer-id / no-epoch / no-sequence sentinels" $ do
-  BA.stampProducerId      BA.noStamp @?= RB.noProducerId
-  BA.stampProducerEpoch   BA.noStamp @?= RB.noProducerEpoch
-  BA.stampBaseSequence    BA.noStamp @?= RB.noSequence
-  BA.stampIsTransactional BA.noStamp @?= False
+  BA.stampProducerId      BA.noStamp `shouldBe` RB.noProducerId
+  BA.stampProducerEpoch   BA.noStamp `shouldBe` RB.noProducerEpoch
+  BA.stampBaseSequence    BA.noStamp `shouldBe` RB.noSequence
+  BA.stampIsTransactional BA.noStamp `shouldBe` False
 
-distinct_partitions_get_distinct_stamps :: TestTree
-distinct_partitions_get_distinct_stamps = testCase
+distinct_partitions_get_distinct_stamps :: Spec
+distinct_partitions_get_distinct_stamps = it
   "Stamps on distinct (topic, partition) tracks are independent" $ do
   acc <- mkAcc
   let tp1 = BA.TopicPartition "t" 0
@@ -205,9 +202,8 @@ distinct_partitions_get_distinct_stamps = testCase
   let baseSeqs =
         Seq.sort $
           Seq.fromList [BA.batchBaseSequence b | b <- batches]
-  toList baseSeqs @?= [0, 17]
-  assertBool "every drained batch is transactional"
-    (all BA.batchIsTransactional batches)
+  toList baseSeqs `shouldBe` [0, 17]
+  (all BA.batchIsTransactional batches) `shouldBe` True
 
 ----------------------------------------------------------------------
 -- buildRecordBatch
@@ -233,25 +229,25 @@ mkBatchWith isTxn = BA.ProducerBatch
   , BA.batchIsTransactional = isTxn
   }
 
-buildRecordBatch_propagates_isTransactional :: TestTree
-buildRecordBatch_propagates_isTransactional = testCase
+buildRecordBatch_propagates_isTransactional :: Spec
+buildRecordBatch_propagates_isTransactional = it
   "buildRecordBatch: batchIsTransactional flips attrIsTransactional \
   \and the producer-id / epoch / base-seq carry through" $ do
   let rb = Sender.buildRecordBatch (mkBatchWith True)
-  RB.attrIsTransactional (RB.batchAttributes rb) @?= True
-  RB.batchProducerId rb    @?= 12345
-  RB.batchProducerEpoch rb @?= 7
-  RB.batchBaseSequence rb  @?= 42
+  RB.attrIsTransactional (RB.batchAttributes rb) `shouldBe` True
+  RB.batchProducerId rb    `shouldBe` 12345
+  RB.batchProducerEpoch rb `shouldBe` 7
+  RB.batchBaseSequence rb  `shouldBe` 42
 
-buildRecordBatch_default_is_non_transactional :: TestTree
-buildRecordBatch_default_is_non_transactional = testCase
+buildRecordBatch_default_is_non_transactional :: Spec
+buildRecordBatch_default_is_non_transactional = it
   "buildRecordBatch: default batch encodes attrIsTransactional = False \
   \and the no-producer-id / no-epoch / no-seq sentinels" $ do
   let rb = Sender.buildRecordBatch (mkBatchWith False)
-  RB.attrIsTransactional (RB.batchAttributes rb) @?= False
-  RB.batchProducerId rb    @?= RB.noProducerId
-  RB.batchProducerEpoch rb @?= RB.noProducerEpoch
-  RB.batchBaseSequence rb  @?= RB.noSequence
+  RB.attrIsTransactional (RB.batchAttributes rb) `shouldBe` False
+  RB.batchProducerId rb    `shouldBe` RB.noProducerId
+  RB.batchProducerEpoch rb `shouldBe` RB.noProducerEpoch
+  RB.batchBaseSequence rb  `shouldBe` RB.noSequence
 
 ----------------------------------------------------------------------
 -- helpers

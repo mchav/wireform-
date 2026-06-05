@@ -1,6 +1,7 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
+import Test.Syd.OptParse (Settings (..), Threads (..), defaultSettings)
 
 import qualified Test.Frame
 import qualified Test.Handshake
@@ -9,7 +10,10 @@ import qualified Test.Echo
 import qualified Test.PerMessageDeflate
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-websocket"
+-- The Echo suite spins up loopback websocket servers; like the other
+-- socket-driven suites it isn't safe under sydtest's default
+-- per-capability parallelism, so run synchronously (as hspec/tasty did).
+main = sydTestWith defaultSettings {settingThreads = Synchronous} $ describe "wireform-websocket" $ sequence_
   [ Test.Frame.tests
   , Test.Handshake.tests
   , Test.URI.tests

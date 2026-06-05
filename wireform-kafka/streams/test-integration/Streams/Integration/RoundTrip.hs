@@ -7,15 +7,14 @@
 module Streams.Integration.RoundTrip (tests) where
 
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool)
+import Test.Syd
 
 
 import Kafka.Streams.Imperative
 
-tests :: String -> TestTree
-tests brokers = testGroup "RoundTrip"
-  [ testCase "stream copy from in -> out via KafkaStreams" $ do
+tests :: String -> Spec
+tests brokers = describe "RoundTrip" $ sequence_
+  [ it "stream copy from in -> out via KafkaStreams" $ do
       let appId   = "kstreams-it-app"
           inTopic = "kstreams-it-in"
           outTopic = "kstreams-it-out"
@@ -42,9 +41,9 @@ tests brokers = testGroup "RoundTrip"
       -- a live config.
       ks <- newKafkaStreams cfg validated
       st0 <- streamsStatus ks
-      assertBool "initial status created" (st0 == StreamsCreated)
+      (st0 == StreamsCreated) `shouldBe` True
       closeKafkaStreams ks
       stN <- streamsStatus ks
-      assertBool ("final status closed: " <> show stN) (stN == StreamsClosed)
+      (if (stN == StreamsClosed) then pure () else expectationFailure ("final status closed: " <> show stN))
   ]
 

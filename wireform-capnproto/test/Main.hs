@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.CapnProto.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-capnproto-derive"
+main = sydTest $ describe "wireform-capnproto-derive" $ sequence_
   [ Test.CapnProto.Derive.tests
   ]

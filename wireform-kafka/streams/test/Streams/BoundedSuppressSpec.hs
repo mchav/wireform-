@@ -17,14 +17,13 @@ import Data.Int (Int64)
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Serde.Windowed (windowedSerde)
 
-tests :: TestTree
-tests = testGroup "Bounded Suppress (KIP-328 + Riffle)"
+tests :: Spec
+tests = describe "Bounded Suppress (KIP-328 + Riffle)" $ sequence_
   [ emit_early_when_full_drains_oldest
   , shutdown_when_full_throws
   , unbounded_buffer_stays_buffered_until_grace
@@ -77,9 +76,9 @@ i64 = serialize int64Serde
 -- 1. EmitEarlyWhenFull
 ----------------------------------------------------------------------
 
-emit_early_when_full_drains_oldest :: TestTree
+emit_early_when_full_drains_oldest :: Spec
 emit_early_when_full_drains_oldest =
-  testCase "BufferConfig EmitEarlyWhenFull: oldest entries are flushed when over cap" $ do
+  it "BufferConfig EmitEarlyWhenFull: oldest entries are flushed when over cap" $ do
     -- Cap = 2, grace is huge so natural-flush doesn't kick in.
     topo <- buildSuppressTopo
               (emitEarlyWhenFull (maxRecordsBufferConfig 2))
@@ -100,19 +99,17 @@ emit_early_when_full_drains_oldest =
     outs <- readKeyValuesToList outTopic
     -- Filter for successful decodes only (k = WindowedKey).
     let ok = [ (wk, v) | Right (Just wk, v) <- outs ]
-    assertBool
-      ("expected >= 1 early-emitted records; got "
-        <> show (length ok))
-      (not (null ok))
+    (if (not (null ok)) then pure () else expectationFailure ("expected >= 1 early-emitted records; got "
+        <> show (length ok)))
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 2. ShutdownWhenFull throws
 ----------------------------------------------------------------------
 
-shutdown_when_full_throws :: TestTree
+shutdown_when_full_throws :: Spec
 shutdown_when_full_throws =
-  testCase "BufferConfig ShutdownWhenFull: throws SuppressBufferFullException" $ do
+  it "BufferConfig ShutdownWhenFull: throws SuppressBufferFullException" $ do
     topo <- buildSuppressTopo
               (shutDownWhenFull (maxRecordsBufferConfig 2))
               1000 100_000
@@ -137,9 +134,9 @@ shutdown_when_full_throws =
 -- 3. Unbounded buffer still works
 ----------------------------------------------------------------------
 
-unbounded_buffer_stays_buffered_until_grace :: TestTree
+unbounded_buffer_stays_buffered_until_grace :: Spec
 unbounded_buffer_stays_buffered_until_grace =
-  testCase "Unbounded buffer: entries stay until grace elapses (no early eviction)" $ do
+  it "Unbounded buffer: entries stay until grace elapses (no early eviction)" $ do
     topo <- buildSuppressTopo unboundedBufferConfig 1000 1000
     driver <- newDriver topo "sup-unbounded"
 
@@ -156,7 +153,7 @@ unbounded_buffer_stays_buffered_until_grace =
                      (windowedSerde textSerde) int64Serde
     outs <- readKeyValuesToList outTopic
     let ok = [ wk | Right (Just wk, _) <- outs ]
-    length ok @?= 0
+    length ok `shouldBe` 0
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -169,9 +166,9 @@ unbounded_buffer_stays_buffered_until_grace =
 -- buffer and eventually flush via grace.
 ----------------------------------------------------------------------
 
-drop_oldest_silently_evicts_without_emitting :: TestTree
+drop_oldest_silently_evicts_without_emitting :: Spec
 drop_oldest_silently_evicts_without_emitting =
-  testCase "BufferConfig DropOldestSilently: oldest entries are evicted, not emitted" $ do
+  it "BufferConfig DropOldestSilently: oldest entries are evicted, not emitted" $ do
     topo <- buildSuppressTopo
               (dropOldestSilently (maxRecordsBufferConfig 2))
               1000 100_000
@@ -193,7 +190,7 @@ drop_oldest_silently_evicts_without_emitting =
     let ok = [ wk | Right (Just wk, _) <- outs ]
     -- Drop policy means downstream sees zero records until
     -- grace flushes — and grace hasn't elapsed.
-    length ok @?= 0
+    length ok `shouldBe` 0
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -206,9 +203,9 @@ drop_oldest_silently_evicts_without_emitting =
 -- naturally via grace.
 ----------------------------------------------------------------------
 
-shed_routes_overflow_to_dead_letter_topic :: TestTree
+shed_routes_overflow_to_dead_letter_topic :: Spec
 shed_routes_overflow_to_dead_letter_topic =
-  testCase "DeadLetterShelf: overflow entries land on the side topic" $ do
+  it "DeadLetterShelf: overflow entries land on the side topic" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in")
            (consumed textSerde int64Serde)
@@ -243,15 +240,13 @@ shed_routes_overflow_to_dead_letter_topic =
 
     outsMain <- readKeyValuesToList outTopic
     let okMain = [ wk | Right (Just wk, _) <- outsMain ]
-    length okMain @?= 0
+    length okMain `shouldBe` 0
 
     outsDlq <- readKeyValuesToList dlqTopic
     let okDlq = [ wk | Right (Just wk, _) <- outsDlq ]
     -- At least one shed record reached the DLQ (the oldest by
     -- window-start was k1; the exact count depends on per-
     -- write enforcement, but it MUST be > 0).
-    assertBool
-      ("expected >= 1 shed record on the DLQ topic; got "
-        <> show (length okDlq))
-      (not (null okDlq))
+    (if (not (null okDlq)) then pure () else expectationFailure ("expected >= 1 shed record on the DLQ topic; got "
+        <> show (length okDlq)))
     closeDriver driver

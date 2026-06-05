@@ -16,23 +16,22 @@ import Test.Proto.Derive.OneofInstances (
   defaultEnvelope,
   defaultInner,
  )
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "Proto.TH oneof bridge"
-    [ testCase "no choice variant set: round-trips empty payload" $ do
+  describe
+    "Proto.TH oneof bridge" $ sequence_
+    [ it "no choice variant set: round-trips empty payload" $ do
         let e = defaultEnvelope
         let bs = PE.encodeMessage e
-        bs @?= BS.empty
-        PD.decodeMessage bs @?= Right e
-    , testCase "label only: round-trips" $ do
+        bs `shouldBe` BS.empty
+        PD.decodeMessage bs `shouldBe` Right e
+    , it "label only: round-trips" $ do
         let e = defaultEnvelope {envelopeEnvelopeLabel = T.pack "labelled"}
-        PD.decodeMessage (PE.encodeMessage e) @?= Right e
-    , testCase "choice_url variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+    , it "choice_url variant round-trips" $ do
         let e =
               defaultEnvelope
                 { envelopeEnvelopeLabel = T.pack "withUrl"
@@ -42,8 +41,8 @@ tests =
                           (T.pack "https://example.test/x")
                       )
                 }
-        PD.decodeMessage (PE.encodeMessage e) @?= Right e
-    , testCase "choice_blob variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+    , it "choice_blob variant round-trips" $ do
         let e =
               defaultEnvelope
                 { envelopeEnvelopeChoice =
@@ -52,22 +51,22 @@ tests =
                           (BS.pack [0xCA, 0xFE, 0xBA, 0xBE])
                       )
                 }
-        PD.decodeMessage (PE.encodeMessage e) @?= Right e
-    , testCase "choice_seed variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+    , it "choice_seed variant round-trips" $ do
         let e =
               defaultEnvelope
                 { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 12345)
                 }
-        PD.decodeMessage (PE.encodeMessage e) @?= Right e
-    , testCase "choice_inner submessage variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+    , it "choice_inner submessage variant round-trips" $ do
         let inner = defaultInner {innerInnerId = 99}
             e =
               defaultEnvelope
                 { envelopeEnvelopeLabel = T.pack "nested"
                 , envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceInner inner)
                 }
-        PD.decodeMessage (PE.encodeMessage e) @?= Right e
-    , testCase "later variant on the wire wins (proto3 oneof semantics)" $ do
+        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+    , it "later variant on the wire wins (proto3 oneof semantics)" $ do
         -- Concatenate two encodings that each set a different
         -- variant; per proto3 the last one wins on decode.
         let eUrl =
@@ -83,5 +82,5 @@ tests =
                 { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 7)
                 }
             combined = PE.encodeMessage eUrl `BS.append` PE.encodeMessage eSeed
-        PD.decodeMessage combined @?= Right eSeed
+        PD.decodeMessage combined `shouldBe` Right eSeed
     ]

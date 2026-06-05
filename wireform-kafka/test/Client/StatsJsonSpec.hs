@@ -10,20 +10,19 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Telemetry.StatsJson as Stats
 
-tests :: TestTree
-tests = testGroup "Telemetry: librdkafka stats JSON"
-  [ testCase "default snapshot renders the canonical top-level keys"
+tests :: Spec
+tests = describe "Telemetry: librdkafka stats JSON" $ sequence_
+  [ it "default snapshot renders the canonical top-level keys"
       defaults_have_canonical_keys
-  , testCase "type field renders as 'producer' / 'consumer'"
+  , it "type field renders as 'producer' / 'consumer'"
       type_renders_correctly
-  , testCase "topic counters round-trip through the JSON"
+  , it "topic counters round-trip through the JSON"
       topic_counters
-  , testCase "renderStats produces stable JSON"
+  , it "renderStats produces stable JSON"
       stable_output
   ]
 
@@ -36,14 +35,13 @@ defaults_have_canonical_keys = do
               , "msg_cnt", "msg_size", "tx", "rx", "topics", "custom"
               ]
   mapM_ (\k ->
-    assertBool ("missing key: " <> show k)
-      (BS.isInfixOf k bs))
+    (if (BS.isInfixOf k bs) then pure () else expectationFailure ("missing key: " <> show k)))
     needs
 
 type_renders_correctly :: IO ()
 type_renders_correctly = do
-  Aeson.toJSON Stats.StatsProducer @?= Aeson.String "producer"
-  Aeson.toJSON Stats.StatsConsumer @?= Aeson.String "consumer"
+  Aeson.toJSON Stats.StatsProducer `shouldBe` Aeson.String "producer"
+  Aeson.toJSON Stats.StatsConsumer `shouldBe` Aeson.String "consumer"
 
 topic_counters :: IO ()
 topic_counters = do
@@ -69,4 +67,4 @@ stable_output = do
   let snap = Stats.defaultSnapshot "wfkafka" "stable" Stats.StatsProducer
       a = Stats.renderStats snap
       b = Stats.renderStats snap
-  a @?= b
+  a `shouldBe` b

@@ -99,8 +99,7 @@ test-suite wireform-http-wai-test
     case-insensitive,
     http-types,
     network,
-    tasty            >= 1.4,
-    tasty-hunit      >= 0.10,
+    sydtest,
     wai,
     wireform-http,
     wireform-http-wai

@@ -34,8 +34,8 @@ import GHC.Generics (Generic)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Arrow.Record
   ( Decoder
@@ -168,16 +168,16 @@ genUserRow = UserRow
 -- Property bodies
 -- ============================================================
 
-arrowRecordProperties :: TestTree
-arrowRecordProperties = testGroup "Arrow.Record properties"
-  [ testProperty "combinator Table: decode . encode = id" propCombinator
-  , testProperty "Generic Table: decode . encode = id"    propGeneric
-  , testProperty "newtype via contramap + fmap"           propNewtype
-  , testProperty "Wireform.Columnar.encodeRecords / decodeRecords (Arrow)"
+arrowRecordProperties :: Spec
+arrowRecordProperties = describe "Arrow.Record properties" $ sequence_
+  [ it "combinator Table: decode . encode = id" propCombinator
+  , it "Generic Table: decode . encode = id"    propGeneric
+  , it "newtype via contramap + fmap"           propNewtype
+  , it "Wireform.Columnar.encodeRecords / decodeRecords (Arrow)"
       propColumnarArrow
-  , testProperty "Wireform.Columnar.encodeRecords / decodeRecords (Parquet)"
+  , it "Wireform.Columnar.encodeRecords / decodeRecords (Parquet)"
       propColumnarParquet
-  , testProperty "Wireform.Columnar.encodeRecords / decodeRecords (ORC)"
+  , it "Wireform.Columnar.encodeRecords / decodeRecords (ORC)"
       propColumnarORC
   ]
 

@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.HTML.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-html-derive"
+main = sydTest $ describe "wireform-html-derive" $ sequence_
   [ Test.HTML.Derive.tests
   ]

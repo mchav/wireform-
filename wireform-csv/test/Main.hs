@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.CSV.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-csv-derive"
+main = sydTest $ describe "wireform-csv-derive" $ sequence_
   [ Test.CSV.Derive.tests
   ]

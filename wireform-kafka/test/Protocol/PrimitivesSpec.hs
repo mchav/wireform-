@@ -11,16 +11,16 @@ import qualified Hedgehog.Range as Range
 import "wireform-kafka-protocol" Kafka.Protocol.Primitives
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
 import "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives ()
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
-tests :: TestTree
-tests = testGroup "Primitives"
-  [ testProperty "VarInt round-trip" prop_varIntRoundTrip
-  , testProperty "VarLong round-trip" prop_varLongRoundTrip
-  , testProperty "UVarInt round-trip" prop_uvarIntRoundTrip
-  , testProperty "KafkaString round-trip" prop_kafkaStringRoundTrip
-  , testProperty "CompactString round-trip" prop_compactStringRoundTrip
+tests :: Spec
+tests = describe "Primitives" $ sequence_
+  [ it "VarInt round-trip" prop_varIntRoundTrip
+  , it "VarLong round-trip" prop_varLongRoundTrip
+  , it "UVarInt round-trip" prop_uvarIntRoundTrip
+  , it "KafkaString round-trip" prop_kafkaStringRoundTrip
+  , it "CompactString round-trip" prop_compactStringRoundTrip
   ]
 
 prop_varIntRoundTrip :: Property

@@ -720,9 +720,8 @@ test-suite wireform-kafka-streams-test
         hedgehog                  >= 1.2   && < 2,
         profunctors               >= 5.6   && < 5.7,
         stm,
-        tasty                     >= 1.4   && < 1.6,
-        tasty-hedgehog            >= 1.4   && < 1.8,
-        tasty-hunit               >= 0.10  && < 0.11,
+        sydtest,
+        sydtest-hedgehog,
         temporary                 >= 1.3   && < 1.4,
         text,
         time,
@@ -744,8 +743,7 @@ test-suite wireform-kafka-streams-integration
         wireform-kafka:wireform-kafka-streams,
         wireform-kafka,
         bytestring,
-        tasty                     >= 1.4   && < 1.6,
-        tasty-hunit               >= 0.10  && < 0.11,
+        sydtest,
         text
 
 executable wireform-kafka-client-examples
@@ -1003,9 +1001,8 @@ test-suite wireform-kafka-test
         network                   >= 3.1   && < 3.3,
         random,
         stm,
-        tasty                     >= 1.4   && < 1.6,
-        tasty-hedgehog            >= 1.4   && < 1.8,
-        tasty-hunit               >= 0.10  && < 0.11,
+        sydtest,
+        sydtest-hedgehog,
         text,
         time,
         unordered-containers,
@@ -1041,8 +1038,7 @@ test-suite wireform-kafka-conformance
         bytestring,
         containers,
         stm,
-        tasty                     >= 1.4   && < 1.6,
-        tasty-hunit               >= 0.10  && < 0.11,
+        sydtest,
         text,
         time,
         unordered-containers      >= 0.2   && < 0.3
@@ -1065,8 +1061,7 @@ test-suite wireform-kafka-integration
         wireform-kafka-protocol,
         bytestring,
         containers,
-        tasty                     >= 1.4   && < 1.6,
-        tasty-hunit               >= 0.10  && < 0.11,
+        sydtest,
         text,
         time                      >= 1.11  && < 1.15,
         unordered-containers      >= 0.2   && < 0.3

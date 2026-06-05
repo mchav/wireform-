@@ -7,36 +7,35 @@ import Data.Text (Text)
 
 import qualified Hudi.Timeline as H
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-hudi"
-  [ testCase "instant filename: implicit completed" instantImplicitTest
-  , testCase "instant filename: explicit state" instantExplicitTest
-  , testCase "instant filename: malformed → Nothing" instantMalformedTest
-  , testCase "sortInstants orders by timestamp + state" sortInstantsTest
-  , testCase "completedInstants filters" completedFilterTest
-  , testCase "parseCommitJson decodes WriteStats" parseCommitTest
-  , testCase "applyCommit builds file slices per partition" applyCommitTest
-  , testCase "applyCommit accumulates log files newest-first" logFileAccumTest
+main = sydTest $ describe "wireform-hudi" $ sequence_
+  [ it "instant filename: implicit completed" instantImplicitTest
+  , it "instant filename: explicit state" instantExplicitTest
+  , it "instant filename: malformed → Nothing" instantMalformedTest
+  , it "sortInstants orders by timestamp + state" sortInstantsTest
+  , it "completedInstants filters" completedFilterTest
+  , it "parseCommitJson decodes WriteStats" parseCommitTest
+  , it "applyCommit builds file slices per partition" applyCommitTest
+  , it "applyCommit accumulates log files newest-first" logFileAccumTest
   ]
 
-instantImplicitTest :: Assertion
+instantImplicitTest :: IO ()
 instantImplicitTest =
   H.parseInstantFileName "20240106120000000.commit"
-    @?= Just (H.Instant "20240106120000000" H.Commit H.Completed)
+    `shouldBe` Just (H.Instant "20240106120000000" H.Commit H.Completed)
 
-instantExplicitTest :: Assertion
+instantExplicitTest :: IO ()
 instantExplicitTest =
   H.parseInstantFileName "20240106120000000.deltacommit.requested"
-    @?= Just (H.Instant "20240106120000000" H.DeltaCommit H.Requested)
+    `shouldBe` Just (H.Instant "20240106120000000" H.DeltaCommit H.Requested)
 
-instantMalformedTest :: Assertion
+instantMalformedTest :: IO ()
 instantMalformedTest =
-  H.parseInstantFileName "no-dots-here" @?= Nothing
+  H.parseInstantFileName "no-dots-here" `shouldBe` Nothing
 
-sortInstantsTest :: Assertion
+sortInstantsTest :: IO ()
 sortInstantsTest = do
   let unsorted =
         [ H.Instant "B" H.Commit      H.Completed
@@ -47,34 +46,34 @@ sortInstantsTest = do
         ]
       sorted = H.sortInstants unsorted
   map (\i -> (H.instantTime i, H.instantState i)) sorted
-    @?= [ ("A", H.Requested)
+    `shouldBe` [ ("A", H.Requested)
         , ("A", H.Inflight)
         , ("A", H.Completed)
         , ("B", H.Requested)
         , ("B", H.Completed)
         ]
 
-completedFilterTest :: Assertion
+completedFilterTest :: IO ()
 completedFilterTest = do
   let xs =
         [ H.Instant "A" H.Commit      H.Completed
         , H.Instant "B" H.DeltaCommit H.Inflight
         , H.Instant "C" H.Commit      H.Completed
         ]
-  map H.instantTime (H.completedInstants xs) @?= ["A", "C"]
+  map H.instantTime (H.completedInstants xs) `shouldBe` ["A", "C"]
 
-parseCommitTest :: Assertion
+parseCommitTest :: IO ()
 parseCommitTest = case H.parseCommitJson commitPayload of
-  Left err  -> assertFailure err
+  Left err  -> expectationFailure err
   Right hcm -> do
-    Map.size (H.hcmPartitionToWriteStats hcm) @?= 1
+    Map.size (H.hcmPartitionToWriteStats hcm) `shouldBe` 1
     let stats = Map.findWithDefault [] "p1" (H.hcmPartitionToWriteStats hcm)
-    length stats @?= 1
+    length stats `shouldBe` 1
     let s = head stats
-    H.hwsFileId s        @?= Just "file-1"
-    H.hwsPath s          @?= Just "p1/file-1.parquet"
-    H.hwsNumWrites s     @?= Just 100
-    H.hwsPartitionPath s @?= Just "p1"
+    H.hwsFileId s        `shouldBe` Just "file-1"
+    H.hwsPath s          `shouldBe` Just "p1/file-1.parquet"
+    H.hwsNumWrites s     `shouldBe` Just 100
+    H.hwsPartitionPath s `shouldBe` Just "p1"
   where
     commitPayload =
       "{\"partitionToWriteStats\":{\
@@ -84,7 +83,7 @@ parseCommitTest = case H.parseCommitJson commitPayload of
       \}]\
       \},\"compacted\":false,\"operationType\":\"INSERT\"}"
 
-applyCommitTest :: Assertion
+applyCommitTest :: IO ()
 applyCommitTest = do
   let hcm = H.HoodieCommitMetadata
         { H.hcmPartitionToWriteStats = Map.fromList
@@ -100,13 +99,13 @@ applyCommitTest = do
         , H.hcmExtra           = mempty
         }
       st = H.applyCommit "ts1" hcm H.emptyTableState
-  Map.keys (H.tsPartitions st) @?= ["p1", "p2"]
-  H.tsLatestInstant st @?= Just "ts1"
+  Map.keys (H.tsPartitions st) `shouldBe` ["p1", "p2"]
+  H.tsLatestInstant st `shouldBe` Just "ts1"
   let p1Slice = Map.lookup "f1" =<< Map.lookup "p1" (H.tsPartitions st)
-  fmap H.fsBaseFile     p1Slice @?= Just (Just "p1/f1.parquet")
-  fmap H.fsLatestCommit p1Slice @?= Just "ts1"
+  fmap H.fsBaseFile     p1Slice `shouldBe` Just (Just "p1/f1.parquet")
+  fmap H.fsLatestCommit p1Slice `shouldBe` Just "ts1"
 
-logFileAccumTest :: Assertion
+logFileAccumTest :: IO ()
 logFileAccumTest = do
   let mkCommit logs = H.HoodieCommitMetadata
         { H.hcmPartitionToWriteStats = Map.singleton "p"
@@ -124,8 +123,8 @@ logFileAccumTest = do
         , ("ts2", mkCommit ["log.1"])
         ]
       slice = Map.lookup "f1" =<< Map.lookup "p" (H.tsPartitions st)
-  fmap H.fsLogFiles     slice @?= Just ["log.1", "log.0"]
-  fmap H.fsLatestCommit slice @?= Just "ts2"
+  fmap H.fsLogFiles     slice `shouldBe` Just ["log.1", "log.0"]
+  fmap H.fsLatestCommit slice `shouldBe` Just "ts2"
 
 -- ============================================================
 -- helpers

@@ -21,8 +21,7 @@
 module Streams.IdleHeartbeatSpec (tests) where
 
 import qualified Data.HashSet as HashSet
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
@@ -49,8 +48,8 @@ import Kafka.Streams.Watermark
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
-tests :: TestTree
-tests = testGroup "Watermark idle-source heartbeat (Riffle §5)"
+tests :: Spec
+tests = describe "Watermark idle-source heartbeat (Riffle §5)" $ sequence_
   [ unit_active_then_idle_unblocks_effective_watermark
   , unit_active_source_clears_prior_idle
   , unit_no_coordinator_is_noop
@@ -60,9 +59,9 @@ tests = testGroup "Watermark idle-source heartbeat (Riffle §5)"
 -- 1. Idle source no longer blocks the effective watermark
 ----------------------------------------------------------------------
 
-unit_active_then_idle_unblocks_effective_watermark :: TestTree
+unit_active_then_idle_unblocks_effective_watermark :: Spec
 unit_active_then_idle_unblocks_effective_watermark =
-  testCase "an idle source stops dragging the effective watermark down" $ do
+  it "an idle source stops dragging the effective watermark down" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 100))
     -- Two sources sharing a coordinator; both monotonic, both
     -- with the same short idle threshold so the test can
@@ -93,7 +92,7 @@ unit_active_then_idle_unblocks_effective_watermark =
 
     wmStart <- currentEffectiveWatermark coord
     -- Effective watermark = min(100, 50) = 50, both live.
-    wmStart @?= Timestamp 50
+    wmStart `shouldBe` Timestamp 50
 
     -- Source 'a' continues to fire; 'b' goes silent. Two poll
     -- cycles below the idle threshold should keep 'b' as a
@@ -109,18 +108,16 @@ unit_active_then_idle_unblocks_effective_watermark =
     wmEnd <- currentEffectiveWatermark coord
     -- With 'b' filtered out as idle, the effective watermark
     -- should now reflect only 'a' (Timestamp 100).
-    assertBool
-      ("expected wm >= 100 after b went idle; got " <> show wmEnd)
-      (wmEnd >= Timestamp 100)
+    (if (wmEnd >= Timestamp 100) then pure () else expectationFailure ("expected wm >= 100 after b went idle; got " <> show wmEnd))
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 2. An active poll on a previously idle source clears the flag
 ----------------------------------------------------------------------
 
-unit_active_source_clears_prior_idle :: TestTree
+unit_active_source_clears_prior_idle :: Spec
 unit_active_source_clears_prior_idle =
-  testCase "markActive flips an idle source back to live" $ do
+  it "markActive flips an idle source back to live" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 100))
     let strat = withIdleness (IdleAfter (millis 100)) monotonicAscending
     b <- newStreamsBuilder
@@ -148,20 +145,20 @@ unit_active_source_clears_prior_idle =
     -- The source survived through the active call: still
     -- carrying its 'Timestamp 50' watermark even though it had
     -- spent a cycle marked idle.
-    length pairs @?= 1
+    length pairs `shouldBe` 1
     wm <- currentEffectiveWatermark coord
     -- Source is back to live; effective wm = the source's
     -- own wm, i.e. 50.
-    wm @?= Timestamp 50
+    wm `shouldBe` Timestamp 50
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 3. Without a coordinator, reportPollCycle is a no-op
 ----------------------------------------------------------------------
 
-unit_no_coordinator_is_noop :: TestTree
+unit_no_coordinator_is_noop :: Spec
 unit_no_coordinator_is_noop =
-  testCase "reportPollCycle is a no-op when no coordinator is attached" $ do
+  it "reportPollCycle is a no-op when no coordinator is attached" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in")
            (consumed textSerde textSerde)

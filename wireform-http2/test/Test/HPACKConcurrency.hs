@@ -7,14 +7,13 @@ import Control.Exception (try, SomeException)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.IORef
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP2.HPACK
 
-tests :: TestTree
-tests = testGroup "HPACK concurrency"
-  [ testCase "sequential encode/decode consistency across 100 header blocks" $ do
+tests :: Spec
+tests = describe "HPACK concurrency" $ sequence_
+  [ it "sequential encode/decode consistency across 100 header blocks" $ do
       encDt <- newDynamicTable 4096
       decDt <- newDynamicTable 4096
       mapM_ (\i -> do
@@ -28,11 +27,11 @@ tests = testGroup "HPACK concurrency"
         encoded <- encodeHeaderBlock defaultEncodeStrategy encDt headers
         result <- decodeHeaderBlock decDt encoded
         case result of
-          Right decoded -> decoded @?= headers
-          Left err -> assertFailure ("decode failed at iteration " <> show i <> ": " <> show err)
+          Right decoded -> decoded `shouldBe` headers
+          Left err -> expectationFailure ("decode failed at iteration " <> show i <> ": " <> show err)
         ) [1 :: Int .. 100]
 
-  , testCase "serialized MVar access preserves table consistency" $ do
+  , it "serialized MVar access preserves table consistency" $ do
       encMVar <- newDynamicTable 4096 >>= newMVar
       decMVar <- newDynamicTable 4096 >>= newMVar
 
@@ -71,20 +70,20 @@ tests = testGroup "HPACK concurrency"
       mapM_ (\_ -> takeMVar doneVar) [1 :: Int .. 20]
       merr <- readIORef errRef
       case merr of
-        Just e  -> assertFailure e
+        Just e  -> expectationFailure e
         Nothing -> pure ()
 
-  , testCase "table remains consistent after many distinct header values" $ do
+  , it "table remains consistent after many distinct header values" $ do
       encDt <- newDynamicTable 4096
       decDt <- newDynamicTable 4096
       mapM_ (\i -> do
         let headers = [(BS8.pack ("x-key-" <> show (i `mod` 10)), BS8.pack ("val-" <> show i))]
         encoded <- encodeHeaderBlock defaultEncodeStrategy encDt headers
         result <- decodeHeaderBlock decDt encoded
-        result @?= Right headers
+        result `shouldBe` Right headers
         ) [1 :: Int .. 200]
 
-  , testCase "concurrent encodes with MVar produce valid header blocks" $ do
+  , it "concurrent encodes with MVar produce valid header blocks" $ do
       encMVar <- newDynamicTable 4096 >>= newMVar
       errRef <- newIORef (Nothing :: Maybe String)
       doneVar <- newEmptyMVar
@@ -106,7 +105,7 @@ tests = testGroup "HPACK concurrency"
       mapM_ (\_ -> takeMVar doneVar) [1 :: Int .. 30]
       merr <- readIORef errRef
       case merr of
-        Just e  -> assertFailure e
+        Just e  -> expectationFailure e
         Nothing -> pure ()
   ]
 

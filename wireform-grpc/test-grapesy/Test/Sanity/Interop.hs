@@ -11,8 +11,7 @@ import Control.Monad
 import Data.ByteString qualified as BS.Strict
 import Data.Proxy
 import Data.Vector qualified as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -35,18 +34,18 @@ import Test.Driver.ClientServer
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.Interop" [
-      testGroup "preliminary" [
-          testCase "callAfterException" test_callAfterException
+tests :: Spec
+tests = describe "Test.Sanity.Interop" $ sequence_ [
+      describe "preliminary" $ sequence_ [
+          it "callAfterException" test_callAfterException
         ]
-    , testGroup "cancellation" [
-          testCase "client" test_cancellation_client
-        , testCase "server" test_cancellation_server
+    , describe "cancellation" $ sequence_ [
+          it "client" test_cancellation_client
+        , it "server" test_cancellation_server
         ]
-    , testGroup "official" [
-          testCase "emptyUnary"                test_emptyUnary
-        , testCase "serverCompressedStreaming" test_serverCompressedStreaming
+    , describe "official" $ sequence_ [
+          it "emptyUnary"                test_emptyUnary
+        , it "serverCompressedStreaming" test_serverCompressedStreaming
         ]
     ]
 
@@ -63,12 +62,12 @@ test_callAfterException =
           resp1 <- ping conn $ (mempty) & #id .~ 0
           case resp1 of
             Left _  -> return ()
-            Right _ -> assertFailure "Expected gRPC exception"
+            Right _ -> expectationFailure "Expected gRPC exception"
 
           resp2 <- ping conn $ (mempty) & #id .~ 1
           case resp2 of
-            Left  _ -> assertFailure "Expected pong"
-            Right i -> assertEqual "pong" i ((mempty) & #id .~ 1)
+            Left  _ -> expectationFailure "Expected pong"
+            Right i -> ((mempty) & #id .~ 1) `shouldBe` i
       , server = [
             Server.someRpcHandler $
               Server.mkRpcHandler @Ping $ \call -> do
@@ -113,7 +112,7 @@ test_emptyUnary =
             Client.sendFinalInput call (mempty)
             streamElem <- Client.recvOutputWithMeta call
             case StreamElem.value streamElem of
-              Nothing         -> fail "Expected answer"
+              Nothing         -> expectationFailure "Expected answer"
               Just (meta, _x) -> verifyMeta meta
       , server = [
             Server.fromMethod @EmptyCall $ Server.mkNonStreaming $ \_empty ->
@@ -126,10 +125,10 @@ test_emptyUnary =
     -- zero-overhead compression algorithm, it's size should be zero.
     verifyMeta :: InboundMeta -> IO ()
     verifyMeta meta = do
-        assertEqual "uncompressed size" (inboundUncompressedSize meta) 0
+        0 `shouldBe` (inboundUncompressedSize meta)
         case inboundCompressedSize meta of
           Nothing   -> return ()
-          Just size -> assertEqual "compressed size" size 0
+          Just size -> 0 `shouldBe` size
 
 {-------------------------------------------------------------------------------
   @server_compressed_streaming@
@@ -200,13 +199,13 @@ test_serverCompressedStreaming =
     verifyOutputs = \case
         (Just (meta1, _), Just (meta2, _)) -> do
           case inboundCompressedSize meta1 of
-            Nothing -> assertFailure "First output should be compressed"
+            Nothing -> expectationFailure "First output should be compressed"
             Just _  -> return ()
           case inboundCompressedSize meta2 of
             Nothing -> return ()
-            Just _  -> assertFailure "First output should not be compressed"
+            Just _  -> expectationFailure "First output should not be compressed"
         _otherwise ->
-          assertFailure "Expected value"
+          expectationFailure "Expected value"
 
 {-------------------------------------------------------------------------------
   Cancellation
@@ -230,9 +229,9 @@ test_cancellation_client =
           -- outbound message, the client should receive a CANCELLED exception.
           case result of
             Left err ->
-              assertEqual "grpcError" GrpcCancelled $ grpcError err
+              grpcError err `shouldBe` GrpcCancelled
             Right _ ->
-              assertFailure "Expected exception"
+              expectationFailure "Expected exception"
       , server = [
           Server.someRpcHandler $
             Server.mkRpcHandler @StreamNats $ \call -> do
@@ -262,12 +261,10 @@ test_cancellation_server =
               loop []
           case result of
             Left err -> do
-              assertEqual "grpcError" GrpcUnknown $
-                grpcError err
-              assertEqual "grpcErrorMessage" (Just "Server-side exception: HandlerTerminated") $
-                grpcErrorMessage err
+              grpcError err `shouldBe` GrpcUnknown
+              grpcErrorMessage err `shouldBe` (Just "Server-side exception: HandlerTerminated")
             Right _ ->
-              assertFailure "Expected exception"
+              expectationFailure "Expected exception"
       , server = [
           Server.someRpcHandler $
             -- The server sends only one value, then gives up

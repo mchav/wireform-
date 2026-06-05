@@ -11,13 +11,12 @@ import Data.IORef
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "Driver"
+tests :: Spec
+tests = describe "Driver" $ sequence_
   [ source_to_sink_passthrough
   , filter_then_sink
   , map_values
@@ -45,8 +44,8 @@ t0 = Timestamp 0
 -- 1. plain source -> sink
 ----------------------------------------------------------------------
 
-source_to_sink_passthrough :: TestTree
-source_to_sink_passthrough = testCase "source -> sink passthrough" $ do
+source_to_sink_passthrough :: Spec
+source_to_sink_passthrough = it "source -> sink passthrough" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
@@ -57,16 +56,16 @@ source_to_sink_passthrough = testCase "source -> sink passthrough" $ do
   pipeInput driver (topicName "in") (Just (bytes "k1")) (bytes "v1") t0 0
   pipeInput driver (topicName "in") (Just (bytes "k2")) (bytes "v2") t0 0
   out <- readOutput driver (topicName "out")
-  map (fmap unbytes . crKey) out @?= [Just "k1", Just "k2"]
-  map (unbytes . crValue) out    @?= ["v1", "v2"]
+  map (fmap unbytes . crKey) out `shouldBe` [Just "k1", Just "k2"]
+  map (unbytes . crValue) out    `shouldBe` ["v1", "v2"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 2. filter
 ----------------------------------------------------------------------
 
-filter_then_sink :: TestTree
-filter_then_sink = testCase "filter drops records" $ do
+filter_then_sink :: Spec
+filter_then_sink = it "filter drops records" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
@@ -80,15 +79,15 @@ filter_then_sink = testCase "filter drops records" $ do
   pipeInput driver (topicName "in") Nothing (bytes "keep2") t0 0
 
   out <- readOutput driver (topicName "out")
-  map (unbytes . crValue) out @?= ["keep1", "keep2"]
+  map (unbytes . crValue) out `shouldBe` ["keep1", "keep2"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 3. mapValues
 ----------------------------------------------------------------------
 
-map_values :: TestTree
-map_values = testCase "mapValues transforms each value" $ do
+map_values :: Spec
+map_values = it "mapValues transforms each value" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
@@ -101,15 +100,15 @@ map_values = testCase "mapValues transforms each value" $ do
   pipeInput driver (topicName "in") Nothing (bytes "world") t0 0
 
   out <- readOutput driver (topicName "out")
-  map (unbytes . crValue) out @?= ["HELLO", "WORLD"]
+  map (unbytes . crValue) out `shouldBe` ["HELLO", "WORLD"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 4. concatMapValues
 ----------------------------------------------------------------------
 
-flatmap_values :: TestTree
-flatmap_values = testCase "concatMapValues splits each record" $ do
+flatmap_values :: Spec
+flatmap_values = it "concatMapValues splits each record" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in")
          (consumed textSerde textSerde)
@@ -122,15 +121,15 @@ flatmap_values = testCase "concatMapValues splits each record" $ do
   pipeInput driver (topicName "in") Nothing (bytes "are you")        t0 0
 
   out <- readOutput driver (topicName "out")
-  map (unbytes . crValue) out @?= ["hello", "world", "how", "are", "you"]
+  map (unbytes . crValue) out `shouldBe` ["hello", "world", "how", "are", "you"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 5. mergeStreams
 ----------------------------------------------------------------------
 
-merge_two_streams :: TestTree
-merge_two_streams = testCase "merge interleaves both streams" $ do
+merge_two_streams :: Spec
+merge_two_streams = it "merge interleaves both streams" $ do
   b <- newStreamsBuilder
   s1 <- streamFromTopic b (topicName "in1") (consumed textSerde textSerde)
   s2 <- streamFromTopic b (topicName "in2") (consumed textSerde textSerde)
@@ -144,15 +143,15 @@ merge_two_streams = testCase "merge interleaves both streams" $ do
   pipeInput driver (topicName "in1") Nothing (bytes "from-1b") t0 0
 
   out <- readOutput driver (topicName "out")
-  map (unbytes . crValue) out @?= ["from-1a", "from-2a", "from-1b"]
+  map (unbytes . crValue) out `shouldBe` ["from-1a", "from-2a", "from-1b"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 6. branchStream
 ----------------------------------------------------------------------
 
-branch_three_ways :: TestTree
-branch_three_ways = testCase "branch routes by predicate" $ do
+branch_three_ways :: Spec
+branch_three_ways = it "branch routes by predicate" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
   branches <- branchStream
@@ -177,17 +176,17 @@ branch_three_ways = testCase "branch routes by predicate" $ do
   outB <- readOutput driver (topicName "out-b")
   outO <- readOutput driver (topicName "out-other")
 
-  map (unbytes . crValue) outA @?= ["alpha", "able"]
-  map (unbytes . crValue) outB @?= ["bravo", "banana"]
-  map (unbytes . crValue) outO @?= ["charlie", "delta"]
+  map (unbytes . crValue) outA `shouldBe` ["alpha", "able"]
+  map (unbytes . crValue) outB `shouldBe` ["bravo", "banana"]
+  map (unbytes . crValue) outO `shouldBe` ["charlie", "delta"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 7. peekStream
 ----------------------------------------------------------------------
 
-peek_observes_records :: TestTree
-peek_observes_records = testCase "peek runs side-effect, passes through" $ do
+peek_observes_records :: Spec
+peek_observes_records = it "peek runs side-effect, passes through" $ do
   observed <- newIORef ([] :: [Text])
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -202,17 +201,17 @@ peek_observes_records = testCase "peek runs side-effect, passes through" $ do
         ["a", "b", "c"]
 
   out <- readOutput driver (topicName "out")
-  map (unbytes . crValue) out @?= ["a", "b", "c"]
+  map (unbytes . crValue) out `shouldBe` ["a", "b", "c"]
   obs <- readIORef observed
-  reverse obs @?= ["a", "b", "c"]
+  reverse obs `shouldBe` ["a", "b", "c"]
   closeDriver driver
 
 ----------------------------------------------------------------------
 -- 8. mapKeyValue
 ----------------------------------------------------------------------
 
-map_keys_then_sink :: TestTree
-map_keys_then_sink = testCase "mapKeyValue rewrites both" $ do
+map_keys_then_sink :: Spec
+map_keys_then_sink = it "mapKeyValue rewrites both" $ do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
   -- 'Int' has no default 'HasSerde' (the built-in is Int64);
@@ -234,7 +233,7 @@ map_keys_then_sink = testCase "mapKeyValue rewrites both" $ do
 
   out <- readOutput driver (topicName "out")
   let kvs = map (\cr -> (fmap unbytes (crKey cr), crValue cr)) out
-  map fst kvs @?= [Just "cba", Just "yx"]
+  map fst kvs `shouldBe` [Just "cba", Just "yx"]
   -- Output value is Int64 big-endian; just check length matches.
-  map (BSC.length . snd) kvs @?= [8, 8]
+  map (BSC.length . snd) kvs `shouldBe` [8, 8]
   closeDriver driver

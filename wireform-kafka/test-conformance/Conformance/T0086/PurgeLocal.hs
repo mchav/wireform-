@@ -17,25 +17,24 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString as BS
 import Data.Text (Text)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 
-tests :: TestTree
-tests = testGroup "0086-purge_local"
-  [ testCase "fresh accumulator has no ready batches" $ do
+tests :: Spec
+tests = describe "0086-purge_local" $ sequence_
+  [ it "fresh accumulator has no ready batches" $ do
       acc <- BA.createBatchAccumulator
               16384  -- 16 KB batch size
               5      -- 5 ms linger
               Compression.NoCompression
               0      -- compression level
       ready <- BA.hasReadyBatches acc
-      ready @?= False
+      ready `shouldBe` False
 
-  , testCase "appendRecord succeeds on an open accumulator" $ do
+  , it "appendRecord succeeds on an open accumulator" $ do
       acc <- BA.createBatchAccumulator 16384 5 Compression.NoCompression 0
       let tp = BA.TopicPartition "purge-test" 0
           payload = BS.replicate 64 0x41
@@ -47,26 +46,26 @@ tests = testGroup "0086-purge_local"
                   , RB.recordHeaders        = []
                   }
       ok <- BA.appendRecord acc tp rec
-      ok @?= True
+      ok `shouldBe` True
 
-  , testCase "appendRecord fails on a closed accumulator (purge equivalent)" $ do
+  , it "appendRecord fails on a closed accumulator (purge equivalent)" $ do
       acc <- BA.createBatchAccumulator 16384 5 Compression.NoCompression 0
       BA.closeBatchAccumulator acc
       let tp = BA.TopicPartition "purge-test" 0
           rec = RB.Record 0 0 Nothing (BS.replicate 32 0x42) []
       ok <- BA.appendRecord acc tp rec
-      ok @?= False
+      ok `shouldBe` False
 
-  , testCase "drainReadyBatches after close returns the buffered batch" $ do
+  , it "drainReadyBatches after close returns the buffered batch" $ do
       acc <- BA.createBatchAccumulator 16384 5 Compression.NoCompression 0
       let tp = BA.TopicPartition "purge-test" 0
           rec = RB.Record 0 0 Nothing (BS.replicate 64 0x43) []
       _ <- BA.appendRecord acc tp rec
       BA.closeBatchAccumulator acc
       drained <- BA.drainReadyBatches acc
-      length drained @?= 1
+      length drained `shouldBe` 1
 
-  , testCase "purgePendingBatches drops filling records, fails callbacks, and stays open" $ do
+  , it "purgePendingBatches drops filling records, fails callbacks, and stays open" $ do
       acc <- BA.createBatchAccumulator 16384 5000 Compression.NoCompression 0
       events <- newIORef []
       let tp = BA.TopicPartition "purge-test" 0
@@ -74,16 +73,16 @@ tests = testGroup "0086-purge_local"
           reason = "local purge" :: Text
           callback result = modifyIORef' events (result :)
       ok <- BA.appendRecordWithCallback acc tp rec (BA.RecordCallback callback)
-      ok @?= True
+      ok `shouldBe` True
       counts <- BA.purgePendingBatches acc reason
-      HashMap.lookup tp counts @?= Just 1
-      readIORef events >>= (@?= [Left reason])
+      HashMap.lookup tp counts `shouldBe` Just 1
+      readIORef events >>= (`shouldBe` [Left reason])
       readyAfterPurge <- BA.hasReadyBatches acc
-      readyAfterPurge @?= False
+      readyAfterPurge `shouldBe` False
       reopened <- BA.appendRecord acc tp rec
-      reopened @?= True
+      reopened `shouldBe` True
 
-  , testCase "purgePendingBatches removes ready and filling batches per partition" $ do
+  , it "purgePendingBatches removes ready and filling batches per partition" $ do
       acc <- BA.createBatchAccumulator 96 5000 Compression.NoCompression 0
       let tp0 = BA.TopicPartition "purge-test" 0
           tp1 = BA.TopicPartition "purge-test" 1
@@ -92,8 +91,8 @@ tests = testGroup "0086-purge_local"
       _ <- BA.appendRecord acc tp0 rec
       _ <- BA.appendRecord acc tp1 rec
       counts <- BA.purgePendingBatches acc "local purge"
-      HashMap.lookup tp0 counts @?= Just 2
-      HashMap.lookup tp1 counts @?= Just 1
+      HashMap.lookup tp0 counts `shouldBe` Just 2
+      HashMap.lookup tp1 counts `shouldBe` Just 1
       drained <- BA.drainReadyBatches acc
-      length drained @?= 0
+      length drained `shouldBe` 0
   ]

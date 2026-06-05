@@ -9,8 +9,7 @@ import qualified Data.Text.Short as ST
 import qualified Network.HTTP.Headers.AcceptRanges as AR
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
 
 parseOk :: ByteString -> Either String AR.AcceptRanges
 parseOk bs = case runParser AR.acceptRangesParser bs of
@@ -24,28 +23,28 @@ parseOk bs = case runParser AR.acceptRangesParser bs of
 render :: AR.AcceptRanges -> ByteString
 render = M.toStrictByteString . AR.renderAcceptRanges
 
-unit_none :: TestTree
-unit_none = testCase "literal none disables ranges" $ do
+unit_none :: Spec
+unit_none = it "literal none disables ranges" $ do
   case parseOk "none" of
-    Right AR.AcceptRangesNone -> pure ()
+    Right AR.AcceptRangesNone -> pure () :: IO ()
     other                     -> error (show other)
-  assertEqual "render none" "none" (render AR.AcceptRangesNone)
+  (render AR.AcceptRangesNone) `shouldBe` "none"
 
-unit_units :: TestTree
-unit_units = testCase "unit list" $
+unit_units :: Spec
+unit_units = it "unit list" $
   case parseOk "bytes, custom-unit" of
     Right (AR.AcceptRangesUnits (a :| [b])) -> do
-      assertEqual "first"  (ST.fromString "bytes")       a
-      assertEqual "second" (ST.fromString "custom-unit") b
+      a `shouldBe` (ST.fromString "bytes")
+      b `shouldBe` (ST.fromString "custom-unit")
     other -> error (show other)
 
-unit_render_units :: TestTree
-unit_render_units = testCase "render unit list" $
+unit_render_units :: Spec
+unit_render_units = it "render unit list" $
   let v = AR.AcceptRangesUnits (ST.fromString "bytes" :| [ST.fromString "rows"])
-  in assertEqual "rendered" "bytes, rows" (render v)
+  in (render v) `shouldBe` "bytes, rows"
 
-tests :: TestTree
-tests = testGroup "AcceptRanges"
+tests :: Spec
+tests = describe "AcceptRanges" $ sequence_
   [ unit_none
   , unit_units
   , unit_render_units

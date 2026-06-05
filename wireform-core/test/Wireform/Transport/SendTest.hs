@@ -10,7 +10,7 @@ import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.Ptr (plusPtr, castPtr)
 import System.IO.Unsafe (unsafePerformIO)
-import Test.Hspec
+import Test.Syd
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
 

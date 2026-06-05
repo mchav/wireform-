@@ -7,14 +7,13 @@ module Streams.JoinSpec (tests) where
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Joined (symmetricJoinWindows)
 
-tests :: TestTree
-tests = testGroup "Joins"
+tests :: Spec
+tests = describe "Joins" $ sequence_
   [ kstream_ktable_inner
   , kstream_ktable_left
   , kstream_ktable_table_updates_propagate
@@ -46,9 +45,9 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-kstream_ktable_inner :: TestTree
+kstream_ktable_inner :: Spec
 kstream_ktable_inner =
-  testCase "KStream-KTable inner join drops unmatched stream records" $ do
+  it "KStream-KTable inner join drops unmatched stream records" $ do
     b <- newStreamsBuilder
     -- KTable side
     tab <- tableFromTopic b (topicName "users")
@@ -75,12 +74,12 @@ kstream_ktable_inner =
     pipeInput driver (topicName "events") (Just (bytes "u2")) (bytes "scroll") (t 2) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["alice:click", "bob:scroll"]
+    map (unbytes . crValue) out `shouldBe` ["alice:click", "bob:scroll"]
     closeDriver driver
 
-kstream_ktable_left :: TestTree
+kstream_ktable_left :: Spec
 kstream_ktable_left =
-  testCase "KStream-KTable left join always emits" $ do
+  it "KStream-KTable left join always emits" $ do
     b <- newStreamsBuilder
     tab <- tableFromTopic b (topicName "users")
              (consumed textSerde textSerde)
@@ -103,12 +102,12 @@ kstream_ktable_left =
     pipeInput driver (topicName "events") (Just (bytes "u2")) (bytes "y") (t 1) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["alice:x", "<unknown>:y"]
+    map (unbytes . crValue) out `shouldBe` ["alice:x", "<unknown>:y"]
     closeDriver driver
 
-kstream_ktable_table_updates_propagate :: TestTree
+kstream_ktable_table_updates_propagate :: Spec
 kstream_ktable_table_updates_propagate =
-  testCase "KStream-KTable: table updates change subsequent join results" $ do
+  it "KStream-KTable: table updates change subsequent join results" $ do
     b <- newStreamsBuilder
     tab <- tableFromTopic b (topicName "users")
              (consumed textSerde textSerde)
@@ -130,7 +129,7 @@ kstream_ktable_table_updates_propagate =
     pipeInput driver (topicName "events") (Just (bytes "u1")) (bytes "y")     (t 3) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["alice:x", "ALICE:y"]
+    map (unbytes . crValue) out `shouldBe` ["alice:x", "ALICE:y"]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -139,9 +138,9 @@ kstream_ktable_table_updates_propagate =
 
 -- A stream-stream join with both sides under the same key, where the
 -- window covers the gap.
-kstream_kstream_inner_within_window :: TestTree
+kstream_kstream_inner_within_window :: Spec
 kstream_kstream_inner_within_window =
-  testCase "KStream-KStream inner join: matches within window" $ do
+  it "KStream-KStream inner join: matches within window" $ do
     b <- newStreamsBuilder
     sl <- streamFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -165,13 +164,13 @@ kstream_kstream_inner_within_window =
     out <- readOutput driver (topicName "out")
     -- Order: L1 buffers left-side; R1 arrives, scans left, finds L1
     -- → "L1+R1"; L2 arrives, scans right, finds R1 → "L2+R1".
-    map (unbytes . crValue) out @?= ["L1+R1", "L2+R1"]
+    map (unbytes . crValue) out `shouldBe` ["L1+R1", "L2+R1"]
     closeDriver driver
 
 -- Records outside the window must NOT match.
-kstream_kstream_inner_outside_window :: TestTree
+kstream_kstream_inner_outside_window :: Spec
 kstream_kstream_inner_outside_window =
-  testCase "KStream-KStream inner join: drops matches outside window" $ do
+  it "KStream-KStream inner join: drops matches outside window" $ do
     b <- newStreamsBuilder
     sl <- streamFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -192,12 +191,12 @@ kstream_kstream_inner_outside_window =
     pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 200) 0
 
     out <- readOutput driver (topicName "out")
-    length out @?= 0
+    length out `shouldBe` 0
     closeDriver driver
 
-kstream_kstream_left_unmatched_emits_nothing :: TestTree
+kstream_kstream_left_unmatched_emits_nothing :: Spec
 kstream_kstream_left_unmatched_emits_nothing =
-  testCase "KStream-KStream left join: unmatched left records emit Nothing" $ do
+  it "KStream-KStream left join: unmatched left records emit Nothing" $ do
     b <- newStreamsBuilder
     sl <- streamFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -225,13 +224,13 @@ kstream_kstream_left_unmatched_emits_nothing =
     pipeInput driver (topicName "left")  (Just (bytes "k")) (bytes "L3") (t 200) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?=
+    map (unbytes . crValue) out `shouldBe`
       ["L1+<none>", "L1+R1", "L2+R1", "L3+<none>"]
     closeDriver driver
 
-kstream_kstream_outer_emits_both_sides :: TestTree
+kstream_kstream_outer_emits_both_sides :: Spec
 kstream_kstream_outer_emits_both_sides =
-  testCase "KStream-KStream outer join: unmatched on either side emits Nothing" $ do
+  it "KStream-KStream outer join: unmatched on either side emits Nothing" $ do
     b <- newStreamsBuilder
     sl <- streamFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -255,16 +254,16 @@ kstream_kstream_outer_emits_both_sides =
     pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 200) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["L1/<>", "<>/R1"]
+    map (unbytes . crValue) out `shouldBe` ["L1/<>", "<>/R1"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- KTable-KTable join tests
 ----------------------------------------------------------------------
 
-ktable_ktable_inner_join :: TestTree
+ktable_ktable_inner_join :: Spec
 ktable_ktable_inner_join =
-  testCase "KTable-KTable inner join: only emits when both sides have a value" $ do
+  it "KTable-KTable inner join: only emits when both sides have a value" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -284,27 +283,27 @@ ktable_ktable_inner_join =
     pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 0) 0
     s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s1 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Nothing)
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Nothing)
       Nothing -> error "out store missing"
 
     -- Right arrives: now both sides have values, output emitted.
     pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 1) 0
     s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s2 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+R1")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "L1+R1")
       Nothing -> error "out store missing"
 
     -- Left updated: re-emits.
     pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L2") (t 2) 0
     s3 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s3 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L2+R1")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "L2+R1")
       Nothing -> error "out store missing"
     closeDriver driver
 
-ktable_ktable_left_join :: TestTree
+ktable_ktable_left_join :: Spec
 ktable_ktable_left_join =
-  testCase "KTable-KTable left join: emits whenever left has a value" $ do
+  it "KTable-KTable left join: emits whenever left has a value" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -326,20 +325,20 @@ ktable_ktable_left_join =
     pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 0) 0
     s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s1 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+<>")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "L1+<>")
       Nothing -> error "out store missing"
 
     -- Right arrives.
     pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 1) 0
     s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s2 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1+R1")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "L1+R1")
       Nothing -> error "out store missing"
     closeDriver driver
 
-ktable_ktable_outer_join :: TestTree
+ktable_ktable_outer_join :: Spec
 ktable_ktable_outer_join =
-  testCase "KTable-KTable outer join: emits whenever either side has a value" $ do
+  it "KTable-KTable outer join: emits whenever either side has a value" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "left")
             (consumed textSerde textSerde)
@@ -362,14 +361,14 @@ ktable_ktable_outer_join =
     pipeInput driver (topicName "right") (Just (bytes "k")) (bytes "R1") (t 0) 0
     s1 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s1 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "<>/R1")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "<>/R1")
       Nothing -> error "out store missing"
 
     -- Left arrives.
     pipeInput driver (topicName "left") (Just (bytes "k")) (bytes "L1") (t 1) 0
     s2 <- getKeyValueStore @Text @Text driver (ktableStore out)
     case s2 of
-      Just kvs -> kvsGet kvs "k" >>= (@?= Just "L1/R1")
+      Just kvs -> kvsGet kvs "k" >>= (`shouldBe` Just "L1/R1")
       Nothing -> error "out store missing"
     closeDriver driver
 
@@ -377,9 +376,9 @@ ktable_ktable_outer_join =
 -- KStream-GlobalKTable join tests
 ----------------------------------------------------------------------
 
-kstream_global_ktable_inner :: TestTree
+kstream_global_ktable_inner :: Spec
 kstream_global_ktable_inner =
-  testCase "KStream-GlobalKTable inner join: stream key mapped to global key" $ do
+  it "KStream-GlobalKTable inner join: stream key mapped to global key" $ do
     b <- newStreamsBuilder
     -- Global table keyed by "user-id" (independent of stream keys).
     g <- globalTable b (topicName "users")
@@ -407,12 +406,12 @@ kstream_global_ktable_inner =
     pipeInput driver (topicName "events") (Just (bytes "e3")) (bytes "u2|scroll") (t 3) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["alice:click", "bob:scroll"]
+    map (unbytes . crValue) out `shouldBe` ["alice:click", "bob:scroll"]
     closeDriver driver
 
-kstream_global_ktable_left_no_match_emits_nothing :: TestTree
+kstream_global_ktable_left_no_match_emits_nothing :: Spec
 kstream_global_ktable_left_no_match_emits_nothing =
-  testCase "KStream-GlobalKTable left join: emits even when global has no match" $ do
+  it "KStream-GlobalKTable left join: emits even when global has no match" $ do
     b <- newStreamsBuilder
     g <- globalTable b (topicName "users")
             (consumed textSerde textSerde)
@@ -436,16 +435,16 @@ kstream_global_ktable_left_no_match_emits_nothing =
     pipeInput driver (topicName "events") (Just (bytes "e2")) (bytes "u9|y") (t 2) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["alice:x", "<unknown>:y"]
+    map (unbytes . crValue) out `shouldBe` ["alice:x", "<unknown>:y"]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- KTable-KTable foreign-key join tests
 ----------------------------------------------------------------------
 
-fk_join_inner_basic :: TestTree
+fk_join_inner_basic :: Spec
 fk_join_inner_basic =
-  testCase "FK join: left value's fk-extracted lookup hits right table" $ do
+  it "FK join: left value's fk-extracted lookup hits right table" $ do
     b <- newStreamsBuilder
     -- Left: order id -> "user_id|amount"
     tl <- tableFromTopic b (topicName "orders")
@@ -473,13 +472,13 @@ fk_join_inner_basic =
     pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u2|20") (t 1) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "alice:10")
-    rs.roKvGet "o2" >>= (@?= Just "bob:20")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "alice:10")
+    rs.roKvGet "o2" >>= (`shouldBe` Just "bob:20")
     closeDriver driver
 
-fk_join_changing_fk_unsubscribes :: TestTree
+fk_join_changing_fk_unsubscribes :: Spec
 fk_join_changing_fk_unsubscribes =
-  testCase "FK join: changing the foreign key on a left record unsubscribes" $ do
+  it "FK join: changing the foreign key on a left record unsubscribes" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -507,12 +506,12 @@ fk_join_changing_fk_unsubscribes =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE2") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "bob:x")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "bob:x")
     closeDriver driver
 
-fk_join_right_update_re_emits :: TestTree
+fk_join_right_update_re_emits :: Spec
 fk_join_right_update_re_emits =
-  testCase "FK join: updating a right table value re-emits all subscribed left rows" $ do
+  it "FK join: updating a right table value re-emits all subscribed left rows" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -537,13 +536,13 @@ fk_join_right_update_re_emits =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE") (t 2) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "ALICE:10")
-    rs.roKvGet "o2" >>= (@?= Just "ALICE:20")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "ALICE:10")
+    rs.roKvGet "o2" >>= (`shouldBe` Just "ALICE:20")
     closeDriver driver
 
-fk_left_join_emits_when_no_right :: TestTree
+fk_left_join_emits_when_no_right :: Spec
 fk_left_join_emits_when_no_right =
-  testCase "FK left join: emits even when the right table has no row for fk" $ do
+  it "FK left join: emits even when the right table has no row for fk" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -565,8 +564,8 @@ fk_left_join_emits_when_no_right =
     -- Left first, no right yet.
     pipeInput driver (topicName "orders") (Just (bytes "o1")) (bytes "u1|x") (t 0) 0
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "<>:x")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "<>:x")
     -- Now right arrives, re-emit.
     pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "alice") (t 1) 0
-    rs.roKvGet "o1" >>= (@?= Just "alice:x")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "alice:x")
     closeDriver driver

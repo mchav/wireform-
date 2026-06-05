@@ -11,8 +11,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Internal.RecordCollector
@@ -33,8 +32,8 @@ t = Timestamp . fromIntegral
 ownsParts :: Set Int32 -> (Int32 -> Bool)
 ownsParts s p = Set.member p s
 
-tests :: TestTree
-tests = testGroup "MultiTask"
+tests :: Spec
+tests = describe "MultiTask" $ sequence_
   [ multi_task_routes_records_to_owners
   , multi_task_separate_state_per_task
   , multi_task_ignores_records_for_unowned_partition
@@ -66,9 +65,9 @@ buildCounterTopo = do
     Left  err -> error (show err)
     Right v   -> pure (v, ctlStore table)
 
-multi_task_routes_records_to_owners :: TestTree
+multi_task_routes_records_to_owners :: Spec
 multi_task_routes_records_to_owners =
-  testCase "TaskManager routes records to the task owning the partition" $ do
+  it "TaskManager routes records to the task owning the partition" $ do
     topo <- buildPassthroughTopo
     tm <- newTaskManager
     -- Two tasks: task 0 owns partitions {0, 1}; task 1 owns {2, 3}.
@@ -91,14 +90,14 @@ multi_task_routes_records_to_owners =
     -- Drain each task's collector independently.
     out0 <- collectorTake coll0 (topicName "out")
     out1 <- collectorTake coll1 (topicName "out")
-    map (unbytes . crValue) out0 @?= ["v0", "v1"]
-    map (unbytes . crValue) out1 @?= ["v2", "v3"]
+    map (unbytes . crValue) out0 `shouldBe` ["v0", "v1"]
+    map (unbytes . crValue) out1 `shouldBe` ["v2", "v3"]
 
     closeAllTasks tm
 
-multi_task_separate_state_per_task :: TestTree
+multi_task_separate_state_per_task :: Spec
 multi_task_separate_state_per_task =
-  testCase "each task has its own state store" $ do
+  it "each task has its own state store" $ do
     (topo, storeNm) <- buildCounterTopo
     tm <- newTaskManager
     coll0 <- inMemoryCollector
@@ -121,14 +120,14 @@ multi_task_separate_state_per_task =
     -- Read each task's store via interactive queries.
     Just ro0 <- queryEngineStore @Text @Int.Int64 (taskEngine t0) storeNm
     Just ro1 <- queryEngineStore @Text @Int.Int64 (taskEngine t1) storeNm
-    ro0.roKvGet "k" >>= (@?= Just 2)
-    ro1.roKvGet "k" >>= (@?= Just 1)
+    ro0.roKvGet "k" >>= (`shouldBe` Just 2)
+    ro1.roKvGet "k" >>= (`shouldBe` Just 1)
 
     closeAllTasks tm
 
-multi_task_ignores_records_for_unowned_partition :: TestTree
+multi_task_ignores_records_for_unowned_partition :: Spec
 multi_task_ignores_records_for_unowned_partition =
-  testCase "feedTask drops records on partitions not owned by the task" $ do
+  it "feedTask drops records on partitions not owned by the task" $ do
     topo <- buildPassthroughTopo
     coll <- inMemoryCollector
     t0 <- newTask topo (TaskId 0 0) "mt-app" coll logAndContinue
@@ -138,5 +137,5 @@ multi_task_ignores_records_for_unowned_partition =
     feedTask t0 (topicName "in") (Just (bytes "k")) (bytes "owned")    (t 0) 0 0
     feedTask t0 (topicName "in") (Just (bytes "k")) (bytes "stranger") (t 0) 1 0
     out <- collectorTake coll (topicName "out")
-    map (unbytes . crValue) out @?= ["owned"]
+    map (unbytes . crValue) out `shouldBe` ["owned"]
     closeTask t0

@@ -28,9 +28,8 @@ import Data.Map.Strict (Map)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
 import Kafka.Streams.State.KeyValue.Remote
@@ -58,29 +57,29 @@ newRemoteBacked = do
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_put_then_get :: TestTree
+unit_put_then_get :: Spec
 unit_put_then_get =
-  testCase "remote: put / get round-trip" $ do
+  it "remote: put / get round-trip" $ do
     (kv, _) <- newRemoteBacked
     kvsPut kv 1 100
-    kvsGet kv 1 >>= (@?= Just 100)
+    kvsGet kv 1 >>= (`shouldBe` Just 100)
 
-unit_fault_surfaces :: TestTree
+unit_fault_surfaces :: Spec
 unit_fault_surfaces =
-  testCase "remote: injected RcGet fault throws RemoteError" $ do
+  it "remote: injected RcGet fault throws RemoteError" $ do
     (kv, policy) <- newRemoteBacked
     kvsPut kv 1 100
     setRemoteFault policy RcGet (RemoteRetryable "boom")
     r <- try @RemoteError (kvsGet kv 1)
     case r of
       Left (RemoteRetryable _) -> pure ()
-      _ -> assertBool "expected RemoteRetryable" False
+      _ -> (False) `shouldBe` True
     -- After consuming the queued fault, the next call succeeds.
-    kvsGet kv 1 >>= (@?= Just 100)
+    kvsGet kv 1 >>= (`shouldBe` Just 100)
 
-unit_fault_is_one_shot :: TestTree
+unit_fault_is_one_shot :: Spec
 unit_fault_is_one_shot =
-  testCase "remote: faults pop FIFO; queue empties" $ do
+  it "remote: faults pop FIFO; queue empties" $ do
     (kv, policy) <- newRemoteBacked
     setRemoteFault policy RcGet (RemoteRetryable "first")
     setRemoteFault policy RcGet (RemoteRetryable "second")
@@ -89,18 +88,18 @@ unit_fault_is_one_shot =
     r3 <- try @RemoteError (kvsGet kv 0)
     case (r1, r2, r3) of
       (Left (RemoteRetryable t1), Left (RemoteRetryable t2), Right Nothing) -> do
-        t1 @?= "first"
-        t2 @?= "second"
-      _ -> assertBool "fault FIFO mismatch" False
+        t1 `shouldBe` "first"
+        t2 `shouldBe` "second"
+      _ -> (False) `shouldBe` True
 
-unit_range_inclusive :: TestTree
+unit_range_inclusive :: Spec
 unit_range_inclusive =
-  testCase "remote: kvsRange yields entries in [lo, hi] inclusive" $ do
+  it "remote: kvsRange yields entries in [lo, hi] inclusive" $ do
     (kv, _) <- newRemoteBacked
     forM_ [(1, 100), (2, 200), (3, 300), (4, 400)] $ \(k, v) ->
       kvsPut kv k v
     rs <- kvsRange kv 2 3 >>= kvIteratorToList
-    rs @?= [(2, 200), (3, 300)]
+    rs `shouldBe` [(2, 200), (3, 300)]
 
 ----------------------------------------------------------------------
 -- Property: remote-backed store agrees with a plain store
@@ -179,14 +178,14 @@ prop_remote_point_lookup_matches_plain = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Remote KV store"
+tests :: Spec
+tests = describe "Remote KV store" $ sequence_
   [ unit_put_then_get
   , unit_fault_surfaces
   , unit_fault_is_one_shot
   , unit_range_inclusive
-  , testProperty "remote-backed store agrees with a plain store on kvsAll" $
+  , it "remote-backed store agrees with a plain store on kvsAll" $
       H.withTests 120 prop_remote_matches_plain
-  , testProperty "remote-backed point lookups agree with a plain store" $
+  , it "remote-backed point lookups agree with a plain store" $
       H.withTests 120 prop_remote_point_lookup_matches_plain
   ]

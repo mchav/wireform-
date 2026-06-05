@@ -41,20 +41,19 @@ import Test.Proto.Derive.RichTypes (
 import Test.Proto.Derive.TranslatedInstances ()
 import Test.Proto.Derive.TranslatedTypes (AddressT (..), UserT (..))
 import Test.Proto.Derive.Types (Address (..), User (..))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "Proto.TH.Derive"
-    [ testCase "default User round-trips" $ do
+  describe
+    "Proto.TH.Derive" $ sequence_
+    [ it "default User round-trips" $ do
         let u = defaultUser
         let bs = PE.encodeMessage u
-        bs @?= BS.empty -- proto3 default: every field skipped
-        PD.decodeMessage bs @?= Right u
-    , testCase "scalar fields round-trip" $ do
+        bs `shouldBe` BS.empty -- proto3 default: every field skipped
+        PD.decodeMessage bs `shouldBe` Right u
+    , it "scalar fields round-trip" $ do
         let u =
               defaultUser
                 { userId = 42
@@ -65,16 +64,16 @@ tests =
                 , userBlob = BS.pack [0, 1, 2, 3, 254, 255]
                 }
         roundTrip u
-    , testCase "ZigZag override on negative sint32" $ do
+    , it "ZigZag override on negative sint32" $ do
         let u = defaultUser {userOffset = -123456}
         roundTrip u
-    , testCase "fixed32 override on uint32" $ do
+    , it "fixed32 override on uint32" $ do
         let u = defaultUser {userPort = 0xCAFEBABE}
         roundTrip u
         -- The fixed32 wire payload always occupies 4 bytes plus 1 tag byte;
         -- assert the encoded length to confirm we picked the right encoding.
-        BS.length (PE.encodeMessage u) @?= 5
-    , testCase "Maybe Address present round-trips" $ do
+        BS.length (PE.encodeMessage u) `shouldBe` 5
+    , it "Maybe Address present round-trips" $ do
         let addr =
               Address
                 { addrStreet = T.pack "1 Wireform Way"
@@ -83,13 +82,13 @@ tests =
                 }
         let u = defaultUser {userId = 7, userAddr = Just addr}
         roundTrip u
-    , testCase "Maybe Address absent skips field" $ do
+    , it "Maybe Address absent skips field" $ do
         let u = defaultUser {userId = 7}
         let bs = PE.encodeMessage u
         -- Tag for field 9 is (9 << 3) | 2 = 74; assert it's NOT in the stream.
-        assertBool "address tag should be absent" (74 `BS.notElem` bs)
-        PD.decodeMessage bs @?= Right u
-    , testCase "deriveProtoFromTranslated: round-trip preserves UserT" $ do
+        (74 `BS.notElem` bs) `shouldBe` True
+        PD.decodeMessage bs `shouldBe` Right u
+    , it "deriveProtoFromTranslated: round-trip preserves UserT" $ do
         let u =
               (defaultUserT :: UserT)
                 { tuserId = 99
@@ -108,8 +107,8 @@ tests =
                         , taddrZip = 10119
                         }
                 }
-        PD.decodeMessage (PE.encodeMessage u) @?= Right u
-    , testCase "deriveProtoFromTranslated: byte-identical to deriveProto" $ do
+        PD.decodeMessage (PE.encodeMessage u) `shouldBe` Right u
+    , it "deriveProtoFromTranslated: byte-identical to deriveProto" $ do
         let u =
               defaultUser
                 { userId = 99
@@ -149,33 +148,31 @@ tests =
                       )
                       (userAddr u)
                 }
-        PE.encodeMessage uT @?= PE.encodeMessage u
+        PE.encodeMessage uT `shouldBe` PE.encodeMessage u
     , -- ---------------------------------------------------------------
       -- Enum
       -- ---------------------------------------------------------------
-      testCase "Painting (enum field): default round-trips" $ do
+      it "Painting (enum field): default round-trips" $ do
         let p = Painting {pTitle = T.empty, pColor = ColRed}
         let bs = PE.encodeMessage p
-        bs @?= BS.empty
-        PD.decodeMessage bs @?= Right p
-    , testCase "Painting (enum field): non-default round-trips" $ do
+        bs `shouldBe` BS.empty
+        PD.decodeMessage bs `shouldBe` Right p
+    , it "Painting (enum field): non-default round-trips" $ do
         let p = Painting {pTitle = T.pack "Composition VIII", pColor = ColBlue}
-        PD.decodeMessage (PE.encodeMessage p) @?= Right p
-    , testCase "Painting (enum field): zero-valued enum is skipped" $ do
+        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+    , it "Painting (enum field): zero-valued enum is skipped" $ do
         let p = Painting {pTitle = T.pack "X", pColor = ColRed}
         let bs = PE.encodeMessage p
         -- field 2 (color) has tag byte (2 << 3) | 0 = 16; assert it's
         -- absent because ColRed = 0 is the proto default.
-        assertBool
-          "color tag should be absent for default enum"
-          (16 `BS.notElem` bs)
+        (16 `BS.notElem` bs) `shouldBe` True
     , -- ---------------------------------------------------------------
       -- Repeated
       -- ---------------------------------------------------------------
-      testCase "Inventory (Vector-repeated submessages): empty round-trips" $ do
+      it "Inventory (Vector-repeated submessages): empty round-trips" $ do
         let inv = Inventory {invName = T.empty, invItems = V.empty}
-        PD.decodeMessage (PE.encodeMessage inv) @?= Right inv
-    , testCase "Inventory (Vector-repeated submessages): three elements" $ do
+        PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
+    , it "Inventory (Vector-repeated submessages): three elements" $ do
         let items =
               V.fromList
                 [ Item {iName = T.pack "alpha", iCount = 1}
@@ -183,23 +180,23 @@ tests =
                 , Item {iName = T.pack "gamma", iCount = 3}
                 ]
             inv = Inventory {invName = T.pack "warehouse", invItems = items}
-        PD.decodeMessage (PE.encodeMessage inv) @?= Right inv
-    , testCase "LooseInventory (list-repeated strings): preserves order" $ do
+        PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
+    , it "LooseInventory (list-repeated strings): preserves order" $ do
         let li =
               LooseInventory
                 { liId = 99
                 , liTags = [T.pack "a", T.pack "b", T.pack "c"]
                 }
-        PD.decodeMessage (PE.encodeMessage li) @?= Right li
+        PD.decodeMessage (PE.encodeMessage li) `shouldBe` Right li
     , -- ---------------------------------------------------------------
       -- Map
       -- ---------------------------------------------------------------
-      testCase "Tagged (map<string, string>): empty map round-trips" $ do
+      it "Tagged (map<string, string>): empty map round-trips" $ do
         let t = Tagged {tagName = T.empty, tagAttrs = Map.empty}
         let bs = PE.encodeMessage t
-        bs @?= BS.empty
-        PD.decodeMessage bs @?= Right t
-    , testCase "Tagged (map<string, string>): three entries round-trip" $ do
+        bs `shouldBe` BS.empty
+        PD.decodeMessage bs `shouldBe` Right t
+    , it "Tagged (map<string, string>): three entries round-trip" $ do
         let attrs =
               Map.fromList
                 [ (T.pack "color", T.pack "red")
@@ -207,37 +204,37 @@ tests =
                 , (T.pack "shape", T.pack "round")
                 ]
             t = Tagged {tagName = T.pack "demo", tagAttrs = attrs}
-        PD.decodeMessage (PE.encodeMessage t) @?= Right t
+        PD.decodeMessage (PE.encodeMessage t) `shouldBe` Right t
     , -- ---------------------------------------------------------------
       -- Oneof
       -- ---------------------------------------------------------------
-      testCase "Profile (oneof): unset oneof round-trips" $ do
+      it "Profile (oneof): unset oneof round-trips" $ do
         let p = Profile {profName = T.empty, profAvatar = Nothing}
         let bs = PE.encodeMessage p
-        bs @?= BS.empty
-        PD.decodeMessage bs @?= Right p
-    , testCase "Profile (oneof): AvatarUrl variant round-trips" $ do
+        bs `shouldBe` BS.empty
+        PD.decodeMessage bs `shouldBe` Right p
+    , it "Profile (oneof): AvatarUrl variant round-trips" $ do
         let p =
               Profile
                 { profName = T.pack "ada"
                 , profAvatar = Just (AvatarUrl (T.pack "https://example.test/x.png"))
                 }
-        PD.decodeMessage (PE.encodeMessage p) @?= Right p
-    , testCase "Profile (oneof): AvatarBlob variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+    , it "Profile (oneof): AvatarBlob variant round-trips" $ do
         let p =
               Profile
                 { profName = T.pack "grace"
                 , profAvatar = Just (AvatarBlob (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
                 }
-        PD.decodeMessage (PE.encodeMessage p) @?= Right p
-    , testCase "Profile (oneof): AvatarSeed variant round-trips" $ do
+        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+    , it "Profile (oneof): AvatarSeed variant round-trips" $ do
         let p =
               Profile
                 { profName = T.pack "joan"
                 , profAvatar = Just (AvatarSeed 42)
                 }
-        PD.decodeMessage (PE.encodeMessage p) @?= Right p
-    , testCase "Profile (oneof): later variant wins on the wire" $ do
+        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+    , it "Profile (oneof): later variant wins on the wire" $ do
         -- Concatenate two oneof field encodings; per proto3 spec the
         -- last-wins, so encoding a Seed-only profile and decoding a
         -- Url+Seed concatenation should yield the Seed variant.
@@ -252,7 +249,7 @@ tests =
                 , profAvatar = Just (AvatarSeed 7)
                 }
             combined = PE.encodeMessage pUrl `BS.append` PE.encodeMessage pSeed
-        PD.decodeMessage combined @?= Right pSeed
+        PD.decodeMessage combined `shouldBe` Right pSeed
     , -- ---------------------------------------------------------------
       -- Byte-equivalence regression: deriveProtoFromTranslated vs. loadProto
       -- ---------------------------------------------------------------
@@ -264,19 +261,19 @@ tests =
       -- consumers that switch from one to the other would observe
       -- silent corruption.
 
-      testCase "regression: empty RegInventory matches BridgeRegInventory bytes" $ do
+      it "regression: empty RegInventory matches BridgeRegInventory bytes" $ do
         let pBridge = BridgeRegInventory {briName = T.empty, briItems = V.empty}
             pProto = defaultRegInventory
-        PE.encodeMessage pBridge @?= PE.encodeMessage pProto
-    , testCase "regression: name-only RegInventory matches" $ do
+        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+    , it "regression: name-only RegInventory matches" $ do
         let pBridge =
               BridgeRegInventory
                 { briName = T.pack "warehouse-7"
                 , briItems = V.empty
                 }
             pProto = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
-        PE.encodeMessage pBridge @?= PE.encodeMessage pProto
-    , testCase "regression: repeated submessages produce identical bytes" $ do
+        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+    , it "regression: repeated submessages produce identical bytes" $ do
         let bridgeItems =
               V.fromList
                 [ BridgeRegItem (T.pack "alpha") 1
@@ -299,11 +296,11 @@ tests =
                 { regInventoryReginvName = T.pack "depot"
                 , regInventoryReginvItems = protoItems
                 }
-        PE.encodeMessage pBridge @?= PE.encodeMessage pProto
-    , testCase "regression: single RegItem matches BridgeRegItem bytes" $ do
+        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+    , it "regression: single RegItem matches BridgeRegItem bytes" $ do
         let pBridge = BridgeRegItem (T.pack "widget") 99
             pProto = defaultRegItem {regItemRegiName = T.pack "widget", regItemRegiCount = 99}
-        PE.encodeMessage pBridge @?= PE.encodeMessage pProto
+        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
     ]
 
 
@@ -338,4 +335,4 @@ defaultUser =
 
 
 roundTrip :: User -> IO ()
-roundTrip u = PD.decodeMessage (PE.encodeMessage u) @?= Right u
+roundTrip u = PD.decodeMessage (PE.encodeMessage u) `shouldBe` Right u

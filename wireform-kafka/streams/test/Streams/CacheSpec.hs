@@ -4,8 +4,7 @@
 module Streams.CacheSpec (tests) where
 
 import Data.IORef
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.State.KeyValue.Caching
   ( CachingConfig (..)
@@ -20,8 +19,8 @@ import Kafka.Streams.State.Store
   , storeName
   )
 
-tests :: TestTree
-tests = testGroup "Cache"
+tests :: Spec
+tests = describe "Cache" $ sequence_
   [ cache_dedups_per_flush
   , cache_read_your_writes
   , cache_eviction_on_budget
@@ -42,30 +41,30 @@ mkCachedStore = do
               (\k mv -> modifyIORef' emitted ((k, mv) :))
   pure (emitted, cached, under)
 
-cache_dedups_per_flush :: TestTree
+cache_dedups_per_flush :: Spec
 cache_dedups_per_flush =
-  testCase "5 puts on the same key result in 1 emit on flush" $ do
+  it "5 puts on the same key result in 1 emit on flush" $ do
     (emitted, cached, _) <- mkCachedStore
     mapM_ (\v -> kvsPut cached "k" v) [1, 2, 3, 4, 5]
     -- Nothing should have flushed yet (budget = 100, only 1 dirty entry).
     emitsBeforeFlush <- readIORef emitted
-    emitsBeforeFlush @?= []
+    emitsBeforeFlush `shouldBe` []
     storeFlush (kvsBase cached)
     emits <- readIORef emitted
-    emits @?= [("k", Just 5)]
+    emits `shouldBe` [("k", Just 5)]
 
-cache_read_your_writes :: TestTree
+cache_read_your_writes :: Spec
 cache_read_your_writes =
-  testCase "kvsGet sees the latest buffered write" $ do
+  it "kvsGet sees the latest buffered write" $ do
     (_, cached, _) <- mkCachedStore
     kvsPut cached "k" 1
-    kvsGet cached "k" >>= (@?= Just 1)
+    kvsGet cached "k" >>= (`shouldBe` Just 1)
     kvsPut cached "k" 99
-    kvsGet cached "k" >>= (@?= Just 99)
+    kvsGet cached "k" >>= (`shouldBe` Just 99)
 
-cache_eviction_on_budget :: TestTree
+cache_eviction_on_budget :: Spec
 cache_eviction_on_budget =
-  testCase "filling the cache past budget evicts" $ do
+  it "filling the cache past budget evicts" $ do
     emitted <- newIORef []
     under <- inMemoryKeyValueStore @Int @Int (storeName "u")
     cached <- cachingKeyValueStore under (CachingConfig 3)
@@ -81,25 +80,25 @@ cache_eviction_on_budget =
     -- Eviction flushes the whole buffered map.
     -- Order: ascending key (Map.toAscList in flushAll, then prepended
     -- in the IORef so the captured list is reversed).
-    reverse emits @?= [(1, Just 10), (2, Just 20), (3, Just 30), (4, Just 40)]
+    reverse emits `shouldBe` [(1, Just 10), (2, Just 20), (3, Just 30), (4, Just 40)]
     -- Underlying store now has all four.
-    mapM_ (\k -> kvsGet under k >>= (@?= Just (k * 10))) [1..4]
+    mapM_ (\k -> kvsGet under k >>= (`shouldBe` Just (k * 10))) [1..4]
 
-cache_tombstone_emits_nothing :: TestTree
+cache_tombstone_emits_nothing :: Spec
 cache_tombstone_emits_nothing =
-  testCase "delete buffers a tombstone that emits Nothing" $ do
+  it "delete buffers a tombstone that emits Nothing" $ do
     (emitted, cached, _) <- mkCachedStore
     kvsPut cached "k" 1
     _ <- kvsDelete cached "k"
     storeFlush (kvsBase cached)
     emits <- readIORef emitted
-    emits @?= [("k", Nothing)]
+    emits `shouldBe` [("k", Nothing)]
     -- And subsequent get is Nothing.
-    kvsGet cached "k" >>= (@?= Nothing)
+    kvsGet cached "k" >>= (`shouldBe` Nothing)
 
-cache_close_flushes :: TestTree
+cache_close_flushes :: Spec
 cache_close_flushes =
-  testCase "storeClose flushes all pending writes" $ do
+  it "storeClose flushes all pending writes" $ do
     (emitted, cached, _) <- mkCachedStore
     kvsPut cached "a" 1
     kvsPut cached "b" 2
@@ -107,11 +106,11 @@ cache_close_flushes =
     emits <- readIORef emitted
     -- Order: emit on close is in ascending key order; we prepend to
     -- the IORef, so the visible list is reversed.
-    reverse emits @?= [("a", Just 1), ("b", Just 2)]
+    reverse emits `shouldBe` [("a", Just 1), ("b", Just 2)]
 
-cache_range_merges :: TestTree
+cache_range_merges :: Spec
 cache_range_merges =
-  testCase "kvsRange merges cache + underlying, dropping tombstoned keys" $ do
+  it "kvsRange merges cache + underlying, dropping tombstoned keys" $ do
     (_, cached, under) <- mkCachedStore
     -- Pre-populate the underlying with c=30, d=40, e=50.
     kvsPut under "c" 30
@@ -124,4 +123,4 @@ cache_range_merges =
 
     it <- kvsRange cached "a" "z"
     xs <- kvIteratorToList it
-    xs @?= [("a", 1), ("c", 999), ("d", 40)]
+    xs `shouldBe` [("a", 1), ("c", 999), ("d", 40)]

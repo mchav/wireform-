@@ -23,9 +23,8 @@ module TestUtil.BrokerGate
 
 import qualified System.Environment as Env
 import qualified Hedgehog as H
-import Test.Tasty (TestTree)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (Assertion, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 hasBroker :: IO Bool
 hasBroker = do
@@ -36,15 +35,15 @@ hasBroker = do
 
 -- | A test case that requires a live broker. When no broker is configured
 -- the body is skipped (the case still appears as a pass).
-brokerCase :: String -> Assertion -> TestTree
-brokerCase name body = testCase name $ do
+brokerCase :: String -> IO () -> Spec
+brokerCase name body = it name $ do
   ok <- hasBroker
   if ok then body else pure ()
 
 -- | A property test that requires a live broker. When no broker is
 -- configured the property body is skipped via `H.discard`.
-brokerProperty :: String -> H.Property -> TestTree
-brokerProperty name prop = testProperty name $ H.withTests 1 $ H.property $ do
+brokerProperty :: String -> H.Property -> Spec
+brokerProperty name prop = it name $ H.withTests 1 $ H.property $ do
   ok <- H.evalIO hasBroker
   if ok
     then H.evalIO (H.check prop) >>= H.assert

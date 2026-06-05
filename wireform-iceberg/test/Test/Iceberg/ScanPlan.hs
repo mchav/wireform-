@@ -9,8 +9,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Expression
 import Iceberg.Read
@@ -93,9 +92,9 @@ minimal = TableMetadata
   , tmEncryptionKeys      = Map.empty
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.ScanPlan filter"
-  [ testCase "id == 50 keeps only the file whose [10,99] range covers 50" $ do
+tests :: Spec
+tests = describe "Iceberg.ScanPlan filter" $ sequence_
+  [ it "id == 50 keeps only the file whose [10,99] range covers 50" $ do
       let manifestPath = "s3://b/manifest.avro" :: Text
           mlPath       = "s3://b/ml.avro" :: Text
           entries = V.fromList
@@ -134,8 +133,8 @@ tests = testGroup "Iceberg.ScanPlan filter"
             | path == manifestPath = Right manifestBytes
             | otherwise            = Left ("not found: " ++ T.unpack path)
       case planScanWithFilter tm0 mlBytes fetchManifest (equal "id" (LLong 50)) of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (tasks, _, _) -> do
-          V.length tasks @?= 1
-          meFilePath (fstDataFile (V.unsafeIndex tasks 0)) @?= "s3://b/1.parquet"
+          V.length tasks `shouldBe` 1
+          meFilePath (fstDataFile (V.unsafeIndex tasks 0)) `shouldBe` "s3://b/1.parquet"
   ]

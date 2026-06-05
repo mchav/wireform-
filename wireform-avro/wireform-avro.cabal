@@ -88,5 +88,4 @@ test-suite wireform-avro-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

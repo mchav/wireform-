@@ -26,8 +26,7 @@ import Data.IORef
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as KC
 import qualified Kafka.Client.RebalanceListener as RBL
@@ -49,8 +48,8 @@ import Kafka.Streams.Runtime.NativeDriver
   , newMockDriver
   )
 
-tests :: TestTree
-tests = testGroup "Runtime <-> StreamDriver"
+tests :: Spec
+tests = describe "Runtime <-> StreamDriver" $ sequence_
   [ records_pumped_through_topology
   , pause_stops_engine_but_not_polling
   , commit_cycle_invokes_eos_coordinator
@@ -103,9 +102,9 @@ newtype Int64ish = Int64ish { unI64 :: Integer }
 -- 1. Records flow through the topology
 ----------------------------------------------------------------------
 
-records_pumped_through_topology :: TestTree
+records_pumped_through_topology :: Spec
 records_pumped_through_topology =
-  testCase "records injected via the mock driver produce sink records" $ do
+  it "records injected via the mock driver produce sink records" $ do
     topo <- buildUpcaseTopo
     let cfg = defaultStreamsConfig
           { applicationId    = "rt-app-1"
@@ -137,7 +136,7 @@ records_pumped_through_topology =
       pure (length acc == 2 && all ((== "out") . mockSendTopic) acc)
 
     finalSends <- readIORef sentRef
-    map (unbytes . mockSendValue) finalSends @?= ["HELLO", "WORLD"]
+    map (unbytes . mockSendValue) finalSends `shouldBe` ["HELLO", "WORLD"]
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
@@ -146,9 +145,9 @@ records_pumped_through_topology =
 -- 2. Pause stops feeding the engine but keeps polling
 ----------------------------------------------------------------------
 
-pause_stops_engine_but_not_polling :: TestTree
+pause_stops_engine_but_not_polling :: Spec
 pause_stops_engine_but_not_polling =
-  testCase "pause halts engine forwarding but keeps polling" $ do
+  it "pause halts engine forwarding but keeps polling" $ do
     topo <- buildUpcaseTopo
     let cfg = defaultStreamsConfig
           { applicationId    = "rt-app-2"
@@ -163,7 +162,7 @@ pause_stops_engine_but_not_polling =
     awaitState ks StreamsRunning
 
     pauseKafkaStreams ks
-    isPausedKafkaStreams ks >>= (@?= True)
+    isPausedKafkaStreams ks >>= (`shouldBe` True)
 
     -- Inject records while paused; nothing should reach the sink.
     mockDriverInjectPoll h
@@ -179,7 +178,7 @@ pause_stops_engine_but_not_polling =
     drainPolls 10
 
     sendsWhilePaused <- mockDriverDrainSends h
-    sendsWhilePaused @?= []
+    sendsWhilePaused `shouldBe` []
 
     -- Resume and inject again. Now records should flow.
     resumeKafkaStreams ks
@@ -197,9 +196,9 @@ pause_stops_engine_but_not_polling =
 -- 3. EOS-V2 commit cycle routes through the coordinator
 ----------------------------------------------------------------------
 
-commit_cycle_invokes_eos_coordinator :: TestTree
+commit_cycle_invokes_eos_coordinator :: Spec
 commit_cycle_invokes_eos_coordinator =
-  testCase "EOS commit cycle: runtime drives begin → commitOffsets → commit through the coordinator" $ do
+  it "EOS commit cycle: runtime drives begin → commitOffsets → commit through the coordinator" $ do
     topo <- buildUpcaseTopo
     let cfg = defaultStreamsConfig
           { applicationId       = "rt-app-3"
@@ -247,28 +246,27 @@ commit_cycle_invokes_eos_coordinator =
     cs <- reverse <$> readIORef callsRef
     -- The first three entries in order must be the begin /
     -- commitOffsets / commit triple.
-    take 3 cs @?= ["begin", "commitOffsets", "commit"]
+    take 3 cs `shouldBe` ["begin", "commitOffsets", "commit"]
 
     -- Ensure the runtime did NOT drive the producer's transaction
     -- hooks itself (those go through the coordinator under the
     -- AtLeastOnce defaults of the mock driver).
     txn <- mockDriverTxnLog h
-    txn @?= []
+    txn `shouldBe` []
 
     -- And it did call the regular consumer commit at least once
     -- (the runtime issues sdConsumerCommit after every successful
     -- commit cycle).
     cnt <- mockDriverCommitCount h
-    assertBool "runtime committed consumer offsets at least once"
-      (cnt >= 1)
+    (cnt >= 1) `shouldBe` True
 
 ----------------------------------------------------------------------
 -- 4. Multi-thread runtime: per-partition dispatch
 ----------------------------------------------------------------------
 
-multi_thread_runtime_dispatches_by_partition :: TestTree
+multi_thread_runtime_dispatches_by_partition :: Spec
 multi_thread_runtime_dispatches_by_partition =
-  testCase "numStreamThreads=4: every partition's records reach the sink" $ do
+  it "numStreamThreads=4: every partition's records reach the sink" $ do
     topo <- buildUpcaseTopo
     let cfg = defaultStreamsConfig
           { applicationId    = "rt-multi-1"
@@ -301,7 +299,7 @@ multi_thread_runtime_dispatches_by_partition =
     -- Order across workers isn't guaranteed (parallel), but
     -- every send must be the upper-cased value and there must
     -- be exactly 8 of them.
-    map (unbytes . mockSendValue) finalSends @?=
+    map (unbytes . mockSendValue) finalSends `shouldBe`
       replicate 8 "HELLO"
 
     closeKafkaStreams ks
@@ -311,9 +309,9 @@ multi_thread_runtime_dispatches_by_partition =
 -- 5. Multi-thread runtime: collector drain + IQ federation
 ----------------------------------------------------------------------
 
-multi_thread_runtime_drains_collectors_at_commit :: TestTree
+multi_thread_runtime_drains_collectors_at_commit :: Spec
 multi_thread_runtime_drains_collectors_at_commit =
-  testCase "numStreamThreads=2: per-key counts are partition-local + federated read returns the union" $ do
+  it "numStreamThreads=2: per-key counts are partition-local + federated read returns the union" $ do
     topo <- buildCountTopo
     let cfg = defaultStreamsConfig
           { applicationId    = "rt-multi-2"
@@ -415,9 +413,9 @@ buildRebalanceFixture graceMs = do
     }
   pure (ks, log_)
 
-rebalance_assigned_updates_owned_partitions :: TestTree
+rebalance_assigned_updates_owned_partitions :: Spec
 rebalance_assigned_updates_owned_partitions =
-  testCase "RebalanceAssigned: ksOwned gains the new tps; listener fires" $ do
+  it "RebalanceAssigned: ksOwned gains the new tps; listener fires" $ do
     (ks, log_) <- buildRebalanceFixture 0
     (drv, h) <- newMockDriver
     let tp0 = KC.TopicPartition "in" 0
@@ -433,18 +431,18 @@ rebalance_assigned_updates_owned_partitions =
     owned <- ownedPartitions ks
     -- Order is not deterministic across HashSet; compare as sets.
     map (\(KC.TopicPartition t p) -> (t, p)) (sortBy_ owned)
-      @?= [("in", 0), ("in", 1)]
+      `shouldBe` [("in", 0), ("in", 1)]
 
     entries <- reverse <$> readIORef log_
-    map fst entries @?= ["assigned"]
-    map snd entries @?= [[tp0, tp1]]
+    map fst entries `shouldBe` ["assigned"]
+    map snd entries `shouldBe` [[tp0, tp1]]
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
-rebalance_revoked_moves_to_standby_grace :: TestTree
+rebalance_revoked_moves_to_standby_grace :: Spec
 rebalance_revoked_moves_to_standby_grace =
-  testCase "RebalanceRevoked with non-zero grace: tp moves to ksStandbys" $ do
+  it "RebalanceRevoked with non-zero grace: tp moves to ksStandbys" $ do
     (ks, _log) <- buildRebalanceFixture 60_000
     (drv, h) <- newMockDriver
     let tp = KC.TopicPartition "in" 0
@@ -462,19 +460,19 @@ rebalance_revoked_moves_to_standby_grace =
       pure (null owned && Map.member tp stby)
 
     owned <- ownedPartitions ks
-    owned @?= []
+    owned `shouldBe` []
     stby  <- standbyTasks ks
     -- The deadline should be a real timestamp, > 0.
     case Map.lookup tp stby of
-      Just dl -> assertBool ("standby deadline > 0; got " <> show dl) (dl > 0)
+      Just dl -> (if (dl > 0) then pure () else expectationFailure ("standby deadline > 0; got " <> show dl))
       Nothing -> error "expected standby entry"
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
-rebalance_lost_drops_without_grace :: TestTree
+rebalance_lost_drops_without_grace :: Spec
 rebalance_lost_drops_without_grace =
-  testCase "RebalanceLost: tp drops immediately; no standby entry; listener fires" $ do
+  it "RebalanceLost: tp drops immediately; no standby entry; listener fires" $ do
     (ks, log_) <- buildRebalanceFixture 60_000
     (drv, h) <- newMockDriver
     let tp = KC.TopicPartition "in" 0
@@ -492,14 +490,14 @@ rebalance_lost_drops_without_grace =
 
     -- The listener saw both assigned then lost, in order.
     entries <- reverse <$> readIORef log_
-    map fst entries @?= ["assigned", "lost"]
+    map fst entries `shouldBe` ["assigned", "lost"]
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
-rebalance_reassignment_promotes_standby :: TestTree
+rebalance_reassignment_promotes_standby :: Spec
 rebalance_reassignment_promotes_standby =
-  testCase "Re-assignment of a standby tp clears the standby and re-adds to owned" $ do
+  it "Re-assignment of a standby tp clears the standby and re-adds to owned" $ do
     (ks, _log) <- buildRebalanceFixture 60_000
     (drv, h) <- newMockDriver
     let tp = KC.TopicPartition "in" 0
@@ -516,9 +514,9 @@ rebalance_reassignment_promotes_standby =
       pure (tp `elem` owned && Map.null stby)
 
     owned <- ownedPartitions ks
-    owned @?= [tp]
+    owned `shouldBe` [tp]
     stby  <- standbyTasks ks
-    Map.null stby @?= True
+    Map.null stby `shouldBe` True
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
@@ -539,9 +537,9 @@ rebalance_reassignment_promotes_standby =
 -- drivers in parallel. It's the runtime-side equivalent of
 -- bringing up two streams app instances in the same group and
 -- pulling one offline.
-two_instances_handoff_partitions_via_rebalance :: TestTree
+two_instances_handoff_partitions_via_rebalance :: Spec
 two_instances_handoff_partitions_via_rebalance =
-  testCase "two instances: revoke from A and assign to B; subsequent records land on B" $ do
+  it "two instances: revoke from A and assign to B; subsequent records land on B" $ do
     -- Same topology + same applicationId on both instances.
     topoA <- buildCountTopo
     topoB <- buildCountTopo
@@ -631,14 +629,14 @@ two_instances_handoff_partitions_via_rebalance =
     Just iqA <- queryKVStore @Text @Int64 ksA (storeName "counts")
     aliceA  <- iqA.roKvGet "alice"
     carolA  <- iqA.roKvGet "carol"
-    aliceA @?= Just 2  -- A's own partition, still being fed
-    carolA @?= Just 1  -- standby on A, frozen at handoff
+    aliceA `shouldBe` Just 2  -- A's own partition, still being fed
+    carolA `shouldBe` Just 1  -- standby on A, frozen at handoff
 
     Just iqB <- queryKVStore @Text @Int64 ksB (storeName "counts")
     carolB  <- iqB.roKvGet "carol"
     daveB   <- iqB.roKvGet "dave"
-    carolB @?= Just 2  -- new owner, post-handoff records counted
-    daveB  @?= Just 1
+    carolB `shouldBe` Just 2  -- new owner, post-handoff records counted
+    daveB  `shouldBe` Just 1
 
     closeKafkaStreams ksA
     closeKafkaStreams ksB

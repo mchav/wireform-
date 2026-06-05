@@ -10,16 +10,15 @@ module Test.Columnar (columnarFacadeTests) where
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import Data.Int (Int32, Int64)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
 import qualified Wireform.Columnar as Col
 
-columnarFacadeTests :: TestTree
-columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
-  [ testCase "round-trip through every format" $ do
+columnarFacadeTests :: Spec
+columnarFacadeTests = describe "Wireform.Columnar unified facade" $ sequence_
+  [ it "round-trip through every format" $ do
       -- Common shape the facade should handle identically
       -- regardless of Format: two leaf columns, one int64, one
       -- utf8, non-nullable, single batch.
@@ -60,7 +59,7 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
       -- ORC
       assertRoundTrip "ORC" Col.ORC opts ropts sch batches
 
-  , testCase "Parquet format ignores Arrow options" $ do
+  , it "Parquet format ignores Arrow options" $ do
       -- Writing with Arrow-only options set on opts.arrowWrite
       -- shouldn't bleed into the Parquet path. Smoke test by
       -- encoding + decoding and checking the magic prefix.
@@ -79,22 +78,22 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
                 }
             }
       case Col.encode Col.Parquet opts sch batches of
-        Left e  -> assertFailure e
+        Left e  -> expectationFailure e
         Right _ -> pure ()
   ]
   where
     assertRoundTrip :: String -> Col.Format -> Col.WriteOptions -> Col.ReadOptions
-                    -> AT.Schema -> [V.Vector AC.ColumnArray] -> Assertion
+                    -> AT.Schema -> [V.Vector AC.ColumnArray] -> IO ()
     assertRoundTrip label fmt wopts ropts sch batches =
       case Col.encode fmt wopts sch batches of
-        Left e -> assertFailure (label ++ ": encode: " ++ e)
+        Left e -> expectationFailure (label ++ ": encode: " ++ e)
         Right bytes ->
           case Col.decode fmt ropts bytes of
-            Left e -> assertFailure (label ++ ": decode: " ++ e)
+            Left e -> expectationFailure (label ++ ": decode: " ++ e)
             Right (_, batches') ->
               case batches' of
                 [b] | b == head batches -> pure ()
-                _   -> assertFailure $
+                _   -> expectationFailure $
                           label ++ ": batch mismatch\n got "
                                 ++ show batches'
                                 ++ "\n exp "
