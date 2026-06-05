@@ -2,8 +2,7 @@ module Test.Iceberg.Update (tests) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Types
 import Iceberg.Update
@@ -35,9 +34,9 @@ minimal = TableMetadata
   , tmEncryptionKeys      = Map.empty
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Update"
-  [ testCase "appendFiles increments sequence number, records snapshot, advances main" $ do
+tests :: Spec
+tests = describe "Iceberg.Update" $ sequence_
+  [ it "appendFiles increments sequence number, records snapshot, advances main" $ do
       let after = appendFiles minimal AppendFiles
             { apfNewManifestList = "s3://b/ml1.avro"
             , apfTimestampMs     = 1700000001000
@@ -46,12 +45,12 @@ tests = testGroup "Iceberg.Update"
 
             , apfSchemaId        = Just 0
             }
-      tmLastSequenceNumber after @?= 1
-      V.length (tmSnapshots after) @?= 1
-      tmCurrentSnapshotId after @?= Just (snapId (V.unsafeIndex (tmSnapshots after) 0))
-      Map.lookup "main" (tmSnapshotRefs after) /= Nothing @?= True
+      tmLastSequenceNumber after `shouldBe` 1
+      V.length (tmSnapshots after) `shouldBe` 1
+      tmCurrentSnapshotId after `shouldBe` Just (snapId (V.unsafeIndex (tmSnapshots after) 0))
+      Map.lookup "main" (tmSnapshotRefs after) /= Nothing `shouldBe` True
 
-  , testCase "createTag adds a tag pointing at a snapshot" $ do
+  , it "createTag adds a tag pointing at a snapshot" $ do
       let s1 = appendFiles minimal AppendFiles
                  { apfNewManifestList = "s3://b/ml.avro"
                  , apfTimestampMs = 1
@@ -64,11 +63,11 @@ tests = testGroup "Iceberg.Update"
           tagged = createTag "v1.0" sid (Just 86400000) s1
       case Map.lookup "v1.0" (tmSnapshotRefs tagged) of
         Just r -> do
-          srSnapshotId r @?= sid
-          srType r @?= "tag"
-        Nothing -> assertFailure "tag not created"
+          srSnapshotId r `shouldBe` sid
+          srType r `shouldBe` "tag"
+        Nothing -> expectationFailure "tag not created"
 
-  , testCase "removeRef does not remove main" $ do
+  , it "removeRef does not remove main" $ do
       let s1 = appendFiles minimal AppendFiles
                  { apfNewManifestList = "s3://b/ml.avro"
                  , apfTimestampMs = 1
@@ -77,9 +76,9 @@ tests = testGroup "Iceberg.Update"
 
                  , apfSchemaId = Just 0
                  }
-      Map.lookup "main" (tmSnapshotRefs (removeRef "main" s1)) /= Nothing @?= True
+      Map.lookup "main" (tmSnapshotRefs (removeRef "main" s1)) /= Nothing `shouldBe` True
 
-  , testCase "fastForwardBranch moves branch only inside its history" $ do
+  , it "fastForwardBranch moves branch only inside its history" $ do
       let s1 = appendFiles minimal AppendFiles
                  { apfNewManifestList = "ml1.avro"
                  , apfTimestampMs = 1
@@ -101,6 +100,6 @@ tests = testGroup "Iceberg.Update"
           tagged = createTag "lagging" sid1 Nothing s2
           fwd    = fastForwardBranch "lagging" sid2 tagged
       case Map.lookup "lagging" (tmSnapshotRefs fwd) of
-        Just r -> srSnapshotId r @?= sid2
-        Nothing -> assertFailure "lagging ref disappeared"
+        Just r -> srSnapshotId r `shouldBe` sid2
+        Nothing -> expectationFailure "lagging ref disappeared"
   ]

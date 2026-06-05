@@ -7,8 +7,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import System.Exit (ExitCode (..))
 import qualified System.Process as Proc
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Iceberg.Delete as ID
 import qualified Iceberg.Read
@@ -19,9 +18,9 @@ import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
 
-tests :: TestTree
-tests = testGroup "Iceberg.Delete"
-  [ testCase "position delete file: header counts and reserved field-ids" $ do
+tests :: Spec
+tests = describe "Iceberg.Delete" $ sequence_
+  [ it "position delete file: header counts and reserved field-ids" $ do
       let rows = V.fromList
             [ ID.PositionDeleteRow "s3://bucket/data/00.parquet" 0
             , ID.PositionDeleteRow "s3://bucket/data/00.parquet" 7
@@ -31,29 +30,29 @@ tests = testGroup "Iceberg.Delete"
                           "s3://bucket/deletes/pos.parquet"
                           rows
       -- DeleteFile manifest fields must reflect what we wrote.
-      dfRecordCount df       @?= 3
-      dfContent df           @?= PositionDeletes
-      dfFileFormat df        @?= ParquetFormat
-      dfFileSizeInBytes df   @?= fromIntegral (BS.length bytes)
-      V.toList (dfEqualityFieldIds df) @?= []
+      dfRecordCount df       `shouldBe` 3
+      dfContent df           `shouldBe` PositionDeletes
+      dfFileFormat df        `shouldBe` ParquetFormat
+      dfFileSizeInBytes df   `shouldBe` fromIntegral (BS.length bytes)
+      V.toList (dfEqualityFieldIds df) `shouldBe` []
 
       -- The Parquet file must round-trip and carry the reserved Iceberg
       -- field-ids on its leaf columns; without those an Iceberg reader
       -- can't identify the columns.
       case PR.loadParquetFile bytes of
-        Left e   -> assertFailure e
+        Left e   -> expectationFailure e
         Right pf -> do
           let leaves = V.filter (\se -> case P.seType se of
                                           Just _  -> True
                                           Nothing -> False)
                                 (P.fmSchema (PR.pfFooter pf))
-          V.length leaves @?= 2
+          V.length leaves `shouldBe` 2
           P.seFieldId (V.unsafeIndex leaves 0)
-            @?= Just ID.positionDeleteFilePathFieldId
+            `shouldBe` Just ID.positionDeleteFilePathFieldId
           P.seFieldId (V.unsafeIndex leaves 1)
-            @?= Just ID.positionDeletePosFieldId
+            `shouldBe` Just ID.positionDeletePosFieldId
 
-  , testCase "equality delete file: equality_field_ids set + per-column field-ids" $ do
+  , it "equality delete file: equality_field_ids set + per-column field-ids" $ do
       let cols = V.fromList
             [ PW.ColInt64     (VP.fromList [1, 2, 3])
             , PW.ColByteArray (V.fromList ["alpha", "beta", "gamma"])
@@ -64,23 +63,23 @@ tests = testGroup "Iceberg.Delete"
             ]
       case ID.writeEqualityDeleteFile
              "s3://bucket/deletes/eq.parquet" schemaCols cols of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (bytes, df) -> do
-          dfRecordCount df @?= 3
-          dfContent df     @?= EqualityDeletes
-          V.toList (dfEqualityFieldIds df) @?= [17, 23]
+          dfRecordCount df `shouldBe` 3
+          dfContent df     `shouldBe` EqualityDeletes
+          V.toList (dfEqualityFieldIds df) `shouldBe` [17, 23]
           case PR.loadParquetFile bytes of
-            Left e   -> assertFailure e
+            Left e   -> expectationFailure e
             Right pf -> do
               let leaves = V.filter (\se -> case P.seType se of
                                               Just _  -> True
                                               Nothing -> False)
                                     (P.fmSchema (PR.pfFooter pf))
-              V.length leaves @?= 2
-              P.seFieldId (V.unsafeIndex leaves 0) @?= Just 17
-              P.seFieldId (V.unsafeIndex leaves 1) @?= Just 23
+              V.length leaves `shouldBe` 2
+              P.seFieldId (V.unsafeIndex leaves 0) `shouldBe` Just 17
+              P.seFieldId (V.unsafeIndex leaves 1) `shouldBe` Just 23
 
-  , testCase "equality delete: rejects column count mismatch" $ do
+  , it "equality delete: rejects column count mismatch" $ do
       let cols = V.singleton (PW.ColInt64 (VP.fromList [1, 2]))
           schemaCols =
             [ ID.EqualityDeleteSchema 1 "a" P.PTInt64
@@ -88,14 +87,14 @@ tests = testGroup "Iceberg.Delete"
             ]
       case ID.writeEqualityDeleteFile "x" schemaCols cols of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected column count mismatch error"
+        Right _ -> expectationFailure "expected column count mismatch error"
 
-  , testCase "equality delete: rejects empty schema" $ do
+  , it "equality delete: rejects empty schema" $ do
       case ID.writeEqualityDeleteFile "x" [] V.empty of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected empty schema error"
+        Right _ -> expectationFailure "expected empty schema error"
 
-  , testCase "writePositionDeleteFile -> readPositionDeleteFile round-trip" $ do
+  , it "writePositionDeleteFile -> readPositionDeleteFile round-trip" $ do
       let rows = V.fromList
             [ ID.PositionDeleteRow "s3://b/data/00.parquet" 0
             , ID.PositionDeleteRow "s3://b/data/00.parquet" 7
@@ -104,10 +103,10 @@ tests = testGroup "Iceberg.Delete"
             ]
           (bytes, _) = ID.writePositionDeleteFile "out" rows
       case ID.readPositionDeleteFile bytes of
-        Left e -> assertFailure ("read: " ++ e)
-        Right rows' -> rows' @?= rows
+        Left e -> expectationFailure ("read: " ++ e)
+        Right rows' -> rows' `shouldBe` rows
 
-  , testCase "end-to-end: write deletes -> read deletes -> apply to data rows" $ do
+  , it "end-to-end: write deletes -> read deletes -> apply to data rows" $ do
       -- 10-row data file. Position deletes drop rows 1, 4, 8 from
       -- the target path (rows 1, 4 from another path are
       -- ignored).
@@ -120,9 +119,9 @@ tests = testGroup "Iceberg.Delete"
             ]
           (deleteBytes, _) = ID.writePositionDeleteFile "deletes/0.parquet" deletes
       case ID.readPositionDeleteFile deleteBytes of
-        Left e -> assertFailure ("read: " ++ e)
+        Left e -> expectationFailure ("read: " ++ e)
         Right deletes' -> do
-          deletes' @?= deletes
+          deletes' `shouldBe` deletes
           -- Apply to the data rows. We use the existing
           -- Iceberg.Read.applyPositionDeletes which expects a
           -- different PositionDelete record shape (Iceberg.Types
@@ -133,9 +132,9 @@ tests = testGroup "Iceberg.Delete"
                     Iceberg.Types.PositionDelete p pos) deletes'
               kept = Iceberg.Read.applyPositionDeletes
                        icebergDs dataFilePath dataRows
-          V.toList kept @?= [0, 2, 3, 5, 6, 7, 9]
+          V.toList kept `shouldBe` [0, 2, 3, 5, 6, 7, 9]
 
-  , testCase "equality delete file: pyarrow sees Iceberg field_ids" $ do
+  , it "equality delete file: pyarrow sees Iceberg field_ids" $ do
       -- Regression for the bug where seFieldId was encoded into
       -- parquet.thrift SchemaElement field 8 (which is @precision@)
       -- instead of field 9 (@field_id@). Other Parquet readers
@@ -156,7 +155,7 @@ tests = testGroup "Iceberg.Delete"
                 ]
           case ID.writeEqualityDeleteFile
                  "s3://bucket/deletes/eq.parquet" schemaCols cols of
-            Left e -> assertFailure e
+            Left e -> expectationFailure e
             Right (bytes, _) -> do
               let path = "/tmp/wireform-equality-delete-field-ids.parquet"
               BS.writeFile path bytes
@@ -188,5 +187,5 @@ pyarrowAssert label snippet = do
   case code of
     ExitSuccess
       | "PYARROW_OK" `isInfixOf` out -> pure ()
-      | otherwise -> assertFailure (label ++ ": pyarrow output: " ++ out)
-    _ -> assertFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)
+      | otherwise -> expectationFailure (label ++ ": pyarrow output: " ++ out)
+    _ -> expectationFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)

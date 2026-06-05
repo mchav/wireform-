@@ -21,25 +21,25 @@ import qualified Data.ByteString as BS
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Iceberg.Variant
 import qualified Iceberg.Variant.Shredding as Shred
 
-tests :: TestTree
-tests = testGroup "Iceberg.Variant property tests"
-  [ testProperty "encode/decode round-trip on arbitrary primitives"
+tests :: Spec
+tests = describe "Iceberg.Variant property tests" $ sequence_
+  [ it "encode/decode round-trip on arbitrary primitives"
       propPrimRoundTrip
-  , testProperty "encode/decode round-trip on arbitrary recursive Variants"
+  , it "encode/decode round-trip on arbitrary recursive Variants"
       propVariantRoundTrip
-  , testProperty "JSON projection round-trip on JSON-equivalent subset"
+  , it "JSON projection round-trip on JSON-equivalent subset"
       propJsonRoundTrip
-  , testProperty "decimal16 round-trips arbitrary signed 128-bit unscaled values"
+  , it "decimal16 round-trips arbitrary signed 128-bit unscaled values"
       propDecimal16Range
-  , testProperty "object lex-sorted keys: encode is canonical"
+  , it "object lex-sorted keys: encode is canonical"
       propObjectSortedCanonical
-  , testProperty "shred -> reconstruct round-trip on JSON-equivalent inputs"
+  , it "shred -> reconstruct round-trip on JSON-equivalent inputs"
       propShredReconstructRoundTrip
   ]
 

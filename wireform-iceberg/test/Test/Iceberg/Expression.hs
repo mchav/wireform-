@@ -4,8 +4,7 @@ module Test.Iceberg.Expression (tests) where
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Expression
 import Iceberg.SingleValue
@@ -37,41 +36,41 @@ mkMetrics rngs valCounts nullCounts =
         , fmUpperBounds  = highs
         }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Expression"
-  [ testCase "id == 5 prunes a file whose id range is [10, 20]" $ do
+tests :: Spec
+tests = describe "Iceberg.Expression" $ sequence_
+  [ it "id == 5 prunes a file whose id range is [10, 20]" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = equal "id" (LLong 5)
-      evaluateInclusive testSchema fm expr @?= False
+      evaluateInclusive testSchema fm expr `shouldBe` False
 
-  , testCase "id == 15 keeps a file whose id range is [10, 20]" $ do
+  , it "id == 15 keeps a file whose id range is [10, 20]" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = equal "id" (LLong 15)
-      evaluateInclusive testSchema fm expr @?= True
+      evaluateInclusive testSchema fm expr `shouldBe` True
 
-  , testCase "id < 5 prunes a file whose id range starts at 10" $ do
+  , it "id < 5 prunes a file whose id range starts at 10" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = lessThan "id" (LLong 5)
-      evaluateInclusive testSchema fm expr @?= False
+      evaluateInclusive testSchema fm expr `shouldBe` False
 
-  , testCase "id < 25 keeps a file whose id range is [10, 20]" $ do
+  , it "id < 25 keeps a file whose id range is [10, 20]" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = lessThan "id" (LLong 25)
-      evaluateInclusive testSchema fm expr @?= True
+      evaluateInclusive testSchema fm expr `shouldBe` True
 
-  , testCase "isNull on a non-null column prunes" $ do
+  , it "isNull on a non-null column prunes" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = isNull "id"
-      evaluateInclusive testSchema fm expr @?= False
+      evaluateInclusive testSchema fm expr `shouldBe` False
 
-  , testCase "Strict id < 25 holds for a file whose id range is [10, 20]" $ do
+  , it "Strict id < 25 holds for a file whose id range is [10, 20]" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = lessThan "id" (LLong 25)
-      evaluateStrict testSchema fm expr @?= True
+      evaluateStrict testSchema fm expr `shouldBe` True
 
-  , testCase "Boolean composition" $ do
+  , it "Boolean composition" $ do
       let fm = mkMetrics [(1, (Just 10, Just 20))] [(1, 100)] [(1, 0)]
           expr = (greaterThan "id" (LLong 5)) `and_` (lessThan "id" (LLong 25))
-      evaluateInclusive testSchema fm expr @?= True
-      evaluateStrict testSchema fm expr @?= True
+      evaluateInclusive testSchema fm expr `shouldBe` True
+      evaluateStrict testSchema fm expr `shouldBe` True
   ]

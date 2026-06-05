@@ -3,8 +3,7 @@ module Test.Iceberg.SnapshotSummary (tests) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Types
 import Iceberg.Update
@@ -30,33 +29,33 @@ mkEntry content = ManifestEntry
       }
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Update snapshot summary"
-  [ testCase "statsFromManifestEntry on a data file" $ do
+tests :: Spec
+tests = describe "Iceberg.Update snapshot summary" $ sequence_
+  [ it "statsFromManifestEntry on a data file" $ do
       let s = statsFromManifestEntry (mkEntry DataContent)
-      ssAddedDataFiles s   @?= 1
-      ssAddedRecords s     @?= 100
-      ssAddedFilesSize s   @?= 1024
-      ssAddedDeleteFiles s @?= 0
+      ssAddedDataFiles s   `shouldBe` 1
+      ssAddedRecords s     `shouldBe` 100
+      ssAddedFilesSize s   `shouldBe` 1024
+      ssAddedDeleteFiles s `shouldBe` 0
 
-  , testCase "statsFromManifestEntry on an equality delete file" $ do
+  , it "statsFromManifestEntry on an equality delete file" $ do
       let s = statsFromManifestEntry (mkEntry DeletesContent)
-      ssAddedDataFiles s         @?= 0
-      ssAddedDeleteFiles s       @?= 1
-      ssAddedEqualityDeletes s   @?= 100
-      ssAddedPositionDeletes s   @?= 0
+      ssAddedDataFiles s         `shouldBe` 0
+      ssAddedDeleteFiles s       `shouldBe` 1
+      ssAddedEqualityDeletes s   `shouldBe` 100
+      ssAddedPositionDeletes s   `shouldBe` 0
 
-  , testCase "autoSummary emits canonical keys" $ do
+  , it "autoSummary emits canonical keys" $ do
       let s = (statsFromManifestEntry (mkEntry DataContent))
                 { ssTotalDataFiles = 5, ssTotalRecords = 500 }
           summary = autoSummary s
-      Map.lookup "added-data-files" summary @?= Just "1"
-      Map.lookup "added-records" summary    @?= Just "100"
-      Map.lookup "added-files-size" summary @?= Just "1024"
-      Map.lookup "total-data-files" summary @?= Just "5"
-      Map.lookup "total-records" summary    @?= Just "500"
+      Map.lookup "added-data-files" summary `shouldBe` Just "1"
+      Map.lookup "added-records" summary    `shouldBe` Just "100"
+      Map.lookup "added-files-size" summary `shouldBe` Just "1024"
+      Map.lookup "total-data-files" summary `shouldBe` Just "5"
+      Map.lookup "total-records" summary    `shouldBe` Just "500"
 
-  , testCase "autoSummary omits zero-valued keys" $ do
+  , it "autoSummary omits zero-valued keys" $ do
       let summary = autoSummary emptySnapshotStats
-      Map.size summary @?= 0
+      Map.size summary `shouldBe` 0
   ]

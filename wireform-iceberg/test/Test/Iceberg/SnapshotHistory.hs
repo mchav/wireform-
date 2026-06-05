@@ -3,8 +3,7 @@ module Test.Iceberg.SnapshotHistory (tests) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Snapshot
 import Iceberg.Types
@@ -44,40 +43,40 @@ threeAppends =
       s3 = appendFiles s2      (AppendFiles "ml3.avro" 300 Map.empty Nothing (Just 0))
    in s3
 
-tests :: TestTree
-tests = testGroup "Iceberg.Snapshot history + Update.rollback"
-  [ testCase "currentAncestors returns 3 snapshots after 3 appends" $ do
-      length (currentAncestors threeAppends) @?= 3
+tests :: Spec
+tests = describe "Iceberg.Snapshot history + Update.rollback" $ sequence_
+  [ it "currentAncestors returns 3 snapshots after 3 appends" $ do
+      length (currentAncestors threeAppends) `shouldBe` 3
 
-  , testCase "snapshotsBetween fromOldest toNewest returns 2 entries" $ do
+  , it "snapshotsBetween fromOldest toNewest returns 2 entries" $ do
       let snaps = tmSnapshots threeAppends
           firstId = snapId (V.unsafeIndex snaps 0)
           lastId  = snapId (V.unsafeIndex snaps 2)
       case snapshotsBetween threeAppends firstId lastId of
-        Just xs -> length xs @?= 2
-        Nothing -> assertFailure "expected snapshots"
+        Just xs -> length xs `shouldBe` 2
+        Nothing -> expectationFailure "expected snapshots"
 
-  , testCase "snapshotAsOfTime picks the latest snapshot at or before target" $ do
+  , it "snapshotAsOfTime picks the latest snapshot at or before target" $ do
       case snapshotAsOfTime threeAppends 250 of
-        Just s  -> snapTimestampMs s @?= 200
-        Nothing -> assertFailure "expected match"
+        Just s  -> snapTimestampMs s `shouldBe` 200
+        Nothing -> expectationFailure "expected match"
 
-  , testCase "isAncestor relates first and third snapshots" $ do
+  , it "isAncestor relates first and third snapshots" $ do
       let snaps = tmSnapshots threeAppends
           firstId = snapId (V.unsafeIndex snaps 0)
           lastId  = snapId (V.unsafeIndex snaps 2)
-      isAncestor threeAppends firstId lastId @?= True
-      isAncestor threeAppends lastId firstId @?= False
+      isAncestor threeAppends firstId lastId `shouldBe` True
+      isAncestor threeAppends lastId firstId `shouldBe` False
 
-  , testCase "rollbackToSnapshot accepts an ancestor" $ do
+  , it "rollbackToSnapshot accepts an ancestor" $ do
       let snaps = tmSnapshots threeAppends
           firstId = snapId (V.unsafeIndex snaps 0)
       case rollbackToSnapshot firstId threeAppends of
-        Right tm' -> tmCurrentSnapshotId tm' @?= Just firstId
-        Left e    -> assertFailure e
+        Right tm' -> tmCurrentSnapshotId tm' `shouldBe` Just firstId
+        Left e    -> expectationFailure e
 
-  , testCase "rollbackToSnapshot rejects a non-ancestor" $ do
+  , it "rollbackToSnapshot rejects a non-ancestor" $ do
       case rollbackToSnapshot 99999 threeAppends of
-        Right _ -> assertFailure "expected rollback failure"
+        Right _ -> expectationFailure "expected rollback failure"
         Left _  -> pure ()
   ]

@@ -13,26 +13,26 @@ import Data.Word (Word8)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Parquet.Encryption as Enc
 
-tests :: TestTree
-tests = testGroup "Parquet.Encryption properties"
-  [ testProperty "GCM encrypt/decrypt round-trip with derived nonce"
+tests :: Spec
+tests = describe "Parquet.Encryption properties" $ sequence_
+  [ it "GCM encrypt/decrypt round-trip with derived nonce"
       propGcmRoundTrip
-  , testProperty "GCM rejects flipped tag bits"
+  , it "GCM rejects flipped tag bits"
       propGcmTamperTag
-  , testProperty "GCM rejects flipped ciphertext bits"
+  , it "GCM rejects flipped ciphertext bits"
       propGcmTamperCiphertext
-  , testProperty "GCM detects AAD mismatch"
+  , it "GCM detects AAD mismatch"
       propGcmAadMismatch
-  , testProperty "CTR encrypt/decrypt round-trip"
+  , it "CTR encrypt/decrypt round-trip"
       propCtrRoundTrip
-  , testProperty "framed module: writeFramed -> readFramed -> decrypt"
+  , it "framed module: writeFramed -> readFramed -> decrypt"
       propFramedRoundTrip
-  , testProperty "AAD suffix is exactly 15 bytes for any input"
+  , it "AAD suffix is exactly 15 bytes for any input"
       propAadSuffixLength
   ]
 

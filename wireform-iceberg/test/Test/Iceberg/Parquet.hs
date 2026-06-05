@@ -6,8 +6,7 @@ module Test.Iceberg.Parquet (tests) where
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Iceberg.DeletionVector as DV
 import qualified Iceberg.Parquet as IP
@@ -114,66 +113,66 @@ mkOffsetIndex = P.OffsetIndex
   , P.oiUnencodedByteArrayDataBytes = Nothing
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Parquet bridge"
-  [ testCase "dataFileFromParquet records column sizes by Iceberg field id" $ do
+tests :: Spec
+tests = describe "Iceberg.Parquet bridge" $ sequence_
+  [ it "dataFileFromParquet records column sizes by Iceberg field id" $ do
       let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
                  "s3://b/data.parquet" 4096 V.empty Nothing
-      Map.lookup 1 (dataFileColumnSizes df) @?= Just 800
-      Map.lookup 2 (dataFileColumnSizes df) @?= Just 1500
-      dataFileRecordCount df @?= 100
-      dataFileFileSize df    @?= 4096
+      Map.lookup 1 (dataFileColumnSizes df) `shouldBe` Just 800
+      Map.lookup 2 (dataFileColumnSizes df) `shouldBe` Just 1500
+      dataFileRecordCount df `shouldBe` 100
+      dataFileFileSize df    `shouldBe` 4096
 
-  , testCase "dataFileFromParquet records value/null counts" $ do
+  , it "dataFileFromParquet records value/null counts" $ do
       let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
                  "s3://b/data.parquet" 4096 V.empty Nothing
-      Map.lookup 1 (dataFileValueCounts df) @?= Just 100
-      Map.lookup 2 (dataFileValueCounts df) @?= Just 100
-      Map.lookup 1 (dataFileNullValueCounts df) @?= Just 1
-      Map.lookup 2 (dataFileNullValueCounts df) @?= Just 0
+      Map.lookup 1 (dataFileValueCounts df) `shouldBe` Just 100
+      Map.lookup 2 (dataFileValueCounts df) `shouldBe` Just 100
+      Map.lookup 1 (dataFileNullValueCounts df) `shouldBe` Just 1
+      Map.lookup 2 (dataFileNullValueCounts df) `shouldBe` Just 0
 
-  , testCase "dataFileFromParquet records min/max bounds (truncated)" $ do
+  , it "dataFileFromParquet records min/max bounds (truncated)" $ do
       let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
                  "s3://b/data.parquet" 4096 V.empty Nothing
       -- id column: 8-byte little-endian 1 / 99 - shorter than truncation
       -- threshold so they pass through.
-      Map.lookup 1 (dataFileLowerBounds df) @?= Just (BS.pack [1,0,0,0,0,0,0,0])
-      Map.lookup 1 (dataFileUpperBounds df) @?= Just (BS.pack [99,0,0,0,0,0,0,0])
+      Map.lookup 1 (dataFileLowerBounds df) `shouldBe` Just (BS.pack [1,0,0,0,0,0,0,0])
+      Map.lookup 1 (dataFileUpperBounds df) `shouldBe` Just (BS.pack [99,0,0,0,0,0,0,0])
       -- name column: bound truncation rounds the upper bound up.
-      Map.lookup 2 (dataFileLowerBounds df) @?= Just "alpha"
+      Map.lookup 2 (dataFileLowerBounds df) `shouldBe` Just "alpha"
       case Map.lookup 2 (dataFileUpperBounds df) of
-        Just b  -> (b >= "zulu") @?= True
-        Nothing -> assertFailure "expected upper bound for column 2"
+        Just b  -> (b >= "zulu") `shouldBe` True
+        Nothing -> expectationFailure "expected upper bound for column 2"
 
-  , testCase "dataFileFromParquet records split offsets per row group" $ do
+  , it "dataFileFromParquet records split offsets per row group" $ do
       let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
                  "s3://b/data.parquet" 4096 V.empty Nothing
-      V.toList (dataFileSplitOffsets df) @?= [4, 1024]
+      V.toList (dataFileSplitOffsets df) `shouldBe` [4, 1024]
 
-  , testCase "metrics-mode 'none' suppresses stats for that column" $ do
+  , it "metrics-mode 'none' suppresses stats for that column" $ do
       let props = Map.singleton "write.metadata.metrics.column.id" "none"
           df = IP.dataFileFromParquet mkParquetFm schema props
                  "s3://b/data.parquet" 4096 V.empty Nothing
-      Map.lookup 1 (dataFileColumnSizes df) @?= Nothing
-      Map.lookup 2 (dataFileColumnSizes df) @?= Just 1500
+      Map.lookup 1 (dataFileColumnSizes df) `shouldBe` Nothing
+      Map.lookup 2 (dataFileColumnSizes df) `shouldBe` Just 1500
 
-  , testCase "pagesOverlappingDeletes: deletes inside one page" $ do
+  , it "pagesOverlappingDeletes: deletes inside one page" $ do
       let dv = DV.addPositions [25, 60] DV.emptyDV
           hits = IP.pagesOverlappingDeletes dv mkOffsetIndex
       -- Row 25 is in page 0 (rows 0..49); row 60 is in page 1 (rows 50..74).
-      V.toList hits @?= [0, 1]
+      V.toList hits `shouldBe` [0, 1]
 
-  , testCase "pagesOverlappingDeletes: empty deletion vector returns no pages" $ do
+  , it "pagesOverlappingDeletes: empty deletion vector returns no pages" $ do
       let hits = IP.pagesOverlappingDeletes DV.emptyDV mkOffsetIndex
-      V.toList hits @?= []
+      V.toList hits `shouldBe` []
 
-  , testCase "filterDeletedPages drops fully-deleted pages" $ do
+  , it "filterDeletedPages drops fully-deleted pages" $ do
       -- Delete every row in page 1 (rows 50..74).
       let dv = DV.addPositions [fromIntegral i | i <- [50 .. 74 :: Int]] DV.emptyDV
           surviving = IP.filterDeletedPages dv mkOffsetIndex 100
-      V.toList surviving @?= [0, 2]
+      V.toList surviving `shouldBe` [0, 2]
 
-  , testCase "encryptionConfigFromTable copies keyId into encKeyMetadata" $ do
+  , it "encryptionConfigFromTable copies keyId into encKeyMetadata" $ do
       let baseTable = TableMetadata
             { tmFormatVersion = 3, tmTableUuid = "u", tmLocation = "s3://b"
             , tmLastSequenceNumber = 0, tmLastUpdatedMs = 0, tmLastColumnId = 0
@@ -190,10 +189,10 @@ tests = testGroup "Iceberg.Parquet bridge"
             }
           cfg = IP.encryptionConfigFromTable baseTable "kek-1"
                   (BS.replicate 16 0x01) Map.empty (BS.replicate 8 0x02)
-      Enc.encKeyMetadata cfg @?= "arn:aws:kms:::alias/iceberg"
+      Enc.encKeyMetadata cfg `shouldBe` "arn:aws:kms:::alias/iceberg"
       let df = (DataFile DataContent "s3://b/data.parquet" ParquetFormat V.empty 0 0
                  Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
                  Nothing V.empty V.empty Nothing Nothing Nothing Nothing Nothing)
           stamped = IP.withEncryptionKeyMetadata cfg df
-      dataFileKeyMetadata stamped @?= Just "arn:aws:kms:::alias/iceberg"
+      dataFileKeyMetadata stamped `shouldBe` Just "arn:aws:kms:::alias/iceberg"
   ]

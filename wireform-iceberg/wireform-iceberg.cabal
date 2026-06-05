@@ -160,9 +160,8 @@ test-suite iceberg-test
     aeson,
     process          >= 1.6  && < 1.7,
     hedgehog         >= 1.0  && < 1.8,
-    tasty            >= 1.4  && < 1.6,
-    tasty-hedgehog   >= 1.0  && < 1.8,
-    tasty-hunit      >= 0.10 && < 0.11
+    sydtest,
+    sydtest-hedgehog
 
 test-suite wireform-iceberg-derive-test
   import: defaults
@@ -185,8 +184,7 @@ test-suite wireform-iceberg-derive-test
     vector,
     bytestring,
     template-haskell,
-    tasty,
-    tasty-hunit
+    sydtest
 
 executable wireform-iceberg-interop-probe
   import: defaults

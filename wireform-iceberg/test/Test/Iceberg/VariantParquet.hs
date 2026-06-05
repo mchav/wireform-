@@ -13,28 +13,26 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import qualified System.Process as Proc
 import System.Exit (ExitCode (..))
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Iceberg.Variant as IV
 import qualified Iceberg.Variant.Parquet as IVP
 import qualified Parquet.Nested as PN
 
-tests :: TestTree
-tests = testGroup "Iceberg.Variant.Parquet"
-  [ testCase "buildVariantParquetFile: schema + row count" $ do
+tests :: Spec
+tests = describe "Iceberg.Variant.Parquet" $ sequence_
+  [ it "buildVariantParquetFile: schema + row count" $ do
       let v1 = IV.VBool True
           v2 = IV.VInt32 42
           rows = V.fromList [Just v1, Just v2, Nothing]
       case IVP.buildVariantParquetFile "v" rows of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right bytes -> do
-          assertBool "produced non-empty file"
-            (BS.length bytes > 0)
+          (BS.length bytes > 0) `shouldBe` True
           -- Trailing magic must be PAR1.
-          BS.takeEnd 4 bytes @?= BS.pack [0x50, 0x41, 0x52, 0x31]
+          BS.takeEnd 4 bytes `shouldBe` BS.pack [0x50, 0x41, 0x52, 0x31]
 
-  , testCase "buildVariantParquetFile: pyarrow reads the 2-leaf group" $ do
+  , it "buildVariantParquetFile: pyarrow reads the 2-leaf group" $ do
       pyOk <- pyarrowAvailable
       if pyOk
         then do
@@ -47,7 +45,7 @@ tests = testGroup "Iceberg.Variant.Parquet"
               (m2, x2) = IV.encodeVariant v2
               rows = V.fromList [Just v1, Just v2, Nothing]
           case IVP.buildVariantParquetFile "v" rows of
-            Left e -> assertFailure e
+            Left e -> expectationFailure e
             Right bytes -> do
               let path = "/tmp/wireform-iceberg-variant.parquet"
               BS.writeFile path bytes
@@ -68,7 +66,7 @@ tests = testGroup "Iceberg.Variant.Parquet"
                 ]
         else pure ()  -- pyarrow not available; skip silently
 
-  , testCase "buildVariantParquetFileMulti: two Variant columns" $ do
+  , it "buildVariantParquetFileMulti: two Variant columns" $ do
       let col1 = IVP.VariantColumn "user_attrs"
                   (V.fromList [Just (IV.VString "alice"),
                                Just (IV.VString "bob"),
@@ -77,17 +75,17 @@ tests = testGroup "Iceberg.Variant.Parquet"
                   (V.fromList [Just (IV.VInt32 1), Nothing,
                                Just (IV.VInt32 3)])
       case IVP.buildVariantParquetFileMulti (V.fromList [col1, col2]) of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right bytes ->
-          assertBool "multi-Variant file is non-empty" (BS.length bytes > 0)
+          (BS.length bytes > 0) `shouldBe` True
 
-  , testCase "variantToNestedRow Nothing -> NRNull, Just -> NRVariantBytes" $ do
+  , it "variantToNestedRow Nothing -> NRNull, Just -> NRVariantBytes" $ do
       case IVP.variantToNestedRow Nothing of
         PN.NRNull -> pure ()
-        _ -> assertFailure "expected NRNull"
+        _ -> expectationFailure "expected NRNull"
       case IVP.variantToNestedRow (Just (IV.VBool False)) of
         PN.NRVariantBytes _ _ -> pure ()
-        _ -> assertFailure "expected NRVariantBytes"
+        _ -> expectationFailure "expected NRVariantBytes"
   ]
 
 pyarrowAvailable :: IO Bool
@@ -111,6 +109,6 @@ pyarrowAssert label snippet = do
       | "PYARROW_OK" `isInfixOf` out ->
           pure ()
       | otherwise ->
-          assertFailure (label ++ ": pyarrow output: " ++ out)
+          expectationFailure (label ++ ": pyarrow output: " ++ out)
     _ ->
-      assertFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)
+      expectationFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)

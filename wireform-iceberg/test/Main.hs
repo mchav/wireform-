@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty
+import Test.Syd
 
 import qualified Test.Iceberg.BoundTrunc
 import qualified Test.Iceberg.CatalogGlue
@@ -42,7 +42,7 @@ import qualified Test.Iceberg.View
 import qualified Test.Iceberg.Write
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-iceberg"
+main = sydTest $ describe "wireform-iceberg" $ sequence_
   [ Test.Iceberg.Murmur3.tests
   , Test.Iceberg.SingleValue.tests
   , Test.Iceberg.Transform.tests

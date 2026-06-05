@@ -3,8 +3,7 @@ module Test.Iceberg.Write (tests) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Read (readManifestEntries, readManifestList)
 import Iceberg.Types
@@ -48,29 +47,29 @@ mkEntry = ManifestEntry
   , meDataFile = Just mkDataFile
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Write"
-  [ testCase "writeManifestEntries -> readManifestEntries round-trip" $ do
+tests :: Spec
+tests = describe "Iceberg.Write" $ sequence_
+  [ it "writeManifestEntries -> readManifestEntries round-trip" $ do
       let bs = writeManifestEntries (V.singleton mkEntry)
       case readManifestEntries bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (_, vec) -> do
-          V.length vec @?= 1
+          V.length vec `shouldBe` 1
           let me = V.unsafeIndex vec 0
-          meStatus me @?= Added
-          meSnapshotId me @?= Just 99
-          meFilePath me @?= "s3://b/data.parquet"
-          meFileFormat me @?= ParquetFormat
-          meRecordCount me @?= 100
+          meStatus me `shouldBe` Added
+          meSnapshotId me `shouldBe` Just 99
+          meFilePath me `shouldBe` "s3://b/data.parquet"
+          meFileFormat me `shouldBe` ParquetFormat
+          meRecordCount me `shouldBe` 100
           case meDataFile me of
             Just df -> do
-              dataFileColumnSizes df @?= dataFileColumnSizes mkDataFile
-              dataFileValueCounts df @?= dataFileValueCounts mkDataFile
-              dataFileSplitOffsets df @?= dataFileSplitOffsets mkDataFile
-              dataFileSortOrderId df @?= dataFileSortOrderId mkDataFile
-            Nothing -> assertFailure "expected DataFile to be populated"
+              dataFileColumnSizes df `shouldBe` dataFileColumnSizes mkDataFile
+              dataFileValueCounts df `shouldBe` dataFileValueCounts mkDataFile
+              dataFileSplitOffsets df `shouldBe` dataFileSplitOffsets mkDataFile
+              dataFileSortOrderId df `shouldBe` dataFileSortOrderId mkDataFile
+            Nothing -> expectationFailure "expected DataFile to be populated"
 
-  , testCase "writeManifestList -> readManifestList round-trip with partitions" $ do
+  , it "writeManifestList -> readManifestList round-trip with partitions" $ do
       let mf = ManifestFile
             { mfPath = "s3://b/manifest-1.avro"
             , mfLength = 10000
@@ -96,12 +95,12 @@ tests = testGroup "Iceberg.Write"
             }
           bs = writeManifestList (V.singleton mf)
       case readManifestList bs of
-        Left e -> assertFailure e
+        Left e -> expectationFailure e
         Right (_, vec) -> do
-          V.length vec @?= 1
+          V.length vec `shouldBe` 1
           let m = V.unsafeIndex vec 0
-          mfPath m @?= "s3://b/manifest-1.avro"
-          mfLength m @?= 10000
-          mfAddedDataFilesCount m @?= Just 1
-          mfPartitions m @?= mfPartitions mf
+          mfPath m `shouldBe` "s3://b/manifest-1.avro"
+          mfLength m `shouldBe` 10000
+          mfAddedDataFilesCount m `shouldBe` Just 1
+          mfPartitions m `shouldBe` mfPartitions mf
   ]

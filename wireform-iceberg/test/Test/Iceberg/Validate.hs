@@ -3,8 +3,7 @@ module Test.Iceberg.Validate (tests) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Iceberg.Types
 import Iceberg.Validate
@@ -36,33 +35,33 @@ baseTable = TableMetadata
   , tmEncryptionKeys      = Map.empty
   }
 
-tests :: TestTree
-tests = testGroup "Iceberg.Validate"
-  [ testCase "valid v2 table passes validation" $
-      validateMetadata baseTable @?= ValidationOk
+tests :: Spec
+tests = describe "Iceberg.Validate" $ sequence_
+  [ it "valid v2 table passes validation" $
+      validateMetadata baseTable `shouldBe` ValidationOk
 
-  , testCase "current-schema-id missing fails" $ do
+  , it "current-schema-id missing fails" $ do
       let t = baseTable { tmCurrentSchemaId = 99 }
       case validateMetadata t of
-        ValidationOk      -> assertFailure "expected errors"
+        ValidationOk      -> expectationFailure "expected errors"
         ValidationErrors _ -> pure ()
 
-  , testCase "default-spec-id missing fails" $ do
+  , it "default-spec-id missing fails" $ do
       let t = baseTable { tmDefaultSpecId = 99 }
       case validateMetadata t of
-        ValidationOk      -> assertFailure "expected errors"
+        ValidationOk      -> expectationFailure "expected errors"
         ValidationErrors _ -> pure ()
 
-  , testCase "snapshot ref pointing at unknown id fails" $ do
+  , it "snapshot ref pointing at unknown id fails" $ do
       let t = baseTable
             { tmSnapshotRefs = Map.singleton "main"
                 (SnapshotRef 999 "branch" Nothing Nothing Nothing)
             }
       case validateMetadata t of
-        ValidationOk      -> assertFailure "expected errors"
+        ValidationOk      -> expectationFailure "expected errors"
         ValidationErrors _ -> pure ()
 
-  , testCase "identifier-field-id on a float column fails" $ do
+  , it "identifier-field-id on a float column fails" $ do
       let s = Schema 0
                 (V.singleton (StructField 1 "x" True TFloat Nothing Nothing Nothing))
                 (V.singleton 1)
@@ -71,6 +70,6 @@ tests = testGroup "Iceberg.Validate"
             , tmCurrentSchemaId = 0
             }
       case validateMetadata t of
-        ValidationOk -> assertFailure "expected errors"
+        ValidationOk -> expectationFailure "expected errors"
         ValidationErrors _ -> pure ()
   ]

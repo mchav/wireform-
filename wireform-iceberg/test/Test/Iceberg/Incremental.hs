@@ -8,8 +8,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Avro.Value as AV
 import qualified Avro.Container as Avro
@@ -57,9 +56,9 @@ manifestListFor manifestPath len content seqNum =
     , I.mfPartitions = V.empty, I.mfKeyMetadata = Nothing, I.mfFirstRowId = Nothing
     }))
 
-tests :: TestTree
-tests = testGroup "Iceberg.Read incremental scans"
-  [ testCase "planIncrementalAppend across two snapshots" $ do
+tests :: Spec
+tests = describe "Iceberg.Read incremental scans" $ sequence_
+  [ it "planIncrementalAppend across two snapshots" $ do
       -- Snapshot 1: adds a.parquet via manifest m1 / mlist ml1.
       -- Snapshot 2: adds b.parquet via manifest m2 / mlist ml2.
       -- Iceberg.Update.appendFiles allocates snapshot ids 1 and 2 in order.
@@ -92,12 +91,12 @@ tests = testGroup "Iceberg.Read incremental scans"
 
       case IR.planIncrementalAppend t2 (Just sid1) sid2 readMl readM of
         Right plan -> do
-          V.length (IR.ispAddedFiles plan) @?= 1
+          V.length (IR.ispAddedFiles plan) `shouldBe` 1
           let me = IR.fstDataFile (V.unsafeIndex (IR.ispAddedFiles plan) 0)
-          I.meFilePath me @?= "b.parquet"
-        Left e -> assertFailure e
+          I.meFilePath me `shouldBe` "b.parquet"
+        Left e -> expectationFailure e
 
-  , testCase "planIncrementalChangelog produces insert + delete tasks" $ do
+  , it "planIncrementalChangelog produces insert + delete tasks" $ do
       let schema = I.Schema 0 V.empty V.empty
           mAdd = manifestFor "a.parquet" I.Added   1
           mDel = manifestFor "a.parquet" I.Deleted 2
@@ -127,9 +126,9 @@ tests = testGroup "Iceberg.Read incremental scans"
       case IR.planIncrementalChangelog t2 Nothing sid2 readMl readM of
         Right tasks -> do
           let ops = map IR.ctOperation (V.toList tasks)
-          (IR.OpInsert `elem` ops) @?= True
-          (IR.OpDelete `elem` ops) @?= True
-        Left e -> assertFailure e
+          (IR.OpInsert `elem` ops) `shouldBe` True
+          (IR.OpDelete `elem` ops) `shouldBe` True
+        Left e -> expectationFailure e
   ]
 
 -- Reference Avro re-exports so the import is non-redundant in case the

@@ -25,20 +25,20 @@ import qualified Data.Vector.Primitive as VP
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Parquet.Nested as PN
 
-tests :: TestTree
-tests = testGroup "Parquet.Nested properties"
-  [ testProperty "shred: def/rep stream lengths agree per leaf"
+tests :: Spec
+tests = describe "Parquet.Nested properties" $ sequence_
+  [ it "shred: def/rep stream lengths agree per leaf"
       propStreamLengths
-  , testProperty "shred: nlValueCount == count(def == maxDef)"
+  , it "shred: nlValueCount == count(def == maxDef)"
       propValueCount
-  , testProperty "shred: max def/rep don't exceed schema bounds"
+  , it "shred: max def/rep don't exceed schema bounds"
       propLevelBounds
-  , testProperty "shred: leaf count matches flattenSchema"
+  , it "shred: leaf count matches flattenSchema"
       propLeafCount
   ]
 
