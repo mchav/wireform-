@@ -16,8 +16,7 @@ import qualified Data.ByteString.Internal as BSI
 import qualified Data.Text as T
 import qualified Foreign.ForeignPtr.Unsafe
 import qualified Foreign.Ptr
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified FlatBuffers.Encode as FBE
 import qualified FlatBuffers.View as FV
@@ -26,8 +25,8 @@ import FlatBuffers.Derive (toFlatBuffers)
 import Test.FlatBuffers.Derive.Instances ()
 import Test.FlatBuffers.Derive.Types
 
-tests :: TestTree
-tests = testGroup "FlatBuffers.View"
+tests :: Spec
+tests = describe "FlatBuffers.View" $ sequence_
   [ functional
   , zeroCopy
   ]
@@ -36,31 +35,31 @@ tests = testGroup "FlatBuffers.View"
 -- Functional: deriveView round-trips identically to deriveFromFlatBuffers
 -- ---------------------------------------------------------------------------
 
-functional :: TestTree
-functional = testGroup "functional round-trips via deriveView"
-  [ testCase "Position with all fields set" $ do
+functional :: Spec
+functional = describe "functional round-trips via deriveView" $ sequence_
+  [ it "Position with all fields set" $ do
       let p = Position "origin" 3 7 (Just "home") "ignored"
           bs = FBE.encode (toFlatBuffers p)
       case FV.decodeRoot bs of
         Right p' -> do
-          posName  p' @?= posName p
-          posX     p' @?= posX p
-          posY     p' @?= posY p
-          posNote  p' @?= posNote p
+          posName  p' `shouldBe` posName p
+          posX     p' `shouldBe` posX p
+          posY     p' `shouldBe` posY p
+          posNote  p' `shouldBe` posNote p
           -- The skipped slot reinstates the user-supplied default.
-          posLabel p' @?= defaultLabel
-        Left e   -> fail ("decodeRoot failed: " <> e)
+          posLabel p' `shouldBe` defaultLabel
+        Left e   -> expectationFailure ("decodeRoot failed: " <> e)
 
-  , testCase "Position with Nothing note" $ do
+  , it "Position with Nothing note" $ do
       let p = Position "no-note" 1 2 Nothing "ignored"
           bs = FBE.encode (toFlatBuffers p)
       case FV.decodeRoot bs of
         Right p' -> do
-          posNote  p' @?= Nothing
-          posLabel p' @?= defaultLabel
-        Left e   -> fail e
+          posNote  p' `shouldBe` Nothing
+          posLabel p' `shouldBe` defaultLabel
+        Left e   -> expectationFailure e
 
-  , testCase "Tag (newtype)" $ do
+  , it "Tag (newtype)" $ do
       let t = Tag 42
           bs = FBE.encode (toFlatBuffers t)
       -- Newtypes pass through to their inner field's instance.
@@ -68,22 +67,22 @@ functional = testGroup "functional round-trips via deriveView"
       -- 'decodeRoot' assumes a Table, so for now we exercise the
       -- newtype on its own buffer via the value-shaped decoder.
       -- The View deriver still emits the instance for nested use.
-      assertBool "newtype encoding non-empty" (BS.length bs > 0)
+      (BS.length bs > 0) `shouldBe` True
 
-  , testCase "Color enum tag override survives round-trip via View" $ do
+  , it "Color enum tag override survives round-trip via View" $ do
       -- An enum decoded via View through a one-slot wrapper
       -- table would need a wrapping type; here we just confirm
       -- the deriver compiled (which is the new surface).
-      assertBool "instance compiled" True
+      True `shouldBe` True
   ]
 
 -- ---------------------------------------------------------------------------
 -- Zero-copy: ForeignPtr identity proves we're returning slices
 -- ---------------------------------------------------------------------------
 
-zeroCopy :: TestTree
-zeroCopy = testGroup "zero-copy slice invariants"
-  [ testCase "readStringSlice returns a slice of the input buffer" $ do
+zeroCopy :: Spec
+zeroCopy = describe "zero-copy slice invariants" $ sequence_
+  [ it "readStringSlice returns a slice of the input buffer" $ do
       -- Encode a record with a recognisable string field, then
       -- pull the raw byte slice out of the buffer via the
       -- low-level reader API. The slice must be inside the
@@ -93,33 +92,30 @@ zeroCopy = testGroup "zero-copy slice invariants"
           p           = Position needleText 1 2 Nothing "ignored"
           bs          = FBE.encode (toFlatBuffers p)
       case findStringSlice bs needleText of
-        Nothing -> fail "string slice not found in buffer"
+        Nothing -> expectationFailure "string slice not found in buffer"
         Just slice ->
-          assertBool "slice payload lies inside the input buffer"
-            (sharesForeignPtr bs slice)
+          (sharesForeignPtr bs slice) `shouldBe` True
 
-  , testCase "view-decoded ByteString field is a slice (not a copy)" $ do
+  , it "view-decoded ByteString field is a slice (not a copy)" $ do
       -- 'ByteString' fields go through 'FV.SlotView' which
       -- bottoms out in 'readByteVectorSlice'. Confirm the
       -- returned bytes really do lie inside the input.
       let p  = Position "PAYLOAD-1234567890" 0 0 Nothing "ignored"
           bs = FBE.encode (toFlatBuffers p)
       case FV.rootTable bs of
-        Left e  -> fail e
+        Left e  -> expectationFailure e
         Right t -> case FV.viewSlot t 0 :: Either String ByteString of
-          Left e      -> fail e
+          Left e      -> expectationFailure e
           Right slice -> do
-            assertBool "slice content matches"
-              (slice == "PAYLOAD-1234567890")
-            assertBool "slice lies inside the input buffer"
-              (sharesForeignPtr bs slice)
+            (slice == "PAYLOAD-1234567890") `shouldBe` True
+            (sharesForeignPtr bs slice) `shouldBe` True
 
-  , testCase "string slot accessed twice yields equal Text" $ do
+  , it "string slot accessed twice yields equal Text" $ do
       let p  = Position "shared" 0 0 Nothing "ignored"
           bs = FBE.encode (toFlatBuffers p)
       case (FV.decodeRoot bs, FV.decodeRoot bs) of
-        (Right p1, Right p2) -> posName p1 @?= posName p2
-        _                    -> fail "decodeRoot failed"
+        (Right p1, Right p2) -> posName p1 `shouldBe` posName p2
+        _                    -> expectationFailure "decodeRoot failed"
   ]
 
 -- | Linear scan for the slice that contains @needle@ inside a

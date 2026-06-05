@@ -1,13 +1,13 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.TOML.Conformance
 import qualified Test.TOML.Derive
 
 main :: IO ()
 main = do
   conf <- Test.TOML.Conformance.tests
-  defaultMain $ testGroup "wireform-toml"
+  sydTest $ describe "wireform-toml" $ sequence_
     [ Test.TOML.Derive.tests
     , conf
     ]

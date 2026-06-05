@@ -3,8 +3,7 @@
 module Test.XML.Derive (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified XML.Class as X
 import qualified XML.Value as XV
@@ -12,37 +11,33 @@ import qualified XML.Value as XV
 import Test.XML.Derive.Instances ()
 import Test.XML.Derive.Types
 
-tests :: TestTree
-tests = testGroup "XML.Derive"
+tests :: Spec
+tests = describe "XML.Derive" $ sequence_
   [ recordTests
   , enumTests
   , sumTests
   ]
 
-recordTests :: TestTree
-recordTests = testGroup "record"
-  [ testCase "userId emitted as attribute, others as child elements" $ do
+recordTests :: Spec
+recordTests = describe "record" $ sequence_
+  [ it "userId emitted as attribute, others as child elements" $ do
       case X.toXML (User 7 "Alice" "a@x") of
         XV.Element nm attrs cs -> do
-          XV.nameLocal nm @?= "User"
-          assertBool "id attribute present"
-            (V.any (attrIs "id" "7") attrs)
-          assertBool "user-name child present"
-            (V.any (childIs "user-name") cs)
-          assertBool "email child present (StripPrefix + kebab)"
-            (V.any (childIs "email") cs)
+          XV.nameLocal nm `shouldBe` "User"
+          (V.any (attrIs "id" "7") attrs) `shouldBe` True
+          (V.any (childIs "user-name") cs) `shouldBe` True
+          (V.any (childIs "email") cs) `shouldBe` True
           -- userId must NOT appear as a child
-          assertBool "userId NOT a child element"
-            (not (V.any (childIs "id") cs))
-        v -> fail ("expected Element, got " ++ show v)
+          (not (V.any (childIs "id") cs)) `shouldBe` True
+        v -> expectationFailure ("expected Element, got " ++ show v)
 
-  , testCase "round-trip User" $ do
+  , it "round-trip User" $ do
       let u = User 9 "Bob" "b@x"
-      X.fromXML (X.toXML u) @?= Right u
+      X.fromXML (X.toXML u) `shouldBe` Right u
 
-  , testCase "round-trip Status (all-element record)" $ do
+  , it "round-trip Status (all-element record)" $ do
       let s = Status 200 "ok"
-      X.fromXML (X.toXML s) @?= Right s
+      X.fromXML (X.toXML s) `shouldBe` Right s
   ]
   where
     attrIs name val (XV.Attribute (XV.Name local _ _) v) =
@@ -50,29 +45,29 @@ recordTests = testGroup "record"
     childIs name (XV.Element (XV.Name local _ _) _ _) = local == name
     childIs _ _ = False
 
-enumTests :: TestTree
-enumTests = testGroup "enum"
-  [ testCase "Red"   $ X.toXML Red @?=
+enumTests :: Spec
+enumTests = describe "enum" $ sequence_
+  [ it "Red"   $ X.toXML Red `shouldBe`
       XV.Element (XV.simpleName "red") V.empty V.empty
-  , testCase "Green" $ X.toXML Green @?=
+  , it "Green" $ X.toXML Green `shouldBe`
       XV.Element (XV.simpleName "green") V.empty V.empty
-  , testCase "round-trip" $ mapM_ rt [Red, Green, Blue]
+  , it "round-trip" $ mapM_ rt [Red, Green, Blue]
   ]
   where
     rt :: Color -> IO ()
-    rt c = X.fromXML (X.toXML c) @?= Right c
+    rt c = X.fromXML (X.toXML c) `shouldBe` Right c
 
-sumTests :: TestTree
-sumTests = testGroup "sum"
-  [ testCase "Origin (nullary)" $
-      X.toXML Origin @?=
+sumTests :: Spec
+sumTests = describe "sum" $ sequence_
+  [ it "Origin (nullary)" $
+      X.toXML Origin `shouldBe`
         XV.Element (XV.simpleName "origin") V.empty V.empty
-  , testCase "Square 5 (1 child)" $
-      X.toXML (Square 5) @?=
+  , it "Square 5 (1 child)" $
+      X.toXML (Square 5) `shouldBe`
         XV.Element (XV.simpleName "square")
                    V.empty
                    (V.singleton (XV.Text "5"))
-  , testCase "round-trip" $ do
-      X.fromXML (X.toXML Origin)      @?= Right Origin
-      X.fromXML (X.toXML (Square 42)) @?= Right (Square 42)
+  , it "round-trip" $ do
+      X.fromXML (X.toXML Origin)      `shouldBe` Right Origin
+      X.fromXML (X.toXML (Square 42)) `shouldBe` Right (Square 42)
   ]

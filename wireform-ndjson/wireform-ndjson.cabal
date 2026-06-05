@@ -85,5 +85,4 @@ test-suite wireform-ndjson-derive-test
     bytestring,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

@@ -47,8 +47,7 @@ import System.Directory
 import System.Environment (lookupEnv)
 import System.FilePath
   ( (</>), dropExtension, takeDirectory, takeExtension )
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertFailure, (@?=))
+import Test.Syd
 
 import qualified TOML.Decode as TD
 import qualified TOML.Value as TV
@@ -57,23 +56,23 @@ import qualified TOML.Value as TV
 -- Public entry point
 -- ---------------------------------------------------------------------------
 
-tests :: IO TestTree
+tests :: IO Spec
 tests = do
   builtin <- builtinSuite
   ext     <- externalSuite
-  pure (testGroup "conformance" [builtin, ext])
+  pure (describe "conformance" $ sequence_ [builtin, ext])
 
 -- ---------------------------------------------------------------------------
 -- Built-in mini-suite
 -- ---------------------------------------------------------------------------
 
-builtinSuite :: IO TestTree
-builtinSuite = pure $ testGroup "builtin"
+builtinSuite :: IO Spec
+builtinSuite = pure $ describe "builtin" $ sequence_
   [ ok "spec key/value"
       "title = \"TOML Example\"\n"
       (\v -> case lookupKey "title" v of
-         Just (TV.TString t) -> t @?= T.pack "TOML Example"
-         _ -> assertFailure "expected title string")
+         Just (TV.TString t) -> t `shouldBe` T.pack "TOML Example"
+         _ -> expectationFailure "expected title string")
 
   , ok "spec table"
       (T.unlines
@@ -84,18 +83,18 @@ builtinSuite = pure $ testGroup "builtin"
       (\v -> case lookupKey "server" v of
          Just s -> do
            case lookupKey "host" s of
-             Just (TV.TString t) -> t @?= T.pack "localhost"
-             _ -> assertFailure "host"
+             Just (TV.TString t) -> t `shouldBe` T.pack "localhost"
+             _ -> expectationFailure "host"
            case lookupKey "port" s of
-             Just (TV.TInteger n) -> n @?= 8080
-             _ -> assertFailure "port"
-         _ -> assertFailure "expected server table")
+             Just (TV.TInteger n) -> n `shouldBe` 8080
+             _ -> expectationFailure "port"
+         _ -> expectationFailure "expected server table")
 
   , ok "spec inline table"
       "point = { x = 1, y = 2 }\n"
       (\v -> case lookupKey "point" v of
          Just _ -> pure ()
-         _ -> assertFailure "expected point")
+         _ -> expectationFailure "expected point")
 
   , ok "spec array of tables"
       (T.unlines
@@ -108,8 +107,8 @@ builtinSuite = pure $ testGroup "builtin"
       (\_ -> pure ())
   ]
   where
-    ok name src k = testCase name $ case TD.decode src of
-      Left e  -> assertFailure ("decode failed: " ++ e)
+    ok name src k = it name $ case TD.decode src of
+      Left e  -> expectationFailure ("decode failed: " ++ e)
       Right v -> k v
 
 lookupKey :: T.Text -> TV.Value -> Maybe TV.Value
@@ -128,11 +127,11 @@ lookupKey nm v = case v of
 -- External suite (toml-test)
 -- ---------------------------------------------------------------------------
 
-externalSuite :: IO TestTree
+externalSuite :: IO Spec
 externalSuite = do
   mDir <- discoverSuiteDir
   case mDir of
-    Nothing  -> pure (testGroup "toml-test (skipped, set TOML_TEST_SUITE)" [])
+    Nothing  -> pure (describe "toml-test (skipped, set TOML_TEST_SUITE)" $ sequence_ [])
     Just dir -> do
       -- The official suite ships per-version manifest files
       -- @files-toml-1.0.0@ / @files-toml-1.1.0@. We default to the
@@ -154,14 +153,15 @@ externalSuite = do
             partitionPaths dir paths
           validCount   = length validCases
           invalidCount = length invalidCases
-      pure $ testGroup
+      pure $ describe
         ("toml-test ("
             ++ show validCount   ++ " valid, "
             ++ show invalidCount ++ " invalid"
             ++ (if m2Exists then ", v" ++ ver else "")
             ++ ")")
-        [ testGroup "valid"   (map mkValidCase   validCases)
-        , testGroup "invalid" (map mkInvalidCase invalidCases)
+        $ sequence_
+        [ describe "valid"   (mapM_ mkValidCase   validCases)
+        , describe "invalid" (mapM_ mkInvalidCase invalidCases)
         ]
 
 -- | Read a manifest file produced by toml-test. Each line is a
@@ -244,14 +244,14 @@ collectToml = walk
 -- Per-case drivers
 -- ---------------------------------------------------------------------------
 
-mkValidCase :: FilePath -> TestTree
-mkValidCase tomlPath = testCase tomlPath $ do
+mkValidCase :: FilePath -> Spec
+mkValidCase tomlPath = it tomlPath $ do
   bytes <- BS.readFile tomlPath
   res <- try (evaluate (TD.decodeBS bytes))
            :: IO (Either SomeException (Either String TV.Value))
   case res of
-    Left e          -> assertFailure ("exception: " ++ show e)
-    Right (Left e)  -> assertFailure ("decode failed: " ++ e)
+    Left e          -> expectationFailure ("exception: " ++ show e)
+    Right (Left e)  -> expectationFailure ("decode failed: " ++ e)
     Right (Right v) -> do
       let jsonPath = dropExtension tomlPath ++ ".json"
       hasExpected <- doesFileExist jsonPath
@@ -260,20 +260,20 @@ mkValidCase tomlPath = testCase tomlPath $ do
         else do
           rawJSON <- BSL.readFile jsonPath
           case A.eitherDecode rawJSON of
-            Left e -> assertFailure ("malformed expected JSON: " ++ e)
+            Left e -> expectationFailure ("malformed expected JSON: " ++ e)
             Right expected -> do
               let !actual = toTypedJSON v
               compareJSON actual expected
 
-mkInvalidCase :: FilePath -> TestTree
-mkInvalidCase tomlPath = testCase tomlPath $ do
+mkInvalidCase :: FilePath -> Spec
+mkInvalidCase tomlPath = it tomlPath $ do
   bytes <- BS.readFile tomlPath
   res <- try (evaluate (TD.decodeBS bytes))
            :: IO (Either SomeException (Either String TV.Value))
   case res of
     Left  _          -> pure ()                    -- exception counts as fail
     Right (Left  _)  -> pure ()                    -- expected
-    Right (Right _)  -> assertFailure "expected parse error, got success"
+    Right (Right _)  -> expectationFailure "expected parse error, got success"
 
 -- | Compare actual decoded JSON against the expected typed JSON
 -- from the toml-test suite. Floats / integers / datetime values are
@@ -283,7 +283,7 @@ mkInvalidCase tomlPath = testCase tomlPath $ do
 compareJSON :: A.Value -> A.Value -> IO ()
 compareJSON a b
   | jsonEq a b = pure ()
-  | otherwise  = a @?= b
+  | otherwise  = a `shouldBe` b
 
 jsonEq :: A.Value -> A.Value -> Bool
 jsonEq a b

@@ -95,5 +95,4 @@ test-suite wireform-flatbuffers-derive-test
     bytestring,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

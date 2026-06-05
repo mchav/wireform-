@@ -93,5 +93,4 @@ test-suite wireform-asn1-derive-test
     bytestring,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

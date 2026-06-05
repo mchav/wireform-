@@ -85,5 +85,4 @@ test-suite wireform-bson-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest

@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 import qualified Test.BSON.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-bson-derive"
+main = sydTest $ describe "wireform-bson-derive" $ sequence_
   [ Test.BSON.Derive.tests
   ]
