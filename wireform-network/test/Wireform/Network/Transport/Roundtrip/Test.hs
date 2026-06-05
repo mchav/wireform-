@@ -20,7 +20,7 @@ import Data.IORef
 import Data.Word (Word8, Word64)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (plusPtr)
-import Test.Hspec
+import Test.Syd
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
 

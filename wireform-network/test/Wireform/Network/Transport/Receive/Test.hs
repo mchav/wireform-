@@ -16,7 +16,7 @@ import Network.Socket hiding (close, recv)
 import qualified Network.Socket as S
 import Network.Socket.ByteString (sendAll, recv)
 import System.Timeout (timeout)
-import Test.Hspec
+import Test.Syd
 
 import Wireform.Parser
 import Wireform.Parser.Internal (Pure, Stream)
