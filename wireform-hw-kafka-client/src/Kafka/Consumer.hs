@@ -1,3 +1,28 @@
+{-|
+Module      : Kafka.Consumer
+Description : Transitional @hw-kafka-client@ consumer facade.
+
+Module to consume messages from Kafka topics using the old
+@hw-kafka-client@ surface, backed by "Kafka.Client.Consumer".
+
+This module is intended as a transitional bridge for applications that
+currently import @Kafka.Consumer@. It preserves the legacy source shape
+while routing subscription, polling, assignment, seek, pause/resume, and
+commit operations to the native wireform consumer. New code should use
+"Kafka.Client.Consumer" directly.
+
+Example:
+
+@
+consumerProps :: 'ConsumerProperties'
+consumerProps = 'brokersList' ["localhost:9092"]
+             <> 'groupId' ('ConsumerGroupId' "consumer-example")
+             <> 'noAutoCommit'
+
+consumerSub :: 'Subscription'
+consumerSub = 'topics' ['TopicName' "events"] <> 'offsetReset' 'Earliest'
+@
+-}
 module Kafka.Consumer
   ( KafkaConsumer
   , module X
@@ -51,6 +76,10 @@ import qualified Data.Text.Encoding as TE
 import qualified Kafka.Client.Consumer as WF
 
 {-# DEPRECATED runConsumer "Use 'newConsumer'/'closeConsumer' instead" #-}
+-- | Run a high-level Kafka consumer with bracketed acquisition and release.
+--
+-- Deprecated upstream in favour of calling 'newConsumer' and
+-- 'closeConsumer' directly.
 runConsumer
   :: ConsumerProperties
   -> Subscription
@@ -65,6 +94,9 @@ runConsumer props sub f =
     runResult (Left err) = pure (Left err)
     runResult (Right consumer) = f consumer
 
+-- | Create a 'KafkaConsumer' and subscribe to the supplied topics.
+--
+-- The returned handle must be released with 'closeConsumer'.
 newConsumer
   :: MonadIO m
   => ConsumerProperties
@@ -90,6 +122,10 @@ newConsumer props sub@(Subscription topicsSet subProps) = liftIO $ do
           , kcKafkaConf = kc
           }
 
+-- | Poll a single message.
+--
+-- This compatibility function adapts the native batch-oriented poll
+-- API by buffering any extra records returned by a poll.
 pollMessage
   :: MonadIO m
   => KafkaConsumer
@@ -110,6 +146,10 @@ pollMessage kc@KafkaConsumer{kcKafkaConf = conf} timeout = liftIO $ do
           IORef.writeIORef (kcfgBufferedRecords conf) rest
           pure (Right (fromWireformRecord record))
 
+-- | Poll up to 'BatchSize' messages.
+--
+-- Unlike 'pollMessage', an empty batch is returned when no messages are
+-- available.
 pollMessageBatch
   :: MonadIO m
   => KafkaConsumer
@@ -122,6 +162,7 @@ pollMessageBatch kc (Timeout timeoutMs) (BatchSize batchSize) = liftIO $ do
     Left err -> [Left err]
     Right records -> map (Right . fromWireformRecord) (take batchSize records)
 
+-- | Commit a message's offset on the broker for the message's partition.
 commitOffsetMessage
   :: MonadIO m
   => OffsetCommit
@@ -131,16 +172,26 @@ commitOffsetMessage
 commitOffsetMessage mode kc record =
   commitPartitionsOffsets mode kc [topicPartitionFromRecord record]
 
+-- | Store a message's offset locally.
+--
+-- The native wireform facade commits from the consumer's tracked
+-- position, so this operation is currently a compatibility no-op.
 storeOffsetMessage :: MonadIO m => KafkaConsumer -> ConsumerRecord k v -> m (Maybe KafkaError)
 storeOffsetMessage _ _ = pure Nothing
 
+-- | Store offsets locally.
+--
+-- Compatibility no-op; use explicit commit helpers for broker-visible
+-- progress.
 storeOffsets :: MonadIO m => KafkaConsumer -> [TopicPartition] -> m (Maybe KafkaError)
 storeOffsets _ _ = pure Nothing
 
+-- | Commit offsets for all currently assigned partitions.
 commitAllOffsets :: MonadIO m => OffsetCommit -> KafkaConsumer -> m (Maybe KafkaError)
 commitAllOffsets mode kc =
   commitResult mode kc
 
+-- | Commit offsets for the supplied partitions.
 commitPartitionsOffsets
   :: MonadIO m
   => OffsetCommit
@@ -153,6 +204,7 @@ commitPartitionsOffsets mode kc partitions = do
     Just err -> pure (Just err)
     Nothing -> commitResult mode kc
 
+-- | Assign the consumer to consume from the given topic partitions.
 assign :: MonadIO m => KafkaConsumer -> [TopicPartition] -> m (Maybe KafkaError)
 assign KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions = liftIO $ do
   result <- WF.assign consumer (map toWireformTopicPartition partitions)
@@ -164,6 +216,7 @@ assign KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions = lif
 assign _ _ =
   pure (Just (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
+-- | Return the consumer's current assignment grouped by topic.
 assignment :: MonadIO m => KafkaConsumer -> m (Either KafkaError (Map TopicName [PartitionId]))
 assignment KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} = liftIO $ do
   partitions <- WF.assignment consumer
@@ -171,9 +224,14 @@ assignment KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} = liftIO $ d
 assignment _ =
   pure (Left (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
+-- | Return the current subscription.
+--
+-- The native facade does not retain librdkafka subscription metadata,
+-- so this currently returns an empty successful subscription list.
 subscription :: MonadIO m => KafkaConsumer -> m (Either KafkaError [(TopicName, SubscribedPartitions)])
 subscription _ = pure (Right [])
 
+-- | Pause consumption from the supplied partitions.
 pausePartitions :: MonadIO m => KafkaConsumer -> [(TopicName, PartitionId)] -> m KafkaError
 pausePartitions KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions = liftIO $ do
   WF.pause consumer (map pairToWireformTopicPartition partitions)
@@ -181,6 +239,7 @@ pausePartitions KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partiti
 pausePartitions _ _ =
   pure (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle")
 
+-- | Resume consumption from the supplied partitions.
 resumePartitions :: MonadIO m => KafkaConsumer -> [(TopicName, PartitionId)] -> m KafkaError
 resumePartitions KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions = liftIO $ do
   WF.resume consumer (map pairToWireformTopicPartition partitions)
@@ -188,15 +247,18 @@ resumePartitions KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partit
 resumePartitions _ _ =
   pure (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle")
 
+-- | Seek to the offsets described by the supplied topic partitions.
 seek :: MonadIO m => KafkaConsumer -> Timeout -> [TopicPartition] -> m (Maybe KafkaError)
 seek kc _ partitions = seekPartitions kc partitions (Timeout 0)
 
+-- | Seek partitions to their embedded offsets.
 seekPartitions :: MonadIO m => KafkaConsumer -> [TopicPartition] -> Timeout -> m (Maybe KafkaError)
 seekPartitions KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions _ =
   liftIO (firstJust <$> traverse (seekOne consumer) partitions)
 seekPartitions _ _ _ =
   pure (Just (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
+-- | Retrieve committed offsets for topic/partition pairs.
 committed
   :: MonadIO m
   => KafkaConsumer
@@ -209,6 +271,7 @@ committed KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} _ partitions 
 committed _ _ _ =
   pure (Left (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
+-- | Retrieve current positions for topic/partition pairs.
 position
   :: MonadIO m
   => KafkaConsumer
@@ -220,14 +283,20 @@ position KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} partitions = l
 position _ _ =
   pure (Left (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
+-- | Poll consumer events.
+--
+-- Compatibility no-op: the native wireform client does not expose
+-- librdkafka's callback event queue.
 pollConsumerEvents :: KafkaConsumer -> Maybe Timeout -> IO ()
 pollConsumerEvents _ _ = pure ()
 
+-- | Close the consumer.
 closeConsumer :: MonadIO m => KafkaConsumer -> m (Maybe KafkaError)
 closeConsumer KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} =
   WF.closeConsumer consumer >> pure Nothing
 closeConsumer _ = pure Nothing
 
+-- | Rewind the consumer to committed offsets for the current assignment.
 rewindConsumer :: MonadIO m => KafkaConsumer -> Timeout -> m (Maybe KafkaError)
 rewindConsumer kc timeout = do
   assigned <- assignment kc

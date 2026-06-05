@@ -1,3 +1,35 @@
+{-|
+Module      : Kafka.Producer
+Description : Transitional @hw-kafka-client@ producer facade.
+
+Module to produce messages to Kafka topics using the old
+@hw-kafka-client@ surface, backed by "Kafka.Client.Producer".
+
+This module is intended as a transitional bridge for applications that
+currently import @Kafka.Producer@. It preserves the old constructor and
+function names while routing sends through the native wireform producer.
+New code should use "Kafka.Client.Producer" directly.
+
+Example:
+
+@
+producerProps :: 'ProducerProperties'
+producerProps = 'brokersList' ["localhost:9092"]
+             <> 'logLevel' 'KafkaLogInfo'
+
+targetTopic :: 'TopicName'
+targetTopic = 'TopicName' "events"
+
+mkMessage :: Maybe ByteString -> Maybe ByteString -> 'ProducerRecord'
+mkMessage k v = 'ProducerRecord'
+  { 'prTopic' = targetTopic
+  , 'prPartition' = 'UnassignedPartition'
+  , 'prKey' = k
+  , 'prValue' = v
+  , 'prHeaders' = mempty
+  }
+@
+-}
 module Kafka.Producer
   ( KafkaProducer
   , module X
@@ -35,6 +67,10 @@ import qualified Kafka.Client.Producer as WF
 import qualified Kafka.Compression.Types as WFC
 
 {-# DEPRECATED runProducer "Use 'newProducer'/'closeProducer' instead" #-}
+-- | Run a Kafka producer with bracketed acquisition and release.
+--
+-- Deprecated upstream in favour of calling 'newProducer' and
+-- 'closeProducer' directly.
 runProducer
   :: ProducerProperties
   -> (KafkaProducer -> IO (Either KafkaError a))
@@ -48,6 +84,9 @@ runProducer props f =
     runResult (Left err) = pure (Left err)
     runResult (Right prod) = f prod
 
+-- | Create a new Kafka producer.
+--
+-- A newly created producer must be closed with 'closeProducer'.
 newProducer :: MonadIO m => ProducerProperties -> m (Either KafkaError KafkaProducer)
 newProducer props = liftIO $ do
   kc <- kafkaConf (ppKafkaProps props)
@@ -63,6 +102,11 @@ newProducer props = liftIO $ do
       , kpTopicConf = tc
       }
 
+-- | Send a single message.
+--
+-- Like @hw-kafka-client@, this returns only immediate/pre-flight
+-- errors. The native wireform implementation waits for the
+-- acknowledgement through 'Kafka.Client.Producer.sendRecord'.
 produceMessage
   :: MonadIO m
   => KafkaProducer
@@ -73,6 +117,10 @@ produceMessage producer record =
     Left (ImmediateError err) -> pure (Just err)
     Right () -> pure Nothing
 
+-- | Send a single message with a delivery callback.
+--
+-- The callback receives a compatibility 'DeliveryReport' after the
+-- native send completes or fails.
 produceMessage'
   :: MonadIO m
   => KafkaProducer
@@ -95,6 +143,7 @@ produceMessage' _ record callback = liftIO $ do
   callback (DeliveryFailure record err)
   pure (Left (ImmediateError err))
 
+-- | Drain the producer's outbound queue.
 flushProducer :: MonadIO m => KafkaProducer -> m ()
 flushProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
   liftIO $ do
@@ -102,6 +151,7 @@ flushProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
     pure ()
 flushProducer _ = pure ()
 
+-- | Close the producer after flushing pending messages.
 closeProducer :: MonadIO m => KafkaProducer -> m ()
 closeProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
   WF.closeProducer producer

@@ -5,6 +5,13 @@ synopsis: hw-kafka-client compatible facade over wireform-kafka
 description:
     Source-compatible facade for the public @hw-kafka-client@ modules,
     backed by the native @wireform-kafka@ client.
+    .
+    This package is intended as a transitional bridge for applications
+    migrating from the librdkafka-backed @hw-kafka-client@ API to the
+    native @wireform-kafka@ modules. New code should prefer
+    @Kafka.Client.Producer@, @Kafka.Client.Consumer@,
+    @Kafka.Client.AdminClient@, and @Kafka.Client.Transaction@
+    directly.
 license: BSD-3-Clause
 license-file: LICENSE
 author: Ian Duncan

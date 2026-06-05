@@ -1,3 +1,12 @@
+{-|
+Module      : Kafka.Consumer.Subscription
+Description : Legacy topic subscription builders.
+
+The @hw-kafka-client@ API represents a subscription as a set of topic
+names plus topic-level properties. This compatibility module keeps that
+shape while feeding topic names and offset-reset policy into the native
+wireform consumer.
+-}
 module Kafka.Consumer.Subscription
   ( Subscription (..)
   , topics
@@ -13,6 +22,13 @@ import Kafka.Types (TopicName (..))
 import qualified Data.Map as M
 import qualified Data.Set as Set
 
+-- | A consumer subscription to topics plus subscription properties.
+--
+-- Typically callers combine settings:
+--
+-- @
+-- consumerSub = 'topics' ['TopicName' "events"] <> 'offsetReset' 'Earliest'
+-- @
 data Subscription = Subscription (Set TopicName) (Map Text Text)
 
 instance Semigroup Subscription where
@@ -22,9 +38,11 @@ instance Semigroup Subscription where
 instance Monoid Subscription where
   mempty = Subscription Set.empty M.empty
 
+-- | Build a subscription from topic names.
 topics :: [TopicName] -> Subscription
 topics ts = Subscription (Set.fromList ts) M.empty
 
+-- | Set the @auto.offset.reset@ subscription parameter.
 offsetReset :: OffsetReset -> Subscription
 offsetReset o =
   Subscription Set.empty (M.singleton "auto.offset.reset" value)
@@ -33,5 +51,6 @@ offsetReset o =
       Earliest -> "earliest"
       Latest -> "latest"
 
+-- | Set arbitrary subscription properties.
 extraSubscriptionProps :: Map Text Text -> Subscription
 extraSubscriptionProps = Subscription Set.empty

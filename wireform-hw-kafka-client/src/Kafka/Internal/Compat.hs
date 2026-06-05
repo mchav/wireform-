@@ -1,3 +1,12 @@
+{-|
+Module      : Kafka.Internal.Compat
+Description : Internal compatibility shims for the hw-kafka facade.
+
+This module is private to @wireform-hw-kafka-client@. It contains the
+opaque handle wrappers and pure Haskell replacements for the small
+librdkafka-shaped pieces that leak through the public @hw-kafka-client@
+surface.
+-}
 module Kafka.Internal.Compat
   ( Callback (..)
   , Kafka (..)
@@ -32,6 +41,10 @@ import qualified Data.Text.Read as TR
 import qualified Kafka.Client.Consumer as WFConsumer
 import qualified Kafka.Client.Producer as WFProducer
 
+-- | Pure Haskell mirror of librdkafka's @rd_kafka_resp_err_t@ enum.
+--
+-- The constructors are retained because @hw-kafka-client@ re-exported
+-- them. The native wireform client does not call into librdkafka.
 data RdKafkaRespErrT
   = RdKafkaRespErrBegin
   | RdKafkaRespErrBadMsg
@@ -198,27 +211,34 @@ data RdKafkaRespErrT
   | RdKafkaRespErrEndAll
   deriving (Eq, Show, Enum, Bounded, Typeable, Generic)
 
+-- | Opaque legacy callback token.
 data Callback = Callback
 
+-- | Opaque compatibility handle for native wireform Kafka clients.
 data Kafka
   = KafkaProducerHandle !WFProducer.Producer
   | KafkaConsumerHandle !WFConsumer.Consumer
 
+-- | Compatibility copy of Kafka-level properties plus consumer buffer.
 data KafkaConf = KafkaConf
   { kcfgKafkaProps :: !(Map Text Text)
   , kcfgBufferedRecords :: !(IORef [WFConsumer.ConsumerRecord])
   }
 
+-- | Compatibility copy of topic-level properties.
 newtype TopicConf = TopicConf
   { topicConfProps :: Map Text Text
   }
 
+-- | Values that contain a compatibility Kafka handle.
 class HasKafka a where
   getKafka :: a -> Kafka
 
+-- | Values that contain compatibility Kafka properties.
 class HasKafkaConf a where
   getKafkaConf :: a -> KafkaConf
 
+-- | Values that contain compatibility topic properties.
 class HasTopicConf a where
   getTopicConf :: a -> TopicConf
 
