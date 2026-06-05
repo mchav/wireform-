@@ -9,7 +9,9 @@ import Kafka.Transaction
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit ((@?=), testCase)
 import qualified Data.ByteString as BS
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
 import qualified Kafka.Consumer as Consumer
 import qualified Kafka.Producer as Producer
 import System.IO (Handle)
@@ -62,6 +64,24 @@ tests = testGroup "wireform-hw-kafka-client"
             , prHeaders = headersFromList [("h", "x")]
             }
       headersToList (prHeaders record) @?= [(BS.pack [104], BS.pack [120])]
+  , testCase "producer error callback fires on create failure" $ do
+      seen <- newIORef []
+      result <- Producer.newProducer
+        ( Producer.brokersList ["not-a-host-port"]
+            <> Producer.setCallback
+              (Producer.errorCallback (\err msg -> modifyIORef' seen ((err, msg) :)))
+        )
+      case result of
+        Left _ -> pure ()
+        Right producer -> do
+          Producer.closeProducer producer
+          fail "newProducer unexpectedly succeeded"
+      callbacks <- readIORef seen
+      case callbacks of
+        [(KafkaError errText, msg)] -> do
+          T.isInfixOf "Failed to parse broker addresses" errText @?= True
+          T.isInfixOf "Failed to parse broker addresses" (T.pack msg) @?= True
+        other -> fail ("unexpected callbacks: " <> show other)
   , testCase "metadata and transaction compatibility modules return typed errors" $ do
       txResult <- commitTransaction undefined (Timeout 0)
       case fmap getKafkaError txResult of

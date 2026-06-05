@@ -8,8 +8,7 @@ librdkafka-shaped pieces that leak through the public @hw-kafka-client@
 surface.
 -}
 module Kafka.Internal.Compat
-  ( Callback (..)
-  , Kafka (..)
+  ( Kafka (..)
   , KafkaConf (..)
   , TopicConf (..)
   , HasKafka (..)
@@ -210,9 +209,6 @@ data RdKafkaRespErrT
   | RdKafkaRespErrPrincipalDeserializationFailure
   | RdKafkaRespErrEndAll
   deriving (Eq, Show, Enum, Bounded, Typeable, Generic)
-
--- | Opaque legacy callback token.
-data Callback = Callback
 
 -- | Opaque compatibility handle for native wireform Kafka clients.
 data Kafka

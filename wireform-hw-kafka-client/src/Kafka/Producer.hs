@@ -47,6 +47,11 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
 import Kafka.Consumer.Types (Offset (..))
+import Kafka.Internal.Callbacks
+  ( Callback
+  , deliveryCallbacks
+  , errorCallbacks
+  )
 import Kafka.Internal.Compat
   ( Kafka (..)
   , RdKafkaRespErrT (..)
@@ -94,13 +99,17 @@ newProducer props = liftIO $ do
       brokers = bootstrapServers (ppKafkaProps props)
       cfg = producerConfig props
   result <- WF.createProducer brokers cfg
-  pure $ case result of
-    Left err -> Left (KafkaError (T.pack err))
-    Right producer -> Right KafkaProducer
-      { kpKafkaPtr = KafkaProducerHandle producer
-      , kpKafkaConf = kc
-      , kpTopicConf = tc
-      }
+  case result of
+    Left err -> do
+      let kafkaErr = KafkaError (T.pack err)
+      mapM_ (\callback -> callback kafkaErr err) (errorCallbacks (ppCallbacks props))
+      pure (Left kafkaErr)
+    Right producer ->
+      pure $ Right KafkaProducer
+        { kpKafkaPtr = KafkaProducerHandle producer
+        , kpKafkaConf = kc
+        , kpTopicConf = tc
+        }
 
 -- | Send a single message.
 --
@@ -168,6 +177,7 @@ producerConfig ProducerProperties{..} =
           (textDecimal =<< (M.lookup "message.timeout.ms" ppTopicProps <|> M.lookup "message.timeout.ms" ppKafkaProps))
     , WF.producerIdempotent = False
     , WF.producerDelivery = WF.AtLeastOnce
+    , WF.producerOnAcknowledgement = dispatchProducerCallbacks ppCallbacks
     }
 
 bootstrapServers :: M.Map T.Text T.Text -> [T.Text]
@@ -200,6 +210,32 @@ partitionToWireform (SpecifiedPartition p) = Just (fromIntegral p)
 convertHeader :: (ByteString, ByteString) -> (T.Text, ByteString)
 convertHeader (name, value) =
   (TE.decodeUtf8With TEE.lenientDecode name, value)
+
+fromWireformRecord :: WF.ProducerRecord -> ProducerRecord
+fromWireformRecord WF.ProducerRecord{..} =
+  ProducerRecord
+    { prTopic = TopicName topic
+    , prPartition = maybe UnassignedPartition (SpecifiedPartition . fromIntegral) partition
+    , prKey = key
+    , prValue = Just value
+    , prHeaders = headersFromList (map (\(name, headerValue) -> (TE.encodeUtf8 name, headerValue)) headers)
+    }
+
+dispatchProducerCallbacks
+  :: [Callback]
+  -> WF.ProducerRecord
+  -> Either String WF.RecordMetadata
+  -> IO ()
+dispatchProducerCallbacks callbacks record outcome =
+  case outcome of
+    Left err -> do
+      let kafkaErr = KafkaError (T.pack err)
+          report = DeliveryFailure (fromWireformRecord record) kafkaErr
+      mapM_ (\callback -> callback report) (deliveryCallbacks callbacks)
+      mapM_ (\callback -> callback kafkaErr err) (errorCallbacks callbacks)
+    Right metadata -> do
+      let report = DeliverySuccess (fromWireformRecord record) (Offset (WF.offset metadata))
+      mapM_ (\callback -> callback report) (deliveryCallbacks callbacks)
 
 (<|>) :: Maybe a -> Maybe a -> Maybe a
 Just x <|> _ = Just x

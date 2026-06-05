@@ -33,7 +33,8 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Kafka.Consumer.Callbacks as X
 import Kafka.Consumer.Types (ConsumerGroupId (..))
-import Kafka.Internal.Compat (Callback, decimalText)
+import Kafka.Internal.Callbacks (Callback)
+import Kafka.Internal.Compat (decimalText)
 import Kafka.Types
   ( BrokerAddress (..)
   , ClientId (..)

@@ -26,7 +26,8 @@ module Kafka.Producer.ProducerProperties
 
 import Data.Map (Map)
 import Data.Text (Text)
-import Kafka.Internal.Compat (Callback, decimalText)
+import Kafka.Internal.Callbacks (Callback)
+import Kafka.Internal.Compat (decimalText)
 import Kafka.Producer.Callbacks
 import Kafka.Types
   ( BrokerAddress (..)

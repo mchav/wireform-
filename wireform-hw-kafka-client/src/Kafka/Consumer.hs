@@ -60,6 +60,12 @@ import Kafka.Consumer.ConsumerProperties as X
 import Kafka.Consumer.Subscription as X
 import Kafka.Consumer.Types as X hiding (KafkaConsumer)
 import Kafka.Consumer.Types (KafkaConsumer (..))
+import Kafka.Internal.Callbacks
+  ( Callback
+  , errorCallbacks
+  , offsetCommitCallbacks
+  , rebalanceCallbacks
+  )
 import Kafka.Internal.Compat
   ( Kafka (..)
   , KafkaConf (..)
@@ -104,23 +110,30 @@ newConsumer
   -> m (Either KafkaError KafkaConsumer)
 newConsumer props sub@(Subscription topicsSet subProps) = liftIO $ do
   kc <- kafkaConf (cpProps props <> subProps)
+  consumerRef <- IORef.newIORef Nothing
   let brokers = bootstrapServers (cpProps props)
       group = M.findWithDefault "default-group" "group.id" (cpProps props)
-      cfg = consumerConfig props sub
+      cfg = consumerConfig props sub consumerRef
       topicTexts = map unTopicName (Set.toList topicsSet)
   result <- WF.createConsumer brokers group cfg
   case result of
-    Left err -> pure (Left (KafkaError (T.pack err)))
+    Left err -> do
+      let kafkaErr = KafkaError (T.pack err)
+      mapM_ (\callback -> callback kafkaErr err) (errorCallbacks (cpCallbacks props))
+      pure (Left kafkaErr)
     Right consumer -> do
+      let kafkaConsumer = KafkaConsumer
+            { kcKafkaPtr = KafkaConsumerHandle consumer
+            , kcKafkaConf = kc
+            }
+      IORef.writeIORef consumerRef (Just kafkaConsumer)
+      installRebalanceCallbacks (cpCallbacks props) kafkaConsumer consumer
       subscribeResult <- case topicTexts of
         [] -> pure (Right ())
         ts -> WF.subscribe consumer ts
       pure $ case subscribeResult of
         Left err -> Left (KafkaError (T.pack err))
-        Right () -> Right KafkaConsumer
-          { kcKafkaPtr = KafkaConsumerHandle consumer
-          , kcKafkaConf = kc
-          }
+        Right () -> Right kafkaConsumer
 
 -- | Poll a single message.
 --
@@ -188,8 +201,9 @@ storeOffsets _ _ = pure Nothing
 
 -- | Commit offsets for all currently assigned partitions.
 commitAllOffsets :: MonadIO m => OffsetCommit -> KafkaConsumer -> m (Maybe KafkaError)
-commitAllOffsets mode kc =
-  commitResult mode kc
+commitAllOffsets mode kc = do
+  assigned <- assignedTopicPartitions kc
+  commitResult mode kc assigned
 
 -- | Commit offsets for the supplied partitions.
 commitPartitionsOffsets
@@ -202,7 +216,7 @@ commitPartitionsOffsets mode kc partitions = do
   seekResult <- seekPartitions kc partitions (Timeout 0)
   case seekResult of
     Just err -> pure (Just err)
-    Nothing -> commitResult mode kc
+    Nothing -> commitResult mode kc partitions
 
 -- | Assign the consumer to consume from the given topic partitions.
 assign :: MonadIO m => KafkaConsumer -> [TopicPartition] -> m (Maybe KafkaError)
@@ -311,6 +325,16 @@ rewindConsumer kc timeout = do
   where
     expand (topic, partitions) = map (\partition -> (topic, partition)) partitions
 
+assignedTopicPartitions :: MonadIO m => KafkaConsumer -> m [TopicPartition]
+assignedTopicPartitions kc = do
+  assigned <- assignment kc
+  pure $ case assigned of
+    Left _ -> []
+    Right partsByTopic -> concatMap expand (M.toList partsByTopic)
+  where
+    expand (topic, partitions) =
+      map (\partition -> TopicPartition topic partition PartitionOffsetInvalid) partitions
+
 pollWireform :: KafkaConsumer -> Timeout -> IO (Either KafkaError [WF.ConsumerRecord])
 pollWireform KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} (Timeout timeoutMs) = do
   result <- WF.poll consumer timeoutMs
@@ -320,16 +344,31 @@ pollWireform KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} (Timeout t
 pollWireform _ _ =
   pure (Left (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
 
-commitResult :: MonadIO m => OffsetCommit -> KafkaConsumer -> m (Maybe KafkaError)
-commitResult mode KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} = liftIO $ do
+commitResult :: MonadIO m => OffsetCommit -> KafkaConsumer -> [TopicPartition] -> m (Maybe KafkaError)
+commitResult mode KafkaConsumer{kcKafkaPtr = KafkaConsumerHandle consumer} _partitions = liftIO $ do
   result <- case mode of
     OffsetCommit -> WF.commitSync consumer
     OffsetCommitAsync -> WF.commitAsync consumer
   pure $ case result of
     Left err -> Just (KafkaError (T.pack err))
     Right () -> Nothing
-commitResult _ _ =
+commitResult _ _ _ =
   pure (Just (KafkaBadSpecification "KafkaConsumer does not contain a consumer handle"))
+
+installRebalanceCallbacks :: [Callback] -> KafkaConsumer -> WF.Consumer -> IO ()
+installRebalanceCallbacks callbacks kafkaConsumer consumer =
+  case rebalanceCallbacks callbacks of
+    [] -> pure ()
+    handlers ->
+      WF.setRebalanceListener consumer
+        (dispatch RebalanceBeforeAssign RebalanceAssign handlers)
+        (dispatch RebalanceBeforeRevoke RebalanceRevoke handlers)
+        (dispatch RebalanceBeforeRevoke RebalanceRevoke handlers)
+  where
+    dispatch before after handlers partitions = do
+      let pairs = map wireformPair partitions
+      mapM_ (\handler -> handler kafkaConsumer (before pairs)) handlers
+      mapM_ (\handler -> handler kafkaConsumer (after pairs)) handlers
 
 seekOne :: WF.Consumer -> TopicPartition -> IO (Maybe KafkaError)
 seekOne consumer tp =
@@ -361,8 +400,12 @@ positionOne consumer pair = do
     Left err -> Left (KafkaError (T.pack err))
     Right offset -> Right (fromWireformTopicPartition wfTp (PartitionOffset offset))
 
-consumerConfig :: ConsumerProperties -> Subscription -> WF.ConsumerConfig
-consumerConfig ConsumerProperties{..} (Subscription _ subProps) =
+consumerConfig
+  :: ConsumerProperties
+  -> Subscription
+  -> IORef.IORef (Maybe KafkaConsumer)
+  -> WF.ConsumerConfig
+consumerConfig ConsumerProperties{..} (Subscription _ subProps) consumerRef =
   WF.defaultConsumerConfig
     { WF.consumerClientId = M.findWithDefault "hw-kafka-client" "client.id" cpProps
     , WF.consumerGroupId = M.findWithDefault "default-group" "group.id" cpProps
@@ -378,6 +421,14 @@ consumerConfig ConsumerProperties{..} (Subscription _ subProps) =
     , WF.consumerQueuedMaxMessagesKbytes =
         lookupInt "queued.max.messages.kbytes" cpProps
           (WF.consumerQueuedMaxMessagesKbytes WF.defaultConsumerConfig)
+    , WF.consumerOnCommit = \offsets -> do
+        mConsumer <- IORef.readIORef consumerRef
+        case mConsumer of
+          Nothing -> pure ()
+          Just kafkaConsumer ->
+            mapM_
+              (\callback -> callback kafkaConsumer (KafkaResponseError RdKafkaRespErrNoError) (map committedOffsetToTopicPartition offsets))
+              (offsetCommitCallbacks cpCallbacks)
     }
 
 bootstrapServers :: M.Map T.Text T.Text -> [T.Text]
@@ -424,6 +475,14 @@ fromWireformTopicPartition WF.TopicPartition{..} offset =
     , tpPartition = PartitionId (fromIntegral partition)
     , tpOffset = offset
     }
+
+wireformPair :: WF.TopicPartition -> (TopicName, PartitionId)
+wireformPair WF.TopicPartition{..} =
+  (TopicName topic, PartitionId (fromIntegral partition))
+
+committedOffsetToTopicPartition :: (WF.TopicPartition, Int64) -> TopicPartition
+committedOffsetToTopicPartition (tp, offset) =
+  fromWireformTopicPartition tp (PartitionOffset offset)
 
 topicPartitionFromRecord :: ConsumerRecord k v -> TopicPartition
 topicPartitionFromRecord record =
