@@ -62,8 +62,8 @@ tests = testGroup "wireform-hw-kafka-client"
             }
       headersToList (prHeaders record) @?= [(BS.pack [104], BS.pack [120])]
   , testCase "metadata and transaction compatibility modules return typed errors" $ do
-      let txErr = getKafkaError <$> commitTransaction undefined (Timeout 0)
-      txErr >>= \case
+      txResult <- commitTransaction undefined (Timeout 0)
+      case fmap getKafkaError txResult of
         Just (KafkaBadSpecification _) -> pure ()
         other -> fail ("unexpected transaction result: " <> show other)
       let _metadataType :: Either KafkaError KafkaMetadata
