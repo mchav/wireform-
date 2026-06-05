@@ -32,6 +32,7 @@ common defaults
         GeneralizedNewtypeDeriving
         LambdaCase
         OverloadedStrings
+        RecordWildCards
         StrictData
 
 library
