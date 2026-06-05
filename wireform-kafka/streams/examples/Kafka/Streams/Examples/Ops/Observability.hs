@@ -29,18 +29,17 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import OpenTelemetry.Metric.Core
-  ( FlushResult (..)
-  , Meter (..)
+  ( Meter (..)
   , MeterProvider (..)
   , ObservableCallbackHandle (..)
   , ObservableCounter (..)
   , ObservableGauge (..)
   , ObservableResult (..)
-  , ShutdownResult (..)
   , forceFlushMeterProvider
   , noopMeter
   , setGlobalMeterProvider
   )
+import OpenTelemetry.Trace.Core (FlushResult (..), ShutdownResult (..))
 
 import Kafka.Streams.Examples.Ops.Helpers (bullet, section)
 import Kafka.Streams.Examples.WordCount (buildWordCountTopology)

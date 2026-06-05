@@ -45,6 +45,9 @@
 --   * @ops-observe@ — observability utilities: topology stats, lag /
 --                     health reports, and the OpenTelemetry metrics
 --                     bridge
+--   * @ops-replay@  — offline replay & backfill: reprocess a captured
+--                     log, window selection, state backfill, capture
+--                     round-trip
 module Main (main) where
 
 import Data.List (intercalate)
@@ -74,6 +77,7 @@ import qualified Kafka.Streams.Examples.Ops.CrashFailover    as OpsCrash
 import qualified Kafka.Streams.Examples.Ops.DynamicThreads   as OpsThreads
 import qualified Kafka.Streams.Examples.Ops.EOSCommit        as OpsEOS
 import qualified Kafka.Streams.Examples.Ops.Observability    as OpsObservability
+import qualified Kafka.Streams.Examples.Ops.Replay           as OpsReplay
 import qualified Kafka.Streams.Examples.Ops.RevocationGrace  as OpsRevGrace
 import qualified Kafka.Streams.Examples.Ops.RollingUpgrade   as OpsRolling
 import qualified Kafka.Streams.Examples.Ops.StandbyWarmup    as OpsStandby
@@ -131,6 +135,7 @@ demos =
   , ("ops-eos",     InMemoryOnly OpsEOS.runDemo)
   , ("ops-revoke",  InMemoryOnly OpsRevGrace.runDemo)
   , ("ops-observe", InMemoryOnly OpsObservability.runDemo)
+  , ("ops-replay",  InMemoryOnly OpsReplay.runDemo)
   ]
 
 main :: IO ()

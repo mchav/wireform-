@@ -558,6 +558,7 @@ library wireform-kafka-streams
         Kafka.Streams.Observability.Lag
         Kafka.Streams.Observability.Health
         Kafka.Streams.Observability.TopologyStats
+        Kafka.Streams.Replay
     build-depends:
         base                      >= 4.16  && < 5,
         aeson                     >= 2.0   && < 2.3,
@@ -677,6 +678,7 @@ test-suite wireform-kafka-streams-test
         Streams.HealthSpec
         Streams.TopologyStatsSpec
         Streams.ObservabilityOTelSpec
+        Streams.ReplaySpec
         Streams.Properties.KVStoreSMSpec
         Streams.Properties.OptimizerEqSpec
         Streams.Properties.WindowMathSpec
@@ -793,6 +795,7 @@ executable wireform-kafka-streams-examples
         Kafka.Streams.Examples.Ops.RollingUpgrade
         Kafka.Streams.Examples.Ops.StandbyWarmup
         Kafka.Streams.Examples.Ops.Observability
+        Kafka.Streams.Examples.Ops.Replay
     build-depends:
         base,
         wireform-kafka:wireform-kafka-streams,
