@@ -19,8 +19,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.IORef
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP
 import Network.HTTP.Connection
@@ -28,8 +27,8 @@ import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
-tests :: TestTree
-tests = testGroup "Concurrency stress"
+tests :: Spec
+tests = describe "Concurrency stress" $ sequence_
   [ h2ParallelStreams
   , h2ParallelStreamsWithBodies
   , h2ParallelStreamsWithCustomHeaders
@@ -44,25 +43,24 @@ tests = testGroup "Concurrency stress"
 -- HTTP/2 concurrency
 ------------------------------------------------------------------------
 
-h2ParallelStreams :: TestTree
+h2ParallelStreams :: Spec
 h2ParallelStreams =
-  testCase "H2: 20 parallel streams on one connection" $
+  it "H2: 20 parallel streams on one connection" $
     withTestServer http2Only echoTarget $ \port -> do
       runClient http2Only port $ \c -> do
         responses <- mapM (\i ->
           sendOn c (mkH2Request "GET" (BS8.pack ("/path-" <> show i)) port BodyEmpty [])
           ) [1 :: Int .. 20]
         bodies <- mapM (drainBody . responseBody) responses
-        length bodies @?= 20
+        length bodies `shouldBe` 20
         let statuses = map responseStatus responses
-        all (== S.status200) statuses @?
-          ("all statuses should be 200, got: " <> show statuses)
+        all (== S.status200) statuses `shouldBe` True
   where
     echoTarget req = pure (resp200 V.HTTP2 (requestTarget req))
 
-h2ParallelStreamsWithBodies :: TestTree
+h2ParallelStreamsWithBodies :: Spec
 h2ParallelStreamsWithBodies =
-  testCase "H2: 10 parallel POST streams with 4 KiB bodies" $
+  it "H2: 10 parallel POST streams with 4 KiB bodies" $
     withTestServer http2Only echo $ \port -> do
       let payload i = BS.replicate 4096 (fromIntegral i)
       runClient http2Only port $ \c -> do
@@ -71,16 +69,16 @@ h2ParallelStreamsWithBodies =
           ) [1 :: Int .. 10]
         bodies <- mapM (drainBody . responseBody) responses
         mapM_ (\(i, body) ->
-          body @?= payload i
+          body `shouldBe` payload i
           ) (zip [1 :: Int .. 10] bodies)
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp200 V.HTTP2 body)
 
-h2ParallelStreamsWithCustomHeaders :: TestTree
+h2ParallelStreamsWithCustomHeaders :: Spec
 h2ParallelStreamsWithCustomHeaders =
-  testCase "H2: 15 parallel streams with distinct custom headers (HPACK encoder stress)" $
+  it "H2: 15 parallel streams with distinct custom headers (HPACK encoder stress)" $
     withTestServer http2Only headerEcho $ \port -> do
       runClient http2Only port $ \c -> do
         responses <- mapM (\i -> do
@@ -90,9 +88,9 @@ h2ParallelStreamsWithCustomHeaders =
           sendOn c (mkH2Request "GET" "/" port BodyEmpty hdrs)
           ) [1 :: Int .. 15]
         bodies <- mapM (drainBody . responseBody) responses
-        length bodies @?= 15
+        length bodies `shouldBe` 15
         mapM_ (\body ->
-          assertBool "body should be non-empty" (not (BS.null body))
+          (not (BS.null body)) `shouldBe` True
           ) bodies
   where
     headerEcho req = do
@@ -101,21 +99,21 @@ h2ParallelStreamsWithCustomHeaders =
             Nothing -> "unknown"
       pure (resp200 V.HTTP2 reqId)
 
-h2ManySequentialRequestsSameConn :: TestTree
+h2ManySequentialRequestsSameConn :: Spec
 h2ManySequentialRequestsSameConn =
-  testCase "H2: 50 sequential requests on one connection" $
+  it "H2: 50 sequential requests on one connection" $
     withTestServer http2Only (\_ -> pure (resp200 V.HTTP2 "ok")) $ \port -> do
       runClient http2Only port $ \c -> do
         mapM_ (\i -> do
           r <- sendOn c (mkH2Request "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
           body <- drainBody (responseBody r)
-          responseStatus r @?= S.status200
-          body @?= "ok"
+          responseStatus r `shouldBe` S.status200
+          body `shouldBe` "ok"
           ) [1 :: Int .. 50]
 
-h2FlowControlPressure :: TestTree
+h2FlowControlPressure :: Spec
 h2FlowControlPressure =
-  testCase "H2: 5 parallel streams each sending 16 KiB (flow control pressure)" $
+  it "H2: 5 parallel streams each sending 16 KiB (flow control pressure)" $
     withTestServer http2Only echo $ \port -> do
       let payload = BS.replicate (16 * 1024) 0x41
       runClient http2Only port $ \c -> do
@@ -124,26 +122,26 @@ h2FlowControlPressure =
           ) [1 :: Int .. 5]
         bodies <- mapM (drainBody . responseBody) responses
         mapM_ (\body ->
-          BS.length body @?= 16 * 1024
+          BS.length body `shouldBe` 16 * 1024
           ) bodies
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp200 V.HTTP2 body)
 
-h2ConcurrentSendAndRecv :: TestTree
+h2ConcurrentSendAndRecv :: Spec
 h2ConcurrentSendAndRecv =
-  testCase "H2: interleaved send and recv across streams" $
+  it "H2: interleaved send and recv across streams" $
     withTestServer http2Only handler $ \port -> do
       runClient http2Only port $ \c -> do
         r1 <- sendOn c (mkH2Request "GET" "/slow" port BodyEmpty [])
         r2 <- sendOn c (mkH2Request "GET" "/fast" port BodyEmpty [])
         b2 <- drainBody (responseBody r2)
         b1 <- drainBody (responseBody r1)
-        responseStatus r1 @?= S.status200
-        responseStatus r2 @?= S.status200
-        b1 @?= "slow-response"
-        b2 @?= "fast-response"
+        responseStatus r1 `shouldBe` S.status200
+        responseStatus r2 `shouldBe` S.status200
+        b1 `shouldBe` "slow-response"
+        b2 `shouldBe` "fast-response"
   where
     handler req = case requestTarget req of
       "/slow" -> pure (resp200 V.HTTP2 "slow-response")
@@ -154,22 +152,22 @@ h2ConcurrentSendAndRecv =
 -- HTTP/1 concurrency
 ------------------------------------------------------------------------
 
-h1RapidSequentialRequests :: TestTree
+h1RapidSequentialRequests :: Spec
 h1RapidSequentialRequests =
-  testCase "H1: 30 rapid sequential requests on one keep-alive connection" $
+  it "H1: 30 rapid sequential requests on one keep-alive connection" $
     withTestServer http1Only counter $ \port -> do
       runClient http1Only port $ \c -> do
         mapM_ (\i -> do
           r <- sendOn c (mkH1Request "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
           _ <- drainBody (responseBody r)
-          responseStatus r @?= S.status200
+          responseStatus r `shouldBe` S.status200
           ) [1 :: Int .. 30]
   where
     counter _ = pure (resp200 V.HTTP1_1 "ok")
 
-h1ParallelConnections :: TestTree
+h1ParallelConnections :: Spec
 h1ParallelConnections =
-  testCase "H1: 10 parallel connections, 3 requests each" $
+  it "H1: 10 parallel connections, 3 requests each" $
     withTestServer http1Only (\_ -> pure (resp200 V.HTTP1_1 "parallel-ok")) $ \port -> do
       doneVar <- newEmptyMVar
       errRef <- newIORef (Nothing :: Maybe SomeException)
@@ -179,8 +177,8 @@ h1ParallelConnections =
                 mapM_ (\i -> do
                   r <- sendOn c (mkH1Request "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
                   body <- drainBody (responseBody r)
-                  responseStatus r @?= S.status200
-                  body @?= "parallel-ok"
+                  responseStatus r `shouldBe` S.status200
+                  body `shouldBe` "parallel-ok"
                   ) [1 :: Int .. 3]
             case result of
               Left e -> atomicModifyIORef' errRef (\_ -> (Just e, ()))
@@ -190,7 +188,7 @@ h1ParallelConnections =
       mapM_ (\_ -> takeMVar doneVar) [1 :: Int .. 10]
       merr <- readIORef errRef
       case merr of
-        Just e  -> assertFailure ("worker failed: " <> show e)
+        Just e  -> expectationFailure ("worker failed: " <> show e)
         Nothing -> pure ()
 
 ------------------------------------------------------------------------
@@ -210,7 +208,7 @@ withTestServer range handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr available for test bind"
+    [] -> expectationFailure "no addr available for test bind"
     (addr:_) -> bracket
       (NS.openSocket addr)
       NS.close
@@ -279,6 +277,7 @@ resp200 ver body = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 drainBody :: Body -> IO BS.ByteString

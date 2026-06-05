@@ -5,16 +5,15 @@ module Test.Frame (tests) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Wireform.Builder as B
 import Wireform.Parser.Driver (parseByteString)
 
 import Network.WebSocket.Frame
 
-tests :: TestTree
-tests = testGroup "Frame"
+tests :: Spec
+tests = describe "Frame" $ sequence_
   [ rfcVectors
   , roundTrip
   , maskingProperty
@@ -25,19 +24,19 @@ tests = testGroup "Frame"
 -- RFC 6455 \u00a75.7 wire vectors
 ------------------------------------------------------------------------
 
-rfcVectors :: TestTree
-rfcVectors = testGroup "RFC 6455 sec 5.7 vectors"
-  [ testCase "unmasked text 'Hello'" $ do
+rfcVectors :: Spec
+rfcVectors = describe "RFC 6455 sec 5.7 vectors" $ sequence_
+  [ it "unmasked text 'Hello'" $ do
       let bytes = BS.pack [0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f]
       case parseByteString (parseFrame defaultPayloadLimit) bytes of
         Right f -> do
-          frameFin f       @?= True
-          frameOpcode f    @?= OpText
-          frameMask f      @?= Nothing
-          framePayload f   @?= "Hello"
-        Left e -> assertFailure ("parse failed: " <> show e)
+          frameFin f       `shouldBe` True
+          frameOpcode f    `shouldBe` OpText
+          frameMask f      `shouldBe` Nothing
+          framePayload f   `shouldBe` "Hello"
+        Left e -> expectationFailure ("parse failed: " <> show e)
 
-  , testCase "masked client text 'Hello'" $ do
+  , it "masked client text 'Hello'" $ do
       let bytes = BS.pack
             [ 0x81, 0x85
             , 0x37, 0xfa, 0x21, 0x3d
@@ -45,22 +44,22 @@ rfcVectors = testGroup "RFC 6455 sec 5.7 vectors"
             ]
       case parseByteString (parseFrame defaultPayloadLimit) bytes of
         Right f -> do
-          frameOpcode f  @?= OpText
-          framePayload f @?= "Hello"
-          frameMask f    @?= Just (mkMask 0x37 0xfa 0x21 0x3d)
-        Left e -> assertFailure ("parse failed: " <> show e)
+          frameOpcode f  `shouldBe` OpText
+          framePayload f `shouldBe` "Hello"
+          frameMask f    `shouldBe` Just (mkMask 0x37 0xfa 0x21 0x3d)
+        Left e -> expectationFailure ("parse failed: " <> show e)
 
-  , testCase "256-byte unmasked binary (16-bit length encoding)" $ do
+  , it "256-byte unmasked binary (16-bit length encoding)" $ do
       let payload = BS.replicate 256 0xAA
           bytes   = BS.pack [0x82, 0x7E, 0x01, 0x00] <> payload
       case parseByteString (parseFrame defaultPayloadLimit) bytes of
         Right f -> do
-          frameOpcode f   @?= OpBinary
-          BS.length (framePayload f) @?= 256
-          framePayload f  @?= payload
-        Left e -> assertFailure ("parse failed: " <> show e)
+          frameOpcode f   `shouldBe` OpBinary
+          BS.length (framePayload f) `shouldBe` 256
+          framePayload f  `shouldBe` payload
+        Left e -> expectationFailure ("parse failed: " <> show e)
 
-  , testCase "65 536-byte unmasked binary (64-bit length encoding)" $ do
+  , it "65 536-byte unmasked binary (64-bit length encoding)" $ do
       let n       = 65536 :: Int
           payload = BS.replicate n 0x55
           bytes   = BS.pack
@@ -71,26 +70,26 @@ rfcVectors = testGroup "RFC 6455 sec 5.7 vectors"
       case parseByteString
               (parseFrame (PayloadLimit (fromIntegral n)))
               bytes of
-        Right f -> BS.length (framePayload f) @?= n
-        Left e  -> assertFailure ("parse failed: " <> show e)
+        Right f -> BS.length (framePayload f) `shouldBe` n
+        Left e  -> expectationFailure ("parse failed: " <> show e)
   ]
 
 ------------------------------------------------------------------------
 -- Round-trip
 ------------------------------------------------------------------------
 
-roundTrip :: TestTree
-roundTrip = testGroup "round-trip"
-  [ testCase "unmasked text" $ do
+roundTrip :: Spec
+roundTrip = describe "round-trip" $ sequence_
+  [ it "unmasked text" $ do
       let f = textFrame Nothing "round-trip"
-      decode (encode f) @?= Right f
+      decode (encode f) `shouldBe` Right f
 
-  , testCase "masked text" $ do
+  , it "masked text" $ do
       let m = mkMask 0xCA 0xFE 0xBA 0xBE
           f = textFrame (Just m) "round-trip"
-      decode (encode f) @?= Right f
+      decode (encode f) `shouldBe` Right f
 
-  , testCase "ping has tiny payload" $ do
+  , it "ping has tiny payload" $ do
       let f = Frame
             { frameFin     = True
             , frameRsv1    = False
@@ -100,9 +99,9 @@ roundTrip = testGroup "round-trip"
             , frameMask    = Nothing
             , framePayload = "ping?"
             }
-      decode (encode f) @?= Right f
+      decode (encode f) `shouldBe` Right f
 
-  , testCase "large payload (128 KiB) round-trips" $ do
+  , it "large payload (128 KiB) round-trips" $ do
       let payload = BS.replicate (128 * 1024) 0x42
           f = Frame
             { frameFin     = True
@@ -114,26 +113,26 @@ roundTrip = testGroup "round-trip"
             , framePayload = payload
             }
       case decodeWith (PayloadLimit (256 * 1024)) (encode f) of
-        Right f' -> framePayload f' @?= payload
-        Left e   -> assertFailure ("parse failed: " <> show e)
+        Right f' -> framePayload f' `shouldBe` payload
+        Left e   -> expectationFailure ("parse failed: " <> show e)
   ]
 
 ------------------------------------------------------------------------
 -- Masking
 ------------------------------------------------------------------------
 
-maskingProperty :: TestTree
-maskingProperty = testCase "masking is self-inverse" $ do
+maskingProperty :: Spec
+maskingProperty = it "masking is self-inverse" $ do
   let m = mkMask 0x12 0x34 0x56 0x78
       payload = BS.pack [0..255]
-  maskPayload m (maskPayload m payload) @?= payload
+  maskPayload m (maskPayload m payload) `shouldBe` payload
 
 ------------------------------------------------------------------------
 -- Control frame limit
 ------------------------------------------------------------------------
 
-controlFrameLimit :: TestTree
-controlFrameLimit = testCase "rejects oversized control frame" $ do
+controlFrameLimit :: Spec
+controlFrameLimit = it "rejects oversized control frame" $ do
   -- Build a ping with a 200-byte payload; the parser itself does
   -- not enforce RFC 6455 sec 5.5 (that is the connection layer's
   -- job) but a 'PayloadLimit' below the announced length must
@@ -151,7 +150,7 @@ controlFrameLimit = testCase "rejects oversized control frame" $ do
       bytes = encode f
   case decodeWith (PayloadLimit 64) bytes of
     Left _  -> pure ()
-    Right _ -> assertFailure "expected rejection from PayloadLimit"
+    Right _ -> expectationFailure "expected rejection from PayloadLimit"
 
 ------------------------------------------------------------------------
 -- Helpers

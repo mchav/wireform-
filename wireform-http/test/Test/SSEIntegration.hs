@@ -28,8 +28,7 @@ import Data.IORef
 import Control.Monad (forM, forM_, replicateM_)
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Network.HTTP.Types.Header  as H
 import qualified Network.HTTP.Types.Status  as S
@@ -41,8 +40,8 @@ import Network.HTTP.VersionRange (VersionRange, http1Only, http2Only)
 
 import Network.HTTP.Client
 
-tests :: TestTree
-tests = testGroup "SSE end-to-end (HTTP/1.1)"
+tests :: Spec
+tests = describe "SSE end-to-end (HTTP/1.1)" $ sequence_
   [ basicRoundTrip
   , heartbeatsAndEvents
   , manyEventsOnOneConnection
@@ -70,8 +69,8 @@ tests = testGroup "SSE end-to-end (HTTP/1.1)"
 -- behaviour in the per-event encoder \/ decoder, slow ring
 -- starvation, and any leak in the streamed-transport worker that
 -- only shows up over a long stream.
-veryLongStream :: TestTree
-veryLongStream = testCase "50,000 events on one connection" $ do
+veryLongStream :: Spec
+veryLongStream = it "50,000 events on one connection" $ do
   let n   = 50000
       evs = map mkEvent [0 .. n - 1]
       mkEvent i = defaultSseEvent
@@ -85,23 +84,23 @@ veryLongStream = testCase "50,000 events on one connection" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    length got @?= n
-    -- Don't @?= the full list (the assertion failure would be
+    length got `shouldBe` n
+    -- Don't `shouldBe` the full list (the assertion failure would be
     -- unreadable); spot-check the boundaries + a quartile-grid
     -- of interior indices instead, which catches drift /
     -- off-by-one / id-reordering.
-    head got               @?= head evs
-    last got               @?= last evs
-    (got !! (n `div` 4))   @?= (evs !! (n `div` 4))
-    (got !! (n `div` 2))   @?= (evs !! (n `div` 2))
-    (got !! (3 * n `div` 4)) @?= (evs !! (3 * n `div` 4))
+    head got               `shouldBe` head evs
+    last got               `shouldBe` last evs
+    (got !! (n `div` 4))   `shouldBe` (evs !! (n `div` 4))
+    (got !! (n `div` 2))   `shouldBe` (evs !! (n `div` 2))
+    (got !! (3 * n `div` 4)) `shouldBe` (evs !! (3 * n `div` 4))
 
 -- | Three event sizes interleaved (10 B, 500 B, 10 KiB) to
 -- exercise the chunked-decoder's per-call 16 KiB read boundary
 -- and the SSE parser's @data:@ line accumulator across very
 -- different chunk lengths.
-mixedSizeEvents :: TestTree
-mixedSizeEvents = testCase "mixed-size events round-trip in order" $ do
+mixedSizeEvents :: Spec
+mixedSizeEvents = it "mixed-size events round-trip in order" $ do
   let evs = concatMap one [0 .. 19 :: Int]
       one i =
         [ defaultSseEvent { sseData = "s" <> BS8.pack (show i) }
@@ -115,7 +114,7 @@ mixedSizeEvents = testCase "mixed-size events round-trip in order" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= evs
+    got `shouldBe` evs
 
 -- | Five clients dialing the same handler in parallel; each one
 -- should receive the full event sequence in order. The handler
@@ -123,8 +122,8 @@ mixedSizeEvents = testCase "mixed-size events round-trip in order" $ do
 -- nothing is shared across clients; this is a check that the
 -- streamed-transport worker, the HTTP\/1.x server, and the SSE
 -- parser don't have any cross-connection state pollution.
-concurrentClients :: TestTree
-concurrentClients = testCase "20 concurrent SSE clients each receive the full stream" $ do
+concurrentClients :: Spec
+concurrentClients = it "20 concurrent SSE clients each receive the full stream" $ do
   let perClient   = 500
       numClients  = 20 :: Int
       evs         = map (\i -> defaultSseEvent
@@ -142,18 +141,16 @@ concurrentClients = testCase "20 concurrent SSE clients each receive the full st
       putMVar mv got
     results <- mapM takeMVar slots
     forM_ (zip [0 :: Int ..] results) $ \(i, got) -> do
-      assertEqual ("client " <> show i <> " event count")
-        perClient (length got)
-      assertEqual ("client " <> show i <> " full sequence")
-        evs got
+      (length got) `shouldBe` perClient
+      got `shouldBe` evs
 
 -- | The 'withSSE' callback returns after reading just a handful of
 -- events. The streamedTransport's worker should observe that EOF
 -- propagates back through the popper (because we cancelled the
 -- response on our way out) and exit cleanly — no hang, no leak.
 -- The test passes if it terminates with the correct partial count.
-earlyCancellation :: TestTree
-earlyCancellation = testCase "early return from withSSE doesn't hang" $ do
+earlyCancellation :: Spec
+earlyCancellation = it "early return from withSSE doesn't hang" $ do
   let evs = map (\i -> defaultSseEvent
                           { sseData = BS8.pack ("e" <> show i) })
                 [0 .. 999 :: Int]
@@ -168,14 +165,14 @@ earlyCancellation = testCase "early return from withSSE doesn't hang" $ do
           Just ev -> modifyIORef' received (ev :)
           Nothing -> pure ()
     got <- reverse <$> readIORef received
-    length got @?= 5
+    length got `shouldBe` 5
 
 -- | 5,000 events whose @data:@ payload is a single byte each. Worst
 -- case for the chunk-framing overhead ratio (event is ~12 wire bytes
 -- with @id:@, body is 1) and a hard exercise of the chunk-size-line
 -- reader (~5,000 size lines back-to-back on one connection).
-tinyChunkStream :: TestTree
-tinyChunkStream = testCase "5,000 single-byte-data events" $ do
+tinyChunkStream :: Spec
+tinyChunkStream = it "5,000 single-byte-data events" $ do
   let n   = 5000
       evs = map mkEvent [0 .. n - 1]
       mkEvent i = defaultSseEvent
@@ -191,10 +188,10 @@ tinyChunkStream = testCase "5,000 single-byte-data events" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    length got @?= n
-    head got        @?= head evs
-    last got        @?= last evs
-    (got !! (n `div` 2)) @?= (evs !! (n `div` 2))
+    length got `shouldBe` n
+    head got        `shouldBe` head evs
+    last got        `shouldBe` last evs
+    (got !! (n `div` 2)) `shouldBe` (evs !! (n `div` 2))
 
 -- | Three SSE responses one after the other against the same
 -- localhost server. Each request gets a fresh 'streamedTransport'
@@ -202,8 +199,8 @@ tinyChunkStream = testCase "5,000 single-byte-data events" $ do
 -- connection), but the server's accept loop is shared. Catches any
 -- state pollution in the server's per-connection handler when a
 -- streaming response goes through.
-backToBackRequests :: TestTree
-backToBackRequests = testCase "3 sequential SSE requests against the same server" $ do
+backToBackRequests :: Spec
+backToBackRequests = it "3 sequential SSE requests against the same server" $ do
   let runs =
         [ map (\i -> defaultSseEvent { sseData = BS8.pack ("a" <> show i) })
               [0 .. 99  :: Int]
@@ -229,15 +226,15 @@ backToBackRequests = testCase "3 sequential SSE requests against the same server
       withSSE transport req $ \nextEvent ->
         drainEvents nextEvent received
       reverse <$> readIORef received
-    gotAll @?= runs
+    gotAll `shouldBe` runs
 
 -- | Push the envelope: 100,000 events on a single connection.
 -- At ~25 bytes per event ≈ 2.5 MB of streaming response, ~100k
 -- chunk-size lines, ~100k SSE-parser dispatches. If anything in
 -- the pipeline is O(n²) on the event count, this will be where
 -- it finally shows.
-extremelyLongStream :: TestTree
-extremelyLongStream = testCase "100,000 events on one connection" $ do
+extremelyLongStream :: Spec
+extremelyLongStream = it "100,000 events on one connection" $ do
   let n   = 100000
       evs = map mkEvent [0 .. n - 1]
       mkEvent i = defaultSseEvent
@@ -251,19 +248,19 @@ extremelyLongStream = testCase "100,000 events on one connection" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    length got @?= n
-    head got                     @?= head evs
-    last got                     @?= last evs
-    (got !! (n `div` 2))         @?= (evs !! (n `div` 2))
-    (got !! (3 * n `div` 4))     @?= (evs !! (3 * n `div` 4))
+    length got `shouldBe` n
+    head got                     `shouldBe` head evs
+    last got                     `shouldBe` last evs
+    (got !! (n `div` 2))         `shouldBe` (evs !! (n `div` 2))
+    (got !! (3 * n `div` 4))     `shouldBe` (evs !! (3 * n `div` 4))
 
 -- | 50 concurrent clients each receiving a 1000-event stream
 -- (50,000 events total flowing simultaneously). Catches any
 -- contention or fairness bug in the server's accept loop, the
 -- streamed-transport worker pool, or the per-connection
 -- send-ring publishing.
-highConcurrency :: TestTree
-highConcurrency = testCase "50 concurrent clients x 1000 events each" $ do
+highConcurrency :: Spec
+highConcurrency = it "50 concurrent clients x 1000 events each" $ do
   let perClient  = 1000
       numClients = 50 :: Int
       evs        = map (\i -> defaultSseEvent
@@ -281,18 +278,15 @@ highConcurrency = testCase "50 concurrent clients x 1000 events each" $ do
       putMVar mv got
     results <- mapM takeMVar slots
     forM_ (zip [0 :: Int ..] results) $ \(i, got) -> do
-      assertEqual ("client " <> show i <> " event count")
-        perClient (length got)
-      assertEqual ("client " <> show i <> " first event")
-        (head evs) (head got)
-      assertEqual ("client " <> show i <> " last event")
-        (last evs) (last got)
+      (length got) `shouldBe` perClient
+      (head got) `shouldBe` (head evs)
+      (last got) `shouldBe` (last evs)
 
 -- | A handler that returns 500 should surface as
 -- 'SseUnexpectedStatus' on the client — over a real wire, not
 -- just against a mock.
-serverError5xx :: TestTree
-serverError5xx = testCase "server 500 surfaces as SseUnexpectedStatus" $ do
+serverError5xx :: Spec
+serverError5xx = it "server 500 surfaces as SseUnexpectedStatus" $ do
   let handler _ = pure Msg.Response
         { Msg.responseStatus     = S.status500
         , Msg.responseVersion    = V.HTTP1_1
@@ -301,6 +295,7 @@ serverError5xx = testCase "server 500 surfaces as SseUnexpectedStatus" $ do
         , Msg.responseTrailers   = pure []
         , Msg.responseH2StreamId = 0
         , Msg.responseCancel     = pure ()
+        , Msg.responsePushPromises = pure []
         }
   withTestServer http1Only handler $ \port -> do
     let req       = get (compileURL port "/events")
@@ -308,15 +303,15 @@ serverError5xx = testCase "server 500 surfaces as SseUnexpectedStatus" $ do
     result <- try $ withSSE transport req $ \_ -> pure ()
     case (result :: Either SomeException ()) of
       Left e -> case fromException e of
-        Just (SseUnexpectedStatus s) -> S.statusCode s @?= 500
-        _ -> assertFailure ("wrong exception: " <> show e)
-      Right _ -> assertFailure "expected SseUnexpectedStatus"
+        Just (SseUnexpectedStatus s) -> S.statusCode s `shouldBe` 500
+        _ -> expectationFailure ("wrong exception: " <> show e)
+      Right _ -> expectationFailure "expected SseUnexpectedStatus"
 
 -- | A handler whose @Content-Type@ is not @text/event-stream@
 -- should surface as 'SseUnexpectedContentType' on the client.
-serverWrongContentType :: TestTree
+serverWrongContentType :: Spec
 serverWrongContentType =
-  testCase "server text/plain surfaces as SseUnexpectedContentType" $ do
+  it "server text/plain surfaces as SseUnexpectedContentType" $ do
   let handler _ = pure Msg.Response
         { Msg.responseStatus     = S.status200
         , Msg.responseVersion    = V.HTTP1_1
@@ -325,6 +320,7 @@ serverWrongContentType =
         , Msg.responseTrailers   = pure []
         , Msg.responseH2StreamId = 0
         , Msg.responseCancel     = pure ()
+        , Msg.responsePushPromises = pure []
         }
   withTestServer http1Only handler $ \port -> do
     let req       = get (compileURL port "/events")
@@ -333,17 +329,17 @@ serverWrongContentType =
     case (result :: Either SomeException ()) of
       Left e -> case fromException e of
         Just (SseUnexpectedContentType mt) -> do
-          mtType mt    @?= "text"
-          mtSubType mt @?= "plain"
-        _ -> assertFailure ("wrong exception: " <> show e)
-      Right _ -> assertFailure "expected SseUnexpectedContentType"
+          mtType mt    `shouldBe` "text"
+          mtSubType mt `shouldBe` "plain"
+        _ -> expectationFailure ("wrong exception: " <> show e)
+      Right _ -> expectationFailure "expected SseUnexpectedContentType"
 
 -- | Additional regression: a single event whose data payload is large.
 -- Exercises the 'Wireform.Builder' accumulator in 'spDataBuf' across
 -- many @data:@ field appends, and the chunked-body reader at the
 -- per-chunk 16 KiB read boundary.
-largeDataPayload :: TestTree
-largeDataPayload = testCase "single event with 64 KiB data round-trips" $ do
+largeDataPayload :: Spec
+largeDataPayload = it "single event with 64 KiB data round-trips" $ do
   let bigLines = map (\i -> BS8.pack ("line-" <> show (i :: Int) <> "-"
                                   <> replicate 56 'x'))
                      [0 .. 999]
@@ -356,14 +352,14 @@ largeDataPayload = testCase "single event with 64 KiB data round-trips" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= [ev]
+    got `shouldBe` [ev]
 
 -- ---------------------------------------------------------------------------
 -- Tests
 -- ---------------------------------------------------------------------------
 
-basicRoundTrip :: TestTree
-basicRoundTrip = testCase "events server -> client round-trip" $ do
+basicRoundTrip :: Spec
+basicRoundTrip = it "events server -> client round-trip" $ do
   let evs =
         [ defaultSseEvent { sseEventType = Just "tick", sseEventId = Just "1", sseData = "first"  }
         , defaultSseEvent { sseEventType = Just "tick", sseEventId = Just "2", sseData = "second" }
@@ -376,10 +372,10 @@ basicRoundTrip = testCase "events server -> client round-trip" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= evs
+    got `shouldBe` evs
 
-heartbeatsAndEvents :: TestTree
-heartbeatsAndEvents = testCase "withSSEFrames sees comments + retry + events" $ do
+heartbeatsAndEvents :: Spec
+heartbeatsAndEvents = it "withSSEFrames sees comments + retry + events" $ do
   let frames =
         [ SseComment " keepalive"
         , SseRetry 2500
@@ -397,11 +393,11 @@ heartbeatsAndEvents = testCase "withSSEFrames sees comments + retry + events" $ 
     withSSEFrames transport req $ \nextFrame ->
       drainFrames nextFrame received
     got <- reverse <$> readIORef received
-    got @?= frames
+    got `shouldBe` frames
 
-manyEventsOnOneConnection :: TestTree
+manyEventsOnOneConnection :: Spec
 manyEventsOnOneConnection =
-  testCase "1000 events stay in order across the wire" $ do
+  it "1000 events stay in order across the wire" $ do
   -- 1000 is comfortably above every internal queue cap we thread
   -- through (streamedTransport: 32; SseChannel: 64; defaultChunkLineCap
   -- after enough small chunks pile up: 4 KiB). The third one was a real
@@ -421,8 +417,8 @@ manyEventsOnOneConnection =
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    length got @?= length evs
-    got @?= evs
+    length got `shouldBe` length evs
+    got `shouldBe` evs
 
 -- ---------------------------------------------------------------------------
 -- Server-side producers
@@ -522,6 +518,7 @@ withSseServerOn ver cap mkBody producer = withTestServer ver handler
         , Msg.responseTrailers   = pure []
         , Msg.responseH2StreamId = 0
         , Msg.responseCancel     = pure ()
+        , Msg.responsePushPromises = pure []
         }
 
 -- ---------------------------------------------------------------------------
@@ -535,8 +532,8 @@ withSseServerOn ver cap mkBody producer = withTestServer ver handler
 -- HTTP layer encodes them as chunked-transfer or DATA frames —
 -- but this is the proof point that the high-level SSE API is
 -- in fact version-agnostic.
-sseOverHttp2 :: TestTree
-sseOverHttp2 = testCase "events round-trip over HTTP/2 (h2c)" $ do
+sseOverHttp2 :: Spec
+sseOverHttp2 = it "events round-trip over HTTP/2 (h2c)" $ do
   let evs =
         [ defaultSseEvent { sseEventType = Just "tick", sseData = "1" }
         , defaultSseEvent { sseEventType = Just "tick", sseData = "2" }
@@ -549,7 +546,7 @@ sseOverHttp2 = testCase "events round-trip over HTTP/2 (h2c)" $ do
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= evs
+    got `shouldBe` evs
 
 -- | If a producer throws mid-stream but follows the recommended
 -- pattern of @'finally' 'closeSseChannel'@, the consumer should
@@ -559,9 +556,9 @@ sseOverHttp2 = testCase "events round-trip over HTTP/2 (h2c)" $ do
 -- This codifies the recommended producer shape — closing the
 -- channel via @finally@ is the documented way to surface
 -- end-of-stream regardless of how the producer exits.
-producerCrashGraceful :: TestTree
+producerCrashGraceful :: Spec
 producerCrashGraceful =
-  testCase "producer crash with `finally close` delivers prefix + EOF" $ do
+  it "producer crash with `finally close` delivers prefix + EOF" $ do
   let goodEvs = map (\i -> defaultSseEvent { sseData = BS8.pack ("e" <> show i) })
                     [0 .. 9 :: Int]
       producer ch =
@@ -575,7 +572,7 @@ producerCrashGraceful =
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= goodEvs
+    got `shouldBe` goodEvs
 
 -- | Bounded channel with the smallest possible cap (1): the
 -- producer can only stage a single event at a time, so every send
@@ -585,8 +582,8 @@ producerCrashGraceful =
 --
 -- Pushing 500 events through a cap-1 queue makes every send round-trip
 -- through the consumer.
-extremeBackpressure :: TestTree
-extremeBackpressure = testCase "channel cap = 1 still delivers all events in order" $ do
+extremeBackpressure :: Spec
+extremeBackpressure = it "channel cap = 1 still delivers all events in order" $ do
   let evs = map (\i -> defaultSseEvent { sseData = BS8.pack ("e" <> show i) })
                 [0 .. 499 :: Int]
   withSseServerCap 1 (pushAllAndClose evs) $ \port -> do
@@ -596,7 +593,7 @@ extremeBackpressure = testCase "channel cap = 1 still delivers all events in ord
     withSSE transport req $ \nextEvent ->
       drainEvents nextEvent received
     got <- reverse <$> readIORef received
-    got @?= evs
+    got `shouldBe` evs
 
 -- ---------------------------------------------------------------------------
 -- Plumbing
@@ -615,7 +612,7 @@ withTestServer range handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr available for test bind" >> error "unreachable"
+    [] -> expectationFailure "no addr available for test bind" >> error "unreachable"
     (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close

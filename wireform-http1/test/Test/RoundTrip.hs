@@ -12,17 +12,17 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString (ByteString)
 
-import Test.Tasty
-import Test.Tasty.QuickCheck
+import Test.Syd
+import Test.QuickCheck
 
 import Network.HTTP1.Encode (encodeRequestHead, encodeResponseHead)
 import Network.HTTP1.Parser
 import Network.HTTP1.Types
 
-tests :: TestTree
-tests = testGroup "RoundTrip"
-  [ testProperty "request head"  prop_requestHead
-  , testProperty "response head" prop_responseHead
+tests :: Spec
+tests = describe "RoundTrip" $ sequence_
+  [ it "request head"  $ property prop_requestHead
+  , it "response head" $ property prop_responseHead
   ]
 
 prop_requestHead :: GenRequest -> Property

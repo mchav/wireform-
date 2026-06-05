@@ -24,8 +24,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Network.Socket as NS
 import System.Timeout (timeout)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.WebSocket.Client
 import Network.WebSocket.Handshake
@@ -33,8 +32,8 @@ import Network.WebSocket.Message
 import Network.WebSocket.Server
 import qualified Network.WebSocket.PerMessageDeflate as PMD
 
-tests :: TestTree
-tests = testGroup "Echo"
+tests :: Spec
+tests = describe "Echo" $ sequence_
   [ echoText
   , echoBinary
   , echoTextTls
@@ -51,22 +50,22 @@ tests = testGroup "Echo"
 -- Echo: text
 ------------------------------------------------------------------------
 
-echoText :: TestTree
-echoText = testCase "client <-> echo server: text message" $ do
+echoText :: Spec
+echoText = it "client <-> echo server: text message" $ do
   r <- timeout 10_000_000 $ withEchoServer $ \port -> do
     let cfg = defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo"
     withWebSocketClient cfg $ \conn -> do
       sendTextMessage conn "hello, websocket"
       msg <- receiveMessage conn defaultMessageLimit
       case msg of
-        TextMessage t -> t @?= "hello, websocket"
-        other         -> assertFailure ("expected TextMessage, got " <> show other)
+        TextMessage t -> t `shouldBe` "hello, websocket"
+        other         -> expectationFailure ("expected TextMessage, got " <> show other)
   case r of
     Just () -> pure ()
-    Nothing -> assertFailure "echo text timed out after 10s"
+    Nothing -> expectationFailure "echo text timed out after 10s"
 
-echoBinary :: TestTree
-echoBinary = testCase "client <-> echo server: binary message" $ do
+echoBinary :: Spec
+echoBinary = it "client <-> echo server: binary message" $ do
   r <- timeout 10_000_000 $ withEchoServer $ \port -> do
     let cfg = defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo"
         payload = BS.pack [0 .. 99]
@@ -74,18 +73,18 @@ echoBinary = testCase "client <-> echo server: binary message" $ do
       sendBinaryMessage conn payload
       msg <- receiveMessage conn defaultMessageLimit
       case msg of
-        BinaryMessage bs -> bs @?= payload
-        other            -> assertFailure ("expected BinaryMessage, got " <> show other)
+        BinaryMessage bs -> bs `shouldBe` payload
+        other            -> expectationFailure ("expected BinaryMessage, got " <> show other)
   case r of
     Just () -> pure ()
-    Nothing -> assertFailure "echo binary timed out after 10s"
+    Nothing -> expectationFailure "echo binary timed out after 10s"
 
 ------------------------------------------------------------------------
 -- Echo over TLS (wss://)
 ------------------------------------------------------------------------
 
-echoTextTls :: TestTree
-echoTextTls = testCase "wss:// client <-> echo server: text message" $ do
+echoTextTls :: Spec
+echoTextTls = it "wss:// client <-> echo server: text message" $ do
   r <- timeout 20_000_000 $ withEchoServerTls $ \port -> do
     let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
           { wcTls = Just (wsTlsDefault
@@ -96,51 +95,51 @@ echoTextTls = testCase "wss:// client <-> echo server: text message" $ do
       sendTextMessage conn "tls hello"
       msg <- receiveMessage conn defaultMessageLimit
       case msg of
-        TextMessage t -> t @?= "tls hello"
-        other         -> assertFailure ("expected TextMessage, got " <> show other)
+        TextMessage t -> t `shouldBe` "tls hello"
+        other         -> expectationFailure ("expected TextMessage, got " <> show other)
   case r of
     Just () -> pure ()
-    Nothing -> assertFailure "TLS echo test timed out after 20s"
+    Nothing -> expectationFailure "TLS echo test timed out after 20s"
 
 ------------------------------------------------------------------------
 -- URI-based connect
 ------------------------------------------------------------------------
 
-echoViaURI :: TestTree
-echoViaURI = testCase "withWebSocketClientURI: ws:// round-trip" $ do
+echoViaURI :: Spec
+echoViaURI = it "withWebSocketClientURI: ws:// round-trip" $ do
   r <- timeout 10_000_000 $ withEchoServer $ \port -> do
     let uri = "ws://127.0.0.1:" <> BS8.pack (show port) <> "/echo"
     withWebSocketClientURI uri $ \conn -> do
       sendTextMessage conn "uri-routed"
       msg <- receiveMessage conn defaultMessageLimit
       case msg of
-        TextMessage t -> t @?= "uri-routed"
-        other         -> assertFailure ("expected TextMessage, got " <> show other)
+        TextMessage t -> t `shouldBe` "uri-routed"
+        other         -> expectationFailure ("expected TextMessage, got " <> show other)
   case r of
     Just () -> pure ()
-    Nothing -> assertFailure "URI echo timed out"
+    Nothing -> expectationFailure "URI echo timed out"
 
 ------------------------------------------------------------------------
 -- Sub-protocol negotiation
 ------------------------------------------------------------------------
 
-subProtocolNegotiation :: TestTree
+subProtocolNegotiation :: Spec
 subProtocolNegotiation =
-  testCase "client sees the sub-protocol the server selected" $ do
+  it "client sees the sub-protocol the server selected" $ do
     r <- timeout 10_000_000 $
       withEchoServerProto $ \port -> do
         let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
               { wcSubProtocols = ["chat.v2", "chat.v1"]
               }
         withWebSocketClient' cfg $ \shr _conn ->
-          shrSelectedProtocol shr @?= Just "chat.v2"
+          shrSelectedProtocol shr `shouldBe` Just "chat.v2"
     case r of
       Just () -> pure ()
-      Nothing -> assertFailure "sub-protocol test timed out"
+      Nothing -> expectationFailure "sub-protocol test timed out"
 
-unofferedSubProtocolRejected :: TestTree
+unofferedSubProtocolRejected :: Spec
 unofferedSubProtocolRejected =
-  testCase "client rejects a server-selected protocol it did not offer" $ do
+  it "client rejects a server-selected protocol it did not offer" $ do
     -- Server config forces the selection regardless of what the
     -- client offered — emulates a misbehaving server.
     r <- timeout 10_000_000 $
@@ -151,11 +150,11 @@ unofferedSubProtocolRejected =
         result <- try $ withWebSocketClient cfg $ \_ -> pure ()
         case result :: Either SomeException () of
           Left _  -> pure ()  -- handshake validation throws
-          Right _ -> assertFailure
+          Right _ -> expectationFailure
             "expected client to reject server's unoffered sub-protocol"
     case r of
       Just () -> pure ()
-      Nothing -> assertFailure "rejection test timed out"
+      Nothing -> expectationFailure "rejection test timed out"
 
 -- | Echo server that picks the first offered sub-protocol via the
 -- 'wscSelectSubProtocol' callback.
@@ -306,26 +305,26 @@ withEchoServerPmd = withServerCfgVariant cfg
       , wscPermessageDeflate = Just PMD.defaultPmdParams
       }
 
-echoDeflate :: TestTree
-echoDeflate = testCase "echoes a short text with permessage-deflate" $ do
+echoDeflate :: Spec
+echoDeflate = it "echoes a short text with permessage-deflate" $ do
   r <- timeout 10_000_000 $ withEchoServerPmd $ \port -> do
     let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
           { wcPermessageDeflate = Just PMD.defaultPmdOffer
           }
     withWebSocketClient' cfg $ \shr conn -> do
-      shrExtensions shr @?= ["permessage-deflate"]
+      shrExtensions shr `shouldBe` ["permessage-deflate"]
       sendTextMessage conn "hello, compressed websocket"
       msg <- receiveMessage conn defaultMessageLimit
       case msg of
-        TextMessage t -> t @?= "hello, compressed websocket"
-        other         -> assertFailure ("expected TextMessage, got " <> show other)
+        TextMessage t -> t `shouldBe` "hello, compressed websocket"
+        other         -> expectationFailure ("expected TextMessage, got " <> show other)
   case r of
     Just () -> pure ()
-    Nothing -> assertFailure "deflate echo timed out after 10s"
+    Nothing -> expectationFailure "deflate echo timed out after 10s"
 
-echoDeflateLargePayload :: TestTree
+echoDeflateLargePayload :: Spec
 echoDeflateLargePayload =
-  testCase "echoes a highly compressible 64 KiB payload with permessage-deflate" $ do
+  it "echoes a highly compressible 64 KiB payload with permessage-deflate" $ do
     r <- timeout 20_000_000 $ withEchoServerPmd $ \port -> do
       let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
             { wcPermessageDeflate = Just PMD.defaultPmdOffer
@@ -335,19 +334,19 @@ echoDeflateLargePayload =
         sendBinaryMessage conn big
         msg <- receiveMessage conn defaultMessageLimit
         case msg of
-          BinaryMessage bs -> bs @?= big
-          other            -> assertFailure ("expected BinaryMessage, got " <> show other)
+          BinaryMessage bs -> bs `shouldBe` big
+          other            -> expectationFailure ("expected BinaryMessage, got " <> show other)
     case r of
       Just () -> pure ()
-      Nothing -> assertFailure "deflate large-payload echo timed out"
+      Nothing -> expectationFailure "deflate large-payload echo timed out"
 
 -- | Send a sequence of messages with context-takeover enabled.  Each
 -- subsequent message benefits from the deflate dictionary built up
 -- by previous ones; the round-trip must still recover the input
 -- exactly.
-echoDeflateBackToBack :: TestTree
+echoDeflateBackToBack :: Spec
 echoDeflateBackToBack =
-  testCase "context takeover round-trips a sequence of messages" $ do
+  it "context takeover round-trips a sequence of messages" $ do
     r <- timeout 20_000_000 $ withEchoServerPmd $ \port -> do
       let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
             { wcPermessageDeflate = Just PMD.defaultPmdOffer
@@ -362,32 +361,32 @@ echoDeflateBackToBack =
         mapM_ (oneRound conn) msgs
     case r of
       Just () -> pure ()
-      Nothing -> assertFailure "back-to-back deflate echo timed out"
+      Nothing -> expectationFailure "back-to-back deflate echo timed out"
   where
     oneRound conn m = do
       sendTextMessage conn m
       received <- receiveMessage conn defaultMessageLimit
       case received of
-        TextMessage t -> t @?= m
-        other         -> assertFailure ("unexpected " <> show other)
+        TextMessage t -> t `shouldBe` m
+        other         -> expectationFailure ("unexpected " <> show other)
 
 -- | Client offers PMD, server is configured not to accept it.  The
 -- handshake must complete normally and the connection must work
 -- without compression.
-echoDeflateClientOffersServerDeclines :: TestTree
+echoDeflateClientOffersServerDeclines :: Spec
 echoDeflateClientOffersServerDeclines =
-  testCase "server declines PMD; uncompressed echo still works" $ do
+  it "server declines PMD; uncompressed echo still works" $ do
     r <- timeout 10_000_000 $ withEchoServer $ \port -> do
       let cfg = (defaultWebSocketClientConfig "127.0.0.1" (show port) "/echo")
             { wcPermessageDeflate = Just PMD.defaultPmdOffer
             }
       withWebSocketClient' cfg $ \shr conn -> do
-        shrExtensions shr @?= []
+        shrExtensions shr `shouldBe` []
         sendTextMessage conn "no deflate this time"
         msg <- receiveMessage conn defaultMessageLimit
         case msg of
-          TextMessage t -> t @?= "no deflate this time"
-          other         -> assertFailure ("expected TextMessage, got " <> show other)
+          TextMessage t -> t `shouldBe` "no deflate this time"
+          other         -> expectationFailure ("expected TextMessage, got " <> show other)
     case r of
       Just () -> pure ()
-      Nothing -> assertFailure "fallback echo timed out"
+      Nothing -> expectationFailure "fallback echo timed out"

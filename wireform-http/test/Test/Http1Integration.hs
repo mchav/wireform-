@@ -19,8 +19,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.IORef
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP
 import Network.HTTP.Connection
@@ -28,8 +27,8 @@ import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
-tests :: TestTree
-tests = testGroup "HTTP/1.x integration"
+tests :: Spec
+tests = describe "HTTP/1.x integration" $ sequence_
   [ helloWorld
   , echoBody
   , streamingResponse
@@ -39,38 +38,38 @@ tests = testGroup "HTTP/1.x integration"
 
 ------------------------------------------------------------------------
 
-helloWorld :: TestTree
-helloWorld = testCase "GET hello world (HTTP/1.1)" $
+helloWorld :: Spec
+helloWorld = it "GET hello world (HTTP/1.1)" $
   withTestServer http1Only (\_ -> pure (resp200 "hi")) $ \port -> do
     (status, ver, body) <- runClient http1Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, responseVersion r, b)
-    status @?= S.status200
-    body   @?= "hi"
-    ver    @?= V.HTTP1_1
+    status `shouldBe` S.status200
+    body   `shouldBe` "hi"
+    ver    `shouldBe` V.HTTP1_1
 
-echoBody :: TestTree
-echoBody = testCase "POST echoes Content-Length body" $
+echoBody :: Spec
+echoBody = it "POST echoes Content-Length body" $
   withTestServer http1Only echo $ \port -> do
     (status, body) <- runClient http1Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes "rountrip") [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, b)
-    status @?= S.status200
-    body   @?= "rountrip"
+    status `shouldBe` S.status200
+    body   `shouldBe` "rountrip"
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp200 body)
 
-streamingResponse :: TestTree
-streamingResponse = testCase "streaming response body arrives chunk-wise" $
+streamingResponse :: Spec
+streamingResponse = it "streaming response body arrives chunk-wise" $
   withTestServer http1Only stream $ \port -> do
     body <- runClient http1Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/stream" port BodyEmpty [])
       drainBody (responseBody r)
-    body @?= "alphabetagamma"
+    body `shouldBe` "alphabetagamma"
   where
     stream _ = do
       ref <- newIORef ["alpha", "beta", "gamma"]
@@ -86,11 +85,12 @@ streamingResponse = testCase "streaming response body arrives chunk-wise" $
         , responseTrailers = pure []
         , responseH2StreamId = 0
         , responseCancel = pure ()
+        , responsePushPromises = pure []
         }
 
-chunkedRequestWithEmptyTrailers :: TestTree
+chunkedRequestWithEmptyTrailers :: Spec
 chunkedRequestWithEmptyTrailers =
-  testCase "chunked request body: handler sees [] trailers when none sent" $
+  it "chunked request body: handler sees [] trailers when none sent" $
     withTestServer http1Only handler $ \port -> do
       chunkRef <- newIORef ["one ", "two ", "three!"]
       let producer = do
@@ -102,18 +102,18 @@ chunkedRequestWithEmptyTrailers =
         r <- sendOn c (mkRequest "POST" "/" port (BodyStream producer) [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
-      status @?= S.status200
-      body   @?= "one two three!"
+      status `shouldBe` S.status200
+      body   `shouldBe` "one two three!"
   where
     handler req = do
       body <- drainBody (requestBody req)
       trs <- requestTrailers req
-      assertEqual "no trailers received" [] trs
+      trs `shouldBe` []
       pure (resp200 body)
 
-expectContinue :: TestTree
+expectContinue :: Spec
 expectContinue =
-  testCase "Expect: 100-continue: server emits 100, client absorbs it" $
+  it "Expect: 100-continue: server emits 100, client absorbs it" $
     withTestServer http1Only echo $ \port -> do
       (status, body) <- runClient http1Only port $ \c -> do
         r <- sendOn c
@@ -124,8 +124,8 @@ expectContinue =
       -- The final response we observe is the handler's 200, not the
       -- interim 100; the underlying HTTP/1 client transparently
       -- skips informational responses.
-      status @?= S.status200
-      body   @?= "payload"
+      status `shouldBe` S.status200
+      body   `shouldBe` "payload"
   where
     echo req = do
       body <- drainBody (requestBody req)
@@ -150,7 +150,7 @@ withTestServer range handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr available for test bind"
+    [] -> expectationFailure "no addr available for test bind"
     (addr:_) -> bracket
       (NS.openSocket addr)
       NS.close
@@ -212,6 +212,7 @@ resp200 body = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 drainBody :: Body -> IO BS.ByteString

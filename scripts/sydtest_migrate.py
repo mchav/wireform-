@@ -27,7 +27,12 @@ SUSPECT = [
 
 def migrate(src: str) -> tuple[str, list[str]]:
     notes: list[str] = []
-    saw_hedgehog = "Test.Tasty.Hedgehog" in src or "testProperty" in src
+    # Only treat the suite as hedgehog-based if it actually imports
+    # hedgehog. `testProperty` is ambiguous (tasty-quickcheck uses it
+    # too), so keying on it would wrongly pull in sydtest-hedgehog.
+    saw_hedgehog = "Test.Tasty.Hedgehog" in src or re.search(
+        r"(?m)^import\s+(qualified\s+)?Hedgehog\b", src
+    ) is not None
     src = _fix_imports(src)
 
     if saw_hedgehog and "import Test.Syd.Hedgehog" not in src:
@@ -64,6 +69,8 @@ def migrate(src: str) -> tuple[str, list[str]]:
     src = _replace_ident(src, "assertFailure", "expectationFailure")
     src, nAE = _convert_assert_equal(src)
     notes += nAE
+    src, nAP = _convert_assert_pred(src)
+    notes += nAP
     # tasty's testCase forced the body to IO (); sydtest's `it` accepts
     # many IsTest instances, so a polymorphic `fail`/`pure ()` body is
     # ambiguous. expectationFailure :: String -> IO a pins it to IO.
@@ -82,8 +89,9 @@ def migrate(src: str) -> tuple[str, list[str]]:
     return out, notes
 
 
+# tasty sub-libraries that sydtest fully subsumes (just drop the import).
 _DROP_SUBMODULES = {
-    "HUnit", "Hedgehog", "QuickCheck", "SmallCheck",
+    "HUnit", "Hedgehog", "SmallCheck",
     "Ingredients", "Runners", "Options", "Providers",
 }
 
@@ -126,7 +134,13 @@ def _fix_imports(src: str) -> str:
             needs_syd = True
         else:
             name = sub.lstrip(".").split(".")[0]
-            if name in _DROP_SUBMODULES:
+            if name == "QuickCheck":
+                # tasty-quickcheck re-exports QuickCheck's Gen/Arbitrary/
+                # Property/NonNegative/==> etc., which the tests rely on.
+                # sydtest runs QuickCheck properties natively, so swap to
+                # the underlying Test.QuickCheck (deduped below).
+                repls.append((start, end, "import Test.QuickCheck"))
+            elif name in _DROP_SUBMODULES:
                 repls.append((start, end, ""))  # drop, possibly leaving blank line
             else:
                 repls.append((start, end, "import Test.Syd"))
@@ -146,6 +160,18 @@ def _fix_imports(src: str) -> str:
             if seen:
                 continue
             seen = True
+        out_lines.append(ln)
+    src = "".join(out_lines)
+
+    # collapse duplicate bare `import Test.QuickCheck` lines (keep first);
+    # a pre-existing qualified/explicit import is left as-is.
+    seen_qc = False
+    out_lines = []
+    for ln in src.splitlines(keepends=True):
+        if re.match(r"^[ \t]*import[ \t]+Test\.QuickCheck[ \t]*(\n|$)", ln):
+            if seen_qc:
+                continue
+            seen_qc = True
         out_lines.append(ln)
     src = "".join(out_lines)
 
@@ -257,6 +283,36 @@ def _read_string_literal(src: str, i: int) -> int:
             return i + 1
         i += 1
     return -1
+
+
+def _convert_assert_pred(src: str) -> tuple[str, list[str]]:
+    r"""HUnit's `lhs @? msg` (assert lhs is True with message) ->
+    `lhs `shouldBe` True`. The message is dropped. Run this AFTER `@?=`
+    has already been rewritten so only the bare `@?` operator remains."""
+    notes: list[str] = []
+    out = []
+    i = 0
+    while True:
+        j = src.find("@?", i)
+        if j == -1:
+            out.append(src[i:])
+            break
+        # `@?=` was already handled; guard anyway.
+        if j + 2 < len(src) and src[j + 2] == "=":
+            out.append(src[i : j + 3])
+            i = j + 3
+            continue
+        out.append(src[i:j])
+        k = _skip_ws(src, j + 2)
+        msg, k = _read_arg(src, k)
+        if msg is None:
+            notes.append("@? without parseable message; left as-is")
+            out.append(src[j : j + 2])
+            i = j + 2
+            continue
+        out.append("`shouldBe` True")
+        i = k
+    return "".join(out), notes
 
 
 def _convert_assert_equal(src: str) -> tuple[str, list[str]]:
@@ -375,14 +431,16 @@ def _wrap_describe_lists(src: str) -> tuple[str, list[str]]:
     Leaves `describe "x" $ do` untouched.
     """
     notes: list[str] = []
-    # describe "..." possibly with trailing spaces/newline then a '['
-    pattern = re.compile(
-        r'(describe\s+("(?:[^"\\]|\\.)*"|\S+))(\s*)(\n?\s*)\[',
-    )
+    # Match `describe <name>` where <name> is a string literal or a bare
+    # token, then — skipping whitespace and -- line comments — a '['.
+    # Insert `$ sequence_` right after the name so the existing list is
+    # consumed as a do-block-equivalent.
+    name = r'"(?:[^"\\]|\\.)*"|[^\s\[]+'
+    gap = r'(?:[ \t]*\n|[ \t]+|[ \t]*--[^\n]*\n)*'
+    pattern = re.compile(rf'(\bdescribe[ \t]+(?:{name}))({gap})\[')
 
     def repl(m: re.Match) -> str:
-        head, _name, sp, nl = m.group(1), m.group(2), m.group(3), m.group(4)
-        return f"{head} $ sequence_{sp}{nl}["
+        return f"{m.group(1)} $ sequence_{m.group(2)}["
 
     return pattern.sub(repl, src), notes
 

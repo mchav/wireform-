@@ -10,25 +10,24 @@ module Test.AuthChallenge (tests) where
 
 import qualified Data.CaseInsensitive as CI
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP.Client.AuthChallenge
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.AuthChallenge"
-  [ testGroup "parseAuthChallenges"
-      [ testCase "Basic with quoted-string realm" $
+tests :: Spec
+tests = describe "Network.HTTP.Client.AuthChallenge" $ sequence_
+  [ describe "parseAuthChallenges" $ sequence_
+      [ it "Basic with quoted-string realm" $
           parseAuthChallenges "Basic realm=\"example\""
-            @?= [AuthChallenge
+            `shouldBe` [AuthChallenge
                   { acScheme   = CI.mk "Basic"
                   , acParams   = [(CI.mk "realm", "example")]
                   , acToken68  = Nothing
                   }]
-      , testCase "Bearer with multiple params" $
+      , it "Bearer with multiple params" $
           parseAuthChallenges
             "Bearer realm=\"api\", error=\"invalid_token\""
-            @?= [AuthChallenge
+            `shouldBe` [AuthChallenge
                   { acScheme  = CI.mk "Bearer"
                   , acParams  =
                       [ (CI.mk "realm", "api")
@@ -36,35 +35,35 @@ tests = testGroup "Network.HTTP.Client.AuthChallenge"
                       ]
                   , acToken68 = Nothing
                   }]
-      , testCase "scheme with token68 (Negotiate)" $
+      , it "scheme with token68 (Negotiate)" $
           parseAuthChallenges "Negotiate ABCD1234+/="
-            @?= [AuthChallenge
+            `shouldBe` [AuthChallenge
                   { acScheme  = CI.mk "Negotiate"
                   , acParams  = []
                   , acToken68 = Just "ABCD1234+/="
                   }]
-      , testCase "scheme comparison is case-insensitive" $
+      , it "scheme comparison is case-insensitive" $
           let [c] = parseAuthChallenges "basic realm=\"x\""
-          in acScheme c @?= CI.mk "BASIC"
-      , testCase "garbage input returns []" $
-          parseAuthChallenges "" @?= []
+          in acScheme c `shouldBe` CI.mk "BASIC"
+      , it "garbage input returns []" $
+          parseAuthChallenges "" `shouldBe` []
       ]
-  , testGroup "basicChallengeResponder"
-      [ testCase "satisfies a Basic challenge with matching realm" $ do
+  , describe "basicChallengeResponder" $ sequence_
+      [ it "satisfies a Basic challenge with matching realm" $ do
           let resp = basicChallengeResponder
                        (\r -> if r == "example" then Just ("u","p") else Nothing)
               chs  = parseAuthChallenges "Basic realm=\"example\""
           out <- resp chs
-          out @?= Just "Basic dTpw"  -- base64("u:p")
-      , testCase "refuses when realm doesn't match" $ do
+          out `shouldBe` Just "Basic dTpw"  -- base64("u:p")
+      , it "refuses when realm doesn't match" $ do
           let resp = basicChallengeResponder (const Nothing)
               chs  = parseAuthChallenges "Basic realm=\"example\""
           out <- resp chs
-          out @?= Nothing
-      , testCase "ignores non-Basic challenges" $ do
+          out `shouldBe` Nothing
+      , it "ignores non-Basic challenges" $ do
           let resp = basicChallengeResponder (\_ -> Just ("u","p"))
               chs  = parseAuthChallenges "Bearer realm=\"api\""
           out <- resp chs
-          out @?= Nothing
+          out `shouldBe` Nothing
       ]
   ]

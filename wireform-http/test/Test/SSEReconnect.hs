@@ -29,8 +29,7 @@ import           Network.HTTP.Client.Send       (prepareRequest)
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI        as WURI
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -98,28 +97,28 @@ sseScript =
   , ( S.status204, eventStreamHeaders, "" )
   ]
 
-unit_resumes_with_last_event_id :: TestTree
-unit_resumes_with_last_event_id = testCase
+unit_resumes_with_last_event_id :: Spec
+unit_resumes_with_last_event_id = it
   "reconnect attaches Last-Event-ID from the most recent id" $ do
   (t, idsRef) <- mkTransport sseScript
   req <- mkRequest
   let policy = defaultReconnectPolicy { rpInitialRetryMs = 1 }
   evs <- withReconnectingSSE t req policy $ \pop -> drainAt pop 5
-  assertEqual "got three events" 3 (length evs)
-  assertEqual "first id"  (Just "1") (sseEventId (evs !! 0))
-  assertEqual "second id" (Just "2") (sseEventId (evs !! 1))
-  assertEqual "third id"  (Just "3") (sseEventId (evs !! 2))
+  (length evs) `shouldBe` 3
+  (sseEventId (evs !! 0)) `shouldBe` (Just "1")
+  (sseEventId (evs !! 1)) `shouldBe` (Just "2")
+  (sseEventId (evs !! 2)) `shouldBe` (Just "3")
   -- Three connection attempts: first carries no Last-Event-ID;
   -- second carries "2" (the most recent id from connection 1);
   -- third carries "3".
   ids <- reverse <$> readIORef idsRef
-  assertEqual "attempts"       3       (length ids)
-  assertEqual "first attempt"  Nothing (ids !! 0)
-  assertEqual "second attempt" (Just "2") (ids !! 1)
-  assertEqual "third attempt"  (Just "3") (ids !! 2)
+  (length ids) `shouldBe` 3
+  (ids !! 0) `shouldBe` Nothing
+  (ids !! 1) `shouldBe` (Just "2")
+  (ids !! 2) `shouldBe` (Just "3")
 
-unit_204_stops :: TestTree
-unit_204_stops = testCase
+unit_204_stops :: Spec
+unit_204_stops = it
   "204 No Content from the first attempt stops reconnecting" $ do
   (t, idsRef) <- mkTransport
     [(S.status204, eventStreamHeaders, "")]
@@ -128,10 +127,10 @@ unit_204_stops = testCase
   _ <- withReconnectingSSE t req policy $ \pop -> drainAt pop 5
   ids <- readIORef idsRef
   -- We don't try a reconnect after a 204.
-  assertEqual "exactly one attempt" 1 (length ids)
+  (length ids) `shouldBe` 1
 
-unit_max_attempts :: TestTree
-unit_max_attempts = testCase
+unit_max_attempts :: Spec
+unit_max_attempts = it
   "rpMaxAttempts stops the loop after N consecutive empty attempts" $ do
   -- Every attempt returns an immediate-EOF stream (no events),
   -- so failCount climbs by 1 per attempt.
@@ -147,14 +146,14 @@ unit_max_attempts = testCase
   -- signals stop — by which time the worker has already
   -- incremented idsRef for every attempt it made.
   ids <- readIORef idsRef
-  assertBool ("attempts " <> show (length ids) <> " <= 3") (length ids <= 3)
+  (if (length ids <= 3) then pure () else expectationFailure ("attempts " <> show (length ids) <> " <= 3"))
 
 -- ---------------------------------------------------------------------------
 -- Top-level
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.SSE.Reconnect"
+tests :: Spec
+tests = describe "Network.HTTP.Client.SSE.Reconnect" $ sequence_
   [ unit_resumes_with_last_event_id
   , unit_204_stops
   , unit_max_attempts

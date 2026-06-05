@@ -17,8 +17,7 @@ import Data.IORef
 import qualified Network.Socket as NS
 import System.Directory (removeFile)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP1.Client
 import qualified Network.HTTP1.Encode as Enc
@@ -28,8 +27,8 @@ import Network.HTTP1.Status
 import Network.HTTP1.Types
 import Network.HTTP1.Version
 
-tests :: TestTree
-tests = testGroup "Integration"
+tests :: Spec
+tests = describe "Integration" $ sequence_
   [ helloWorldTest
   , echoBodyTest
   , chunkedRequestTest
@@ -44,21 +43,21 @@ tests = testGroup "Integration"
 
 ------------------------------------------------------------------------
 
-helloWorldTest :: TestTree
-helloWorldTest = testCase "GET hello world" $
+helloWorldTest :: Spec
+helloWorldTest = it "GET hello world" $
   withServer (\_ -> pure $ resp200 "Hello, world!\n") $ \port -> do
     let req = mkReq GET "/" port BodyEmpty []
     Right r <- sendRequest (clientCfg port) req
-    responseStatus r @?= OK
-    bodyOf r >>= (@?= "Hello, world!\n")
+    responseStatus r `shouldBe` OK
+    bodyOf r >>= (`shouldBe` "Hello, world!\n")
 
-echoBodyTest :: TestTree
-echoBodyTest = testCase "POST echo body" $
+echoBodyTest :: Spec
+echoBodyTest = it "POST echo body" $
   withServer echo $ \port -> do
     let req = mkReq POST "/echo" port (BodyBytes "round trip me") []
     Right r <- sendRequest (clientCfg port) req
-    responseStatus r @?= OK
-    bodyOf r >>= (@?= "round trip me")
+    responseStatus r `shouldBe` OK
+    bodyOf r >>= (`shouldBe` "round trip me")
   where
     echo req = do
       body <- drainAll (requestBody req)
@@ -67,8 +66,8 @@ echoBodyTest = testCase "POST echo body" $
               (BodyBytes body)
               (pure [])
 
-chunkedRequestTest :: TestTree
-chunkedRequestTest = testCase "POST chunked request body" $
+chunkedRequestTest :: Spec
+chunkedRequestTest = it "POST chunked request body" $
   withServer echo $ \port -> do
     chunkRef <- newIORef ["one", "two", "three!"]
     let producer = do
@@ -78,20 +77,20 @@ chunkedRequestTest = testCase "POST chunked request body" $
             (h : t) -> do writeIORef chunkRef t; pure (Just h)
         req = mkReq POST "/" port (BodyStream producer) []
     Right r <- sendRequest (clientCfg port) req
-    responseStatus r @?= OK
-    bodyOf r >>= (@?= "onetwothree!")
+    responseStatus r `shouldBe` OK
+    bodyOf r >>= (`shouldBe` "onetwothree!")
   where
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
-chunkedResponseTest :: TestTree
-chunkedResponseTest = testCase "streaming chunked response" $
+chunkedResponseTest :: Spec
+chunkedResponseTest = it "streaming chunked response" $
   withServer streaming $ \port -> do
     let req = mkReq GET "/stream" port BodyEmpty []
     Right r <- sendRequest (clientCfg port) req
-    responseStatus r @?= OK
-    bodyOf r >>= (@?= "alphabetagamma")
+    responseStatus r `shouldBe` OK
+    bodyOf r >>= (`shouldBe` "alphabetagamma")
   where
     streaming _ = do
       chunkRef <- newIORef ["alpha","beta","gamma"]
@@ -102,16 +101,16 @@ chunkedResponseTest = testCase "streaming chunked response" $
         [] -> pure Nothing
         (h : t) -> do writeIORef ref t; pure (Just h)
 
-keepAlivePipelineTest :: TestTree
-keepAlivePipelineTest = testCase "keep-alive: two requests on one connection" $
+keepAlivePipelineTest :: Spec
+keepAlivePipelineTest = it "keep-alive: two requests on one connection" $
   withServer (\_ -> pure (resp200 "ok")) $ \port -> do
     withClientConnection (clientCfg port) $ \conn -> do
       Right r1 <- sendRequestOn conn (mkReq GET "/a" port BodyEmpty [])
       _ <- bodyOf r1
       Right r2 <- sendRequestOn conn (mkReq GET "/b" port BodyEmpty [])
       _ <- bodyOf r2
-      responseStatus r1 @?= OK
-      responseStatus r2 @?= OK
+      responseStatus r1 `shouldBe` OK
+      responseStatus r2 `shouldBe` OK
 
 ------------------------------------------------------------------------
 -- Pre-encoded responses
@@ -128,28 +127,28 @@ staticOk = Enc.precomputeResponse $ Response
   , responseTrailers = pure []
   }
 
-preEncodedGetTest :: TestTree
-preEncodedGetTest = testCase "pre-encoded response (GET) is byte-identical to encoder output" $
+preEncodedGetTest :: Spec
+preEncodedGetTest = it "pre-encoded response (GET) is byte-identical to encoder output" $
   withServer (\_ -> pure staticOk) $ \port -> do
     Right r <- sendRequest (clientCfg port) (mkReq GET "/" port BodyEmpty [])
-    responseStatus r @?= OK
+    responseStatus r `shouldBe` OK
     body <- bodyOf r
-    body @?= "Hello, world!\n"
+    body `shouldBe` "Hello, world!\n"
     -- Verify the parsed headers match what the encoder would emit.
-    BS.length body @?= 14
+    BS.length body `shouldBe` 14
 
-preEncodedHeadTest :: TestTree
-preEncodedHeadTest = testCase "pre-encoded response served as HEAD drops body but keeps Content-Length" $
+preEncodedHeadTest :: Spec
+preEncodedHeadTest = it "pre-encoded response served as HEAD drops body but keeps Content-Length" $
   withServer (\_ -> pure staticOk) $ \port -> do
     -- HEAD on the same precomputed response. The server slices
     -- peBytes to peHeadLen so metadata survives but the body is gone.
     Right r <- sendRequest (clientCfg port) (mkReq HEAD "/" port BodyEmpty [])
-    responseStatus r @?= OK
+    responseStatus r `shouldBe` OK
     -- HEAD response framing is special: the parser sees
     -- Content-Length: 14 in the headers but knows HEAD MUST NOT carry
     -- a body, so it frames as NoBody.
     body <- bodyOf r
-    body @?= ""
+    body `shouldBe` ""
 
 ------------------------------------------------------------------------
 -- sendfile(2)
@@ -165,8 +164,8 @@ withTempFile path contents action = do
 -- | Sendfile bodies can be larger than the client's recv buffer, so
 -- we drain inside 'withClientConnection' to keep the connection live
 -- while we read.
-sendFileGetTest :: TestTree
-sendFileGetTest = testCase "sendfile body: GET delivers file bytes verbatim" $
+sendFileGetTest :: Spec
+sendFileGetTest = it "sendfile body: GET delivers file bytes verbatim" $
   withTempFile "/tmp/wireform-http1-sendfile-test.txt" payload $ \path -> do
     let handler _ = do
           fb <- wholeFileBody path
@@ -177,14 +176,14 @@ sendFileGetTest = testCase "sendfile body: GET delivers file bytes verbatim" $
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq GET "/" port BodyEmpty [])
-        responseStatus r @?= OK
+        responseStatus r `shouldBe` OK
         body <- bodyOf r
-        body @?= payload
+        body `shouldBe` payload
   where
     payload = BS.replicate 4096 0x61  -- 4 KiB of 'a'
 
-sendFileHeadTest :: TestTree
-sendFileHeadTest = testCase "sendfile body: HEAD emits headers, no body" $
+sendFileHeadTest :: Spec
+sendFileHeadTest = it "sendfile body: HEAD emits headers, no body" $
   withTempFile "/tmp/wireform-http1-sendfile-head-test.txt" payload $ \path -> do
     let handler _ = do
           fb <- wholeFileBody path
@@ -195,14 +194,14 @@ sendFileHeadTest = testCase "sendfile body: HEAD emits headers, no body" $
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq HEAD "/" port BodyEmpty [])
-        responseStatus r @?= OK
+        responseStatus r `shouldBe` OK
         body <- bodyOf r
-        body @?= ""
+        body `shouldBe` ""
   where
     payload = BS.replicate 256 0x62
 
-sendFileCachedFdTest :: TestTree
-sendFileCachedFdTest = testCase "sendfile body: cached fd path (no per-request open/close)" $
+sendFileCachedFdTest :: Spec
+sendFileCachedFdTest = it "sendfile body: cached fd path (no per-request open/close)" $
   withTempFile "/tmp/wireform-http1-sendfile-cached-test.txt" payload $ \path -> do
     -- Open the fd once and reuse it for multiple requests on the
     -- same keep-alive connection. This is the static-file fast path.
@@ -217,10 +216,10 @@ sendFileCachedFdTest = testCase "sendfile body: cached fd path (no per-request o
         -- being reused without an intervening close.
         Right r1 <- sendRequestOn conn (mkReq GET "/a" port BodyEmpty [])
         body1 <- bodyOf r1
-        body1 @?= payload
+        body1 `shouldBe` payload
         Right r2 <- sendRequestOn conn (mkReq GET "/b" port BodyEmpty [])
         body2 <- bodyOf r2
-        body2 @?= payload
+        body2 `shouldBe` payload
   where
     payload = BS.replicate 1024 0x63  -- 1 KiB of 'c'
 
@@ -246,7 +245,7 @@ withServer handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr"
+    [] -> expectationFailure "no addr"
     (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close

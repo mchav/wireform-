@@ -18,8 +18,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.IORef
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP
 import Network.HTTP.Connection
@@ -27,8 +26,8 @@ import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
-tests :: TestTree
-tests = testGroup "HTTP/2 integration"
+tests :: Spec
+tests = describe "HTTP/2 integration" $ sequence_
   [ helloWorld
   , echoBody
   , streamingResponseBody
@@ -41,43 +40,43 @@ tests = testGroup "HTTP/2 integration"
 
 ------------------------------------------------------------------------
 
-helloWorld :: TestTree
-helloWorld = testCase "HTTP/2 plaintext (h2c prior knowledge): hello world" $
+helloWorld :: Spec
+helloWorld = it "HTTP/2 plaintext (h2c prior knowledge): hello world" $
   withTestServer http2Only (\_ -> pure (resp200 "hi")) $ \port -> do
     (status, ver, body) <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, responseVersion r, b)
-    status @?= S.status200
-    body   @?= "hi"
-    ver    @?= V.HTTP2
+    status `shouldBe` S.status200
+    body   `shouldBe` "hi"
+    ver    `shouldBe` V.HTTP2
 
-echoBody :: TestTree
-echoBody = testCase "POST echoes a bounded request body" $
+echoBody :: Spec
+echoBody = it "POST echoes a bounded request body" $
   withTestServer http2Only echo $ \port -> do
     (status, body) <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes "payload") [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, b)
-    status @?= S.status200
-    body   @?= "payload"
+    status `shouldBe` S.status200
+    body   `shouldBe` "payload"
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp200 body)
 
-streamingResponseBody :: TestTree
+streamingResponseBody :: Spec
 streamingResponseBody =
-  testCase "streaming response body arrives chunk-wise" $
+  it "streaming response body arrives chunk-wise" $
     withTestServer http2Only handler $ \port -> do
       (status, body) <- runClient http2Only port $ \c -> do
         r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
-      status @?= S.status200
+      status `shouldBe` S.status200
       -- We don't assert chunk boundaries — HTTP/2 may re-frame DATA
       -- frames freely — only the assembled body.
-      body   @?= "alphabetagamma"
+      body   `shouldBe` "alphabetagamma"
   where
     handler _ = do
       ref <- newIORef ["alpha", "beta", "gamma"]
@@ -93,11 +92,12 @@ streamingResponseBody =
         , responseTrailers = pure []
         , responseH2StreamId = 0
         , responseCancel = pure ()
+        , responsePushPromises = pure []
         }
 
-streamingRequestBody :: TestTree
+streamingRequestBody :: Spec
 streamingRequestBody =
-  testCase "streaming request body is delivered chunked over DATA frames" $
+  it "streaming request body is delivered chunked over DATA frames" $
     withTestServer http2Only echo $ \port -> do
       chunkRef <- newIORef ["one ", "two ", "three"]
       let producer = do
@@ -109,25 +109,25 @@ streamingRequestBody =
         r <- sendOn c (mkRequest "POST" "/" port (BodyStream producer) [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
-      status @?= S.status200
-      body   @?= "one two three"
+      status `shouldBe` S.status200
+      body   `shouldBe` "one two three"
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp200 body)
 
-serverEmitsTrailers :: TestTree
+serverEmitsTrailers :: Spec
 serverEmitsTrailers =
-  testCase "server-set responseTrailers reach the client's crResponseTrailers" $
+  it "server-set responseTrailers reach the client's crResponseTrailers" $
     withTestServer http2Only handler $ \port -> do
       (status, trs) <- runClient http2Only port $ \c -> do
         r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
         _ <- drainBody (responseBody r)
         t <- responseTrailers r
         pure (responseStatus r, t)
-      status @?= S.status200
-      lookup (CI.mk "grpc-status") trs @?= Just "0"
-      lookup (CI.mk "grpc-message") trs @?= Just "OK"
+      status `shouldBe` S.status200
+      lookup (CI.mk "grpc-status") trs `shouldBe` Just "0"
+      lookup (CI.mk "grpc-message") trs `shouldBe` Just "OK"
   where
     handler _ = pure Response
       { responseStatus   = S.status200
@@ -140,11 +140,12 @@ serverEmitsTrailers =
           ]
       , responseH2StreamId = 0
       , responseCancel = pure ()
+      , responsePushPromises = pure []
       }
 
-largeHeaderBlockTriggersContinuation :: TestTree
+largeHeaderBlockTriggersContinuation :: Spec
 largeHeaderBlockTriggersContinuation =
-  testCase "header block > MAX_FRAME_SIZE splits across HEADERS + CONTINUATION" $
+  it "header block > MAX_FRAME_SIZE splits across HEADERS + CONTINUATION" $
     withTestServer http2Only handler $ \port -> do
       -- ~32 KiB of distinct header values guarantees we cross the
       -- default 16 KiB SETTINGS_MAX_FRAME_SIZE.
@@ -157,30 +158,30 @@ largeHeaderBlockTriggersContinuation =
         r <- sendOn c (mkRequest "GET" "/" port BodyEmpty manyHeaders)
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
-      status @?= S.status200
-      body   @?= "got-it"
+      status `shouldBe` S.status200
+      body   `shouldBe` "got-it"
   where
     handler _ = pure (resp200 "got-it")
 
-concurrentStreams :: TestTree
-concurrentStreams = testCase "multiple streams on one connection are independent" $
+concurrentStreams :: Spec
+concurrentStreams = it "multiple streams on one connection are independent" $
   withTestServer http2Only handler $ \port -> do
     runClient http2Only port $ \c -> do
       r1 <- sendOn c (mkRequest "GET" "/one" port BodyEmpty [])
       r2 <- sendOn c (mkRequest "GET" "/two" port BodyEmpty [])
       b1 <- drainBody (responseBody r1)
       b2 <- drainBody (responseBody r2)
-      b1 @?= "one"
-      b2 @?= "two"
+      b1 `shouldBe` "one"
+      b2 `shouldBe` "two"
   where
     handler req = case requestTarget req of
       "/one" -> pure (resp200 "one")
       "/two" -> pure (resp200 "two")
       _      -> pure (resp200 "?")
 
-cancellationViaWithResponse :: TestTree
+cancellationViaWithResponse :: Spec
 cancellationViaWithResponse =
-  testCase "withResponseOn sends RST_STREAM(CANCEL) when the action throws" $
+  it "withResponseOn sends RST_STREAM(CANCEL) when the action throws" $
     withTestServer http2Only handler $ \port -> do
       result <- try @SomeException $
         runClient http2Only port $ \c ->
@@ -188,7 +189,7 @@ cancellationViaWithResponse =
             error "intentional"
       case result of
         Left _  -> pure ()
-        Right _ -> assertFailure "expected the action's exception to propagate"
+        Right _ -> expectationFailure "expected the action's exception to propagate"
   where
     handler _ = do
       -- A non-trivial body so the recv side has some activity even
@@ -208,6 +209,7 @@ cancellationViaWithResponse =
         , responseTrailers = pure []
         , responseH2StreamId = 0
         , responseCancel = pure ()
+        , responsePushPromises = pure []
         }
 
 ------------------------------------------------------------------------
@@ -226,7 +228,7 @@ withTestServer range handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr available for test bind"
+    [] -> expectationFailure "no addr available for test bind"
     (addr:_) -> bracket
       (NS.openSocket addr)
       NS.close
@@ -288,6 +290,7 @@ resp200 body = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 drainBody :: Body -> IO BS.ByteString

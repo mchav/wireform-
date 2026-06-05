@@ -13,8 +13,7 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified "http-types" Network.HTTP.Types as WAIHttp
 import qualified Network.Wai as Wai
 import Network.Wai.Internal (ResponseReceived(ResponseReceived))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Network.HTTP.Message as U
 import qualified "wireform-http" Network.HTTP.Types.Body as U
@@ -24,14 +23,14 @@ import qualified "wireform-http" Network.HTTP.Types.Status as U
 import qualified "wireform-http" Network.HTTP.Types.Version as U
 import Network.HTTP.WAI
 
-tests :: TestTree
-tests = testGroup "WAI adapter"
-  [ testGroup "Primitive conversions"
+tests :: Spec
+tests = describe "WAI adapter" $ sequence_
+  [ describe "Primitive conversions" $ sequence_
       [ testStatusRoundtrip
       , testVersionRoundtrip
       , testMethodRoundtrip
       ]
-  , testGroup "waiToHandler"
+  , describe "waiToHandler" $ sequence_
       [ testWaiToHandlerBasic
       , testWaiToHandlerBody
       , testWaiToHandlerHeaders
@@ -40,17 +39,17 @@ tests = testGroup "WAI adapter"
       , testWaiToHandlerStreamingRequest
       , testWaiToHandlerAppThrows
       ]
-  , testGroup "handlerToWai"
+  , describe "handlerToWai" $ sequence_
       [ testHandlerToWaiBasic
       , testHandlerToWaiStream
       ]
-  , testGroup "Request conversions"
+  , describe "Request conversions" $ sequence_
       [ testFromWaiRequestPreservesFields
       , testToWaiRequestPreservesFields
       , testToWaiRequestHostFromAuthority
       , testToWaiRequestEmptyTarget
       ]
-  , testGroup "Error handling"
+  , describe "Error handling" $ sequence_
       [ testWaiAppDidNotRespond
       ]
   ]
@@ -59,17 +58,17 @@ tests = testGroup "WAI adapter"
 -- Primitive conversion tests
 ------------------------------------------------------------------------
 
-testStatusRoundtrip :: TestTree
-testStatusRoundtrip = testCase "status roundtrip" $ do
+testStatusRoundtrip :: Spec
+testStatusRoundtrip = it "status roundtrip" $ do
   let statuses = [U.status200, U.status404, U.status500, U.Status 418]
   mapM_ (\s -> do
     let waiS = WAIHttp.mkStatus (fromIntegral (U.statusCode s)) ""
         back = U.Status (fromIntegral (WAIHttp.statusCode waiS))
-    U.statusCode back @?= U.statusCode s
+    U.statusCode back `shouldBe` U.statusCode s
     ) statuses
 
-testVersionRoundtrip :: TestTree
-testVersionRoundtrip = testCase "version roundtrip" $ do
+testVersionRoundtrip :: Spec
+testVersionRoundtrip = it "version roundtrip" $ do
   let versions =
         [ (U.HTTP1_0, WAIHttp.HttpVersion 1 0)
         , (U.HTTP1_1, WAIHttp.HttpVersion 1 1)
@@ -79,20 +78,20 @@ testVersionRoundtrip = testCase "version roundtrip" $ do
     let wai' = WAIHttp.HttpVersion
                  (fromIntegral (U.versionMajor wf))
                  (fromIntegral (U.versionMinor wf))
-    wai' @?= wai
+    wai' `shouldBe` wai
     let wf' = U.mkVersion
                 (fromIntegral (WAIHttp.httpMajor wai))
                 (fromIntegral (WAIHttp.httpMinor wai))
-    wf' @?= wf
+    wf' `shouldBe` wf
     ) versions
 
-testMethodRoundtrip :: TestTree
-testMethodRoundtrip = testCase "method roundtrip" $ do
+testMethodRoundtrip :: Spec
+testMethodRoundtrip = it "method roundtrip" $ do
   let methods = [U.mGet, U.mPost, U.mPut, U.mDelete, U.mPatch]
   mapM_ (\m -> do
     let wai = U.fromMethod m
         back = U.methodFromBytes wai
-    back @?= m
+    back `shouldBe` m
     ) methods
 
 ------------------------------------------------------------------------
@@ -111,8 +110,8 @@ echoApp req respond = do
     ]
     body
 
-testWaiToHandlerBasic :: TestTree
-testWaiToHandlerBasic = testCase "GET / returns 200" $ do
+testWaiToHandlerBasic :: Spec
+testWaiToHandlerBasic = it "GET / returns 200" $ do
   let handler = waiToHandler echoApp
   resp <- handler U.Request
     { U.requestMethod    = U.mGet
@@ -124,12 +123,12 @@ testWaiToHandlerBasic = testCase "GET / returns 200" $ do
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  U.responseStatus resp @?= U.status200
+  U.responseStatus resp `shouldBe` U.status200
   assertHeaderEq (U.responseHeaders resp) "X-Method" "GET"
   assertHeaderEq (U.responseHeaders resp) "X-Path" "/"
 
-testWaiToHandlerBody :: TestTree
-testWaiToHandlerBody = testCase "POST with body echoes it back" $ do
+testWaiToHandlerBody :: Spec
+testWaiToHandlerBody = it "POST with body echoes it back" $ do
   let handler = waiToHandler echoApp
       payload = "hello wireform"
   resp <- handler U.Request
@@ -142,13 +141,13 @@ testWaiToHandlerBody = testCase "POST with body echoes it back" $ do
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  U.responseStatus resp @?= U.status200
+  U.responseStatus resp `shouldBe` U.status200
   case U.responseBody resp of
-    U.BodyBytes bs -> bs @?= payload
-    other -> assertBool ("expected BodyBytes, got " <> show other) False
+    U.BodyBytes bs -> bs `shouldBe` payload
+    other -> (if (False) then pure () else expectationFailure ("expected BodyBytes, got " <> show other))
 
-testWaiToHandlerHeaders :: TestTree
-testWaiToHandlerHeaders = testCase "request headers forwarded to WAI app" $ do
+testWaiToHandlerHeaders :: Spec
+testWaiToHandlerHeaders = it "request headers forwarded to WAI app" $ do
   let app req respond = do
         let ua = maybe "" id $ lookup "User-Agent" (Wai.requestHeaders req)
         respond $ Wai.responseLBS WAIHttp.status200
@@ -166,8 +165,8 @@ testWaiToHandlerHeaders = testCase "request headers forwarded to WAI app" $ do
     }
   assertHeaderEq (U.responseHeaders resp) "X-UA" "wireform-test/1.0"
 
-testWaiToHandlerQueryString :: TestTree
-testWaiToHandlerQueryString = testCase "query string preserved" $ do
+testWaiToHandlerQueryString :: Spec
+testWaiToHandlerQueryString = it "query string preserved" $ do
   let handler = waiToHandler echoApp
   resp <- handler U.Request
     { U.requestMethod    = U.mGet
@@ -182,8 +181,8 @@ testWaiToHandlerQueryString = testCase "query string preserved" $ do
   assertHeaderEq (U.responseHeaders resp) "X-Path" "/search"
   assertHeaderEq (U.responseHeaders resp) "X-Query" "?q=haskell&page=1"
 
-testWaiToHandlerStreamingResponse :: TestTree
-testWaiToHandlerStreamingResponse = testCase "streaming WAI response materialised" $ do
+testWaiToHandlerStreamingResponse :: Spec
+testWaiToHandlerStreamingResponse = it "streaming WAI response materialised" $ do
   let app _req respond =
         respond $ Wai.responseStream WAIHttp.status200
           [("Content-Type", "text/plain")] $ \write flush -> do
@@ -201,13 +200,13 @@ testWaiToHandlerStreamingResponse = testCase "streaming WAI response materialise
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  U.responseStatus resp @?= U.status200
+  U.responseStatus resp `shouldBe` U.status200
   case U.responseBody resp of
-    U.BodyBytes bs -> bs @?= "chunk1chunk2"
-    other -> assertBool ("expected BodyBytes, got " <> show other) False
+    U.BodyBytes bs -> bs `shouldBe` "chunk1chunk2"
+    other -> (if (False) then pure () else expectationFailure ("expected BodyBytes, got " <> show other))
 
-testWaiToHandlerStreamingRequest :: TestTree
-testWaiToHandlerStreamingRequest = testCase "streaming request body consumed by WAI app" $ do
+testWaiToHandlerStreamingRequest :: Spec
+testWaiToHandlerStreamingRequest = it "streaming request body consumed by WAI app" $ do
   chunksRef <- newIORef ["part1" :: ByteString, "part2", "part3"]
   let bodyProducer = do
         chunks <- readIORef chunksRef
@@ -226,11 +225,11 @@ testWaiToHandlerStreamingRequest = testCase "streaming request body consumed by 
     , U.requestTrailers  = pure []
     }
   case U.responseBody resp of
-    U.BodyBytes bs -> bs @?= "part1part2part3"
-    other -> assertBool ("expected BodyBytes, got " <> show other) False
+    U.BodyBytes bs -> bs `shouldBe` "part1part2part3"
+    other -> (if (False) then pure () else expectationFailure ("expected BodyBytes, got " <> show other))
 
-testWaiToHandlerAppThrows :: TestTree
-testWaiToHandlerAppThrows = testCase "WAI app exception propagates" $ do
+testWaiToHandlerAppThrows :: Spec
+testWaiToHandlerAppThrows = it "WAI app exception propagates" $ do
   let app :: Wai.Application
       app _req _respond = error "deliberate test failure"
       handler = waiToHandler app
@@ -246,14 +245,14 @@ testWaiToHandlerAppThrows = testCase "WAI app exception propagates" $ do
     }
   case result of
     Left _  -> pure ()
-    Right _ -> assertBool "expected exception from WAI app" False
+    Right _ -> (False) `shouldBe` True
 
 ------------------------------------------------------------------------
 -- handlerToWai tests
 ------------------------------------------------------------------------
 
-testHandlerToWaiBasic :: TestTree
-testHandlerToWaiBasic = testCase "200 response round-trips" $ do
+testHandlerToWaiBasic :: Spec
+testHandlerToWaiBasic = it "200 response round-trips" $ do
   let handler _req = pure U.Response
         { U.responseStatus     = U.status200
         , U.responseVersion    = U.HTTP1_1
@@ -262,6 +261,7 @@ testHandlerToWaiBasic = testCase "200 response round-trips" $ do
         , U.responseTrailers   = pure []
         , U.responseH2StreamId = 0
         , U.responseCancel     = pure ()
+        , U.responsePushPromises = pure []
         }
       app = handlerToWai handler
   resultRef <- newIORef Nothing
@@ -270,14 +270,13 @@ testHandlerToWaiBasic = testCase "200 response round-trips" $ do
     pure ResponseReceived
   mResp <- readIORef resultRef
   case mResp of
-    Nothing -> assertBool "WAI respond callback not called" False
+    Nothing -> (False) `shouldBe` True
     Just resp -> do
-      WAIHttp.statusCode (Wai.responseStatus resp) @?= 200
-      assertBool "has X-Custom header" $
-        lookup "X-Custom" (Wai.responseHeaders resp) == Just "value"
+      WAIHttp.statusCode (Wai.responseStatus resp) `shouldBe` 200
+      (lookup "X-Custom" (Wai.responseHeaders resp) == Just "value") `shouldBe` True
 
-testHandlerToWaiStream :: TestTree
-testHandlerToWaiStream = testCase "streaming body round-trips" $ do
+testHandlerToWaiStream :: Spec
+testHandlerToWaiStream = it "streaming body round-trips" $ do
   chunksRef <- newIORef ["chunk1" :: ByteString, "chunk2", "chunk3"]
   let handler _req = pure U.Response
         { U.responseStatus     = U.status200
@@ -293,6 +292,7 @@ testHandlerToWaiStream = testCase "streaming body round-trips" $ do
         , U.responseTrailers   = pure []
         , U.responseH2StreamId = 0
         , U.responseCancel     = pure ()
+        , U.responsePushPromises = pure []
         }
       app = handlerToWai handler
   resultRef <- newIORef Nothing
@@ -312,17 +312,17 @@ testHandlerToWaiStream = testCase "streaming body round-trips" $ do
     pure ResponseReceived
   mResult <- readIORef resultRef
   case mResult of
-    Nothing -> assertBool "respond callback not called" False
+    Nothing -> (False) `shouldBe` True
     Just (code, body) -> do
-      code @?= 200
-      body @?= "chunk1chunk2chunk3"
+      code `shouldBe` 200
+      body `shouldBe` "chunk1chunk2chunk3"
 
 ------------------------------------------------------------------------
 -- Request conversion tests
 ------------------------------------------------------------------------
 
-testFromWaiRequestPreservesFields :: TestTree
-testFromWaiRequestPreservesFields = testCase "fromWaiRequest preserves fields" $ do
+testFromWaiRequestPreservesFields :: Spec
+testFromWaiRequestPreservesFields = it "fromWaiRequest preserves fields" $ do
   let waiReq = Wai.defaultRequest
         { Wai.requestMethod = "POST"
         , Wai.rawPathInfo = "/api/users"
@@ -332,15 +332,14 @@ testFromWaiRequestPreservesFields = testCase "fromWaiRequest preserves fields" $
         , Wai.isSecure = True
         }
       req = fromWaiRequest waiReq
-  U.requestMethod req @?= U.mPost
-  U.requestTarget req @?= "/api/users?active=true"
-  U.requestScheme req @?= U.SchemeHttps
-  U.requestVersion req @?= U.HTTP1_1
-  assertBool "has Content-Type header" $
-    U.lookupHeader U.hContentType (U.requestHeaders req) == Just "application/json"
+  U.requestMethod req `shouldBe` U.mPost
+  U.requestTarget req `shouldBe` "/api/users?active=true"
+  U.requestScheme req `shouldBe` U.SchemeHttps
+  U.requestVersion req `shouldBe` U.HTTP1_1
+  (U.lookupHeader U.hContentType (U.requestHeaders req) == Just "application/json") `shouldBe` True
 
-testToWaiRequestPreservesFields :: TestTree
-testToWaiRequestPreservesFields = testCase "toWaiRequest preserves fields" $ do
+testToWaiRequestPreservesFields :: Spec
+testToWaiRequestPreservesFields = it "toWaiRequest preserves fields" $ do
   waiReq <- toWaiRequest U.Request
     { U.requestMethod    = U.mPut
     , U.requestTarget    = "/items/42?format=json"
@@ -351,24 +350,22 @@ testToWaiRequestPreservesFields = testCase "toWaiRequest preserves fields" $ do
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  Wai.requestMethod waiReq @?= "PUT"
-  Wai.rawPathInfo waiReq @?= "/items/42"
-  Wai.rawQueryString waiReq @?= "?format=json"
-  Wai.isSecure waiReq @?= True
-  assertBool "has Content-Type header" $
-    lookup "Content-Type" (Wai.requestHeaders waiReq) == Just "application/json"
-  assertBool "has host header" $
-    Wai.requestHeaderHost waiReq == Just "api.example.com"
+  Wai.requestMethod waiReq `shouldBe` "PUT"
+  Wai.rawPathInfo waiReq `shouldBe` "/items/42"
+  Wai.rawQueryString waiReq `shouldBe` "?format=json"
+  Wai.isSecure waiReq `shouldBe` True
+  (lookup "Content-Type" (Wai.requestHeaders waiReq) == Just "application/json") `shouldBe` True
+  (Wai.requestHeaderHost waiReq == Just "api.example.com") `shouldBe` True
   case Wai.requestBodyLength waiReq of
-    Wai.KnownLength n -> n @?= fromIntegral (BS.length "{\"name\":\"test\"}")
-    Wai.ChunkedBody -> assertBool "expected KnownLength" False
+    Wai.KnownLength n -> n `shouldBe` fromIntegral (BS.length "{\"name\":\"test\"}")
+    Wai.ChunkedBody -> (False) `shouldBe` True
   bodyChunk <- Wai.getRequestBodyChunk waiReq
-  bodyChunk @?= "{\"name\":\"test\"}"
+  bodyChunk `shouldBe` "{\"name\":\"test\"}"
   eof <- Wai.getRequestBodyChunk waiReq
-  eof @?= BS.empty
+  eof `shouldBe` BS.empty
 
-testToWaiRequestHostFromAuthority :: TestTree
-testToWaiRequestHostFromAuthority = testCase "Host synthesised from authority" $ do
+testToWaiRequestHostFromAuthority :: Spec
+testToWaiRequestHostFromAuthority = it "Host synthesised from authority" $ do
   waiReq <- toWaiRequest U.Request
     { U.requestMethod    = U.mGet
     , U.requestTarget    = "/"
@@ -379,12 +376,11 @@ testToWaiRequestHostFromAuthority = testCase "Host synthesised from authority" $
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  assertBool "Host header present" $
-    lookup "Host" (Wai.requestHeaders waiReq) == Just "example.com"
-  Wai.requestHeaderHost waiReq @?= Just "example.com"
+  (lookup "Host" (Wai.requestHeaders waiReq) == Just "example.com") `shouldBe` True
+  Wai.requestHeaderHost waiReq `shouldBe` Just "example.com"
 
-testToWaiRequestEmptyTarget :: TestTree
-testToWaiRequestEmptyTarget = testCase "empty target → rawPathInfo empty" $ do
+testToWaiRequestEmptyTarget :: Spec
+testToWaiRequestEmptyTarget = it "empty target → rawPathInfo empty" $ do
   waiReq <- toWaiRequest U.Request
     { U.requestMethod    = U.mGet
     , U.requestTarget    = ""
@@ -395,15 +391,15 @@ testToWaiRequestEmptyTarget = testCase "empty target → rawPathInfo empty" $ do
     , U.requestVersion   = U.HTTP1_1
     , U.requestTrailers  = pure []
     }
-  Wai.rawPathInfo waiReq @?= ""
-  Wai.rawQueryString waiReq @?= ""
+  Wai.rawPathInfo waiReq `shouldBe` ""
+  Wai.rawQueryString waiReq `shouldBe` ""
 
 ------------------------------------------------------------------------
 -- Error handling tests
 ------------------------------------------------------------------------
 
-testWaiAppDidNotRespond :: TestTree
-testWaiAppDidNotRespond = testCase "WaiAppDidNotRespond on non-responding app" $ do
+testWaiAppDidNotRespond :: Spec
+testWaiAppDidNotRespond = it "WaiAppDidNotRespond on non-responding app" $ do
   let app :: Wai.Application
       app _req _respond = pure ResponseReceived
       handler = waiToHandler app
@@ -419,8 +415,8 @@ testWaiAppDidNotRespond = testCase "WaiAppDidNotRespond on non-responding app" $
     }
   case result of
     Left WaiAppDidNotRespond -> pure ()
-    Left e  -> assertBool ("wrong error: " <> show e) False
-    Right _ -> assertBool "expected WaiAppDidNotRespond" False
+    Left e  -> (if (False) then pure () else expectationFailure ("wrong error: " <> show e))
+    Right _ -> (False) `shouldBe` True
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -429,5 +425,5 @@ testWaiAppDidNotRespond = testCase "WaiAppDidNotRespond on non-responding app" $
 assertHeaderEq :: U.Headers -> BS.ByteString -> BS.ByteString -> IO ()
 assertHeaderEq hdrs name expected =
   case U.lookupHeader (mk name) hdrs of
-    Just v  -> v @?= expected
-    Nothing -> assertBool ("missing header: " <> BS8.unpack name) False
+    Just v  -> v `shouldBe` expected
+    Nothing -> (if (False) then pure () else expectationFailure ("missing header: " <> BS8.unpack name))

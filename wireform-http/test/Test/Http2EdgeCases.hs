@@ -16,8 +16,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.IORef
 import qualified Network.Socket as NS
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.HTTP
 import Network.HTTP.Connection
@@ -25,8 +24,8 @@ import Network.HTTP.Server
 import qualified Network.HTTP.Types.Status as S
 import qualified Network.HTTP.Types.Version as V
 
-tests :: TestTree
-tests = testGroup "HTTP/2 edge cases"
+tests :: Spec
+tests = describe "HTTP/2 edge cases" $ sequence_
   [ emptyBody
   , errorStatusCodes
   , largeBodyRoundTrip
@@ -41,28 +40,28 @@ tests = testGroup "HTTP/2 edge cases"
 
 ------------------------------------------------------------------------
 
-emptyBody :: TestTree
-emptyBody = testCase "GET returning empty body" $
+emptyBody :: Spec
+emptyBody = it "GET returning empty body" $
   withTestServer http2Only (\_ -> pure (resp S.status200 "")) $ \port -> do
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       drainBody (responseBody r)
-    body @?= ""
+    body `shouldBe` ""
 
-errorStatusCodes :: TestTree
-errorStatusCodes = testCase "various error status codes" $
+errorStatusCodes :: Spec
+errorStatusCodes = it "various error status codes" $
   withTestServer http2Only handler $ \port -> do
     runClient http2Only port $ \c -> do
       r400 <- sendOn c (mkRequest "GET" "/400" port BodyEmpty [])
-      responseStatus r400 @?= S.status400
+      responseStatus r400 `shouldBe` S.status400
       _ <- drainBody (responseBody r400)
 
       r404 <- sendOn c (mkRequest "GET" "/404" port BodyEmpty [])
-      responseStatus r404 @?= S.status404
+      responseStatus r404 `shouldBe` S.status404
       _ <- drainBody (responseBody r404)
 
       r500 <- sendOn c (mkRequest "GET" "/500" port BodyEmpty [])
-      responseStatus r500 @?= S.status500
+      responseStatus r500 `shouldBe` S.status500
       _ <- drainBody (responseBody r500)
       pure ()
   where
@@ -72,29 +71,29 @@ errorStatusCodes = testCase "various error status codes" $
       "/500" -> pure (resp S.status500 "internal error")
       _      -> pure (resp S.status200 "ok")
 
-largeBodyRoundTrip :: TestTree
-largeBodyRoundTrip = testCase "64 KiB body round-trips" $
+largeBodyRoundTrip :: Spec
+largeBodyRoundTrip = it "64 KiB body round-trips" $
   withTestServer http2Only echo $ \port -> do
     let payload = BS.replicate 65536 0x42
     (status, body) <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes payload) [])
       b <- drainBody (responseBody r)
       pure (responseStatus r, b)
-    status @?= S.status200
-    BS.length body @?= 65536
-    body @?= payload
+    status `shouldBe` S.status200
+    BS.length body `shouldBe` 65536
+    body `shouldBe` payload
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
-streamingLargeBody :: TestTree
-streamingLargeBody = testCase "streaming 256 KiB response body" $
+streamingLargeBody :: Spec
+streamingLargeBody = it "streaming 256 KiB response body" $
   withTestServer http2Only handler $ \port -> do
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       drainBody (responseBody r)
-    BS.length body @?= 256 * 1024
+    BS.length body `shouldBe` 256 * 1024
   where
     handler _ = do
       let chunkSize = 4096
@@ -115,23 +114,24 @@ streamingLargeBody = testCase "streaming 256 KiB response body" $
         , responseTrailers = pure []
         , responseH2StreamId = 0
         , responseCancel = pure ()
+        , responsePushPromises = pure []
         }
 
-binaryPayload :: TestTree
-binaryPayload = testCase "binary body with all byte values" $
+binaryPayload :: Spec
+binaryPayload = it "binary body with all byte values" $
   withTestServer http2Only echo $ \port -> do
     let payload = BS.pack [0..255]
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes payload) [])
       drainBody (responseBody r)
-    body @?= payload
+    body `shouldBe` payload
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
-manyHeaders :: TestTree
-manyHeaders = testCase "request with 50 custom headers" $
+manyHeaders :: Spec
+manyHeaders = it "request with 50 custom headers" $
   withTestServer http2Only counter $ \port -> do
     let hdrs = [ (CI.mk (BS8.pack ("x-custom-" <> show n)), BS8.pack ("val-" <> show n))
                | n <- [1 :: Int .. 50]
@@ -140,7 +140,7 @@ manyHeaders = testCase "request with 50 custom headers" $
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty hdrs)
       drainBody (responseBody r)
     let count = read (BS8.unpack body) :: Int
-    assertBool "server saw at least 50 custom headers" (count >= 50)
+    (count >= 50) `shouldBe` True
   where
     counter req = do
       let customCount = length
@@ -150,9 +150,9 @@ manyHeaders = testCase "request with 50 custom headers" $
             ]
       pure (resp S.status200 (BS8.pack (show customCount)))
 
-concurrentManyStreams :: TestTree
+concurrentManyStreams :: Spec
 concurrentManyStreams =
-  testCase "10 concurrent streams on one connection" $
+  it "10 concurrent streams on one connection" $
     withTestServer http2Only handler $ \port -> do
       runClient http2Only port $ \c -> do
         responses <- mapM (\i -> do
@@ -160,17 +160,16 @@ concurrentManyStreams =
           ) [1 :: Int .. 10]
         bodies <- mapM (drainBody . responseBody) responses
         let statuses = map responseStatus responses
-        all (== S.status200) statuses @?
-          ("all statuses should be 200, got: " <> show statuses)
-        length bodies @?= 10
+        all (== S.status200) statuses `shouldBe` True
+        length bodies `shouldBe` 10
   where
     handler req = do
       let target = requestTarget req
       pure (resp S.status200 target)
 
-sequentialRequestReuse :: TestTree
+sequentialRequestReuse :: Spec
 sequentialRequestReuse =
-  testCase "5 sequential requests on one h2 connection" $
+  it "5 sequential requests on one h2 connection" $
     withTestServer http2Only (\_ -> pure (resp S.status200 "ok")) $ \port -> do
       runClient http2Only port $ \c -> do
         results <- mapM (\i -> do
@@ -179,12 +178,11 @@ sequentialRequestReuse =
           pure (responseStatus r, b)
           ) [1 :: Int .. 5]
         let statuses = map fst results
-        all (== S.status200) statuses @?
-          ("all statuses should be 200, got: " <> show statuses)
+        all (== S.status200) statuses `shouldBe` True
 
-streamingRequestLargeBody :: TestTree
+streamingRequestLargeBody :: Spec
 streamingRequestLargeBody =
-  testCase "streaming 128 KiB request body" $
+  it "streaming 128 KiB request body" $
     withTestServer http2Only echo $ \port -> do
       let chunkSize = 4096
           totalChunks = 32 :: Int
@@ -201,20 +199,20 @@ streamingRequestLargeBody =
         r <- sendOn c (mkRequest "POST" "/" port (BodyStream producer) [])
         b <- drainBody (responseBody r)
         pure (responseStatus r, b)
-      status @?= S.status200
-      BS.length body @?= chunkSize * totalChunks
+      status `shouldBe` S.status200
+      BS.length body `shouldBe` chunkSize * totalChunks
   where
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
-emptyStreamingResponse :: TestTree
-emptyStreamingResponse = testCase "streaming body that immediately returns Nothing" $
+emptyStreamingResponse :: Spec
+emptyStreamingResponse = it "streaming body that immediately returns Nothing" $
   withTestServer http2Only handler $ \port -> do
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       drainBody (responseBody r)
-    body @?= ""
+    body `shouldBe` ""
   where
     handler _ = pure Response
       { responseStatus  = S.status200
@@ -224,6 +222,7 @@ emptyStreamingResponse = testCase "streaming body that immediately returns Nothi
       , responseTrailers = pure []
       , responseH2StreamId = 0
       , responseCancel = pure ()
+      , responsePushPromises = pure []
       }
 
 ------------------------------------------------------------------------
@@ -243,7 +242,7 @@ withTestServer range handler action = do
         }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
-    [] -> assertFailure "no addr available for test bind"
+    [] -> expectationFailure "no addr available for test bind"
     (addr:_) -> bracket
       (NS.openSocket addr)
       NS.close
@@ -304,6 +303,7 @@ resp status body = Response
   , responseTrailers = pure []
   , responseH2StreamId = 0
   , responseCancel = pure ()
+  , responsePushPromises = pure []
   }
 
 drainBody :: Body -> IO BS.ByteString

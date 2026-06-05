@@ -135,9 +135,7 @@ test-suite wireform-http2-test
       , bytestring
       , network
       , stm
-      , tasty          >= 1.4
-      , tasty-hunit    >= 0.10
-      , tasty-quickcheck >= 0.10
+      , sydtest
       , QuickCheck     >= 2.14
       , wireform-core
       , wireform-http2
@@ -158,8 +156,7 @@ test-suite wireform-http2-tls-test
         base
       , bytestring
       , network
-      , tasty          >= 1.4
-      , tasty-hunit    >= 0.10
+      , sydtest
       , wireform-http2
 
 test-suite h2spec

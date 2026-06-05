@@ -34,8 +34,7 @@ import           Network.HTTP.Client.Send       (prepareRequest)
 import           Network.HTTP.Client.Transport
 import qualified Network.HTTP.Client.URI        as WURI
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Syd
 
 -- ---------------------------------------------------------------------------
 -- Mock transport that returns a scripted sequence
@@ -73,8 +72,8 @@ mkRequest url meth = case WURI.parseTemplate url of
 -- 3xx mechanics
 -- ---------------------------------------------------------------------------
 
-unit_302_to_get :: TestTree
-unit_302_to_get = testCase "302 rewrites POST to GET by default" $ do
+unit_302_to_get :: Spec
+unit_302_to_get = it "302 rewrites POST to GET by default" $ do
   (t, reqs) <- mkScripted
     [ (S.status302, [(H.hLocation, "http://example.com/landing")], "")
     , (S.status200, [], "landed")
@@ -82,13 +81,13 @@ unit_302_to_get = testCase "302 rewrites POST to GET by default" $ do
   req <- mkRequest "http://example.com/start" M.mPost
   _   <- sendRaw (withRedirects defaultRedirectPolicy t) req
   xs  <- reverse <$> readIORef reqs
-  assertEqual "two requests sent"   2          (length xs)
-  assertEqual "first method"   M.mPost (WReq.method (xs !! 0))
+  (length xs) `shouldBe` 2
+  (WReq.method (xs !! 0)) `shouldBe` M.mPost
   -- After the 302 the method should have been rewritten to GET.
-  assertEqual "second method"  M.mGet  (WReq.method (xs !! 1))
+  (WReq.method (xs !! 1)) `shouldBe` M.mGet
 
-unit_307_preserves_method :: TestTree
-unit_307_preserves_method = testCase "307 preserves the method and body" $ do
+unit_307_preserves_method :: Spec
+unit_307_preserves_method = it "307 preserves the method and body" $ do
   (t, reqs) <- mkScripted
     [ (S.status307, [(H.hLocation, "http://example.com/again")], "")
     , (S.status200, [], "ok")
@@ -96,16 +95,16 @@ unit_307_preserves_method = testCase "307 preserves the method and body" $ do
   req <- mkRequest "http://example.com/start" M.mPost
   _   <- sendRaw (withRedirects defaultRedirectPolicy t) req
   xs  <- reverse <$> readIORef reqs
-  assertEqual "two requests sent" 2          (length xs)
-  assertEqual "first method"  M.mPost (WReq.method (xs !! 0))
-  assertEqual "second method" M.mPost (WReq.method (xs !! 1))
+  (length xs) `shouldBe` 2
+  (WReq.method (xs !! 0)) `shouldBe` M.mPost
+  (WReq.method (xs !! 1)) `shouldBe` M.mPost
 
 -- ---------------------------------------------------------------------------
 -- Cross-origin credential stripping
 -- ---------------------------------------------------------------------------
 
-unit_strips_auth_cross_origin :: TestTree
-unit_strips_auth_cross_origin = testCase
+unit_strips_auth_cross_origin :: Spec
+unit_strips_auth_cross_origin = it
   "Authorization is dropped on cross-origin redirect" $ do
   (t, reqs) <- mkScripted
     [ (S.status302, [(H.hLocation, "http://attacker.example/x")], "")
@@ -119,12 +118,10 @@ unit_strips_auth_cross_origin = testCase
   _   <- sendRaw (withRedirects defaultRedirectPolicy t) req
   xs  <- reverse <$> readIORef reqs
   let r2 = xs !! 1
-  assertEqual "no Authorization on second hop"
-    Nothing
-    (H.lookupHeader H.hAuthorization (WReq.headers r2))
+  (H.lookupHeader H.hAuthorization (WReq.headers r2)) `shouldBe` Nothing
 
-unit_strips_cookie_cross_origin :: TestTree
-unit_strips_cookie_cross_origin = testCase
+unit_strips_cookie_cross_origin :: Spec
+unit_strips_cookie_cross_origin = it
   "Cookie is dropped on cross-origin redirect" $ do
   (t, reqs) <- mkScripted
     [ (S.status302, [(H.hLocation, "http://attacker.example/x")], "")
@@ -138,12 +135,10 @@ unit_strips_cookie_cross_origin = testCase
   _   <- sendRaw (withRedirects defaultRedirectPolicy t) req
   xs  <- reverse <$> readIORef reqs
   let r2 = xs !! 1
-  assertEqual "no Cookie on second hop"
-    Nothing
-    (H.lookupHeader H.hCookie (WReq.headers r2))
+  (H.lookupHeader H.hCookie (WReq.headers r2)) `shouldBe` Nothing
 
-unit_keeps_auth_same_origin :: TestTree
-unit_keeps_auth_same_origin = testCase
+unit_keeps_auth_same_origin :: Spec
+unit_keeps_auth_same_origin = it
   "Authorization is kept on same-origin redirect" $ do
   (t, reqs) <- mkScripted
     [ (S.status302, [(H.hLocation, "http://api.example.com/landing")], "")
@@ -157,16 +152,14 @@ unit_keeps_auth_same_origin = testCase
   _   <- sendRaw (withRedirects defaultRedirectPolicy t) req
   xs  <- reverse <$> readIORef reqs
   let r2 = xs !! 1
-  assertEqual "Authorization preserved"
-    (Just "Bearer secret")
-    (H.lookupHeader H.hAuthorization (WReq.headers r2))
+  (H.lookupHeader H.hAuthorization (WReq.headers r2)) `shouldBe` (Just "Bearer secret")
 
 -- ---------------------------------------------------------------------------
 -- Loop + hop count
 -- ---------------------------------------------------------------------------
 
-unit_detects_loop :: TestTree
-unit_detects_loop = testCase
+unit_detects_loop :: Spec
+unit_detects_loop = it
   "rpDetectLoops raises RedirectLoop on revisited URI" $ do
   -- Two URIs bouncing between each other. The first hop goes to
   -- /b, the second redirects back to /a. The third would revisit
@@ -182,8 +175,8 @@ unit_detects_loop = testCase
     Left (_ :: RedirectLoop) -> pure ()
     Right _                  -> error "expected RedirectLoop"
 
-unit_too_many_redirects :: TestTree
-unit_too_many_redirects = testCase
+unit_too_many_redirects :: Spec
+unit_too_many_redirects = it
   "rpMaxRedirects raises TooManyRedirects" $ do
   -- Six redirects in a row, then a 200.  Policy caps at 3 hops.
   let script =
@@ -201,22 +194,22 @@ unit_too_many_redirects = testCase
     Left (_ :: TooManyRedirects) -> pure ()
     Right _                      -> error "expected TooManyRedirects"
 
-unit_no_loop_no_redirect :: TestTree
-unit_no_loop_no_redirect = testCase
+unit_no_loop_no_redirect :: Spec
+unit_no_loop_no_redirect = it
   "non-redirect response passes through untouched" $ do
   (t, reqs) <- mkScripted [(S.status200, [], "hello")]
   req <- mkRequest "http://example.com/x" M.mGet
   r   <- sendRaw (withRedirects defaultRedirectPolicy t) req
-  assertBool "200" (S.statusCode (Resp.statusCode r) == 200)
+  (S.statusCode (Resp.statusCode r) == 200) `shouldBe` True
   xs  <- readIORef reqs
-  assertEqual "single request" 1 (length xs)
+  (length xs) `shouldBe` 1
 
 -- ---------------------------------------------------------------------------
 -- Top-level
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Network.HTTP.Client.Redirect"
+tests :: Spec
+tests = describe "Network.HTTP.Client.Redirect" $ sequence_
   [ unit_302_to_get
   , unit_307_preserves_method
   , unit_strips_auth_cross_origin
