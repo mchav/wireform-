@@ -93,6 +93,8 @@ module Kafka.Client.Consumer
     -- loop with built-in commit + error handling, see
     -- "Kafka.Client.Group".
   , poll
+  , pollRecords
+  , wakeupConsumer
   , commitSync
   , commitAsync
   , commitSyncOffsets
@@ -161,6 +163,7 @@ module Kafka.Client.Consumer
 
     -- * Static membership and rejoin
   , requestRejoin
+  , enforceRebalance
   , enforceRebalanceWithReason
   , setSubscriptionUserDataHook
   , StaticMembershipState(..)
@@ -611,6 +614,9 @@ data Consumer = Consumer
     --   runtime to advertise the local instance's
     --   host:port + owned stores so peers can route cross-
     --   instance IQ queries here.
+  , consumerWakeupPending :: !(TVar Bool)
+    -- ^ One-shot flag set by 'wakeupConsumer'. The next 'poll'
+    -- observes and clears it before touching the broker.
   }
 
 -- | Effective 'Conn.ConnectionConfig' for this consumer: takes the
@@ -895,6 +901,7 @@ createConsumer' brokers groupId config = do
               onL <- newTVarIO (\_ -> pure () :: IO ())
               lastAsgn <- newTVarIO []
               subUD    <- newTVarIO (pure BS.empty :: IO ByteString)
+              wakeup   <- newTVarIO False
 
               let consumer = Consumer
                     { consumerConfig = config { consumerGroupId = groupId }
@@ -911,6 +918,7 @@ createConsumer' brokers groupId config = do
                     , consumerOnLost     = onL
                     , consumerLastAssignment = lastAsgn
                     , consumerSubscriptionUserData = subUD
+                    , consumerWakeupPending = wakeup
                     }
 
               return $ Right consumer
@@ -1512,78 +1520,101 @@ poll
   -> Int  -- ^ Timeout in milliseconds
   -> m (Either String [ConsumerRecord])
 poll consumer@Consumer{..} timeoutMs = liftIO $ do
-  -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
-  -- and we know what topics we're subscribed to, re-join now.
-  -- 'consumerSubscription' was a TVar pre-Tier-1; the rebalance
-  -- check is now two independent reads (rebalance flag from STM,
-  -- subscription list from an IORef). The race is harmless: if a
-  -- subscribe(' ) lands between the two reads we'll either trigger
-  -- rejoin once unnecessarily or miss this tick and catch it on
-  -- the next poll, both of which match the pre-Tier-1 STM
-  -- semantics for an interleaving against 'subscribe'.
-  needsRejoin <- case consumerHeartbeat of
-    Nothing -> pure False
-    Just (hbSt, _) -> do
-      flag <- readTVarIO (HB.hbNeedsRebalance hbSt)
-      topicsM <- readIORef consumerSubscription
-      pure (flag && case topicsM of Just _ -> True; Nothing -> False)
-  rejoinR <- if needsRejoin
-    then do
-      topicsM <- readIORef consumerSubscription
-      case topicsM of
-        Just ts -> subscribe consumer ts
-        Nothing -> pure (Right ())
-    else pure (Right ())
-  case rejoinR of
-    Left err -> return (Left ("poll: rebalance rejoin failed: " <> err))
-    Right () -> doPoll
+  woke <- atomically $ do
+    pending <- readTVar consumerWakeupPending
+    writeTVar consumerWakeupPending False
+    pure pending
+  if woke
+    then pure (Right [])
+    else pollAfterWakeupCheck
   where
-   doPoll = do
-    -- Tier 3 of the STM-replacement work: 'consumerAssignment'
-    -- and 'consumerPaused' moved off STM. Two independent
-    -- 'readIORef's replace the per-poll @atomically + ListT.toList
-    -- + ListT.toList@ walk that previously dominated the consumer
-    -- hot path (~200-400 ns / poll on the snapshot alone). The
-    -- two reads are not transactionally consistent, but a
-    -- pause / resume that interleaves with the snapshot is
-    -- harmless: at worst we issue one extra fetch for a paused
-    -- partition (whose records we then drop on the next poll
-    -- because the assignment is rechecked on commit).
-    asgn   <- readIORef consumerAssignment
-    pausedHM <- readIORef consumerPaused
-    let assignment = HashMap.toList (HashMap.difference asgn pausedHM)
+    pollAfterWakeupCheck = do
+      -- Auto-rebalance: if the heartbeat thread saw REBALANCE_IN_PROGRESS
+      -- and we know what topics we're subscribed to, re-join now.
+      -- 'consumerSubscription' was a TVar pre-Tier-1; the rebalance
+      -- check is now two independent reads (rebalance flag from STM,
+      -- subscription list from an IORef). The race is harmless: if a
+      -- subscribe(' ) lands between the two reads we'll either trigger
+      -- rejoin once unnecessarily or miss this tick and catch it on
+      -- the next poll, both of which match the pre-Tier-1 STM
+      -- semantics for an interleaving against 'subscribe'.
+      needsRejoin <- case consumerHeartbeat of
+        Nothing -> pure False
+        Just (hbSt, _) -> do
+          flag <- readTVarIO (HB.hbNeedsRebalance hbSt)
+          topicsM <- readIORef consumerSubscription
+          pure (flag && case topicsM of Just _ -> True; Nothing -> False)
+      rejoinR <- if needsRejoin
+        then do
+          topicsM <- readIORef consumerSubscription
+          case topicsM of
+            Just ts -> subscribe consumer ts
+            Nothing -> pure (Right ())
+        else pure (Right ())
+      case rejoinR of
+        Left err -> return (Left ("poll: rebalance rejoin failed: " <> err))
+        Right () -> doPoll
 
-    if null assignment
-      then return $ Right []  -- No assignment yet or all paused
-      else do
-        -- Fetch from all active partitions
-        result <- fetchRecords consumer assignment timeoutMs
+    doPoll = do
+      -- Tier 3 of the STM-replacement work: 'consumerAssignment'
+      -- and 'consumerPaused' moved off STM. Two independent
+      -- 'readIORef's replace the per-poll @atomically + ListT.toList
+      -- + ListT.toList@ walk that previously dominated the consumer
+      -- hot path (~200-400 ns / poll on the snapshot alone). The
+      -- two reads are not transactionally consistent, but a
+      -- pause / resume that interleaves with the snapshot is
+      -- harmless: at worst we issue one extra fetch for a paused
+      -- partition (whose records we then drop on the next poll
+      -- because the assignment is rechecked on commit).
+      asgn   <- readIORef consumerAssignment
+      pausedHM <- readIORef consumerPaused
+      let assignment = HashMap.toList (HashMap.difference asgn pausedHM)
 
-        case result of
-          Left err -> return $ Left err
-          Right records -> do
-            -- Update fetch positions based on fetched records.
-            -- Tier 3: the per-record @StmMap.lookup + StmMap.insert
-            -- pair becomes a single 'atomicModifyIORef\'' that
-            -- folds the offset advance over the whole map.
-            atomicModifyIORef' consumerAssignment $ \m0 ->
-              let !m1 = foldl' advanceOffset m0 records
-              in (m1, ())
+      if null assignment
+        then return $ Right []  -- No assignment yet or all paused
+        else do
+          -- Fetch from all active partitions
+          result <- fetchRecords consumer assignment timeoutMs
 
-            -- Limit to maxPollRecords, then run user interceptor
-            let maxRecords = consumerMaxPollRecords consumerConfig
-                limitedRecords = take maxRecords records
-            -- ConsumerInterceptor.onConsume (KIP-388 / JVM): an
-            -- exception here propagates; tracing tools that just
-            -- need to attach attributes shouldn't throw.
-            iceptedRecords <- consumerInterceptor consumerConfig limitedRecords
+          case result of
+            Left err -> return $ Left err
+            Right records -> do
+              -- Update fetch positions based on fetched records.
+              -- Tier 3: the per-record @StmMap.lookup + StmMap.insert
+              -- pair becomes a single 'atomicModifyIORef\'' that
+              -- folds the offset advance over the whole map.
+              atomicModifyIORef' consumerAssignment $ \m0 ->
+                let !m1 = foldl' advanceOffset m0 records
+                in (m1, ())
 
-            return $ Right iceptedRecords
+              -- Limit to maxPollRecords, then run user interceptor
+              let maxRecords = consumerMaxPollRecords consumerConfig
+                  limitedRecords = take maxRecords records
+              -- ConsumerInterceptor.onConsume (KIP-388 / JVM): an
+              -- exception here propagates; tracing tools that just
+              -- need to attach attributes shouldn't throw.
+              iceptedRecords <- consumerInterceptor consumerConfig limitedRecords
 
-   advanceOffset !m r =
-     let !tp         = TopicPartition r.topic r.partition
-         !nextOffset = r.offset + 1
-     in HashMap.alter (Just . maybe nextOffset (max nextOffset)) tp m
+              return $ Right iceptedRecords
+
+    advanceOffset !m r =
+      let !tp         = TopicPartition r.topic r.partition
+          !nextOffset = r.offset + 1
+      in HashMap.alter (Just . maybe nextOffset (max nextOffset)) tp m
+
+-- | Wake the next 'poll' call. This is intentionally one-shot:
+-- once a poll observes the flag it clears it and returns an empty
+-- batch without contacting the broker.
+wakeupConsumer :: MonadIO m => Consumer -> m ()
+wakeupConsumer Consumer{..} =
+  liftIO $ atomically $ writeTVar consumerWakeupPending True
+
+-- | 'poll' variant that returns the Java-style 'ConsumerRecords'
+-- batch wrapper.
+pollRecords :: MonadIO m => Consumer -> Int -> m (Either String ConsumerRecords)
+pollRecords consumer timeoutMs = do
+  r <- poll consumer timeoutMs
+  pure (ConsumerRecords <$> r)
 
 -- | Seek to a specific offset on an /assigned/ partition. The
 -- next 'poll' will re-fetch starting at @offset@. Mirrors
@@ -3168,7 +3199,9 @@ matchesSubscriptionPattern sp t =
 -- per-process and stable".
 clientInstanceId :: Consumer -> IO TopicIdImp.TopicId
 clientInstanceId c =
-  pure (TopicIdImp.TopicId (Telemetry.clientInstanceIdFromText (consumerGroupIdOf c)))
+  pure
+    (TopicIdImp.TopicId
+      (Telemetry.clientInstanceIdFromText ((consumerConfigOf c).consumerClientId)))
 
 ----------------------------------------------------------------------
 -- Consumer overload tail (KIP-447 / KIP-666 / KIP-848)
@@ -3176,14 +3209,23 @@ clientInstanceId c =
 
 -- | Commit explicit per-partition offsets. Mirrors
 -- @KafkaConsumer.commitSync(Map<TopicPartition, OffsetAndMetadata>)@.
--- Currently routes through 'commitSync' because the underlying
--- protocol layer accepts the consumer's stashed offsets as the
--- source of truth.
 commitSyncOffsets
   :: Consumer
   -> Map.Map TopicPartition OffsetAndMetadata
   -> IO (Either String ())
-commitSyncOffsets c _ = commitSync c
+commitSyncOffsets c offsetsM =
+  if Map.null offsetsM
+    then pure (Right ())
+    else do
+      let offsets =
+            Map.foldrWithKey
+              (\tp oam acc -> (tp, oamOffset oam) : acc)
+              []
+              offsetsM
+      r <- commitOffsetsSync c (consumerGroupIdOf c) offsets
+      case r of
+        Right () -> dispatchOnCommit c offsets >> pure (Right ())
+        Left e   -> pure (Left e)
 
 -- | 'commitAsync' with a user-supplied 'OffsetCommitCallback'.
 -- Mirrors @KafkaConsumer.commitAsync(OffsetCommitCallback)@.
@@ -3207,5 +3249,8 @@ seekWithMetadata c tp oam = seek c tp (oamOffset oam)
 -- @Consumer.enforceRebalance(String)@. The reason is currently
 -- discarded; the underlying 'requestRejoin' is the same code
 -- path.
+enforceRebalance :: Consumer -> IO Bool
+enforceRebalance = requestRejoin
+
 enforceRebalanceWithReason :: Consumer -> Text -> IO Bool
 enforceRebalanceWithReason c _ = requestRejoin c

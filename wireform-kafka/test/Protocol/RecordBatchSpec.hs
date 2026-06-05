@@ -245,7 +245,7 @@ prop_compression_reduces_size :: Property
 prop_compression_reduces_size = property $ do
   -- Create a batch with highly compressible data (repeated pattern)
   let repeatedValue = BS.replicate 1000 42
-  let records = V.fromList [ RB.Record 0 0 Nothing repeatedValue [] | _ <- [1..10] ]
+  let records = V.replicate 10 (RB.Record 0 0 Nothing repeatedValue [])
   let attrs = RB.mkAttributes Compression.Gzip RB.CreateTime False False False
   let batch = RB.mkSimpleBatch 0 0 records
   let batchWithGzip = batch { RB.batchAttributes = attrs }
@@ -280,8 +280,7 @@ tests = testGroup "RecordBatch"
       [ testProperty "Gzip compression round-trip" prop_compressed_batch_gzip
       , testProperty "Zstd compression round-trip" prop_compressed_batch_zstd
       , testProperty "LZ4 compression round-trip" prop_compressed_batch_lz4
-      -- TODO: Re-enable Snappy after fixing edge cases with small inputs
-      -- , testProperty "Snappy compression round-trip" prop_compressed_batch_snappy
+      , testProperty "Snappy compression round-trip" prop_compressed_batch_snappy
       , testProperty "Compression reduces size" prop_compression_reduces_size
       ]
   ]

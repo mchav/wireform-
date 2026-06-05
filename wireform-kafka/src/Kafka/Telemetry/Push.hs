@@ -47,6 +47,9 @@ module Kafka.Telemetry.Push
   , TelemetryStateMachine (..)
   , initialState
   , planTelemetryStep
+  , applyTelemetryRefresh
+  , applyTelemetryPush
+  , markTelemetryTerminating
   , TelemetryAction (..)
     -- * Encoding shape
   , TelemetryFormat (..)
@@ -170,3 +173,19 @@ planTelemetryStep now st
       let !nextRefresh = lastSub + refreshIntervalFor sub
           !nextPush    = lastPush + fromIntegral (tsPushIntervalMs sub)
       in min nextRefresh nextPush
+
+applyTelemetryRefresh
+  :: Int64
+  -> TelemetrySubscription
+  -> TelemetryStateMachine
+  -> TelemetryStateMachine
+applyTelemetryRefresh now sub st = st
+  { tsmSubscription = Just sub
+  , tsmLastSubAtMs = now
+  }
+
+applyTelemetryPush :: Int64 -> TelemetryStateMachine -> TelemetryStateMachine
+applyTelemetryPush now st = st { tsmLastPushAtMs = now }
+
+markTelemetryTerminating :: TelemetryStateMachine -> TelemetryStateMachine
+markTelemetryTerminating st = st { tsmTerminating = True }

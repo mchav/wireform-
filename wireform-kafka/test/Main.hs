@@ -48,6 +48,7 @@ import Client.MockBrokerNetSpec qualified
 import Client.MockBrokerProtoSpec qualified
 import Client.MockBrokerSpec qualified
 import Client.MockBrokerStoreSpec qualified
+import Client.MockShareConsumerSpec qualified
 import Client.Murmur2Spec qualified
 import Client.PartitionerSpec qualified
 import Client.PipelineSpec qualified
@@ -66,6 +67,7 @@ import Client.ShareConsumerSpec qualified
 import Client.StatsJsonSpec qualified
 import Client.SubscribeSpec qualified
 import Client.TelemetryPushSpec qualified
+import Client.TelemetryPushRuntimeSpec qualified
 import Client.TopicIdSpec qualified
 import Client.TransactionCoordinatorSpec qualified
 import Client.TransactionHelpersSpec qualified
@@ -195,6 +197,7 @@ clientTests =
     , Client.ConsumerGroupV2Spec.tests
     , Client.ShareConsumerSpec.tests
     , Client.TelemetryPushSpec.tests
+    , Client.TelemetryPushRuntimeSpec.tests
     , Client.RecordMetadataSpec.tests
     , Client.FilterSpec.tests
     , Client.FutureSpec.tests
@@ -212,6 +215,7 @@ clientTests =
     , Client.AdminClientConfigSpec.tests
     , Client.SerdeContextSpec.tests
     , Client.ShareConsumerHelpersSpec.tests
+    , Client.MockShareConsumerSpec.tests
     , Client.AdminClientSpec.tests
     , Client.GroupSpec.groupSpec
     , Client.MockBrokerSpec.tests

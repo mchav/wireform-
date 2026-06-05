@@ -76,6 +76,7 @@ module Kafka.Client.Producer
   , sendMessageAsync
   , ProducerRecord(..)
   , RecordMetadata(..)
+  , PartitionInfo(..)
 
     -- * Sending records (typed)
     --
@@ -93,6 +94,7 @@ module Kafka.Client.Producer
     -- 'withProducer', which does) before tearing down the producer
     -- if you care about at-least-once delivery.
   , flushProducer
+  , purgeProducer
 
     -- * Configuration
   , ProducerConfig(..)
@@ -137,6 +139,7 @@ module Kafka.Client.Producer
 
     -- * Cluster info
   , producerClusterId
+  , partitionsFor
   , producerHealthy
 
     -- * KIP-714 client telemetry id
@@ -488,6 +491,17 @@ data RecordMetadata = RecordMetadata
     -- ^ Offset within partition
   , timestamp :: !Int64
     -- ^ Broker-assigned timestamp
+  } deriving (Eq, Show, Generic)
+
+-- | Metadata for one topic partition. Mirrors the useful subset of
+-- Java's @PartitionInfo@: partition id, leader broker id, replicas,
+-- and in-sync replicas.
+data PartitionInfo = PartitionInfo
+  { partitionInfoTopic :: !Text
+  , partitionInfoPartition :: !Int32
+  , partitionInfoLeader :: !(Maybe Int32)
+  , partitionInfoReplicas :: ![Int32]
+  , partitionInfoIsrs :: ![Int32]
   } deriving (Eq, Show, Generic)
 
 -- | Partitioning strategy for messages.
@@ -1091,6 +1105,41 @@ flushProducer Producer{..} = liftIO $ do
           threadDelay 100000  -- 100ms
           waitForAllBatches (n - 1)
 
+-- | Drop all locally queued producer records without closing the
+-- producer.
+--
+-- Mirrors librdkafka's local queue purge operation for records that
+-- have not yet been handed to the sender thread. Every purged
+-- record's callback/future receives a local failure, and the
+-- producer remains usable for later sends. Records already in flight
+-- to a broker are not affected.
+--
+-- Returns the number of locally purged records.
+purgeProducer :: MonadIO m => Producer -> m Int
+purgeProducer Producer{..} = liftIO $ do
+  writeIORef producerLastBatch Nothing
+  purged <- BA.purgePendingBatches producerAccumulator producerPurgeError
+  atomically $
+    HashMap.foldrWithKey
+      (\tp n rest -> rewindSequence tp n >> rest)
+      (pure ())
+      purged
+  pure (HashMap.foldl' (+) 0 purged)
+  where
+    rewindSequence :: BA.TopicPartition -> Int -> STM ()
+    rewindSequence tp n = do
+      curM <- StmMap.lookup tp producerSequenceNumbers
+      case curM of
+        Nothing -> pure ()
+        Just cur -> do
+          let !next = max 0 (cur - fromIntegral n)
+          if next == 0
+            then StmMap.delete tp producerSequenceNumbers
+            else StmMap.insert next tp producerSequenceNumbers
+
+producerPurgeError :: Text
+producerPurgeError = "Local: message purged from producer queue"
+
 -- | Bind a 'Txn.Transaction' to this producer.
 --
 -- After this call returns:
@@ -1421,6 +1470,32 @@ publish_ p t mk v = do
 producerClusterId :: MonadIO m => Producer -> m (Maybe Text)
 producerClusterId Producer{..} = liftIO $
   atomically (Meta.getClusterId producerMetadata)
+
+-- | Return partition metadata for a topic, refreshing the producer's
+-- metadata cache on a cache miss. Mirrors
+-- @KafkaProducer.partitionsFor(String)@.
+partitionsFor :: MonadIO m => Producer -> Text -> m (Either String [PartitionInfo])
+partitionsFor p@Producer{..} topicName = liftIO $ do
+  cached <- atomically (Meta.getTopicPartitions producerMetadata topicName)
+  parts <- case cached of
+    Just ps -> pure (Just ps)
+    Nothing -> do
+      refreshTopicOnDemand p topicName
+      atomically (Meta.getTopicPartitions producerMetadata topicName)
+  pure $ case parts of
+    Nothing -> Left ("partitionsFor: no metadata for topic " <> T.unpack topicName)
+    Just ps -> Right (map (partitionInfoFromMetadata topicName) ps)
+
+partitionInfoFromMetadata :: Text -> Meta.PartitionMetadata -> PartitionInfo
+partitionInfoFromMetadata topicName pm = PartitionInfo
+  { partitionInfoTopic = topicName
+  , partitionInfoPartition = Meta.partitionMetaId pm
+  , partitionInfoLeader =
+      let !leader = Meta.partitionMetaLeader pm
+      in if leader < 0 then Nothing else Just leader
+  , partitionInfoReplicas = Meta.partitionMetaReplicas pm
+  , partitionInfoIsrs = Meta.partitionMetaIsrs pm
+  }
 
 -- | Cheap health probe: returns 'True' iff the background sender
 -- thread is still running. A 'False' return means the sender
