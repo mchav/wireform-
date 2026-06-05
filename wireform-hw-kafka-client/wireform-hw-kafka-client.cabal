@@ -6,7 +6,7 @@ description:
     Source-compatible facade for the public @hw-kafka-client@ modules,
     backed by the native @wireform-kafka@ client.
 license: BSD-3-Clause
-license-file: ../wireform-kafka/LICENSE
+license-file: LICENSE
 author: Ian Duncan
 maintainer: ian@iankduncan.com
 copyright: 2026 Ian Duncan

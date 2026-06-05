@@ -24,7 +24,7 @@ module Kafka.Consumer.Types
 
 import Data.Bifoldable (Bifoldable (..))
 import Data.Bifunctor (Bifunctor (..))
-import Data.Bitraversable (Bitraversable (..))
+import Data.Bitraversable (Bitraversable (..), bisequenceA)
 import Data.Int (Int64)
 import Data.String (IsString)
 import Data.Text (Text)
