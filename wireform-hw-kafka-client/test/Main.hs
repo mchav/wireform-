@@ -12,6 +12,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Kafka.Consumer as Consumer
 import qualified Kafka.Producer as Producer
+import System.IO (Handle)
 
 main :: IO ()
 main = defaultMain tests
@@ -70,7 +71,7 @@ tests = testGroup "wireform-hw-kafka-client"
           _metadataType = Left (KafkaBadSpecification "compile")
       pure ()
   , testCase "dump module imports and pure helpers typecheck" $ do
-      let _dumpKafkaConf = dumpKafkaConf
-          _dumpTopicConf = dumpTopicConf
+      let _printSupported :: Handle -> IO ()
+          _printSupported = hPrintSupportedKafkaConf
       pure ()
   ]
