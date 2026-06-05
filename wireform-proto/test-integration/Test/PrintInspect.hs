@@ -142,6 +142,45 @@ printInspectTests =
             roundtripTest src
         ]
     , describe
+        "Exact printing (byte-for-byte)" $ sequence_
+        [ it "reproduces a complex file byte-for-byte" $
+            exactPrintTest complexProto
+        , it "preserves a trailing ';' after a message block" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  string name = 1;"
+                , "};"
+                ]
+        , it "preserves a trailing ';' after enum and service blocks" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , "enum Status {"
+                , "  UNKNOWN = 0;"
+                , "};"
+                , "service Greeter {"
+                , "  rpc SayHello (Req) returns (Resp);"
+                , "};"
+                ]
+        , it "preserves stray ';' between and inside declarations" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , ";"
+                , "message A {"
+                , "  ;"
+                , "  int32 x = 1;"
+                , "  ;"
+                , "  message Inner {"
+                , "    int32 y = 1;"
+                , "  };"
+                , "}"
+                , ";"
+                ]
+        ]
+    , describe
         "AST inspection" $ sequence_
         [ it "allMessages finds top-level and nested" $ do
             case parseProtoFile "<test>" complexProto of
@@ -246,6 +285,14 @@ roundtripTest src =
       case parseProtoFile "<printed>" printed of
         Left e -> expectationFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
         Right ast2 -> ast1 `shouldBe` ast2
+
+
+-- | Parse with spans, then assert 'exactPrint' reproduces the source byte-for-byte.
+exactPrintTest :: Text -> IO ()
+exactPrintTest src =
+  case parseProtoFileWithSpans "<test>" src of
+    Left e -> expectationFailure ("Parse failed: " <> show e)
+    Right ast -> exactPrint ast `shouldBe` src
 
 
 complexProto :: Text
