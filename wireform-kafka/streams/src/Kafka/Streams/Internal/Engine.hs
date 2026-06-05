@@ -43,6 +43,7 @@ module Kafka.Streams.Internal.Engine
   , engineMetrics
   , buildEngine
   , feedSource
+  , feedSourceH
   , advanceWallClock
   , syncWallClockToReal
   , advanceStreamTimeTo
@@ -127,7 +128,8 @@ import Kafka.Streams.Time
   )
 import qualified Kafka.Streams.Watermark as Watermark
 import Kafka.Streams.Types
-  ( Record (..)
+  ( Headers
+  , Record (..)
   , RecordMetadata (..)
   , TopicName
   , emptyHeaders
@@ -195,6 +197,7 @@ data SourceInput = SourceInput
   , siKey       :: !(Maybe ByteString)
   , siValue     :: !ByteString
   , siTimestamp :: !Timestamp
+  , siHeaders   :: !Headers
   }
 
 data Engine = Engine
@@ -483,9 +486,9 @@ handleSource engine spec children si = do
             { recordKey       = mk
             , recordValue     = v
             , recordTimestamp = ts
-            , recordHeaders   = emptyHeaders
+            , recordHeaders   = siHeaders si
             }
-      writeIORef (engineCurrentHeaders engine) (Just emptyHeaders)
+      writeIORef (engineCurrentHeaders engine) (Just (siHeaders si))
       Met.incCounter (engineMetrics engine) Met.processTotal
       -- Task-id-tagged variant for finer-grained inspection
       -- (mirrors the Java client's task-tagged metric names).
@@ -657,7 +660,24 @@ feedSource
   -> Int
   -> Int64
   -> IO ()
-feedSource engine topic key value ts part off = do
+feedSource engine topic key value ts part off =
+  feedSourceH engine topic key value emptyHeaders ts part off
+
+-- | Like 'feedSource' but carries record headers from the source
+-- into the topology. The driver's header-aware @pipeInput@ and the
+-- internal repartition loop use this so headers survive ingestion
+-- and through-topic hops.
+feedSourceH
+  :: Engine
+  -> TopicName
+  -> Maybe ByteString
+  -> ByteString
+  -> Headers
+  -> Timestamp
+  -> Int
+  -> Int64
+  -> IO ()
+feedSourceH engine topic key value hdrs ts part off = do
   shs <- readIORef (engineSources engine)
   let matching =
         filter (\sh -> HashSet.member topic (shTopics sh)) (Map.elems shs)
@@ -671,6 +691,7 @@ feedSource engine topic key value ts part off = do
             , siKey       = key
             , siValue     = value
             , siTimestamp = ts
+            , siHeaders   = hdrs
             }
       mapM_ (\sh -> shHandler sh si) matching
       triggerStreamTimePunctuators engine

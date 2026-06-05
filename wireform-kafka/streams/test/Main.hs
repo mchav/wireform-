@@ -82,6 +82,7 @@ import qualified Streams.HealthSpec
 import qualified Streams.TopologyStatsSpec
 import qualified Streams.ObservabilityOTelSpec
 import qualified Streams.ReplaySpec
+import qualified Streams.BackfillSpec
 import qualified Streams.Properties.KVStoreSMSpec
 import qualified Streams.Properties.OptimizerEqSpec
 import qualified Streams.Properties.WindowMathSpec
@@ -190,6 +191,7 @@ main = defaultMain $ testGroup "kafka-streams"
   , Streams.TopologyStatsSpec.tests
   , Streams.ObservabilityOTelSpec.tests
   , Streams.ReplaySpec.tests
+  , Streams.BackfillSpec.tests
   , testGroup "Properties"
       [ Streams.Properties.KVStoreSMSpec.tests
       , Streams.Properties.OptimizerEqSpec.tests

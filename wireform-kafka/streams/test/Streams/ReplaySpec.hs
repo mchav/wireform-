@@ -10,8 +10,10 @@ import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
+
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
 
 import Control.Category ((>>>))
 import Data.Void (Void)
@@ -22,6 +24,7 @@ import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 import Kafka.Streams.Driver (OutputRecord (..), decodeOutput)
 import Kafka.Streams.Time (Timestamp (..))
+import Kafka.Streams.Types (Header (..), headersFromList)
 
 import Kafka.Streams.Replay
 
@@ -51,6 +54,17 @@ validTopology = do
     Left err -> error (show err)
     Right v  -> pure v
 
+-- | A header-preserving passthrough: source -> sink.
+passthrough :: F.Topology Void ()
+passthrough = F.source @Text @Text "in" >>> F.sink "out"
+
+validPassthrough :: IO Topo.TopologyValid
+validPassthrough = do
+  topo <- F.buildTopologyFrom passthrough
+  case Topo.validateTopology topo of
+    Left err -> error (show err)
+    Right v  -> pure v
+
 line :: Text -> Int64 -> ReplayRecord
 line v ts = replayRecord textSerde textSerde (topicName "lines") Nothing v (Timestamp ts)
 
@@ -61,6 +75,9 @@ tests = testGroup "Replay"
   , replay_window_skips_out_of_range
   , backfill_builds_state
   , capture_roundtrips
+  , headers_survive_replay
+  , offset_window_selects
+  , pacer_sees_gaps
   ]
 
 ----------------------------------------------------------------------
@@ -129,6 +146,47 @@ capture_roundtrips =
     case decodeReplayLog (encodeReplayLog recs) of
       Left err  -> assertBool ("decode failed: " <> err) False
       Right out -> out @?= recs
+
+headers_survive_replay :: TestTree
+headers_survive_replay =
+  testCase "record headers flow through replay to the sink" $ do
+    topo <- validPassthrough
+    let hs = headersFromList [Header "trace-id" "abc", Header "bin" "\x01\x02"]
+        rec = replayWithHeaders hs
+                (replayRecord textSerde textSerde (topicName "in")
+                              (Just "k") "v" (Timestamp 1))
+    res <- runReplay topo "hdr" defaultReplayPlan [rec]
+    case lookup (topicName "out") (replayOutputs res) of
+      Just [cr] -> case decodeOutput textSerde textSerde cr of
+        Right o -> orHeaders o @?= hs
+        Left e  -> assertFailure ("decode failed: " <> show e)
+      other -> assertFailure ("expected one output record, got "
+                                <> show (fmap length other))
+
+offset_window_selects :: TestTree
+offset_window_selects =
+  testCase "selectForReplay honours the offset window" $ do
+    let recs =
+          [ replayWithOffset 100 (line "a" 1)
+          , replayWithOffset 150 (line "b" 2)
+          , replayWithOffset 200 (line "c" 3)
+          , line "d" 4               -- no captured offset
+          ]
+        plan = defaultReplayPlan
+                 { replayFromOffset = Just 120, replayToOffset = Just 200 }
+        out = selectForReplay plan recs
+    map rrValue out @?= [rrValue (line "b" 0)]
+
+pacer_sees_gaps :: TestTree
+pacer_sees_gaps =
+  testCase "runReplayPaced calls the pacer with inter-record gaps" $ do
+    topo <- validTopology
+    ref <- newIORef []
+    let pacer gap = modifyIORef' ref (gap :)
+        recs = [ line "a" 10, line "b" 35, line "c" 40 ]
+    _ <- runReplayPaced topo "pace" defaultReplayPlan pacer recs
+    gaps <- readIORef ref
+    reverse gaps @?= [25, 5]
 
 ----------------------------------------------------------------------
 -- Helpers

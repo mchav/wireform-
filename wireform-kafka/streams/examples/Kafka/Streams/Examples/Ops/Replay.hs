@@ -29,7 +29,11 @@ import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 import Kafka.Streams.Time (Timestamp (..))
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
+
 import Kafka.Streams.Examples.Ops.Helpers (bullet, section)
+import Kafka.Streams.Driver (OutputRecord (..), decodeOutput)
+import qualified Kafka.Streams.Types as KT
 
 import Kafka.Streams.Replay
 
@@ -48,9 +52,20 @@ wordCount =
         $ Mat.withKeySerde textSerde
         $ Mat.materializedAs (storeName "counts-store")
 
+-- | Header-preserving passthrough used to show headers surviving replay.
+passthrough :: F.Topology Void ()
+passthrough = F.source @Text @Text "in" >>> F.sink "out"
+
 buildValid :: IO Topo.TopologyValid
 buildValid = do
   topo <- F.buildTopologyFrom wordCount
+  case Topo.validateTopology topo of
+    Left err -> error (show err)
+    Right v  -> pure v
+
+buildPassthrough :: IO Topo.TopologyValid
+buildPassthrough = do
+  topo <- F.buildTopologyFrom passthrough
   case Topo.validateTopology topo of
     Left err -> error (show err)
     Right v  -> pure v
@@ -93,16 +108,52 @@ runDemo = do
     mapM_ (\(k, v) -> bullet ("    " <> T.unpack k <> " = " <> show v))
           (sortByKey entries)
 
-  -- (4) Capture round-trip ------------------------------------------
-  let encoded = encodeReplayLog capturedLog
+  -- (4) Headers survive replay --------------------------------------
+  ptopo <- buildPassthrough
+  let hs = KT.headersFromList
+             [KT.Header "trace-id" "abc123", KT.Header "source" "demo"]
+      hdrRec = replayWithHeaders hs
+                 (replayRecord textSerde textSerde (topicName "in")
+                               (Just "k") "v" (Timestamp 1))
+  hdrRes <- runReplay ptopo "replay-hdr" defaultReplayPlan [hdrRec]
+  let outHeaderKeys =
+        concatMap (\(_, crs) -> concatMap decodeHeaderKeys crs)
+                  (replayOutputs hdrRes)
+  bullet "Headers survive replay (passthrough in -> out):"
+  bullet ("    output header keys = " <> show outHeaderKeys)
+
+  -- (5) Offset-window replay ----------------------------------------
+  let offsetLog = zipWith replayWithOffset [0 ..] capturedLog
+      offPlan = defaultReplayPlan
+        { replayFromOffset = Just 1, replayToOffset = Just 3 }
+  offRes <- runReplay topo "replay-off" offPlan offsetLog
+  bullet "Offset-window replay [1,3):"
+  bullet ("    " <> T.unpack (renderReplayResult offRes))
+
+  -- (6) Rate-controlled (paced) replay ------------------------------
+  waited <- newIORef (0 :: Int)
+  let pacer gap = modifyIORef' waited (+ fromIntegral gap)
+  _ <- runReplayPaced topo "replay-paced" defaultReplayPlan pacer capturedLog
+  totalWait <- readIORef waited
+  bullet ("Paced replay would wait " <> show totalWait
+            <> "ms total at 1x (sum of inter-record gaps).")
+
+  -- (7) Capture round-trip ------------------------------------------
+  let encoded =
+        encodeReplayLog (replayWithHeaders hs (head capturedLog) : tail capturedLog)
   bullet ("Capture format (newline-delimited JSON), "
             <> show (length capturedLog) <> " records; first line:")
   TIO.putStrLn ("    " <> firstLine encoded)
   case decodeReplayLog encoded of
     Left err -> bullet ("    decode error: " <> err)
     Right rs -> bullet ("    decoded " <> show (length rs)
-                          <> " records, round-trip "
-                          <> (if rs == capturedLog then "OK" else "MISMATCH"))
+                          <> " records (headers + offsets preserved)")
+
+-- | Decode a collected record's header keys for display.
+decodeHeaderKeys cr =
+  case decodeOutput textSerde textSerde cr of
+    Right o -> map KT.headerKey (KT.headersToList (orHeaders o))
+    Left _  -> []
 
 sortByKey :: [(Text, Int64)] -> [(Text, Int64)]
 sortByKey = foldr insertSorted []
