@@ -80,7 +80,6 @@ test-suite wireform-hw-kafka-client-test
         base,
         bytestring,
         containers,
-        tasty                     >= 1.4  && < 1.6,
-        tasty-hunit               >= 0.10 && < 0.11,
+        sydtest,
         text,
         wireform-hw-kafka-client
