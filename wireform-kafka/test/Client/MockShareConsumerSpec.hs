@@ -28,7 +28,11 @@ import Kafka.Client.ShareConsumer
   , AcknowledgementType (..)
   , ShareConsumerConfig (..)
   , ShareRecord (..)
+  , acknowledgeShareRecord
+  , commitAcknowledgements
+  , createShareConsumerWithRunner
   , defaultShareConsumerConfig
+  , pollShareRecords
   )
 
 tests :: TestTree
@@ -37,6 +41,7 @@ tests = testGroup "MockShareConsumer"
   , testCase "AckRelease redelivers a record with an incremented delivery count" release_redelivers
   , testCase "AckReject completes a record without redelivery" reject_completes
   , testCase "expired locks redeliver until max delivery count" lock_expiry_respects_max_delivery
+  , testCase "public ShareConsumer runner delegates poll and commit" public_runner_delegates
   ]
 
 accept_removes :: IO ()
@@ -80,6 +85,18 @@ lock_expiry_respects_max_delivery = do
   tickClock cluster 11
   exhausted <- pollShareMC consumer 10
   exhausted @?= []
+
+public_runner_delegates :: IO ()
+public_runner_delegates = do
+  (_cluster, mockConsumer) <- seededConsumer "runner"
+  let cfg = defaultShareConsumerConfig "share-group-runner" ["share-topic"]
+  public <- createShareConsumerWithRunner cfg (mockShareRunner mockConsumer)
+  rec <- expectOne =<< pollShareRecords public 10
+  acknowledgeShareRecord public (ackFor AckAccept rec)
+  committed <- commitAcknowledgements public
+  committed @?= [ackFor AckAccept rec]
+  again <- pollShareRecords public 10
+  again @?= []
 
 seededConsumer :: Text -> IO (MockCluster, MockShareConsumer)
 seededConsumer suffix = do

@@ -45,7 +45,9 @@ module Kafka.Client.ShareConsumer
     ShareConsumerConfig (..)
   , defaultShareConsumerConfig
   , ShareConsumer (..)
+  , ShareConsumerRunner (..)
   , createShareConsumer
+  , createShareConsumerWithRunner
   , closeShareConsumer
     -- * Records + acknowledgements
   , ShareRecord (..)
@@ -127,16 +129,39 @@ data ShareConsumer = ShareConsumer
   , shPendingAcks       :: !(TVar [Acknowledgement])
     -- ^ Acks queued via 'acknowledgeShareRecord' but not yet
     --   sent to the broker via @ShareAcknowledge@.
+  , shRunner            :: !ShareConsumerRunner
+  }
+
+data ShareConsumerRunner = ShareConsumerRunner
+  { scrPoll   :: ShareConsumer -> Int -> IO (Either String [ShareRecord])
+  , scrCommit :: ShareConsumer -> [Acknowledgement] -> IO (Either String ())
+  , scrClose  :: ShareConsumer -> IO ()
+  }
+
+localShareConsumerRunner :: ShareConsumerRunner
+localShareConsumerRunner = ShareConsumerRunner
+  { scrPoll = \_ _ -> pure (Right [])
+  , scrCommit = \_ _ -> pure (Right ())
+  , scrClose = \_ -> pure ()
   }
 
 createShareConsumer
   :: MonadIO m => ShareConsumerConfig -> m ShareConsumer
-createShareConsumer cfg = liftIO $ do
+createShareConsumer cfg =
+  createShareConsumerWithRunner cfg localShareConsumerRunner
+
+createShareConsumerWithRunner
+  :: MonadIO m => ShareConsumerConfig -> ShareConsumerRunner -> m ShareConsumer
+createShareConsumerWithRunner cfg runner = liftIO $ do
   pending <- newTVarIO []
-  pure ShareConsumer { shConfig = cfg, shPendingAcks = pending }
+  pure ShareConsumer
+    { shConfig = cfg
+    , shPendingAcks = pending
+    , shRunner = runner
+    }
 
 closeShareConsumer :: MonadIO m => ShareConsumer -> m ()
-closeShareConsumer _ = pure ()
+closeShareConsumer sc = liftIO (scrClose (shRunner sc) sc)
 
 ----------------------------------------------------------------------
 -- Records + acknowledgements
@@ -175,12 +200,13 @@ data Acknowledgement = Acknowledgement
   }
   deriving stock (Eq, Show, Generic)
 
--- | Local placeholder for the real @ShareFetch@ network call.
--- Returns an empty batch today; the production wiring lives in
--- a follow-up commit on the same branch (the wire types are in
--- "Kafka.Protocol.Generated.ShareFetchRequest").
+-- | Poll for share records through the configured runner.
 pollShareRecords :: MonadIO m => ShareConsumer -> Int -> m [ShareRecord]
-pollShareRecords _ _ = pure []
+pollShareRecords sc n = liftIO $ do
+  r <- scrPoll (shRunner sc) sc n
+  case r of
+    Left _ -> pure []
+    Right records -> pure records
 
 -- | Stage an acknowledgement in the local buffer; flush via
 -- 'commitAcknowledgements'.
@@ -193,10 +219,13 @@ acknowledgeShareRecord sc ack = liftIO $ atomically $
 -- the order the broker should see (oldest first).
 commitAcknowledgements
   :: MonadIO m => ShareConsumer -> m [Acknowledgement]
-commitAcknowledgements sc = liftIO $ atomically $ do
-  acks <- readTVar (shPendingAcks sc)
-  writeTVar (shPendingAcks sc) []
-  pure (reverse acks)
+commitAcknowledgements sc = liftIO $ do
+  ordered <- atomically $ do
+    acks <- readTVar (shPendingAcks sc)
+    writeTVar (shPendingAcks sc) []
+    pure (reverse acks)
+  _ <- scrCommit (shRunner sc) sc ordered
+  pure ordered
 
 ----------------------------------------------------------------------
 -- Pure decision helpers

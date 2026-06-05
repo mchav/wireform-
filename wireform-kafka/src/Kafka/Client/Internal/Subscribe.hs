@@ -343,13 +343,9 @@ subscribeFlow connMgr connConfig metaCache versionCache hbState clientId groupId
       pure [ (mid, assignmentBytes byTopic) | (mid, byTopic) <- perMember ]
 
     -- After SyncGroup we know the partitions assigned to *us*. For
-    -- each one, look up its committed offset; if missing, fall back to
-    -- earliest / latest per the consumer's reset policy. The "fall
-    -- back to latest" arm needs a ListOffsets call against each
-    -- partition's leader; for simplicity we treat -1 / 0 as the
-    -- starting offset markers and let the regular fetch loop resolve
-    -- them on first poll. (TODO: thread a ListOffsets call here for
-    -- exact resume positions.)
+    -- each one, look up its committed offset; if missing, resolve the
+    -- earliest / latest reset policy immediately with ListOffsets so
+    -- the first poll starts at the broker's exact position.
     resolveOffsets coordConn coordAddr parts = do
       let tps = [ TopicPartition t p | (t, ps) <- parts, p <- ps ]
       case tps of

@@ -71,12 +71,15 @@ the catalog is complete.
 
 | librdkafka                       | Existing wireform-kafka test |
 |----------------------------------|------------------------------|
+| `0009-mock_cluster.c`            | `Conformance.T0009.MockCluster` |
+| `0031-get_offsets_mock.c`        | `Conformance.T0031.GetOffsetsMock` |
 | `0033-regex_subscribe_local.c`   | `Client.GroupSpec` (assignor selection + topic filtering) |
 | `0034-offset_reset_mock.c`       | `Client.ConsumerConfigSpec` (auto-offset-reset enum) |
 | `0046-rkt_cache.c`               | `Kafka.Client.Metadata` `MetadataCache` lookup tests |
 | `0079-fork.c`                    | N/A (no fork-after-init concept in our pure-Haskell stack) |
 | `0102-static_group_rebalance_mock.c` | `Client.GroupSpec` + the auto-rebalance path in `Client.Consumer.poll` |
 | `0125-immediate_flush.c`         | `Client.BatchAccumulatorSpec` |
+| `0145-pause_resume_mock.c`       | `Conformance.T0145.PauseResumeMock` |
 
 ## NEEDS_MOCK_CLUSTER (23)
 
@@ -94,9 +97,8 @@ machines, and txn-coordinator state.
 Until then, these are skipped:
 
 ```
-0009-mock_cluster.c                  0143-exponential_backoff_mock.c
-0031-get_offsets_mock.c              0144-idempotence_mock.c           (partial port above)
-0034-offset_reset_mock.c             0145-pause_resume_mock.c
+0143-exponential_backoff_mock.c
+0034-offset_reset_mock.c             0144-idempotence_mock.c           (partial port above)
 0045-subscribe_update_mock.c         0146-metadata_mock.c
 0045-subscribe_update_racks_mock.c   0147-consumer_group_consumer_mock.c
 0055-producer_latency_mock.c         0148-offset_fetch_commit_error_mock.c

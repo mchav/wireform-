@@ -20,7 +20,9 @@ import Test.Tasty
 import qualified Conformance.T0000.Unittests
 import qualified Conformance.T0004.Conf
 import qualified Conformance.T0006.Symbols
+import qualified Conformance.T0009.MockCluster
 import qualified Conformance.T0017.Compression
+import qualified Conformance.T0031.GetOffsetsMock
 import qualified Conformance.T0043.NoConnection
 import qualified Conformance.T0072.Headers
 import qualified Conformance.T0080.AdminUt
@@ -29,6 +31,7 @@ import qualified Conformance.T0095.AllBrokersDown
 import qualified Conformance.T0103.TransactionsLocal
 import qualified Conformance.T0142.Reauthentication
 import qualified Conformance.T0144.IdempotenceMock
+import qualified Conformance.T0145.PauseResumeMock
 
 main :: IO ()
 main = defaultMain $ testGroup "librdkafka conformance"
@@ -38,7 +41,9 @@ main = defaultMain $ testGroup "librdkafka conformance"
   [ Conformance.T0000.Unittests.tests
   , Conformance.T0004.Conf.tests
   , Conformance.T0006.Symbols.tests
+  , Conformance.T0009.MockCluster.tests
   , Conformance.T0017.Compression.tests
+  , Conformance.T0031.GetOffsetsMock.tests
   , Conformance.T0043.NoConnection.tests
   , Conformance.T0072.Headers.tests
   , Conformance.T0080.AdminUt.tests
@@ -47,4 +52,5 @@ main = defaultMain $ testGroup "librdkafka conformance"
   , Conformance.T0103.TransactionsLocal.tests
   , Conformance.T0142.Reauthentication.tests
   , Conformance.T0144.IdempotenceMock.tests
+  , Conformance.T0145.PauseResumeMock.tests
   ]

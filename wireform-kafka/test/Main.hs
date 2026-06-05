@@ -67,6 +67,7 @@ import Client.ShareConsumerSpec qualified
 import Client.StatsJsonSpec qualified
 import Client.SubscribeSpec qualified
 import Client.TelemetryPushSpec qualified
+import Client.TelemetryPushRuntimeSpec qualified
 import Client.TopicIdSpec qualified
 import Client.TransactionCoordinatorSpec qualified
 import Client.TransactionHelpersSpec qualified
@@ -196,6 +197,7 @@ clientTests =
     , Client.ConsumerGroupV2Spec.tests
     , Client.ShareConsumerSpec.tests
     , Client.TelemetryPushSpec.tests
+    , Client.TelemetryPushRuntimeSpec.tests
     , Client.RecordMetadataSpec.tests
     , Client.FilterSpec.tests
     , Client.FutureSpec.tests

@@ -389,6 +389,7 @@ library
         Kafka.Telemetry.Metrics
         Kafka.Telemetry.OpenTelemetry
         Kafka.Telemetry.Push
+        Kafka.Telemetry.PushRuntime
         Kafka.Telemetry.StatsJson
         Kafka.Time
     build-depends:
@@ -876,6 +877,7 @@ test-suite wireform-kafka-test
         Client.ConsumerGroupV2Spec
         Client.ShareConsumerSpec
         Client.TelemetryPushSpec
+        Client.TelemetryPushRuntimeSpec
         Client.RecordMetadataSpec
         Client.FilterSpec
         Client.FutureSpec
@@ -990,7 +992,9 @@ test-suite wireform-kafka-conformance
         Conformance.T0000.Unittests
         Conformance.T0004.Conf
         Conformance.T0006.Symbols
+        Conformance.T0009.MockCluster
         Conformance.T0017.Compression
+        Conformance.T0031.GetOffsetsMock
         Conformance.T0043.NoConnection
         Conformance.T0072.Headers
         Conformance.T0080.AdminUt
@@ -999,6 +1003,7 @@ test-suite wireform-kafka-conformance
         Conformance.T0103.TransactionsLocal
         Conformance.T0142.Reauthentication
         Conformance.T0144.IdempotenceMock
+        Conformance.T0145.PauseResumeMock
     build-depends:
         base,
         wireform-kafka,

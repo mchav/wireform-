@@ -16,6 +16,7 @@ module Kafka.Client.Mock.ShareConsumer
   , acknowledgeShareMC
   , commitAcknowledgementsMC
   , pendingAcknowledgementsMC
+  , mockShareRunner
   ) where
 
 import Control.Concurrent.STM
@@ -41,6 +42,7 @@ import Kafka.Client.ShareConsumer
   ( Acknowledgement (..)
   , AcknowledgementType (..)
   , ShareConsumerConfig (..)
+  , ShareConsumerRunner (..)
   , ShareRecord (..)
   )
 
@@ -116,6 +118,16 @@ commitAcknowledgementsMC sc = atomically $ do
 
 pendingAcknowledgementsMC :: MockShareConsumer -> IO [Acknowledgement]
 pendingAcknowledgementsMC sc = reverse <$> readTVarIO (mscPendingAcks sc)
+
+mockShareRunner :: MockShareConsumer -> ShareConsumerRunner
+mockShareRunner mc = ShareConsumerRunner
+  { scrPoll = \_ n -> Right <$> pollShareMC mc n
+  , scrCommit = \_ acks -> do
+      mapM_ (acknowledgeShareMC mc) acks
+      _ <- commitAcknowledgementsMC mc
+      pure (Right ())
+  , scrClose = \_ -> pure ()
+  }
 
 topicPartitions :: MockCluster -> [Text] -> IO [(Text, Int32)]
 topicPartitions cluster topics =

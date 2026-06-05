@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Protocol.RoundTripSpec
@@ -23,24 +25,98 @@ Tests cover:
 -}
 module Protocol.RoundTripSpec (tests) where
 
+import Data.Int (Int16)
+import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Test.Tasty
 import Test.Tasty.Hedgehog
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MR
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader as RH
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
 tests :: TestTree
 tests = testGroup "Round-trip"
   [ testGroup "Protocol Messages"
-      [ -- TODO: Add round-trip tests for generated messages
-        -- These will be added once code generation is complete
-        testProperty "Placeholder" prop_placeholder
+      [ testProperty "RequestHeader generated wire round-trip"
+          prop_requestHeader
+      , testProperty "ApiVersionsRequest generated wire round-trip"
+          prop_apiVersionsRequest
+      , testProperty "MetadataRequest generated wire round-trip"
+          prop_metadataRequest
       ]
   ]
 
--- Placeholder property
-prop_placeholder :: Property
-prop_placeholder = property $ do
-  x <- forAll $ Gen.int Range.constantBounded
-  x === x
+prop_requestHeader :: Property
+prop_requestHeader = property $ do
+  version <- forAll (Gen.element [1, 2])
+  msg <- forAll genRequestHeader
+  wireRoundTrip @RH.RequestHeader version msg
+
+prop_apiVersionsRequest :: Property
+prop_apiVersionsRequest = property $ do
+  version <- forAll (Gen.element [3, 4])
+  msg <- forAll genApiVersionsRequest
+  wireRoundTrip @AVR.ApiVersionsRequest version msg
+
+prop_metadataRequest :: Property
+prop_metadataRequest = property $ do
+  version <- forAll (Gen.element [8, 9, 10, 11, 12])
+  msg <- forAll genMetadataRequest
+  wireRoundTrip @MR.MetadataRequest version msg
+
+wireRoundTrip
+  :: (Eq a, Show a, WC.WireCodec a)
+  => Int16
+  -> a
+  -> PropertyT IO ()
+wireRoundTrip version msg = do
+  let !encoded = WC.runEncodeVer version msg
+  case WC.runDecodeVer version encoded of
+    Left err -> annotate err >> failure
+    Right decoded -> decoded === msg
+
+genRequestHeader :: Gen RH.RequestHeader
+genRequestHeader = do
+  apiKey <- Gen.int16 (Range.linear 0 80)
+  apiVersion <- Gen.int16 (Range.linear 0 16)
+  correlationId <- Gen.int32 (Range.linear 0 10000)
+  clientId <- Gen.text (Range.linear 0 32) Gen.alphaNum
+  pure RH.RequestHeader
+    { RH.requestHeaderRequestApiKey = apiKey
+    , RH.requestHeaderRequestApiVersion = apiVersion
+    , RH.requestHeaderCorrelationId = correlationId
+    , RH.requestHeaderClientId = P.mkKafkaString clientId
+    }
+
+genApiVersionsRequest :: Gen AVR.ApiVersionsRequest
+genApiVersionsRequest = do
+  name <- Gen.text (Range.linear 0 24) Gen.alphaNum
+  version <- Gen.text (Range.linear 0 24) Gen.alphaNum
+  pure AVR.ApiVersionsRequest
+    { AVR.apiVersionsRequestClientSoftwareName = P.mkKafkaString name
+    , AVR.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString version
+    }
+
+genMetadataRequest :: Gen MR.MetadataRequest
+genMetadataRequest = do
+  topics <- Gen.list (Range.linear 0 4) genMetadataTopic
+  allowAutoCreate <- Gen.bool
+  pure MR.MetadataRequest
+    { MR.metadataRequestTopics = P.mkKafkaArray (V.fromList topics)
+    , MR.metadataRequestAllowAutoTopicCreation = allowAutoCreate
+    , MR.metadataRequestIncludeClusterAuthorizedOperations = False
+    , MR.metadataRequestIncludeTopicAuthorizedOperations = False
+    }
+
+genMetadataTopic :: Gen MR.MetadataRequestTopic
+genMetadataTopic = do
+  name <- Gen.text (Range.linear 1 24) Gen.alphaNum
+  pure MR.MetadataRequestTopic
+    { MR.metadataRequestTopicTopicId = P.nullUuid
+    , MR.metadataRequestTopicName = P.mkKafkaString name
+    }
 

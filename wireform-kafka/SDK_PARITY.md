@@ -37,6 +37,7 @@ Mapping Apache Kafka 4.0 Java SDK to wireform-kafka Haskell equivalents.
 | `seek`, `seekToBeginning`, `seekToEnd` | Direct | Same names |
 | `position`, `committed` | Direct | Same names |
 | `pause`, `resume` | Direct | Same names |
+| `wakeup()` | Direct | `wakeupConsumer` |
 | `group.id` | Direct | `consumerGroupId` |
 | `auto.offset.reset` | Direct | `consumerAutoOffsetReset` |
 | `enable.auto.commit` | Direct | `consumerAutoCommit` |
@@ -116,7 +117,7 @@ Java has many exception classes; Haskell uses `KafkaException` with `KafkaErrorK
 1. Some niche Admin operations (mostly at protocol layer but not wrapped)
 2. KIP-714 telemetry IDs (local deterministic IDs; broker-assigned when RPC lands)
 3. Full Java metrics framework (we use smaller registry + OpenTelemetry)
-4. Some Consumer overloads (`wakeup()`; use async and STM)
+4. Some Consumer overload timeout variants; use async and STM
 5. Some specific exception classes (covered by `KafkaErrorKind` constructors)
 
 Core producer/consumer/streams DSL is at full parity.
