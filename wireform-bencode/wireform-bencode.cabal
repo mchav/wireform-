@@ -82,5 +82,4 @@ test-suite wireform-bencode-derive-test
     wireform-derive,
     text,
     vector,
-    tasty,
-    tasty-hunit
+    sydtest
