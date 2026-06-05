@@ -139,7 +139,7 @@ externalSuite = do
         else do
           cases <- discoverCases dir
           pure (describe ("yaml-test-suite (" ++ show (length cases) ++ " cases)")
-                  (map (mkCase dir) cases))
+                  (mapM_ (mkCase dir) cases))
 
 -- | Each case-id is a path relative to the test-suite root.
 discoverCases :: FilePath -> IO [FilePath]

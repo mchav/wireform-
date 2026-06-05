@@ -55,10 +55,8 @@ refTrackingTests = describe "reference tracking" $ sequence_
             VV.ListVal (V.fromList [inner, inner, inner])
           sharedBytes   = BS.length (E.encode shared)
           unsharedBytes = BS.length (E.encode unshared)
-      assertBool
-        ("expected sharing to shrink wire size; shared="
-         ++ show sharedBytes ++ " unshared=" ++ show unsharedBytes)
-        (sharedBytes < unsharedBytes)
+      (if (sharedBytes < unsharedBytes) then pure () else expectationFailure ("expected sharing to shrink wire size; shared="
+         ++ show sharedBytes ++ " unshared=" ++ show unsharedBytes))
 
   , it "back-reference round-trips structurally" $ do
       let inner = VV.StringVal "shared"
@@ -113,11 +111,9 @@ metaShareTests = describe "meta-string deduplication" $ sequence_
           -- Naive (no-dedup) cost would be ~2x. With dedup,
           -- additional cost is per-back-reference (1-2 bytes).
           overheadBound = 16
-      assertBool
-        ("dedup should keep two copies within "
+      (if (twoBytes - oneBytes <= overheadBound) then pure () else expectationFailure ("dedup should keep two copies within "
          ++ show overheadBound ++ " bytes of one; one="
-         ++ show oneBytes ++ " two=" ++ show twoBytes)
-        (twoBytes - oneBytes <= overheadBound)
+         ++ show oneBytes ++ " two=" ++ show twoBytes))
 
   , it "round-trip preserves struct identity through dedup" $ do
       let s1 = VV.StructVal "Foo.Bar" "Baz"
@@ -163,10 +159,8 @@ compatibleStructTests = describe "NAMED_COMPATIBLE_STRUCT" $ sequence_
           one = VV.ListVal (V.fromList [mk 1])
           twoBytes = BS.length (E.encode two)
           oneBytes = BS.length (E.encode one)
-      assertBool
-        ("schema sharing should keep second copy small; one="
-         ++ show oneBytes ++ " two=" ++ show twoBytes)
-        (twoBytes - oneBytes <= 32)
+      (if (twoBytes - oneBytes <= 32) then pure () else expectationFailure ("schema sharing should keep second copy small; one="
+         ++ show oneBytes ++ " two=" ++ show twoBytes))
 
   , it "random CompatibleStructVal round-trips" $ H.property $ do
       n      <- H.forAll (Gen.int (Range.linear 0 6))
@@ -214,10 +208,8 @@ primitiveArrayTests = describe "primitive 1-D arrays" $ sequence_
           arrForm  = VV.Int32ArrayVal (VS.fromList xs)
           listBytes = BS.length (E.encode listForm)
           arrBytes  = BS.length (E.encode arrForm)
-      assertBool
-        ("expected array < list; list=" ++ show listBytes
-         ++ " arr=" ++ show arrBytes)
-        (arrBytes < listBytes)
+      (if (arrBytes < listBytes) then pure () else expectationFailure ("expected array < list; list=" ++ show listBytes
+         ++ " arr=" ++ show arrBytes))
 
   , it "Int32Array typeclass wrapper round-trips" $ do
       let xs = F.Int32Array (VS.fromList [1, 2, 3, 4, 5])

@@ -28,7 +28,7 @@ sampleChart = SVG.BarChart
   , SVG.chartHigherIsBetter = False
   }
 
-rendersNontrivial :: Assertion
+rendersNontrivial :: IO ()
 rendersNontrivial = do
   let svg = SVG.renderBarChart SVG.lightTheme sampleChart
   (BS.length svg > 256) `shouldBe` True
@@ -37,7 +37,7 @@ rendersNontrivial = do
   (BS8.pack "wireform-cbor vs cborg" `BS.isInfixOf` svg) `shouldBe` True
   (BS8.pack "encode" `BS.isInfixOf` svg) `shouldBe` True
 
-lightDarkDiffer :: Assertion
+lightDarkDiffer :: IO ()
 lightDarkDiffer = do
   let (l, d) = SVG.renderBarChartBoth sampleChart
   (l /= d) `shouldBe` True
@@ -45,7 +45,7 @@ lightDarkDiffer = do
   (BS8.pack "#ffffff" `BS.isInfixOf` l) `shouldBe` True
   (BS8.pack "#0d1117" `BS.isInfixOf` d) `shouldBe` True
 
-singleSeries :: Assertion
+singleSeries :: IO ()
 singleSeries = do
   let chart = sampleChart
         { SVG.chartSeries =
@@ -55,7 +55,7 @@ singleSeries = do
       svg = SVG.renderBarChart SVG.lightTheme chart
   (BS.length svg > 256) `shouldBe` True
 
-emptyChart :: Assertion
+emptyChart :: IO ()
 emptyChart = do
   let chart = SVG.defaultGitHubBarChart "empty" "ns"
       svg = SVG.renderBarChart SVG.lightTheme chart

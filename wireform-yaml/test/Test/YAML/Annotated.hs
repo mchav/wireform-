@@ -40,10 +40,10 @@ roundTripExact = it "round-trip preserves source verbatim" $ do
         , "tags: [a, b, c]"
         ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let out = renderAnnotatedDocument defaultOptions adoc (Just srcText)
-      assertEqual "round-trip preserved" src out
+      out `shouldBe` src
 
 -- | Modifying one mapping key only changes that key's value; the
 -- surrounding entries — including comments and the unrelated
@@ -58,20 +58,16 @@ modifyPreservesUnmodified =
         , "city: springfield"
         ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let body  = adBody adoc
           body' = setKey "age" (aInt 31) body
           adoc' = adoc { adBody = body' }
           out   = renderAnnotatedDocument defaultOptions adoc' (Just srcText)
-      assertBool ("must mention 31, got: " <> T.unpack out)
-        ("31" `T.isInfixOf` out)
-      assertBool ("must keep `name: alice`: " <> T.unpack out)
-        ("name: alice" `T.isInfixOf` out)
-      assertBool ("must keep `city: springfield`: " <> T.unpack out)
-        ("city: springfield" `T.isInfixOf` out)
-      assertBool ("must drop original `age: 30`: " <> T.unpack out)
-        (not ("age: 30" `T.isInfixOf` out))
+      (if ("31" `T.isInfixOf` out) then pure () else expectationFailure ("must mention 31, got: " <> T.unpack out))
+      (if ("name: alice" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `name: alice`: " <> T.unpack out))
+      (if ("city: springfield" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `city: springfield`: " <> T.unpack out))
+      (if (not ("age: 30" `T.isInfixOf` out)) then pure () else expectationFailure ("must drop original `age: 30`: " <> T.unpack out))
 
 -- | The pretty-printer respects 'roMaxLineWidth' and 'roIndent'.
 prettyOptionsRespected :: Spec
@@ -82,26 +78,22 @@ prettyOptionsRespected = it "pretty options affect output" $ do
                        [ YInt 1, YInt 2, YInt 3 ]))
                   ])
       compact = render P.compactOptions v
-  assertBool ("compact emits flow {}: " <> T.unpack compact)
-    ("{" `T.isInfixOf` compact)
+  (if ("{" `T.isInfixOf` compact) then pure () else expectationFailure ("compact emits flow {}: " <> T.unpack compact))
 
 -- | Appending a new key produces output that contains it.
 addKeyAppears :: Spec
 addKeyAppears = it "appendKey adds the new entry" $ do
   let src = T.unlines [ "name: alice", "age: 30" ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let body  = adBody adoc
           body' = appendKey "city" (aString "springfield") body
           adoc' = adoc { adBody = body' }
           out   = renderAnnotatedDocument defaultOptions adoc' (Just srcText)
-      assertBool ("expected city: " <> T.unpack out)
-        ("city" `T.isInfixOf` out)
-      assertBool ("must keep `name: alice` byte-equal: " <> T.unpack out)
-        ("name: alice" `T.isInfixOf` out)
-      assertBool ("must keep `age: 30` byte-equal: " <> T.unpack out)
-        ("age: 30" `T.isInfixOf` out)
+      (if ("city" `T.isInfixOf` out) then pure () else expectationFailure ("expected city: " <> T.unpack out))
+      (if ("name: alice" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `name: alice` byte-equal: " <> T.unpack out))
+      (if ("age: 30" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `age: 30` byte-equal: " <> T.unpack out))
 
 -- | Round-trip with comments scattered throughout.
 roundTripWithComments :: Spec
@@ -117,10 +109,10 @@ roundTripWithComments =
         , "# trailing comment"
         ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let out = renderAnnotatedDocument defaultOptions adoc (Just srcText)
-      assertEqual "preserved" src out
+      out `shouldBe` src
 
 -- | Round-trip a top-level sequence with item comments.
 roundTripSeq :: Spec
@@ -131,10 +123,10 @@ roundTripSeq = it "round-trip preserves top-level seq" $ do
         , "- carol"
         ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let out = renderAnnotatedDocument defaultOptions adoc (Just srcText)
-      assertEqual "preserved" src out
+      out `shouldBe` src
 
 -- | Modifying one entry preserves the *exact bytes* (including
 -- end-of-line comments and surrounding blank lines) of all the
@@ -152,20 +144,16 @@ modifyPreservesComments =
         , "city: springfield"
         ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let body  = adBody adoc
           body' = setKey "age" (aInt 31) body
           adoc' = adoc { adBody = body' }
           out   = renderAnnotatedDocument defaultOptions adoc' (Just srcText)
-      assertBool ("must keep eol comment on name: " <> T.unpack out)
-        ("# eol on name" `T.isInfixOf` out)
-      assertBool ("must keep `# group` comment: " <> T.unpack out)
-        ("# group" `T.isInfixOf` out)
-      assertBool ("must keep `city: springfield`: " <> T.unpack out)
-        ("city: springfield" `T.isInfixOf` out)
-      assertBool ("must mention 31: " <> T.unpack out)
-        ("31" `T.isInfixOf` out)
+      (if ("# eol on name" `T.isInfixOf` out) then pure () else expectationFailure ("must keep eol comment on name: " <> T.unpack out))
+      (if ("# group" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `# group` comment: " <> T.unpack out))
+      (if ("city: springfield" `T.isInfixOf` out) then pure () else expectationFailure ("must keep `city: springfield`: " <> T.unpack out))
+      (if ("31" `T.isInfixOf` out) then pure () else expectationFailure ("must mention 31: " <> T.unpack out))
 
 -- | The pretty-printer wraps long flow collections.
 prettyMaxLineWidth :: Spec
@@ -175,23 +163,19 @@ prettyMaxLineWidth = it "max line width wraps long flows" $ do
       out       = render narrow manyItems
   -- Should contain at least one newline inside the brackets
   -- because the items don't fit on one line of 20 columns.
-  assertBool ("expected wrapping: " <> T.unpack out)
-    (T.count "\n" out > 1)
+  (if (T.count "\n" out > 1) then pure () else expectationFailure ("expected wrapping: " <> T.unpack out))
 
 -- | Deleting a key removes it.
 deleteKeyDisappears :: Spec
 deleteKeyDisappears = it "deleteKey removes the entry" $ do
   let src = T.unlines [ "a: 1", "b: 2", "c: 3" ]
   case decodeAnnotated src of
-    Left err -> assertBool err False
+    Left err -> (if (False) then pure () else expectationFailure (err))
     Right (adoc, srcText) -> do
       let body  = adBody adoc
           body' = deleteKey "b" body
           adoc' = adoc { adBody = body' }
           out   = renderAnnotatedDocument defaultOptions adoc' (Just srcText)
-      assertBool ("must remove b entirely: " <> T.unpack out)
-        (not ("b: 2" `T.isInfixOf` out))
-      assertBool ("must keep a: " <> T.unpack out)
-        ("a: 1" `T.isInfixOf` out)
-      assertBool ("must keep c: " <> T.unpack out)
-        ("c: 3" `T.isInfixOf` out)
+      (if (not ("b: 2" `T.isInfixOf` out)) then pure () else expectationFailure ("must remove b entirely: " <> T.unpack out))
+      (if ("a: 1" `T.isInfixOf` out) then pure () else expectationFailure ("must keep a: " <> T.unpack out))
+      (if ("c: 3" `T.isInfixOf` out) then pure () else expectationFailure ("must keep c: " <> T.unpack out))

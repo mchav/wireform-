@@ -27,24 +27,8 @@ SUSPECT = [
 
 def migrate(src: str) -> tuple[str, list[str]]:
     notes: list[str] = []
-    lines = src.splitlines(keepends=True)
-    out = []
     saw_hedgehog = "Test.Tasty.Hedgehog" in src or "testProperty" in src
-    for line in lines:
-        stripped = line.strip()
-        # --- import rewrites ---
-        if re.match(r"\s*import\s+Test\.Tasty\b", line):
-            if "Test.Tasty.HUnit" in line:
-                continue  # covered by Test.Syd
-            if "Test.Tasty.Hedgehog" in line:
-                continue  # replaced by Test.Syd.Hedgehog orphan instances
-            if "Test.Tasty.QuickCheck" in line:
-                continue  # sydtest has first-class QuickCheck
-            # plain Test.Tasty import (testGroup/defaultMain/TestTree/...)
-            out.append("import Test.Syd\n")
-            continue
-        out.append(line)
-    src = "".join(out)
+    src = _fix_imports(src)
 
     if saw_hedgehog and "import Test.Syd.Hedgehog" not in src:
         # add the orphan-instance import right after the Test.Syd import
@@ -58,6 +42,8 @@ def migrate(src: str) -> tuple[str, list[str]]:
     # type signatures
     src = src.replace(":: TestTree", ":: Spec")
     src = re.sub(r"\bTestTree\b", "Spec", src)
+    # HUnit's `Assertion` alias (IO ()) is gone with the tasty imports.
+    src = _replace_ident(src, "Assertion", "IO ()")
 
     # combinators
     src = re.sub(r"\btestGroup\b(\s+)", r"describe\1", src)
@@ -76,6 +62,8 @@ def migrate(src: str) -> tuple[str, list[str]]:
     src = src.replace("@=?", "`shouldBe`")
 
     src = _replace_ident(src, "assertFailure", "expectationFailure")
+    src, nAE = _convert_assert_equal(src)
+    notes += nAE
     # tasty's testCase forced the body to IO (); sydtest's `it` accepts
     # many IsTest instances, so a polymorphic `fail`/`pure ()` body is
     # ambiguous. expectationFailure :: String -> IO a pins it to IO.
@@ -83,7 +71,7 @@ def migrate(src: str) -> tuple[str, list[str]]:
     src, n3 = _convert_assert_bool(src)
     notes += n3
     if "assertEqual" in src:
-        notes.append("contains assertEqual (needs manual conversion)")
+        notes.append("assertEqual remained (manual check)")
 
     out, notes2 = _wrap_describe_lists(src)
     notes += notes2
@@ -92,6 +80,86 @@ def migrate(src: str) -> tuple[str, list[str]]:
         if s in out:
             notes.append(f"contains {s!r}")
     return out, notes
+
+
+_DROP_SUBMODULES = {
+    "HUnit", "Hedgehog", "QuickCheck", "SmallCheck",
+    "Ingredients", "Runners", "Options", "Providers",
+}
+
+
+def _fix_imports(src: str) -> str:
+    """Rewrite `import Test.Tasty[.Sub] [...]` statements, consuming any
+    multi-line parenthesised import list. Plain Test.Tasty becomes
+    Test.Syd; known sub-libraries are dropped (covered by sydtest)."""
+    pat = re.compile(
+        r"^[ \t]*import[ \t]+(?:qualified[ \t]+)?Test\.Tasty(\.[A-Za-z0-9_.]+)?",
+        re.M,
+    )
+    repls: list[tuple[int, int, str]] = []
+    needs_syd = False
+    has_syd_already = re.search(r"^[ \t]*import[ \t]+Test\.Syd\b", src, re.M) is not None
+    for m in pat.finditer(src):
+        start = m.start()
+        end = m.end()
+        # optional `as Name`
+        rest = src[end:]
+        am = re.match(r"[ \t]+as[ \t]+[A-Za-z0-9_.]+", rest)
+        if am:
+            end += am.end()
+        # optional (possibly multi-line) explicit import/hiding list
+        j = end
+        # allow `hiding` keyword
+        hm = re.match(r"[ \t]+hiding\b", src[j:])
+        if hm:
+            j += hm.end()
+        k = j
+        while k < len(src) and src[k] in " \t\n":
+            k += 1
+        if k < len(src) and src[k] == "(":
+            close = _match_balanced(src, k)
+            if close != -1:
+                end = close
+        sub = m.group(1)
+        if sub is None:
+            repls.append((start, end, "import Test.Syd"))
+            needs_syd = True
+        else:
+            name = sub.lstrip(".").split(".")[0]
+            if name in _DROP_SUBMODULES:
+                repls.append((start, end, ""))  # drop, possibly leaving blank line
+            else:
+                repls.append((start, end, "import Test.Syd"))
+                needs_syd = True
+
+    for start, end, text in reversed(repls):
+        # if dropping, also swallow a trailing newline to avoid blank lines
+        if text == "" and end < len(src) and src[end] == "\n":
+            end += 1
+        src = src[:start] + text + src[end:]
+
+    # collapse duplicate `import Test.Syd` lines (keep first)
+    seen = False
+    out_lines = []
+    for ln in src.splitlines(keepends=True):
+        if re.match(r"^[ \t]*import[ \t]+Test\.Syd[ \t]*(\n|$)", ln):
+            if seen:
+                continue
+            seen = True
+        out_lines.append(ln)
+    src = "".join(out_lines)
+
+    if needs_syd and not seen and not has_syd_already:
+        # No surviving Test.Syd import; add one after the last import.
+        lines = src.splitlines(keepends=True)
+        last_imp = -1
+        for i, ln in enumerate(lines):
+            if ln.startswith("import "):
+                last_imp = i
+        ins = last_imp + 1 if last_imp >= 0 else 0
+        lines.insert(ins, "import Test.Syd\n")
+        src = "".join(lines)
+    return src
 
 
 def _replace_ident(src: str, ident: str, repl: str) -> str:
@@ -191,12 +259,74 @@ def _read_string_literal(src: str, i: int) -> int:
     return -1
 
 
-def _convert_assert_bool(src: str) -> tuple[str, list[str]]:
-    """assertBool MSG (EXPR)  ->  (EXPR) `shouldBe` True.
+def _convert_assert_equal(src: str) -> tuple[str, list[str]]:
+    r"""assertEqual MSG EXPECTED ACTUAL  ->  ACTUAL `shouldBe` EXPECTED."""
+    notes: list[str] = []
+    out = []
+    i = 0
+    needle = "assertEqual"
+    while True:
+        j = src.find(needle, i)
+        if j == -1:
+            out.append(src[i:])
+            break
+        prev = src[j - 1] if j > 0 else " "
+        if prev.isalnum() or prev == "_" or prev == "'":
+            out.append(src[i : j + len(needle)])
+            i = j + len(needle)
+            continue
+        out.append(src[i:j])
+        k = _skip_ws(src, j + len(needle))
+        msg, k = _read_arg(src, k)
+        e1 = _skip_ws(src, k)
+        expected, k2 = _read_arg(src, e1)
+        e2 = _skip_ws(src, k2)
+        actual, k3 = _read_arg(src, e2)
+        if msg is None or expected is None or actual is None:
+            notes.append("assertEqual: could not parse args; skipped")
+            out.append(needle)
+            i = j + len(needle)
+            continue
+        out.append(f"{actual} `shouldBe` {expected}")
+        notes.append("converted assertEqual -> shouldBe (verify arg shapes)")
+        i = k3
+    return "".join(out), notes
 
-    Drops the bespoke message (the enclosing `it` label carries intent).
-    Requires the argument after the message to be a parenthesised expr.
-    """
+
+def _skip_ws(src: str, i: int) -> int:
+    while i < len(src) and src[i] in " \t\n":
+        i += 1
+    return i
+
+
+def _read_arg(src: str, i: int):
+    """Read one Haskell expression argument starting at i. Supports a
+    parenthesised group, a string literal, or a bare token. Returns
+    (text, end) or (None, i)."""
+    if i >= len(src):
+        return None, i
+    c = src[i]
+    if c == "(":
+        end = _match_balanced(src, i)
+        return (src[i:end], end) if end != -1 else (None, i)
+    if c == '"':
+        end = _read_string_literal(src, i)
+        return (src[i:end], end) if end != -1 else (None, i)
+    # bare token: identifier / qualified name
+    m = re.match(r"[A-Za-z0-9_.']+", src[i:])
+    if m:
+        return src[i : i + m.end()], i + m.end()
+    return None, i
+
+
+def _is_string_literal(tok: str) -> bool:
+    return tok.startswith('"') and tok.endswith('"')
+
+
+def _convert_assert_bool(src: str) -> tuple[str, list[str]]:
+    r"""assertBool MSG COND  ->  COND `shouldBe` True (literal message,
+    carried by the `it` label) or a message-preserving
+    `if COND then pure () else expectationFailure MSG`."""
     notes: list[str] = []
     out = []
     i = 0
@@ -206,43 +336,34 @@ def _convert_assert_bool(src: str) -> tuple[str, list[str]]:
         if j == -1:
             out.append(src[i:])
             break
-        # ensure it's a standalone token
         prev = src[j - 1] if j > 0 else " "
         if prev.isalnum() or prev == "_" or prev == "'":
             out.append(src[i : j + len(needle)])
             i = j + len(needle)
             continue
         out.append(src[i:j])
-        k = j + len(needle)
-        # skip ws
-        while k < len(src) and src[k] in " \t\n":
-            k += 1
-        if k >= len(src) or src[k] != '"':
-            notes.append("assertBool without string-literal message; skipped")
-            out.append(src[j:k])
-            i = k
+        k = _skip_ws(src, j + len(needle))
+        msg, k = _read_arg(src, k)
+        if msg is None:
+            notes.append("assertBool: could not parse message; skipped")
+            out.append(src[j:k] or needle)
+            i = max(k, j + len(needle))
             continue
-        kend = _read_string_literal(src, k)
-        if kend == -1:
-            out.append(src[j:k])
-            i = k
-            continue
-        # skip ws to expr
-        e = kend
-        while e < len(src) and src[e] in " \t\n":
-            e += 1
-        if e >= len(src) or src[e] != "(":
-            notes.append("assertBool arg not parenthesised; skipped")
+        e = _skip_ws(src, k)
+        cond, eend = _read_arg(src, e)
+        if cond is None:
+            notes.append("assertBool: could not parse condition; skipped")
             out.append(src[j:e])
             i = e
             continue
-        eend = _match_balanced(src, e)
-        if eend == -1:
-            out.append(src[j:e])
-            i = e
-            continue
-        expr = src[e:eend]
-        out.append(f"{expr} `shouldBe` True")
+        cond_txt = cond if cond.startswith("(") else f"({cond})"
+        if _is_string_literal(msg):
+            out.append(f"{cond_txt} `shouldBe` True")
+        else:
+            msg_txt = msg if msg.startswith("(") else f"({msg})"
+            out.append(
+                f"(if {cond_txt} then pure () else expectationFailure {msg_txt})"
+            )
         i = eend
     return "".join(out), notes
 

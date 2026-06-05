@@ -105,7 +105,6 @@ test-suite wireform-yaml-test
     containers,
     directory,
     filepath,
-    tasty,
-    tasty-hunit,
-    tasty-hedgehog,
+    sydtest,
+    sydtest-hedgehog,
     hedgehog

@@ -74,9 +74,8 @@ test-suite wireform-cel-test
     text,
     bytestring,
     vector,
-    tasty,
-    tasty-hunit,
-    tasty-hedgehog,
+    sydtest,
+    sydtest-hedgehog,
     hedgehog
 
 -- Opt-in runner for the upstream cel-spec conformance suite. Set

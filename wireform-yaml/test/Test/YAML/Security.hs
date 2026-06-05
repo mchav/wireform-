@@ -14,7 +14,6 @@ import Data.Either (isLeft)
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Test.Syd
-  ( it, assertBool, expectationFailure )
 
 import qualified YAML.Decode as Y
 import qualified YAML.Value  as YV
@@ -49,10 +48,9 @@ billionLaughsRefused =
         ]
   case Y.decode src of
     Left e ->
-      assertBool ("expected billion-laughs error, got: " <> e)
-        ("billion-laughs" `isInfixOf` e
+      (if ("billion-laughs" `isInfixOf` e
          || "alias DAG"  `isInfixOf` e
-         || "expand"     `isInfixOf` e)
+         || "expand"     `isInfixOf` e) then pure () else expectationFailure ("expected billion-laughs error, got: " <> e))
     Right _ -> expectationFailure "expected the 9-level billion-laughs to be refused"
 
 -- | A document nested past 'maxParserDepth' must error rather
@@ -67,8 +65,7 @@ deepBlockRefused = it "deep block nesting is refused" $ do
         <> "\n" <> T.replicate (2*depth) " " <> "leaf"
   case Y.decode src of
     Left e ->
-      assertBool ("expected nesting error, got: " <> e)
-        ("nesting" `isInfixOf` e || "depth" `isInfixOf` e)
+      (if ("nesting" `isInfixOf` e || "depth" `isInfixOf` e) then pure () else expectationFailure ("expected nesting error, got: " <> e))
     Right _ -> expectationFailure "expected deep nesting to be refused"
 
 -- | A self-referencing alias must error. Forward references are
@@ -80,8 +77,7 @@ selfCycleRejected = it "self-cycle in alias is rejected" $ do
   mapM_ check cases
   where
     check src =
-      assertBool ("expected error on " <> show src)
-        (isLeft (Y.decode src))
+      (if (isLeft (Y.decode src)) then pure () else expectationFailure ("expected error on " <> show src))
 
 -- | A flow document whose registered anchor's body contains an
 -- alias to the SAME anchor must error rather than producing a

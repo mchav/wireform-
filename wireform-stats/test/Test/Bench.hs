@@ -33,14 +33,14 @@ sampleSummary = Bench.BenchSummary
   , Bench.bsToolchain      = "ghc-9.8.4 on darwin-aarch64"
   }
 
-jsonRoundTrip :: Assertion
+jsonRoundTrip :: IO ()
 jsonRoundTrip = do
   let bytes = A.encode sampleSummary
   case A.eitherDecode bytes of
     Right (back :: Bench.BenchSummary) -> back `shouldBe` sampleSummary
     Left  err                          -> expectationFailure err
 
-tableShape :: Assertion
+tableShape :: IO ()
 tableShape = do
   let t = Bench.summaryToTable sampleSummary
   -- 4 header columns: Operation + 2 series + ratio.
@@ -50,7 +50,7 @@ tableShape = do
   -- Each row has the same arity as the header.
   mapM_ (\r -> length r `shouldBe` 4) (Tbl.tableRows t)
 
-chartShape :: Assertion
+chartShape :: IO ()
 chartShape = do
   let c = Bench.summaryToBarChart sampleSummary
   length (SVG.chartGroups c) `shouldBe` 2

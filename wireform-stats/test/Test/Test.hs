@@ -36,7 +36,7 @@ junitDoc = T.unlines
   , "</testsuites>"
   ]
 
-parseSimple :: Assertion
+parseSimple :: IO ()
 parseSimple =
   case Tst.parseJUnit (BS8.pack (T.unpack junitDoc)) of
     Left err -> expectationFailure err
@@ -48,7 +48,7 @@ parseSimple =
       Tst.tsSkipped  ts `shouldBe` 0
       length (Tst.tsSuites ts) `shouldBe` 2
 
-cleanLine :: Assertion
+cleanLine :: IO ()
 cleanLine = do
   let s = Tst.TestSummary 10 10 0 0 0 1.5
         [ Tst.SuiteSummary "unit" 6 0 0 0 0.5
@@ -58,7 +58,7 @@ cleanLine = do
   ("10 tests passing" `T.isInfixOf` line) `shouldBe` True
   ("2 categories"     `T.isInfixOf` line) `shouldBe` True
 
-failureLine :: Assertion
+failureLine :: IO ()
 failureLine = do
   let s = Tst.TestSummary 10 7 2 1 0 1.5
         [ Tst.SuiteSummary "unit" 10 2 1 0 1.5

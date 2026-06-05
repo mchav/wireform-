@@ -29,7 +29,7 @@ hpcDoc = T.unlines
   , " 95% expressions used in module CBOR.Value (40/42)"
   ]
 
-topLine :: Assertion
+topLine :: IO ()
 topLine = do
   let s = Cov.parseHpcReport hpcDoc
   Cov.covExpressions       s `shouldBe` 92
@@ -37,7 +37,7 @@ topLine = do
   Cov.covLocalDeclarations s `shouldBe` 90
   Cov.covTopDeclarations   s `shouldBe` 95
 
-perModule :: Assertion
+perModule :: IO ()
 perModule = do
   let s = Cov.parseHpcReport hpcDoc
   length (Cov.covModules s) `shouldBe` 3
@@ -45,7 +45,7 @@ perModule = do
   let names = map Cov.mcModule (Cov.covModules s)
   names `shouldBe` ["CBOR.Encode", "CBOR.Decode", "CBOR.Value"]
 
-lineShape :: Assertion
+lineShape :: IO ()
 lineShape = do
   let s = Cov.parseHpcReport hpcDoc
       l = Cov.summaryToCoverageLine s

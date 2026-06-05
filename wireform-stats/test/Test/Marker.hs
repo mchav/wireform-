@@ -36,15 +36,15 @@ doc = T.unlines
   , "footer"
   ]
 
-noMarkersCase :: Assertion
+noMarkersCase :: IO ()
 noMarkersCase = do
   let plain = "no markers here\nat all\n"
   Mk.rewriteMarkers Map.empty plain `shouldBe` plain
 
-roundTripCase :: Assertion
+roundTripCase :: IO ()
 roundTripCase = Mk.renderRegions (Mk.parseRegions doc) `shouldBe` doc
 
-replaceOne :: Assertion
+replaceOne :: IO ()
 replaceOne = do
   let testsKey = mustKey "tests"
       reps     = Map.fromList [(testsKey, "new test summary")]
@@ -63,7 +63,7 @@ replaceOne = do
   ("middle"  `T.isInfixOf` result) `shouldBe` True
   ("footer"  `T.isInfixOf` result) `shouldBe` True
 
-idempotent :: Assertion
+idempotent :: IO ()
 idempotent = do
   let testsKey = mustKey "tests"
       reps     = Map.fromList [(testsKey, "stable body")]
@@ -71,13 +71,13 @@ idempotent = do
       twice    = Mk.rewriteMarkers reps once
   twice `shouldBe` once
 
-leaveUnknown :: Assertion
+leaveUnknown :: IO ()
 leaveUnknown = do
   let unknownKey = mustKey "not-in-doc"
       reps       = Map.fromList [(unknownKey, "anything")]
   Mk.rewriteMarkers reps doc `shouldBe` doc
 
-preserveOutside :: Assertion
+preserveOutside :: IO ()
 preserveOutside = do
   let testsKey = mustKey "tests"
       reps     = Map.fromList [(testsKey, "x")]
@@ -86,7 +86,7 @@ preserveOutside = do
   ("\nmiddle\n" `T.isInfixOf` result) `shouldBe` True
   (T.takeEnd 7 result == "footer\n") `shouldBe` True
 
-markersInOrder :: Assertion
+markersInOrder :: IO ()
 markersInOrder = do
   Mk.markersIn doc `shouldBe` [mustKey "tests", mustKey "bench:foo"]
 
