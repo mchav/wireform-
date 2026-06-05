@@ -442,15 +442,15 @@ parseHexDash = go
 
 conformanceVectors :: Spec
 conformanceVectors = describe "kawanet/msgpack-test-suite conformance" $ sequence_
-  [ describe "nil" nilDecodeTests
-  , describe "bool" boolDecodeTests
-  , describe "positive numbers" positiveNumberDecodeTests
-  , describe "negative numbers" negativeNumberDecodeTests
-  , describe "strings" stringDecodeTests
-  , describe "binary" binaryDecodeTests
-  , describe "arrays" arrayDecodeTests
-  , describe "maps" mapDecodeTests
-  , describe "ext" extDecodeTests
+  [ describe "nil" $ sequence_ nilDecodeTests
+  , describe "bool" $ sequence_ boolDecodeTests
+  , describe "positive numbers" $ sequence_ positiveNumberDecodeTests
+  , describe "negative numbers" $ sequence_ negativeNumberDecodeTests
+  , describe "strings" $ sequence_ stringDecodeTests
+  , describe "binary" $ sequence_ binaryDecodeTests
+  , describe "arrays" $ sequence_ arrayDecodeTests
+  , describe "maps" $ sequence_ mapDecodeTests
+  , describe "ext" $ sequence_ extDecodeTests
   ]
   where
     mkDecodeTest :: String -> String -> MV.Value -> Spec

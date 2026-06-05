@@ -16,21 +16,21 @@ import HTML.DOM
 
 main :: IO ()
 main = sydTest $ describe "WPT CSS Selectors Conformance" $ sequence_
-  [ describe "has-basic" hasBasicTests
-  , describe "has-relative-argument" hasRelativeTests
-  , describe "is-where-basic" isWhereBasicTests
-  , describe "is-where-not" isWhereNotTests
-  , describe "not-complex" notComplexTests
-  , describe "child-indexed-pseudo-class" childIndexedTests
-  , describe "first-child" firstChildTests
-  , describe "last-child" lastChildTests
-  , describe "only-child" onlyChildTests
-  , describe "first-of-type" firstOfTypeTests
-  , describe "last-of-type" lastOfTypeTests
-  , describe "only-of-type" onlyOfTypeTests
-  , describe "dir-selector-querySelector" dirSelectorTests
-  , describe "pseudo-enabled-disabled" enabledDisabledTests
-  , describe "has-argument-with-explicit-scope" hasScopeTests
+  [ describe "has-basic" $ sequence_ hasBasicTests
+  , describe "has-relative-argument" $ sequence_ hasRelativeTests
+  , describe "is-where-basic" $ sequence_ isWhereBasicTests
+  , describe "is-where-not" $ sequence_ isWhereNotTests
+  , describe "not-complex" $ sequence_ notComplexTests
+  , describe "child-indexed-pseudo-class" $ sequence_ childIndexedTests
+  , describe "first-child" $ sequence_ firstChildTests
+  , describe "last-child" $ sequence_ lastChildTests
+  , describe "only-child" $ sequence_ onlyChildTests
+  , describe "first-of-type" $ sequence_ firstOfTypeTests
+  , describe "last-of-type" $ sequence_ lastOfTypeTests
+  , describe "only-of-type" $ sequence_ onlyOfTypeTests
+  , describe "dir-selector-querySelector" $ sequence_ dirSelectorTests
+  , describe "pseudo-enabled-disabled" $ sequence_ enabledDisabledTests
+  , describe "has-argument-with-explicit-scope" $ sequence_ hasScopeTests
   ]
 
 -- ---------------------------------------------------------------------------

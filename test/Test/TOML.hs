@@ -76,13 +76,13 @@ basicTypeTests = describe "Basic types" $ sequence_
   , it "parse datetime" $ do
       let Right val = decode "key = 2024-01-15T10:30:00Z"
       case lookupKey "key" val of
-        Just (TDateTime _) -> pure ()
+        Just (TDateTime _) -> pure () :: IO ()
         _ -> expectationFailure "expected TDateTime"
 
   , it "parse date" $ do
       let Right val = decode "key = 2024-01-15"
       case lookupKey "key" val of
-        Just (TDate _) -> pure ()
+        Just (TDate _) -> pure () :: IO ()
         _ -> expectationFailure "expected TDate"
 
   , it "comment handling" $ do
@@ -171,8 +171,8 @@ arrayTests = describe "Arrays" $ sequence_
             ]
       let Right val = decode input
       case lookupKey "products" val of
-        Just (TTable _) -> pure ()
-        _ -> pure ()
+        Just (TTable _) -> pure () :: IO ()
+        _ -> pure () :: IO ()
   ]
 
 stringTests :: Spec

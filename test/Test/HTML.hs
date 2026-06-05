@@ -87,7 +87,7 @@ voidElementTests = describe "Void elements" $ sequence_
           root = htmlRoot doc
       case root of
         HTMLElement "br" _ cs -> (sizeofSmallArray cs == 0) `shouldBe` True
-        _ -> pure ()
+        _ -> pure () :: IO ()
 
   , it "input is void" $ do
       let doc = parseHTML "<form><input type=\"text\"><input type=\"submit\"></form>"
@@ -364,15 +364,15 @@ edgeCaseTests = describe "Edge cases" $ sequence_
       let doc = parseHTML ""
           root = htmlRoot doc
       case root of
-        HTMLElement "html" _ _ -> pure ()
-        _ -> pure ()
+        HTMLElement "html" _ _ -> pure () :: IO ()
+        _ -> pure () :: IO ()
 
   , it "parse whitespace only" $ do
       let doc = parseHTML "   \n\t  "
           root = htmlRoot doc
       case root of
-        HTMLElement "html" _ _ -> pure ()
-        _ -> pure ()
+        HTMLElement "html" _ _ -> pure () :: IO ()
+        _ -> pure () :: IO ()
 
   , it "nested divs" $ do
       let doc = parseHTML "<div><div><div>deep</div></div></div>"
@@ -387,8 +387,8 @@ edgeCaseTests = describe "Edge cases" $ sequence_
   , it "doctype parsing" $ do
       let doc = parseHTML "<!DOCTYPE html><html><body>hi</body></html>"
       case htmlDoctype doc of
-        Just (Doctype (Just _) _ _) -> pure ()
-        _ -> pure ()
+        Just (Doctype (Just _) _ _) -> pure () :: IO ()
+        _ -> pure () :: IO ()
   ]
 
 -- Helpers

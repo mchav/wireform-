@@ -1607,7 +1607,7 @@ prop_roundtrip = property $ do
   let encoded = encode doc
       result = decode encoded
   case result of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right doc2 -> docRoot doc === docRoot doc2
 
 prop_fastdom_equals_decode :: Property
@@ -1617,15 +1617,15 @@ prop_fastdom_equals_decode = property $ do
   case (decode encoded, FD.parseFast encoded) of
     (Right docFull, Right fastDoc) ->
       docRoot (FD.toDocument fastDoc) === docRoot docFull
-    (Left err, _) -> expectationFailure $ "decode failed: " ++ err
-    (_, Left err) -> expectationFailure $ "parseFast failed: " ++ err
+    (Left err, _) -> fail $ "decode failed: " ++ err
+    (_, Left err) -> fail $ "parseFast failed: " ++ err
 
 prop_text_roundtrip :: Property
 prop_text_roundtrip = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case decode encoded of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right doc2 -> textContent (docRoot doc) === textContent (docRoot doc2)
 
 prop_attr_roundtrip :: Property
@@ -1638,7 +1638,7 @@ prop_attr_roundtrip = property $ do
       doc = Document Nothing root
       encoded = encode doc
   case decode encoded of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right doc2 ->
       attr (nameLocal name) (docRoot doc2) === Just val
 
@@ -1647,7 +1647,7 @@ prop_name_roundtrip = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case decode encoded of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right doc2 ->
       elementName (docRoot doc) === elementName (docRoot doc2)
 
@@ -1656,7 +1656,7 @@ prop_child_count_roundtrip = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case decode encoded of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right doc2 -> do
       let countElems_ = V.length . V.filter (\n -> case n of Element {} -> True; _ -> False)
       countElems_ (elementChildren (docRoot doc)) === countElems_ (elementChildren (docRoot doc2))
@@ -1666,7 +1666,7 @@ prop_generated_parse = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case decode encoded of
-    Left err -> expectationFailure $ "parse failed: " ++ err
+    Left err -> fail $ "parse failed: " ++ err
     Right _ -> HH.assert True
 
 prop_fastdom_tag_match :: Property
@@ -1679,16 +1679,16 @@ prop_fastdom_tag_match = property $ do
           fastTag = FD.nodeTag (FD.fdRoot fastDoc) (FD.fdSource fastDoc)
       case fullName of
         Just n -> nameLocal n === fastTag
-        Nothing -> expectationFailure "expected element"
-    (Left err, _) -> expectationFailure $ "decode failed: " ++ err
-    (_, Left err) -> expectationFailure $ "parseFast failed: " ++ err
+        Nothing -> fail "expected element"
+    (Left err, _) -> fail $ "decode failed: " ++ err
+    (_, Left err) -> fail $ "parseFast failed: " ++ err
 
 prop_encode_parseable :: Property
 prop_encode_parseable = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case parseSAX encoded of
-    Left err -> expectationFailure $ "SAX parse of encoded doc failed: " ++ err
+    Left err -> fail $ "SAX parse of encoded doc failed: " ++ err
     Right _ -> HH.assert True
 
 prop_sax_event_count :: Property
@@ -1696,7 +1696,7 @@ prop_sax_event_count = property $ do
   doc <- forAll genDocument
   let encoded = encode doc
   case parseSAX encoded of
-    Left err -> expectationFailure $ "SAX parse failed: " ++ err
+    Left err -> fail $ "SAX parse failed: " ++ err
     Right events -> HH.assert (V.length events >= 3)
 
 ------------------------------------------------------------------------
@@ -1748,7 +1748,7 @@ conformanceTests = describe "Conformance / Real-World XML" $ sequence_
         Element n _ _ -> do
           nameLocal n `shouldBe` "Envelope"
           namePrefix n `shouldBe` Just "soap"
-        _ -> expectationFailure "Expected Element"
+        _ -> fail "Expected Element"
 
   , it "SVG snippet with namespaces" $ do
       let xml = T.concat
@@ -1813,7 +1813,7 @@ conformanceTests = describe "Conformance / Real-World XML" $ sequence_
           root = docRoot doc
       case root of
         Element n _ _ -> nameLocal n `shouldBe` "project"
-        _ -> expectationFailure "Expected Element"
+        _ -> fail "Expected Element"
       let versions = query (Descendant (simpleName "version")) root
       V.length versions `shouldBe` 2
 
@@ -2106,7 +2106,7 @@ validDocTests = describe "Should parse successfully" $ sequence_
           nameLocal n `shouldBe` "x"
           namePrefix n `shouldBe` Just "a"
           nameNamespace n `shouldBe` Just "http://example.com"
-        _ -> expectationFailure "Expected Element"
+        _ -> fail "Expected Element"
 
   , it "nested elements" $ do
       let Right doc = decode (TE.encodeUtf8 "<a><b><c/></b></a>")
@@ -2146,7 +2146,7 @@ validDocTests = describe "Should parse successfully" $ sequence_
           cs = elementChildren (docRoot doc)
       case V.head cs of
         Element n _ _ -> nameNamespace n `shouldBe` Just "http://default.com"
-        _ -> expectationFailure "Expected Element"
+        _ -> fail "Expected Element"
 
   , it "nested CDATA and text" $ do
       let xml = "<x>text<![CDATA[<cdata>]]>more</x>"

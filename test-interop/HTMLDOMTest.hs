@@ -11,7 +11,7 @@ import Data.Text qualified as T
 import HTML.DOM
 import HTML.Selector qualified as Sel
 import HTML.Value (Doctype (..), HTMLAttribute (..), HTMLNode (..), TreeEvent (..))
-import Test.Syd
+import Test.Syd hiding (Selector)
 import Wireform.Builder qualified as BB
 
 
@@ -53,15 +53,15 @@ main =
   sydTest $
     describe
       "HTML.DOM" $ sequence_
-      [ describe "Parsing" parsingTests
-      , describe "Document access" docAccessTests
-      , describe "Navigation" navigationTests
-      , describe "Node inspection" inspectionTests
-      , describe "Serialization" serializationTests
-      , describe "CSS selectors" selectorTests
-      , describe "CSS selectors (extended)" extendedSelectorTests
-      , describe "Incremental parser" incrementalTests
-      , describe "Streaming tree events" streamingTests
+      [ describe "Parsing" $ sequence_ parsingTests
+      , describe "Document access" $ sequence_ docAccessTests
+      , describe "Navigation" $ sequence_ navigationTests
+      , describe "Node inspection" $ sequence_ inspectionTests
+      , describe "Serialization" $ sequence_ serializationTests
+      , describe "CSS selectors" $ sequence_ selectorTests
+      , describe "CSS selectors (extended)" $ sequence_ extendedSelectorTests
+      , describe "Incremental parser" $ sequence_ incrementalTests
+      , describe "Streaming tree events" $ sequence_ streamingTests
       ]
 
 

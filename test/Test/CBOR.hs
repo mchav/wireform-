@@ -200,9 +200,9 @@ rfc8949AppendixA = describe "RFC 8949 Appendix A test vectors" $ sequence_
 -- re-encoding produces the original bytes.
 rfc8949ConformanceVectors :: Spec
 rfc8949ConformanceVectors = describe "RFC 8949 Appendix A conformance vectors" $ sequence_
-  [ describe "Decode conformance" $ map mkDecodeTest decodeVectors
-  , describe "Roundtrip conformance" $ map mkRoundtripTest roundtripVectors
-  , describe "Decode-only (indefinite-length)" $ map mkDecodeTest indefiniteVectors
+  [ describe "Decode conformance" $ mapM_ mkDecodeTest decodeVectors
+  , describe "Roundtrip conformance" $ mapM_ mkRoundtripTest roundtripVectors
+  , describe "Decode-only (indefinite-length)" $ mapM_ mkDecodeTest indefiniteVectors
   ]
   where
     mkDecodeTest (name, hexBytes, expected) =

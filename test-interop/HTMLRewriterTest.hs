@@ -20,7 +20,7 @@ import HTML.Rewriter
 import HTML.Selector
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeFileName, (</>))
-import Test.Syd
+import Test.Syd hiding (Selector)
 import Wireform.Builder qualified as BB
 
 
@@ -62,20 +62,20 @@ main = do
   sydTest $
     describe
       "HTML Rewriter (lol-html port)" $ sequence_
-      [ describe "Selector parser" selectorParserTests
-      , describe "Passthrough" passthroughTests
-      , describe "Element mutation" elementMutationTests
-      , describe "Text mutation" textMutationTests
-      , describe "Comment mutation" commentMutationTests
-      , describe "Content insertion" insertionTests
-      , describe "Element removal" removalTests
-      , describe "Element replace" elementReplaceTests
-      , describe "End tag handlers" endTagTests
-      , describe "Doctype" doctypeTests
-      , describe "Void elements" voidElementTests
-      , describe "Multiple handlers" multipleHandlerTests
-      , describe "Handler invocation order" handlerOrderTests
-      , describe "Streaming" streamingTests
+      [ describe "Selector parser" $ sequence_ selectorParserTests
+      , describe "Passthrough" $ sequence_ passthroughTests
+      , describe "Element mutation" $ sequence_ elementMutationTests
+      , describe "Text mutation" $ sequence_ textMutationTests
+      , describe "Comment mutation" $ sequence_ commentMutationTests
+      , describe "Content insertion" $ sequence_ insertionTests
+      , describe "Element removal" $ sequence_ removalTests
+      , describe "Element replace" $ sequence_ elementReplaceTests
+      , describe "End tag handlers" $ sequence_ endTagTests
+      , describe "Doctype" $ sequence_ doctypeTests
+      , describe "Void elements" $ sequence_ voidElementTests
+      , describe "Multiple handlers" $ sequence_ multipleHandlerTests
+      , describe "Handler invocation order" $ sequence_ handlerOrderTests
+      , describe "Streaming" $ sequence_ streamingTests
       , describe "Selector matching fixtures" $ sequence_ [fixtureTests]
       ]
 
@@ -88,58 +88,58 @@ selectorParserTests :: [Spec]
 selectorParserTests =
   [ it "simple tag" $ do
       let Right (Selector [ComplexSelector (CompoundSelector (Just (TypeTag "div")) []) []]) = parseSelector "div"
-      pure ()
+      pure () :: IO ()
   , it "class selector" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelClass "foo"]) []]) = parseSelector ".foo"
-      pure ()
+      pure () :: IO ()
   , it "id selector" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelId "main"]) []]) = parseSelector "#main"
-      pure ()
+      pure () :: IO ()
   , it "tag.class" $ do
       let Right (Selector [ComplexSelector (CompoundSelector (Just (TypeTag "div")) [SelClass "foo"]) []]) = parseSelector "div.foo"
-      pure ()
+      pure () :: IO ()
   , it "attribute exact" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrExact "type" "text" False]) []]) = parseSelector "[type=\"text\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute prefix" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrPrefix "href" "https" False]) []]) = parseSelector "[href^=\"https\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute suffix" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrSuffix "src" ".png" False]) []]) = parseSelector "[src$=\".png\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute contains" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrContains "class" "btn" False]) []]) = parseSelector "[class*=\"btn\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute word" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrWord "class" "active" False]) []]) = parseSelector "[class~=\"active\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute hyphen" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrHyphen "lang" "en" False]) []]) = parseSelector "[lang|=\"en\"]"
-      pure ()
+      pure () :: IO ()
   , it "attribute exists" $ do
       let Right (Selector [ComplexSelector (CompoundSelector Nothing [SelAttrExists "hidden"]) []]) = parseSelector "[hidden]"
-      pure ()
+      pure () :: IO ()
   , it "descendant combinator" $ do
       let Right (Selector [ComplexSelector _ ((Descendant, _) : _)]) = parseSelector "div span"
-      pure ()
+      pure () :: IO ()
   , it "child combinator" $ do
       let Right (Selector [ComplexSelector _ ((Child, _) : _)]) = parseSelector "div > span"
-      pure ()
+      pure () :: IO ()
   , it "adjacent sibling" $ do
       let Right (Selector [ComplexSelector _ ((AdjacentSibling, _) : _)]) = parseSelector "h1 + p"
-      pure ()
+      pure () :: IO ()
   , it "general sibling" $ do
       let Right (Selector [ComplexSelector _ ((GeneralSibling, _) : _)]) = parseSelector "h1 ~ p"
-      pure ()
+      pure () :: IO ()
   , it "comma group" $ do
       let Right (Selector sels) = parseSelector "h1, h2, h3"
       length sels `shouldBe` 3
   , it "universal selector" $ do
       let Right (Selector [ComplexSelector (CompoundSelector (Just TypeUniversal) []) []]) = parseSelector "*"
-      pure ()
+      pure () :: IO ()
   , it "universal.class" $ do
       let Right (Selector [ComplexSelector (CompoundSelector (Just TypeUniversal) [SelClass "t1"]) []]) = parseSelector "*.t1"
-      pure ()
+      pure () :: IO ()
   , it "rewriter compatible (tag.class > tag[attr])" $
       isRewriterCompatible (mustParseSelector "div.foo > span[href]") `shouldBe` True
   , it "rewriter incompatible (pseudo :first-child)" $
@@ -207,8 +207,8 @@ elementMutationTests =
             setTagName er "section"
       result <- rewriteStr rw "<div>content</div>"
       let s = decodeResult result
-      T.isInfixOf "<section>" s `shouldBe` True ++ show s
-      T.isInfixOf "</section>" s `shouldBe` True ++ show s
+      T.isInfixOf "<section>" s `shouldBe` True
+      T.isInfixOf "</section>" s `shouldBe` True
   , it "setAttr adds new attribute" $ do
       let rw = mustBuild $ onElement (mustParseSelector "p") $ \er -> do
             setElemAttr er "class" "highlight"
@@ -305,13 +305,13 @@ textMutationTests =
             beforeTextChunk tr "[before]" AsHTML
       result <- rewriteStr rw "<p>text</p>"
       let s = decodeResult result
-      T.isInfixOf "[before]text" s `shouldBe` True ++ show s
+      T.isInfixOf "[before]text" s `shouldBe` True
   , it "afterTextChunk" $ do
       let rw = mustBuild $ onText (mustParseSelector "p") $ \tr -> do
             afterTextChunk tr "[after]" AsHTML
       result <- rewriteStr rw "<p>text</p>"
       let s = decodeResult result
-      T.isInfixOf "text[after]" s `shouldBe` True ++ show s
+      T.isInfixOf "text[after]" s `shouldBe` True
   , it "isLastInTextNode" $ do
       ref <- newIORef []
       let rw = mustBuild $ onText (mustParseSelector "p") $ \tr -> do
@@ -365,21 +365,21 @@ commentMutationTests =
             beforeComment cr "[PRE]" AsHTML
       result <- rewriteStr rw "<div><!-- c --></div>"
       let s = decodeResult result
-      T.isInfixOf "[PRE]<!--" s `shouldBe` True ++ show s
+      T.isInfixOf "[PRE]<!--" s `shouldBe` True
   , it "afterComment" $ do
       let rw = mustBuild $ onComment $ \cr -> do
             afterComment cr "[POST]" AsHTML
       result <- rewriteStr rw "<div><!-- c --></div>"
       let s = decodeResult result
-      T.isInfixOf "-->[POST]" s `shouldBe` True ++ show s
+      T.isInfixOf "-->[POST]" s `shouldBe` True
   , it "before and after comment with text escaping" $ do
       let rw = mustBuild $ onComment $ \cr -> do
             beforeComment cr "<span>" AsText
             afterComment cr "<foo & bar>" AsText
       result <- rewriteStr rw "<!-- c -->"
       let s = decodeResult result
-      T.isInfixOf "&lt;span&gt;" s `shouldBe` True ++ show s
-      T.isInfixOf "&lt;foo &amp; bar&gt;" s `shouldBe` True ++ show s
+      T.isInfixOf "&lt;span&gt;" s `shouldBe` True
+      T.isInfixOf "&lt;foo &amp; bar&gt;" s `shouldBe` True
   , it "multiple comments" $ do
       ref <- newIORef (0 :: Int)
       let rw = mustBuild $ onComment $ \_ -> do
@@ -401,64 +401,64 @@ insertionTests =
             beforeElement er "<img>" AsHTML
       result <- rewriteStr rw "<div><span>hi</span></div>"
       let s = decodeResult result
-      T.isInfixOf "<img><span>" s `shouldBe` True ++ show s
+      T.isInfixOf "<img><span>" s `shouldBe` True
   , it "beforeElement with text escaping" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             beforeElement er "<img>" AsText
       result <- rewriteStr rw "<div><span>hi</span></div>"
       let s = decodeResult result
-      T.isInfixOf "&lt;img&gt;<span>" s `shouldBe` True ++ show s
+      T.isInfixOf "&lt;img&gt;<span>" s `shouldBe` True
   , it "afterElement with HTML" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             afterElement er "<img>" AsHTML
       result <- rewriteStr rw "<div><span>hi</span></div>"
       let s = decodeResult result
-      T.isInfixOf "</span><img>" s `shouldBe` True ++ show s
+      T.isInfixOf "</span><img>" s `shouldBe` True
   , it "afterElement with text escaping" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             afterElement er "<img>" AsText
       result <- rewriteStr rw "<div><span>hi</span></div>"
       let s = decodeResult result
-      T.isInfixOf "</span>&lt;img&gt;" s `shouldBe` True ++ show s
+      T.isInfixOf "</span>&lt;img&gt;" s `shouldBe` True
   , it "prependToElement" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             prependToElement er "<b>first</b>" AsHTML
       result <- rewriteStr rw "<div><span>existing</span></div>"
       let s = decodeResult result
-      T.isInfixOf "<span><b>first</b>existing" s `shouldBe` True ++ show s
+      T.isInfixOf "<span><b>first</b>existing" s `shouldBe` True
   , it "prependToElement with text" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             prependToElement er "<b>first</b>" AsText
       result <- rewriteStr rw "<div><span>existing</span></div>"
       let s = decodeResult result
-      T.isInfixOf "<span>&lt;b&gt;first&lt;/b&gt;existing" s `shouldBe` True ++ show s
+      T.isInfixOf "<span>&lt;b&gt;first&lt;/b&gt;existing" s `shouldBe` True
   , it "appendToElement" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             appendToElement er "<b>last</b>" AsHTML
       result <- rewriteStr rw "<div><span>existing</span></div>"
       let s = decodeResult result
-      T.isInfixOf "existing<b>last</b></span>" s `shouldBe` True ++ show s
+      T.isInfixOf "existing<b>last</b></span>" s `shouldBe` True
   , it "setInnerContent with text" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
             setInnerContent er "new content" AsText
       result <- rewriteStr rw "<div>old content</div>"
       let s = decodeResult result
-      T.isInfixOf "new content" s `shouldBe` True ++ show s
-      not (T.isInfixOf "old content" s) `shouldBe` True ++ show s
+      T.isInfixOf "new content" s `shouldBe` True
+      not (T.isInfixOf "old content" s) `shouldBe` True
   , it "setInnerContent with HTML" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
             setInnerContent er "<b>html</b>" AsHTML
       result <- rewriteStr rw "<div>old content</div>"
       let s = decodeResult result
-      T.isInfixOf "<b>html</b>" s `shouldBe` True ++ show s
+      T.isInfixOf "<b>html</b>" s `shouldBe` True
   , it "setInnerContent replaces children too" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
             setInnerContent er "replaced" AsText
       result <- rewriteStr rw "<div><span>child</span><p>para</p></div>"
       let s = decodeResult result
-      T.isInfixOf "replaced" s `shouldBe` True ++ show s
-      not (T.isInfixOf "child" s) `shouldBe` True ++ show s
-      not (T.isInfixOf "para" s) `shouldBe` True ++ show s
+      T.isInfixOf "replaced" s `shouldBe` True
+      not (T.isInfixOf "child" s) `shouldBe` True
+      not (T.isInfixOf "para" s) `shouldBe` True
   , it "setInnerContent overrides prepend and append" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             prependToElement er "<prepended>" AsHTML
@@ -466,7 +466,7 @@ insertionTests =
             setInnerContent er "<img>" AsText
       result <- rewriteStr rw "<div><span>Hi</span></div>"
       let s = decodeResult result
-      T.isInfixOf "&lt;img&gt;" s `shouldBe` True ++ show s
+      T.isInfixOf "&lt;img&gt;" s `shouldBe` True
   ]
 
 
@@ -481,15 +481,15 @@ removalTests =
             removeElement er
       result <- rewriteStr rw "<div><span>Hi</span>Keep</div>"
       let s = decodeResult result
-      not (T.isInfixOf "Hi" s) `shouldBe` True ++ show s
-      T.isInfixOf "Keep" s `shouldBe` True ++ show s
+      not (T.isInfixOf "Hi" s) `shouldBe` True
+      T.isInfixOf "Keep" s `shouldBe` True
   , it "removeElement with nested children" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div.remove") $ \er -> do
             removeElement er
       result <- rewriteStr rw "<main><div class=\"remove\"><p><span>deep</span></p></div><p>keep</p></main>"
       let s = decodeResult result
-      not (T.isInfixOf "deep" s) `shouldBe` True ++ show s
-      T.isInfixOf "keep" s `shouldBe` True ++ show s
+      not (T.isInfixOf "deep" s) `shouldBe` True
+      T.isInfixOf "keep" s `shouldBe` True
   , it "removeElement preserves before/after content" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             beforeElement er "[before]" AsHTML
@@ -497,7 +497,7 @@ removalTests =
             removeElement er
       result <- rewriteStr rw "<div><span>Hi</span></div>"
       let s = decodeResult result
-      not (T.isInfixOf "Hi" s) `shouldBe` True ++ show s
+      not (T.isInfixOf "Hi" s) `shouldBe` True
   ]
 
 
@@ -512,15 +512,15 @@ elementReplaceTests =
             replaceElement er "<img>" AsHTML
       result <- rewriteStr rw "<div><span>content</span></div>"
       let s = decodeResult result
-      T.isInfixOf "<img>" s `shouldBe` True ++ show s
-      not (T.isInfixOf "content" s) `shouldBe` True ++ show s
-      not (T.isInfixOf "<span>" s) `shouldBe` True ++ show s
+      T.isInfixOf "<img>" s `shouldBe` True
+      not (T.isInfixOf "content" s) `shouldBe` True
+      not (T.isInfixOf "<span>" s) `shouldBe` True
   , it "replaceElement with text" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             replaceElement er "<foo & bar>" AsText
       result <- rewriteStr rw "<div><span>old</span></div>"
       let s = decodeResult result
-      T.isInfixOf "&lt;foo &amp; bar&gt;" s `shouldBe` True ++ show s
+      T.isInfixOf "&lt;foo &amp; bar&gt;" s `shouldBe` True
   , it "replaceElement last call wins" $ do
       let rw = mustBuild $ onElement (mustParseSelector "span") $ \er -> do
             replaceElement er "<div></div>" AsHTML
@@ -528,7 +528,7 @@ elementReplaceTests =
             replaceElement er "<img>" AsHTML
       result <- rewriteStr rw "<div><span>old</span></div>"
       let s = decodeResult result
-      T.isInfixOf "<img>" s `shouldBe` True ++ show s
+      T.isInfixOf "<img>" s `shouldBe` True
   , it "multiple consecutive removes" $ do
       let rw = mustBuild $ do
             onElement (mustParseSelector "div") $ \er ->
@@ -537,9 +537,9 @@ elementReplaceTests =
               removeElement er
       result <- rewriteStr rw "<div><span>42</span></div><h1>Hello</h1><p>Keep</p>"
       let s = decodeResult result
-      T.isInfixOf "hey & ya" s `shouldBe` True ++ show s
-      not (T.isInfixOf "Hello" s) `shouldBe` True ++ show s
-      T.isInfixOf "Keep" s `shouldBe` True ++ show s
+      T.isInfixOf "hey & ya" s `shouldBe` True
+      not (T.isInfixOf "Hello" s) `shouldBe` True
+      T.isInfixOf "Keep" s `shouldBe` True
   ]
 
 
@@ -555,21 +555,21 @@ endTagTests =
               beforeEndTag etr "X" AsHTML
       result <- rewriteStr rw "<div>foo</div>"
       let s = decodeResult result
-      T.isInfixOf "fooX</div>" s `shouldBe` True ++ show s
+      T.isInfixOf "fooX</div>" s `shouldBe` True
   , it "onElementEndTag inserts after end tag" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
             onElementEndTag er $ \etr -> do
               afterEndTag etr "Y" AsHTML
       result <- rewriteStr rw "<div>foo</div>"
       let s = decodeResult result
-      T.isInfixOf "</div>Y" s `shouldBe` True ++ show s
+      T.isInfixOf "</div>Y" s `shouldBe` True
   , it "setEndTagName" $ do
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
             onElementEndTag er $ \etr -> do
               setEndTagName etr "section"
       result <- rewriteStr rw "<div>foo</div>"
       let s = decodeResult result
-      T.isInfixOf "</section>" s `shouldBe` True ++ show s
+      T.isInfixOf "</section>" s `shouldBe` True
   , it "getEndTagName" $ do
       ref <- newIORef T.empty
       let rw = mustBuild $ onElement (mustParseSelector "div") $ \er -> do
@@ -584,13 +584,13 @@ endTagTests =
             appendToElement er "<appended>" AsHTML
       result <- rewriteStr rw "<div>text</div>"
       let s = decodeResult result
-      T.isInfixOf "<appended></div>" s `shouldBe` True ++ show s
+      T.isInfixOf "<appended></div>" s `shouldBe` True
   , it "onEndTag selector-based" $ do
       let rw = mustBuild $ onEndTag (mustParseSelector "div") $ \etr -> do
             beforeEndTag etr "Z" AsHTML
       result <- rewriteStr rw "<div>foo</div>"
       let s = decodeResult result
-      T.isInfixOf "fooZ</div>" s `shouldBe` True ++ show s
+      T.isInfixOf "fooZ</div>" s `shouldBe` True
   ]
 
 
@@ -646,19 +646,19 @@ voidElementTests =
             afterElement er "<!--after-->" AsHTML
       result <- rewriteStr rw "<img><span>Hi</span>"
       let s = decodeResult result
-      T.isInfixOf "<!--after-->" s `shouldBe` True ++ show s
+      T.isInfixOf "<!--after-->" s `shouldBe` True
   , it "void element tag rename" $ do
       let rw = mustBuild $ onElement (mustParseSelector "img") $ \er -> do
             setTagName er "img-foo"
       result <- rewriteStr rw "<img src=\"x\">"
       let s = decodeResult result
-      T.isInfixOf "<img-foo" s `shouldBe` True ++ show s
+      T.isInfixOf "<img-foo" s `shouldBe` True
   , it "br is void" $ do
       let rw = mustBuild $ onElement (mustParseSelector "br") $ \er -> do
             afterElement er "[after-br]" AsHTML
       result <- rewriteStr rw "<p>line1<br>line2</p>"
       let s = decodeResult result
-      T.isInfixOf "[after-br]" s `shouldBe` True ++ show s
+      T.isInfixOf "[after-br]" s `shouldBe` True
   ]
 
 
@@ -698,8 +698,8 @@ multipleHandlerTests =
             prependToElement er "<test></test>" AsHTML
       result <- rewriteStr rw "<!DOCTYPE html>\n<html>\n   <head></head>\n   <body>\n       <div>Test</div>\n   </body>\n</html>"
       let s = decodeResult result
-      T.isInfixOf "foo=\"bar\"" s `shouldBe` True ++ show s
-      T.isInfixOf "<test></test>" s `shouldBe` True ++ show s
+      T.isInfixOf "foo=\"bar\"" s `shouldBe` True
+      T.isInfixOf "<test></test>" s `shouldBe` True
   ]
 
 
@@ -803,9 +803,9 @@ loadFixtureTests = do
   pure $
     describe
       "Fixture tests" $ sequence_
-      [ describe "Selector matching" smTests
-      , describe "Element content replacement" ecrTests
-      , describe "DOM selector matching" domTests
+      [ describe "Selector matching" $ sequence_ smTests
+      , describe "Element content replacement" $ sequence_ ecrTests
+      , describe "DOM selector matching" $ sequence_ domTests
       ]
 
 
@@ -814,7 +814,7 @@ loadSelectorMatchingTests = do
   let dir = "test-data/selector_matching"
   exists <- doesDirectoryExist dir
   if not exists
-    then pure [it "SKIP: no test data" $ pure ()]
+    then pure [it "SKIP: no test data" $ (pure () :: IO ())]
     else do
       files <- sort <$> listDirectory dir
       let infoFiles = filter ("-info.json" `isSuffixOf`) files
@@ -833,7 +833,7 @@ loadElementContentReplacementTests = do
   let dir = "test-data/element_content_replacement"
   exists <- doesDirectoryExist dir
   if not exists
-    then pure [it "SKIP: no test data" $ pure ()]
+    then pure [it "SKIP: no test data" $ (pure () :: IO ())]
     else do
       files <- sort <$> listDirectory dir
       let infoFiles = filter ("-info.json" `isSuffixOf`) files
@@ -985,7 +985,7 @@ loadDOMSelectorTests = do
   let dir = "test-data/selector_matching"
   exists <- doesDirectoryExist dir
   if not exists
-    then pure [it "SKIP: no test data" $ pure ()]
+    then pure [it "SKIP: no test data" $ (pure () :: IO ())]
     else do
       files <- sort <$> listDirectory dir
       let infoFiles = filter ("-info.json" `isSuffixOf`) files

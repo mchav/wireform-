@@ -16,7 +16,7 @@ import System.Directory
   )
 import System.FilePath ((</>), takeDirectory, takeFileName)
 import System.IO (hFlush, hPutStrLn, stderr)
-import Test.Syd
+import Test.Syd hiding (runTest)
 
 import HTML.Parse (parseHTML, parseHTMLFragment, parseHTMLNodes)
 import HTML.Value
@@ -505,7 +505,7 @@ main = do
 
   let mkFileGroup refs (file, cases) =
         describe file $
-          map (mkTestCase refs file) cases
+          mapM_ (mkTestCase refs file) cases
 
       mkTestCase (pRef, fRef, sRef, tRef) file tc =
         it ("#" ++ show (tcIndex tc) ++ ": " ++ ellipsis 50 (tcData tc)) $ do
@@ -543,7 +543,7 @@ main = do
         report $ "Pass rate:          " ++ showPercent p run
         hFlush stderr
 
-      tree = describe "html5lib tree-construction"
+      tree = describe "html5lib tree-construction" $ sequence_
         (map (mkFileGroup refs) fileTests ++ [summaryTest])
 
   sydTest tree

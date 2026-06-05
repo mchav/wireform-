@@ -40,13 +40,13 @@ import qualified Thrift.Encode as TE
 
 main :: IO ()
 main = sydTest $ describe "Cross-Language Interop" $ sequence_
-  [ describe "MsgPack ↔ Python msgpack" msgpackTests
-  , describe "CBOR ↔ Python cbor2" cborTests
-  , describe "XML ↔ Python xml.etree" xmlTests
-  , describe "BSON ↔ Python bson" bsonTests
-  , describe "Ion ↔ Python amazon.ion" ionTests
-  , describe "Avro ↔ Python avro" avroTests
-  , describe "Thrift ↔ Python thrift" thriftTests
+  [ describe "MsgPack ↔ Python msgpack" $ sequence_ msgpackTests
+  , describe "CBOR ↔ Python cbor2" $ sequence_ cborTests
+  , describe "XML ↔ Python xml.etree" $ sequence_ xmlTests
+  , describe "BSON ↔ Python bson" $ sequence_ bsonTests
+  , describe "Ion ↔ Python amazon.ion" $ sequence_ ionTests
+  , describe "Avro ↔ Python avro" $ sequence_ avroTests
+  , describe "Thrift ↔ Python thrift" $ sequence_ thriftTests
   ]
 
 --------------------------------------------------------------------------------
