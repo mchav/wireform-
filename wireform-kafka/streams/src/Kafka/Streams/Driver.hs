@@ -42,6 +42,7 @@ module Kafka.Streams.Driver
   , newDriver
   , newDriverWith
   , pipeInput
+  , pipeInputH
   , pipeInputs
   , readOutput
   , readOutputAll
@@ -106,6 +107,7 @@ import Kafka.Streams.Internal.Engine
   , engineCollector
   , engineTopology
   , feedSource
+  , feedSourceH
   , storeByName
   , storeEntryAny
   , streamTimeOfEngine
@@ -135,6 +137,7 @@ import qualified Kafka.Streams.Types
 import Kafka.Streams.Types
   ( Headers
   , TopicName
+  , emptyHeaders
   )
 
 ----------------------------------------------------------------------
@@ -192,9 +195,24 @@ pipeInput
   -> Timestamp
   -> Int                       -- ^ partition (advisory)
   -> IO ()
-pipeInput d topic key value ts part = do
+pipeInput d topic key value ts part =
+  pipeInputH d topic key value emptyHeaders ts part
+
+-- | Like 'pipeInput' but carries record headers into the topology.
+-- Headers are visible to processors via the 'ProcessorContext' and
+-- propagate through repartition / through-topic hops.
+pipeInputH
+  :: TopologyTestDriver
+  -> TopicName
+  -> Maybe ByteString          -- ^ key bytes (or 'Nothing' for a tombstone)
+  -> ByteString                -- ^ value bytes
+  -> Headers                   -- ^ record headers
+  -> Timestamp
+  -> Int                       -- ^ partition (advisory)
+  -> IO ()
+pipeInputH d topic key value hdrs ts part = do
   off <- atomicModifyIORef' (driverNextOff d) (\n -> (n + 1, n))
-  feedSource (driverEngine d) topic key value ts part off
+  feedSourceH (driverEngine d) topic key value hdrs ts part off
   drainInternalLoop d
 
 pipeInputs
@@ -366,8 +384,8 @@ drainInternalLoop d = go (8 :: Int)
 
     feedOne cr = do
       off <- atomicModifyIORef' (driverNextOff d) (\m -> (m + 1, m))
-      feedSource (driverEngine d) (crTopic cr)
-        (crKey cr) (crValue cr) (crTimestamp cr) 0 off
+      feedSourceH (driverEngine d) (crTopic cr)
+        (crKey cr) (crValue cr) (crHeaders cr) (crTimestamp cr) 0 off
 
 engineCollectorPeekOf
   :: TopologyTestDriver
