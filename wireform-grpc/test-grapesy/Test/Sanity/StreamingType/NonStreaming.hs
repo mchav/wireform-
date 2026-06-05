@@ -5,8 +5,7 @@
 module Test.Sanity.StreamingType.NonStreaming (tests) where
 
 import Data.Word
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 import System.IO.Temp (getCanonicalTemporaryDirectory)
 import System.FilePath ((</>))
 
@@ -22,18 +21,18 @@ import Network.GRPC.Server.StreamType.Binary qualified as Binary
 import Test.Driver.ClientServer
 import Data.Foldable (toList)
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
-      testGroup "increment" [
-          testCase "default" $
+tests :: Spec
+tests = describe "Test.Sanity.StreamingType.NonStreaming" $ sequence_ [
+      describe "increment" $ sequence_ [
+          it "default" $
             test_increment def
-        , testCase "unix socket" $ do
+        , it "unix socket" $ do
             tmpDir <- getCanonicalTemporaryDirectory
             test_increment def { serverPort = Left (tmpDir </> "grapesy.sock") }
-        , testGroup "Content-Type" [
-              testGroup "ok" [
+        , describe "Content-Type" $ sequence_ [
+              describe "ok" $ sequence_ [
                   -- Without the +format part
-                  testCase "application/grpc" $
+                  it "application/grpc" $
                     test_increment def {
                         clientContentType = ValidOverride $
                           ContentTypeOverride "application/grpc"
@@ -41,14 +40,14 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 
                   -- Random other format
                   -- See discussion in 'parseContentType'
-                , testCase "application/grpc+gibberish" $
+                , it "application/grpc+gibberish" $
                     test_increment def {
                         clientContentType = ValidOverride $
                           ContentTypeOverride "application/grpc+gibberish"
                       }
                 ]
-            , testGroup "fail" [
-                  testCase "application/invalid-subtype" $
+            , describe "fail" $ sequence_ [
+                  it "application/invalid-subtype" $
                     test_increment def {
                         isExpectedServerException =
                           isInvalidRequestHeaders
@@ -59,7 +58,7 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       }
 
                   -- gRPC spec does not allow parameters
-                , testCase "charset" $
+                , it "charset" $
                     test_increment def {
                         isExpectedServerException =
                           isInvalidRequestHeaders
@@ -70,26 +69,26 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       }
                 ]
             ]
-        , testGroup "TLS" [
-              testGroup "ok" [
-                  testCase "certAsRoot" $
+        , describe "TLS" $ sequence_ [
+              describe "ok" $ sequence_ [
+                  it "certAsRoot" $
                     test_increment def {
                         useTLS = Just $ TlsOk TlsOkCertAsRoot
                       }
-                , testCase "skipValidation" $
+                , it "skipValidation" $
                     test_increment def {
                         useTLS = Just $ TlsOk TlsOkSkipValidation
                       }
                   ]
-            , testGroup "fail" [
-                  testCase "validation" $
+            , describe "fail" $ sequence_ [
+                  it "validation" $
                     test_increment def {
                         isExpectedClientException =
                           isHandshakeFailed
                       , useTLS =
                           Just $ TlsFail TlsFailValidation
                       }
-                , testCase "unsupported" $
+                , it "unsupported" $
                     test_increment def {
                         isExpectedClientException =
                           isHandshakeFailed
@@ -98,10 +97,10 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       }
                 ]
             ]
-        , testGroup "compression" [
-              testGroup "supported" $
-                let mkTest :: Compr.Compression -> TestTree
-                    mkTest compr = testCase comprId $
+        , describe "compression" $ sequence_ [
+              describe "supported" $
+                let mkTest :: Compr.Compression -> Spec
+                    mkTest compr = it comprId $
                         test_increment def {
                             clientCompr = Compr.only compr
                           , serverCompr = Compr.only compr
@@ -109,9 +108,9 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       where
                         comprId :: String
                         comprId = show (Compr.compressionId compr)
-                in map mkTest (toList Compr.allSupportedCompression)
-            , testGroup "unsupported" [
-                  testCase "clientChoosesUnsupported" $
+                in mapM_ mkTest (toList Compr.allSupportedCompression)
+            , describe "unsupported" $ sequence_ [
+                  it "clientChoosesUnsupported" $
                     test_increment def {
                         isExpectedServerException =
                           isServerUnsupportedCompression
@@ -122,7 +121,7 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       , serverCompr =
                           Compr.none
                       }
-                , testCase "serverChoosesUnsupported" $
+                , it "serverChoosesUnsupported" $
                     test_increment def {
                         isExpectedClientException =
                            isClientUnsupportedCompression
@@ -153,7 +152,7 @@ test_increment config = testClientServer $ ClientServerTest {
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do
           Binary.sendFinalInput @Word8 call 1
           resp <- fst <$> Binary.recvFinalOutput @Word8 call
-          assertEqual "" 2 $ resp
+          resp `shouldBe` 2
     , server = [
          Server.fromMethod @BinaryIncrement $ Binary.mkNonStreaming $ \n ->
            return (succ (n :: Word8))

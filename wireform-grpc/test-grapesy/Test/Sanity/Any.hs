@@ -5,8 +5,7 @@ module Test.Sanity.Any (tests) where
 
 import Control.Exception
 import Data.Vector qualified as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client (rpc)
 import Network.GRPC.Client.StreamType.IO qualified as Client
@@ -26,17 +25,17 @@ import Proto.API.TestAny
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.Any" [
-      testCase "Any"    testAny
-    , testCase "Status" testStatus
+tests :: Spec
+tests = describe "Test.Sanity.Any" $ sequence_ [
+      it "Any"    testAny
+    , it "Status" testStatus
     ]
 
 {-------------------------------------------------------------------------------
   Using the 'Any' wrapper
 -------------------------------------------------------------------------------}
 
-testAny :: Assertion
+testAny :: IO ()
 testAny = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.fromMethod @Reverse $ Server.mkNonStreaming handler]
@@ -46,7 +45,7 @@ testAny = testClientServer $ ClientServerTest {
             expected = withDetails [Any.pack detail2, Any.pack detail1]
 
         resp <- Client.nonStreaming conn (rpc @Reverse) req
-        assertEqual "" expected $ resp
+        resp `shouldBe` expected
     }
   where
     handler :: Proto TestAnyMsg -> IO (Proto TestAnyMsg)
@@ -66,7 +65,7 @@ testAny = testClientServer $ ClientServerTest {
   Protobuf-specific error details (which relies on 'Any')
 -------------------------------------------------------------------------------}
 
-testStatus :: Assertion
+testStatus :: IO ()
 testStatus = testClientServer $ ClientServerTest {
       config = def {
           isExpectedServerException = \(WrapExactException e) ->
@@ -82,10 +81,9 @@ testStatus = testClientServer $ ClientServerTest {
         mResp :: Either GrpcException (Proto PongMessage) <-
           try $ Client.nonStreaming conn (rpc @Ping) (mempty)
         case mResp of
-          Right _   -> assertFailure "Expected exception"
+          Right _   -> expectationFailure "Expected exception"
           Left  err ->
-            assertEqual "" (Right protobufError) $
-              toProtobufErrorHom err
+            toProtobufErrorHom err `shouldBe` (Right protobufError)
     }
   where
     protobufError :: ProtobufError A

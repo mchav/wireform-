@@ -44,7 +44,7 @@ import Network.Socket (PortNumber)
 import Network.TLS
 import Wireform.Network.TLS.OpenSSL (OpenSslError(..))
 import Test.QuickCheck.Monadic qualified as QuickCheck
-import Test.Tasty.QuickCheck qualified as QuickCheck
+import Test.QuickCheck qualified as QuickCheck
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common

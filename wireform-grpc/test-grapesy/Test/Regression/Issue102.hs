@@ -23,8 +23,7 @@ import Data.Either
 import Data.IORef
 import Data.Text qualified as Text
 import Data.Word
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
@@ -36,12 +35,12 @@ import Proto.API.Trivial
 
 import Test.Driver.ClientServer
 
-tests :: TestTree
-tests = testGroup "Issue102" [
-      testCase "client" test_clientException
-    , testCase "server" test_serverException
+tests :: Spec
+tests = describe "Issue102" $ sequence_ [
+      it "client" test_clientException
+    , it "server" test_serverException
 
-    , testCase "earlyTerminationNoWait"  test_earlyTerminationNoWait
+    , it "earlyTerminationNoWait"  test_earlyTerminationNoWait
     ]
 
 -- | Client makes many concurrent calls, throws an exception during one of them.
@@ -72,14 +71,14 @@ test_clientException = testClientServer $ ClientServerTest {
             predicates
 
         -- Only one of the calls failed
-        assertEqual "" (length $ lefts results) 1
+        1 `shouldBe` (length $ lefts results)
 
         -- All others terminated with results satisfying the predicate
-        assertBool "" (all predicate $ rights results)
+        (all predicate $ rights results) `shouldBe` True
 
         -- New calls still succeed
-        assertBool "" . predicate
-          =<< Client.withRPC conn def (Proxy @Trivial) (countUntil predicate)
+        newResult <- Client.withRPC conn def (Proxy @Trivial) (countUntil predicate)
+        predicate newResult `shouldBe` True
     , server = [
           Server.someRpcHandler $
             Server.mkRpcHandler @Trivial incUntilFinal
@@ -106,16 +105,16 @@ test_serverException = do
           -- exception
           case lefts results of
             [GrpcException GrpcUnknown (Just msg) Nothing []] ->
-              assertBool "" $ "DeliberateServerException" `Text.isInfixOf` msg
+              ("DeliberateServerException" `Text.isInfixOf` msg) `shouldBe` True
             _ ->
-              assertFailure ""
+              expectationFailure ""
 
           -- All others terminated with results satisfying the predicate
-          assertBool "" (all predicate $ rights results)
+          (all predicate $ rights results) `shouldBe` True
 
           -- New calls still succeed
-          assertBool "" . predicate
-            =<< Client.withRPC conn def (Proxy @Trivial) (countUntil predicate)
+          newResult <- Client.withRPC conn def (Proxy @Trivial) (countUntil predicate)
+          predicate newResult `shouldBe` True
       , server = [
               Server.someRpcHandler $
                 Server.mkRpcHandler @Trivial $ \call -> do
@@ -145,7 +144,7 @@ test_earlyTerminationNoWait = testClientServer $ ClientServerTest {
           Binary.sendFinalInput @Word8 call 0
           Binary.recvFinalOutput @Word8 call
 
-        assertEqual "" (1, NoMetadata) result
+        result `shouldBe` (1, NoMetadata)
     , server = [
           Server.someRpcHandler $
             Server.mkRpcHandler @Trivial $ \call ->

@@ -15,8 +15,7 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.StreamType (ServerHandler')
 import Network.GRPC.Server.StreamType qualified as Server
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Test.Driver.ClientServer
 
@@ -24,16 +23,16 @@ import Test.Driver.ClientServer
   Top-level
 -------------------------------------------------------------------------------}
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.EndOfStream" [
-      testGroup "client" [
-          testCase "sendAfterFinal" test_sendAfterFinal
-        , testCase "recvAfterFinal" test_recvAfterFinal
-        , testCase "recvTrailers"   test_recvTrailers
+tests :: Spec
+tests = describe "Test.Sanity.EndOfStream" $ sequence_ [
+      describe "client" $ sequence_ [
+          it "sendAfterFinal" test_sendAfterFinal
+        , it "recvAfterFinal" test_recvAfterFinal
+        , it "recvTrailers"   test_recvTrailers
         ]
-    , testGroup "server" [
-          testCase "recvInput"      test_recvInput
-        , testCase "recvEndOfInput" test_recvEndOfInput
+    , describe "server" $ sequence_ [
+          it "recvInput"      test_recvInput
+        , it "recvEndOfInput" test_recvEndOfInput
         ]
     ]
 
@@ -42,7 +41,7 @@ tests = testGroup "Test.Sanity.EndOfStream" [
 -------------------------------------------------------------------------------}
 
 -- | Test that we get SendAfterFinal when we call 'sendInput' after the final
-test_sendAfterFinal :: Assertion
+test_sendAfterFinal :: IO ()
 test_sendAfterFinal = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.fromMethod clientStreamingHandler]
@@ -57,15 +56,15 @@ test_sendAfterFinal = testClientServer $ ClientServerTest {
             Left SendAfterFinal{} ->
               return ()
             _otherwise ->
-              assertFailure "Expected SendAfterFinal"
+              expectationFailure "Expected SendAfterFinal"
 
           -- Communication with the server is unaffected
           (res, _) <- Client.recvFinalOutput call
-          assertEqual "response" BS.Lazy.empty $ res
+          res `shouldBe` BS.Lazy.empty
     }
 
 -- | Test that we get RecvAfterFinal if we call 'recvOutput' after the final
-test_recvAfterFinal :: Assertion
+test_recvAfterFinal :: IO ()
 test_recvAfterFinal = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.fromMethod serverStreamingHandler]
@@ -89,14 +88,14 @@ test_recvAfterFinal = testClientServer $ ClientServerTest {
             Left RecvAfterFinal{} ->
               return ()
             Right _ ->
-              assertFailure "Expected RecvAfterFinal"
+              expectationFailure "Expected RecvAfterFinal"
 
           return ()
     }
 
 -- | Test that 'recvTrailers' does /not/ throw an exception, even if the
 -- previous 'recvNextOutput' /happened/ to give us the final output.
-test_recvTrailers :: Assertion
+test_recvTrailers :: IO ()
 test_recvTrailers = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.fromMethod nonStreamingHandler]
@@ -105,7 +104,7 @@ test_recvTrailers = testClientServer $ ClientServerTest {
           Client.sendFinalInput call BS.Lazy.empty
 
           resp <- Client.recvNextOutput call
-          assertEqual "response" BS.Lazy.empty resp
+          resp `shouldBe` BS.Lazy.empty
 
           -- The purpose of this test:
           mTrailers <- try $ Client.recvTrailers call
@@ -113,7 +112,7 @@ test_recvTrailers = testClientServer $ ClientServerTest {
             Right _ ->
               return ()
             Left RecvAfterFinal{} ->
-              assertFailure "Unexpected RecvAfterFinal"
+              expectationFailure "Unexpected RecvAfterFinal"
 
           return ()
     }
@@ -156,7 +155,7 @@ serverStreamingHandler = Server.mkServerStreaming $ \_inp send ->
 -- NOTE: There is no client equivalent for this test. On the client side, the
 -- server will send trailers, and so /cannot/ make the final data frame as
 -- end-of-stream.
-test_recvInput :: Assertion
+test_recvInput :: IO ()
 test_recvInput = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.someRpcHandler handler]
@@ -176,7 +175,7 @@ test_recvInput = testClientServer $ ClientServerTest {
           FinalElem{} ->
             return ()
           _otherwise ->
-            assertFailure "Expected FinalElem"
+            expectationFailure "Expected FinalElem"
 
         Server.sendFinalOutput call (mempty, NoMetadata)
 
@@ -184,7 +183,7 @@ test_recvInput = testClientServer $ ClientServerTest {
 -- previous 'recvNextInput' /happened/ to give us the final input.
 --
 -- This is the server equivalent of 'test_recvTrailers'.
-test_recvEndOfInput :: Assertion
+test_recvEndOfInput :: IO ()
 test_recvEndOfInput = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.someRpcHandler handler]
@@ -198,7 +197,7 @@ test_recvEndOfInput = testClientServer $ ClientServerTest {
     handler :: Server.RpcHandler IO Poke
     handler = Server.mkRpcHandler $ \call -> do
         resp <- Server.recvNextInput call
-        assertEqual "resp" BS.Lazy.empty $ resp
+        resp `shouldBe` BS.Lazy.empty
 
         -- The purpose of this test:
         res <- try $ Server.recvEndOfInput call
@@ -206,7 +205,7 @@ test_recvEndOfInput = testClientServer $ ClientServerTest {
           Right () ->
             return ()
           Left RecvAfterFinal{} ->
-            assertFailure "Unexpected RecvAfterFinal"
+            expectationFailure "Unexpected RecvAfterFinal"
 
         Server.sendFinalOutput call (mempty, NoMetadata)
 

@@ -332,13 +332,19 @@ def _convert_assert_equal(src: str) -> tuple[str, list[str]]:
             i = j + len(needle)
             continue
         out.append(src[i:j])
+        ls = src.rfind("\n", 0, j) + 1
+        base_indent = j - ls
         k = _skip_ws(src, j + len(needle))
         msg, k = _read_arg(src, k)
         e1 = _skip_ws(src, k)
         expected, k2 = _read_arg(src, e1)
         e2 = _skip_ws(src, k2)
-        actual, k3 = _read_arg(src, e2)
-        if msg is None or expected is None or actual is None:
+        if e2 < len(src) and src[e2] == "$":
+            e3 = _skip_ws(src, e2 + 1)
+            actual, k3 = _read_dollar_expr(src, e3, base_indent)
+        else:
+            actual, k3 = _read_arg(src, e2)
+        if msg is None or expected is None or actual is None or actual == "":
             notes.append("assertEqual: could not parse args; skipped")
             out.append(needle)
             i = j + len(needle)

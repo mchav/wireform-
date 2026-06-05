@@ -2,8 +2,7 @@ module Test.Sanity.Reclamation (tests) where
 
 import Control.Exception
 import Control.Monad
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
@@ -14,10 +13,10 @@ import Test.Driver.ClientServer
 
 import Proto.API.Ping
 
-tests :: TestTree
-tests = testGroup "Test.Sanity.Reclamation" [
-      testCase "serverException1" serverException1
-    , testCase "serverException2" serverException2
+tests :: Spec
+tests = describe "Test.Sanity.Reclamation" $ sequence_ [
+      it "serverException1" serverException1
+    , it "serverException2" serverException2
     ]
 
 {-------------------------------------------------------------------------------
@@ -30,7 +29,7 @@ tests = testGroup "Test.Sanity.Reclamation" [
 brokenHandler :: Server.Call Ping -> IO ()
 brokenHandler _call = throwIO $ DeliberateServerException 1
 
-serverException1 :: Assertion
+serverException1 :: IO ()
 serverException1 = testClientServer $ ClientServerTest {
       config = def { isExpectedServerException = isDeliberateException }
     , server = [Server.someRpcHandler $ Server.mkRpcHandler brokenHandler]
@@ -41,10 +40,10 @@ serverException1 = testClientServer $ ClientServerTest {
               resp <- try $ Client.recvFinalOutput call
               case resp of
                 Left GrpcException{} -> return ()
-                Right _ -> assertFailure "Unexpected response"
+                Right _ -> expectationFailure "Unexpected response"
     }
 
-serverException2 :: Assertion
+serverException2 :: IO ()
 serverException2 = testClientServer $ ClientServerTest {
       config = def { isExpectedServerException = isDeliberateException }
     , server = [Server.someRpcHandler $ Server.mkRpcHandler brokenHandler]
@@ -61,5 +60,5 @@ serverException2 = testClientServer $ ClientServerTest {
                 Client.recvFinalOutput call
               case resp of
                 Left GrpcException{} -> return ()
-                Right _ -> assertFailure "Unexpected response"
+                Right _ -> expectationFailure "Unexpected response"
     }
