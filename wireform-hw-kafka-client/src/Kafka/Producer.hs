@@ -173,7 +173,7 @@ producerConfig ProducerProperties{..} =
     , WF.producerCompression =
         maybe WFC.defaultCodec compressionFromText (M.lookup "compression.codec" ppKafkaProps)
     , WF.producerDeliveryTimeoutMs =
-        maybe (WF.producerDeliveryTimeoutMs WF.defaultProducerConfig) fromIntegral
+        maybe (WF.producerDeliveryTimeoutMs WF.defaultProducerConfig) id
           (textDecimal =<< (M.lookup "message.timeout.ms" ppTopicProps <|> M.lookup "message.timeout.ms" ppKafkaProps))
     , WF.producerIdempotent = False
     , WF.producerDelivery = WF.AtLeastOnce

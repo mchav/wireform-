@@ -437,7 +437,7 @@ bootstrapServers props =
 
 lookupInt :: T.Text -> M.Map T.Text T.Text -> Int -> Int
 lookupInt key props fallback =
-  maybe fallback fromIntegral (textDecimal =<< M.lookup key props)
+  maybe fallback id (textDecimal =<< M.lookup key props)
 
 lookupBool :: T.Text -> M.Map T.Text T.Text -> Bool -> Bool
 lookupBool key props fallback =
