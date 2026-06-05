@@ -65,6 +65,7 @@ newtype ClientId = ClientId
 newtype BatchSize = BatchSize { unBatchSize :: Int }
   deriving (Show, Read, Eq, Ord, Num, Generic)
 
+-- | Whether the topic is created by a user or by the system.
 data TopicType
   = User
     -- ^ Normal topics that are created by a user.

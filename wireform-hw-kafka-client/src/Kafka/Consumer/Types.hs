@@ -192,22 +192,37 @@ instance Bitraversable ConsumerRecord where
     (\k v -> bimap (const k) (const v) r) <$> f (crKey r) <*> g (crValue r)
 
 {-# DEPRECATED crMapKey "Isn't concern of this library. Use 'first'" #-}
+-- | Map the key of a 'ConsumerRecord'.
+--
+-- Deprecated upstream; use 'Data.Bifunctor.first'.
 crMapKey :: (k -> k') -> ConsumerRecord k v -> ConsumerRecord k' v
 crMapKey = first
 
 {-# DEPRECATED crMapValue "Isn't concern of this library. Use 'second'" #-}
+-- | Map the value of a 'ConsumerRecord'.
+--
+-- Deprecated upstream; use 'Data.Bifunctor.second'.
 crMapValue :: (v -> v') -> ConsumerRecord k v -> ConsumerRecord k v'
 crMapValue = second
 
 {-# DEPRECATED crMapKV "Isn't concern of this library. Use 'bimap'" #-}
+-- | Map both key and value of a 'ConsumerRecord'.
+--
+-- Deprecated upstream; use 'Data.Bifunctor.bimap'.
 crMapKV :: (k -> k') -> (v -> v') -> ConsumerRecord k v -> ConsumerRecord k' v'
 crMapKV = bimap
 
 {-# DEPRECATED sequenceFirst "Isn't concern of this library. Use 'bitraverse' 'id' 'pure'" #-}
+-- | Sequence the key side of a bitraversable value.
+--
+-- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
 sequenceFirst :: (Bitraversable t, Applicative f) => t (f k) v -> f (t k v)
 sequenceFirst = bitraverse id pure
 
 {-# DEPRECATED traverseFirst "Isn't concern of this library. Use 'bitraverse' f 'pure'" #-}
+-- | Traverse the key side of a bitraversable value.
+--
+-- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
 traverseFirst
   :: (Bitraversable t, Applicative f)
   => (k -> f k')
@@ -216,6 +231,9 @@ traverseFirst
 traverseFirst f = bitraverse f pure
 
 {-# DEPRECATED traverseFirstM "Isn't concern of this library. Use bitraverse directly" #-}
+-- | Monadic traverse over the key side, preserving an applicative wrapper.
+--
+-- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
 traverseFirstM
   :: (Bitraversable t, Applicative f, Monad m)
   => (k -> m (f k'))
@@ -224,6 +242,9 @@ traverseFirstM
 traverseFirstM f r = bitraverse id pure <$> bitraverse f pure r
 
 {-# DEPRECATED traverseM "Isn't concern of this library. Use sequenceA with traverse" #-}
+-- | Monadic traverse over values, preserving an applicative wrapper.
+--
+-- Deprecated upstream; use 'traverse' and 'sequenceA' directly.
 traverseM
   :: (Traversable t, Applicative f, Monad m)
   => (v -> m (f v'))
@@ -232,6 +253,9 @@ traverseM
 traverseM f r = sequenceA <$> traverse f r
 
 {-# DEPRECATED bitraverseM "Isn't concern of this library. Use bitraverse directly" #-}
+-- | Monadic bitraverse preserving an applicative wrapper.
+--
+-- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
 bitraverseM
   :: (Bitraversable t, Applicative f, Monad m)
   => (k -> m (f k'))
