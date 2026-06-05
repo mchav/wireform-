@@ -164,9 +164,8 @@ test-suite hermes-tests
       base
     , bytestring
     , hedgehog          >= 1.0 && < 1.8
+    , sydtest
+    , sydtest-hedgehog
     , hermes
-    , tasty             >= 1.4
-    , tasty-hedgehog    >= 1.0 && < 1.8
-    , tasty-hunit       >= 0.10
     , text-short
   default-language: Haskell2010

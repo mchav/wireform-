@@ -12,9 +12,8 @@ import qualified Hedgehog.Range as Range
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
 import qualified Network.HTTP.Headers.Range as R
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 parseOk :: ByteString -> Either String R.Range
 parseOk bs = case runParser R.rangeParser bs of
@@ -28,43 +27,42 @@ parseOk bs = case runParser R.rangeParser bs of
 render :: R.Range -> ByteString
 render = M.toStrictByteString . R.renderRange
 
-unit_closed_range :: TestTree
-unit_closed_range = testCase "closed byte range" $
+unit_closed_range :: Spec
+unit_closed_range = it "closed byte range" $
   case parseOk "bytes=0-499" of
-    Right (R.ByteRanges (R.ByteRangeInt 0 (Just 499) :| [])) -> pure ()
+    Right (R.ByteRanges (R.ByteRangeInt 0 (Just 499) :| [])) -> pure () :: IO ()
     other -> error (show other)
 
-unit_open_range :: TestTree
-unit_open_range = testCase "open-ended range" $
+unit_open_range :: Spec
+unit_open_range = it "open-ended range" $
   case parseOk "bytes=500-" of
-    Right (R.ByteRanges (R.ByteRangeInt 500 Nothing :| [])) -> pure ()
+    Right (R.ByteRanges (R.ByteRangeInt 500 Nothing :| [])) -> pure () :: IO ()
     other -> error (show other)
 
-unit_suffix :: TestTree
-unit_suffix = testCase "suffix range" $
+unit_suffix :: Spec
+unit_suffix = it "suffix range" $
   case parseOk "bytes=-1024" of
-    Right (R.ByteRanges (R.ByteRangeSuffix 1024 :| [])) -> pure ()
+    Right (R.ByteRanges (R.ByteRangeSuffix 1024 :| [])) -> pure () :: IO ()
     other -> error (show other)
 
-unit_multi :: TestTree
-unit_multi = testCase "multiple byte ranges" $
+unit_multi :: Spec
+unit_multi = it "multiple byte ranges" $
   case parseOk "bytes=0-499, 1000-, -500" of
     Right (R.ByteRanges ne) ->
-      assertEqual "ranges"
+      NE.toList ne `shouldBe`
         [ R.ByteRangeInt 0 (Just 499)
         , R.ByteRangeInt 1000 Nothing
         , R.ByteRangeSuffix 500
         ]
-        (NE.toList ne)
     other -> error (show other)
 
-unit_render :: TestTree
-unit_render = testCase "render closed + open + suffix" $
+unit_render :: Spec
+unit_render = it "render closed + open + suffix" $
   let v = R.ByteRanges (R.ByteRangeInt 0 (Just 99) :|
                           [ R.ByteRangeInt 200 Nothing
                           , R.ByteRangeSuffix 50
                           ])
-  in assertEqual "rendered" "bytes=0-99,200-,-50" (render v)
+  in (render v) `shouldBe` "bytes=0-99,200-,-50"
 
 -- ---------------------------------------------------------------------------
 -- Property: bytes ranges round-trip
@@ -88,12 +86,12 @@ prop_roundtrip = property $ do
     Right r' -> r === r'
     Left err -> error (err <> " on " <> show bs)
 
-tests :: TestTree
-tests = testGroup "Range"
+tests :: Spec
+tests = describe "Range" $ sequence_
   [ unit_closed_range
   , unit_open_range
   , unit_suffix
   , unit_multi
   , unit_render
-  , testProperty "round-trip" prop_roundtrip
+  , it "round-trip" prop_roundtrip
   ]

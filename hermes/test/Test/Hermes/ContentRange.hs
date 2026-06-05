@@ -11,9 +11,8 @@ import qualified Hedgehog.Range as Range
 import qualified Network.HTTP.Headers.ContentRange as CR
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 parseOk :: ByteString -> Either String CR.ContentRange
 parseOk bs = case runParser CR.contentRangeParser bs of
@@ -27,36 +26,36 @@ parseOk bs = case runParser CR.contentRangeParser bs of
 render :: CR.ContentRange -> ByteString
 render = M.toStrictByteString . CR.renderContentRange
 
-unit_satisfied :: TestTree
-unit_satisfied = testCase "satisfied bytes/total" $
+unit_satisfied :: Spec
+unit_satisfied = it "satisfied bytes/total" $
   case parseOk "bytes 0-499/1234" of
     Right (CR.ContentRange unit (CR.RangeRespSatisfied 0 499 (Just 1234))) ->
-      assertEqual "unit" (ST.fromString "bytes") unit
+      unit `shouldBe` (ST.fromString "bytes")
     other -> error (show other)
 
-unit_satisfied_star :: TestTree
-unit_satisfied_star = testCase "satisfied with unknown total" $
+unit_satisfied_star :: Spec
+unit_satisfied_star = it "satisfied with unknown total" $
   case parseOk "bytes 0-9/*" of
-    Right (CR.ContentRange _ (CR.RangeRespSatisfied 0 9 Nothing)) -> pure ()
+    Right (CR.ContentRange _ (CR.RangeRespSatisfied 0 9 Nothing)) -> pure () :: IO ()
     other -> error (show other)
 
-unit_unsatisfied :: TestTree
-unit_unsatisfied = testCase "unsatisfied range" $
+unit_unsatisfied :: Spec
+unit_unsatisfied = it "unsatisfied range" $
   case parseOk "bytes */4096" of
-    Right (CR.ContentRange _ (CR.RangeRespUnsatisfied (Just 4096))) -> pure ()
+    Right (CR.ContentRange _ (CR.RangeRespUnsatisfied (Just 4096))) -> pure () :: IO ()
     other -> error (show other)
 
-unit_render_satisfied :: TestTree
-unit_render_satisfied = testCase "render satisfied" $
+unit_render_satisfied :: Spec
+unit_render_satisfied = it "render satisfied" $
   let v = CR.ContentRange (ST.fromString "bytes")
                           (CR.RangeRespSatisfied 0 99 (Just 200))
-  in assertEqual "rendered" "bytes 0-99/200" (render v)
+  in (render v) `shouldBe` "bytes 0-99/200"
 
-unit_render_unsatisfied :: TestTree
-unit_render_unsatisfied = testCase "render unsatisfied" $
+unit_render_unsatisfied :: Spec
+unit_render_unsatisfied = it "render unsatisfied" $
   let v = CR.ContentRange (ST.fromString "bytes")
                           (CR.RangeRespUnsatisfied (Just 4096))
-  in assertEqual "rendered" "bytes */4096" (render v)
+  in (render v) `shouldBe` "bytes */4096"
 
 -- Property: satisfied form round-trips for arbitrary positions.
 respGen :: Gen CR.RangeResp
@@ -78,12 +77,12 @@ prop_roundtrip = property $ do
     Right v' -> v === v'
     Left err -> error (err <> " on " <> show bs)
 
-tests :: TestTree
-tests = testGroup "ContentRange"
+tests :: Spec
+tests = describe "ContentRange" $ sequence_
   [ unit_satisfied
   , unit_satisfied_star
   , unit_unsatisfied
   , unit_render_satisfied
   , unit_render_unsatisfied
-  , testProperty "round-trip" prop_roundtrip
+  , it "round-trip" prop_roundtrip
   ]

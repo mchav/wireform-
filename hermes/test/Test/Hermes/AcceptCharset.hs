@@ -8,8 +8,7 @@ import qualified Data.Text.Short as ST
 import qualified Network.HTTP.Headers.AcceptCharset as AC
 import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Syd
 
 parseOk :: ByteString -> Either String AC.AcceptCharset
 parseOk bs = case runParser AC.acceptCharsetParser bs of
@@ -23,37 +22,37 @@ parseOk bs = case runParser AC.acceptCharsetParser bs of
 render :: AC.AcceptCharset -> ByteString
 render = M.toStrictByteString . AC.renderAcceptCharset
 
-unit_simple :: TestTree
-unit_simple = testCase "single charset" $
+unit_simple :: Spec
+unit_simple = it "single charset" $
   case parseOk "utf-8" of
     Right (AC.AcceptCharset [AC.WeightedCharset c 1]) ->
-      assertEqual "tag" (ST.fromString "utf-8") c
+      c `shouldBe` (ST.fromString "utf-8")
     other -> error ("unexpected parse: " <> show other)
 
-unit_weighted_list :: TestTree
-unit_weighted_list = testCase "weighted list with wildcard" $
+unit_weighted_list :: Spec
+unit_weighted_list = it "weighted list with wildcard" $
   case parseOk "utf-8;q=1, iso-8859-1;q=0.5, *;q=0" of
     Right (AC.AcceptCharset
             [ AC.WeightedCharset _ 1
             , AC.WeightedCharset _ 0.5
             , AC.WeightedCharset star 0
             ]) ->
-      assertEqual "star tag" (ST.fromString "*") star
+      star `shouldBe` (ST.fromString "*")
     other -> error ("unexpected parse: " <> show other)
 
-unit_round_trip :: TestTree
-unit_round_trip = testCase "render → parse round-trip" $
+unit_round_trip :: Spec
+unit_round_trip = it "render → parse round-trip" $
   let v = AC.AcceptCharset
         [ AC.WeightedCharset (ST.fromString "utf-8") 1
         , AC.WeightedCharset (ST.fromString "iso-8859-1") 0.5
         ]
       bs = render v
   in case parseOk bs of
-       Right v' -> assertEqual "round-trip" v v'
+       Right v' -> v' `shouldBe` v
        Left err -> error err
 
-tests :: TestTree
-tests = testGroup "AcceptCharset"
+tests :: Spec
+tests = describe "AcceptCharset" $ sequence_
   [ unit_simple
   , unit_weighted_list
   , unit_round_trip
