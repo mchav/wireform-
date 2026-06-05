@@ -120,6 +120,5 @@ test-suite wireform-derive-test
     aeson,
     template-haskell,
     hedgehog >= 1.0 && < 1.8,
-    tasty >= 1.4 && < 1.6,
-    tasty-hedgehog >= 1.0 && < 1.8,
-    tasty-hunit >= 0.10 && < 0.11
+    sydtest,
+    sydtest-hedgehog

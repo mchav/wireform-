@@ -2,42 +2,41 @@
 
 module Test.Derive.Fixtures (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Test.Derive.Fixtures.Reified as R
 
-tests :: TestTree
-tests = testGroup "ANN round-trip"
-  [ testGroup "wire keys (literal renames)"
-      [ testCase "personName JSON  -> \"name\""
-          (R.personNameKeyJSON @?= "name")
-      , testCase "personName CBOR  -> \"name\""
-          (R.personNameKeyCBOR @?= "name")
+tests :: Spec
+tests = describe "ANN round-trip" $ sequence_
+  [ describe "wire keys (literal renames)" $ sequence_
+      [ it "personName JSON  -> \"name\""
+          (R.personNameKeyJSON `shouldBe` "name")
+      , it "personName CBOR  -> \"name\""
+          (R.personNameKeyCBOR `shouldBe` "name")
       ]
 
-  , testGroup "wire keys (renameStyle)"
-      [ testCase "personAge JSON  -> \"person_age\" (literal from SnakeCase)"
-          (R.personAgeKeyJSON @?= "person_age")
-      , testCase "personAge Proto -> \"person_age\" (same; backend rename only on JSON-style)"
-          (R.personAgeKeyProto @?= "person_age")
+  , describe "wire keys (renameStyle)" $ sequence_
+      [ it "personAge JSON  -> \"person_age\" (literal from SnakeCase)"
+          (R.personAgeKeyJSON `shouldBe` "person_age")
+      , it "personAge Proto -> \"person_age\" (same; backend rename only on JSON-style)"
+          (R.personAgeKeyProto `shouldBe` "person_age")
       ]
 
-  , testGroup "wire keys (renameWith — runtime call)"
-      [ testCase "personSSN JSON  -> \"_personssn\" (lowercase + underscore prefix)"
-          (R.personSSNKeyJSON @?= "_personssn")
-      , testCase "personSSN CBOR  -> \"_personssn\""
-          (R.personSSNKeyCBOR @?= "_personssn")
+  , describe "wire keys (renameWith — runtime call)" $ sequence_
+      [ it "personSSN JSON  -> \"_personssn\" (lowercase + underscore prefix)"
+          (R.personSSNKeyJSON `shouldBe` "_personssn")
+      , it "personSSN CBOR  -> \"_personssn\""
+          (R.personSSNKeyCBOR `shouldBe` "_personssn")
       ]
 
-  , testGroup "per-backend overrides"
-      [ testCase "personSSN skipped in JSON (via disableFor)"
-          (R.personSSNSkipJSON @?= True)
-      , testCase "personSSN NOT skipped in CBOR"
-          (R.personSSNSkipCBOR @?= False)
-      , testCase "personAge tag visible only under proto"
-          (R.personAgeTagProto @?= Just 7)
-      , testCase "personAge has no tag under JSON"
-          (R.personAgeTagJSON @?= Nothing)
+  , describe "per-backend overrides" $ sequence_
+      [ it "personSSN skipped in JSON (via disableFor)"
+          (R.personSSNSkipJSON `shouldBe` True)
+      , it "personSSN NOT skipped in CBOR"
+          (R.personSSNSkipCBOR `shouldBe` False)
+      , it "personAge tag visible only under proto"
+          (R.personAgeTagProto `shouldBe` Just 7)
+      , it "personAge has no tag under JSON"
+          (R.personAgeTagJSON `shouldBe` Nothing)
       ]
   ]

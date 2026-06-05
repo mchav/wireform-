@@ -3,14 +3,13 @@ module Test.YAML.Decode (tests) where
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=), assertFailure)
+import Test.Syd
 
 import YAML.Decode
 import YAML.Value
 
-tests :: TestTree
-tests = testGroup "decode"
+tests :: Spec
+tests = describe "decode" $ sequence_
   [ scalarTests
   , collectionTests
   , flowTests
@@ -20,53 +19,53 @@ tests = testGroup "decode"
   , streamTests
   ]
 
-scalarTests :: TestTree
-scalarTests = testGroup "scalars"
-  [ testCase "null"  $ decode "null"  @?= Right YNull
-  , testCase "tilde" $ decode "~"     @?= Right YNull
-  , testCase "true"  $ decode "true"  @?= Right (YBool True)
-  , testCase "false" $ decode "false" @?= Right (YBool False)
-  , testCase "int"   $ decode "42"    @?= Right (YInt 42)
-  , testCase "neg"   $ decode "-17"   @?= Right (YInt (-17))
-  , testCase "hex"   $ decode "0x2A"  @?= Right (YInt 42)
-  , testCase "oct"   $ decode "0o52"  @?= Right (YInt 42)
-  , testCase "float" $ case decode "3.14" of
-      Right (YFloat d) -> assertBool "near pi" (abs (d - 3.14) < 1e-9)
-      r                -> assertFailure (show r)
-  , testCase ".inf"  $ case decode ".inf" of
-      Right (YFloat d) -> assertBool "+inf" (isInfinite d && d > 0)
-      r                -> assertFailure (show r)
-  , testCase "-.inf" $ case decode "-.inf" of
-      Right (YFloat d) -> assertBool "-inf" (isInfinite d && d < 0)
-      r                -> assertFailure (show r)
-  , testCase ".nan"  $ case decode ".nan" of
-      Right (YFloat d) -> assertBool "nan" (isNaN d)
-      r                -> assertFailure (show r)
-  , testCase "unquoted string" $ decode "hello" @?= Right (YString "hello")
+scalarTests :: Spec
+scalarTests = describe "scalars" $ sequence_
+  [ it "null"  $ decode "null"  `shouldBe` Right YNull
+  , it "tilde" $ decode "~"     `shouldBe` Right YNull
+  , it "true"  $ decode "true"  `shouldBe` Right (YBool True)
+  , it "false" $ decode "false" `shouldBe` Right (YBool False)
+  , it "int"   $ decode "42"    `shouldBe` Right (YInt 42)
+  , it "neg"   $ decode "-17"   `shouldBe` Right (YInt (-17))
+  , it "hex"   $ decode "0x2A"  `shouldBe` Right (YInt 42)
+  , it "oct"   $ decode "0o52"  `shouldBe` Right (YInt 42)
+  , it "float" $ case decode "3.14" of
+      Right (YFloat d) -> (abs (d - 3.14) < 1e-9) `shouldBe` True
+      r                -> expectationFailure (show r)
+  , it ".inf"  $ case decode ".inf" of
+      Right (YFloat d) -> (isInfinite d && d > 0) `shouldBe` True
+      r                -> expectationFailure (show r)
+  , it "-.inf" $ case decode "-.inf" of
+      Right (YFloat d) -> (isInfinite d && d < 0) `shouldBe` True
+      r                -> expectationFailure (show r)
+  , it ".nan"  $ case decode ".nan" of
+      Right (YFloat d) -> (isNaN d) `shouldBe` True
+      r                -> expectationFailure (show r)
+  , it "unquoted string" $ decode "hello" `shouldBe` Right (YString "hello")
   ]
 
-collectionTests :: TestTree
-collectionTests = testGroup "block style"
-  [ testCase "block mapping" $ do
+collectionTests :: Spec
+collectionTests = describe "block style" $ sequence_
+  [ it "block mapping" $ do
       let src = T.unlines [ "name: alice"
                           , "age: 30"
                           ]
       case decode src of
         Right v -> do
-          lookupKey "name" v @?= Just (YString "alice")
-          lookupKey "age"  v @?= Just (YInt 30)
-        Left e -> assertFailure e
+          lookupKey "name" v `shouldBe` Just (YString "alice")
+          lookupKey "age"  v `shouldBe` Just (YInt 30)
+        Left e -> expectationFailure e
 
-  , testCase "block sequence" $ do
+  , it "block sequence" $ do
       let src = T.unlines [ "- 1"
                           , "- 2"
                           , "- 3"
                           ]
       case decode src of
-        Right (YSeq xs) -> V.toList xs @?= [YInt 1, YInt 2, YInt 3]
-        r -> assertFailure (show r)
+        Right (YSeq xs) -> V.toList xs `shouldBe` [YInt 1, YInt 2, YInt 3]
+        r -> expectationFailure (show r)
 
-  , testCase "nested mapping" $ do
+  , it "nested mapping" $ do
       let src = T.unlines
             [ "server:"
             , "  host: localhost"
@@ -76,12 +75,12 @@ collectionTests = testGroup "block style"
         Right v ->
           case lookupKey "server" v of
             Just inner -> do
-              lookupKey "host" inner @?= Just (YString "localhost")
-              lookupKey "port" inner @?= Just (YInt 8080)
-            _ -> assertFailure "no server"
-        Left e -> assertFailure e
+              lookupKey "host" inner `shouldBe` Just (YString "localhost")
+              lookupKey "port" inner `shouldBe` Just (YInt 8080)
+            _ -> expectationFailure "no server"
+        Left e -> expectationFailure e
 
-  , testCase "sequence of mappings" $ do
+  , it "sequence of mappings" $ do
       let src = T.unlines
             [ "- name: a"
             , "  v: 1"
@@ -90,89 +89,89 @@ collectionTests = testGroup "block style"
             ]
       case decode src of
         Right (YSeq xs) -> do
-          V.length xs @?= 2
+          V.length xs `shouldBe` 2
           let m0 = xs V.! 0
-          lookupKey "name" m0 @?= Just (YString "a")
-          lookupKey "v"    m0 @?= Just (YInt 1)
-        r -> assertFailure (show r)
+          lookupKey "name" m0 `shouldBe` Just (YString "a")
+          lookupKey "v"    m0 `shouldBe` Just (YInt 1)
+        r -> expectationFailure (show r)
 
-  , testCase "comment + blank lines" $ do
+  , it "comment + blank lines" $ do
       let src = T.unlines
             [ "# header"
             , ""
             , "foo: bar  # trailing"
             ]
       case decode src of
-        Right v -> lookupKey "foo" v @?= Just (YString "bar")
-        Left e  -> assertFailure e
+        Right v -> lookupKey "foo" v `shouldBe` Just (YString "bar")
+        Left e  -> expectationFailure e
   ]
 
-flowTests :: TestTree
-flowTests = testGroup "flow style"
-  [ testCase "flow seq"  $ decode "[1, 2, 3]"
-      @?= Right (YSeq (V.fromList [YInt 1, YInt 2, YInt 3]))
-  , testCase "flow map"  $ case decode "{a: 1, b: 2}" of
+flowTests :: Spec
+flowTests = describe "flow style" $ sequence_
+  [ it "flow seq"  $ decode "[1, 2, 3]"
+      `shouldBe` Right (YSeq (V.fromList [YInt 1, YInt 2, YInt 3]))
+  , it "flow map"  $ case decode "{a: 1, b: 2}" of
       Right (YMap kvs) -> do
-        V.length kvs @?= 2
-      r -> assertFailure (show r)
-  , testCase "nested flow" $
+        V.length kvs `shouldBe` 2
+      r -> expectationFailure (show r)
+  , it "nested flow" $
       case decode "[[1, 2], [3, 4]]" of
-        Right (YSeq xs) -> V.length xs @?= 2
-        r -> assertFailure (show r)
+        Right (YSeq xs) -> V.length xs `shouldBe` 2
+        r -> expectationFailure (show r)
   ]
 
-stringTests :: TestTree
-stringTests = testGroup "strings"
-  [ testCase "double quoted" $
-      decode "\"hello world\"" @?= Right (YString "hello world")
-  , testCase "single quoted" $
-      decode "'it''s ok'" @?= Right (YString "it's ok")
-  , testCase "escape \\n" $
-      decode "\"a\\nb\"" @?= Right (YString "a\nb")
-  , testCase "escape \\u" $
-      decode "\"\\u00E9\"" @?= Right (YString "\233")
-  , testCase "quoted in mapping" $ do
+stringTests :: Spec
+stringTests = describe "strings" $ sequence_
+  [ it "double quoted" $
+      decode "\"hello world\"" `shouldBe` Right (YString "hello world")
+  , it "single quoted" $
+      decode "'it''s ok'" `shouldBe` Right (YString "it's ok")
+  , it "escape \\n" $
+      decode "\"a\\nb\"" `shouldBe` Right (YString "a\nb")
+  , it "escape \\u" $
+      decode "\"\\u00E9\"" `shouldBe` Right (YString "\233")
+  , it "quoted in mapping" $ do
       case decode "msg: \"hello\\tworld\"" of
-        Right v -> lookupKey "msg" v @?= Just (YString "hello\tworld")
-        Left e  -> assertFailure e
+        Right v -> lookupKey "msg" v `shouldBe` Just (YString "hello\tworld")
+        Left e  -> expectationFailure e
   ]
 
-blockScalarTests :: TestTree
-blockScalarTests = testGroup "block scalars"
-  [ testCase "literal" $ do
+blockScalarTests :: Spec
+blockScalarTests = describe "block scalars" $ sequence_
+  [ it "literal" $ do
       let src = T.unlines
             [ "txt: |"
             , "  one"
             , "  two"
             ]
       case decode src of
-        Right v -> lookupKey "txt" v @?= Just (YString "one\ntwo\n")
-        Left e  -> assertFailure e
+        Right v -> lookupKey "txt" v `shouldBe` Just (YString "one\ntwo\n")
+        Left e  -> expectationFailure e
 
-  , testCase "literal strip" $ do
+  , it "literal strip" $ do
       let src = T.unlines
             [ "txt: |-"
             , "  one"
             , "  two"
             ]
       case decode src of
-        Right v -> lookupKey "txt" v @?= Just (YString "one\ntwo")
-        Left e  -> assertFailure e
+        Right v -> lookupKey "txt" v `shouldBe` Just (YString "one\ntwo")
+        Left e  -> expectationFailure e
 
-  , testCase "folded" $ do
+  , it "folded" $ do
       let src = T.unlines
             [ "txt: >"
             , "  one"
             , "  two"
             ]
       case decode src of
-        Right v -> lookupKey "txt" v @?= Just (YString "one two\n")
-        Left e  -> assertFailure e
+        Right v -> lookupKey "txt" v `shouldBe` Just (YString "one two\n")
+        Left e  -> expectationFailure e
   ]
 
-anchorTests :: TestTree
-anchorTests = testGroup "anchors"
-  [ testCase "anchor + alias scalar" $ do
+anchorTests :: Spec
+anchorTests = describe "anchors" $ sequence_
+  [ it "anchor + alias scalar" $ do
       let src = T.unlines
             [ "a: &x 1"
             , "b: *x"
@@ -182,18 +181,18 @@ anchorTests = testGroup "anchors"
           -- Aliases come back wrapped in 'YAnchored' so the
           -- size-of walk can identify shared subtrees by name;
           -- 'unwrap' strips the wrapper for value comparison.
-          fmap unwrap (lookupKey "a" v) @?= Just (YInt 1)
-          fmap unwrap (lookupKey "b" v) @?= Just (YInt 1)
-        Left e -> assertFailure e
+          fmap unwrap (lookupKey "a" v) `shouldBe` Just (YInt 1)
+          fmap unwrap (lookupKey "b" v) `shouldBe` Just (YInt 1)
+        Left e -> expectationFailure e
   ]
 
-streamTests :: TestTree
-streamTests = testGroup "stream"
-  [ testCase "single doc, no markers" $
+streamTests :: Spec
+streamTests = describe "stream" $ sequence_
+  [ it "single doc, no markers" $
       case decodeStream "k: 1" of
-        Right (Stream xs) -> V.length xs @?= 1
-        Left e -> assertFailure e
-  , testCase "two docs" $ do
+        Right (Stream xs) -> V.length xs `shouldBe` 1
+        Left e -> expectationFailure e
+  , it "two docs" $ do
       let src = T.unlines
             [ "---"
             , "a: 1"
@@ -202,6 +201,6 @@ streamTests = testGroup "stream"
             , "b: 2"
             ]
       case decodeStream src of
-        Right (Stream xs) -> V.length xs @?= 2
-        Left e -> assertFailure e
+        Right (Stream xs) -> V.length xs `shouldBe` 2
+        Left e -> expectationFailure e
   ]

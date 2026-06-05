@@ -15,8 +15,7 @@ import qualified Data.Text as T
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Wireform.Derive.Backend (backendIceberg)
 import Wireform.Derive.Extension
@@ -58,48 +57,48 @@ instance BackendModifier XmlFieldOpt where
 -- Tests
 -- ---------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Wireform.Derive.Extension"
-  [ testCase "round-trip a single typed extension" $ do
+tests :: Spec
+tests = describe "Wireform.Derive.Extension" $ sequence_
+  [ it "round-trip a single typed extension" $ do
       let m = extension PartitionColumn
       let mi = applyMods [m]
-      lookupExtension @IcebergFieldOpt mi @?= Just PartitionColumn
-      hasExtension    @IcebergFieldOpt mi @?= True
+      lookupExtension @IcebergFieldOpt mi `shouldBe` Just PartitionColumn
+      hasExtension    @IcebergFieldOpt mi `shouldBe` True
 
-  , testCase "round-trip an extension with a Text payload" $ do
+  , it "round-trip an extension with a Text payload" $ do
       let m = extension (OptimisticTransform (T.pack "year"))
       let mi = applyMods [m]
-      lookupExtension @IcebergFieldOpt mi @?= Just (OptimisticTransform (T.pack "year"))
+      lookupExtension @IcebergFieldOpt mi `shouldBe` Just (OptimisticTransform (T.pack "year"))
 
-  , testCase "two extensions of the same type are stacked" $ do
+  , it "two extensions of the same type are stacked" $ do
       let ms =
             [ extension PartitionColumn
             , extension (OptimisticTransform (T.pack "month"))
             ]
       let mi = applyMods ms
-      lookupExtensions @IcebergFieldOpt mi @?=
+      lookupExtensions @IcebergFieldOpt mi `shouldBe`
         [ PartitionColumn
         , OptimisticTransform (T.pack "month")
         ]
 
-  , testCase "two extensions of distinct types coexist" $ do
+  , it "two extensions of distinct types coexist" $ do
       let ms = [ extension PartitionColumn
                , extension AsAttribute
                , extension (NamespacedTo (T.pack "ns0"))
                ]
       let mi = applyMods ms
-      lookupExtension @IcebergFieldOpt mi @?= Just PartitionColumn
-      lookupExtensions @XmlFieldOpt   mi @?=
+      lookupExtension @IcebergFieldOpt mi `shouldBe` Just PartitionColumn
+      lookupExtensions @XmlFieldOpt   mi `shouldBe`
         [AsAttribute, NamespacedTo (T.pack "ns0")]
 
-  , testCase "absent extension is Nothing" $ do
+  , it "absent extension is Nothing" $ do
       let mi = emptyModifierInfo backendIceberg
-      lookupExtension @IcebergFieldOpt mi @?= Nothing
-      hasExtension    @IcebergFieldOpt mi @?= False
+      lookupExtension @IcebergFieldOpt mi `shouldBe` Nothing
+      hasExtension    @IcebergFieldOpt mi `shouldBe` False
 
-  , testCase "miCustom keys match the BackendModifier tag" $ do
+  , it "miCustom keys match the BackendModifier tag" $ do
       let mi = applyMods [extension PartitionColumn, extension AsAttribute]
-      Map.keys (miCustom mi) @?=
+      Map.keys (miCustom mi) `shouldBe`
         [ "wireform-iceberg.field-opt"
         , "wireform-xml.field-opt"
         ]

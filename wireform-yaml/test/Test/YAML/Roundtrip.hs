@@ -7,17 +7,17 @@ import Hedgehog (Property, forAll, property, tripping)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import YAML.Decode (decode)
 import YAML.Encode (encode)
 import YAML.Value
 
-tests :: TestTree
-tests = testGroup "roundtrip properties"
-  [ testProperty "scalar roundtrip" prop_scalarRoundtrip
-  , testProperty "value roundtrip"  prop_valueRoundtrip
+tests :: Spec
+tests = describe "roundtrip properties" $ sequence_
+  [ it "scalar roundtrip" prop_scalarRoundtrip
+  , it "value roundtrip"  prop_valueRoundtrip
   ]
 
 genScalar :: H.Gen Value

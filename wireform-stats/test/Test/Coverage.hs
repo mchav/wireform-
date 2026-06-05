@@ -3,16 +3,15 @@ module Test.Coverage (tests) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Wireform.Stats.Coverage as Cov
 
-tests :: TestTree
-tests = testGroup "Coverage"
-  [ testCase "parseHpcReport: top-line numbers" topLine
-  , testCase "parseHpcReport: per-module"        perModule
-  , testCase "summaryToCoverageLine: shape"      lineShape
+tests :: Spec
+tests = describe "Coverage" $ sequence_
+  [ it "parseHpcReport: top-line numbers" topLine
+  , it "parseHpcReport: per-module"        perModule
+  , it "summaryToCoverageLine: shape"      lineShape
   ]
 
 hpcDoc :: Text
@@ -33,21 +32,21 @@ hpcDoc = T.unlines
 topLine :: Assertion
 topLine = do
   let s = Cov.parseHpcReport hpcDoc
-  Cov.covExpressions       s @?= 92
-  Cov.covAlternatives      s @?= 89
-  Cov.covLocalDeclarations s @?= 90
-  Cov.covTopDeclarations   s @?= 95
+  Cov.covExpressions       s `shouldBe` 92
+  Cov.covAlternatives      s `shouldBe` 89
+  Cov.covLocalDeclarations s `shouldBe` 90
+  Cov.covTopDeclarations   s `shouldBe` 95
 
 perModule :: Assertion
 perModule = do
   let s = Cov.parseHpcReport hpcDoc
-  length (Cov.covModules s) @?= 3
+  length (Cov.covModules s) `shouldBe` 3
   -- Names extracted correctly?
   let names = map Cov.mcModule (Cov.covModules s)
-  names @?= ["CBOR.Encode", "CBOR.Decode", "CBOR.Value"]
+  names `shouldBe` ["CBOR.Encode", "CBOR.Decode", "CBOR.Value"]
 
 lineShape :: Assertion
 lineShape = do
   let s = Cov.parseHpcReport hpcDoc
       l = Cov.summaryToCoverageLine s
-  assertBool "carries the headline percent" ("92.0%" `T.isInfixOf` l)
+  ("92.0%" `T.isInfixOf` l) `shouldBe` True

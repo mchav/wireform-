@@ -7,8 +7,7 @@
 module Test.CEL.TH (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL
 import CEL.TH (cel, celFn, compileCel)
@@ -30,20 +29,20 @@ varFn = [celFn| n * 2 |]
 macroFn :: Env -> Either CelError Value
 macroFn = [celFn| [1, 2, 3].exists(x, x > 2) && size('abc') == 3 |]
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "CEL.TH (compile-time compilation)"
-    [ testCase "cel quasiquoter: arithmetic" $
-        evaluate emptyEnv arithExpr @?= Right (VInt 7)
-    , testCase "cel quasiquoter: macro" $
-        evaluate emptyEnv mapExpr @?= Right (VList (V.fromList [VInt 1, VInt 4, VInt 9]))
-    , testCase "compileCel splice" $
-        evaluate emptyEnv $(compileCel "'hello'.size()") @?= Right (VInt 5)
-    , testCase "celFn: compiled arithmetic" $
-        arithFn emptyEnv @?= Right (VInt 7)
-    , testCase "celFn: compiled program reads the environment" $
-        varFn (bind "n" (VInt 5) emptyEnv) @?= Right (VInt 10)
-    , testCase "celFn: compiled macros + functions" $
-        macroFn emptyEnv @?= Right (VBool True)
+  describe
+    "CEL.TH (compile-time compilation)" $ sequence_
+    [ it "cel quasiquoter: arithmetic" $
+        evaluate emptyEnv arithExpr `shouldBe` Right (VInt 7)
+    , it "cel quasiquoter: macro" $
+        evaluate emptyEnv mapExpr `shouldBe` Right (VList (V.fromList [VInt 1, VInt 4, VInt 9]))
+    , it "compileCel splice" $
+        evaluate emptyEnv $(compileCel "'hello'.size()") `shouldBe` Right (VInt 5)
+    , it "celFn: compiled arithmetic" $
+        arithFn emptyEnv `shouldBe` Right (VInt 7)
+    , it "celFn: compiled program reads the environment" $
+        varFn (bind "n" (VInt 5) emptyEnv) `shouldBe` Right (VInt 10)
+    , it "celFn: compiled macros + functions" $
+        macroFn emptyEnv `shouldBe` Right (VBool True)
     ]

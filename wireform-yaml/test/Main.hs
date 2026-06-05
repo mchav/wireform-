@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty (defaultMain, testGroup)
+import Test.Syd
 
 import qualified Test.YAML.Annotated
 import qualified Test.YAML.Decode
@@ -13,7 +13,7 @@ import qualified Test.YAML.Security
 main :: IO ()
 main = do
   conf <- Test.YAML.Conformance.tests
-  defaultMain $ testGroup "wireform-yaml"
+  sydTest $ describe "wireform-yaml" $ sequence_
     [ Test.YAML.Decode.tests
     , Test.YAML.Encode.tests
     , Test.YAML.Roundtrip.tests

@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Test.Marker
 import qualified Test.SVG
@@ -11,7 +10,7 @@ import qualified Test.Test
 import qualified Test.Coverage
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-stats"
+main = sydTest $ describe "wireform-stats" $ sequence_
   [ Test.Marker.tests
   , Test.SVG.tests
   , Test.Bench.tests
@@ -20,5 +19,5 @@ main = defaultMain $ testGroup "wireform-stats"
   , trivial
   ]
 
-trivial :: TestTree
-trivial = testCase "trivial sanity" $ True @?= True
+trivial :: Spec
+trivial = it "trivial sanity" $ True `shouldBe` True

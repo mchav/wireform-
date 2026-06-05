@@ -3,8 +3,7 @@
 module Test.Fory.Derive (tests) where
 
 import qualified Data.Vector as V
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified Fory.Class as F
 import qualified Fory.Value as VV
@@ -12,102 +11,97 @@ import qualified Fory.Value as VV
 import Test.Fory.Derive.Instances ()
 import Test.Fory.Derive.Types
 
-tests :: TestTree
-tests = testGroup "Fory.Derive"
+tests :: Spec
+tests = describe "Fory.Derive" $ sequence_
   [ recordTests
   , newtypeTests
   , enumTests
   , sumTests
   ]
 
-recordTests :: TestTree
-recordTests = testGroup "record"
-  [ testCase "encode applies rename + renameStyle, drops skipped" $ do
+recordTests :: Spec
+recordTests = describe "record" $ sequence_
+  [ it "encode applies rename + renameStyle, drops skipped" $ do
       let p = Profile "Alice" 30 "a@x" "secret"
       case F.toFory p of
         VV.StructVal _ _ kvs -> do
-          assertBool "name key present"
-            (V.elem ("name", VV.StringVal "Alice") kvs)
-          assertBool "snake-cased age key present"
-            (V.any (keyIs "profile_age") kvs)
-          assertBool "email key (StripPrefix + snake)"
-            (V.any (keyIs "email") kvs)
-          assertBool "private skipped"
-            (not (V.any (keyIs "profilePrivate") kvs))
-        v -> fail ("expected StructVal, got " ++ show v)
+          (V.elem ("name", VV.StringVal "Alice") kvs) `shouldBe` True
+          (V.any (keyIs "profile_age") kvs) `shouldBe` True
+          (V.any (keyIs "email") kvs) `shouldBe` True
+          (not (V.any (keyIs "profilePrivate") kvs)) `shouldBe` True
+        v -> expectationFailure ("expected StructVal, got " ++ show v)
 
-  , testCase "round-trip fills skipped from defaults" $ do
+  , it "round-trip fills skipped from defaults" $ do
       let p = Profile "Alice" 30 "a@x" "secret"
       case F.fromFory (F.toFory p) of
         Right p' -> do
-          profileName    p' @?= profileName p
-          profileAge     p' @?= profileAge p
-          profileEmail   p' @?= profileEmail p
-          profilePrivate p' @?= defaultPrivate
-        Left e -> fail e
+          profileName    p' `shouldBe` profileName p
+          profileAge     p' `shouldBe` profileAge p
+          profileEmail   p' `shouldBe` profileEmail p
+          profilePrivate p' `shouldBe` defaultPrivate
+        Left e -> expectationFailure e
   ]
   where
     keyIs t (k, _) = k == t
 
-newtypeTests :: TestTree
-newtypeTests = testGroup "newtype"
-  [ testCase "pass-through" $
-      F.toFory (Tag 42) @?= VV.VarInt64Val 42
-  , testCase "round-trip" $
-      F.fromFory (F.toFory (Tag 7)) @?= Right (Tag 7)
+newtypeTests :: Spec
+newtypeTests = describe "newtype" $ sequence_
+  [ it "pass-through" $
+      F.toFory (Tag 42) `shouldBe` VV.VarInt64Val 42
+  , it "round-trip" $
+      F.fromFory (F.toFory (Tag 7)) `shouldBe` Right (Tag 7)
   ]
 
-enumTests :: TestTree
-enumTests = testGroup "enum"
-  [ testCase "Red"      $ F.toFory Red      @?= VV.StringVal "red"
-  , testCase "DarkBlue" $ F.toFory DarkBlue @?= VV.StringVal "dark-blue"
-  , testCase "round-trip" $ mapM_ rt [Red, Green, DarkBlue]
-  , testCase "unknown fails" $
+enumTests :: Spec
+enumTests = describe "enum" $ sequence_
+  [ it "Red"      $ F.toFory Red      `shouldBe` VV.StringVal "red"
+  , it "DarkBlue" $ F.toFory DarkBlue `shouldBe` VV.StringVal "dark-blue"
+  , it "round-trip" $ mapM_ rt [Red, Green, DarkBlue]
+  , it "unknown fails" $
       case F.fromFory (VV.StringVal "purple") :: Either String Color of
         Left _  -> pure ()
-        Right c -> fail ("unexpected " ++ show c)
+        Right c -> expectationFailure ("unexpected " ++ show c)
   ]
   where
     rt :: Color -> IO ()
-    rt c = F.fromFory (F.toFory c) @?= Right c
+    rt c = F.fromFory (F.toFory c) `shouldBe` Right c
 
-sumTests :: TestTree
-sumTests = testGroup "sum"
-  [ testCase "Origin (nullary) -> tag/contents=None" $
+sumTests :: Spec
+sumTests = describe "sum" $ sequence_
+  [ it "Origin (nullary) -> tag/contents=None" $
       case F.toFory Origin of
         VV.StructVal _ _ kvs -> do
-          V.elem ("tag", VV.StringVal "origin") kvs @?= True
-          V.elem ("contents", VV.NoneVal)         kvs @?= True
-        v -> fail ("expected StructVal, got " ++ show v)
+          V.elem ("tag", VV.StringVal "origin") kvs `shouldBe` True
+          V.elem ("contents", VV.NoneVal)         kvs `shouldBe` True
+        v -> expectationFailure ("expected StructVal, got " ++ show v)
 
-  , testCase "Circle (unary) -> contents = inner value" $
+  , it "Circle (unary) -> contents = inner value" $
       case F.toFory (Circle 1.5) of
         VV.StructVal _ _ kvs -> do
-          V.elem ("tag", VV.StringVal "circle")     kvs @?= True
-          V.elem ("contents", VV.Float64Val 1.5)    kvs @?= True
-        v -> fail ("expected StructVal, got " ++ show v)
+          V.elem ("tag", VV.StringVal "circle")     kvs `shouldBe` True
+          V.elem ("contents", VV.Float64Val 1.5)    kvs `shouldBe` True
+        v -> expectationFailure ("expected StructVal, got " ++ show v)
 
-  , testCase "Rect (n-ary) -> contents = ListVal" $
+  , it "Rect (n-ary) -> contents = ListVal" $
       case F.toFory (Rect 2 3) of
         VV.StructVal _ _ kvs -> do
-          V.elem ("tag", VV.StringVal "rect") kvs @?= True
-          assertBool "contents is ListVal of two doubles"
-            (V.any (\(k,v) -> k == "contents" &&
+          V.elem ("tag", VV.StringVal "rect") kvs `shouldBe` True
+          (V.any (\(k,v) -> k == "contents" &&
                 v == VV.ListVal (V.fromList [VV.Float64Val 2, VV.Float64Val 3]))
-                kvs)
-        v -> fail ("expected StructVal, got " ++ show v)
+                kvs) `shouldBe` True
+        v -> expectationFailure ("expected StructVal, got " ++ show v)
 
-  , testCase "round-trip Origin" $ rt Origin
-  , testCase "round-trip Circle" $ rt (Circle 5)
-  , testCase "round-trip Rect"   $ rt (Rect 4 5)
+  , it "round-trip Origin" $ rt Origin
+  , it "round-trip Circle" $ rt (Circle 5)
+  , it "round-trip Rect"   $ rt (Rect 4 5)
 
-  , testCase "unknown tag fails" $ do
+  , it "unknown tag fails" $ do
       let bad = VV.StructVal "x" "Shape"
                   (V.fromList [("tag", VV.StringVal "ellipse")])
       case F.fromFory bad :: Either String Shape of
         Left _ -> pure ()
-        Right s -> fail ("unexpected " ++ show s)
+        Right s -> expectationFailure ("unexpected " ++ show s)
   ]
   where
     rt :: Shape -> IO ()
-    rt s = F.fromFory (F.toFory s) @?= Right s
+    rt s = F.fromFory (F.toFory s) `shouldBe` Right s

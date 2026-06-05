@@ -9,8 +9,8 @@ import Data.Word (Word32, Word64)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Fory.Encoding as E
 
@@ -62,24 +62,24 @@ roundTripTaggedUint64 n = do
     then Right v
     else Left "trailing bytes"
 
-tests :: TestTree
-tests = testGroup "Fory.Encoding"
-  [ testProperty "varuint32 round-trip" $ H.property $ do
+tests :: Spec
+tests = describe "Fory.Encoding" $ sequence_
+  [ it "varuint32 round-trip" $ H.property $ do
       w <- H.forAll (Gen.word32 Range.linearBounded)
       roundTripVaruint32 w H.=== Right w
-  , testProperty "varuint64 round-trip" $ H.property $ do
+  , it "varuint64 round-trip" $ H.property $ do
       w <- H.forAll (Gen.word64 Range.linearBounded)
       roundTripVaruint64 w H.=== Right w
-  , testProperty "varint32 round-trip" $ H.property $ do
+  , it "varint32 round-trip" $ H.property $ do
       n <- H.forAll (Gen.int32 Range.linearBounded)
       roundTripVarint32 n H.=== Right n
-  , testProperty "varint64 round-trip" $ H.property $ do
+  , it "varint64 round-trip" $ H.property $ do
       n <- H.forAll (Gen.int64 Range.linearBounded)
       roundTripVarint64 n H.=== Right n
-  , testProperty "tagged int64 round-trip" $ H.property $ do
+  , it "tagged int64 round-trip" $ H.property $ do
       n <- H.forAll (Gen.int64 Range.linearBounded)
       roundTripTaggedInt64 n H.=== Right n
-  , testProperty "tagged uint64 round-trip" $ H.property $ do
+  , it "tagged uint64 round-trip" $ H.property $ do
       n <- H.forAll (Gen.word64 Range.linearBounded)
       roundTripTaggedUint64 n H.=== Right n
   ]

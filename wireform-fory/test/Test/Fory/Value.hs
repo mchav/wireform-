@@ -8,9 +8,8 @@ import qualified Data.Vector as V
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Fory.Decode as D
 import qualified Fory.Encode as E
@@ -50,21 +49,21 @@ genValue depth = Gen.choice
 roundTrip :: VV.Value -> Either String VV.Value
 roundTrip = D.decode . E.encode
 
-tests :: TestTree
-tests = testGroup "Fory.Value"
-  [ testCase "encode/decode None"    $ roundTrip VV.NoneVal       @?= Right VV.NoneVal
-  , testCase "encode/decode Bool"    $ roundTrip (VV.BoolVal True) @?= Right (VV.BoolVal True)
-  , testCase "encode/decode String"  $
-      roundTrip (VV.StringVal "héllo") @?= Right (VV.StringVal "héllo")
-  , testCase "encode/decode struct"  $ do
+tests :: Spec
+tests = describe "Fory.Value" $ sequence_
+  [ it "encode/decode None"    $ roundTrip VV.NoneVal       `shouldBe` Right VV.NoneVal
+  , it "encode/decode Bool"    $ roundTrip (VV.BoolVal True) `shouldBe` Right (VV.BoolVal True)
+  , it "encode/decode String"  $
+      roundTrip (VV.StringVal "héllo") `shouldBe` Right (VV.StringVal "héllo")
+  , it "encode/decode struct"  $ do
       let s = VV.StructVal "Foo.Bar" "Baz"
                 (V.fromList [("x", VV.Int32Val 7), ("y", VV.StringVal "ok")])
-      roundTrip s @?= Right s
-  , testProperty "round-trip random Value" $ H.property $ do
+      roundTrip s `shouldBe` Right s
+  , it "round-trip random Value" $ H.property $ do
       v <- H.forAll (genValue 3)
       H.tripping v E.encode D.decode
-  , testCase "decode rejects truncated input" $
+  , it "decode rejects truncated input" $
       case D.decode "" of
         Left _  -> pure ()
-        Right v -> fail ("unexpected " ++ show v)
+        Right v -> expectationFailure ("unexpected " ++ show v)
   ]
