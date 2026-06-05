@@ -1,0 +1,77 @@
+cabal-version: 3.0
+name: wireform-hw-kafka-client
+version: 0.1.0.0
+synopsis: hw-kafka-client compatible facade over wireform-kafka
+description:
+    Source-compatible facade for the public @hw-kafka-client@ modules,
+    backed by the native @wireform-kafka@ client.
+license: BSD-3-Clause
+license-file: ../wireform-kafka/LICENSE
+author: Ian Duncan
+maintainer: ian@iankduncan.com
+copyright: 2026 Ian Duncan
+category: Network, Database, Streaming
+build-type: Simple
+
+common defaults
+    ghc-options:
+        -Wall
+        -Wcompat
+        -Widentities
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wmissing-export-lists
+        -Wpartial-fields
+        -Wredundant-constraints
+    default-language: GHC2021
+    default-extensions:
+        DeriveDataTypeable
+        DeriveGeneric
+        DerivingStrategies
+        DuplicateRecordFields
+        GeneralizedNewtypeDeriving
+        LambdaCase
+        OverloadedStrings
+        StrictData
+
+library
+    import: defaults
+    hs-source-dirs: src
+    exposed-modules:
+        Kafka.Callbacks
+        Kafka.Consumer
+        Kafka.Consumer.ConsumerProperties
+        Kafka.Consumer.Subscription
+        Kafka.Consumer.Types
+        Kafka.Dump
+        Kafka.Metadata
+        Kafka.Producer
+        Kafka.Producer.ProducerProperties
+        Kafka.Producer.Types
+        Kafka.Transaction
+        Kafka.Types
+    other-modules:
+        Kafka.Consumer.Callbacks
+        Kafka.Internal.Compat
+        Kafka.Producer.Callbacks
+    build-depends:
+        base                      >= 4.16 && < 5,
+        bytestring                >= 0.11 && < 0.13,
+        containers                >= 0.6  && < 0.9,
+        text                      >= 2.0  && < 2.2,
+        transformers              >= 0.5  && < 0.7,
+        wireform-kafka            == 0.1.*
+
+test-suite wireform-hw-kafka-client-test
+    import: defaults
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test
+    build-depends:
+        base,
+        bytestring,
+        containers,
+        tasty                     >= 1.4  && < 1.6,
+        tasty-hunit               >= 0.10 && < 0.11,
+        text,
+        wireform-hw-kafka-client

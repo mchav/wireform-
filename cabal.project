@@ -45,6 +45,7 @@ packages:
   grpc-spec/
   wireform-kafka-protocol/
   wireform-kafka/
+  wireform-hw-kafka-client/
   wireform-stats/
   wireform-cel/
   wireform-protovalidate/

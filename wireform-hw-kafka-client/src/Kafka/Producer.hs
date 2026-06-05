@@ -1,0 +1,156 @@
+module Kafka.Producer
+  ( KafkaProducer
+  , module X
+  , runProducer
+  , newProducer
+  , produceMessage
+  , produceMessage'
+  , flushProducer
+  , closeProducer
+  , RdKafkaRespErrT (..)
+  ) where
+
+import Control.Exception (bracket)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Data.ByteString (ByteString)
+import Data.Int (Int32)
+import Kafka.Consumer.Types (Offset (..))
+import Kafka.Internal.Compat
+  ( Kafka (..)
+  , RdKafkaRespErrT (..)
+  , kafkaConf
+  , textDecimal
+  , topicConf
+  )
+import Kafka.Producer.ProducerProperties as X
+import Kafka.Producer.Types as X hiding (KafkaProducer)
+import Kafka.Producer.Types (KafkaProducer (..))
+import Kafka.Types as X
+import qualified Data.ByteString as BS
+import qualified Data.Map as M
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TEE
+import qualified Kafka.Client.Producer as WF
+import qualified Kafka.Compression.Types as WFC
+
+{-# DEPRECATED runProducer "Use 'newProducer'/'closeProducer' instead" #-}
+runProducer
+  :: ProducerProperties
+  -> (KafkaProducer -> IO (Either KafkaError a))
+  -> IO (Either KafkaError a)
+runProducer props f =
+  bracket (newProducer props) closeResult runResult
+  where
+    closeResult (Left _) = pure ()
+    closeResult (Right prod) = closeProducer prod
+
+    runResult (Left err) = pure (Left err)
+    runResult (Right prod) = f prod
+
+newProducer :: MonadIO m => ProducerProperties -> m (Either KafkaError KafkaProducer)
+newProducer props = liftIO $ do
+  kc <- kafkaConf (ppKafkaProps props)
+  let tc = topicConf (ppTopicProps props)
+      brokers = bootstrapServers (ppKafkaProps props)
+      cfg = producerConfig props
+  result <- WF.createProducer brokers cfg
+  pure $ case result of
+    Left err -> Left (KafkaError (T.pack err))
+    Right producer -> Right KafkaProducer
+      { kpKafkaPtr = KafkaProducerHandle producer
+      , kpKafkaConf = kc
+      , kpTopicConf = tc
+      }
+
+produceMessage
+  :: MonadIO m
+  => KafkaProducer
+  -> ProducerRecord
+  -> m (Maybe KafkaError)
+produceMessage producer record =
+  produceMessage' producer record (const (pure ())) >>= \case
+    Left (ImmediateError err) -> pure (Just err)
+    Right () -> pure Nothing
+
+produceMessage'
+  :: MonadIO m
+  => KafkaProducer
+  -> ProducerRecord
+  -> (DeliveryReport -> IO ())
+  -> m (Either ImmediateError ())
+produceMessage' KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} record callback =
+  liftIO $ do
+    result <- WF.sendRecord producer (toWireformRecord record)
+    case result of
+      Left err -> do
+        let kafkaErr = KafkaError (T.pack err)
+        callback (DeliveryFailure record kafkaErr)
+        pure (Left (ImmediateError kafkaErr))
+      Right metadata -> do
+        callback (DeliverySuccess record (Offset (WF.offset metadata)))
+        pure (Right ())
+produceMessage' _ record callback = liftIO $ do
+  let err = KafkaBadSpecification "KafkaProducer does not contain a producer handle"
+  callback (DeliveryFailure record err)
+  pure (Left (ImmediateError err))
+
+flushProducer :: MonadIO m => KafkaProducer -> m ()
+flushProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
+  liftIO $ do
+    _ <- WF.flushProducer producer
+    pure ()
+flushProducer _ = pure ()
+
+closeProducer :: MonadIO m => KafkaProducer -> m ()
+closeProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
+  WF.closeProducer producer
+closeProducer _ = pure ()
+
+producerConfig :: ProducerProperties -> WF.ProducerConfig
+producerConfig ProducerProperties{..} =
+  WF.defaultProducerConfig
+    { WF.producerClientId = M.findWithDefault "hw-kafka-client" "client.id" ppKafkaProps
+    , WF.producerCompression =
+        maybe WFC.defaultCodec compressionFromText (M.lookup "compression.codec" ppKafkaProps)
+    , WF.producerDeliveryTimeoutMs =
+        maybe (WF.producerDeliveryTimeoutMs WF.defaultProducerConfig) fromIntegral
+          (textDecimal =<< (M.lookup "message.timeout.ms" ppTopicProps <|> M.lookup "message.timeout.ms" ppKafkaProps))
+    , WF.producerIdempotent = False
+    , WF.producerDelivery = WF.AtLeastOnce
+    }
+
+bootstrapServers :: M.Map T.Text T.Text -> [T.Text]
+bootstrapServers props =
+  case M.lookup "bootstrap.servers" props of
+    Nothing -> []
+    Just brokers -> filter (not . T.null) (T.splitOn "," brokers)
+
+compressionFromText :: T.Text -> WFC.CompressionCodec
+compressionFromText raw =
+  case WFC.parseCompressionCodec raw of
+    Just codec -> codec
+    Nothing -> WFC.defaultCodec
+
+toWireformRecord :: ProducerRecord -> WF.ProducerRecord
+toWireformRecord ProducerRecord{..} =
+  WF.ProducerRecord
+    { WF.topic = unTopicName prTopic
+    , WF.key = prKey
+    , WF.value = maybe BS.empty id prValue
+    , WF.headers = map convertHeader (headersToList prHeaders)
+    , WF.partition = partitionToWireform prPartition
+    , WF.timestamp = Nothing
+    }
+
+partitionToWireform :: ProducePartition -> Maybe Int32
+partitionToWireform UnassignedPartition = Nothing
+partitionToWireform (SpecifiedPartition p) = Just (fromIntegral p)
+
+convertHeader :: (ByteString, ByteString) -> (T.Text, ByteString)
+convertHeader (name, value) =
+  (TE.decodeUtf8With TEE.lenientDecode name, value)
+
+(<|>) :: Maybe a -> Maybe a -> Maybe a
+Just x <|> _ = Just x
+Nothing <|> y = y
