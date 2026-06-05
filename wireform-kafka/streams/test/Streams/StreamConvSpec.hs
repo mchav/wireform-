@@ -9,8 +9,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
@@ -23,8 +22,8 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "StreamConversions"
+tests :: Spec
+tests = describe "StreamConversions" $ sequence_
   [ to_table_basic
   , to_table_keeps_latest_per_key
   , repartition_passes_records_through
@@ -35,9 +34,9 @@ tests = testGroup "StreamConversions"
   , to_extracted_routes_per_record
   ]
 
-to_table_basic :: TestTree
+to_table_basic :: Spec
 to_table_basic =
-  testCase "toTable materialises into the named store" $ do
+  it "toTable materialises into the named store" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -49,12 +48,12 @@ to_table_basic =
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver)
                  (ktableStore table)
-    ro.roKvGet "k" >>= (@?= Just "v")
+    ro.roKvGet "k" >>= (`shouldBe` Just "v")
     closeDriver driver
 
-to_table_keeps_latest_per_key :: TestTree
+to_table_keeps_latest_per_key :: Spec
 to_table_keeps_latest_per_key =
-  testCase "toTable retains only the latest value per key" $ do
+  it "toTable retains only the latest value per key" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -68,12 +67,12 @@ to_table_keeps_latest_per_key =
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver)
                  (ktableStore table)
-    ro.roKvGet "k" >>= (@?= Just "v3")
+    ro.roKvGet "k" >>= (`shouldBe` Just "v3")
     closeDriver driver
 
-repartition_passes_records_through :: TestTree
+repartition_passes_records_through :: Spec
 repartition_passes_records_through =
-  testCase "repartition preserves record order in the test driver" $ do
+  it "repartition preserves record order in the test driver" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -87,12 +86,12 @@ repartition_passes_records_through =
     pipeInput driver (topicName "in") Nothing (bytes "c") (t 0) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["a", "b", "c"]
+    map (unbytes . crValue) out `shouldBe` ["a", "b", "c"]
     closeDriver driver
 
-split_stream_routes_by_predicate :: TestTree
+split_stream_routes_by_predicate :: Spec
 split_stream_routes_by_predicate =
-  testCase "splitStream: first matching predicate wins" $ do
+  it "splitStream: first matching predicate wins" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -115,13 +114,13 @@ split_stream_routes_by_predicate =
 
     outA <- readOutput driver (topicName "out-a")
     outB <- readOutput driver (topicName "out-b")
-    map (unbytes . crValue) outA @?= ["alpha", "able"]
-    map (unbytes . crValue) outB @?= ["bravo", "banana"]
+    map (unbytes . crValue) outA `shouldBe` ["alpha", "able"]
+    map (unbytes . crValue) outB `shouldBe` ["bravo", "banana"]
     closeDriver driver
 
-split_stream_default_branch_catches_residue :: TestTree
+split_stream_default_branch_catches_residue :: Spec
 split_stream_default_branch_catches_residue =
-  testCase "splitStream with a default branch catches everything else" $ do
+  it "splitStream with a default branch catches everything else" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -143,13 +142,13 @@ split_stream_default_branch_catches_residue =
 
     outA <- readOutput driver (topicName "out-a")
     outR <- readOutput driver (topicName "out-rest")
-    map (unbytes . crValue) outA @?= ["alpha", "able"]
-    map (unbytes . crValue) outR @?= ["bravo", "charlie"]
+    map (unbytes . crValue) outA `shouldBe` ["alpha", "able"]
+    map (unbytes . crValue) outR `shouldBe` ["bravo", "charlie"]
     closeDriver driver
 
-split_stream_no_default_drops_unmatched :: TestTree
+split_stream_no_default_drops_unmatched :: Spec
 split_stream_no_default_drops_unmatched =
-  testCase "splitStream without default drops unmatched" $ do
+  it "splitStream without default drops unmatched" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -168,12 +167,12 @@ split_stream_no_default_drops_unmatched =
       ["alpha", "bravo", "able", "charlie"]
 
     out <- readOutput driver (topicName "out-a")
-    map (unbytes . crValue) out @?= ["alpha", "able"]
+    map (unbytes . crValue) out `shouldBe` ["alpha", "able"]
     closeDriver driver
 
-merge_streams_n_combines_three :: TestTree
+merge_streams_n_combines_three :: Spec
 merge_streams_n_combines_three =
-  testCase "mergeStreamsN combines three streams in submission order" $ do
+  it "mergeStreamsN combines three streams in submission order" $ do
     b <- newStreamsBuilder
     s1 <- streamFromTopic b (topicName "in1") (consumed textSerde textSerde)
     s2 <- streamFromTopic b (topicName "in2") (consumed textSerde textSerde)
@@ -189,12 +188,12 @@ merge_streams_n_combines_three =
     pipeInput driver (topicName "in1") Nothing (bytes "d") (t 0) 0
 
     out <- readOutput driver (topicName "out")
-    map (unbytes . crValue) out @?= ["a", "b", "c", "d"]
+    map (unbytes . crValue) out `shouldBe` ["a", "b", "c", "d"]
     closeDriver driver
 
-to_extracted_routes_per_record :: TestTree
+to_extracted_routes_per_record :: Spec
 to_extracted_routes_per_record =
-  testCase "toExtracted routes each record to a topic chosen per-record" $ do
+  it "toExtracted routes each record to a topic chosen per-record" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     let ext = TopicNameExtractor $ \r ->
@@ -210,6 +209,6 @@ to_extracted_routes_per_record =
 
     outA <- readOutput driver (topicName "out-a")
     outO <- readOutput driver (topicName "out-other")
-    map (unbytes . crValue) outA @?= ["alpha", "ant"]
-    map (unbytes . crValue) outO @?= ["bravo", "charlie"]
+    map (unbytes . crValue) outA `shouldBe` ["alpha", "ant"]
+    map (unbytes . crValue) outO `shouldBe` ["bravo", "charlie"]
     closeDriver driver

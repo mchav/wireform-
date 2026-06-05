@@ -16,8 +16,7 @@ import System.Directory
   )
 import System.FilePath ((</>), takeDirectory, takeFileName)
 import System.IO (hFlush, hPutStrLn, stderr)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import HTML.Parse (parseHTML, parseHTMLFragment, parseHTMLNodes)
 import HTML.Value
@@ -505,11 +504,11 @@ main = do
     pure (file, cases)
 
   let mkFileGroup refs (file, cases) =
-        testGroup file $
+        describe file $
           map (mkTestCase refs file) cases
 
       mkTestCase (pRef, fRef, sRef, tRef) file tc =
-        testCase ("#" ++ show (tcIndex tc) ++ ": " ++ ellipsis 50 (tcData tc)) $ do
+        it ("#" ++ show (tcIndex tc) ++ ": " ++ ellipsis 50 (tcData tc)) $ do
           modifyIORef' tRef (+1)
           result <- (evaluate (runTest tc))
                     `catch` (\(e :: SomeException) ->
@@ -519,7 +518,7 @@ main = do
             Skip _ -> modifyIORef' sRef (+1)
             Fail msg -> do
               modifyIORef' fRef (+1)
-              assertFailure (file ++ " #" ++ show (tcIndex tc) ++ " input: " ++ ellipsis 80 (tcData tc) ++ "\n" ++ msg)
+              expectationFailure (file ++ " #" ++ show (tcIndex tc) ++ " input: " ++ ellipsis 80 (tcData tc) ++ "\n" ++ msg)
 
       ellipsis n s
         | length s <= n = s
@@ -527,7 +526,7 @@ main = do
 
       refs = (passRef, failRef, skipRef, totalRef)
 
-      summaryTest = testCase "SUMMARY" $ do
+      summaryTest = it "SUMMARY" $ do
         p <- readIORef passRef
         f <- readIORef failRef
         s <- readIORef skipRef
@@ -544,10 +543,10 @@ main = do
         report $ "Pass rate:          " ++ showPercent p run
         hFlush stderr
 
-      tree = testGroup "html5lib tree-construction"
+      tree = describe "html5lib tree-construction"
         (map (mkFileGroup refs) fileTests ++ [summaryTest])
 
-  defaultMain tree
+  sydTest tree
 
 showPercent :: Int -> Int -> String
 showPercent _ 0 = "N/A"

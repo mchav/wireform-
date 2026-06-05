@@ -35,8 +35,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
 import Data.Void (Void)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Grouped as Grouped
@@ -48,8 +47,8 @@ import qualified Kafka.Streams.Topology.Free as F
 import qualified Kafka.Streams.Time as Time
 import qualified Kafka.Streams.Window as Win
 
-tests :: TestTree
-tests = testGroup "Windowed suppress pipeline (regression)"
+tests :: Spec
+tests = describe "Windowed suppress pipeline (regression)" $ sequence_
   [ stream_from_windowed_dedupes_per_window
   , stream_from_windowed_emits_old_window_only_on_value_change
   , suppress_flushes_on_stream_time_advance_alone
@@ -136,9 +135,9 @@ decodeWindowed r = do
 -- actually changes for that (key, window-start). So a max-reduce
 -- that sees @20, 5, 20, 7@ in the same window emits two records,
 -- not four.
-stream_from_windowed_dedupes_per_window :: TestTree
+stream_from_windowed_dedupes_per_window :: Spec
 stream_from_windowed_dedupes_per_window =
-  testCase "windowedAsStreamProc: one emit per (key, window-start) value change" $ do
+  it "windowedAsStreamProc: one emit per (key, window-start) value change" $ do
     (_h, topo) <- F.compile (reduceMaxTopology EmitOnUpdate)
     driver <- newDriver topo "wd-dedupe"
 
@@ -155,12 +154,12 @@ stream_from_windowed_dedupes_per_window =
       ]
     out <- readOutput driver (topicName "out")
     map (fmap (\(_, _, v) -> v) . decodeWindowed) out
-      @?= [Right 20.0]
+      `shouldBe` [Right 20.0]
     closeDriver driver
 
-stream_from_windowed_emits_old_window_only_on_value_change :: TestTree
+stream_from_windowed_emits_old_window_only_on_value_change :: Spec
 stream_from_windowed_emits_old_window_only_on_value_change =
-  testCase "old windows are not re-emitted just because a new window updates" $ do
+  it "old windows are not re-emitted just because a new window updates" $ do
     (_h, topo) <- F.compile (reduceMaxTopology EmitOnUpdate)
     driver <- newDriver topo "wd-dedupe-2"
 
@@ -193,10 +192,10 @@ stream_from_windowed_emits_old_window_only_on_value_change =
           , Right (_, ts, v) <- [decodeWindowed r]
           ]
     -- Each (window-start, value) appears at most once.
-    Set.size (Set.fromList decoded) @?= length decoded
+    Set.size (Set.fromList decoded) `shouldBe` length decoded
     -- And we see exactly the expected (window, value) updates.
     Set.fromList decoded
-      @?= Set.fromList
+      `shouldBe` Set.fromList
         [ (0,  10.0), (0,  20.0)
         , (5000, 5.0), (5000, 9.0)
         , (10000, 1.0)
@@ -229,9 +228,9 @@ suppressedReduceMaxTopology =
         $ Mat.withKeySerde textSerde
         $ Mat.materialized
 
-suppress_flushes_on_stream_time_advance_alone :: TestTree
+suppress_flushes_on_stream_time_advance_alone :: Spec
 suppress_flushes_on_stream_time_advance_alone =
-  testCase "suppressWindowedProc: stream-time advance flushes due windows without a new record" $ do
+  it "suppressWindowedProc: stream-time advance flushes due windows without a new record" $ do
     (_h, topo) <- F.compile suppressedReduceMaxTopology
     driver <- newDriver topo "wd-sup-flush"
 
@@ -253,7 +252,7 @@ suppress_flushes_on_stream_time_advance_alone =
           | r <- pre
           , Right (_, ts, v) <- [decodeWindowed r]
           ]
-    preDecoded @?= [(0, 2.0)]
+    preDecoded `shouldBe` [(0, 2.0)]
 
     -- Advance the driver clock past window 1's close + grace
     -- (10000 + 0) with NO further input. Before the punctuator
@@ -266,16 +265,16 @@ suppress_flushes_on_stream_time_advance_alone =
           | r <- post
           , Right (_, ts, v) <- [decodeWindowed r]
           ]
-    postDecoded @?= [(5000, 9.0)]
+    postDecoded `shouldBe` [(5000, 9.0)]
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 3. emitOnWindowClose dispatch does not loop
 ----------------------------------------------------------------------
 
-emit_on_window_close_dispatch_does_not_recurse :: TestTree
+emit_on_window_close_dispatch_does_not_recurse :: Spec
 emit_on_window_close_dispatch_does_not_recurse =
-  testCase "wthEmit = OnWindowClose -> streamFromWindowed compiles and emits at close" $ do
+  it "wthEmit = OnWindowClose -> streamFromWindowed compiles and emits at close" $ do
     -- The mere fact that 'F.compile' returns without diverging
     -- guarantees the recursion bug is gone. We then drive a few
     -- records + advance the clock to confirm the operator still
@@ -302,20 +301,19 @@ emit_on_window_close_dispatch_does_not_recurse =
     -- Exactly one record per (already-closed) window — the
     -- "emit once at close" KIP-825 contract.
     Set.fromList decoded
-      @?= Set.fromList
+      `shouldBe` Set.fromList
         [ (0,    9.0)   -- max for window [0, 5000)
         , (5000, 7.0)   -- max for window [5000, 10000)
         ]
     -- Doubly defensive: no record appears twice.
-    Set.size (Set.fromList decoded) @?= length decoded
+    Set.size (Set.fromList decoded) `shouldBe` length decoded
     -- And every record carries the inner key 'k'.
     let keys =
           [ k
           | r <- out
           , Right (k, _, _) <- [decodeWindowed r]
           ]
-    assertBool "every emitted key is 'Just \"k\"'"
-               (all (== Just "k") keys)
+    (all (== Just "k") keys) `shouldBe` True
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -328,9 +326,9 @@ emit_on_window_close_dispatch_does_not_recurse =
 -- only flushes when another record arrives on the affected key,
 -- so a key that goes silent forever after one update would
 -- never deliver.
-suppress_until_time_limit_flushes_on_stream_time_advance :: TestTree
+suppress_until_time_limit_flushes_on_stream_time_advance :: Spec
 suppress_until_time_limit_flushes_on_stream_time_advance =
-  testCase "suppressUntilTimeLimit: stream-time advance flushes silent debounce buffers" $ do
+  it "suppressUntilTimeLimit: stream-time advance flushes silent debounce buffers" $ do
     let topology :: F.Topology Void ()
         topology =
           F.source @Text @Text "in"
@@ -343,7 +341,7 @@ suppress_until_time_limit_flushes_on_stream_time_advance =
     pre <- readOutput driver (topicName "out")
     -- Stream time is 0; debounce window ends at 1000. Buffer
     -- holds the value; nothing emitted yet.
-    length pre @?= 0
+    length pre `shouldBe` 0
 
     -- Advance past the debounce limit with NO further input.
     -- The punctuator must flush the buffered value.
@@ -352,7 +350,7 @@ suppress_until_time_limit_flushes_on_stream_time_advance =
     map (\r -> (fmap (T.pack . BSC.unpack) (crKey r),
                 T.pack (BSC.unpack (crValue r))))
         post
-      @?= [(Just "k", "v0")]
+      `shouldBe` [(Just "k", "v0")]
     closeDriver driver
 
 ----------------------------------------------------------------------
@@ -364,9 +362,9 @@ suppress_until_time_limit_flushes_on_stream_time_advance =
 -- on distinct keys (within the record cap so no shedding
 -- happens), then advance stream time past their close + grace
 -- and check that the main downstream receives them.
-suppress_windowed_shed_flushes_on_stream_time_advance :: TestTree
+suppress_windowed_shed_flushes_on_stream_time_advance :: Spec
 suppress_windowed_shed_flushes_on_stream_time_advance =
-  testCase "suppressWindowedShed: stream-time advance flushes buffered windows" $ do
+  it "suppressWindowedShed: stream-time advance flushes buffered windows" $ do
     let shelf = Suppress.DeadLetterShelf
           { Suppress.dlsTopic       = topicName "shed-dlq"
           , Suppress.dlsKeySerde    = windowedSerde textSerde
@@ -407,8 +405,8 @@ suppress_windowed_shed_flushes_on_stream_time_advance =
           | r <- preMain
           , Right (k, ts, v) <- [decodeWindowed r]
           ]
-    preDecoded @?= []
-    length preDlq @?= 0 -- no shedding either (under the cap)
+    preDecoded `shouldBe` []
+    length preDlq `shouldBe` 0 -- no shedding either (under the cap)
 
     -- Stream-time advance: W0 closes at 5000 + 0. With the
     -- punctuator fix the suppress flush fires.
@@ -421,7 +419,7 @@ suppress_windowed_shed_flushes_on_stream_time_advance =
           ]
     -- Both keys flushed; max(a) = 2.0; max(b) = 4.0.
     Set.fromList postDecoded
-      @?= Set.fromList
+      `shouldBe` Set.fromList
         [ (Just "a", 0, 2.0)
         , (Just "b", 0, 4.0)
         ]

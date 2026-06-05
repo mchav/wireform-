@@ -6,22 +6,21 @@
 module Network.TransportSpec (tests) where
 
 import qualified Data.ByteString as BS
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Network.Transport as T
 
-tests :: TestTree
-tests = testGroup "Kafka.Network.Transport"
-  [ testCase "pipe transport: write on one side -> read on the other"
+tests :: Spec
+tests = describe "Kafka.Network.Transport" $ sequence_
+  [ it "pipe transport: write on one side -> read on the other"
       pipe_round_trip
-  , testCase "pipe transport: partial reads return only requested bytes"
+  , it "pipe transport: partial reads return only requested bytes"
       pipe_partial_reads
-  , testCase "pipe transport: closing surfaces EOF on next read"
+  , it "pipe transport: closing surfaces EOF on next read"
       pipe_close_eof
-  , testCase "pipe transport: write after close returns Left"
+  , it "pipe transport: write after close returns Left"
       pipe_write_after_close
-  , testCase "transportName labels are distinct for the two sides"
+  , it "transportName labels are distinct for the two sides"
       pipe_names_distinct
   ]
 
@@ -30,16 +29,16 @@ pipe_round_trip = do
   (cli, brk) <- T.mkPipeTransport
   Right () <- T.transportWrite cli "hello"
   Right got <- T.transportRead brk 5
-  got @?= "hello"
+  got `shouldBe` "hello"
 
 pipe_partial_reads :: IO ()
 pipe_partial_reads = do
   (cli, brk) <- T.mkPipeTransport
   Right () <- T.transportWrite cli "hello world"
   Right one <- T.transportRead brk 5
-  one @?= "hello"
+  one `shouldBe` "hello"
   Right two <- T.transportRead brk 6
-  two @?= " world"
+  two `shouldBe` " world"
 
 pipe_close_eof :: IO ()
 pipe_close_eof = do
@@ -48,7 +47,7 @@ pipe_close_eof = do
   Right got <- T.transportRead brk 5
   -- After close + buffer drain, an empty bytestring signals EOF.
   -- (We didn't write anything before close.)
-  assertBool "EOF surfaces as empty bytestring" (BS.null got)
+  (BS.null got) `shouldBe` True
 
 pipe_write_after_close :: IO ()
 pipe_write_after_close = do
@@ -64,4 +63,4 @@ pipe_names_distinct = do
   (cli, brk) <- T.mkPipeTransport
   let n1 = T.transportName cli
       n2 = T.transportName brk
-  assertBool "names differ" (n1 /= n2)
+  (n1 /= n2) `shouldBe` True

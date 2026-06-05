@@ -15,15 +15,14 @@ import Control.Concurrent.MVar
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.State.Window.Timestamped as TWS
 import qualified Kafka.Streams.State.KeyValue.Timestamped as TS
 
-tests :: TestTree
-tests = testGroup "Processor + Store extras"
+tests :: Spec
+tests = describe "Processor + Store extras" $ sequence_
   [ timestamped_window_store_keeps_record_ts
   , foreach_async_does_not_block
   , store_query_parameters_round_trip
@@ -33,26 +32,26 @@ tests = testGroup "Processor + Store extras"
 -- TimestampedWindowStore
 ----------------------------------------------------------------------
 
-timestamped_window_store_keeps_record_ts :: TestTree
+timestamped_window_store_keeps_record_ts :: Spec
 timestamped_window_store_keeps_record_ts =
-  testCase "TimestampedWindowStore: fetch returns value+ts" $ do
+  it "TimestampedWindowStore: fetch returns value+ts" $ do
     ws <- TWS.inMemoryTimestampedWindowStore @Text @Int
             (storeName "tws") 1000 60_000
     TWS.twsPut ws "alice" 5 (Timestamp 250) (Timestamp 100)
     r <- TWS.twsFetch ws "alice" (Timestamp 100)
     case r of
       Just (TS.ValueAndTimestamp v ts) -> do
-        v  @?= 5
-        ts @?= Timestamp 250
+        v  `shouldBe` 5
+        ts `shouldBe` Timestamp 250
       Nothing -> error "expected the entry to be present"
 
 ----------------------------------------------------------------------
 -- foreachStreamAsync — non-blocking
 ----------------------------------------------------------------------
 
-foreach_async_does_not_block :: TestTree
+foreach_async_does_not_block :: Spec
 foreach_async_does_not_block =
-  testCase "foreachStreamAsync: callback runs without blocking caller" $ do
+  it "foreachStreamAsync: callback runs without blocking caller" $ do
     -- Use the topology test driver to push a couple of records
     -- through a topology that calls foreachStreamAsync. The
     -- callback signals an MVar — we just verify the MVar
@@ -80,20 +79,20 @@ foreach_async_does_not_block =
               waitN (n - 1 :: Int)
     waitN 10_000
     n <- readIORef seenRef
-    assertBool ("expected >=2 callback fires; got " <> show n) (n >= 2)
+    (if (n >= 2) then pure () else expectationFailure ("expected >=2 callback fires; got " <> show n))
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- StoreQueryParameters round-trip
 ----------------------------------------------------------------------
 
-store_query_parameters_round_trip :: TestTree
+store_query_parameters_round_trip :: Spec
 store_query_parameters_round_trip =
-  testCase "storeQueryParameters: defaults + staleStoresEnabled / partition gates" $ do
+  it "storeQueryParameters: defaults + staleStoresEnabled / partition gates" $ do
     let p = storeQueryParameters (storeName "x")
-    p.storeName          @?= storeName "x"
-    p.staleStoresEnabled @?= False
-    p.partition          @?= Nothing
+    p.storeName          `shouldBe` storeName "x"
+    p.staleStoresEnabled `shouldBe` False
+    p.partition          `shouldBe` Nothing
 
     -- The strict-mode gate is the testable bit: when the
     -- runtime isn't Running, defaults must yield 'Nothing'.

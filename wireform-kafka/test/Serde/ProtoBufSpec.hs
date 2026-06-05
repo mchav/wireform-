@@ -22,9 +22,8 @@ import           Data.Word            (Word64)
 import           Hedgehog
 import qualified Hedgehog.Gen         as Gen
 import qualified Hedgehog.Range       as Range
-import           Test.Tasty           (TestTree, testGroup)
-import           Test.Tasty.Hedgehog  (testProperty)
-import           Test.Tasty.HUnit     (assertBool, testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Headers        as H
 import qualified Kafka.Serde          as Serde
@@ -156,206 +155,204 @@ shippedHeaders c = bufSchemaHeaders (identityOf (Proxy :: Proxy OrderShipped) c 
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "Kafka.Serde.Proto.Buf"
-    [ testGroup
-        "header names are byte-identical to the Buf convention"
-        [ testCase "message" $ messageHeaderName @?= "buf.registry.value.schema.message"
-        , testCase "commit" $ commitHeaderName @?= "buf.registry.value.schema.commit"
-        , testCase "module" $ moduleHeaderName @?= "buf.registry.value.schema.module"
+  describe
+    "Kafka.Serde.Proto.Buf" $ sequence_
+    [ describe
+        "header names are byte-identical to the Buf convention" $ sequence_
+        [ it "message" $ messageHeaderName `shouldBe` "buf.registry.value.schema.message"
+        , it "commit" $ commitHeaderName `shouldBe` "buf.registry.value.schema.commit"
+        , it "module" $ moduleHeaderName `shouldBe` "buf.registry.value.schema.module"
         ]
-    , testGroup
-        "fully-qualified name"
-        [ testCase "packaged message keeps its FQN" $
-            fqn (Proxy :: Proxy OrderPlaced) @?= "payments.v1.OrderPlaced"
-        , testCase "empty package => no leading dot" $
-            fqn (Proxy :: Proxy BareEvent) @?= "BareEvent"
+    , describe
+        "fully-qualified name" $ sequence_
+        [ it "packaged message keeps its FQN" $
+            fqn (Proxy :: Proxy OrderPlaced) `shouldBe` "payments.v1.OrderPlaced"
+        , it "empty package => no leading dot" $
+            fqn (Proxy :: Proxy BareEvent) `shouldBe` "BareEvent"
         , -- Guard against a regression of the package-doubling bug on a
           -- real codegen-emitted instance (protoMessageName is already
           -- fully qualified, so fqn must not prepend the package again).
-          testCase "real generated instance (google.protobuf.Timestamp) is not doubled" $ do
-            fqn (Proxy :: Proxy Timestamp) @?= "google.protobuf.Timestamp"
-            protoMessageName (Proxy :: Proxy Timestamp) @?= "google.protobuf.Timestamp"
-            protoPackageName (Proxy :: Proxy Timestamp) @?= "google.protobuf"
+          it "real generated instance (google.protobuf.Timestamp) is not doubled" $ do
+            fqn (Proxy :: Proxy Timestamp) `shouldBe` "google.protobuf.Timestamp"
+            protoMessageName (Proxy :: Proxy Timestamp) `shouldBe` "google.protobuf.Timestamp"
+            protoPackageName (Proxy :: Proxy Timestamp) `shouldBe` "google.protobuf"
         ]
-    , testGroup
-        "bufSchemaHeaders"
-        [ testCase "Nothing module => exactly message + commit" $ do
+    , describe
+        "bufSchemaHeaders" $ sequence_
+        [ it "Nothing module => exactly message + commit" $ do
             let hs = placedHeaders "abc123"
-            H.lookup messageHeaderName hs @?= Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
-            H.lookup commitHeaderName hs @?= Just (TE.encodeUtf8 "abc123")
-            H.lookup moduleHeaderName hs @?= Nothing
-            H.length hs @?= 2
-        , testCase "Just module => message + commit + module" $ do
+            H.lookup messageHeaderName hs `shouldBe` Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
+            H.lookup commitHeaderName hs `shouldBe` Just (TE.encodeUtf8 "abc123")
+            H.lookup moduleHeaderName hs `shouldBe` Nothing
+            H.length hs `shouldBe` 2
+        , it "Just module => message + commit + module" $ do
             let hs =
                   bufSchemaHeaders
                     (identityOf (Proxy :: Proxy OrderPlaced) "abc123" (Just "buf.build/acme/payments"))
-            H.lookup moduleHeaderName hs @?= Just (TE.encodeUtf8 "buf.build/acme/payments")
-            H.length hs @?= 3
+            H.lookup moduleHeaderName hs `shouldBe` Just (TE.encodeUtf8 "buf.build/acme/payments")
+            H.length hs `shouldBe` 3
         ]
-    , testGroup
-        "bufProtoSerde carries the identity in the serde"
-        [ testProperty "value bytes are the bare encodeProto output (no prefix)" $
+    , describe
+        "bufProtoSerde carries the identity in the serde" $ sequence_
+        [ it "value bytes are the bare encodeProto output (no prefix)" $
             property $ do
               x <- forAll genOrderPlaced
               c <- forAll genCommit
               Serde.serialize (bufProtoSerde c Nothing :: Serde.Serde OrderPlaced) x === encodeProto x
-        , testProperty "serde headers equal the hand-built identity headers" $
+        , it "serde headers equal the hand-built identity headers" $
             property $ do
               x <- forAll genOrderPlaced
               c <- forAll genCommit
               Serde.serializeHeaders (bufProtoSerde c Nothing :: Serde.Serde OrderPlaced) x
                 === placedHeaders c
-        , testProperty "deserialize round-trips through the serde" $
+        , it "deserialize round-trips through the serde" $
             property $ do
               x <- forAll genOrderPlaced
               c <- forAll genCommit
               let s = bufProtoSerde c Nothing :: Serde.Serde OrderPlaced
               Serde.deserialize s (Serde.serialize s x) === Right x
         ]
-    , testGroup
-        "decodeAs"
-        [ testProperty "round-trips a matching type" $
+    , describe
+        "decodeAs" $ sequence_
+        [ it "round-trips a matching type" $
             property $ do
               x <- forAll genOrderPlaced
               c <- forAll genCommit
               decodeAs (Proxy :: Proxy OrderPlaced) (placedHeaders c) (encodeProto x) === Right x
-        , testProperty "the commit header round-trips unmodified" $
+        , it "the commit header round-trips unmodified" $
             property $ do
               c <- forAll genCommit
               H.lookup commitHeaderName (placedHeaders c) === Just (TE.encodeUtf8 c)
-        , testCase "wrong header type => TypeMismatch, no decode attempted" $ do
+        , it "wrong header type => TypeMismatch, no decode attempted" $ do
             let bytes = encodeProto (OrderShipped 7 "u:ups")
             decodeAs (Proxy :: Proxy OrderPlaced) (shippedHeaders "c1") bytes
-              @?= Left (TypeMismatch "payments.v1.OrderPlaced" "payments.v1.OrderShipped")
-        , testCase "missing header => HeaderError MissingMessageHeader" $
+              `shouldBe` Left (TypeMismatch "payments.v1.OrderPlaced" "payments.v1.OrderShipped")
+        , it "missing header => HeaderError MissingMessageHeader" $
             decodeAs (Proxy :: Proxy OrderPlaced) H.empty (encodeProto (OrderPlaced 1 "x"))
-              @?= Left (HeaderError MissingMessageHeader)
+              `shouldBe` Left (HeaderError MissingMessageHeader)
         ]
-    , testGroup
-        "dispatch (header-discriminated, total)"
-        [ testProperty "routes a mixed stream to the right handler" $
+    , describe
+        "dispatch (header-discriminated, total)" $ sequence_
+        [ it "routes a mixed stream to the right handler" $
             property $ do
               c <- forAll genCommit
               p <- forAll genOrderPlaced
               s <- forAll genOrderShipped
               dispatch handlers (placedHeaders c) (encodeProto p) === Right (RPlaced p)
               dispatch handlers (shippedHeaders c) (encodeProto s) === Right (RShipped s)
-        , testCase "unregistered FQN => UnknownType (no crash, no drop)" $ do
+        , it "unregistered FQN => UnknownType (no crash, no drop)" $ do
             let hs = H.singleton messageHeaderName (TE.encodeUtf8 "payments.v1.Unknown")
             dispatch handlers hs "anything"
-              @?= Left (UnknownType "payments.v1.Unknown")
-        , testCase "missing header => HeaderError MissingMessageHeader" $
+              `shouldBe` Left (UnknownType "payments.v1.Unknown")
+        , it "missing header => HeaderError MissingMessageHeader" $
             dispatch handlers H.empty "anything"
-              @?= Left (HeaderError MissingMessageHeader)
-        , testCase "non-UTF-8 header => HeaderError MessageHeaderNotUtf8" $ do
+              `shouldBe` Left (HeaderError MissingMessageHeader)
+        , it "non-UTF-8 header => HeaderError MessageHeaderNotUtf8" $ do
             let hs = H.singleton messageHeaderName invalidUtf8
-            first (const ()) (readMessageHeader hs) @?= Left ()
+            first (const ()) (readMessageHeader hs) `shouldBe` Left ()
             dispatch handlers hs "anything"
-              @?= Left (HeaderError MessageHeaderNotUtf8)
+              `shouldBe` Left (HeaderError MessageHeaderNotUtf8)
         ]
-    , testGroup
-        "Template Haskell auto-population (buf.lock)"
-        [ testGroup
-            "lookupBufLockCommit (pure)"
-            [ testCase "v2 name: entry" $
+    , describe
+        "Template Haskell auto-population (buf.lock)" $ sequence_
+        [ describe
+            "lookupBufLockCommit (pure)" $ sequence_
+            [ it "v2 name: entry" $
                 lookupBufLockCommit "buf.build/acme/payments" v2Lock
-                  @?= Right "0a1b2c3d"
-            , testCase "second dep in the file" $
+                  `shouldBe` Right "0a1b2c3d"
+            , it "second dep in the file" $
                 lookupBufLockCommit "buf.build/googleapis/googleapis" v2Lock
-                  @?= Right "ffffffff"
-            , testCase "v1 remote/owner/repository entry" $
+                  `shouldBe` Right "ffffffff"
+            , it "v1 remote/owner/repository entry" $
                 lookupBufLockCommit "buf.build/acme/payments" v1Lock
-                  @?= Right "11112222"
-            , testCase "unknown module => Left" $
-                assertBool "expected Left" $
-                  case lookupBufLockCommit "buf.build/nope/nope" v2Lock of
+                  `shouldBe` Right "11112222"
+            , it "unknown module => Left" $
+                (case lookupBufLockCommit "buf.build/nope/nope" v2Lock of
                     Left _  -> True
-                    Right _ -> False
+                    Right _ -> False) `shouldBe` True
             ]
-        , testGroup
-            "compile-time splice (committed fixture buf.lock)"
-            [ testCase "bufCommitFromLock embeds the pinned commit" $
-                splicedCommit @?= "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
-            , testCase "bufProtoSerdeFromLock stamps commit + message headers" $ do
+        , describe
+            "compile-time splice (committed fixture buf.lock)" $ sequence_
+            [ it "bufCommitFromLock embeds the pinned commit" $
+                splicedCommit `shouldBe` "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+            , it "bufProtoSerdeFromLock stamps commit + message headers" $ do
                 let hs = Serde.serializeHeaders splicedSerde (OrderPlaced 1 "sku")
                 H.lookup commitHeaderName hs
-                  @?= Just (TE.encodeUtf8 "0a1b2c3d4e5f60718293a4b5c6d7e8f9")
+                  `shouldBe` Just (TE.encodeUtf8 "0a1b2c3d4e5f60718293a4b5c6d7e8f9")
                 H.lookup messageHeaderName hs
-                  @?= Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
-                H.lookup moduleHeaderName hs @?= Nothing
-            , testCase "spliced serde still emits the bare encodeProto value" $ do
+                  `shouldBe` Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
+                H.lookup moduleHeaderName hs `shouldBe` Nothing
+            , it "spliced serde still emits the bare encodeProto value" $ do
                 let x = OrderPlaced 42 "widget"
-                Serde.serialize splicedSerde x @?= encodeProto x
-            , testCase "bufProtoKeySerdeFromLock stamps key-side commit + message" $ do
+                Serde.serialize splicedSerde x `shouldBe` encodeProto x
+            , it "bufProtoKeySerdeFromLock stamps key-side commit + message" $ do
                 let hs = Serde.serializeHeaders splicedKeySerde (OrderPlaced 1 "sku")
                 H.lookup keyCommitHeaderName hs
-                  @?= Just (TE.encodeUtf8 "0a1b2c3d4e5f60718293a4b5c6d7e8f9")
+                  `shouldBe` Just (TE.encodeUtf8 "0a1b2c3d4e5f60718293a4b5c6d7e8f9")
                 H.lookup keyMessageHeaderName hs
-                  @?= Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
+                  `shouldBe` Just (TE.encodeUtf8 "payments.v1.OrderPlaced")
             ]
-        , testGroup
-            "real buf-generated buf.lock (buf CLI 1.70.0)"
-            [ testCase "parses a real v2 buf.lock (buf dep update)" $ do
+        , describe
+            "real buf-generated buf.lock (buf CLI 1.70.0)" $ sequence_
+            [ it "parses a real v2 buf.lock (buf dep update)" $ do
                 contents <- TIO.readFile "test/Serde/buf.real.v2.lock"
                 lookupBufLockCommit "buf.build/bufbuild/protovalidate" contents
-                  @?= Right realCommit
-            , testCase "parses a real v1 buf.lock (remote/owner/repository)" $ do
+                  `shouldBe` Right realCommit
+            , it "parses a real v1 buf.lock (remote/owner/repository)" $ do
                 contents <- TIO.readFile "test/Serde/buf.real.v1.lock"
                 lookupBufLockCommit "buf.build/bufbuild/protovalidate" contents
-                  @?= Right realCommit
-            , testCase "unknown module in a real buf.lock => Left" $ do
+                  `shouldBe` Right realCommit
+            , it "unknown module in a real buf.lock => Left" $ do
                 contents <- TIO.readFile "test/Serde/buf.real.v2.lock"
-                assertBool "expected Left" $
-                  case lookupBufLockCommit "buf.build/acme/nope" contents of
+                (case lookupBufLockCommit "buf.build/acme/nope" contents of
                     Left _  -> True
-                    Right _ -> False
-            , testCase "bufCommitFromLock splices the real commit at compile time" $
-                realSplicedCommit @?= realCommit
+                    Right _ -> False) `shouldBe` True
+            , it "bufCommitFromLock splices the real commit at compile time" $
+                realSplicedCommit `shouldBe` realCommit
             ]
         ]
-    , testGroup
-        "cross-language interop (bufbuild/bsr-kafka-serde-go v0.3.0)"
+    , describe
+        "cross-language interop (bufbuild/bsr-kafka-serde-go v0.3.0)" $ sequence_
         -- Golden record under test/Serde/interop/ was produced by the
         -- real Go bsr-kafka-serde-go Serde.Serialize of a
         -- google.protobuf.Timestamp{1700000000,123} (static commit
         -- resolver). These assertions prove the Haskell and Go layers
         -- agree byte-for-byte on the wire.
-        [ testCase "Go-produced headers match the Buf convention" $ do
+        [ it "Go-produced headers match the Buf convention" $ do
             (hdrs, _) <- loadGoRecord
             H.lookup messageHeaderName hdrs
-              @?= Just (TE.encodeUtf8 "google.protobuf.Timestamp")
+              `shouldBe` Just (TE.encodeUtf8 "google.protobuf.Timestamp")
             H.lookup commitHeaderName hdrs
-              @?= Just (TE.encodeUtf8 goInteropCommit)
-        , testCase "Haskell decodeAs consumes the Go-produced record" $ do
+              `shouldBe` Just (TE.encodeUtf8 goInteropCommit)
+        , it "Haskell decodeAs consumes the Go-produced record" $ do
             (hdrs, val) <- loadGoRecord
-            decodeAs (Proxy :: Proxy Timestamp) hdrs val @?= Right goTimestamp
-        , testCase "Haskell dispatch routes the Go-produced record" $ do
+            decodeAs (Proxy :: Proxy Timestamp) hdrs val `shouldBe` Right goTimestamp
+        , it "Haskell dispatch routes the Go-produced record" $ do
             (hdrs, val) <- loadGoRecord
             dispatch [Handler (Proxy :: Proxy Timestamp) id] hdrs val
-              @?= Right goTimestamp
-        , testCase "Haskell bufProtoSerde produces byte-identical value + headers" $ do
+              `shouldBe` Right goTimestamp
+        , it "Haskell bufProtoSerde produces byte-identical value + headers" $ do
             (hdrs, val) <- loadGoRecord
             let s = bufProtoSerde goInteropCommit Nothing :: Serde.Serde Timestamp
                 hsk = Serde.serializeHeaders s goTimestamp
             -- value bytes identical to Go's proto.Marshal output
-            Serde.serialize s goTimestamp @?= val
+            Serde.serialize s goTimestamp `shouldBe` val
             -- the two identity headers match Go's, by name + value
-            H.lookup messageHeaderName hsk @?= H.lookup messageHeaderName hdrs
-            H.lookup commitHeaderName hsk @?= H.lookup commitHeaderName hdrs
+            H.lookup messageHeaderName hsk `shouldBe` H.lookup messageHeaderName hdrs
+            H.lookup commitHeaderName hsk `shouldBe` H.lookup commitHeaderName hdrs
         ]
-    , testGroup
-        "key-side schema identity"
-        [ testCase "key header names are byte-identical to the convention" $ do
-            keyMessageHeaderName @?= "buf.registry.key.schema.message"
-            keyCommitHeaderName @?= "buf.registry.key.schema.commit"
-            keyModuleHeaderName @?= "buf.registry.key.schema.module"
-        , testCase "messageHeaderNameFor agrees with the side constants" $ do
-            messageHeaderNameFor ValueSchema @?= messageHeaderName
-            messageHeaderNameFor KeySchema @?= keyMessageHeaderName
-        , testProperty "bufProtoKeySerde stamps key-side headers (not value-side)" $
+    , describe
+        "key-side schema identity" $ sequence_
+        [ it "key header names are byte-identical to the convention" $ do
+            keyMessageHeaderName `shouldBe` "buf.registry.key.schema.message"
+            keyCommitHeaderName `shouldBe` "buf.registry.key.schema.commit"
+            keyModuleHeaderName `shouldBe` "buf.registry.key.schema.module"
+        , it "messageHeaderNameFor agrees with the side constants" $ do
+            messageHeaderNameFor ValueSchema `shouldBe` messageHeaderName
+            messageHeaderNameFor KeySchema `shouldBe` keyMessageHeaderName
+        , it "bufProtoKeySerde stamps key-side headers (not value-side)" $
             property $ do
               x <- forAll genOrderPlaced
               c <- forAll genCommit
@@ -366,17 +363,17 @@ tests =
               H.lookup messageHeaderName hs === Nothing
               -- the value bytes are still the bare encodeProto output
               Serde.serialize s x === encodeProto x
-        , testCase "decodeAsFor KeySchema reads the key header; value-side read misses" $ do
+        , it "decodeAsFor KeySchema reads the key header; value-side read misses" $ do
             let x  = OrderPlaced 5 "abc"
                 hs = bufSchemaHeadersFor KeySchema
                        (identityOf (Proxy :: Proxy OrderPlaced) "k1" Nothing)
-            decodeAsFor KeySchema (Proxy :: Proxy OrderPlaced) hs (encodeProto x) @?= Right x
+            decodeAsFor KeySchema (Proxy :: Proxy OrderPlaced) hs (encodeProto x) `shouldBe` Right x
             decodeAs (Proxy :: Proxy OrderPlaced) hs (encodeProto x)
-              @?= Left (HeaderError MissingMessageHeader)
+              `shouldBe` Left (HeaderError MissingMessageHeader)
         ]
-    , testGroup
-        "O(1) prebuilt-map dispatch"
-        [ testProperty "dispatchWith matches list dispatch on a mixed stream" $
+    , describe
+        "O(1) prebuilt-map dispatch" $ sequence_
+        [ it "dispatchWith matches list dispatch on a mixed stream" $
             property $ do
               c <- forAll genCommit
               p <- forAll genOrderPlaced
@@ -384,21 +381,21 @@ tests =
               let hm = handlerMap handlers
               dispatchWith hm (placedHeaders c) (encodeProto p) === Right (RPlaced p)
               dispatchWith hm (shippedHeaders c) (encodeProto s) === Right (RShipped s)
-        , testCase "unregistered FQN => UnknownType" $ do
+        , it "unregistered FQN => UnknownType" $ do
             let hm = handlerMap handlers
                 hs = H.singleton messageHeaderName (TE.encodeUtf8 "payments.v1.Nope")
-            dispatchWith hm hs "x" @?= Left (UnknownType "payments.v1.Nope")
-        , testCase "missing header => HeaderError MissingMessageHeader" $
+            dispatchWith hm hs "x" `shouldBe` Left (UnknownType "payments.v1.Nope")
+        , it "missing header => HeaderError MissingMessageHeader" $
             dispatchWith (handlerMap handlers) H.empty "x"
-              @?= Left (HeaderError MissingMessageHeader)
-        , testCase "first handler wins on a duplicate FQN" $ do
+              `shouldBe` Left (HeaderError MissingMessageHeader)
+        , it "first handler wins on a duplicate FQN" $ do
             let hm =
                   handlerMap
                     [ Handler (Proxy :: Proxy OrderPlaced) (\_ -> RPlaced (OrderPlaced 111 ""))
                     , Handler (Proxy :: Proxy OrderPlaced) (\_ -> RPlaced (OrderPlaced 222 ""))
                     ]
             dispatchWith hm (placedHeaders "c") (encodeProto (OrderPlaced 1 "x"))
-              @?= Right (RPlaced (OrderPlaced 111 ""))
+              `shouldBe` Right (RPlaced (OrderPlaced 111 ""))
         ]
     ]
 

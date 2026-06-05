@@ -17,8 +17,7 @@ import Data.Int (Int16)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
@@ -117,7 +116,7 @@ data TestVector = TestVector
   { apiKey :: Maybe Int16
   , messageType :: Text
   , version :: Int16
-  , testCase :: Text
+  , it :: Text
   , description :: Text
   , hex :: Text
   } deriving (Show, Generic)
@@ -174,22 +173,22 @@ hexToBS hexText =
   in BS.pack <$> mapM parseHex pairs
 
 -- | Test a single test vector by decoding and re-encoding
-testVector :: TestVector -> TestTree
-testVector vec = Test.Tasty.HUnit.testCase (T.unpack $ description vec) $ do
+testVector :: TestVector -> Spec
+testVector vec = Test.Syd.it (T.unpack $ description vec) $ do
   -- Skip empty test vectors (messages with no fields) - this is valid, not an error
   if T.null (hex vec)
     then return ()  -- Empty message, nothing to test
     else do
       -- Parse hex to bytes
       bytes <- case hexToBS (hex vec) of
-        Left err -> assertFailure $ "Failed to parse hex: " ++ err
+        Left err -> expectationFailure $ "Failed to parse hex: " ++ err
         Right bs -> return bs
       
       -- Decode and re-encode based on message type
       let result = routeMessage (messageType vec) (version vec) bytes
       
       case result of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right () -> return ()
 
 -- | Route a message to its appropriate decoder/encoder
@@ -313,21 +312,21 @@ groupByMessageType vectors =
   in map (\t -> (t, filter (\v -> messageType v == t) vectors)) types
 
 -- | Create test tree from vectors
-createTests :: [TestVector] -> TestTree
+createTests :: [TestVector] -> Spec
 createTests vectors =
   let grouped = groupByMessageType vectors
   in if null grouped
-       then testGroup "Comprehensive Protocol Tests"
-              [ Test.Tasty.HUnit.testCase
+       then describe "Comprehensive Protocol Tests" $ sequence_
+              [ Test.Syd.it
                   "skipped: no test-vectors.json"
-                  (pure ())
+                  (pure () :: IO ())
               ]
-       else testGroup "Comprehensive Protocol Tests"
-              (map (\(msgType, vecs) ->
-                      testGroup (T.unpack msgType) (map testVector vecs))
+       else describe "Comprehensive Protocol Tests"
+              (mapM_ (\(msgType, vecs) ->
+                      describe (T.unpack msgType) (mapM_ testVector vecs))
                    grouped)
 
-tests :: IO TestTree
+tests :: IO Spec
 tests = do
   vectors <- loadTestVectors
   return $ createTests vectors

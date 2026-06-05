@@ -12,14 +12,13 @@ defaults.
 -}
 module Conformance.T0080.AdminUt (tests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.AdminClient as Admin
 
-tests :: TestTree
-tests = testGroup "0080-admin_ut"
-  [ testCase "NewTopic builds with sane defaults" $ do
+tests :: Spec
+tests = describe "0080-admin_ut" $ sequence_
+  [ it "NewTopic builds with sane defaults" $ do
       let t = Admin.NewTopic
             { Admin.ntName              = "events"
             , Admin.ntNumPartitions     = 12
@@ -28,20 +27,20 @@ tests = testGroup "0080-admin_ut"
                                           , ("cleanup.policy", "delete")
                                           ]
             }
-      Admin.ntName              t @?= "events"
-      Admin.ntNumPartitions     t @?= 12
-      Admin.ntReplicationFactor t @?= 3
-      length (Admin.ntConfigs t)  @?= 2
+      Admin.ntName              t `shouldBe` "events"
+      Admin.ntNumPartitions     t `shouldBe` 12
+      Admin.ntReplicationFactor t `shouldBe` 3
+      length (Admin.ntConfigs t)  `shouldBe` 2
 
-  , testCase "default AdminClientConfig has the documented client id" $ do
+  , it "default AdminClientConfig has the documented client id" $ do
       let cfg = Admin.defaultAdminClientConfig
-      Admin.adminRequestTimeoutMs cfg > 0 @?= True
+      Admin.adminRequestTimeoutMs cfg > 0 `shouldBe` True
 
-  , testCase "ConfigResourceType ADT covers all three resource types" $ do
+  , it "ConfigResourceType ADT covers all three resource types" $ do
       -- librdkafka equivalent of the symbol smoke test: every
       -- constructor exists and is reachable.
       let _ = Admin.ConfigResourceTopic
           _ = Admin.ConfigResourceBroker
           _ = Admin.ConfigResourceBrokerLogger
-      pure ()
+      pure () :: IO ()
   ]

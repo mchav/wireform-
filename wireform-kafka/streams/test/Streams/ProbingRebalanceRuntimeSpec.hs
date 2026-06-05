@@ -16,16 +16,15 @@ module Streams.ProbingRebalanceRuntimeSpec (tests) where
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as KC
 import Kafka.Streams.Imperative
 import Kafka.Streams.Processor (TaskId (..))
 import Kafka.Streams.Runtime.NativeDriver
 
-tests :: TestTree
-tests = testGroup "Probing rebalance runtime wiring (KIP-441)"
+tests :: Spec
+tests = describe "Probing rebalance runtime wiring (KIP-441)" $ sequence_
   [ ready_warmup_with_zero_interval_does_not_probe
   , no_warmups_means_no_probe
   , ready_warmup_with_short_interval_eventually_probes
@@ -66,9 +65,9 @@ cfgWith intervalMs = defaultStreamsConfig
 -- 1. interval = 0 disables probing
 ----------------------------------------------------------------------
 
-ready_warmup_with_zero_interval_does_not_probe :: TestTree
+ready_warmup_with_zero_interval_does_not_probe :: Spec
 ready_warmup_with_zero_interval_does_not_probe =
-  testCase "probingRebalanceIntervalMs=0 disables probing even when warmups are ready" $ do
+  it "probingRebalanceIntervalMs=0 disables probing even when warmups are ready" $ do
     topo <- buildPassthroughTopo
     ks <- newKafkaStreams (cfgWith 0) topo
     (drv, h) <- newMockDriver
@@ -79,7 +78,7 @@ ready_warmup_with_zero_interval_does_not_probe =
     awaitState ks StreamsRunning
     _ <- awaitTicks ks 3
     probes <- mockDriverProbeRequests h
-    probes @?= 0
+    probes `shouldBe` 0
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
@@ -87,9 +86,9 @@ ready_warmup_with_zero_interval_does_not_probe =
 -- 2. No warmups -> no probe
 ----------------------------------------------------------------------
 
-no_warmups_means_no_probe :: TestTree
+no_warmups_means_no_probe :: Spec
 no_warmups_means_no_probe =
-  testCase "no registered warmups: probe never fires" $ do
+  it "no registered warmups: probe never fires" $ do
     topo <- buildPassthroughTopo
     ks <- newKafkaStreams (cfgWith 1) topo  -- 1 ms — trivially elapsed
     (drv, h) <- newMockDriver
@@ -98,7 +97,7 @@ no_warmups_means_no_probe =
     awaitState ks StreamsRunning
     _ <- awaitTicks ks 5
     probes <- mockDriverProbeRequests h
-    probes @?= 0
+    probes `shouldBe` 0
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
@@ -106,9 +105,9 @@ no_warmups_means_no_probe =
 -- 3. Ready warmup + short interval -> at least one probe
 ----------------------------------------------------------------------
 
-ready_warmup_with_short_interval_eventually_probes :: TestTree
+ready_warmup_with_short_interval_eventually_probes :: Spec
 ready_warmup_with_short_interval_eventually_probes =
-  testCase "ready warmup + short interval: probe fires at least once" $ do
+  it "ready warmup + short interval: probe fires at least once" $ do
     topo <- buildPassthroughTopo
     ks <- newKafkaStreams (cfgWith 1) topo
     (drv, h) <- newMockDriver
@@ -123,8 +122,6 @@ ready_warmup_with_short_interval_eventually_probes =
     awaitState ks StreamsRunning
     _ <- awaitTicks ks 5
     probes <- mockDriverProbeRequests h
-    assertBool
-      ("expected >= 1 probe; got " <> show probes)
-      (probes >= 1)
+    (if (probes >= 1) then pure () else expectationFailure ("expected >= 1 probe; got " <> show probes))
     closeKafkaStreams ks
     awaitState ks StreamsClosed

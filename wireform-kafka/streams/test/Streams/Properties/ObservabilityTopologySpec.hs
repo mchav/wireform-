@@ -20,8 +20,7 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Vector as V
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Metrics as Met
@@ -60,8 +59,8 @@ arrayLen _           = -1
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Observability.Topology"
+tests :: Spec
+tests = describe "Observability.Topology" $ sequence_
   [ structural_render_has_all_sections
   , insertion_order_tracks_addition
   , application_id_is_stamped
@@ -71,28 +70,25 @@ tests = testGroup "Observability.Topology"
 
 ----------------------------------------------------------------------
 
-structural_render_has_all_sections :: TestTree
+structural_render_has_all_sections :: Spec
 structural_render_has_all_sections =
-  testCase "topologyDescription emits version + sources/processors/sinks/stores/edges/insertionOrder" $ do
+  it "topologyDescription emits version + sources/processors/sinks/stores/edges/insertionOrder" $ do
     topo <- passthroughTopology
     let v = Obs.topologyDescription topo
-    field "version"        v @?= A.Number 1
-    arrayLen (field "sources"        v) @?= 1   -- streamFromTopic
+    field "version"        v `shouldBe` A.Number 1
+    arrayLen (field "sources"        v) `shouldBe` 1   -- streamFromTopic
     -- processors: one for mapValues, one for `to` (sink-aware internal)
-    assertBool "expected >= 1 processors"
-      (arrayLen (field "processors" v) >= 1)
-    arrayLen (field "sinks"          v) @?= 1
+    (arrayLen (field "processors" v) >= 1) `shouldBe` True
+    arrayLen (field "sinks"          v) `shouldBe` 1
     -- stores: zero in this passthrough
-    arrayLen (field "stores"         v) @?= 0
-    assertBool "expected >= 1 edges"
-      (arrayLen (field "edges"       v) >= 1)
+    arrayLen (field "stores"         v) `shouldBe` 0
+    (arrayLen (field "edges"       v) >= 1) `shouldBe` True
     -- insertionOrder records every node
-    assertBool "expected non-empty insertionOrder"
-      (arrayLen (field "insertionOrder" v) >= 2)
+    (arrayLen (field "insertionOrder" v) >= 2) `shouldBe` True
 
-insertion_order_tracks_addition :: TestTree
+insertion_order_tracks_addition :: Spec
 insertion_order_tracks_addition =
-  testCase "insertionOrder reflects the order nodes were added" $ do
+  it "insertionOrder reflects the order nodes were added" $ do
     topo <- passthroughTopology
     let v        = Obs.topologyDescription topo
         order    = field "insertionOrder" v
@@ -108,27 +104,25 @@ insertion_order_tracks_addition =
               case V.last ns of
                 A.String s -> s
                 _          -> error "non-string in insertionOrder"
-        assertBool ("expected first node to be a KSTREAM-SOURCE; got "
-                     <> T.unpack firstName)
-          (T.isPrefixOf "KSTREAM-SOURCE" firstName)
-        assertBool ("expected last node to be a KSTREAM-SINK; got "
-                     <> T.unpack lastName)
-          (T.isPrefixOf "KSTREAM-SINK" lastName)
+        (if (T.isPrefixOf "KSTREAM-SOURCE" firstName) then pure () else expectationFailure ("expected first node to be a KSTREAM-SOURCE; got "
+                     <> T.unpack firstName))
+        (if (T.isPrefixOf "KSTREAM-SINK" lastName) then pure () else expectationFailure ("expected last node to be a KSTREAM-SINK; got "
+                     <> T.unpack lastName))
       _ -> error "insertionOrder not an array"
 
-application_id_is_stamped :: TestTree
+application_id_is_stamped :: Spec
 application_id_is_stamped =
-  testCase "applicationId from RenderConfig appears on the root" $ do
+  it "applicationId from RenderConfig appears on the root" $ do
     topo <- passthroughTopology
     let v = Obs.topologyDescriptionWith
               (Obs.defaultRenderConfig
                 { Obs.renderApplicationId = Just "my-app" })
               topo
-    field "applicationId" v @?= A.String "my-app"
+    field "applicationId" v `shouldBe` A.String "my-app"
 
-edges_agree_with_childrenOf :: TestTree
+edges_agree_with_childrenOf :: Spec
 edges_agree_with_childrenOf =
-  testCase "every JSON edge matches Topo.childrenOf" $ do
+  it "every JSON edge matches Topo.childrenOf" $ do
     topo <- passthroughTopology
     let v = Obs.topologyDescription topo
     case field "edges" v of
@@ -144,17 +138,15 @@ edges_agree_with_childrenOf =
                     let fromNm   = Topo.nodeName f
                         children = Topo.childrenOf topo fromNm
                         expected = Topo.nodeName t `elem` children
-                    assertBool
-                      ("edge " <> T.unpack f <> " -> " <> T.unpack t
-                        <> " not present in childrenOf")
-                      expected
+                    (if (expected) then pure () else expectationFailure ("edge " <> T.unpack f <> " -> " <> T.unpack t
+                        <> " not present in childrenOf"))
                   _ -> error "edge missing from/to"
               _ -> error "edge not an object"
       _ -> error "edges not an array"
 
-live_metrics_overlay_surfaces_counters :: TestTree
+live_metrics_overlay_surfaces_counters :: Spec
 live_metrics_overlay_surfaces_counters =
-  testCase "liveTopologyDescription includes recorded counters" $ do
+  it "liveTopologyDescription includes recorded counters" $ do
     topo    <- passthroughTopology
     metrics <- Met.newMetricsRegistry
     Met.incCounter metrics "test-counter"
@@ -163,6 +155,6 @@ live_metrics_overlay_surfaces_counters =
     v <- Obs.liveTopologyDescription topo metrics Obs.defaultRenderConfig
     case field "metrics" v of
       A.Object km -> do
-        KM.lookup "test-counter" km @?= Just (A.Number 2)
-        KM.lookup "another"      km @?= Just (A.Number 7)
+        KM.lookup "test-counter" km `shouldBe` Just (A.Number 2)
+        KM.lookup "another"      km `shouldBe` Just (A.Number 7)
       _ -> error "metrics not an object"

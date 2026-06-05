@@ -5,8 +5,7 @@
 -- Description : Tests for topology structural statistics
 module Streams.TopologyStatsSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.State.Store as Store
@@ -32,29 +31,29 @@ counting = do
   _ <- countStream (materializedAs (Store.storeName "counts")) ks
   buildTopology b
 
-tests :: TestTree
-tests = testGroup "TopologyStats"
+tests :: Spec
+tests = describe "TopologyStats" $ sequence_
   [ passthrough_counts
   , counting_has_logged_store
   ]
 
-passthrough_counts :: TestTree
+passthrough_counts :: Spec
 passthrough_counts =
-  testCase "passthrough has one source, one sink, one edge, depth two" $ do
+  it "passthrough has one source, one sink, one edge, depth two" $ do
     st <- topologyStats <$> passthrough
-    statSources st      @?= 1
-    statSinks st        @?= 1
-    statStores st       @?= 0
-    statSourceTopics st @?= 1
-    statSinkTopics st   @?= 1
-    statEdges st        @?= 1
-    statMaxDepth st     @?= 2
+    statSources st      `shouldBe` 1
+    statSinks st        `shouldBe` 1
+    statStores st       `shouldBe` 0
+    statSourceTopics st `shouldBe` 1
+    statSinkTopics st   `shouldBe` 1
+    statEdges st        `shouldBe` 1
+    statMaxDepth st     `shouldBe` 2
 
-counting_has_logged_store :: TestTree
+counting_has_logged_store :: Spec
 counting_has_logged_store =
-  testCase "counting topology reports a logged store" $ do
+  it "counting topology reports a logged store" $ do
     st <- topologyStats <$> counting
-    assertBool "at least one store" (statStores st >= 1)
-    assertBool "at least one logged store" (statLoggedStores st >= 1)
-    assertBool "at least one source topic" (statSourceTopics st >= 1)
-    assertBool "depth grows past the source" (statMaxDepth st >= 2)
+    (statStores st >= 1) `shouldBe` True
+    (statLoggedStores st >= 1) `shouldBe` True
+    (statSourceTopics st >= 1) `shouldBe` True
+    (statMaxDepth st >= 2) `shouldBe` True

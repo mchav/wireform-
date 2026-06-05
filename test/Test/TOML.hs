@@ -8,16 +8,15 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import TOML.Value
 import TOML.Encode
 import TOML.Decode
 import TOML.Class
 
-tomlTests :: TestTree
-tomlTests = testGroup "TOML"
+tomlTests :: Spec
+tomlTests = describe "TOML" $ sequence_
   [ basicTypeTests
   , tableTests
   , arrayTests
@@ -28,69 +27,69 @@ tomlTests = testGroup "TOML"
   , roundtripTests
   ]
 
-basicTypeTests :: TestTree
-basicTypeTests = testGroup "Basic types"
-  [ testCase "parse string" $ do
+basicTypeTests :: Spec
+basicTypeTests = describe "Basic types" $ sequence_
+  [ it "parse string" $ do
       let Right val = decode "key = \"hello\""
-      lookupKey "key" val @?= Just (TString "hello")
+      lookupKey "key" val `shouldBe` Just (TString "hello")
 
-  , testCase "parse integer" $ do
+  , it "parse integer" $ do
       let Right val = decode "key = 42"
-      lookupKey "key" val @?= Just (TInteger 42)
+      lookupKey "key" val `shouldBe` Just (TInteger 42)
 
-  , testCase "parse negative integer" $ do
+  , it "parse negative integer" $ do
       let Right val = decode "key = -17"
-      lookupKey "key" val @?= Just (TInteger (-17))
+      lookupKey "key" val `shouldBe` Just (TInteger (-17))
 
-  , testCase "parse float" $ do
+  , it "parse float" $ do
       let Right val = decode "key = 3.14"
       case lookupKey "key" val of
-        Just (TFloat d) -> assertBool "close to 3.14" (abs (d - 3.14) < 0.001)
-        _ -> assertFailure "expected TFloat"
+        Just (TFloat d) -> (abs (d - 3.14) < 0.001) `shouldBe` True
+        _ -> expectationFailure "expected TFloat"
 
-  , testCase "parse bool true" $ do
+  , it "parse bool true" $ do
       let Right val = decode "key = true"
-      lookupKey "key" val @?= Just (TBool True)
+      lookupKey "key" val `shouldBe` Just (TBool True)
 
-  , testCase "parse bool false" $ do
+  , it "parse bool false" $ do
       let Right val = decode "key = false"
-      lookupKey "key" val @?= Just (TBool False)
+      lookupKey "key" val `shouldBe` Just (TBool False)
 
-  , testCase "parse inf" $ do
+  , it "parse inf" $ do
       let Right val = decode "key = inf"
       case lookupKey "key" val of
-        Just (TFloat d) -> assertBool "is infinite" (isInfinite d && d > 0)
-        _ -> assertFailure "expected TFloat inf"
+        Just (TFloat d) -> (isInfinite d && d > 0) `shouldBe` True
+        _ -> expectationFailure "expected TFloat inf"
 
-  , testCase "parse -inf" $ do
+  , it "parse -inf" $ do
       let Right val = decode "key = -inf"
       case lookupKey "key" val of
-        Just (TFloat d) -> assertBool "is -infinite" (isInfinite d && d < 0)
-        _ -> assertFailure "expected TFloat -inf"
+        Just (TFloat d) -> (isInfinite d && d < 0) `shouldBe` True
+        _ -> expectationFailure "expected TFloat -inf"
 
-  , testCase "parse nan" $ do
+  , it "parse nan" $ do
       let Right val = decode "key = nan"
       case lookupKey "key" val of
-        Just (TFloat d) -> assertBool "is nan" (isNaN d)
-        _ -> assertFailure "expected TFloat nan"
+        Just (TFloat d) -> (isNaN d) `shouldBe` True
+        _ -> expectationFailure "expected TFloat nan"
 
-  , testCase "parse datetime" $ do
+  , it "parse datetime" $ do
       let Right val = decode "key = 2024-01-15T10:30:00Z"
       case lookupKey "key" val of
         Just (TDateTime _) -> pure ()
-        _ -> assertFailure "expected TDateTime"
+        _ -> expectationFailure "expected TDateTime"
 
-  , testCase "parse date" $ do
+  , it "parse date" $ do
       let Right val = decode "key = 2024-01-15"
       case lookupKey "key" val of
         Just (TDate _) -> pure ()
-        _ -> assertFailure "expected TDate"
+        _ -> expectationFailure "expected TDate"
 
-  , testCase "comment handling" $ do
+  , it "comment handling" $ do
       let Right val = decode "key = 42 # this is a comment"
-      lookupKey "key" val @?= Just (TInteger 42)
+      lookupKey "key" val `shouldBe` Just (TInteger 42)
 
-  , testCase "empty lines and comments" $ do
+  , it "empty lines and comments" $ do
       let input = T.unlines
             [ "# Comment"
             , ""
@@ -99,13 +98,13 @@ basicTypeTests = testGroup "Basic types"
             , "key2 = 2"
             ]
       let Right val = decode input
-      lookupKey "key1" val @?= Just (TInteger 1)
-      lookupKey "key2" val @?= Just (TInteger 2)
+      lookupKey "key1" val `shouldBe` Just (TInteger 1)
+      lookupKey "key2" val `shouldBe` Just (TInteger 2)
   ]
 
-tableTests :: TestTree
-tableTests = testGroup "Tables"
-  [ testCase "simple table" $ do
+tableTests :: Spec
+tableTests = describe "Tables" $ sequence_
+  [ it "simple table" $ do
       let input = T.unlines
             [ "[server]"
             , "host = \"localhost\""
@@ -114,11 +113,11 @@ tableTests = testGroup "Tables"
       let Right val = decode input
       case lookupKey "server" val of
         Just (TTable kvs) -> do
-          lookupInTable "host" kvs @?= Just (TString "localhost")
-          lookupInTable "port" kvs @?= Just (TInteger 8080)
-        _ -> assertFailure "expected TTable"
+          lookupInTable "host" kvs `shouldBe` Just (TString "localhost")
+          lookupInTable "port" kvs `shouldBe` Just (TInteger 8080)
+        _ -> expectationFailure "expected TTable"
 
-  , testCase "nested tables" $ do
+  , it "nested tables" $ do
       let input = T.unlines
             [ "[database.connection]"
             , "host = \"db.example.com\""
@@ -129,40 +128,40 @@ tableTests = testGroup "Tables"
         Just (TTable outer) ->
           case lookupInTable "connection" outer of
             Just (TTable inner) ->
-              lookupInTable "host" inner @?= Just (TString "db.example.com")
-            _ -> assertFailure "expected nested TTable"
-        _ -> assertFailure "expected TTable"
+              lookupInTable "host" inner `shouldBe` Just (TString "db.example.com")
+            _ -> expectationFailure "expected nested TTable"
+        _ -> expectationFailure "expected TTable"
 
-  , testCase "inline table" $ do
+  , it "inline table" $ do
       let Right val = decode "point = {x = 1, y = 2}"
       case lookupKey "point" val of
         Just (TTable kvs) -> do
-          lookupInTable "x" kvs @?= Just (TInteger 1)
-          lookupInTable "y" kvs @?= Just (TInteger 2)
-        _ -> assertFailure "expected TTable"
+          lookupInTable "x" kvs `shouldBe` Just (TInteger 1)
+          lookupInTable "y" kvs `shouldBe` Just (TInteger 2)
+        _ -> expectationFailure "expected TTable"
   ]
 
-arrayTests :: TestTree
-arrayTests = testGroup "Arrays"
-  [ testCase "simple array" $ do
+arrayTests :: Spec
+arrayTests = describe "Arrays" $ sequence_
+  [ it "simple array" $ do
       let Right val = decode "arr = [1, 2, 3]"
       case lookupKey "arr" val of
-        Just (TArray vs) -> V.toList vs @?= [TInteger 1, TInteger 2, TInteger 3]
-        _ -> assertFailure "expected TArray"
+        Just (TArray vs) -> V.toList vs `shouldBe` [TInteger 1, TInteger 2, TInteger 3]
+        _ -> expectationFailure "expected TArray"
 
-  , testCase "empty array" $ do
+  , it "empty array" $ do
       let Right val = decode "arr = []"
       case lookupKey "arr" val of
-        Just (TArray vs) -> V.null vs @?= True
-        _ -> assertFailure "expected TArray"
+        Just (TArray vs) -> V.null vs `shouldBe` True
+        _ -> expectationFailure "expected TArray"
 
-  , testCase "array of strings" $ do
+  , it "array of strings" $ do
       let Right val = decode "arr = [\"a\", \"b\", \"c\"]"
       case lookupKey "arr" val of
-        Just (TArray vs) -> V.toList vs @?= [TString "a", TString "b", TString "c"]
-        _ -> assertFailure "expected TArray"
+        Just (TArray vs) -> V.toList vs `shouldBe` [TString "a", TString "b", TString "c"]
+        _ -> expectationFailure "expected TArray"
 
-  , testCase "array of tables" $ do
+  , it "array of tables" $ do
       let input = T.unlines
             [ "[[products]]"
             , "name = \"Hammer\""
@@ -176,68 +175,68 @@ arrayTests = testGroup "Arrays"
         _ -> pure ()
   ]
 
-stringTests :: TestTree
-stringTests = testGroup "Strings"
-  [ testCase "basic string" $ do
+stringTests :: Spec
+stringTests = describe "Strings" $ sequence_
+  [ it "basic string" $ do
       let Right val = decode "s = \"hello world\""
-      lookupKey "s" val @?= Just (TString "hello world")
+      lookupKey "s" val `shouldBe` Just (TString "hello world")
 
-  , testCase "literal string" $ do
+  , it "literal string" $ do
       let Right val = decode "s = 'hello world'"
-      lookupKey "s" val @?= Just (TString "hello world")
+      lookupKey "s" val `shouldBe` Just (TString "hello world")
 
-  , testCase "escape sequences in basic string" $ do
+  , it "escape sequences in basic string" $ do
       let Right val = decode "s = \"hello\\nworld\""
-      lookupKey "s" val @?= Just (TString "hello\nworld")
+      lookupKey "s" val `shouldBe` Just (TString "hello\nworld")
 
-  , testCase "literal string preserves backslash" $ do
+  , it "literal string preserves backslash" $ do
       let Right val = decode "s = 'hello\\nworld'"
-      lookupKey "s" val @?= Just (TString "hello\\nworld")
+      lookupKey "s" val `shouldBe` Just (TString "hello\\nworld")
   ]
 
-integerTests :: TestTree
-integerTests = testGroup "Integer formats"
-  [ testCase "hex integer" $ do
+integerTests :: Spec
+integerTests = describe "Integer formats" $ sequence_
+  [ it "hex integer" $ do
       let Right val = decode "n = 0xFF"
-      lookupKey "n" val @?= Just (TInteger 255)
+      lookupKey "n" val `shouldBe` Just (TInteger 255)
 
-  , testCase "octal integer" $ do
+  , it "octal integer" $ do
       let Right val = decode "n = 0o77"
-      lookupKey "n" val @?= Just (TInteger 63)
+      lookupKey "n" val `shouldBe` Just (TInteger 63)
 
-  , testCase "binary integer" $ do
+  , it "binary integer" $ do
       let Right val = decode "n = 0b1010"
-      lookupKey "n" val @?= Just (TInteger 10)
+      lookupKey "n" val `shouldBe` Just (TInteger 10)
 
-  , testCase "integer with underscores" $ do
+  , it "integer with underscores" $ do
       let Right val = decode "n = 1_000_000"
-      lookupKey "n" val @?= Just (TInteger 1000000)
+      lookupKey "n" val `shouldBe` Just (TInteger 1000000)
 
-  , testCase "positive integer with +" $ do
+  , it "positive integer with +" $ do
       let Right val = decode "n = +42"
-      lookupKey "n" val @?= Just (TInteger 42)
+      lookupKey "n" val `shouldBe` Just (TInteger 42)
   ]
 
-classTests :: TestTree
-classTests = testGroup "Class instances"
-  [ testCase "Text roundtrip" $ do
+classTests :: Spec
+classTests = describe "Class instances" $ sequence_
+  [ it "Text roundtrip" $ do
       let val = "hello" :: Text
-      fromTOML (toTOML val) @?= Right val
+      fromTOML (toTOML val) `shouldBe` Right val
 
-  , testCase "Int roundtrip" $ do
+  , it "Int roundtrip" $ do
       let val = 42 :: Int
-      fromTOML (toTOML val) @?= Right val
+      fromTOML (toTOML val) `shouldBe` Right val
 
-  , testCase "Bool roundtrip" $ do
-      fromTOML (toTOML True) @?= Right True
+  , it "Bool roundtrip" $ do
+      fromTOML (toTOML True) `shouldBe` Right True
 
-  , testCase "Double roundtrip" $ do
+  , it "Double roundtrip" $ do
       let val = 3.14 :: Double
-      fromTOML (toTOML val) @?= Right val
+      fromTOML (toTOML val) `shouldBe` Right val
 
-  , testCase "List roundtrip" $ do
+  , it "List roundtrip" $ do
       let val = [1, 2, 3] :: [Int]
-      fromTOML (toTOML val) @?= Right val
+      fromTOML (toTOML val) `shouldBe` Right val
   ]
 
 data Config = Config
@@ -246,25 +245,25 @@ data Config = Config
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (ToTOML, FromTOML)
 
-genericTests :: TestTree
-genericTests = testGroup "Generic deriving"
-  [ testCase "record to TOML" $ do
+genericTests :: Spec
+genericTests = describe "Generic deriving" $ sequence_
+  [ it "record to TOML" $ do
       let cfg = Config "My App" 8080
           val = toTOML cfg
       case val of
         TTable kvs -> do
-          lookupInTable "title" kvs @?= Just (TString "My App")
-          lookupInTable "port" kvs @?= Just (TInteger 8080)
-        _ -> assertFailure "expected TTable"
+          lookupInTable "title" kvs `shouldBe` Just (TString "My App")
+          lookupInTable "port" kvs `shouldBe` Just (TInteger 8080)
+        _ -> expectationFailure "expected TTable"
 
-  , testCase "record roundtrip" $ do
+  , it "record roundtrip" $ do
       let cfg = Config "Test" 3000
-      fromTOML (toTOML cfg) @?= Right cfg
+      fromTOML (toTOML cfg) `shouldBe` Right cfg
   ]
 
-roundtripTests :: TestTree
-roundtripTests = testGroup "Roundtrip"
-  [ testCase "encode then decode preserves values" $ do
+roundtripTests :: Spec
+roundtripTests = describe "Roundtrip" $ sequence_
+  [ it "encode then decode preserves values" $ do
       let val = TTable (V.fromList
             [ ("name", TString "test")
             , ("count", TInteger 42)
@@ -273,12 +272,12 @@ roundtripTests = testGroup "Roundtrip"
       let encoded = TOML.Encode.encode val
       case decode encoded of
         Right val2 -> do
-          lookupKey "name" val2 @?= Just (TString "test")
-          lookupKey "count" val2 @?= Just (TInteger 42)
-          lookupKey "enabled" val2 @?= Just (TBool True)
-        Left err -> assertFailure $ "decode failed: " ++ err
+          lookupKey "name" val2 `shouldBe` Just (TString "test")
+          lookupKey "count" val2 `shouldBe` Just (TInteger 42)
+          lookupKey "enabled" val2 `shouldBe` Just (TBool True)
+        Left err -> expectationFailure $ "decode failed: " ++ err
 
-  , testCase "array encode then decode" $ do
+  , it "array encode then decode" $ do
       let val = TTable (V.fromList
             [ ("items", TArray (V.fromList [TInteger 1, TInteger 2, TInteger 3]))
             ])
@@ -286,9 +285,9 @@ roundtripTests = testGroup "Roundtrip"
       case decode encoded of
         Right val2 ->
           case lookupKey "items" val2 of
-            Just (TArray vs) -> V.toList vs @?= [TInteger 1, TInteger 2, TInteger 3]
-            _ -> assertFailure "expected TArray"
-        Left err -> assertFailure $ "decode failed: " ++ err
+            Just (TArray vs) -> V.toList vs `shouldBe` [TInteger 1, TInteger 2, TInteger 3]
+            _ -> expectationFailure "expected TArray"
+        Left err -> expectationFailure $ "decode failed: " ++ err
   ]
 
 -- Helpers

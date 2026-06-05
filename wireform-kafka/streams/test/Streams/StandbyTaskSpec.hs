@@ -14,16 +14,15 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Processor (TaskId (..))
 import qualified Kafka.Streams.State.KeyValue.InMemory as KVInMem
 import Kafka.Streams.Runtime.StandbyTask
 
-tests :: TestTree
-tests = testGroup "Standby task replay"
+tests :: Spec
+tests = describe "Standby task replay" $ sequence_
   [ replay_applies_to_store
   , replay_reports_lag
   , manager_round_trip
@@ -34,9 +33,9 @@ tests = testGroup "Standby task replay"
 -- 1. Replay applies records to the underlying KV store
 ----------------------------------------------------------------------
 
-replay_applies_to_store :: TestTree
+replay_applies_to_store :: Spec
 replay_applies_to_store =
-  testCase "standbyReplay: each ChangelogRecord lands in the store" $ do
+  it "standbyReplay: each ChangelogRecord lands in the store" $ do
     st <- newStandbyTask (TaskId 0 0) "changelog" 0
             (storeName "store-1")
     kvs <- KVInMem.inMemoryKeyValueStore @BSC.ByteString @(Maybe BSC.ByteString)
@@ -47,16 +46,16 @@ replay_applies_to_store =
       , ChangelogRecord 2 "k1" Nothing      3
         -- tombstone for k1
       ]
-    kvsGet kvs "k1" >>= (@?= Just Nothing)   -- tombstoned
-    kvsGet kvs "k2" >>= (@?= Just (Just "v2"))
+    kvsGet kvs "k1" >>= (`shouldBe` Just Nothing)   -- tombstoned
+    kvsGet kvs "k2" >>= (`shouldBe` Just (Just "v2"))
 
 ----------------------------------------------------------------------
 -- 2. Replay's lag computation
 ----------------------------------------------------------------------
 
-replay_reports_lag :: TestTree
+replay_reports_lag :: Spec
 replay_reports_lag =
-  testCase "standbyReplay: returned lag is end-offset minus next-replay" $ do
+  it "standbyReplay: returned lag is end-offset minus next-replay" $ do
     st <- newStandbyTask (TaskId 0 0) "cl" 0
             (storeName "lag-store")
     kvs <- KVInMem.inMemoryKeyValueStore @BSC.ByteString @(Maybe BSC.ByteString)
@@ -66,37 +65,37 @@ replay_reports_lag =
       [ ChangelogRecord 0 "k" (Just "v") 5
       , ChangelogRecord 1 "k" (Just "v") 5
       ]
-    lag @?= 3
+    lag `shouldBe` 3
     -- Empty replay: lag stays the same.
     lag2 <- standbyReplay st kvs []
-    lag2 @?= 3
+    lag2 `shouldBe` 3
 
 ----------------------------------------------------------------------
 -- 3. Manager add / list / remove
 ----------------------------------------------------------------------
 
-manager_round_trip :: TestTree
+manager_round_trip :: Spec
 manager_round_trip =
-  testCase "StandbyManager: add/list/remove round-trip" $ do
+  it "StandbyManager: add/list/remove round-trip" $ do
     mgr <- newStandbyManager
     s1 <- newStandbyTask (TaskId 0 0) "cl-a" 0 (storeName "store-a")
     s2 <- newStandbyTask (TaskId 0 1) "cl-b" 0 (storeName "store-b")
     addStandbyTask mgr s1
     addStandbyTask mgr s2
     listStandbyTasks mgr >>= \xs ->
-      length xs @?= 2
+      length xs `shouldBe` 2
     removeStandbyTask mgr (TaskId 0 0) "cl-a" 0
     listStandbyTasks mgr >>= \xs ->
-      length xs @?= 1
+      length xs `shouldBe` 1
 
 ----------------------------------------------------------------------
 -- 4. End-to-end: replay reports lag through reportWarmupLag
 --    so the runtime's warmupSnapshot picks it up.
 ----------------------------------------------------------------------
 
-replay_feeds_warmup_lag_map :: TestTree
+replay_feeds_warmup_lag_map :: Spec
 replay_feeds_warmup_lag_map =
-  testCase "standbyReplay drives reportWarmupLag end-to-end" $ do
+  it "standbyReplay drives reportWarmupLag end-to-end" $ do
     b <- newStreamsBuilder
     _ <- streamFromTopic b (topicName "in")
            (consumed textSerde textSerde)
@@ -126,12 +125,12 @@ replay_feeds_warmup_lag_map =
       , ChangelogRecord 1 "b" (Just "2") 10
       , ChangelogRecord 2 "c" (Just "3") 10
       ]
-    lag @?= 7
+    lag `shouldBe` 7
 
     -- Plumb it into the warmup-lag map.
     reportWarmupLag ks tid lag
     snap <- warmupSnapshot ks
-    Map.lookup tid snap @?= Just 7
+    Map.lookup tid snap `shouldBe` Just 7
 
     -- After catching up: lag = 0 -> the probing-rebalance
     -- machinery would now promote.
@@ -140,7 +139,7 @@ replay_feeds_warmup_lag_map =
       , ChangelogRecord 4 "e" (Just "5") 5
       ]
     -- End-offset moved from 10 down to 5 -> max(end - next) -> 0.
-    assertBool ("expected lag 0; got " <> show lag2) (lag2 == 0)
+    (if (lag2 == 0) then pure () else expectationFailure ("expected lag 0; got " <> show lag2))
     reportWarmupLag ks tid lag2
     snap2 <- warmupSnapshot ks
-    Map.lookup tid snap2 @?= Just 0
+    Map.lookup tid snap2 `shouldBe` Just 0

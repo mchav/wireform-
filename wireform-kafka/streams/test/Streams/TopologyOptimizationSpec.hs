@@ -6,8 +6,7 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Processor (Processor (..), processorName)
 import Kafka.Streams.Serde (textSerde)
@@ -48,74 +47,74 @@ import Kafka.Streams.Topology
 import qualified Kafka.Streams.Topology
 import Kafka.Streams.Types (TopicName, topicName)
 
-tests :: TestTree
-tests = testGroup "Topology optimisation"
-  [ testGroup "optimizeTopology — REUSE_KTABLE_SOURCE_TOPICS"
-      [ testCase "populates topoChangelogPlan with the source topic"
+tests :: Spec
+tests = describe "Topology optimisation" $ sequence_
+  [ describe "optimizeTopology — REUSE_KTABLE_SOURCE_TOPICS" $ sequence_
+      [ it "populates topoChangelogPlan with the source topic"
           reuse_source_ktable_basic
-      , testCase "is a no-op when the toggle is disabled"
+      , it "is a no-op when the toggle is disabled"
           reuse_disabled_noop
-      , testCase "skips when the source has multiple topics"
+      , it "skips when the source has multiple topics"
           reuse_skip_multi_topic_source
-      , testCase "skips when the processor has multiple parents"
+      , it "skips when the processor has multiple parents"
           reuse_skip_multi_parent
-      , testCase "skips when the store is shared with another processor"
+      , it "skips when the store is shared with another processor"
           reuse_skip_shared_store
-      , testCase "skips when the store's logging is already disabled"
+      , it "skips when the store's logging is already disabled"
           reuse_skip_logging_disabled
-      , testCase "skips when another sink writes to the source topic"
+      , it "skips when another sink writes to the source topic"
           reuse_skip_source_also_sink
-      , testCase "is idempotent — applying twice == applying once"
+      , it "is idempotent — applying twice == applying once"
           reuse_idempotent
       ]
-  , testGroup "optimizeTopology — dynamic-modification safety (REUSE)"
-      [ testCase "adding a competing sink after optimisation, re-running clears the stale plan entry"
+  , describe "optimizeTopology — dynamic-modification safety (REUSE)" $ sequence_
+      [ it "adding a competing sink after optimisation, re-running clears the stale plan entry"
           reuse_dynamic_sink_invalidates
-      , testCase "adding a second owner processor after optimisation, re-running clears the entry"
+      , it "adding a second owner processor after optimisation, re-running clears the entry"
           reuse_dynamic_shared_store_invalidates
-      , testCase "preserves user-explicit withSourceTopicChangelogKV across optimiser runs"
+      , it "preserves user-explicit withSourceTopicChangelogKV across optimiser runs"
           reuse_dynamic_user_explicit_preserved
-      , testCase "wipes topoChangelogPlan even when the toggle is disabled"
+      , it "wipes topoChangelogPlan even when the toggle is disabled"
           reuse_dynamic_wipes_when_disabled
-      , testCase "adds a new plan entry when the new graph creates a candidate"
+      , it "adds a new plan entry when the new graph creates a candidate"
           reuse_dynamic_adds_new_candidate
       ]
-  , testGroup "optimizeTopology — MERGE_REPARTITION_TOPICS"
-      [ testCase "merges two sibling repartition processors that share a parent + prefix"
+  , describe "optimizeTopology — MERGE_REPARTITION_TOPICS" $ sequence_
+      [ it "merges two sibling repartition processors that share a parent + prefix"
           merge_repartition_pair
-      , testCase "merges N sibling repartitions and rewires downstream sinks"
+      , it "merges N sibling repartitions and rewires downstream sinks"
           merge_repartition_many
-      , testCase "leaves different prefixes alone"
+      , it "leaves different prefixes alone"
           merge_skip_different_prefixes
-      , testCase "leaves repartitions with different parents alone"
+      , it "leaves repartitions with different parents alone"
           merge_skip_different_parents
-      , testCase "is a no-op when the toggle is disabled"
+      , it "is a no-op when the toggle is disabled"
           merge_disabled_noop
-      , testCase "is idempotent — applying twice == applying once"
+      , it "is idempotent — applying twice == applying once"
           merge_idempotent
-      , testCase "rebuilds topoChildrenIndex consistently after merging"
+      , it "rebuilds topoChildrenIndex consistently after merging"
           merge_rebuilds_children_index
       ]
-  , testGroup "optimizeTopology — dynamic-modification safety (MERGE)"
-      [ testCase "adding a third sibling after merge, re-running absorbs it"
+  , describe "optimizeTopology — dynamic-modification safety (MERGE)" $ sequence_
+      [ it "adding a third sibling after merge, re-running absorbs it"
           merge_dynamic_new_sibling_absorbed
-      , testCase "adding a sibling with a smaller name after merge, the new one becomes the survivor"
+      , it "adding a sibling with a smaller name after merge, the new one becomes the survivor"
           merge_dynamic_smaller_sibling_takes_over
-      , testCase "adding a sibling under a different parent, re-running leaves both alone"
+      , it "adding a sibling under a different parent, re-running leaves both alone"
           merge_dynamic_different_parent_left_alone
       ]
-  , testGroup "optimizeTopology — both rewrites"
-      [ testCase "applies both rewrites on the same topology"
+  , describe "optimizeTopology — both rewrites" $ sequence_
+      [ it "applies both rewrites on the same topology"
           both_rewrites_compose
       ]
-  , testGroup "validateChangelogPlan"
-      [ testCase "accepts an optimised topology"
+  , describe "validateChangelogPlan" $ sequence_
+      [ it "accepts an optimised topology"
           validate_accepts_optimised
-      , testCase "rejects a stale plan entry after adding a competing sink"
+      , it "rejects a stale plan entry after adding a competing sink"
           validate_rejects_stale_after_sink
-      , testCase "rejects a stale plan entry after adding a shared owner"
+      , it "rejects a stale plan entry after adding a shared owner"
           validate_rejects_stale_after_shared_owner
-      , testCase "rejects an inconsistent user-declared loggingSourceTopic"
+      , it "rejects an inconsistent user-declared loggingSourceTopic"
           validate_rejects_user_inconsistent
       ]
   ]
@@ -190,16 +189,16 @@ reuse_source_ktable_basic = do
       storeNm = storeName "ktable-store"
       t       = sourceTableTopology topic srcNm procNm storeNm
   -- Before: no optimisation; the side-table is empty.
-  Map.lookup storeNm (topoChangelogPlan t) @?= Nothing
-  effectiveChangelogReuse t storeNm        @?= Nothing
+  Map.lookup storeNm (topoChangelogPlan t) `shouldBe` Nothing
+  effectiveChangelogReuse t storeNm        `shouldBe` Nothing
   let !t' = optimizeTopology defaultOptimizationConfig t
   -- After: optimisation populated the side-table.
-  Map.lookup storeNm (topoChangelogPlan t') @?= Just topic
-  effectiveChangelogReuse t' storeNm        @?= Just topic
+  Map.lookup storeNm (topoChangelogPlan t') `shouldBe` Just topic
+  effectiveChangelogReuse t' storeNm        `shouldBe` Just topic
   -- The store builder's LoggingConfig is NOT mutated — user
   -- declarations remain authoritative.
-  loggingSourceTopic (storeLogging storeNm t')  @?= Nothing
-  loggingEnabled     (storeLogging storeNm t')  @?= True
+  loggingSourceTopic (storeLogging storeNm t')  `shouldBe` Nothing
+  loggingEnabled     (storeLogging storeNm t')  `shouldBe` True
 
 reuse_disabled_noop :: IO ()
 reuse_disabled_noop = do
@@ -210,8 +209,8 @@ reuse_disabled_noop = do
       t       = sourceTableTopology topic srcNm procNm storeNm
       cfg     = defaultOptimizationConfig { optReuseSourceKTable = False }
       !t'     = optimizeTopology cfg t
-  Map.lookup storeNm (topoChangelogPlan t') @?= Nothing
-  effectiveChangelogReuse t' storeNm        @?= Nothing
+  Map.lookup storeNm (topoChangelogPlan t') `shouldBe` Nothing
+  effectiveChangelogReuse t' storeNm        `shouldBe` Nothing
 
 reuse_skip_multi_topic_source :: IO ()
 reuse_skip_multi_topic_source = do
@@ -227,7 +226,7 @@ reuse_skip_multi_topic_source = do
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t' storeNm @?= Nothing
+  effectiveChangelogReuse t' storeNm `shouldBe` Nothing
 
 reuse_skip_multi_parent :: IO ()
 reuse_skip_multi_parent = do
@@ -246,7 +245,7 @@ reuse_skip_multi_parent = do
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t' storeNm @?= Nothing
+  effectiveChangelogReuse t' storeNm `shouldBe` Nothing
 
 reuse_skip_shared_store :: IO ()
 reuse_skip_shared_store = do
@@ -264,7 +263,7 @@ reuse_skip_shared_store = do
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t' storeNm @?= Nothing
+  effectiveChangelogReuse t' storeNm `shouldBe` Nothing
 
 reuse_skip_logging_disabled :: IO ()
 reuse_skip_logging_disabled = do
@@ -280,8 +279,8 @@ reuse_skip_logging_disabled = do
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  loggingEnabled (storeLogging storeNm t')  @?= False
-  effectiveChangelogReuse t' storeNm        @?= Nothing
+  loggingEnabled (storeLogging storeNm t')  `shouldBe` False
+  effectiveChangelogReuse t' storeNm        `shouldBe` Nothing
 
 reuse_skip_source_also_sink :: IO ()
 reuse_skip_source_also_sink = do
@@ -299,7 +298,7 @@ reuse_skip_source_also_sink = do
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t' storeNm @?= Nothing
+  effectiveChangelogReuse t' storeNm `shouldBe` Nothing
 
 reuse_idempotent :: IO ()
 reuse_idempotent = do
@@ -310,11 +309,11 @@ reuse_idempotent = do
       t       = sourceTableTopology topic srcNm procNm storeNm
       !t1     = optimizeTopology defaultOptimizationConfig t
       !t2     = optimizeTopology defaultOptimizationConfig t1
-  effectiveChangelogReuse t1 storeNm @?= Just topic
-  effectiveChangelogReuse t2 storeNm @?= Just topic
-  topoChangelogPlan t1 @?= topoChangelogPlan t2
-  Map.size (topoProcessors t1) @?= Map.size (topoProcessors t2)
-  Map.size (topoSinks t1)      @?= Map.size (topoSinks t2)
+  effectiveChangelogReuse t1 storeNm `shouldBe` Just topic
+  effectiveChangelogReuse t2 storeNm `shouldBe` Just topic
+  topoChangelogPlan t1 `shouldBe` topoChangelogPlan t2
+  Map.size (topoProcessors t1) `shouldBe` Map.size (topoProcessors t2)
+  Map.size (topoSinks t1)      `shouldBe` Map.size (topoSinks t2)
 
 ----------------------------------------------------------------------
 -- Dynamic-modification safety (REUSE)
@@ -334,7 +333,7 @@ reuse_dynamic_sink_invalidates = do
       t       = sourceTableTopology topic srcNm procNm storeNm
       -- 1) Optimise: a candidate, plan entry set.
       !t1     = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t1 storeNm @?= Just topic
+  effectiveChangelogReuse t1 storeNm `shouldBe` Just topic
       -- 2) Dynamically add a competing sink that writes to the
       -- same topic. The topic is no longer a clean source-only
       -- changelog target.
@@ -342,7 +341,7 @@ reuse_dynamic_sink_invalidates = do
       -- 3) Re-running the optimiser detects the invalidation
       -- and clears the stale plan entry.
       !t3     = optimizeTopology defaultOptimizationConfig t2
-  effectiveChangelogReuse t3 storeNm @?= Nothing
+  effectiveChangelogReuse t3 storeNm `shouldBe` Nothing
 
 reuse_dynamic_shared_store_invalidates :: IO ()
 reuse_dynamic_shared_store_invalidates = do
@@ -352,14 +351,14 @@ reuse_dynamic_shared_store_invalidates = do
       storeNm = storeName "store"
       t       = sourceTableTopology topic srcNm procNm storeNm
       !t1     = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t1 storeNm @?= Just topic
+  effectiveChangelogReuse t1 storeNm `shouldBe` Just topic
   -- Add a second processor and connect it to the store.
   let proc2   = NodeName "P2"
       !t2     = Kafka.Streams.Topology.connectProcessorAndStateStores
                   proc2 [storeNm]
                 $ addProcessor proc2 [srcNm] mkProc t1
       !t3     = optimizeTopology defaultOptimizationConfig t2
-  effectiveChangelogReuse t3 storeNm @?= Nothing
+  effectiveChangelogReuse t3 storeNm `shouldBe` Nothing
 
 reuse_dynamic_user_explicit_preserved :: IO ()
 reuse_dynamic_user_explicit_preserved = do
@@ -380,20 +379,20 @@ reuse_dynamic_user_explicit_preserved = do
             $ emptyTopology
   -- 'effectiveChangelogReuse' sees the user declaration even
   -- before optimisation runs.
-  effectiveChangelogReuse t storeNm @?= Just topic
-  loggingSourceTopic (storeLogging storeNm t) @?= Just topic
+  effectiveChangelogReuse t storeNm `shouldBe` Just topic
+  loggingSourceTopic (storeLogging storeNm t) `shouldBe` Just topic
   -- After optimisation the user declaration is preserved on the
   -- builder; the optimiser does NOT duplicate it into the plan
   -- (the plan filter excludes user-set stores).
   let !t' = optimizeTopology defaultOptimizationConfig t
-  loggingSourceTopic (storeLogging storeNm t')  @?= Just topic
-  effectiveChangelogReuse t' storeNm            @?= Just topic
-  Map.lookup storeNm (topoChangelogPlan t')     @?= Nothing
+  loggingSourceTopic (storeLogging storeNm t')  `shouldBe` Just topic
+  effectiveChangelogReuse t' storeNm            `shouldBe` Just topic
+  Map.lookup storeNm (topoChangelogPlan t')     `shouldBe` Nothing
   -- Re-running optimisation many times leaves the user
   -- declaration alone.
   let !t'' = optimizeTopology defaultOptimizationConfig
                (optimizeTopology defaultOptimizationConfig t')
-  loggingSourceTopic (storeLogging storeNm t'') @?= Just topic
+  loggingSourceTopic (storeLogging storeNm t'') `shouldBe` Just topic
 
 reuse_dynamic_wipes_when_disabled :: IO ()
 reuse_dynamic_wipes_when_disabled = do
@@ -403,12 +402,12 @@ reuse_dynamic_wipes_when_disabled = do
       storeNm = storeName "store"
       t       = sourceTableTopology topic srcNm procNm storeNm
       !t1     = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t1 storeNm @?= Just topic
+  effectiveChangelogReuse t1 storeNm `shouldBe` Just topic
   -- User flips the toggle off and re-optimises. The plan is
   -- wiped — no stale entries linger.
   let !t2 = optimizeTopology noOptimisations t1
-  Map.size (topoChangelogPlan t2) @?= 0
-  effectiveChangelogReuse t2 storeNm @?= Nothing
+  Map.size (topoChangelogPlan t2) `shouldBe` 0
+  effectiveChangelogReuse t2 storeNm `shouldBe` Nothing
 
 reuse_dynamic_adds_new_candidate :: IO ()
 reuse_dynamic_adds_new_candidate = do
@@ -423,7 +422,7 @@ reuse_dynamic_adds_new_candidate = do
       store1   = storeName "s1"
       t        = sourceTableTopology topic1 src1 proc1 store1
       !t1      = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t1 store1 @?= Just topic1
+  effectiveChangelogReuse t1 store1 `shouldBe` Just topic1
   let topic2   = topicName "tp2"
       src2     = NodeName "S2"
       proc2    = NodeName "P2"
@@ -435,9 +434,9 @@ reuse_dynamic_adds_new_candidate = do
               $ addSource src2 [topic2]
                   textSerde textSerde recordTimestampExtractor t1
       !t3 = optimizeTopology defaultOptimizationConfig t2
-  effectiveChangelogReuse t3 store1 @?= Just topic1
-  effectiveChangelogReuse t3 store2 @?= Just topic2
-  Map.size (topoChangelogPlan t3)   @?= 2
+  effectiveChangelogReuse t3 store1 `shouldBe` Just topic1
+  effectiveChangelogReuse t3 store2 `shouldBe` Just topic2
+  Map.size (topoChangelogPlan t3)   `shouldBe` 2
 
 ----------------------------------------------------------------------
 -- MERGE_REPARTITION_TOPICS tests
@@ -454,18 +453,18 @@ twoRepartitionSiblings =
 merge_repartition_pair :: IO ()
 merge_repartition_pair = do
   let !t = twoRepartitionSiblings
-  Map.size (topoProcessors t) @?= 2
+  Map.size (topoProcessors t) `shouldBe` 2
   -- 'topoChildrenIndex' stores children in reverse-insertion order
   -- (each new child is prepended); the order here is one
   -- implementation detail we don't bet on. Sort before comparing.
-  List.sort (childrenOf t (NodeName "S")) @?=
+  List.sort (childrenOf t (NodeName "S")) `shouldBe`
     [ NodeName "KSTREAM-REPARTITION-x-1"
     , NodeName "KSTREAM-REPARTITION-x-2"
     ]
   let !t' = optimizeTopology defaultOptimizationConfig t
-  Map.size (topoProcessors t') @?= 1
+  Map.size (topoProcessors t') `shouldBe` 1
   -- The merge survivor is the lexicographically smallest node name.
-  childrenOf t' (NodeName "S") @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  childrenOf t' (NodeName "S") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
 
 merge_repartition_many :: IO ()
 merge_repartition_many = do
@@ -479,14 +478,14 @@ merge_repartition_many = do
         $ addSource (NodeName "S") [topicName "in"]
             textSerde textSerde recordTimestampExtractor
         $ emptyTopology
-  Map.size (topoProcessors t) @?= 3
+  Map.size (topoProcessors t) `shouldBe` 3
   let !t' = optimizeTopology defaultOptimizationConfig t
-  Map.size (topoProcessors t') @?= 1
+  Map.size (topoProcessors t') `shouldBe` 1
   -- Both sinks now reference the survivor as their parent.
   let sinkParentsOf nm =
         maybe [] sinkParents (Map.lookup (NodeName nm) (topoSinks t'))
-  sinkParentsOf "sinkA" @?= [NodeName "KSTREAM-REPARTITION-x-1"]
-  sinkParentsOf "sinkB" @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  sinkParentsOf "sinkA" `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
+  sinkParentsOf "sinkB" `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
 
 merge_skip_different_prefixes :: IO ()
 merge_skip_different_prefixes = do
@@ -496,7 +495,7 @@ merge_skip_different_prefixes = do
             textSerde textSerde recordTimestampExtractor
         $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
-  Map.size (topoProcessors t') @?= 2
+  Map.size (topoProcessors t') `shouldBe` 2
 
 merge_skip_different_parents :: IO ()
 merge_skip_different_parents = do
@@ -509,33 +508,32 @@ merge_skip_different_parents = do
         $ emptyTopology
       !t' = optimizeTopology defaultOptimizationConfig t
   -- Each parent has one child, so no sibling group is eligible.
-  Map.size (topoProcessors t') @?= 2
+  Map.size (topoProcessors t') `shouldBe` 2
 
 merge_disabled_noop :: IO ()
 merge_disabled_noop = do
   let !t  = twoRepartitionSiblings
       cfg = defaultOptimizationConfig { optMergeRepartitionTopics = False }
       !t' = optimizeTopology cfg t
-  Map.size (topoProcessors t') @?= 2
+  Map.size (topoProcessors t') `shouldBe` 2
 
 merge_idempotent :: IO ()
 merge_idempotent = do
   let !t  = twoRepartitionSiblings
       !t1 = optimizeTopology defaultOptimizationConfig t
       !t2 = optimizeTopology defaultOptimizationConfig t1
-  Map.size (topoProcessors t1) @?= 1
-  Map.size (topoProcessors t2) @?= 1
-  childrenOf t1 (NodeName "S") @?= childrenOf t2 (NodeName "S")
+  Map.size (topoProcessors t1) `shouldBe` 1
+  Map.size (topoProcessors t2) `shouldBe` 1
+  childrenOf t1 (NodeName "S") `shouldBe` childrenOf t2 (NodeName "S")
 
 merge_rebuilds_children_index :: IO ()
 merge_rebuilds_children_index = do
   let !t  = twoRepartitionSiblings
       !t' = optimizeTopology defaultOptimizationConfig t
-  childrenOf t' (NodeName "S") @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  childrenOf t' (NodeName "S") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
   -- The removed node should not have any recorded children either —
   -- it doesn't exist as a parent in the index at all.
-  assertBool "removed node has no children entries"
-    (null (childrenOf t' (NodeName "KSTREAM-REPARTITION-x-2")))
+  (null (childrenOf t' (NodeName "KSTREAM-REPARTITION-x-2"))) `shouldBe` True
 
 ----------------------------------------------------------------------
 -- Dynamic-modification safety (MERGE)
@@ -545,40 +543,40 @@ merge_dynamic_new_sibling_absorbed :: IO ()
 merge_dynamic_new_sibling_absorbed = do
   -- 1) Two siblings, optimise -> one survivor.
   let !t1 = optimizeTopology defaultOptimizationConfig twoRepartitionSiblings
-  Map.size (topoProcessors t1) @?= 1
+  Map.size (topoProcessors t1) `shouldBe` 1
   -- 2) Dynamically add a third sibling under the same parent.
   let !t2 = addRepartitionNode "KSTREAM-REPARTITION-x-3" "S" t1
-  Map.size (topoProcessors t2) @?= 2
+  Map.size (topoProcessors t2) `shouldBe` 2
   -- 3) Re-run -> the new one is absorbed into the survivor.
   let !t3 = optimizeTopology defaultOptimizationConfig t2
-  Map.size (topoProcessors t3) @?= 1
-  childrenOf t3 (NodeName "S") @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  Map.size (topoProcessors t3) `shouldBe` 1
+  childrenOf t3 (NodeName "S") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
 
 merge_dynamic_smaller_sibling_takes_over :: IO ()
 merge_dynamic_smaller_sibling_takes_over = do
   let !t1 = optimizeTopology defaultOptimizationConfig twoRepartitionSiblings
-  childrenOf t1 (NodeName "S") @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  childrenOf t1 (NodeName "S") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
   -- Add a sibling whose name sorts smaller than the survivor.
   let !t2 = addRepartitionNode "KSTREAM-REPARTITION-x-0" "S" t1
       !t3 = optimizeTopology defaultOptimizationConfig t2
   -- The newly-added smaller node becomes the survivor; the
   -- previous survivor is folded in.
-  childrenOf t3 (NodeName "S") @?= [NodeName "KSTREAM-REPARTITION-x-0"]
-  Map.size (topoProcessors t3) @?= 1
+  childrenOf t3 (NodeName "S") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-0"]
+  Map.size (topoProcessors t3) `shouldBe` 1
 
 merge_dynamic_different_parent_left_alone :: IO ()
 merge_dynamic_different_parent_left_alone = do
   let !t1 = optimizeTopology defaultOptimizationConfig twoRepartitionSiblings
-  Map.size (topoProcessors t1) @?= 1
+  Map.size (topoProcessors t1) `shouldBe` 1
   -- Add a new source + a repartition under it. Same prefix as
   -- the surviving one but different parent: should NOT merge.
   let !t2 = addRepartitionNode "KSTREAM-REPARTITION-x-99" "S2"
          $ addSource (NodeName "S2") [topicName "other"]
              textSerde textSerde recordTimestampExtractor t1
       !t3 = optimizeTopology defaultOptimizationConfig t2
-  Map.size (topoProcessors t3) @?= 2
-  childrenOf t3 (NodeName "S")  @?= [NodeName "KSTREAM-REPARTITION-x-1"]
-  childrenOf t3 (NodeName "S2") @?= [NodeName "KSTREAM-REPARTITION-x-99"]
+  Map.size (topoProcessors t3) `shouldBe` 2
+  childrenOf t3 (NodeName "S")  `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
+  childrenOf t3 (NodeName "S2") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-99"]
 
 ----------------------------------------------------------------------
 -- validateChangelogPlan tests
@@ -592,7 +590,7 @@ validate_accepts_optimised = do
       storeNm = storeName "store"
       t       = sourceTableTopology topic srcNm procNm storeNm
       !t'     = optimizeTopology defaultOptimizationConfig t
-  validateChangelogPlan t' @?= Right ()
+  validateChangelogPlan t' `shouldBe` Right ()
 
 validate_rejects_stale_after_sink :: IO ()
 validate_rejects_stale_after_sink = do
@@ -605,11 +603,11 @@ validate_rejects_stale_after_sink = do
       -- Add a competing sink without re-optimising. The plan
       -- entry is now stale.
       !t2     = addSinkOnTopic (NodeName "SINK") topic procNm t1
-  validateChangelogPlan t2 @?=
+  validateChangelogPlan t2 `shouldBe`
     Left (StaleChangelogPlan storeNm topic StaleTopicHasSink)
   -- Re-running the optimiser fixes it.
   let !t3 = optimizeTopology defaultOptimizationConfig t2
-  validateChangelogPlan t3 @?= Right ()
+  validateChangelogPlan t3 `shouldBe` Right ()
 
 validate_rejects_stale_after_shared_owner :: IO ()
 validate_rejects_stale_after_shared_owner = do
@@ -623,7 +621,7 @@ validate_rejects_stale_after_shared_owner = do
       !t2     = Kafka.Streams.Topology.connectProcessorAndStateStores
                   proc2 [storeNm]
                 $ addProcessor proc2 [srcNm] mkProc t1
-  validateChangelogPlan t2 @?=
+  validateChangelogPlan t2 `shouldBe`
     Left (StaleChangelogPlan storeNm topic StaleMultipleOwners)
 
 validate_rejects_user_inconsistent :: IO ()
@@ -643,7 +641,7 @@ validate_rejects_user_inconsistent = do
             $ addSource srcNm [actual]
                 textSerde textSerde recordTimestampExtractor
             $ emptyTopology
-  validateChangelogPlan t @?=
+  validateChangelogPlan t `shouldBe`
     Left (StaleChangelogPlan storeNm topic (StaleWrongTopic actual))
 
 ----------------------------------------------------------------------
@@ -669,13 +667,13 @@ both_rewrites_compose = do
             textSerde textSerde recordTimestampExtractor
         $ emptyTopology
   let !t' = optimizeTopology defaultOptimizationConfig t
-  effectiveChangelogReuse t' tableStore @?= Just tableTopic
+  effectiveChangelogReuse t' tableStore `shouldBe` Just tableTopic
   -- One surviving repartition processor + one source-table
   -- processor = two processors total.
-  Map.size (topoProcessors t') @?= 2
+  Map.size (topoProcessors t') `shouldBe` 2
   -- The repartition merge survivor is the lexicographically
   -- earliest @-1@ suffix.
-  childrenOf t' (NodeName "SS") @?= [NodeName "KSTREAM-REPARTITION-x-1"]
+  childrenOf t' (NodeName "SS") `shouldBe` [NodeName "KSTREAM-REPARTITION-x-1"]
   -- Silence "unused" warning on Text import in some GHC configs.
   _ <- pure (T.length "x")
   pure ()

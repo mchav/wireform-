@@ -47,8 +47,8 @@ import Data.Int (Int64)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -248,14 +248,14 @@ prop_add_only_churn_conserves = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "WorkerPool concurrent chaos"
-  [ testProperty "concurrent submit conserves count" $
+tests :: Spec
+tests = describe "WorkerPool concurrent chaos" $ sequence_
+  [ it "concurrent submit conserves count" $
       H.withTests 40 prop_concurrent_submit_conserves
-  , testProperty "routing for a single partition is sticky under concurrency" $
+  , it "routing for a single partition is sticky under concurrency" $
       H.withTests 40 prop_routing_is_sticky
-  , testProperty "closeWorkerPool returns under concurrent submit+churn" $
+  , it "closeWorkerPool returns under concurrent submit+churn" $
       H.withTests 25 prop_close_after_concurrent_churn
-  , testProperty "add-only concurrent churn preserves conservation" $
+  , it "add-only concurrent churn preserves conservation" $
       H.withTests 30 prop_add_only_churn_conserves
   ]

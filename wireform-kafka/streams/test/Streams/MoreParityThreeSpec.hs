@@ -11,8 +11,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
@@ -22,8 +21,8 @@ bytes = BSC.pack . T.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "ParityRoundThree"
+tests :: Spec
+tests = describe "ParityRoundThree" $ sequence_
   [ values_stream_drops_keys
   , print_stream_writes_to_handle
   , consumed_default_is_earliest
@@ -32,9 +31,9 @@ tests = testGroup "ParityRoundThree"
   , partitioner_default_returns_nothing
   ]
 
-values_stream_drops_keys :: TestTree
+values_stream_drops_keys :: Spec
 values_stream_drops_keys =
-  testCase "valuesStream emits records with a () key" $ do
+  it "valuesStream emits records with a () key" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     valued <- valuesStream src
@@ -53,11 +52,11 @@ values_stream_drops_keys =
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "a") (t 0) 0
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "b") (t 1) 0
     closeDriver driver
-    reverse <$> readIORef seen >>= (@?= ["a", "b"])
+    reverse <$> readIORef seen >>= (`shouldBe` ["a", "b"])
 
-print_stream_writes_to_handle :: TestTree
+print_stream_writes_to_handle :: Spec
 print_stream_writes_to_handle =
-  testCase "printToHandle invokes the supplied putLine" $ do
+  it "printToHandle invokes the supplied putLine" $ do
     log_ <- newIORef ([] :: [String])
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -67,32 +66,32 @@ print_stream_writes_to_handle =
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "v") (t 0) 0
     closeDriver driver
     lines_ <- reverse <$> readIORef log_
-    length lines_ @?= 1
+    length lines_ `shouldBe` 1
     let l = head lines_
-    assertBool ("missing prefix in " <> l) ("[debug]" `T.isInfixOf` T.pack l)
+    (if ("[debug]" `T.isInfixOf` T.pack l) then pure () else expectationFailure ("missing prefix in " <> l))
 
-consumed_default_is_earliest :: TestTree
+consumed_default_is_earliest :: Spec
 consumed_default_is_earliest =
-  testCase "consumed defaults to OffsetEarliest" $ do
+  it "consumed defaults to OffsetEarliest" $ do
     let c = consumed textSerde textSerde
-    consumedOffsetReset c @?= OffsetEarliest
+    consumedOffsetReset c `shouldBe` OffsetEarliest
 
-consumed_with_offset_reset_policy :: TestTree
+consumed_with_offset_reset_policy :: Spec
 consumed_with_offset_reset_policy =
-  testCase "withOffsetResetPolicy sets the reset policy" $ do
+  it "withOffsetResetPolicy sets the reset policy" $ do
     let c = withOffsetResetPolicy OffsetLatest (consumed textSerde textSerde)
-    consumedOffsetReset c @?= OffsetLatest
+    consumedOffsetReset c `shouldBe` OffsetLatest
 
-buffer_config_helpers :: TestTree
+buffer_config_helpers :: Spec
 buffer_config_helpers =
-  testCase "BufferConfig helpers set the right limit" $ do
-    unboundedBufferConfig.maxBytes    @?= Nothing
-    unboundedBufferConfig.maxRecords  @?= Nothing
-    (maxBytesBufferConfig 1024).maxBytes @?= Just 1024
-    (maxRecordsBufferConfig 100).maxRecords @?= Just 100
+  it "BufferConfig helpers set the right limit" $ do
+    unboundedBufferConfig.maxBytes    `shouldBe` Nothing
+    unboundedBufferConfig.maxRecords  `shouldBe` Nothing
+    (maxBytesBufferConfig 1024).maxBytes `shouldBe` Just 1024
+    (maxRecordsBufferConfig 100).maxRecords `shouldBe` Just 100
 
-partitioner_default_returns_nothing :: TestTree
+partitioner_default_returns_nothing :: Spec
 partitioner_default_returns_nothing =
-  testCase "defaultStreamPartitioner returns Nothing (delegate to producer)" $ do
+  it "defaultStreamPartitioner returns Nothing (delegate to producer)" $ do
     r <- runStreamPartitioner defaultStreamPartitioner "tp" (Just "k") "v" 8
-    r @?= Nothing
+    r `shouldBe` Nothing

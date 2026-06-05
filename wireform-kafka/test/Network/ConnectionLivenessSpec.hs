@@ -17,7 +17,7 @@
 -- tested end-to-end by the integration suite against a real broker.
 module Network.ConnectionLivenessSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
+import Test.Syd
 
-tests :: TestTree
-tests = testGroup "Connection.isConnected (post-OpenSSL-rewrite stub)" []
+tests :: Spec
+tests = describe "Connection.isConnected (post-OpenSSL-rewrite stub)" $ sequence_ []

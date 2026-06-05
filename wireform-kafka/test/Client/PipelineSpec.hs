@@ -26,15 +26,14 @@ import qualified Kafka.Network.Connection as NC
 import qualified Network.Socket as Sock
 import qualified Network.Socket.ByteString as Sock.BS
 import System.Timeout (timeout)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool, assertFailure)
+import Test.Syd
 
 import Kafka.Client.Pipeline
 import qualified Kafka.Client.ReauthDriver as Reauth
 import qualified Kafka.Network.Auth.SASL as SASL
 
-tests :: TestTree
-tests = testGroup "Pipeline"
+tests :: Spec
+tests = describe "Pipeline" $ sequence_
   [ pipeline_round_trip
   , pipeline_concurrent_requests
   , pipeline_close_fails_pending
@@ -158,23 +157,23 @@ mkBuilder body cid =
 -- Tests
 ----------------------------------------------------------------------
 
-pipeline_round_trip :: TestTree
+pipeline_round_trip :: Spec
 pipeline_round_trip =
-  testCase "Pipeline: send + wait round-trips a single request" $
+  it "Pipeline: send + wait round-trips a single request" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
         Right (cid, slot) <- sendRequest pipe (mkBuilder "hello")
-        cid @?= 0
+        cid `shouldBe` 0
         r <- waitWithTimeout 2_000_000 (waitResponse slot)
         case r of
-          Right (Right body) -> body @?= "hello"
-          other              -> assertFailure ("unexpected " <> show other)
+          Right (Right body) -> body `shouldBe` "hello"
+          other              -> expectationFailure ("unexpected " <> show other)
         closePipeline pipe
 
-pipeline_concurrent_requests :: TestTree
+pipeline_concurrent_requests :: Spec
 pipeline_concurrent_requests =
-  testCase "Pipeline: 100 concurrent requests are routed back to the right caller" $
+  it "Pipeline: 100 concurrent requests are routed back to the right caller" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
@@ -191,15 +190,15 @@ pipeline_concurrent_requests =
               Right (_, slot) <- sendRequest pipe (mkBuilder p)
               r               <- waitWithTimeout 2_000_000 (waitResponse slot)
               case r of
-                Right (Right body) -> body @?= p
-                other              -> assertFailure
+                Right (Right body) -> body `shouldBe` p
+                other              -> expectationFailure
                   ("concurrent " <> show p <> ": " <> show other)
         mapConcurrently_ oneShot payloads
         closePipeline pipe
 
-pipeline_close_fails_pending :: TestTree
+pipeline_close_fails_pending :: Spec
 pipeline_close_fails_pending =
-  testCase "closePipeline fails any still-pending request with 'pipeline closed'" $
+  it "closePipeline fails any still-pending request with 'pipeline closed'" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
@@ -215,19 +214,19 @@ pipeline_close_fails_pending =
         r <- waitWithTimeout 1_000_000 (waitResponse slot)
         case r of
           Right (Left msg) ->
-            assertBool ("got: " <> msg) (bsInfixOf "pipeline closed" msg)
+            (if (bsInfixOf "pipeline closed" msg) then pure () else expectationFailure ("got: " <> msg))
           Right (Right _)  -> pure ()
-          Left  ()         -> assertFailure "waitResponse hung after close"
+          Left  ()         -> expectationFailure "waitResponse hung after close"
 
-pipeline_stats_track_in_flight_and_responses :: TestTree
+pipeline_stats_track_in_flight_and_responses :: Spec
 pipeline_stats_track_in_flight_and_responses =
-  testCase "PipelineStats counters track requests sent and responses received" $
+  it "PipelineStats counters track requests sent and responses received" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
         s0 <- getPipelineStats pipe
-        statsRequestsSent      s0 @?= 0
-        statsResponsesReceived s0 @?= 0
+        statsRequestsSent      s0 `shouldBe` 0
+        statsResponsesReceived s0 `shouldBe` 0
         slots <- mapM
                   (\p -> do
                       Right (_, slot) <- sendRequest pipe (mkBuilder p)
@@ -238,17 +237,17 @@ pipeline_stats_track_in_flight_and_responses =
               r <- waitWithTimeout 2_000_000 (waitResponse slot)
               case r of
                 Right (Right _) -> pure ()
-                other -> assertFailure ("expected response: " <> show other))
+                other -> expectationFailure ("expected response: " <> show other))
           slots
         s1 <- getPipelineStats pipe
-        statsRequestsSent      s1 @?= 3
-        statsResponsesReceived s1 @?= 3
-        statsCurrentInFlight   s1 @?= 0
+        statsRequestsSent      s1 `shouldBe` 3
+        statsResponsesReceived s1 `shouldBe` 3
+        statsCurrentInFlight   s1 `shouldBe` 0
         closePipeline pipe
 
-pipeline_timeout_fails_request :: TestTree
+pipeline_timeout_fails_request :: Spec
 pipeline_timeout_fails_request =
-  testCase "Pipeline: a request whose response never arrives is failed by the timeout loop" $
+  it "Pipeline: a request whose response never arrives is failed by the timeout loop" $
     -- Use a low timeout so the test runs fast. We use an
     -- /unresponsive/ broker by accepting connections but never
     -- replying; a regular bracket socket suffices for that.
@@ -260,11 +259,10 @@ pipeline_timeout_fails_request =
         r <- waitWithTimeout 5_000_000 (waitResponse slot)
         case r of
           Right (Left msg) ->
-            assertBool ("got: " <> msg) (bsInfixOf "timed out" msg)
-          other            -> assertFailure ("expected timeout, got " <> show other)
+            (if (bsInfixOf "timed out" msg) then pure () else expectationFailure ("got: " <> msg))
+          other            -> expectationFailure ("expected timeout, got " <> show other)
         s <- getPipelineStats pipe
-        assertBool ("expected >= 1 timed out, got " <> show s)
-                   (statsRequestsTimedOut s >= 1)
+        (if (statsRequestsTimedOut s >= 1) then pure () else expectationFailure ("expected >= 1 timed out, got " <> show s))
         closePipeline pipe
 
 ----------------------------------------------------------------------
@@ -327,16 +325,16 @@ bsInfixOf needle haystack =
 -- KIP-368 pause / drain / withPausedPipeline
 ----------------------------------------------------------------------
 
-pipeline_pause_blocks_sends :: TestTree
+pipeline_pause_blocks_sends :: Spec
 pipeline_pause_blocks_sends =
-  testCase "pausePipeline halts send loop; resume drains queued requests" $
+  it "pausePipeline halts send loop; resume drains queued requests" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
 
         -- Pause first so the next send queues without leaving.
         pausePipeline pipe
-        isPipelinePaused pipe >>= (@?= True)
+        isPipelinePaused pipe >>= (`shouldBe` True)
 
         Right (_cid, slot) <- sendRequest pipe (mkBuilder "buffered")
 
@@ -345,22 +343,22 @@ pipeline_pause_blocks_sends =
         early <- waitWithTimeout 50_000 (waitResponse slot)
         case early of
           Left ()           -> pure ()  -- expected: still parked
-          Right (Right _)   -> assertFailure
+          Right (Right _)   -> expectationFailure
             "response arrived while paused; send loop was not gated"
-          Right (Left err)  -> assertFailure
+          Right (Left err)  -> expectationFailure
             ("unexpected slot failure: " <> err)
 
         -- Resume and now the response must arrive.
         resumePipeline pipe
         late <- waitWithTimeout 2_000_000 (waitResponse slot)
         case late of
-          Right (Right body) -> body @?= "buffered"
-          other -> assertFailure ("expected response, got " <> show other)
+          Right (Right body) -> body `shouldBe` "buffered"
+          other -> expectationFailure ("expected response, got " <> show other)
         closePipeline pipe
 
-pipeline_drain_waits_for_in_flight :: TestTree
+pipeline_drain_waits_for_in_flight :: Spec
 pipeline_drain_waits_for_in_flight =
-  testCase "awaitPipelineDrained returns once pending requests have retired" $
+  it "awaitPipelineDrained returns once pending requests have retired" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
@@ -375,19 +373,19 @@ pipeline_drain_waits_for_in_flight =
               r <- waitWithTimeout 2_000_000 (waitResponse slot)
               case r of
                 Right (Right _) -> pure ()
-                other -> assertFailure ("expected response: " <> show other))
+                other -> expectationFailure ("expected response: " <> show other))
           slots
         -- All in-flight retired -> drain is a no-op fast path.
         r <- waitWithTimeout 1_000_000 (awaitPipelineDrained pipe)
         case r of
           Right () -> pure ()
-          Left ()  -> assertFailure
+          Left ()  -> expectationFailure
             "awaitPipelineDrained timed out with no in-flight"
         closePipeline pipe
 
-pipeline_with_paused_pipeline_runs_action :: TestTree
+pipeline_with_paused_pipeline_runs_action :: Spec
 pipeline_with_paused_pipeline_runs_action =
-  testCase "withPausedPipeline runs the action against the connection and resumes after" $
+  it "withPausedPipeline runs the action against the connection and resumes after" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
@@ -398,19 +396,18 @@ pipeline_with_paused_pipeline_runs_action =
           -- driver runs SaslHandshake + SaslAuthenticate
           -- directly on this connection).
           IORef.writeIORef ranRef True
-          assertBool "connection identity"
-            (sameRef c (pipelineConnection pipe))
+          (sameRef c (pipelineConnection pipe)) `shouldBe` True
         ran <- IORef.readIORef ranRef
-        ran @?= True
+        ran `shouldBe` True
         -- Pipeline must be resumed automatically.
         paused <- isPipelinePaused pipe
-        paused @?= False
+        paused `shouldBe` False
         -- And requests after the bracket must work.
         Right (_, slot) <- sendRequest pipe (mkBuilder "after")
         r <- waitWithTimeout 2_000_000 (waitResponse slot)
         case r of
-          Right (Right body) -> body @?= "after"
-          other -> assertFailure ("expected response: " <> show other)
+          Right (Right body) -> body `shouldBe` "after"
+          other -> expectationFailure ("expected response: " <> show other)
         closePipeline pipe
   where
     -- Ptr-equality is overkill here; the type doesn't have Eq.
@@ -427,9 +424,9 @@ pipeline_with_paused_pipeline_runs_action =
 -- handshake runs inside withPausedPipeline.
 ----------------------------------------------------------------------
 
-pipeline_attach_reauth_driver_pauses_during_handshake :: TestTree
+pipeline_attach_reauth_driver_pauses_during_handshake :: Spec
 pipeline_attach_reauth_driver_pauses_during_handshake =
-  testCase "attachReauthDriver: the wrapped runner runs the handshake inside withPausedPipeline" $
+  it "attachReauthDriver: the wrapped runner runs the handshake inside withPausedPipeline" $
     withTestBroker $ \port ->
       withClientConnection port $ \conn -> do
         pipe <- createPipeline conn defaultPipelineConfig
@@ -465,16 +462,16 @@ pipeline_attach_reauth_driver_pauses_during_handshake =
               if ok then pure True
                     else threadDelay 25_000 >> pollOK (n - 1) act
         ran <- pollOK 200 (IORef.readIORef ranRef)
-        ran @?= True
+        ran `shouldBe` True
 
         observedPaused <- IORef.readIORef observedPausedRef
-        observedPaused @?= True
+        observedPaused `shouldBe` True
 
         -- After the handshake completes, the pipeline returns
         -- to unpaused. Poll instead of asserting strictly to
         -- avoid races against the driver's STM update.
         unpaused <- pollOK 200 (not <$> isPipelinePaused pipe)
-        unpaused @?= True
+        unpaused `shouldBe` True
 
         Reauth.stopReauthThread state
         closePipeline pipe

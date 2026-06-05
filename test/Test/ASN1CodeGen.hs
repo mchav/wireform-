@@ -1,7 +1,6 @@
 module Test.ASN1CodeGen (asn1CodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,8 +8,8 @@ import qualified Data.Vector as V
 import ASN1.Schema
 import ASN1.CodeGen (generateASN1Types)
 
-asn1CodeGenTests :: TestTree
-asn1CodeGenTests = testGroup "ASN1.CodeGen"
+asn1CodeGenTests :: Spec
+asn1CodeGenTests = describe "ASN1.CodeGen" $ sequence_
   [ testSequenceCodeGen
   , testChoiceCodeGen
   , testEnumeratedCodeGen
@@ -18,8 +17,8 @@ asn1CodeGenTests = testGroup "ASN1.CodeGen"
   , testSequenceOfField
   ]
 
-testSequenceCodeGen :: TestTree
-testSequenceCodeGen = testCase "SEQUENCE produces record type" $ do
+testSequenceCodeGen :: Spec
+testSequenceCodeGen = it "SEQUENCE produces record type" $ do
   let modl = ASN1Module
         { asnModuleName = "TestModule"
         , asnTagMode = AutomaticTags
@@ -31,14 +30,14 @@ testSequenceCodeGen = testCase "SEQUENCE produces record type" $ do
             ]
         }
       code = generateASN1Types modl
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "personName is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "personAge is Int64" ("!Int64" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int64" `T.isInfixOf` code) `shouldBe` True
 
-testChoiceCodeGen :: TestTree
-testChoiceCodeGen = testCase "CHOICE produces sum type" $ do
+testChoiceCodeGen :: Spec
+testChoiceCodeGen = it "CHOICE produces sum type" $ do
   let modl = ASN1Module
         { asnModuleName = "TestModule"
         , asnTagMode = AutomaticTags
@@ -50,12 +49,12 @@ testChoiceCodeGen = testCase "CHOICE produces sum type" $ do
             ]
         }
       code = generateASN1Types modl
-  assertBool "contains data Id" ("data Id" `T.isInfixOf` code)
-  assertBool "contains IdName" ("IdName" `T.isInfixOf` code)
-  assertBool "contains IdNumber" ("IdNumber" `T.isInfixOf` code)
+  ("data Id" `T.isInfixOf` code) `shouldBe` True
+  ("IdName" `T.isInfixOf` code) `shouldBe` True
+  ("IdNumber" `T.isInfixOf` code) `shouldBe` True
 
-testEnumeratedCodeGen :: TestTree
-testEnumeratedCodeGen = testCase "ENUMERATED produces enum type" $ do
+testEnumeratedCodeGen :: Spec
+testEnumeratedCodeGen = it "ENUMERATED produces enum type" $ do
   let modl = ASN1Module
         { asnModuleName = "TestModule"
         , asnTagMode = AutomaticTags
@@ -68,13 +67,13 @@ testEnumeratedCodeGen = testCase "ENUMERATED produces enum type" $ do
             ]
         }
       code = generateASN1Types modl
-  assertBool "contains data Status" ("data Status" `T.isInfixOf` code)
-  assertBool "contains StatusActive" ("StatusActive" `T.isInfixOf` code)
-  assertBool "contains StatusInactive" ("StatusInactive" `T.isInfixOf` code)
-  assertBool "contains StatusDeleted" ("StatusDeleted" `T.isInfixOf` code)
+  ("data Status" `T.isInfixOf` code) `shouldBe` True
+  ("StatusActive" `T.isInfixOf` code) `shouldBe` True
+  ("StatusInactive" `T.isInfixOf` code) `shouldBe` True
+  ("StatusDeleted" `T.isInfixOf` code) `shouldBe` True
 
-testOptionalField :: TestTree
-testOptionalField = testCase "OPTIONAL fields produce Maybe types" $ do
+testOptionalField :: Spec
+testOptionalField = it "OPTIONAL fields produce Maybe types" $ do
   let modl = ASN1Module
         { asnModuleName = "TestModule"
         , asnTagMode = AutomaticTags
@@ -86,10 +85,10 @@ testOptionalField = testCase "OPTIONAL fields produce Maybe types" $ do
             ]
         }
       code = generateASN1Types modl
-  assertBool "contains Maybe Text" ("Maybe Text" `T.isInfixOf` code)
+  ("Maybe Text" `T.isInfixOf` code) `shouldBe` True
 
-testSequenceOfField :: TestTree
-testSequenceOfField = testCase "SEQUENCE OF produces Vector type" $ do
+testSequenceOfField :: Spec
+testSequenceOfField = it "SEQUENCE OF produces Vector type" $ do
   let modl = ASN1Module
         { asnModuleName = "TestModule"
         , asnTagMode = AutomaticTags
@@ -100,4 +99,4 @@ testSequenceOfField = testCase "SEQUENCE OF produces Vector type" $ do
             ]
         }
       code = generateASN1Types modl
-  assertBool "contains Vector Text" ("Vector Text" `T.isInfixOf` code)
+  ("Vector Text" `T.isInfixOf` code) `shouldBe` True

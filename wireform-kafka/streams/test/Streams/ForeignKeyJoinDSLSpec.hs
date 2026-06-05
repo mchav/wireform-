@@ -23,14 +23,13 @@ import Data.Text (Text)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "FK-join DSL (KIP-213)"
+tests :: Spec
+tests = describe "FK-join DSL (KIP-213)" $ sequence_
   [ same_fk_value_change_re_emits
   , rapid_fk_swap_then_old_fk_update_does_not_emit_stale
   , left_join_token_path_emits_with_no_right
@@ -51,9 +50,9 @@ t = Timestamp . fromIntegral
 -- the value changes. The token therefore changes too. A fresh
 -- right-side update must still re-emit the join, using the live
 -- (post-change) left value.
-same_fk_value_change_re_emits :: TestTree
+same_fk_value_change_re_emits :: Spec
 same_fk_value_change_re_emits =
-  testCase "same fk, value change: token rotates and right-side update emits live value" $ do
+  it "same fk, value change: token rotates and right-side update emits live value" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -78,16 +77,16 @@ same_fk_value_change_re_emits =
     pipeInput driver (topicName "users") (Just (bytes "u1")) (bytes "ALICE2") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "ALICE2:99")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "ALICE2:99")
     closeDriver driver
 
 -- | After a left record swaps from fk1 to fk2, an update on fk1
 -- must NOT re-emit a join for the swapped record. The
 -- subscription is supposed to migrate; this is the regression
 -- test that catches a missing unsubscribe.
-rapid_fk_swap_then_old_fk_update_does_not_emit_stale :: TestTree
+rapid_fk_swap_then_old_fk_update_does_not_emit_stale :: Spec
 rapid_fk_swap_then_old_fk_update_does_not_emit_stale =
-  testCase "fk swap unsubscribes: later updates on the old fk don't re-emit" $ do
+  it "fk swap unsubscribes: later updates on the old fk don't re-emit" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -113,16 +112,16 @@ rapid_fk_swap_then_old_fk_update_does_not_emit_stale =
     pipeInput driver (topicName "users")  (Just (bytes "u1")) (bytes "ALICE-NEW") (t 3) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "bob:10")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "bob:10")
     closeDriver driver
 
 -- | Left-join tombstone path: the left value is present but the
 -- right side is missing entirely. The token-verification path
 -- must not regress this case; the joiner sees 'Nothing' and the
 -- output is materialised.
-left_join_token_path_emits_with_no_right :: TestTree
+left_join_token_path_emits_with_no_right :: Spec
 left_join_token_path_emits_with_no_right =
-  testCase "left FK join: emits when no right value yet" $ do
+  it "left FK join: emits when no right value yet" $ do
     b <- newStreamsBuilder
     tl <- tableFromTopic b (topicName "orders")
             (consumed textSerde textSerde)
@@ -146,14 +145,14 @@ left_join_token_path_emits_with_no_right =
     pipeInput driver (topicName "orders") (Just (bytes "o2")) (bytes "u9|z") (t 2) 0
 
     Just rs <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore out)
-    rs.roKvGet "o1" >>= (@?= Just "<NONE>:y")
-    rs.roKvGet "o2" >>= (@?= Just "<NONE>:z")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "<NONE>:y")
+    rs.roKvGet "o2" >>= (`shouldBe` Just "<NONE>:z")
 
     -- Right finally arrives: every subscriber re-emits with the
     -- live token (now matches the latest left value).
     pipeInput driver (topicName "users") (Just (bytes "u9")) (bytes "ENN") (t 3) 0
-    rs.roKvGet "o1" >>= (@?= Just "ENN:y")
-    rs.roKvGet "o2" >>= (@?= Just "ENN:z")
+    rs.roKvGet "o1" >>= (`shouldBe` Just "ENN:y")
+    rs.roKvGet "o2" >>= (`shouldBe` Just "ENN:z")
 
     closeDriver driver
 
@@ -167,9 +166,9 @@ left_join_token_path_emits_with_no_right =
 -- store after replaying any permutation of those events must
 -- match the join computed against the (left, right) caches that
 -- result from the same set of (key, value) updates.
-prop_dsl_permutation_invariance :: TestTree
+prop_dsl_permutation_invariance :: Spec
 prop_dsl_permutation_invariance =
-  testProperty
+  it
     "DSL permutation invariance over distinct keys"
     $ property $ do
         leftKeys  <- forAll $ Gen.list (Range.linear 0 4) (Gen.int (Range.linear 1 4))

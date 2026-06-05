@@ -21,8 +21,7 @@ import Control.Monad (forM_)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -56,9 +55,9 @@ bytes = BSC.pack
 -- 1. Strategy round-trip through SourceSpec
 ----------------------------------------------------------------------
 
-unit_consumed_carries_strategy :: TestTree
+unit_consumed_carries_strategy :: Spec
 unit_consumed_carries_strategy =
-  testCase "consumed.withWatermarkStrategy: round-trips into SourceSpec" $ do
+  it "consumed.withWatermarkStrategy: round-trips into SourceSpec" $ do
     b <- newStreamsBuilder
     let c = Consumed.withWatermarkStrategy monotonicAscending
               (consumed textSerde textSerde)
@@ -73,15 +72,15 @@ unit_consumed_carries_strategy =
           Nothing -> error "no source named 'in'"
           Just spec ->
             wsName <$> Topo.sourceWatermarkStrategy spec
-              @?= Just "monotonic-ascending"
+              `shouldBe` Just "monotonic-ascending"
 
 ----------------------------------------------------------------------
 -- 2. Engine routes records to the coordinator
 ----------------------------------------------------------------------
 
-unit_engine_reports_to_coordinator :: TestTree
+unit_engine_reports_to_coordinator :: Spec
 unit_engine_reports_to_coordinator =
-  testCase "attachWatermarkCoordinator + pipeInput: per-source wm advances" $ do
+  it "attachWatermarkCoordinator + pipeInput: per-source wm advances" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     b <- newStreamsBuilder
     let c = Consumed.withWatermarkStrategy monotonicAscending
@@ -95,16 +94,16 @@ unit_engine_reports_to_coordinator =
       pipeInput driver "in" (Just (bytes "k")) (bytes "v") ts 0
 
     eff <- currentEffectiveWatermark coord
-    eff @?= Timestamp 200
+    eff `shouldBe` Timestamp 200
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 3. Sources WITHOUT a strategy do not report
 ----------------------------------------------------------------------
 
-unit_no_strategy_no_report :: TestTree
+unit_no_strategy_no_report :: Spec
 unit_no_strategy_no_report =
-  testCase "source without strategy does not register with coordinator" $ do
+  it "source without strategy does not register with coordinator" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     b <- newStreamsBuilder
     -- Plain consumed; no withWatermarkStrategy.
@@ -119,16 +118,16 @@ unit_no_strategy_no_report =
     eff <- currentEffectiveWatermark coord
     -- The coordinator has no registered sources, so its
     -- effective watermark stays at the empty-set sentinel.
-    eff @?= minTimestamp
+    eff `shouldBe` minTimestamp
     closeDriver driver
 
 ----------------------------------------------------------------------
 -- 4. Alignment group survives the round-trip
 ----------------------------------------------------------------------
 
-unit_strategy_alignment_round_trips :: TestTree
+unit_strategy_alignment_round_trips :: Spec
 unit_strategy_alignment_round_trips =
-  testCase "withAlignment survives into SourceSpec and registers" $ do
+  it "withAlignment survives into SourceSpec and registers" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     let strat = withAlignment (AlignmentGroupId "g1") monotonicAscending
     b <- newStreamsBuilder
@@ -144,7 +143,7 @@ unit_strategy_alignment_round_trips =
     -- surface that.
     snap <- perSourceWatermarks coord
     case snap of
-      [(_, _, _, mg)] -> mg @?= Just "g1"
+      [(_, _, _, mg)] -> mg `shouldBe` Just "g1"
       _ -> error ("unexpected perSourceWatermarks: " <> show snap)
     closeDriver driver
 
@@ -152,8 +151,8 @@ unit_strategy_alignment_round_trips =
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Watermark wiring (engine integration)"
+tests :: Spec
+tests = describe "Watermark wiring (engine integration)" $ sequence_
   [ unit_consumed_carries_strategy
   , unit_engine_reports_to_coordinator
   , unit_no_strategy_no_report

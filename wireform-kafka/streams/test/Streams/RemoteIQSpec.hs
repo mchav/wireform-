@@ -9,8 +9,7 @@ module Streams.RemoteIQSpec (tests) where
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as KC
 import Kafka.Streams.Discovery
@@ -24,8 +23,8 @@ import Kafka.Client.Internal.Subscribe
 import Kafka.Streams.Discovery.RemoteIQ
 import Kafka.Streams.Discovery.Subscription
 
-tests :: TestTree
-tests = testGroup "Cross-instance IQ (KIP-535)"
+tests :: Spec
+tests = describe "Cross-instance IQ (KIP-535)" $ sequence_
   [ subscription_info_round_trip
   , subscription_info_rejects_unknown_version
   , route_query_local_when_active
@@ -51,55 +50,55 @@ sampleSI = SubscriptionInfo
   , standby = Set.singleton (KC.TopicPartition "t2" 0)
   }
 
-subscription_info_round_trip :: TestTree
+subscription_info_round_trip :: Spec
 subscription_info_round_trip =
-  testCase "SubscriptionInfo: encode . decode = id" $ do
+  it "SubscriptionInfo: encode . decode = id" $ do
     let !bs   = encodeSubscriptionInfo sampleSI
     case decodeSubscriptionInfo bs of
-      Right si -> si @?= sampleSI
-      Left e   -> error e
+      Right si -> si `shouldBe` sampleSI
+      Left e   -> expectationFailure e
 
-subscription_info_rejects_unknown_version :: TestTree
+subscription_info_rejects_unknown_version :: Spec
 subscription_info_rejects_unknown_version =
-  testCase "SubscriptionInfo: unknown version returns Left" $ do
+  it "SubscriptionInfo: unknown version returns Left" $ do
     -- A version=99 prefix followed by garbage should not be
     -- silently accepted.
     let !bad = "\99\x00\x00garbage"
     case decodeSubscriptionInfo bad of
       Left _  -> pure ()
-      Right _ -> error "expected Left on unknown version"
+      Right _ -> expectationFailure "expected Left on unknown version"
 
 ----------------------------------------------------------------------
 -- routeQuery
 ----------------------------------------------------------------------
 
-route_query_local_when_active :: TestTree
+route_query_local_when_active :: Spec
 route_query_local_when_active =
-  testCase "routeQuery: local instance owns the active => RouteLocal" $ do
+  it "routeQuery: local instance owns the active => RouteLocal" $ do
     let local = HostInfo "self" 9099
         kqm = KeyQueryMetadata local [] 0
-    routeQuery local (Just kqm) @?= RouteLocal
+    routeQuery local (Just kqm) `shouldBe` RouteLocal
 
-route_query_local_when_standby :: TestTree
+route_query_local_when_standby :: Spec
 route_query_local_when_standby =
-  testCase "routeQuery: active remote but standby local => RouteLocal" $ do
+  it "routeQuery: active remote but standby local => RouteLocal" $ do
     let local = HostInfo "self" 9099
         kqm = KeyQueryMetadata
                 (HostInfo "remote" 9090) [local] 0
-    routeQuery local (Just kqm) @?= RouteLocal
+    routeQuery local (Just kqm) `shouldBe` RouteLocal
 
-route_query_remote_otherwise :: TestTree
+route_query_remote_otherwise :: Spec
 route_query_remote_otherwise =
-  testCase "routeQuery: nothing local => RouteRemote with active host" $ do
+  it "routeQuery: nothing local => RouteRemote with active host" $ do
     let local  = HostInfo "self" 9099
         active = HostInfo "owner" 9090
         kqm    = KeyQueryMetadata active [] 0
-    routeQuery local (Just kqm) @?= RouteRemote active
+    routeQuery local (Just kqm) `shouldBe` RouteRemote active
 
-route_query_missing_when_nobody_owns :: TestTree
+route_query_missing_when_nobody_owns :: Spec
 route_query_missing_when_nobody_owns =
-  testCase "routeQuery: no KeyQueryMetadata => RouteMissing" $ do
-    routeQuery (HostInfo "self" 9099) Nothing @?= RouteMissing
+  it "routeQuery: no KeyQueryMetadata => RouteMissing" $ do
+    routeQuery (HostInfo "self" 9099) Nothing `shouldBe` RouteMissing
 
 ----------------------------------------------------------------------
 -- Subscription userdata flows end-to-end through the JoinGroup
@@ -112,9 +111,9 @@ route_query_missing_when_nobody_owns =
 -- off the leader-side JoinGroup view.
 ----------------------------------------------------------------------
 
-subscription_info_userdata_round_trips_through_joingroup :: TestTree
+subscription_info_userdata_round_trips_through_joingroup :: Spec
 subscription_info_userdata_round_trips_through_joingroup =
-  testCase "SubscriptionInfo embedded in JoinGroup userdata round-trips" $ do
+  it "SubscriptionInfo embedded in JoinGroup userdata round-trips" $ do
     -- Encode our streams 'SubscriptionInfo' to bytes.
     let userdataBytes = encodeSubscriptionInfo sampleSI
     -- Wrap into a full consumer-protocol subscription with
@@ -126,12 +125,12 @@ subscription_info_userdata_round_trips_through_joingroup =
     -- bytes — they must match what we put in.
     case decodeSubscriptionFull wire of
       Right (decodedTopics, decodedUserdata, decodedOwned) -> do
-        decodedTopics @?= topics
-        decodedUserdata @?= userdataBytes
-        decodedOwned @?= []
+        decodedTopics `shouldBe` topics
+        decodedUserdata `shouldBe` userdataBytes
+        decodedOwned `shouldBe` []
         -- And the userdata bytes still decode back to the
         -- original SubscriptionInfo.
         case decodeSubscriptionInfo decodedUserdata of
-          Right si -> si @?= sampleSI
-          Left e   -> error ("inner decode: " <> e)
-      Left e -> error ("outer decode: " <> e)
+          Right si -> si `shouldBe` sampleSI
+          Left e   -> expectationFailure ("inner decode: " <> e)
+      Left e -> expectationFailure ("outer decode: " <> e)

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty
+import Test.Syd
 
 -- Proto-specific tests moved to wireform-proto-test suite.
 -- Cross-format integration tests remain here.
@@ -55,7 +55,7 @@ import Test.NDJSON (ndjsonTests)
 import Test.ORC (orcTests)
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform"
+main = sydTest $ describe "wireform" $ sequence_
   [ avroTests
   , thriftTests
   , msgPackTests

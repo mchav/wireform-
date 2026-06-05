@@ -4,8 +4,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Avro.IDL
 import Avro.IDLConvert
@@ -15,24 +14,24 @@ import Avro.Schema
 t :: [Text] -> Text
 t = T.unlines
 
-avroIDLTests :: TestTree
-avroIDLTests = testGroup "Avro IDL"
-  [ testCase "parse simple protocol with one record" $ do
+avroIDLTests :: Spec
+avroIDLTests = describe "Avro IDL" $ sequence_
+  [ it "parse simple protocol with one record" $ do
       let input = "protocol Simple { record Msg { string body; } }" :: Text
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          aidlProtocolName idl @?= "Simple"
-          V.length (aidlDeclarations idl) @?= 1
+          aidlProtocolName idl `shouldBe` "Simple"
+          V.length (aidlDeclarations idl) `shouldBe` 1
           case V.head (aidlDeclarations idl) of
             IDLRecord name fields _ _ -> do
-              name @?= "Msg"
-              V.length fields @?= 1
-              ifdName (V.head fields) @?= "body"
-              ifdType (V.head fields) @?= ITString
-            other -> assertFailure $ "expected record, got " ++ show other
+              name `shouldBe` "Msg"
+              V.length fields `shouldBe` 1
+              ifdName (V.head fields) `shouldBe` "body"
+              ifdType (V.head fields) `shouldBe` ITString
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "parse record with all field types" $ do
+  , it "parse record with all field types" $ do
       let input = t
             [ "protocol Types {"
             , "  record AllTypes {"
@@ -52,48 +51,48 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields _ _ -> do
-              V.length fields @?= 12
-              ifdType (fields V.! 0) @?= ITNull
-              ifdType (fields V.! 1) @?= ITBoolean
-              ifdType (fields V.! 2) @?= ITInt
-              ifdType (fields V.! 3) @?= ITLong
-              ifdType (fields V.! 4) @?= ITFloat
-              ifdType (fields V.! 5) @?= ITDouble
-              ifdType (fields V.! 6) @?= ITBytes
-              ifdType (fields V.! 7) @?= ITString
-              ifdType (fields V.! 8) @?= ITArray ITInt
-              ifdType (fields V.! 9) @?= ITMap ITString
-              ifdType (fields V.! 10) @?= ITUnion (V.fromList [ITNull, ITString])
-              ifdType (fields V.! 11) @?= ITNamed "OtherRecord"
-            other -> assertFailure $ "expected record, got " ++ show other
+              V.length fields `shouldBe` 12
+              ifdType (fields V.! 0) `shouldBe` ITNull
+              ifdType (fields V.! 1) `shouldBe` ITBoolean
+              ifdType (fields V.! 2) `shouldBe` ITInt
+              ifdType (fields V.! 3) `shouldBe` ITLong
+              ifdType (fields V.! 4) `shouldBe` ITFloat
+              ifdType (fields V.! 5) `shouldBe` ITDouble
+              ifdType (fields V.! 6) `shouldBe` ITBytes
+              ifdType (fields V.! 7) `shouldBe` ITString
+              ifdType (fields V.! 8) `shouldBe` ITArray ITInt
+              ifdType (fields V.! 9) `shouldBe` ITMap ITString
+              ifdType (fields V.! 10) `shouldBe` ITUnion (V.fromList [ITNull, ITString])
+              ifdType (fields V.! 11) `shouldBe` ITNamed "OtherRecord"
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "parse enum" $ do
+  , it "parse enum" $ do
       let input = "protocol E { enum Color { RED, GREEN, BLUE } }" :: Text
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLEnum name syms _ -> do
-              name @?= "Color"
-              syms @?= V.fromList ["RED", "GREEN", "BLUE"]
-            other -> assertFailure $ "expected enum, got " ++ show other
+              name `shouldBe` "Color"
+              syms `shouldBe` V.fromList ["RED", "GREEN", "BLUE"]
+            other -> expectationFailure $ "expected enum, got " ++ show other
 
-  , testCase "parse fixed" $ do
+  , it "parse fixed" $ do
       let input = "protocol F { fixed MD5(16); }" :: Text
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLFixed name sz -> do
-              name @?= "MD5"
-              sz @?= 16
-            other -> assertFailure $ "expected fixed, got " ++ show other
+              name `shouldBe` "MD5"
+              sz `shouldBe` 16
+            other -> expectationFailure $ "expected fixed, got " ++ show other
 
-  , testCase "parse error type" $ do
+  , it "parse error type" $ do
       let input = t
             [ "protocol Err {"
             , "  error InvalidInput {"
@@ -103,17 +102,17 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLError name fields _ -> do
-              name @?= "InvalidInput"
-              V.length fields @?= 2
-              ifdName (fields V.! 0) @?= "message"
-              ifdName (fields V.! 1) @?= "code"
-            other -> assertFailure $ "expected error, got " ++ show other
+              name `shouldBe` "InvalidInput"
+              V.length fields `shouldBe` 2
+              ifdName (fields V.! 0) `shouldBe` "message"
+              ifdName (fields V.! 1) `shouldBe` "code"
+            other -> expectationFailure $ "expected error, got " ++ show other
 
-  , testCase "parse methods (normal and oneway)" $ do
+  , it "parse methods (normal and oneway)" $ do
       let input = t
             [ "protocol Svc {"
             , "  string greet(string name);"
@@ -121,32 +120,32 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          V.length (aidlMessages idl) @?= 2
+          V.length (aidlMessages idl) `shouldBe` 2
           let msg0 = aidlMessages idl V.! 0
-          imName msg0 @?= "greet"
-          imReturn msg0 @?= ITString
-          imOneway msg0 @?= False
-          V.length (imParams msg0) @?= 1
-          fst (V.head (imParams msg0)) @?= ITString
-          snd (V.head (imParams msg0)) @?= "name"
+          imName msg0 `shouldBe` "greet"
+          imReturn msg0 `shouldBe` ITString
+          imOneway msg0 `shouldBe` False
+          V.length (imParams msg0) `shouldBe` 1
+          fst (V.head (imParams msg0)) `shouldBe` ITString
+          snd (V.head (imParams msg0)) `shouldBe` "name"
 
           let msg1 = aidlMessages idl V.! 1
-          imName msg1 @?= "sendMessage"
-          imReturn msg1 @?= ITNamed "void"
-          imOneway msg1 @?= True
-          V.length (imParams msg1) @?= 2
+          imName msg1 `shouldBe` "sendMessage"
+          imReturn msg1 `shouldBe` ITNamed "void"
+          imOneway msg1 `shouldBe` True
+          V.length (imParams msg1) `shouldBe` 2
 
-  , testCase "parse with namespace annotation" $ do
+  , it "parse with namespace annotation" $ do
       let input = "@namespace(\"com.example\") protocol NS { }" :: Text
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          aidlNamespace idl @?= Just "com.example"
-          aidlProtocolName idl @?= "NS"
+          aidlNamespace idl `shouldBe` Just "com.example"
+          aidlProtocolName idl `shouldBe` "NS"
 
-  , testCase "parse imports (idl, protocol, schema)" $ do
+  , it "parse imports (idl, protocol, schema)" $ do
       let input = t
             [ "protocol Imp {"
             , "  import idl \"other.avdl\";"
@@ -155,14 +154,14 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          V.length (aidlImports idl) @?= 3
-          aidlImports idl V.! 0 @?= ImportIDL "other.avdl"
-          aidlImports idl V.! 1 @?= ImportProtocol "other.avpr"
-          aidlImports idl V.! 2 @?= ImportSchema "other.avsc"
+          V.length (aidlImports idl) `shouldBe` 3
+          aidlImports idl V.! 0 `shouldBe` ImportIDL "other.avdl"
+          aidlImports idl V.! 1 `shouldBe` ImportProtocol "other.avpr"
+          aidlImports idl V.! 2 `shouldBe` ImportSchema "other.avsc"
 
-  , testCase "parse field defaults (null, numbers, strings, empty array, empty map)" $ do
+  , it "parse field defaults (null, numbers, strings, empty array, empty map)" $ do
       let input = t
             [ "protocol Dflt {"
             , "  record Defaults {"
@@ -176,20 +175,20 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields _ _ -> do
-              V.length fields @?= 6
-              ifdDefault (fields V.! 0) @?= Just "null"
-              ifdDefault (fields V.! 1) @?= Just "42"
-              ifdDefault (fields V.! 2) @?= Just "\"hello\""
-              ifdDefault (fields V.! 3) @?= Just "[]"
-              ifdDefault (fields V.! 4) @?= Just "{}"
-              ifdDefault (fields V.! 5) @?= Just "3.14"
-            other -> assertFailure $ "expected record, got " ++ show other
+              V.length fields `shouldBe` 6
+              ifdDefault (fields V.! 0) `shouldBe` Just "null"
+              ifdDefault (fields V.! 1) `shouldBe` Just "42"
+              ifdDefault (fields V.! 2) `shouldBe` Just "\"hello\""
+              ifdDefault (fields V.! 3) `shouldBe` Just "[]"
+              ifdDefault (fields V.! 4) `shouldBe` Just "{}"
+              ifdDefault (fields V.! 5) `shouldBe` Just "3.14"
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "parse doc comments" $ do
+  , it "parse doc comments" $ do
       let input = t
             [ "protocol Doc {"
             , "  /** A person record */"
@@ -202,17 +201,17 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields doc _ -> do
-              doc @?= Just "A person record"
-              ifdDoc (V.head fields) @?= Just "The name"
-            other -> assertFailure $ "expected record, got " ++ show other
+              doc `shouldBe` Just "A person record"
+              ifdDoc (V.head fields) `shouldBe` Just "The name"
+            other -> expectationFailure $ "expected record, got " ++ show other
           let msg = V.head (aidlMessages idl)
-          imDoc msg @?= Just "Get greeting"
+          imDoc msg `shouldBe` Just "Get greeting"
 
-  , testCase "parse field annotations (@order, @logicalType)" $ do
+  , it "parse field annotations (@order, @logicalType)" $ do
       let input = t
             [ "protocol Ann {"
             , "  record Annotated {"
@@ -222,17 +221,17 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields _ _ -> do
-              ifdOrder (fields V.! 0) @?= Just "ascending"
+              ifdOrder (fields V.! 0) `shouldBe` Just "ascending"
               let anns = ifdAnnotations (fields V.! 1)
-              V.length anns @?= 1
-              V.head anns @?= ("logicalType", "timestamp-millis")
-            other -> assertFailure $ "expected record, got " ++ show other
+              V.length anns `shouldBe` 1
+              V.head anns `shouldBe` ("logicalType", "timestamp-millis")
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "parse record with @aliases annotation" $ do
+  , it "parse record with @aliases annotation" $ do
       let input = t
             [ "protocol A {"
             , "  @aliases([\"OldPerson\", \"LegacyPerson\"])"
@@ -242,16 +241,16 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ _ _ aliases -> do
-              V.length aliases @?= 2
-              aliases V.! 0 @?= "OldPerson"
-              aliases V.! 1 @?= "LegacyPerson"
-            other -> assertFailure $ "expected record, got " ++ show other
+              V.length aliases `shouldBe` 2
+              aliases V.! 0 `shouldBe` "OldPerson"
+              aliases V.! 1 `shouldBe` "LegacyPerson"
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "convert IDL record to AvroType" $ do
+  , it "convert IDL record to AvroType" $ do
       let input = t
             [ "protocol Conv {"
             , "  record User {"
@@ -261,21 +260,21 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           let decl = V.head (aidlDeclarations idl)
               ty = idlToType decl
           case ty of
             AvroRecord{avroRecordName = n, avroRecordFields = fs} -> do
-              n @?= "User"
-              V.length fs @?= 2
-              avroFieldName (fs V.! 0) @?= "name"
-              avroFieldType (fs V.! 0) @?= AvroPrimitive AvroString
-              avroFieldName (fs V.! 1) @?= "age"
-              avroFieldType (fs V.! 1) @?= AvroPrimitive AvroInt
-            _ -> assertFailure "expected AvroRecord"
+              n `shouldBe` "User"
+              V.length fs `shouldBe` 2
+              avroFieldName (fs V.! 0) `shouldBe` "name"
+              avroFieldType (fs V.! 0) `shouldBe` AvroPrimitive AvroString
+              avroFieldName (fs V.! 1) `shouldBe` "age"
+              avroFieldType (fs V.! 1) `shouldBe` AvroPrimitive AvroInt
+            _ -> expectationFailure "expected AvroRecord"
 
-  , testCase "convert IDL protocol to AvroProtocol" $ do
+  , it "convert IDL protocol to AvroProtocol" $ do
       let input = t
             [ "@namespace(\"com.example\")"
             , "protocol MyProto {"
@@ -286,21 +285,21 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           let proto = idlToProtocol idl
-          protoName proto @?= "MyProto"
-          protoNamespace proto @?= Just "com.example"
-          length (protoTypes proto) @?= 1
-          length (protoMessages proto) @?= 1
+          protoName proto `shouldBe` "MyProto"
+          protoNamespace proto `shouldBe` Just "com.example"
+          length (protoTypes proto) `shouldBe` 1
+          length (protoMessages proto) `shouldBe` 1
           let (msgName, msg) = head (protoMessages proto)
-          msgName @?= "getPerson"
-          msgOneWay msg @?= False
-          length (msgRequest msg) @?= 1
-          paramName (head (msgRequest msg)) @?= "name"
-          paramType (head (msgRequest msg)) @?= AvroPrimitive AvroString
+          msgName `shouldBe` "getPerson"
+          msgOneWay msg `shouldBe` False
+          length (msgRequest msg) `shouldBe` 1
+          paramName (head (msgRequest msg)) `shouldBe` "name"
+          paramType (head (msgRequest msg)) `shouldBe` AvroPrimitive AvroString
 
-  , testCase "parse then convert produces valid structure" $ do
+  , it "parse then convert produces valid structure" $ do
       let input = t
             [ "@namespace(\"com.example\")"
             , "protocol Full {"
@@ -322,68 +321,68 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          aidlNamespace idl @?= Just "com.example"
-          aidlProtocolName idl @?= "Full"
-          V.length (aidlDeclarations idl) @?= 4
-          V.length (aidlMessages idl) @?= 2
+          aidlNamespace idl `shouldBe` Just "com.example"
+          aidlProtocolName idl `shouldBe` "Full"
+          V.length (aidlDeclarations idl) `shouldBe` 4
+          V.length (aidlMessages idl) `shouldBe` 2
 
           let proto = idlToProtocol idl
-          protoName proto @?= "Full"
-          protoNamespace proto @?= Just "com.example"
-          length (protoTypes proto) @?= 4
-          length (protoMessages proto) @?= 2
+          protoName proto `shouldBe` "Full"
+          protoNamespace proto `shouldBe` Just "com.example"
+          length (protoTypes proto) `shouldBe` 4
+          length (protoMessages proto) `shouldBe` 2
 
           case protoTypes proto !! 0 of
             AvroRecord{avroRecordName = n, avroRecordFields = fs} -> do
-              n @?= "Person"
-              V.length fs @?= 5
-            _ -> assertFailure "expected record Person"
+              n `shouldBe` "Person"
+              V.length fs `shouldBe` 5
+            _ -> expectationFailure "expected record Person"
 
           case protoTypes proto !! 1 of
             AvroEnum{avroEnumName = n, avroEnumSymbols = ss} -> do
-              n @?= "Color"
-              ss @?= V.fromList ["RED", "GREEN", "BLUE"]
-            _ -> assertFailure "expected enum Color"
+              n `shouldBe` "Color"
+              ss `shouldBe` V.fromList ["RED", "GREEN", "BLUE"]
+            _ -> expectationFailure "expected enum Color"
 
           case protoTypes proto !! 2 of
             AvroFixed{avroFixedName = n, avroFixedSize = sz} -> do
-              n @?= "MD5"
-              sz @?= 16
-            _ -> assertFailure "expected fixed MD5"
+              n `shouldBe` "MD5"
+              sz `shouldBe` 16
+            _ -> expectationFailure "expected fixed MD5"
 
-  , testCase "convert IDL enum to AvroType" $ do
+  , it "convert IDL enum to AvroType" $ do
       let decl = IDLEnum "Status" (V.fromList ["ACTIVE", "INACTIVE"]) (Just "Status enum")
           ty = idlToType decl
       case ty of
         AvroEnum{avroEnumName = n, avroEnumSymbols = ss, avroEnumDoc = d} -> do
-          n @?= "Status"
-          ss @?= V.fromList ["ACTIVE", "INACTIVE"]
-          d @?= Just "Status enum"
-        _ -> assertFailure "expected AvroEnum"
+          n `shouldBe` "Status"
+          ss `shouldBe` V.fromList ["ACTIVE", "INACTIVE"]
+          d `shouldBe` Just "Status enum"
+        _ -> expectationFailure "expected AvroEnum"
 
-  , testCase "convert IDL fixed to AvroType" $ do
+  , it "convert IDL fixed to AvroType" $ do
       let decl = IDLFixed "Hash" 32
           ty = idlToType decl
       case ty of
         AvroFixed{avroFixedName = n, avroFixedSize = sz} -> do
-          n @?= "Hash"
-          sz @?= 32
-        _ -> assertFailure "expected AvroFixed"
+          n `shouldBe` "Hash"
+          sz `shouldBe` 32
+        _ -> expectationFailure "expected AvroFixed"
 
-  , testCase "convert IDL error to AvroType with error prop" $ do
+  , it "convert IDL error to AvroType with error prop" $ do
       let decl = IDLError "MyError"
                    (V.singleton (AvroIDLField ITString "msg" Nothing V.empty Nothing Nothing))
                    Nothing
           ty = idlToType decl
       case ty of
         AvroRecord{avroRecordName = n, avroRecordProps = ps} -> do
-          n @?= "MyError"
-          Map.lookup "error" ps @?= Just "true"
-        _ -> assertFailure "expected AvroRecord with error prop"
+          n `shouldBe` "MyError"
+          Map.lookup "error" ps `shouldBe` Just "true"
+        _ -> expectationFailure "expected AvroRecord with error prop"
 
-  , testCase "parse decimal type" $ do
+  , it "parse decimal type" $ do
       let input = t
             [ "protocol D {"
             , "  record Money {"
@@ -392,14 +391,14 @@ avroIDLTests = testGroup "Avro IDL"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields _ _ -> do
-              ifdType (V.head fields) @?= ITDecimal 10 2
-            other -> assertFailure $ "expected record, got " ++ show other
+              ifdType (V.head fields) `shouldBe` ITDecimal 10 2
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "convert decimal type" $ do
+  , it "convert decimal type" $ do
       let decl = IDLRecord "R"
                    (V.singleton (AvroIDLField (ITDecimal 10 2) "amount" Nothing V.empty Nothing Nothing))
                    Nothing V.empty
@@ -408,44 +407,44 @@ avroIDLTests = testGroup "Avro IDL"
         AvroRecord{avroRecordFields = fs} ->
           case avroFieldType (V.head fs) of
             AvroLogical{avroLogicalType = DecimalLogical p s} -> do
-              p @?= 10
-              s @?= 2
-            _ -> assertFailure "expected AvroLogical decimal"
-        _ -> assertFailure "expected AvroRecord"
+              p `shouldBe` 10
+              s `shouldBe` 2
+            _ -> expectationFailure "expected AvroLogical decimal"
+        _ -> expectationFailure "expected AvroRecord"
 
-  , testCase "parse negative default" $ do
+  , it "parse negative default" $ do
       let input = t
             [ "protocol N {"
             , "  record R { int x = -1; }"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           case V.head (aidlDeclarations idl) of
             IDLRecord _ fields _ _ ->
-              ifdDefault (V.head fields) @?= Just "-1"
-            other -> assertFailure $ "expected record, got " ++ show other
+              ifdDefault (V.head fields) `shouldBe` Just "-1"
+            other -> expectationFailure $ "expected record, got " ++ show other
 
-  , testCase "parse method with throws" $ do
+  , it "parse method with throws" $ do
       let input = t
             [ "protocol T {"
             , "  string doWork(int x) throws MyError;"
             , "}"
             ]
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
           let msg = V.head (aidlMessages idl)
-          imErrors msg @?= V.fromList ["MyError"]
+          imErrors msg `shouldBe` V.fromList ["MyError"]
 
-  , testCase "empty protocol" $ do
+  , it "empty protocol" $ do
       let input = "protocol Empty { }" :: Text
       case parseAvroIDL input of
-        Left err -> assertFailure err
+        Left err -> expectationFailure err
         Right idl -> do
-          aidlProtocolName idl @?= "Empty"
-          V.length (aidlDeclarations idl) @?= 0
-          V.length (aidlMessages idl) @?= 0
-          V.length (aidlImports idl) @?= 0
+          aidlProtocolName idl `shouldBe` "Empty"
+          V.length (aidlDeclarations idl) `shouldBe` 0
+          V.length (aidlMessages idl) `shouldBe` 0
+          V.length (aidlImports idl) `shouldBe` 0
   ]

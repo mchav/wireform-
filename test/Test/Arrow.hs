@@ -14,16 +14,15 @@ import Data.Vector.Primitive qualified as VP
 import Hedgehog
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import Wireform.Builder qualified as B
 
 
-arrowTests :: TestTree
+arrowTests :: Spec
 arrowTests =
-  testGroup
-    "Arrow"
+  describe
+    "Arrow" $ sequence_
     [ schemaRoundtrips
     , recordBatchRoundtrips
     , edgeCases
@@ -34,11 +33,11 @@ arrowTests =
     ]
 
 
-schemaRoundtrips :: TestTree
+schemaRoundtrips :: Spec
 schemaRoundtrips =
-  testGroup
-    "Schema roundtrips"
-    [ testCase "Empty schema" $ do
+  describe
+    "Schema roundtrips" $ sequence_
+    [ it "Empty schema" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -47,8 +46,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Simple int field" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Simple int field" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -66,8 +65,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Multiple fields" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Multiple fields" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -82,8 +81,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Nested struct" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Nested struct" $ do
         let childField = Field (T.pack "x") False (AInt 64 True) V.empty Nothing V.empty
             msg =
               SchemaMessage
@@ -102,8 +101,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Big endian" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Big endian" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -121,8 +120,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "All basic types" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "All basic types" $ do
         let types =
               [ ANull
               , AInt 8 True
@@ -161,8 +160,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Timestamp with timezone" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Timestamp with timezone" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -180,8 +179,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Timestamp without timezone" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Timestamp without timezone" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -199,8 +198,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Union type" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Union type" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -218,8 +217,8 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Decimal type" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Decimal type" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -237,15 +236,15 @@ schemaRoundtrips =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
     ]
 
 
-recordBatchRoundtrips :: TestTree
+recordBatchRoundtrips :: Spec
 recordBatchRoundtrips =
-  testGroup
-    "RecordBatch roundtrips"
-    [ testCase "Empty record batch" $ do
+  describe
+    "RecordBatch roundtrips" $ sequence_
+    [ it "Empty record batch" $ do
         let msg =
               RecordBatch
                 RecordBatchDef
@@ -255,8 +254,8 @@ recordBatchRoundtrips =
                   , rbVariadicBufferCounts = V.empty
                   , rbBodyCompression = Nothing
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Record batch with nodes and buffers" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Record batch with nodes and buffers" $ do
         let msg =
               RecordBatch
                 RecordBatchDef
@@ -276,22 +275,22 @@ recordBatchRoundtrips =
                   , rbVariadicBufferCounts = V.empty
                   , rbBodyCompression = Nothing
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
     ]
 
 
-edgeCases :: TestTree
+edgeCases :: Spec
 edgeCases =
-  testGroup
-    "Edge cases"
-    [ testCase "Decode empty input" $
+  describe
+    "Edge cases" $ sequence_
+    [ it "Decode empty input" $
         case decodeIPCMessage BS.empty of
           Left _ -> pure ()
-          Right _ -> assertFailure "expected error on empty input"
-    , testCase "DictionaryBatch roundtrip" $ do
+          Right _ -> expectationFailure "expected error on empty input"
+    , it "DictionaryBatch roundtrip" $ do
         let msg = DictionaryBatch
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
-    , testCase "Field with empty name" $ do
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
+    , it "Field with empty name" $ do
         let msg =
               SchemaMessage
                 Schema
@@ -309,21 +308,21 @@ edgeCases =
                   , arrowMetadata = V.empty
                   , arrowFeatures = V.empty
                   }
-        decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
+        decodeIPCMessage (encodeIPCMessage msg) `shouldBe` Right msg
     ]
 
 
-wireFormatTests :: TestTree
+wireFormatTests :: Spec
 wireFormatTests =
-  testGroup
-    "Wire format"
-    [ testCase "Starts with continuation 0xFFFFFFFF" $ do
+  describe
+    "Wire format" $ sequence_
+    [ it "Starts with continuation 0xFFFFFFFF" $ do
         let bs = encodeIPCMessage DictionaryBatch
-        BS.index bs 0 @?= 0xFF
-        BS.index bs 1 @?= 0xFF
-        BS.index bs 2 @?= 0xFF
-        BS.index bs 3 @?= 0xFF
-    , testCase "Metadata is 8-byte aligned" $ do
+        BS.index bs 0 `shouldBe` 0xFF
+        BS.index bs 1 `shouldBe` 0xFF
+        BS.index bs 2 `shouldBe` 0xFF
+        BS.index bs 3 `shouldBe` 0xFF
+    , it "Metadata is 8-byte aligned" $ do
         let bs = encodeIPCMessage DictionaryBatch
             metaLen =
               fromIntegral (BS.index bs 4)
@@ -331,15 +330,15 @@ wireFormatTests =
                 + fromIntegral (BS.index bs 6) * 65536
                 + fromIntegral (BS.index bs 7) * 16777216
                 :: Int
-        (metaLen `mod` 8) @?= 0
+        (metaLen `mod` 8) `shouldBe` 0
     ]
 
 
-propertyRoundtrips :: TestTree
+propertyRoundtrips :: Spec
 propertyRoundtrips =
-  testGroup
-    "Property roundtrips"
-    [ testProperty "Schema with random int fields" $ property $ do
+  describe
+    "Property roundtrips" $ sequence_
+    [ it "Schema with random int fields" $ property $ do
         nFields <- forAll $ Gen.int (Range.linear 0 8)
         fields <-
           forAll $
@@ -369,7 +368,7 @@ propertyRoundtrips =
                   , arrowFeatures = V.empty
                   }
         decodeIPCMessage (encodeIPCMessage msg) === Right msg
-    , testProperty "Schema with random type selection" $ property $ do
+    , it "Schema with random type selection" $ property $ do
         fieldType <-
           forAll $
             Gen.element
@@ -404,7 +403,7 @@ propertyRoundtrips =
                   , arrowFeatures = V.empty
                   }
         decodeIPCMessage (encodeIPCMessage msg) === Right msg
-    , testProperty "Schema with random endianness" $ property $ do
+    , it "Schema with random endianness" $ property $ do
         endian <- forAll $ Gen.element [Little, Big]
         let msg =
               SchemaMessage
@@ -415,7 +414,7 @@ propertyRoundtrips =
                   , arrowFeatures = V.empty
                   }
         decodeIPCMessage (encodeIPCMessage msg) === Right msg
-    , testProperty "RecordBatch with random dimensions" $ property $ do
+    , it "RecordBatch with random dimensions" $ property $ do
         len <- forAll $ Gen.int64 (Range.linear 0 100000)
         nNodes <- forAll $ Gen.int (Range.linear 0 5)
         nodes <-
@@ -450,11 +449,11 @@ propertyRoundtrips =
     ]
 
 
-columnTests :: TestTree
+columnTests :: Spec
 columnTests =
-  testGroup
-    "Column materialization"
-    [ testCase "Nullable Int32" $ do
+  describe
+    "Column materialization" $ sequence_
+    [ it "Nullable Int32" $ do
         let schema =
               Schema
                 { arrowFields =
@@ -487,9 +486,9 @@ columnTests =
                 <> leI32 0
                 <> leI32 30
         case materializeFlatRecordBatch schema rb body of
-          Left e -> assertFailure e
-          Right cols -> V.head cols @?= ColInt32Maybe (V.fromList [Just 10, Nothing, Just 30])
-    , testCase "Struct column" $ do
+          Left e -> expectationFailure e
+          Right cols -> V.head cols `shouldBe` ColInt32Maybe (V.fromList [Just 10, Nothing, Just 30])
+    , it "Struct column" $ do
         let childX = Field "x" False (AInt 32 True) V.empty Nothing V.empty
             childY = Field "y" False (AInt 32 True) V.empty Nothing V.empty
             schema =
@@ -518,16 +517,16 @@ columnTests =
                 }
             body = leI32 1 <> leI32 2 <> leI32 3 <> leI32 4
         case materializeRecordBatch schema rb body of
-          Left e -> assertFailure e
+          Left e -> expectationFailure e
           Right cols ->
             V.head cols
-              @?= ColStruct
+              `shouldBe` ColStruct
                 ( V.fromList
                     [ ("x", ColInt32 (VP.fromList [1, 2]))
                     , ("y", ColInt32 (VP.fromList [3, 4]))
                     ]
                 )
-    , testCase "List column" $ do
+    , it "List column" $ do
         let childField = Field "item" False (AInt 32 True) V.empty Nothing V.empty
             schema =
               Schema
@@ -563,20 +562,20 @@ columnTests =
                 <> leI32 4
                 <> leI32 5
         case materializeRecordBatch schema rb body of
-          Left e -> assertFailure e
+          Left e -> expectationFailure e
           Right cols ->
             V.head cols
-              @?= ColList
+              `shouldBe` ColList
                 (VP.fromList [0, 2, 5])
                 (ColInt32 (VP.fromList [1, 2, 3, 4, 5]))
     ]
 
 
-writeRoundtrips :: TestTree
+writeRoundtrips :: Spec
 writeRoundtrips =
-  testGroup
-    "Write round-trips"
-    [ testCase "Int32 encode-decode" $ do
+  describe
+    "Write round-trips" $ sequence_
+    [ it "Int32 encode-decode" $ do
         let schema =
               Schema
                 { arrowFields =
@@ -597,14 +596,14 @@ writeRoundtrips =
             cols = V.singleton (ColInt32 vals)
             batchBs = buildRecordBatch schema cols
         case readIPCMessage batchBs 0 of
-          Left e -> assertFailure e
+          Left e -> expectationFailure e
           Right (msg, body, _) -> case msg of
             RecordBatch rb ->
               case materializeRecordBatch schema rb body of
-                Left e2 -> assertFailure e2
-                Right result -> V.head result @?= ColInt32 vals
-            _ -> assertFailure "Expected RecordBatch message"
-    , testCase "Arrow stream round-trip" $ do
+                Left e2 -> expectationFailure e2
+                Right result -> V.head result `shouldBe` ColInt32 vals
+            _ -> expectationFailure "Expected RecordBatch message"
+    , it "Arrow stream round-trip" $ do
         let schema =
               Schema
                 { arrowFields =
@@ -623,17 +622,17 @@ writeRoundtrips =
                 ]
             streamBs = writeArrowStream schema (V.singleton batch1)
         case readArrowStream streamBs of
-          Left e -> assertFailure e
+          Left e -> expectationFailure e
           Right as -> do
-            asSchema as @?= schema
-            V.length (asBatches as) @?= 1
+            asSchema as `shouldBe` schema
+            V.length (asBatches as) `shouldBe` 1
             let (rb, body) = V.head (asBatches as)
             case materializeRecordBatch schema rb body of
-              Left e2 -> assertFailure e2
+              Left e2 -> expectationFailure e2
               Right result -> do
-                result V.! 0 @?= ColInt32 (VP.fromList [10, 20, 30])
-                result V.! 1 @?= ColBool (V.fromList [True, False, True])
-    , testCase "Arrow file round-trip" $ do
+                result V.! 0 `shouldBe` ColInt32 (VP.fromList [10, 20, 30])
+                result V.! 1 `shouldBe` ColBool (V.fromList [True, False, True])
+    , it "Arrow file round-trip" $ do
         let schema =
               Schema
                 { arrowFields =
@@ -653,11 +652,11 @@ writeRoundtrips =
             batch1 = V.singleton (ColInt32 (VP.fromList [100, 200, 300]))
             fileBs = writeArrowFile schema (V.singleton batch1)
         case readArrowFileColumns fileBs of
-          Left e -> assertFailure e
+          Left e -> expectationFailure e
           Right (readSchema, readBatches) -> do
-            readSchema @?= schema
-            V.length readBatches @?= 1
-            V.head (V.head readBatches) @?= ColInt32 (VP.fromList [100, 200, 300])
+            readSchema `shouldBe` schema
+            V.length readBatches `shouldBe` 1
+            V.head (V.head readBatches) `shouldBe` ColInt32 (VP.fromList [100, 200, 300])
     ]
 
 

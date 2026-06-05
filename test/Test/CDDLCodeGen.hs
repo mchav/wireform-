@@ -1,7 +1,6 @@
 module Test.CDDLCodeGen (cddlCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,8 +8,8 @@ import qualified Data.Vector as V
 import CBOR.CDDLSchema
 import CBOR.CDDLCodeGen (generateCDDLTypes)
 
-cddlCodeGenTests :: TestTree
-cddlCodeGenTests = testGroup "CBOR.CDDLCodeGen"
+cddlCodeGenTests :: Spec
+cddlCodeGenTests = describe "CBOR.CDDLCodeGen" $ sequence_
   [ testMapRecordCodeGen
   , testArrayNewtypeCodeGen
   , testChoiceCodeGen
@@ -18,8 +17,8 @@ cddlCodeGenTests = testGroup "CBOR.CDDLCodeGen"
   , testCBORInstances
   ]
 
-testMapRecordCodeGen :: TestTree
-testMapRecordCodeGen = testCase "map rule produces record type" $ do
+testMapRecordCodeGen :: Spec
+testMapRecordCodeGen = it "map rule produces record type" $ do
   let schema = CDDLSchema (V.fromList
         [ CDDLRule "person" (CTMap (V.fromList
             [ CDDLMember "name" CTTstr Once
@@ -27,36 +26,36 @@ testMapRecordCodeGen = testCase "map rule produces record type" $ do
             ]))
         ])
       code = generateCDDLTypes schema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "name is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "age is Word64" ("!Word64" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Word64" `T.isInfixOf` code) `shouldBe` True
 
-testArrayNewtypeCodeGen :: TestTree
-testArrayNewtypeCodeGen = testCase "array rule produces newtype over Vector" $ do
+testArrayNewtypeCodeGen :: Spec
+testArrayNewtypeCodeGen = it "array rule produces newtype over Vector" $ do
   let schema = CDDLSchema (V.fromList
         [ CDDLRule "tags" (CTArray (V.fromList
             [ CDDLMember "tag" CTTstr ZeroOrMore
             ]))
         ])
       code = generateCDDLTypes schema
-  assertBool "contains newtype Tags" ("newtype Tags = Tags" `T.isInfixOf` code)
-  assertBool "contains Vector" ("Vector" `T.isInfixOf` code)
+  ("newtype Tags = Tags" `T.isInfixOf` code) `shouldBe` True
+  ("Vector" `T.isInfixOf` code) `shouldBe` True
 
-testChoiceCodeGen :: TestTree
-testChoiceCodeGen = testCase "choice rule produces sum type" $ do
+testChoiceCodeGen :: Spec
+testChoiceCodeGen = it "choice rule produces sum type" $ do
   let schema = CDDLSchema (V.fromList
         [ CDDLRule "value" (CTChoice (V.fromList [CTTstr, CTUint, CTBool]))
         ])
       code = generateCDDLTypes schema
-  assertBool "contains data Value" ("data Value" `T.isInfixOf` code)
-  assertBool "contains ValueAlt0" ("ValueAlt0" `T.isInfixOf` code)
-  assertBool "contains ValueAlt1" ("ValueAlt1" `T.isInfixOf` code)
-  assertBool "contains ValueAlt2" ("ValueAlt2" `T.isInfixOf` code)
+  ("data Value" `T.isInfixOf` code) `shouldBe` True
+  ("ValueAlt0" `T.isInfixOf` code) `shouldBe` True
+  ("ValueAlt1" `T.isInfixOf` code) `shouldBe` True
+  ("ValueAlt2" `T.isInfixOf` code) `shouldBe` True
 
-testOptionalFieldCodeGen :: TestTree
-testOptionalFieldCodeGen = testCase "optional members produce Maybe" $ do
+testOptionalFieldCodeGen :: Spec
+testOptionalFieldCodeGen = it "optional members produce Maybe" $ do
   let schema = CDDLSchema (V.fromList
         [ CDDLRule "config" (CTMap (V.fromList
             [ CDDLMember "host" CTTstr Once
@@ -64,15 +63,15 @@ testOptionalFieldCodeGen = testCase "optional members produce Maybe" $ do
             ]))
         ])
       code = generateCDDLTypes schema
-  assertBool "contains Maybe Word64" ("Maybe Word64" `T.isInfixOf` code)
+  ("Maybe Word64" `T.isInfixOf` code) `shouldBe` True
 
-testCBORInstances :: TestTree
-testCBORInstances = testCase "generates ToCBOR/FromCBOR stub instances" $ do
+testCBORInstances :: Spec
+testCBORInstances = it "generates ToCBOR/FromCBOR stub instances" $ do
   let schema = CDDLSchema (V.fromList
         [ CDDLRule "msg" (CTMap (V.fromList
             [ CDDLMember "body" CTBstr Once
             ]))
         ])
       code = generateCDDLTypes schema
-  assertBool "contains ToCBOR instance" ("instance ToCBOR Msg" `T.isInfixOf` code)
-  assertBool "contains FromCBOR instance" ("instance FromCBOR Msg" `T.isInfixOf` code)
+  ("instance ToCBOR Msg" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromCBOR Msg" `T.isInfixOf` code) `shouldBe` True

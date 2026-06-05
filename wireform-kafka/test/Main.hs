@@ -104,20 +104,20 @@ import Protocol.VersionNegotiationSpec qualified
 import Protocol.WireCodecParitySpec qualified
 import Protocol.WireSpec qualified
 import Serde.ProtoBufSpec qualified
-import Test.Tasty
+import Test.Syd
 
 
 main :: IO ()
 main = do
   knownGoodTests <- Protocol.Generated.KnownGoodSpec.tests
   comprehensiveTests <- Protocol.Generated.ComprehensiveSpec.tests
-  defaultMain $ tests knownGoodTests comprehensiveTests
+  sydTest $ tests knownGoodTests comprehensiveTests
 
 
-tests :: TestTree -> TestTree -> TestTree
+tests :: Spec -> Spec -> Spec
 tests knownGoodTests comprehensiveTests =
-  testGroup
-    "kafka-native"
+  describe
+    "kafka-native" $ sequence_
     [ protocolTests
     , generatedTests knownGoodTests comprehensiveTests
     , versionTests
@@ -128,18 +128,18 @@ tests knownGoodTests comprehensiveTests =
     ]
 
 
-serdeTests :: TestTree
+serdeTests :: Spec
 serdeTests =
-  testGroup
-    "Serde"
+  describe
+    "Serde" $ sequence_
     [ Serde.ProtoBufSpec.tests
     ]
 
 
-protocolTests :: TestTree
+protocolTests :: Spec
 protocolTests =
-  testGroup
-    "Protocol"
+  describe
+    "Protocol" $ sequence_
     [ Protocol.CRC32CSpec.spec
     , Protocol.PrimitivesSpec.tests
     , Protocol.RoundTripSpec.tests
@@ -152,33 +152,33 @@ protocolTests =
     ]
 
 
-generatedTests :: TestTree -> TestTree -> TestTree
+generatedTests :: Spec -> Spec -> Spec
 generatedTests knownGoodTests comprehensiveTests =
-  testGroup
-    "Generated Messages"
+  describe
+    "Generated Messages" $ sequence_
     [ Protocol.Generated.SimpleRoundTripSpec.tests
     , knownGoodTests
     , comprehensiveTests
     ]
 
 
-versionTests :: TestTree
+versionTests :: Spec
 versionTests = Protocol.VersionHandlingSpec.tests
 
 
-compressionTests :: TestTree
+compressionTests :: Spec
 compressionTests =
-  testGroup
-    "Compression"
+  describe
+    "Compression" $ sequence_
     [ Protocol.CompressionSpec.compressionTests
     , Protocol.StreamingSinkSpec.tests
     ]
 
 
-clientTests :: TestTree
+clientTests :: Spec
 clientTests =
-  testGroup
-    "Client"
+  describe
+    "Client" $ sequence_
     [ Protocol.ApiVersionsSpec.tests
     , Client.BatchAccumulatorSpec.tests
     , Client.ConsumerConfigSpec.consumerConfigSpec
@@ -241,10 +241,10 @@ clientTests =
     ]
 
 
-networkTests :: TestTree
+networkTests :: Spec
 networkTests =
-  testGroup
-    "Network"
+  describe
+    "Network" $ sequence_
     [ Network.ConnectionRetrySpec.tests
     , Network.AuthSpec.authSpec
     , Network.TlsHandshakeSpec.tests

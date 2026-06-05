@@ -12,16 +12,15 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as KC
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.NativeDriver
 
-tests :: TestTree
-tests = testGroup "Exception handlers"
+tests :: Spec
+tests = describe "Exception handlers" $ sequence_
   [ production_handler_continue_keeps_running
   , processing_handler_continue_keeps_running
   , uncaught_replace_thread_respawns_loop
@@ -69,9 +68,9 @@ defaultCfg = defaultStreamsConfig
 -- 1. ProductionExceptionHandler: CONTINUE keeps the loop running
 ----------------------------------------------------------------------
 
-production_handler_continue_keeps_running :: TestTree
+production_handler_continue_keeps_running :: Spec
 production_handler_continue_keeps_running =
-  testCase "ProductionExceptionHandler CONTINUE: send failure doesn't kill the loop" $ do
+  it "ProductionExceptionHandler CONTINUE: send failure doesn't kill the loop" $ do
     topo <- buildPassthrough
     ks <- newKafkaStreams defaultCfg topo
     (drv, h) <- newMockDriver
@@ -98,7 +97,7 @@ production_handler_continue_keeps_running =
     -- /installing/ the handler is observable and doesn't
     -- crash the runtime.
     seen <- readIORef seenRef
-    assertBool ("handler invocations: " <> show seen) (seen >= 0)
+    (if (seen >= 0) then pure () else expectationFailure ("handler invocations: " <> show seen))
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
@@ -106,9 +105,9 @@ production_handler_continue_keeps_running =
 -- 2. ProcessingExceptionHandler: CONTINUE swallows a thrown processor
 ----------------------------------------------------------------------
 
-processing_handler_continue_keeps_running :: TestTree
+processing_handler_continue_keeps_running :: Spec
 processing_handler_continue_keeps_running =
-  testCase "ProcessingExceptionHandler CONTINUE: a processor that throws doesn't kill the loop" $ do
+  it "ProcessingExceptionHandler CONTINUE: a processor that throws doesn't kill the loop" $ do
     -- Topology: source -> mapValuesM(throw) -> sink
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
@@ -143,8 +142,8 @@ processing_handler_continue_keeps_running =
     -- Handler must have been called at least once (one record
     -- guaranteed). The runtime must still be Running.
     seen <- readIORef seenRef
-    assertBool ("handler invocations: " <> show seen) (seen >= 1)
-    streamsStatus ks >>= (@?= StreamsRunning)
+    (if (seen >= 1) then pure () else expectationFailure ("handler invocations: " <> show seen))
+    streamsStatus ks >>= (`shouldBe` StreamsRunning)
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
@@ -153,9 +152,9 @@ processing_handler_continue_keeps_running =
 -- 3. KIP-671: ReplaceThread respawns the loop after a fatal error
 ----------------------------------------------------------------------
 
-uncaught_replace_thread_respawns_loop :: TestTree
+uncaught_replace_thread_respawns_loop :: Spec
 uncaught_replace_thread_respawns_loop =
-  testCase "Uncaught handler ReplaceThread: loop restarts after a thrown body" $ do
+  it "Uncaught handler ReplaceThread: loop restarts after a thrown body" $ do
     -- Topology: source -> mapValuesM(throw) -> sink, processing
     -- handler set to FAIL so it propagates to the uncaught
     -- handler. The uncaught handler responds with
@@ -200,9 +199,9 @@ uncaught_replace_thread_respawns_loop =
 -- 4. KIP-671: ShutdownClient transitions to StreamsError
 ----------------------------------------------------------------------
 
-uncaught_shutdown_client_transitions_error :: TestTree
+uncaught_shutdown_client_transitions_error :: Spec
 uncaught_shutdown_client_transitions_error =
-  testCase "Uncaught handler ShutdownClient: instance transitions to StreamsError" $ do
+  it "Uncaught handler ShutdownClient: instance transitions to StreamsError" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     s' <- mapValuesM (\_ -> error "fatal" :: IO Text) s
@@ -236,9 +235,9 @@ uncaught_shutdown_client_transitions_error =
 -- 5. Defaults: continue / replace-thread
 ----------------------------------------------------------------------
 
-handler_defaults_are_continue_and_replace :: TestTree
+handler_defaults_are_continue_and_replace :: Spec
 handler_defaults_are_continue_and_replace =
-  testCase "Handler defaults: production/processing CONTINUE, uncaught REPLACE_THREAD" $ do
+  it "Handler defaults: production/processing CONTINUE, uncaught REPLACE_THREAD" $ do
     topo <- buildPassthrough
     ks <- newKafkaStreams defaultCfg topo
     (drv, _h) <- newMockDriver

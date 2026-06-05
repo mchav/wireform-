@@ -7,8 +7,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
@@ -18,16 +17,16 @@ bytes = BSC.pack . T.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "Suppress"
+tests :: Spec
+tests = describe "Suppress" $ sequence_
   [ suppress_time_limit_debounces
   , suppress_time_limit_emits_after_limit
   , suppress_time_limit_first_seen_is_sticky
   ]
 
-suppress_time_limit_debounces :: TestTree
+suppress_time_limit_debounces :: Spec
 suppress_time_limit_debounces =
-  testCase "suppressUntilTimeLimit holds updates within the window" $ do
+  it "suppressUntilTimeLimit holds updates within the window" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -44,12 +43,12 @@ suppress_time_limit_debounces =
 
     out0 <- readOutput driver (topicName "out")
     -- Within the 100ms window from t=0, no emission.
-    map (T.pack . BSC.unpack . crValue) out0 @?= []
+    map (T.pack . BSC.unpack . crValue) out0 `shouldBe` []
     closeDriver driver
 
-suppress_time_limit_emits_after_limit :: TestTree
+suppress_time_limit_emits_after_limit :: Spec
 suppress_time_limit_emits_after_limit =
-  testCase "suppressUntilTimeLimit emits once stream-time crosses the limit" $ do
+  it "suppressUntilTimeLimit emits once stream-time crosses the limit" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -65,12 +64,12 @@ suppress_time_limit_emits_after_limit =
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "third")  (t 200) 0
 
     out <- readOutput driver (topicName "out")
-    map (T.pack . BSC.unpack . crValue) out @?= ["second"]
+    map (T.pack . BSC.unpack . crValue) out `shouldBe` ["second"]
     closeDriver driver
 
-suppress_time_limit_first_seen_is_sticky :: TestTree
+suppress_time_limit_first_seen_is_sticky :: Spec
 suppress_time_limit_first_seen_is_sticky =
-  testCase "first-seen timestamp anchors the per-key debounce window" $ do
+  it "first-seen timestamp anchors the per-key debounce window" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in")
              (consumed textSerde textSerde)
@@ -89,10 +88,10 @@ suppress_time_limit_first_seen_is_sticky =
     -- Trigger evaluation at t=210: A should flush "a2", B not yet.
     pipeInput driver (topicName "in") (Just (bytes "A")) (bytes "a3") (t 210) 0
     out1 <- readOutput driver (topicName "out")
-    map (T.pack . BSC.unpack . crValue) out1 @?= ["a2"]
+    map (T.pack . BSC.unpack . crValue) out1 `shouldBe` ["a2"]
 
     -- Trigger at t=300: B flushes "b2", A's new debounce holds "a3".
     pipeInput driver (topicName "in") (Just (bytes "B")) (bytes "b3") (t 300) 0
     out2 <- readOutput driver (topicName "out")
-    map (T.pack . BSC.unpack . crValue) out2 @?= ["b2"]
+    map (T.pack . BSC.unpack . crValue) out2 `shouldBe` ["b2"]
     closeDriver driver

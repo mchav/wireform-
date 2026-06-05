@@ -13,8 +13,7 @@
 module Protocol.VersionNegotiationSpec (tests) where
 
 import qualified Data.Map.Strict as Map
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -60,26 +59,26 @@ mkPopulatedCache rows = do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Kafka.Protocol.VersionNegotiation"
-  [ testGroup "pickApiVersion"
-      [ testCase "empty cache -> returns the supplied fallback" $ do
+tests :: Spec
+tests = describe "Kafka.Protocol.VersionNegotiation" $ sequence_
+  [ describe "pickApiVersion" $ sequence_
+      [ it "empty cache -> returns the supplied fallback" $ do
           cache <- AV.createVersionCache
           r <- VN.pickApiVersion cache addr 3 0 8 5
-          r @?= Right 5
-      , testCase "cache hit, fully overlapping range -> client max" $ do
+          r `shouldBe` Right 5
+      , it "cache hit, fully overlapping range -> client max" $ do
           cache <- mkPopulatedCache [(3, 0, 12)]
           r <- VN.pickApiVersion cache addr 3 0 8 0
-          r @?= Right 8
-      , testCase "cache hit, broker max < client max -> broker max" $ do
+          r `shouldBe` Right 8
+      , it "cache hit, broker max < client max -> broker max" $ do
           cache <- mkPopulatedCache [(3, 0, 6)]
           r <- VN.pickApiVersion cache addr 3 0 8 0
-          r @?= Right 6
-      , testCase "cache hit, broker min > 0 -> result clamped above broker min" $ do
+          r `shouldBe` Right 6
+      , it "cache hit, broker min > 0 -> result clamped above broker min" $ do
           cache <- mkPopulatedCache [(3, 4, 12)]
           r <- VN.pickApiVersion cache addr 3 0 8 0
-          r @?= Right 8   -- min(8, 12) = 8 which is >= max(0, 4)
-      , testCase "cache hit, client max < broker min -> mismatch" $ do
+          r `shouldBe` Right 8   -- min(8, 12) = 8 which is >= max(0, 4)
+      , it "cache hit, client max < broker min -> mismatch" $ do
           cache <- mkPopulatedCache [(3, 5, 12)]
           r <- VN.pickApiVersion cache addr 3 6 8 0
           case r of
@@ -87,36 +86,36 @@ tests = testGroup "Kafka.Protocol.VersionNegotiation"
               -- 6 (clientMin) <= 8 (clientMax) and 8 >= 5 (brokerMin), so
               -- this overlaps; the result should be 8 (min(clientMax,
               -- brokerMax) clamped above brokerMin).
-              v @?= 8
+              v `shouldBe` 8
             Left mm ->
               error ("expected overlap, got mismatch: " <> show mm)
-      , testCase "cache hit, broker max < client min -> Left VersionMismatch" $ do
+      , it "cache hit, broker max < client min -> Left VersionMismatch" $ do
           cache <- mkPopulatedCache [(3, 0, 2)]
           r <- VN.pickApiVersion cache addr 3 4 8 0
           case r of
             Left mm -> do
-              VN.mismatchApiKey   mm @?= 3
-              VN.mismatchClientMin mm @?= 4
-              VN.mismatchClientMax mm @?= 8
-              VN.mismatchBrokerMin mm @?= 0
-              VN.mismatchBrokerMax mm @?= 2
+              VN.mismatchApiKey   mm `shouldBe` 3
+              VN.mismatchClientMin mm `shouldBe` 4
+              VN.mismatchClientMax mm `shouldBe` 8
+              VN.mismatchBrokerMin mm `shouldBe` 0
+              VN.mismatchBrokerMax mm `shouldBe` 2
             Right v -> error ("expected mismatch, got " <> show v)
-      , testCase "different broker uses its own cache entry" $ do
+      , it "different broker uses its own cache entry" $ do
           cache <- mkPopulatedCache [(3, 0, 8)]
           r1 <- VN.pickApiVersion cache addr  3 0 12 11
           r2 <- VN.pickApiVersion cache addr2 3 0 12 11
-          r1 @?= Right 8         -- addr is in cache
-          r2 @?= Right 11        -- addr2 isn't, falls back
-      , testCase "API key not in broker's range -> falls back" $ do
+          r1 `shouldBe` Right 8         -- addr is in cache
+          r2 `shouldBe` Right 11        -- addr2 isn't, falls back
+      , it "API key not in broker's range -> falls back" $ do
           -- The broker's cache entry has /some/ APIs but not the
           -- one we're asking about; behave exactly like an empty
           -- cache for that API.
           cache <- mkPopulatedCache [(0, 0, 9)]   -- only Produce
           r <- VN.pickApiVersion cache addr 1 0 11 4   -- ask Fetch
-          r @?= Right 4
+          r `shouldBe` Right 4
       ]
-  , testGroup "toPositive / fallback semantics"
-      [ testCase "fallback respected for negative client max" $ do
+  , describe "toPositive / fallback semantics" $ sequence_
+      [ it "fallback respected for negative client max" $ do
           -- This is a contract check: 'pickApiVersion' doesn't
           -- get to invent a version below 0. Even if we ask for
           -- nonsense bounds, the cached path returns the
@@ -126,8 +125,8 @@ tests = testGroup "Kafka.Protocol.VersionNegotiation"
           -- a -1 fallback returns Right (-1).
           cache <- AV.createVersionCache
           r <- VN.pickApiVersion cache addr 3 0 8 (-1)
-          r @?= Right (-1)
-      , testCase "ensureVersionsNegotiated is a no-op when cache hit" $ do
+          r `shouldBe` Right (-1)
+      , it "ensureVersionsNegotiated is a no-op when cache hit" $ do
           -- We can't run a real handshake without a Connection,
           -- but we /can/ verify the fast-path: when the cache
           -- already has an entry for the broker (any API key),
@@ -137,60 +136,59 @@ tests = testGroup "Kafka.Protocol.VersionNegotiation"
           let bogusConn = error "bogus connection: should not be touched"
           let bogusNextCid = error "bogus corr id: should not be touched"
           r <- VN.ensureVersionsNegotiated bogusConn addr cache bogusNextCid
-          assertBool "fast-path should succeed without touching the connection"
-                     (case r of Right () -> True; _ -> False)
+          (case r of Right () -> True; _ -> False) `shouldBe` True
       ]
-  , testGroup "pickApiVersionFor / pickApiVersionForRange (type-driven)"
-      [ testCase "pickApiVersionFor uses the message's full codegen range" $ do
+  , describe "pickApiVersionFor / pickApiVersionForRange (type-driven)" $ sequence_
+      [ it "pickApiVersionFor uses the message's full codegen range" $ do
           -- ProduceRequest's codegen range is (3, 13) per its
           -- 'KafkaMessage' instance. Broker advertises Produce
           -- [3..12]. Result: 12 (broker max, since it's < client max).
           --
           -- This is the headline ergonomic win: no need to spell
           -- out apiKey + min + max at every call site.
-          Msg.messageApiKey @PR.ProduceRequest @?= 0
+          Msg.messageApiKey @PR.ProduceRequest `shouldBe` 0
           cache <- mkPopulatedCache [(0, 3, 12)]
           r <- VN.pickApiVersionFor @PR.ProduceRequest cache addr 3
-          r @?= Right 12
-      , testCase "pickApiVersionFor falls back when broker hasn't responded" $ do
+          r `shouldBe` Right 12
+      , it "pickApiVersionFor falls back when broker hasn't responded" $ do
           cache <- AV.createVersionCache
           r <- VN.pickApiVersionFor @PR.ProduceRequest cache addr 7
-          r @?= Right 7
-      , testCase "pickApiVersionForRange overrides the message's range" $ do
+          r `shouldBe` Right 7
+      , it "pickApiVersionForRange overrides the message's range" $ do
           -- FetchRequest codegen range is (4, 17). The client
           -- caps at 12 because v13+ uses TopicId. Use the
           -- override; broker advertises Fetch [4..15] -> result
           -- is 12 (the override max, since it's < broker max).
           cache <- mkPopulatedCache [(1, 4, 15)]
           r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
-          r @?= Right 12
-      , testCase "pickApiVersionForRange override below broker max takes precedence" $ do
+          r `shouldBe` Right 12
+      , it "pickApiVersionForRange override below broker max takes precedence" $ do
           -- Broker would be happy to do Fetch v17, but the
           -- client only trusts v12 — the override caps below.
           cache <- mkPopulatedCache [(1, 4, 17)]
           r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
-          r @?= Right 12
-      , testCase "pickApiVersionForRange override above broker max -> broker max" $ do
+          r `shouldBe` Right 12
+      , it "pickApiVersionForRange override above broker max -> broker max" $ do
           -- Override pushes higher than the broker actually
           -- supports; the negotiation still respects the
           -- broker's max (so we don't ship a request the broker
           -- can't decode).
           cache <- mkPopulatedCache [(1, 4, 8)]
           r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 4
-          r @?= Right 8
-      , testCase "pickApiVersionForRange empty cache -> falls back" $ do
+          r `shouldBe` Right 8
+      , it "pickApiVersionForRange empty cache -> falls back" $ do
           cache <- AV.createVersionCache
           r <- VN.pickApiVersionForRange @FR.FetchRequest 4 12 cache addr 7
-          r @?= Right 7
-      , testCase "pickApiVersionForRange pinned to a single version (test exercise)" $ do
+          r `shouldBe` Right 7
+      , it "pickApiVersionForRange pinned to a single version (test exercise)" $ do
           -- Tests can pin a specific version by setting min=max,
           -- which is the canonical way to drive a request at a
           -- known version regardless of what the broker
           -- advertises.
           cache <- mkPopulatedCache [(1, 4, 17)]
           r <- VN.pickApiVersionForRange @FR.FetchRequest 7 7 cache addr 7
-          r @?= Right 7
-      , testCase "pickApiVersionForRange pinned single version, broker doesn't support it -> mismatch" $ do
+          r `shouldBe` Right 7
+      , it "pickApiVersionForRange pinned single version, broker doesn't support it -> mismatch" $ do
           -- If the broker is too old for the pinned version,
           -- the negotiator returns a mismatch rather than
           -- silently picking something the broker rejects.
@@ -198,11 +196,11 @@ tests = testGroup "Kafka.Protocol.VersionNegotiation"
           r <- VN.pickApiVersionForRange @FR.FetchRequest 7 7 cache addr 7
           case r of
             Left mm -> do
-              VN.mismatchApiKey   mm @?= 1
-              VN.mismatchClientMin mm @?= 7
-              VN.mismatchClientMax mm @?= 7
-              VN.mismatchBrokerMin mm @?= 4
-              VN.mismatchBrokerMax mm @?= 6
+              VN.mismatchApiKey   mm `shouldBe` 1
+              VN.mismatchClientMin mm `shouldBe` 7
+              VN.mismatchClientMax mm `shouldBe` 7
+              VN.mismatchBrokerMin mm `shouldBe` 4
+              VN.mismatchBrokerMax mm `shouldBe` 6
             Right v -> error ("expected mismatch, got " <> show v)
       ]
   ]

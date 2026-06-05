@@ -32,9 +32,8 @@ import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Time
   ( Duration
@@ -157,9 +156,9 @@ prop_unregister_removes = H.property $ do
 -- Alignment groups
 ----------------------------------------------------------------------
 
-unit_alignment_pause_when_spread :: TestTree
+unit_alignment_pause_when_spread :: Spec
 unit_alignment_pause_when_spread =
-  testCase "shouldPauseSource: true when source out-paces group by bound" $ do
+  it "shouldPauseSource: true when source out-paces group by bound" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     let sa = SourceId "A"
         sb = SourceId "B"
@@ -170,14 +169,14 @@ unit_alignment_pause_when_spread =
     _ <- reportRecord coord sa (Timestamp 1000)
     _ <- reportRecord coord sb (Timestamp 0)
     -- A is 1000ms ahead of B; bound is 100ms.
-    shouldPauseSource coord sa >>= (@?= True)
-    shouldPauseSource coord sb >>= (@?= False)
+    shouldPauseSource coord sa >>= (`shouldBe` True)
+    shouldPauseSource coord sb >>= (`shouldBe` False)
     backlogA <- alignmentBacklog coord sa
-    backlogA @?= 1000
+    backlogA `shouldBe` 1000
 
-unit_alignment_no_pause_within_bound :: TestTree
+unit_alignment_no_pause_within_bound :: Spec
 unit_alignment_no_pause_within_bound =
-  testCase "shouldPauseSource: false when spread is within bound" $ do
+  it "shouldPauseSource: false when spread is within bound" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     let sa = SourceId "A"
         sb = SourceId "B"
@@ -187,17 +186,17 @@ unit_alignment_no_pause_within_bound =
     declareAlignmentGroup coord (AlignmentGroup grp (millis 500))
     _ <- reportRecord coord sa (Timestamp 100)
     _ <- reportRecord coord sb (Timestamp 0)
-    shouldPauseSource coord sa >>= (@?= False)
+    shouldPauseSource coord sa >>= (`shouldBe` False)
 
-unit_alignment_no_group_no_pause :: TestTree
+unit_alignment_no_group_no_pause :: Spec
 unit_alignment_no_group_no_pause =
-  testCase "shouldPauseSource: false for ungrouped sources" $ do
+  it "shouldPauseSource: false for ungrouped sources" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     let sa = SourceId "A"
     registerSource coord sa monotonicAscending Nothing
     _ <- reportRecord coord sa (Timestamp 10_000)
-    shouldPauseSource coord sa >>= (@?= False)
-    alignmentBacklog coord sa >>= (@?= 0)
+    shouldPauseSource coord sa >>= (`shouldBe` False)
+    alignmentBacklog coord sa >>= (`shouldBe` 0)
 
 ----------------------------------------------------------------------
 -- Coordinator: chaos / many sources
@@ -252,21 +251,21 @@ prop_chaos_effective_consistent = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Watermark coordinator"
-  [ testProperty "monotonicAscending is the running-max strategy" $
+tests :: Spec
+tests = describe "Watermark coordinator" $ sequence_
+  [ it "monotonicAscending is the running-max strategy" $
       H.withTests 80 prop_monotonic_ascending
-  , testProperty "boundedOutOfOrderness produces a monotonic series" $
+  , it "boundedOutOfOrderness produces a monotonic series" $
       H.withTests 80 prop_bounded_out_of_orderness
-  , testProperty "effective watermark = min of live sources" $
+  , it "effective watermark = min of live sources" $
       H.withTests 80 prop_effective_is_min
-  , testProperty "idle source is excluded after timeout" $
+  , it "idle source is excluded after timeout" $
       H.withTests 60 prop_idle_source_excluded_after_timeout
-  , testProperty "unregisterSource removes the source from the min" $
+  , it "unregisterSource removes the source from the min" $
       H.withTests 60 prop_unregister_removes
   , unit_alignment_pause_when_spread
   , unit_alignment_no_pause_within_bound
   , unit_alignment_no_group_no_pause
-  , testProperty "chaos: effective = min(live sources) under arbitrary ops" $
+  , it "chaos: effective = min(live sources) under arbitrary ops" $
       H.withTests 80 prop_chaos_effective_consistent
   ]

@@ -14,24 +14,23 @@ module Client.HeartbeatRejoinSpec (tests) where
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Data.IORef (readIORef, writeIORef)
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Network.Connection as Conn
 import qualified Kafka.Protocol.ApiVersions as AV
 import qualified Kafka.Client.Internal.Heartbeat as HB
 
-tests :: TestTree
-tests = testGroup "Heartbeat rejoin reactions (KIP-389 / KIP-345)"
-  [ testCase "UNKNOWN_MEMBER_ID clears memberId and triggers rejoin"
+tests :: Spec
+tests = describe "Heartbeat rejoin reactions (KIP-389 / KIP-345)" $ sequence_
+  [ it "UNKNOWN_MEMBER_ID clears memberId and triggers rejoin"
       unit_unknownMemberClearsMemberId
-  , testCase "FENCED_INSTANCE_ID clears memberId and triggers rejoin"
+  , it "FENCED_INSTANCE_ID clears memberId and triggers rejoin"
       unit_fencedInstanceClearsMemberId
-  , testCase "ILLEGAL_GENERATION preserves memberId but triggers rejoin"
+  , it "ILLEGAL_GENERATION preserves memberId but triggers rejoin"
       unit_illegalGenerationKeepsMemberId
-  , testCase "Other error triggers rejoin without clearing memberId"
+  , it "Other error triggers rejoin without clearing memberId"
       unit_otherErrorKeepsMemberId
-  , testCase "Transport failure leaves state untouched"
+  , it "Transport failure leaves state untouched"
       unit_transportFailureNoOp
   ]
 
@@ -56,27 +55,27 @@ resetRebalance st = atomically $ writeTVar (HB.hbNeedsRebalance st) False
 -- KIP-389 / KIP-345 reactions
 ------------------------------------------------------------------
 
-unit_unknownMemberClearsMemberId :: Assertion
+unit_unknownMemberClearsMemberId :: IO ()
 unit_unknownMemberClearsMemberId = do
   st <- freshHb
   seedMember st "consumer-1-uuid"
   HB.applyHeartbeatOutcome st HB.HeartbeatUnknownMember
   mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
-  mid  @?= ""
-  flag @?= True
+  mid  `shouldBe` ""
+  flag `shouldBe` True
 
-unit_fencedInstanceClearsMemberId :: Assertion
+unit_fencedInstanceClearsMemberId :: IO ()
 unit_fencedInstanceClearsMemberId = do
   st <- freshHb
   seedMember st "static-member-7"
   HB.applyHeartbeatOutcome st HB.HeartbeatFencedInstance
   mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
-  mid  @?= ""
-  flag @?= True
+  mid  `shouldBe` ""
+  flag `shouldBe` True
 
-unit_illegalGenerationKeepsMemberId :: Assertion
+unit_illegalGenerationKeepsMemberId :: IO ()
 unit_illegalGenerationKeepsMemberId = do
   st <- freshHb
   seedMember st "consumer-9"
@@ -85,21 +84,20 @@ unit_illegalGenerationKeepsMemberId = do
   flag <- readTVarIO (HB.hbNeedsRebalance st)
   -- ILLEGAL_GENERATION only invalidates the generation counter.
   -- The memberId stays so the rejoin can be a no-op.
-  assertBool ("memberId should be preserved, was " <> show mid)
-    (not (T.null mid))
-  flag @?= True
+  (if (not (T.null mid)) then pure () else expectationFailure ("memberId should be preserved, was " <> show mid))
+  flag `shouldBe` True
 
-unit_otherErrorKeepsMemberId :: Assertion
+unit_otherErrorKeepsMemberId :: IO ()
 unit_otherErrorKeepsMemberId = do
   st <- freshHb
   seedMember st "consumer-x"
   HB.applyHeartbeatOutcome st (HB.HeartbeatOtherError 42 "x")
   mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
-  assertBool "memberId preserved" (not (T.null mid))
-  flag @?= True
+  (not (T.null mid)) `shouldBe` True
+  flag `shouldBe` True
 
-unit_transportFailureNoOp :: Assertion
+unit_transportFailureNoOp :: IO ()
 unit_transportFailureNoOp = do
   st <- freshHb
   seedMember st "consumer-z"
@@ -107,5 +105,5 @@ unit_transportFailureNoOp = do
   HB.applyHeartbeatOutcome st (HB.HeartbeatTransport "net")
   mid  <- readIORef (HB.hbMemberId st)
   flag <- readTVarIO (HB.hbNeedsRebalance st)
-  assertBool "memberId preserved" (not (T.null mid))
-  flag @?= False
+  (not (T.null mid)) `shouldBe` True
+  flag `shouldBe` False

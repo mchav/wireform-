@@ -10,9 +10,8 @@ import qualified Data.Time.Clock.POSIX as Time
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit hiding (assert)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Client.Internal.BatchAccumulator as BA
 import qualified Kafka.Client.Internal.ProducerSender as Sender
@@ -30,14 +29,14 @@ prop_deliveryTimeoutConfigured = property $ do
   assert $ Producer.producerDeliveryTimeoutMs config == 60000
 
 -- | Test that default delivery timeout is 120000ms (2 minutes)
-unit_defaultDeliveryTimeout :: TestTree
-unit_defaultDeliveryTimeout = testCase "Default delivery timeout is 120000ms" $ do
+unit_defaultDeliveryTimeout :: Spec
+unit_defaultDeliveryTimeout = it "Default delivery timeout is 120000ms" $ do
   let config = Producer.defaultProducerConfig
-  Producer.producerDeliveryTimeoutMs config @?= 120000
+  Producer.producerDeliveryTimeoutMs config `shouldBe` 120000
 
 -- | Test that batch timeout detection works correctly
-unit_batchTimeoutDetection :: TestTree
-unit_batchTimeoutDetection = testCase "Batch timeout detection" $ do
+unit_batchTimeoutDetection :: Spec
+unit_batchTimeoutDetection = it "Batch timeout detection" $ do
   -- Create a test batch with a specific creation time
   let currentTime = 10000  -- 10 seconds in ms
       batchCreateTime = 5000  -- Created at 5 seconds
@@ -67,12 +66,12 @@ unit_batchTimeoutDetection = testCase "Batch timeout detection" $ do
   let timedOut = Sender.isBatchTimedOut currentTime deliveryTimeout batch
       elapsed = currentTime - batchCreateTime
   
-  assertBool ("Batch should be timed out (elapsed: " ++ show elapsed ++ "ms, timeout: " ++ 
-              show deliveryTimeout ++ "ms)") timedOut
+  (if (timedOut) then pure () else expectationFailure ("Batch should be timed out (elapsed: " ++ show elapsed ++ "ms, timeout: " ++ 
+              show deliveryTimeout ++ "ms)"))
 
 -- | Test that batch timeout detection doesn't false-positive
-unit_batchNotTimedOut :: TestTree
-unit_batchNotTimedOut = testCase "Batch not timed out when within timeout" $ do
+unit_batchNotTimedOut :: Spec
+unit_batchNotTimedOut = it "Batch not timed out when within timeout" $ do
   -- Create a test batch with a recent creation time
   let currentTime = 10000  -- 10 seconds in ms
       batchCreateTime = 9000  -- Created at 9 seconds (1 second ago)
@@ -102,8 +101,8 @@ unit_batchNotTimedOut = testCase "Batch not timed out when within timeout" $ do
   let timedOut = Sender.isBatchTimedOut currentTime deliveryTimeout batch
       elapsed = currentTime - batchCreateTime
   
-  assertBool ("Batch should NOT be timed out (elapsed: " ++ show elapsed ++ "ms, timeout: " ++ 
-              show deliveryTimeout ++ "ms)") (not timedOut)
+  (if (not timedOut) then pure () else expectationFailure ("Batch should NOT be timed out (elapsed: " ++ show elapsed ++ "ms, timeout: " ++ 
+              show deliveryTimeout ++ "ms)"))
 
 -- | Test property: a batch is timed out iff elapsed time > timeout
 prop_timeoutDetectionCorrectness :: Property
@@ -224,16 +223,16 @@ prop_differentTimeoutValues = property $ do
   
   Producer.producerDeliveryTimeoutMs config === fromIntegral timeoutMs
 
-tests :: TestTree
-tests = testGroup "Producer Timeout (KIP-91)"
-  [ testGroup "Properties"
-      [ testProperty "Delivery timeout is configured" prop_deliveryTimeoutConfigured
-      , testProperty "Timeout detection correctness" prop_timeoutDetectionCorrectness
-      , testProperty "Very old batches timeout" prop_veryOldBatchesTimeout
-      , testProperty "Fresh batches never timeout" prop_freshBatchesNeverTimeout
-      , testProperty "Different timeout values" prop_differentTimeoutValues
+tests :: Spec
+tests = describe "Producer Timeout (KIP-91)" $ sequence_
+  [ describe "Properties" $ sequence_
+      [ it "Delivery timeout is configured" prop_deliveryTimeoutConfigured
+      , it "Timeout detection correctness" prop_timeoutDetectionCorrectness
+      , it "Very old batches timeout" prop_veryOldBatchesTimeout
+      , it "Fresh batches never timeout" prop_freshBatchesNeverTimeout
+      , it "Different timeout values" prop_differentTimeoutValues
       ]
-  , testGroup "Unit Tests"
+  , describe "Unit Tests" $ sequence_
       [ unit_defaultDeliveryTimeout
       , unit_batchTimeoutDetection
       , unit_batchNotTimedOut

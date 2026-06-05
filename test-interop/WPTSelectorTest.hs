@@ -10,28 +10,27 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import HTML.DOM
 
 main :: IO ()
-main = defaultMain $ testGroup "WPT CSS Selectors Conformance"
-  [ testGroup "has-basic" hasBasicTests
-  , testGroup "has-relative-argument" hasRelativeTests
-  , testGroup "is-where-basic" isWhereBasicTests
-  , testGroup "is-where-not" isWhereNotTests
-  , testGroup "not-complex" notComplexTests
-  , testGroup "child-indexed-pseudo-class" childIndexedTests
-  , testGroup "first-child" firstChildTests
-  , testGroup "last-child" lastChildTests
-  , testGroup "only-child" onlyChildTests
-  , testGroup "first-of-type" firstOfTypeTests
-  , testGroup "last-of-type" lastOfTypeTests
-  , testGroup "only-of-type" onlyOfTypeTests
-  , testGroup "dir-selector-querySelector" dirSelectorTests
-  , testGroup "pseudo-enabled-disabled" enabledDisabledTests
-  , testGroup "has-argument-with-explicit-scope" hasScopeTests
+main = sydTest $ describe "WPT CSS Selectors Conformance" $ sequence_
+  [ describe "has-basic" hasBasicTests
+  , describe "has-relative-argument" hasRelativeTests
+  , describe "is-where-basic" isWhereBasicTests
+  , describe "is-where-not" isWhereNotTests
+  , describe "not-complex" notComplexTests
+  , describe "child-indexed-pseudo-class" childIndexedTests
+  , describe "first-child" firstChildTests
+  , describe "last-child" lastChildTests
+  , describe "only-child" onlyChildTests
+  , describe "first-of-type" firstOfTypeTests
+  , describe "last-of-type" lastOfTypeTests
+  , describe "only-of-type" onlyOfTypeTests
+  , describe "dir-selector-querySelector" dirSelectorTests
+  , describe "pseudo-enabled-disabled" enabledDisabledTests
+  , describe "has-argument-with-explicit-scope" hasScopeTests
   ]
 
 -- ---------------------------------------------------------------------------
@@ -69,35 +68,35 @@ sort' [] = []
 sort' (x:xs) = sort' [y | y <- xs, y < x] ++ [x] ++ sort' [y | y <- xs, y >= x]
 
 -- | Assert that querySelectorAll returns elements with the given sorted IDs.
-assertQSA :: Node -> Text -> [Text] -> Assertion
+assertQSA :: Node -> Text -> [Text] -> IO ()
 assertQSA root sel expected =
   let actual = qsaIds root sel
-  in actual @?= sort' expected
+  in actual `shouldBe` sort' expected
 
 -- | Assert querySelector returns element with given ID (or Nothing).
-assertQS :: Node -> Text -> Maybe Text -> Assertion
+assertQS :: Node -> Text -> Maybe Text -> IO ()
 assertQS root sel expected =
   let actual = querySelector root sel >>= \n -> getAttribute n "id"
-  in actual @?= expected
+  in actual `shouldBe` expected
 
 -- | Assert that node.matches(selector) == expected.
-assertMatches :: Node -> Text -> Bool -> Assertion
+assertMatches :: Node -> Text -> Bool -> IO ()
 assertMatches node sel expected =
-  matches node sel @?= expected
+  matches node sel `shouldBe` expected
 
 -- | Assert that node.closest(selector) returns element with given ID.
-assertClosest :: Node -> Text -> Maybe Text -> Assertion
+assertClosest :: Node -> Text -> Maybe Text -> IO ()
 assertClosest node sel expected =
   let actual = closest node sel >>= \n -> getAttribute n "id"
-  in actual @?= expected
+  in actual `shouldBe` expected
 
--- | WPT test helper: (selector, expected_ids) -> TestTree
-wptQSA :: Node -> (Text, [Text]) -> TestTree
-wptQSA root (sel, ids) = testCase (T.unpack sel) $ assertQSA root sel ids
+-- | WPT test helper: (selector, expected_ids) -> Spec
+wptQSA :: Node -> (Text, [Text]) -> Spec
+wptQSA root (sel, ids) = it (T.unpack sel) $ assertQSA root sel ids
 
--- | WPT test helper: (selector, expected_id_or_nothing) -> TestTree for querySelector
-wptQS :: Node -> (Text, Maybe Text) -> TestTree
-wptQS root (sel, mid) = testCase (T.unpack sel) $ assertQS root sel mid
+-- | WPT test helper: (selector, expected_id_or_nothing) -> Spec for querySelector
+wptQS :: Node -> (Text, Maybe Text) -> Spec
+wptQS root (sel, mid) = it (T.unpack sel) $ assertQS root sel mid
 
 -- ---------------------------------------------------------------------------
 -- has-basic.html
@@ -125,7 +124,7 @@ hasBasicDoc = parseMain
   \  </div>\
   \</main>"
 
-hasBasicTests :: [TestTree]
+hasBasicTests :: [Spec]
 hasBasicTests = fmap (wptQSA hasBasicDoc)
   [ (":has(#a)", [])
   , (":has(.ancestor)", ["a"])
@@ -216,7 +215,7 @@ hasRelDoc = parseMain
   \ </div>\
   \</main>"
 
-hasRelativeTests :: [TestTree]
+hasRelativeTests :: [Spec]
 hasRelativeTests = fmap (wptQSA hasRelDoc)
   [ (".x:has(.a)", ["d02","d06","d07","d09","d12"])
   , (".x:has(.a > .b)", ["d09"])
@@ -253,7 +252,7 @@ isWhereDoc = parseMain
   \  <div id=c><div id=f></div></div>\
   \</main>"
 
-isWhereBasicTests :: [TestTree]
+isWhereBasicTests :: [Spec]
 isWhereBasicTests = fmap (wptQSA isWhereDoc)
   [ (":is()", [])
   , (":is(#a)", ["a"])
@@ -276,7 +275,7 @@ isWhereBasicTests = fmap (wptQSA isWhereDoc)
 -- is-where-not.html
 -- ---------------------------------------------------------------------------
 
-isWhereNotTests :: [TestTree]
+isWhereNotTests :: [Spec]
 isWhereNotTests = fmap (wptQSA isWhereDoc)
   [ (":not(:is(#a))", ["b","c","d","e","f"])
   , (":not(:where(#b))", ["a","c","d","e","f"])
@@ -301,7 +300,7 @@ isWhereNotTests = fmap (wptQSA isWhereDoc)
 -- not-complex.html
 -- ---------------------------------------------------------------------------
 
-notComplexTests :: [TestTree]
+notComplexTests :: [Spec]
 notComplexTests = fmap (wptQSA isWhereDoc)
   [ (":not(#a)", ["b","c","d","e","f"])
   , (":not(#a #d)", ["a","b","c","e","f"])
@@ -329,45 +328,45 @@ notComplexTests = fmap (wptQSA isWhereDoc)
 -- child-indexed-pseudo-class.html
 -- ---------------------------------------------------------------------------
 
-childIndexedTests :: [TestTree]
+childIndexedTests :: [Spec]
 childIndexedTests =
   let doc = parseDocument "<!DOCTYPE html><html><body></body></html>"
       root = documentElement doc
-  in [ testCase ":first-child on <html>" $
+  in [ it ":first-child on <html>" $
          assertMatches root ":first-child" True
-     , testCase ":last-child on <html>" $
+     , it ":last-child on <html>" $
          assertMatches root ":last-child" True
-     , testCase ":only-child on <html>" $
+     , it ":only-child on <html>" $
          assertMatches root ":only-child" True
-     , testCase ":first-of-type on <html>" $
+     , it ":first-of-type on <html>" $
          assertMatches root ":first-of-type" True
-     , testCase ":last-of-type on <html>" $
+     , it ":last-of-type on <html>" $
          assertMatches root ":last-of-type" True
-     , testCase ":only-of-type on <html>" $
+     , it ":only-of-type on <html>" $
          assertMatches root ":only-of-type" True
-     , testCase ":nth-child(1) on <html>" $
+     , it ":nth-child(1) on <html>" $
          assertMatches root ":nth-child(1)" True
-     , testCase ":nth-child(n) on <html>" $
+     , it ":nth-child(n) on <html>" $
          assertMatches root ":nth-child(n)" True
-     , testCase ":nth-last-child(1) on <html>" $
+     , it ":nth-last-child(1) on <html>" $
          assertMatches root ":nth-last-child(1)" True
-     , testCase ":nth-last-child(n) on <html>" $
+     , it ":nth-last-child(n) on <html>" $
          assertMatches root ":nth-last-child(n)" True
-     , testCase ":nth-of-type(1) on <html>" $
+     , it ":nth-of-type(1) on <html>" $
          assertMatches root ":nth-of-type(1)" True
-     , testCase ":nth-of-type(n) on <html>" $
+     , it ":nth-of-type(n) on <html>" $
          assertMatches root ":nth-of-type(n)" True
-     , testCase ":nth-last-of-type(1) on <html>" $
+     , it ":nth-last-of-type(1) on <html>" $
          assertMatches root ":nth-last-of-type(1)" True
-     , testCase ":nth-last-of-type(n) on <html>" $
+     , it ":nth-last-of-type(n) on <html>" $
          assertMatches root ":nth-last-of-type(n)" True
-     , testCase ":nth-child(2) on <html>" $
+     , it ":nth-child(2) on <html>" $
          assertMatches root ":nth-child(2)" False
-     , testCase ":nth-last-child(2) on <html>" $
+     , it ":nth-last-child(2) on <html>" $
          assertMatches root ":nth-last-child(2)" False
-     , testCase ":nth-of-type(2) on <html>" $
+     , it ":nth-of-type(2) on <html>" $
          assertMatches root ":nth-of-type(2)" False
-     , testCase ":nth-last-of-type(2) on <html>" $
+     , it ":nth-last-of-type(2) on <html>" $
          assertMatches root ":nth-last-of-type(2)" False
      ]
 
@@ -399,13 +398,13 @@ firstChildDoc = documentElement $ parseDocument
   \</div>\
   \</body></html>"
 
-firstChildTests :: [TestTree]
+firstChildTests :: [Spec]
 firstChildTests =
-  [ testCase "target1 :first-child" $ assertMatches (fid firstChildDoc "target1") ":first-child" True
-  , testCase "target2 :first-child" $ assertMatches (fid firstChildDoc "target2") ":first-child" True
-  , testCase "target3 :first-child" $ assertMatches (fid firstChildDoc "target3") ":first-child" True
-  , testCase "target4 :first-child" $ assertMatches (fid firstChildDoc "target4") ":first-child" True
-  , testCase "target5 :first-child" $ assertMatches (fid firstChildDoc "target5") ":first-child" False
+  [ it "target1 :first-child" $ assertMatches (fid firstChildDoc "target1") ":first-child" True
+  , it "target2 :first-child" $ assertMatches (fid firstChildDoc "target2") ":first-child" True
+  , it "target3 :first-child" $ assertMatches (fid firstChildDoc "target3") ":first-child" True
+  , it "target4 :first-child" $ assertMatches (fid firstChildDoc "target4") ":first-child" True
+  , it "target5 :first-child" $ assertMatches (fid firstChildDoc "target5") ":first-child" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -436,13 +435,13 @@ lastChildDoc = documentElement $ parseDocument
   \</div>\
   \</body></html>"
 
-lastChildTests :: [TestTree]
+lastChildTests :: [Spec]
 lastChildTests =
-  [ testCase "target1 :last-child" $ assertMatches (fid lastChildDoc "target1") ":last-child" True
-  , testCase "target2 :last-child" $ assertMatches (fid lastChildDoc "target2") ":last-child" True
-  , testCase "target3 :last-child" $ assertMatches (fid lastChildDoc "target3") ":last-child" True
-  , testCase "target4 :last-child" $ assertMatches (fid lastChildDoc "target4") ":last-child" True
-  , testCase "target5 :last-child" $ assertMatches (fid lastChildDoc "target5") ":last-child" False
+  [ it "target1 :last-child" $ assertMatches (fid lastChildDoc "target1") ":last-child" True
+  , it "target2 :last-child" $ assertMatches (fid lastChildDoc "target2") ":last-child" True
+  , it "target3 :last-child" $ assertMatches (fid lastChildDoc "target3") ":last-child" True
+  , it "target4 :last-child" $ assertMatches (fid lastChildDoc "target4") ":last-child" True
+  , it "target5 :last-child" $ assertMatches (fid lastChildDoc "target5") ":last-child" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -458,12 +457,12 @@ onlyChildDoc = documentElement $ parseDocument
   \<div><div id=\"target4\"></div><span></span></div>\
   \</body></html>"
 
-onlyChildTests :: [TestTree]
+onlyChildTests :: [Spec]
 onlyChildTests =
-  [ testCase "target1 :only-child" $ assertMatches (fid onlyChildDoc "target1") ":only-child" True
-  , testCase "target2 :only-child" $ assertMatches (fid onlyChildDoc "target2") ":only-child" True
-  , testCase "target3 :only-child" $ assertMatches (fid onlyChildDoc "target3") ":only-child" True
-  , testCase "target4 :only-child" $ assertMatches (fid onlyChildDoc "target4") ":only-child" False
+  [ it "target1 :only-child" $ assertMatches (fid onlyChildDoc "target1") ":only-child" True
+  , it "target2 :only-child" $ assertMatches (fid onlyChildDoc "target2") ":only-child" True
+  , it "target3 :only-child" $ assertMatches (fid onlyChildDoc "target3") ":only-child" True
+  , it "target4 :only-child" $ assertMatches (fid onlyChildDoc "target4") ":only-child" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -483,16 +482,16 @@ firstOfTypeDoc = documentElement $ parseDocument
   \<div><blockquote></blockquote><div></div><div id=\"target8\"></div></div>\
   \</body></html>"
 
-firstOfTypeTests :: [TestTree]
+firstOfTypeTests :: [Spec]
 firstOfTypeTests =
-  [ testCase "target1 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target1") "div:first-of-type" True
-  , testCase "target2 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target2") "div:first-of-type" True
-  , testCase "target3 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target3") "div:first-of-type" True
-  , testCase "target4 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target4") "div:first-of-type" True
-  , testCase "target5 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target5") "div:first-of-type" True
-  , testCase "target6 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target6") "div:first-of-type" False
-  , testCase "target7 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target7") "div:first-of-type" False
-  , testCase "target8 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target8") "div:first-of-type" False
+  [ it "target1 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target1") "div:first-of-type" True
+  , it "target2 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target2") "div:first-of-type" True
+  , it "target3 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target3") "div:first-of-type" True
+  , it "target4 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target4") "div:first-of-type" True
+  , it "target5 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target5") "div:first-of-type" True
+  , it "target6 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target6") "div:first-of-type" False
+  , it "target7 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target7") "div:first-of-type" False
+  , it "target8 div:first-of-type" $ assertMatches (fid firstOfTypeDoc "target8") "div:first-of-type" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -512,16 +511,16 @@ lastOfTypeDoc = documentElement $ parseDocument
   \<div><div id=\"target8\"></div><div></div><blockquote></blockquote></div>\
   \</body></html>"
 
-lastOfTypeTests :: [TestTree]
+lastOfTypeTests :: [Spec]
 lastOfTypeTests =
-  [ testCase "target1 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target1") "div:last-of-type" True
-  , testCase "target2 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target2") "div:last-of-type" True
-  , testCase "target3 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target3") "div:last-of-type" True
-  , testCase "target4 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target4") "div:last-of-type" True
-  , testCase "target5 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target5") "div:last-of-type" True
-  , testCase "target6 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target6") "div:last-of-type" False
-  , testCase "target7 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target7") "div:last-of-type" False
-  , testCase "target8 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target8") "div:last-of-type" False
+  [ it "target1 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target1") "div:last-of-type" True
+  , it "target2 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target2") "div:last-of-type" True
+  , it "target3 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target3") "div:last-of-type" True
+  , it "target4 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target4") "div:last-of-type" True
+  , it "target5 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target5") "div:last-of-type" True
+  , it "target6 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target6") "div:last-of-type" False
+  , it "target7 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target7") "div:last-of-type" False
+  , it "target8 div:last-of-type" $ assertMatches (fid lastOfTypeDoc "target8") "div:last-of-type" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -537,12 +536,12 @@ onlyOfTypeDoc = documentElement $ parseDocument
   \<div><div id=\"target4\"></div><div></div></div>\
   \</body></html>"
 
-onlyOfTypeTests :: [TestTree]
+onlyOfTypeTests :: [Spec]
 onlyOfTypeTests =
-  [ testCase "target1 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target1") ":only-of-type" True
-  , testCase "target2 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target2") ":only-of-type" True
-  , testCase "target3 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target3") ":only-of-type" True
-  , testCase "target4 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target4") ":only-of-type" False
+  [ it "target1 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target1") ":only-of-type" True
+  , it "target2 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target2") ":only-of-type" True
+  , it "target3 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target3") ":only-of-type" True
+  , it "target4 :only-of-type" $ assertMatches (fid onlyOfTypeDoc "target4") ":only-of-type" False
   ]
 
 -- ---------------------------------------------------------------------------
@@ -574,7 +573,7 @@ dirDoc = parseDocument
 dirRoot :: Node
 dirRoot = documentElement dirDoc
 
-dirSelectorTests :: [TestTree]
+dirSelectorTests :: [Spec]
 dirSelectorTests = fmap (wptQS dirRoot)
   [ (":dir(lol)", Nothing)
   , (":dir(rtl)", Just "div2_3")
@@ -625,18 +624,18 @@ enabledDisabledContainer =
     Just n -> n
     Nothing -> error "no #container"
 
-enabledDisabledTests :: [TestTree]
+enabledDisabledTests :: [Spec]
 enabledDisabledTests =
-  [ testCase ":enabled" $
+  [ it ":enabled" $
       assertQSA enabledDisabledContainer ":enabled"
         ["button_enabled","input_enabled","select_enabled","textarea_enabled"]
-  , testCase ":disabled" $
+  , it ":disabled" $
       assertQSA enabledDisabledContainer ":disabled"
         ["button_disabled","input_disabled","select_disabled","textarea_disabled"]
-  , testCase ":not(:enabled)" $
+  , it ":not(:enabled)" $
       assertQSA enabledDisabledContainer ":not(:enabled)"
         ["button_disabled","incapable","input_disabled","select_disabled","textarea_disabled"]
-  , testCase ":not(:disabled)" $
+  , it ":not(:disabled)" $
       assertQSA enabledDisabledContainer ":not(:disabled)"
         ["button_enabled","incapable","input_enabled","select_enabled","textarea_enabled"]
   ]
@@ -669,17 +668,17 @@ hasScopeDoc = parseMain
   \ </div>\
   \</main>"
 
-hasScopeTests :: [TestTree]
+hasScopeTests :: [Spec]
 hasScopeTests =
   let scope1 = case findById "scope1" hasScopeDoc of Just n -> n; Nothing -> error "no scope1"
       scope2 = case findById "scope2" hasScopeDoc of Just n -> n; Nothing -> error "no scope2"
-  in [ testCase "scope1: .c:has(.d)" $
+  in [ it "scope1: .c:has(.d)" $
          assertQSA scope1 ".c:has(.d)" ["d02","d03"]
-     , testCase "scope2: .c:has(.d)" $
+     , it "scope2: .c:has(.d)" $
          assertQSA scope2 ".c:has(.d)" []
-     , testCase "scope1: :scope .c:has(.d)" $
+     , it "scope1: :scope .c:has(.d)" $
          assertQSA scope1 ".c:has(.d)" ["d02","d03"]
-     , testCase "scope2: :scope .c:has(.d)" $
+     , it "scope2: :scope .c:has(.d)" $
          assertQSA scope2 ".c:has(.d)" []
      ]
 

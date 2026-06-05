@@ -39,8 +39,8 @@ import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -230,16 +230,16 @@ prop_backward_advance_is_noop = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Watermark monotonicity"
-  [ testProperty "stream-time = running max of piped timestamps" $
+tests :: Spec
+tests = describe "Watermark monotonicity" $ sequence_
+  [ it "stream-time = running max of piped timestamps" $
       H.withTests 80 prop_monotonic_under_chaos
-  , testProperty "order of inputs does not affect final watermark" $
+  , it "order of inputs does not affect final watermark" $
       H.withTests 60 prop_order_irrelevant_for_final
-  , testProperty "advanceDriverStreamTime is monotonic" $
+  , it "advanceDriverStreamTime is monotonic" $
       H.withTests 60 prop_advance_is_monotonic
-  , testProperty "interleaved pipe + advance compose to max" $
+  , it "interleaved pipe + advance compose to max" $
       H.withTests 80 prop_record_and_advance_compose
-  , testProperty "backwards advance is a no-op" $
+  , it "backwards advance is a no-op" $
       H.withTests 50 prop_backward_advance_is_noop
   ]

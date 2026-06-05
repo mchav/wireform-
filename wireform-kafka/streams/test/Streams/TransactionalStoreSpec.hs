@@ -9,27 +9,26 @@ import Data.Text (Text)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Streams.State.KeyValue.InMemory as Mem
 import qualified Kafka.Streams.State.Store as Store
 import qualified Kafka.Streams.State.Transactional as TX
 
-tests :: TestTree
-tests = testGroup "TransactionalStore (KIP-892)"
-  [ testCase "buffered put -> commit visible on underlying"
+tests :: Spec
+tests = describe "TransactionalStore (KIP-892)" $ sequence_
+  [ it "buffered put -> commit visible on underlying"
       put_commit_visible
-  , testCase "buffered put -> abort discards"
+  , it "buffered put -> abort discards"
       put_abort_invisible
-  , testCase "read-your-writes within the open transaction"
+  , it "read-your-writes within the open transaction"
       ryw
-  , testCase "buffered delete on commit applies"
+  , it "buffered delete on commit applies"
       delete_commit
-  , testCase "putIfAbsent honours the underlying store"
+  , it "putIfAbsent honours the underlying store"
       put_if_absent
-  , testProperty "abort is a no-op on the underlying store"
+  , it "abort is a no-op on the underlying store"
       prop_abort_noop
   ]
 
@@ -44,10 +43,10 @@ put_commit_visible = do
   Store.kvsPut kvs "k" "v"
   -- Pre-commit, underlying is untouched.
   pre <- Store.kvsGet underlying "k"
-  pre @?= Nothing
+  pre `shouldBe` Nothing
   TX.txnCommit ts
   post <- Store.kvsGet underlying "k"
-  post @?= Just "v"
+  post `shouldBe` Just "v"
 
 put_abort_invisible :: IO ()
 put_abort_invisible = do
@@ -57,7 +56,7 @@ put_abort_invisible = do
   Store.kvsPut kvs "k" "v"
   TX.txnAbort ts
   post <- Store.kvsGet underlying "k"
-  post @?= Nothing
+  post `shouldBe` Nothing
 
 ryw :: IO ()
 ryw = do
@@ -67,7 +66,7 @@ ryw = do
   Store.kvsPut kvs "k" "v"
   -- Read-your-writes: the buffer wins.
   r <- Store.kvsGet kvs "k"
-  r @?= Just "v"
+  r `shouldBe` Just "v"
 
 delete_commit :: IO ()
 delete_commit = do
@@ -78,10 +77,10 @@ delete_commit = do
   _ <- Store.kvsDelete kvs "k"
   -- Pre-commit underlying still has the value.
   pre <- Store.kvsGet underlying "k"
-  pre @?= Just "v"
+  pre `shouldBe` Just "v"
   TX.txnCommit ts
   post <- Store.kvsGet underlying "k"
-  post @?= Nothing
+  post `shouldBe` Nothing
 
 put_if_absent :: IO ()
 put_if_absent = do
@@ -91,10 +90,10 @@ put_if_absent = do
   let kvs = TX.txnStore ts
   -- Should return the existing value and NOT buffer a new put.
   r <- Store.kvsPutIfAbsent kvs "k" "different"
-  r @?= Just "v"
+  r `shouldBe` Just "v"
   TX.txnCommit ts
   post <- Store.kvsGet underlying "k"
-  post @?= Just "v"
+  post `shouldBe` Just "v"
 
 prop_abort_noop :: Property
 prop_abort_noop = property $ do

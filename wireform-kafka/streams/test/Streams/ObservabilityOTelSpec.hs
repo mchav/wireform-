@@ -18,8 +18,7 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import OpenTelemetry.Metric.Core
   ( Meter (..)
@@ -39,25 +38,25 @@ import Kafka.Streams.Metrics
 
 import Kafka.Streams.Observability.OpenTelemetry
 
-tests :: TestTree
-tests = testGroup "ObservabilityOTel"
+tests :: Spec
+tests = describe "ObservabilityOTel" $ sequence_
   [ sanitize_rules
   , bridge_exports_counter_gauge_duration
   , bridge_instrument_count
   ]
 
-sanitize_rules :: TestTree
+sanitize_rules :: Spec
 sanitize_rules =
-  testCase "sanitizeInstrumentName follows the OTel grammar" $ do
+  it "sanitizeInstrumentName follows the OTel grammar" $ do
     sanitizeInstrumentName "stream-task-metrics:commit-total"
-      @?= "stream-task-metrics.commit-total"
-    sanitizeInstrumentName "weird name!" @?= "weird_name_"
-    sanitizeInstrumentName "9lives" @?= "x9lives"
-    sanitizeInstrumentName "" @?= "x"
+      `shouldBe` "stream-task-metrics.commit-total"
+    sanitizeInstrumentName "weird name!" `shouldBe` "weird_name_"
+    sanitizeInstrumentName "9lives" `shouldBe` "x9lives"
+    sanitizeInstrumentName "" `shouldBe` "x"
 
-bridge_exports_counter_gauge_duration :: TestTree
+bridge_exports_counter_gauge_duration :: Spec
 bridge_exports_counter_gauge_duration =
-  testCase "registry values flow to OTel instruments by sanitised name" $ do
+  it "registry values flow to OTel instruments by sanitised name" $ do
     reg <- newMetricsRegistry
     addCounter reg "stream-task-metrics:commit-total" 5
     setGauge reg "g:rate" 2.5
@@ -69,16 +68,16 @@ bridge_exports_counter_gauge_duration =
     runCallbacks col
     vals <- readTVarIO (colValues col)
 
-    Map.lookup "stream-task-metrics.commit-total" vals @?= Just 5.0
-    Map.lookup "g.rate" vals    @?= Just 2.5
-    Map.lookup "lat.count" vals @?= Just 2.0
-    Map.lookup "lat.sum" vals   @?= Just 400.0
-    Map.lookup "lat.min" vals   @?= Just 100.0
-    Map.lookup "lat.max" vals   @?= Just 300.0
+    Map.lookup "stream-task-metrics.commit-total" vals `shouldBe` Just 5.0
+    Map.lookup "g.rate" vals    `shouldBe` Just 2.5
+    Map.lookup "lat.count" vals `shouldBe` Just 2.0
+    Map.lookup "lat.sum" vals   `shouldBe` Just 400.0
+    Map.lookup "lat.min" vals   `shouldBe` Just 100.0
+    Map.lookup "lat.max" vals   `shouldBe` Just 300.0
 
-bridge_instrument_count :: TestTree
+bridge_instrument_count :: Spec
 bridge_instrument_count =
-  testCase "one instrument per counter/gauge, four per duration" $ do
+  it "one instrument per counter/gauge, four per duration" $ do
     reg <- newMetricsRegistry
     addCounter reg "c" 1
     setGauge reg "g" 1.0
@@ -86,7 +85,7 @@ bridge_instrument_count =
     col <- newCollector
     reg' <- registerStreamsMetrics (collectingMeter col) reg
     -- 1 (counter) + 1 (gauge) + 4 (duration) = 6
-    smrInstrumentCount reg' @?= 6
+    smrInstrumentCount reg' `shouldBe` 6
 
 ----------------------------------------------------------------------
 -- A local collecting meter (test harness only)

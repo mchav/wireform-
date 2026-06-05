@@ -1,7 +1,6 @@
 module Test.ISLCodeGen (islCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,8 +8,8 @@ import qualified Data.Vector as V
 import Ion.ISLSchema
 import Ion.ISLCodeGen (generateISLTypes)
 
-islCodeGenTests :: TestTree
-islCodeGenTests = testGroup "Ion.ISLCodeGen"
+islCodeGenTests :: Spec
+islCodeGenTests = describe "Ion.ISLCodeGen" $ sequence_
   [ testStructCodeGen
   , testEnumCodeGen
   , testOptionalFieldCodeGen
@@ -18,8 +17,8 @@ islCodeGenTests = testGroup "Ion.ISLCodeGen"
   , testIonInstances
   ]
 
-testStructCodeGen :: TestTree
-testStructCodeGen = testCase "struct type produces record with ToIon/FromIon" $ do
+testStructCodeGen :: Spec
+testStructCodeGen = it "struct type produces record with ToIon/FromIon" $ do
   let schema = ISLSchema
         { islTypes = V.fromList
             [ ISLType
@@ -36,16 +35,16 @@ testStructCodeGen = testCase "struct type produces record with ToIon/FromIon" $ 
         , islImports = V.empty
         }
       code = generateISLTypes schema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "name is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "age is Int64" ("!Int64" `T.isInfixOf` code)
-  assertBool "contains ToIon instance" ("instance ToIon Person" `T.isInfixOf` code)
-  assertBool "contains FromIon instance" ("instance FromIon Person" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int64" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToIon Person" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromIon Person" `T.isInfixOf` code) `shouldBe` True
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "enum constraint produces sum type" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "enum constraint produces sum type" $ do
   let schema = ISLSchema
         { islTypes = V.fromList
             [ ISLType
@@ -59,13 +58,13 @@ testEnumCodeGen = testCase "enum constraint produces sum type" $ do
         , islImports = V.empty
         }
       code = generateISLTypes schema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
 
-testOptionalFieldCodeGen :: TestTree
-testOptionalFieldCodeGen = testCase "optional occurs produces Maybe" $ do
+testOptionalFieldCodeGen :: Spec
+testOptionalFieldCodeGen = it "optional occurs produces Maybe" $ do
   let schema = ISLSchema
         { islTypes = V.fromList
             [ ISLType
@@ -82,10 +81,10 @@ testOptionalFieldCodeGen = testCase "optional occurs produces Maybe" $ do
         , islImports = V.empty
         }
       code = generateISLTypes schema
-  assertBool "contains Maybe Int64" ("Maybe Int64" `T.isInfixOf` code)
+  ("Maybe Int64" `T.isInfixOf` code) `shouldBe` True
 
-testConstraintComments :: TestTree
-testConstraintComments = testCase "field constraints appear as comments" $ do
+testConstraintComments :: Spec
+testConstraintComments = it "field constraints appear as comments" $ do
   let schema = ISLSchema
         { islTypes = V.fromList
             [ ISLType
@@ -101,10 +100,10 @@ testConstraintComments = testCase "field constraints appear as comments" $ do
         , islImports = V.empty
         }
       code = generateISLTypes schema
-  assertBool "contains range comment" ("range:" `T.isInfixOf` code)
+  ("range:" `T.isInfixOf` code) `shouldBe` True
 
-testIonInstances :: TestTree
-testIonInstances = testCase "generates ToIon/FromIon instances for enums" $ do
+testIonInstances :: Spec
+testIonInstances = it "generates ToIon/FromIon instances for enums" $ do
   let schema = ISLSchema
         { islTypes = V.fromList
             [ ISLType
@@ -118,5 +117,5 @@ testIonInstances = testCase "generates ToIon/FromIon instances for enums" $ do
         , islImports = V.empty
         }
       code = generateISLTypes schema
-  assertBool "contains ToIon instance" ("instance ToIon Status" `T.isInfixOf` code)
-  assertBool "contains FromIon instance" ("instance FromIon Status" `T.isInfixOf` code)
+  ("instance ToIon Status" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromIon Status" `T.isInfixOf` code) `shouldBe` True

@@ -6,8 +6,7 @@ module Streams.StandbySpec (tests) where
 import qualified Data.IORef
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Runtime.Standby
 import Kafka.Streams.Serde (textSerde)
@@ -17,8 +16,8 @@ import Kafka.Streams.State.Store
   , storeName
   )
 
-tests :: TestTree
-tests = testGroup "Standby"
+tests :: Spec
+tests = describe "Standby" $ sequence_
   [ standby_replays_basic_writes
   , standby_replays_tombstones
   , standby_advance_returns_count_of_applied
@@ -27,9 +26,9 @@ tests = testGroup "Standby"
   , restore_listener_fires_start_batch_end
   ]
 
-standby_replays_basic_writes :: TestTree
+standby_replays_basic_writes :: Spec
 standby_replays_basic_writes =
-  testCase "active put -> changelog -> standby store" $ do
+  it "active put -> changelog -> standby store" $ do
     topic <- newInMemoryChangelogTopic
     activeUnder <- inMemoryKeyValueStore @Text @Text (storeName "s")
     active <- loggedKeyValueStore activeUnder topic (storeName "s") textSerde textSerde
@@ -42,14 +41,14 @@ standby_replays_basic_writes =
     kvsPut active "k1" "v1updated"
 
     n <- advanceStandby sb
-    n @?= 3
+    n `shouldBe` 3
 
-    kvsGet (sbStore sb) "k1" >>= (@?= Just "v1updated")
-    kvsGet (sbStore sb) "k2" >>= (@?= Just "v2")
+    kvsGet (sbStore sb) "k1" >>= (`shouldBe` Just "v1updated")
+    kvsGet (sbStore sb) "k2" >>= (`shouldBe` Just "v2")
 
-standby_replays_tombstones :: TestTree
+standby_replays_tombstones :: Spec
 standby_replays_tombstones =
-  testCase "active delete -> tombstone -> standby removes" $ do
+  it "active delete -> tombstone -> standby removes" $ do
     topic <- newInMemoryChangelogTopic
     activeUnder <- inMemoryKeyValueStore @Text @Text (storeName "s")
     active <- loggedKeyValueStore activeUnder topic (storeName "s") textSerde textSerde
@@ -59,11 +58,11 @@ standby_replays_tombstones =
     kvsPut active "k" "v"
     _ <- kvsDelete active "k"
     _ <- advanceStandby sb
-    kvsGet (sbStore sb) "k" >>= (@?= Nothing)
+    kvsGet (sbStore sb) "k" >>= (`shouldBe` Nothing)
 
-standby_advance_returns_count_of_applied :: TestTree
+standby_advance_returns_count_of_applied :: Spec
 standby_advance_returns_count_of_applied =
-  testCase "advanceStandby returns the count of entries it applied" $ do
+  it "advanceStandby returns the count of entries it applied" $ do
     topic <- newInMemoryChangelogTopic
     activeUnder <- inMemoryKeyValueStore @Text @Text (storeName "s")
     active <- loggedKeyValueStore activeUnder topic (storeName "s") textSerde textSerde
@@ -72,20 +71,20 @@ standby_advance_returns_count_of_applied =
 
     kvsPut active "a" "1"
     n1 <- advanceStandby sb
-    n1 @?= 1
+    n1 `shouldBe` 1
 
     kvsPut active "b" "2"
     kvsPut active "c" "3"
     n2 <- advanceStandby sb
-    n2 @?= 2
+    n2 `shouldBe` 2
 
     -- Another advance with no new entries returns 0.
     n3 <- advanceStandby sb
-    n3 @?= 0
+    n3 `shouldBe` 0
 
-standby_only_applies_its_store :: TestTree
+standby_only_applies_its_store :: Spec
 standby_only_applies_its_store =
-  testCase "standby ignores entries from other stores" $ do
+  it "standby ignores entries from other stores" $ do
     topic <- newInMemoryChangelogTopic
     -- Two active stores, one standby for the FIRST store only.
     a1Under <- inMemoryKeyValueStore @Text @Text (storeName "s1")
@@ -101,27 +100,27 @@ standby_only_applies_its_store =
     n <- advanceStandby sb
     -- Only the s1 entry was applied, but advanceStandby's count is
     -- "applied to my store", not "in the topic". So n == 1.
-    n @?= 1
-    kvsGet (sbStore sb) "x" >>= (@?= Just "from-s1")
+    n `shouldBe` 1
+    kvsGet (sbStore sb) "x" >>= (`shouldBe` Just "from-s1")
 
-logged_store_passes_reads_through :: TestTree
+logged_store_passes_reads_through :: Spec
 logged_store_passes_reads_through =
-  testCase "loggedKeyValueStore preserves get / approxEntries semantics" $ do
+  it "loggedKeyValueStore preserves get / approxEntries semantics" $ do
     topic <- newInMemoryChangelogTopic
     under <- inMemoryKeyValueStore @Text @Text (storeName "s")
     logged <- loggedKeyValueStore under topic (storeName "s") textSerde textSerde
 
     kvsPut logged "k" "v"
-    kvsGet logged "k" >>= (@?= Just "v")
-    kvsApproxEntries logged >>= (@?= 1)
+    kvsGet logged "k" >>= (`shouldBe` Just "v")
+    kvsApproxEntries logged >>= (`shouldBe` 1)
 
     -- And the topic recorded the put.
     es <- readEntriesFrom topic 0
-    length es @?= 1
+    length es `shouldBe` 1
 
-restore_listener_fires_start_batch_end :: TestTree
+restore_listener_fires_start_batch_end :: Spec
 restore_listener_fires_start_batch_end =
-  testCase "RestoreListener gets onRestoreStart / Batch / End on advance" $ do
+  it "RestoreListener gets onRestoreStart / Batch / End on advance" $ do
     topic <- newInMemoryChangelogTopic
     activeUnder <- inMemoryKeyValueStore @Text @Text (storeName "s")
     active <- loggedKeyValueStore activeUnder topic (storeName "s") textSerde textSerde
@@ -142,6 +141,6 @@ restore_listener_fires_start_batch_end =
     kvsPut active "k1" "v1"
     kvsPut active "k2" "v2"
     _ <- advanceStandby sb
-    Data.IORef.readIORef starts  >>= ((@?= 1) . length)
-    Data.IORef.readIORef batches >>= (@?= [2])
-    Data.IORef.readIORef ends    >>= (@?= [2])
+    Data.IORef.readIORef starts  >>= ((`shouldBe` 1) . length)
+    Data.IORef.readIORef batches >>= (`shouldBe` [2])
+    Data.IORef.readIORef ends    >>= (`shouldBe` [2])

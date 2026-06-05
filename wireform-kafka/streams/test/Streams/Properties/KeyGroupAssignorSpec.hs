@@ -36,9 +36,8 @@ import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Processor (TaskId (..))
 import Kafka.Streams.Runtime.Assignor
@@ -108,9 +107,9 @@ prop_assignor_sticky = H.property $ do
 -- KIP-848 reconciliation
 ----------------------------------------------------------------------
 
-unit_reconciliation_no_double_owner :: TestTree
+unit_reconciliation_no_double_owner :: Spec
 unit_reconciliation_no_double_owner =
-  testCase "reconciliation does not hand task t to B while A still owns it" $ do
+  it "reconciliation does not hand task t to B while A still owns it" $ do
     let mA = MemberId "A"
         mB = MemberId "B"
         t  = TaskId 0 0
@@ -126,13 +125,13 @@ unit_reconciliation_no_double_owner =
           }
         r = reconcile gs
     -- A must release the task.
-    rRemove (r Map.! mA) @?= Set.singleton t
+    rRemove (r Map.! mA) `shouldBe` Set.singleton t
     -- B must NOT yet have it — A still owns it.
-    rAdd (r Map.! mB) @?= Set.empty
+    rAdd (r Map.! mB) `shouldBe` Set.empty
 
-unit_reconciliation_two_step :: TestTree
+unit_reconciliation_two_step :: Spec
 unit_reconciliation_two_step =
-  testCase "after A releases, B can take ownership" $ do
+  it "after A releases, B can take ownership" $ do
     let mA = MemberId "A"
         mB = MemberId "B"
         t  = TaskId 0 0
@@ -151,12 +150,12 @@ unit_reconciliation_two_step =
         gs'  = applyReconciliation mA (r1 Map.! mA) gs
         -- Step 2: B now sees the task in its 'rAdd'.
         r2   = reconcile gs'
-    rAdd (r2 Map.! mB) @?= Set.singleton t
-    rRemove (r2 Map.! mB) @?= Set.empty
+    rAdd (r2 Map.! mB) `shouldBe` Set.singleton t
+    rRemove (r2 Map.! mB) `shouldBe` Set.empty
     -- And B applies.
     let gs'' = applyReconciliation mB (r2 Map.! mB) gs'
-    Map.findWithDefault Set.empty mA (gsOwned gs'') @?= Set.empty
-    Map.findWithDefault Set.empty mB (gsOwned gs'') @?= Set.singleton t
+    Map.findWithDefault Set.empty mA (gsOwned gs'') `shouldBe` Set.empty
+    Map.findWithDefault Set.empty mB (gsOwned gs'') `shouldBe` Set.singleton t
 
 ----------------------------------------------------------------------
 -- Property: many-step reconciliation converges to target
@@ -224,20 +223,20 @@ prop_reconciliation_converges = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Key-group + KIP-848"
-  [ testProperty "keyGroupOf lands in [0, count - 1]" $
+tests :: Spec
+tests = describe "Key-group + KIP-848" $ sequence_
+  [ it "keyGroupOf lands in [0, count - 1]" $
       H.withTests 100 prop_keygroup_in_bounds
-  , testProperty "KeyGroupRange round-trip is identity (modulo dedup)" $
+  , it "KeyGroupRange round-trip is identity (modulo dedup)" $
       H.withTests 80 prop_range_round_trip
-  , testProperty "assignKeyGroups: total coverage, no duplicates" $
+  , it "assignKeyGroups: total coverage, no duplicates" $
       H.withTests 80 prop_assignor_total_coverage
-  , testProperty "assignKeyGroups: max-load - min-load <= 1" $
+  , it "assignKeyGroups: max-load - min-load <= 1" $
       H.withTests 80 prop_assignor_balance
-  , testProperty "assignKeyGroups is sticky across re-runs" $
+  , it "assignKeyGroups is sticky across re-runs" $
       H.withTests 80 prop_assignor_sticky
   , unit_reconciliation_no_double_owner
   , unit_reconciliation_two_step
-  , testProperty "reconciliation converges to target after enough rounds" $
+  , it "reconciliation converges to target after enough rounds" $
       H.withTests 60 prop_reconciliation_converges
   ]

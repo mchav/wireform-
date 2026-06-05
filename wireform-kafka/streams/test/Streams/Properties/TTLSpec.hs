@@ -30,9 +30,8 @@ import Data.Map.Strict (Map)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory
   ( inMemoryKeyValueStore
@@ -81,40 +80,40 @@ mkStore dur = do
 -- Unit tests
 ----------------------------------------------------------------------
 
-unit_put_then_read_before_expiry :: TestTree
+unit_put_then_read_before_expiry :: Spec
 unit_put_then_read_before_expiry =
-  testCase "put at t=0, read at t<ttl: visible" $ do
+  it "put at t=0, read at t<ttl: visible" $ do
     (advance, _, kv) <- mkStore (millis 1000)
     advance (Timestamp 0)
     kvsPut kv 1 100
     advance (Timestamp 500)
-    kvsGet kv 1 >>= (@?= Just 100)
+    kvsGet kv 1 >>= (`shouldBe` Just 100)
 
-unit_put_then_read_after_expiry :: TestTree
+unit_put_then_read_after_expiry :: Spec
 unit_put_then_read_after_expiry =
-  testCase "put at t=0, read at t>ttl: invisible" $ do
+  it "put at t=0, read at t>ttl: invisible" $ do
     (advance, _, kv) <- mkStore (millis 1000)
     advance (Timestamp 0)
     kvsPut kv 1 100
     advance (Timestamp 2000)
-    kvsGet kv 1 >>= (@?= Nothing)
+    kvsGet kv 1 >>= (`shouldBe` Nothing)
 
-unit_expireBefore_purges :: TestTree
+unit_expireBefore_purges :: Spec
 unit_expireBefore_purges =
-  testCase "expireBefore removes underlying entries" $ do
+  it "expireBefore removes underlying entries" $ do
     (advance, inner, kv) <- mkStore (millis 1000)
     advance (Timestamp 0)
     kvsPut kv 1 100
     kvsPut kv 2 200
     advance (Timestamp 2000)
     n <- expireBefore inner (Timestamp 2000)
-    n @?= 2
+    n `shouldBe` 2
     -- Underlying really empty now.
-    ttlEntryCount inner >>= (@?= 0)
+    ttlEntryCount inner >>= (`shouldBe` 0)
 
-unit_kvsAll_skips_expired :: TestTree
+unit_kvsAll_skips_expired :: Spec
 unit_kvsAll_skips_expired =
-  testCase "kvsAll skips expired entries even before a sweep" $ do
+  it "kvsAll skips expired entries even before a sweep" $ do
     (advance, _, kv) <- mkStore (millis 1000)
     advance (Timestamp 0)
     kvsPut kv 1 100
@@ -123,7 +122,7 @@ unit_kvsAll_skips_expired =
     advance (Timestamp 1200)
     -- key 1 expired at 1000; key 2 expires at 1500.
     rs <- kvsAll kv >>= kvIteratorToList
-    rs @?= [(2, 200)]
+    rs `shouldBe` [(2, 200)]
 
 ----------------------------------------------------------------------
 -- Property: model match
@@ -240,14 +239,14 @@ prop_sweep_idempotent = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Event-time TTL"
+tests :: Spec
+tests = describe "Event-time TTL" $ sequence_
   [ unit_put_then_read_before_expiry
   , unit_put_then_read_after_expiry
   , unit_expireBefore_purges
   , unit_kvsAll_skips_expired
-  , testProperty "kvsAll visibility matches the pure (clock,map) model" $
+  , it "kvsAll visibility matches the pure (clock,map) model" $
       H.withTests 120 prop_ttl_visibility_matches_pure_model
-  , testProperty "second expireBefore reaps zero entries" $
+  , it "second expireBefore reaps zero entries" $
       H.withTests 80 prop_sweep_idempotent
   ]

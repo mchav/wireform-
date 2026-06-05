@@ -6,18 +6,17 @@ import Control.Concurrent.STM
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Set as Set
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Telemetry.Push as Push
 import Kafka.Telemetry.PushRuntime
 
-tests :: TestTree
-tests = testGroup "Telemetry PushRuntime"
-  [ testCase "refresh stores subscription and broker client id" refresh_stores_subscription
-  , testCase "push encodes and sends metrics after interval" push_sends_payload
-  , testCase "empty payload advances push time without sending" empty_payload_skips_send
-  , testCase "terminating sends final payload" terminating_sends_final_payload
+tests :: Spec
+tests = describe "Telemetry PushRuntime" $ sequence_
+  [ it "refresh stores subscription and broker client id" refresh_stores_subscription
+  , it "push encodes and sends metrics after interval" push_sends_payload
+  , it "empty payload advances push time without sending" empty_payload_skips_send
+  , it "terminating sends final payload" terminating_sends_final_payload
   ]
 
 mkSub :: Push.TelemetrySubscription
@@ -36,30 +35,30 @@ refresh_stores_subscription = do
   calls <- newTVarIO ([] :: [BS.ByteString])
   st <- newTelemetryRuntimeState
   r <- runTelemetryStep (runner calls "payload") st 10
-  r @?= Right Push.TARefreshSubscription
-  readBrokerClientInstanceId st >>= (@?= Just "broker-client-1")
+  r `shouldBe` Right Push.TARefreshSubscription
+  readBrokerClientInstanceId st >>= (`shouldBe` Just "broker-client-1")
   machine <- readTelemetryState st
-  Push.tsmSubscription machine @?= Just mkSub
+  Push.tsmSubscription machine `shouldBe` Just mkSub
 
 push_sends_payload :: IO ()
 push_sends_payload = do
   calls <- newTVarIO []
   st <- primedState 0
   r <- runTelemetryStep (runner calls "payload") st 150
-  r @?= Right (Push.TAPushNow "payload")
-  readTVarIO calls >>= (@?= ["payload"])
+  r `shouldBe` Right (Push.TAPushNow "payload")
+  readTVarIO calls >>= (`shouldBe` ["payload"])
   machine <- readTelemetryState st
-  Push.tsmLastPushAtMs machine @?= 150
+  Push.tsmLastPushAtMs machine `shouldBe` 150
 
 empty_payload_skips_send :: IO ()
 empty_payload_skips_send = do
   calls <- newTVarIO []
   st <- primedState 0
   r <- runTelemetryStep (runner calls mempty) st 150
-  r @?= Right (Push.TAPushNow mempty)
-  readTVarIO calls >>= (@?= [])
+  r `shouldBe` Right (Push.TAPushNow mempty)
+  readTVarIO calls >>= (`shouldBe` [])
   machine <- readTelemetryState st
-  Push.tsmLastPushAtMs machine @?= 150
+  Push.tsmLastPushAtMs machine `shouldBe` 150
 
 terminating_sends_final_payload :: IO ()
 terminating_sends_final_payload = do
@@ -67,14 +66,14 @@ terminating_sends_final_payload = do
   st <- primedState 0
   requestTelemetryStop st
   r <- runTelemetryStep (runner calls "final") st 10
-  r @?= Right Push.TADone
-  readTVarIO calls >>= (@?= ["final"])
+  r `shouldBe` Right Push.TADone
+  readTVarIO calls >>= (`shouldBe` ["final"])
 
 primedState :: Int64 -> IO TelemetryRuntimeState
 primedState now = do
   st <- newTelemetryRuntimeState
   r <- runTelemetryStep (runner (error "unused") "payload") st now
-  r @?= Right Push.TARefreshSubscription
+  r `shouldBe` Right Push.TARefreshSubscription
   pure st
 
 runner :: TVar [BS.ByteString] -> BS.ByteString -> TelemetryRunner

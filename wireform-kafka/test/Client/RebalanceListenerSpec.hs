@@ -5,27 +5,26 @@ module Client.RebalanceListenerSpec (tests) where
 
 import Data.IORef
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.RebalanceListener as RL
 
-tests :: TestTree
-tests = testGroup "RebalanceListener (KIP-415 / 429)"
-  [ testCase "noop listener doesn't throw"
+tests :: Spec
+tests = describe "RebalanceListener (KIP-415 / 429)" $ sequence_
+  [ it "noop listener doesn't throw"
       noop
-  , testCase "dispatchAssigned / Revoked / Lost route to right callbacks"
+  , it "dispatchAssigned / Revoked / Lost route to right callbacks"
       routes
-  , testCase "combineListeners runs both in order"
+  , it "combineListeners runs both in order"
       combine
-  , testCase "exceptions in listeners are swallowed"
+  , it "exceptions in listeners are swallowed"
       swallowed
-  , testCase "computeAssignmentDelta: revoked + added are correct sets"
+  , it "computeAssignmentDelta: revoked + added are correct sets"
       deltaCorrect
-  , testCase "computeAssignmentDelta: identical assignments yield empty deltas"
+  , it "computeAssignmentDelta: identical assignments yield empty deltas"
       deltaIdentity
-  , testCase "computeAssignmentDelta: deterministic ascending order"
+  , it "computeAssignmentDelta: deterministic ascending order"
       deltaOrdered
   ]
 
@@ -53,7 +52,7 @@ routes = do
   RL.dispatchRevoked  l [tp]
   RL.dispatchLost     l [tp]
   log_ <- readIORef ref
-  map fst log_ @?= ["assigned", "revoked", "lost"]
+  map fst log_ `shouldBe` ["assigned", "revoked", "lost"]
 
 combine :: IO ()
 combine = do
@@ -64,8 +63,8 @@ combine = do
   RL.dispatchAssigned combined [tp]
   log1 <- readIORef ref1
   log2 <- readIORef ref2
-  map fst log1 @?= ["assigned"]
-  map fst log2 @?= ["assigned"]
+  map fst log1 `shouldBe` ["assigned"]
+  map fst log2 `shouldBe` ["assigned"]
 
 swallowed :: IO ()
 swallowed = do
@@ -85,15 +84,15 @@ deltaCorrect = do
   let prev = [tp "in" 0, tp "in" 1, tp "in" 2]
       now  = [tp "in" 1, tp "in" 2, tp "in" 3]
       (revoked, added) = C.computeAssignmentDelta prev now
-  revoked @?= [tp "in" 0]
-  added   @?= [tp "in" 3]
+  revoked `shouldBe` [tp "in" 0]
+  added   `shouldBe` [tp "in" 3]
 
 deltaIdentity :: IO ()
 deltaIdentity = do
   let asg = [tp "in" 0, tp "out" 7]
       (revoked, added) = C.computeAssignmentDelta asg asg
-  revoked @?= []
-  added   @?= []
+  revoked `shouldBe` []
+  added   `shouldBe` []
 
 deltaOrdered :: IO ()
 deltaOrdered = do
@@ -101,5 +100,5 @@ deltaOrdered = do
   let prev = [tp "z" 9, tp "a" 1, tp "m" 5]
       now  = [tp "b" 0, tp "a" 1, tp "z" 9]
       (revoked, added) = C.computeAssignmentDelta prev now
-  revoked @?= [tp "m" 5]
-  added   @?= [tp "b" 0]
+  revoked `shouldBe` [tp "m" 5]
+  added   `shouldBe` [tp "b" 0]

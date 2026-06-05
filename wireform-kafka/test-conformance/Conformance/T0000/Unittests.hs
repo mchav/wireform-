@@ -18,32 +18,31 @@ module Conformance.T0000.Unittests (tests) where
 
 import qualified Data.Text as T
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.Producer as P
 import qualified Kafka.Client.Group as G
 
-tests :: TestTree
-tests = testGroup "0000-unittests"
-  [ testCase "default consumer config has sensible knobs" $ do
+tests :: Spec
+tests = describe "0000-unittests" $ sequence_
+  [ it "default consumer config has sensible knobs" $ do
       let cfg = C.defaultConsumerConfig
-      assertBool "non-empty client id" (not (T.null (C.consumerClientId cfg)))
-      C.consumerSessionTimeoutMs   cfg @?= 45000   -- KIP-735
-      C.consumerHeartbeatIntervalMs cfg @?= 3000
-      C.consumerMaxPollRecords     cfg @?= 500
-      C.consumerMaxPollIntervalMs  cfg @?= 300000
+      (not (T.null (C.consumerClientId cfg))) `shouldBe` True
+      C.consumerSessionTimeoutMs   cfg `shouldBe` 45000   -- KIP-735
+      C.consumerHeartbeatIntervalMs cfg `shouldBe` 3000
+      C.consumerMaxPollRecords     cfg `shouldBe` 500
+      C.consumerMaxPollIntervalMs  cfg `shouldBe` 300000
 
-  , testCase "default producer config has sensible knobs" $ do
+  , it "default producer config has sensible knobs" $ do
       let cfg = P.defaultProducerConfig
       -- Just check the constructor + record selectors round-trip
       -- (we exercise the types; the configured values are what they are).
-      seq cfg (return ())
+      seq cfg (return () :: IO ())
 
-  , testCase "high-level group umbrella exports a default" $ do
+  , it "high-level group umbrella exports a default" $ do
       let cfg = G.defaultGroupConfig
-      assertBool "default broker list non-empty" (not (null (G.bootstrapBrokers cfg)))
-      G.sessionTimeoutMs   cfg @?= 10000
-      G.maxPollIntervalMs  cfg @?= 300000
+      (not (null (G.bootstrapBrokers cfg))) `shouldBe` True
+      G.sessionTimeoutMs   cfg `shouldBe` 10000
+      G.maxPollIntervalMs  cfg `shouldBe` 300000
   ]

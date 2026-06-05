@@ -7,153 +7,152 @@ import Data.Word (Word32, Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified CapnProto.Value as C
 import CapnProto.Encode (encode)
 import CapnProto.Decode (decode)
 
-capnProtoTests :: TestTree
-capnProtoTests = testGroup "CapnProto"
+capnProtoTests :: Spec
+capnProtoTests = describe "CapnProto" $ sequence_
   [ unitTests
   , wireFormatTests
   , edgeCases
   , propertyTests
   ]
 
-unitTests :: TestTree
-unitTests = testGroup "Unit tests"
-  [ testCase "Void" $ do
+unitTests :: Spec
+unitTests = describe "Unit tests" $ sequence_
+  [ it "Void" $ do
       let bs = encode C.Void
-      BS.length bs @?= 8
+      BS.length bs `shouldBe` 8
 
-  , testCase "Bool true encodes" $ do
+  , it "Bool true encodes" $ do
       let bs = encode (C.Bool True)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Bool false encodes" $ do
+  , it "Bool false encodes" $ do
       let bs = encode (C.Bool False)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Int8 encodes" $ do
+  , it "Int8 encodes" $ do
       let bs = encode (C.Int8 42)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Int16 encodes" $ do
+  , it "Int16 encodes" $ do
       let bs = encode (C.Int16 1000)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Int32 encodes" $ do
+  , it "Int32 encodes" $ do
       let bs = encode (C.Int32 100000)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Int64 encodes" $ do
+  , it "Int64 encodes" $ do
       let bs = encode (C.Int64 maxBound)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "UInt8 encodes" $ do
+  , it "UInt8 encodes" $ do
       let bs = encode (C.UInt8 255)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "UInt16 encodes" $ do
+  , it "UInt16 encodes" $ do
       let bs = encode (C.UInt16 65535)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "UInt32 encodes" $ do
+  , it "UInt32 encodes" $ do
       let bs = encode (C.UInt32 maxBound)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "UInt64 encodes" $ do
+  , it "UInt64 encodes" $ do
       let bs = encode (C.UInt64 maxBound)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Float32 encodes" $ do
+  , it "Float32 encodes" $ do
       let bs = encode (C.Float32 3.14)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Float64 encodes" $ do
+  , it "Float64 encodes" $ do
       let bs = encode (C.Float64 2.718)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Enum encodes" $ do
+  , it "Enum encodes" $ do
       let bs = encode (C.Enum 42)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
 
-  , testCase "Text encodes" $ do
+  , it "Text encodes" $ do
       let bs = encode (C.Text (T.pack "hello"))
-      BS.length bs > 8 @?= True
+      BS.length bs > 8 `shouldBe` True
 
-  , testCase "Data encodes" $ do
+  , it "Data encodes" $ do
       let bs = encode (C.Data (BS.pack [1,2,3]))
-      BS.length bs > 8 @?= True
+      BS.length bs > 8 `shouldBe` True
 
-  , testCase "Empty list encodes" $ do
+  , it "Empty list encodes" $ do
       let bs = encode (C.List V.empty)
-      BS.length bs @?= 16
+      BS.length bs `shouldBe` 16
   ]
 
-wireFormatTests :: TestTree
-wireFormatTests = testGroup "Wire format"
-  [ testCase "Segment table has count 0 (= 1 segment)" $ do
+wireFormatTests :: Spec
+wireFormatTests = describe "Wire format" $ sequence_
+  [ it "Segment table has count 0 (= 1 segment)" $ do
       let bs = encode (C.Bool True)
-      readLE32 bs 0 @?= 0
+      readLE32 bs 0 `shouldBe` 0
 
-  , testCase "Segment size is correct for Bool" $ do
+  , it "Segment size is correct for Bool" $ do
       let bs = encode (C.Bool True)
-      readLE32 bs 4 @?= 1
+      readLE32 bs 4 `shouldBe` 1
 
-  , testCase "Bool true data byte" $ do
+  , it "Bool true data byte" $ do
       let bs = encode (C.Bool True)
-      BS.index bs 8 @?= 0x01
+      BS.index bs 8 `shouldBe` 0x01
 
-  , testCase "Bool false data byte" $ do
+  , it "Bool false data byte" $ do
       let bs = encode (C.Bool False)
-      BS.index bs 8 @?= 0x00
+      BS.index bs 8 `shouldBe` 0x00
 
-  , testCase "Int8 value at offset 8" $ do
+  , it "Int8 value at offset 8" $ do
       let bs = encode (C.Int8 42)
-      BS.index bs 8 @?= 42
+      BS.index bs 8 `shouldBe` 42
 
-  , testCase "UInt64 value at offset 8" $ do
+  , it "UInt64 value at offset 8" $ do
       let bs = encode (C.UInt64 0x0102030405060708)
           w = readLE64 bs 8
-      w @?= 0x0102030405060708
+      w `shouldBe` 0x0102030405060708
 
-  , testCase "Float64 encode/decode byte identity" $ do
+  , it "Float64 encode/decode byte identity" $ do
       let val = C.Float64 1.0
           bs = encode val
           w = readLE64 bs 8
-      w @?= 0x3FF0000000000000
+      w `shouldBe` 0x3FF0000000000000
   ]
 
-edgeCases :: TestTree
-edgeCases = testGroup "Edge cases"
-  [ testCase "Decode empty input" $
+edgeCases :: Spec
+edgeCases = describe "Edge cases" $ sequence_
+  [ it "Decode empty input" $
       case decode BS.empty of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on empty input"
+        Right _ -> expectationFailure "expected error on empty input"
 
-  , testCase "Decode too short" $
+  , it "Decode too short" $
       case decode (BS.pack [0, 0, 0, 0]) of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on short input"
+        Right _ -> expectationFailure "expected error on short input"
 
-  , testCase "List of ints encodes" $ do
+  , it "List of ints encodes" $ do
       let val = C.List (V.fromList [C.UInt64 1, C.UInt64 2, C.UInt64 3])
           bs = encode val
-      BS.length bs > 16 @?= True
+      BS.length bs > 16 `shouldBe` True
 
-  , testCase "Text roundtrip bytes" $ do
+  , it "Text roundtrip bytes" $ do
       let val = C.Text (T.pack "A")
           bs = encode val
-      BS.length bs > 8 @?= True
+      BS.length bs > 8 `shouldBe` True
   ]
 
-propertyTests :: TestTree
-propertyTests = testGroup "Property tests"
-  [ testProperty "UInt64 encode/decode roundtrip" $ property $ do
+propertyTests :: Spec
+propertyTests = describe "Property tests" $ sequence_
+  [ it "UInt64 encode/decode roundtrip" $ property $ do
       w <- forAll $ Gen.word64 (Range.linear 1 maxBound)
       let bs = encode (C.UInt64 w)
       case decode bs of
@@ -165,32 +164,32 @@ propertyTests = testGroup "Property tests"
           annotate err
           failure
 
-  , testProperty "Int64 encode preserves size" $ property $ do
+  , it "Int64 encode preserves size" $ property $ do
       n <- forAll $ Gen.int64 Range.linearBounded
       let bs = encode (C.Int64 n)
       BS.length bs === 16
 
-  , testProperty "UInt32 encode preserves size" $ property $ do
+  , it "UInt32 encode preserves size" $ property $ do
       w <- forAll $ Gen.word32 Range.linearBounded
       let bs = encode (C.UInt32 w)
       BS.length bs === 16
 
-  , testProperty "Bool encode preserves size" $ property $ do
+  , it "Bool encode preserves size" $ property $ do
       b <- forAll Gen.bool
       let bs = encode (C.Bool b)
       BS.length bs === 16
 
-  , testProperty "Float64 encode preserves size" $ property $ do
+  , it "Float64 encode preserves size" $ property $ do
       d <- forAll $ Gen.double (Range.linearFrac (-1e6) 1e6)
       let bs = encode (C.Float64 d)
       BS.length bs === 16
 
-  , testProperty "Text encode has correct minimum size" $ property $ do
+  , it "Text encode has correct minimum size" $ property $ do
       t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
       let bs = encode (C.Text t)
       assert (BS.length bs > 8)
 
-  , testProperty "Void encode is 8 bytes" $ property $ do
+  , it "Void encode is 8 bytes" $ property $ do
       let bs = encode C.Void
       BS.length bs === 8
   ]

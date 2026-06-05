@@ -35,8 +35,8 @@ import qualified Data.Text as T
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -162,9 +162,9 @@ runReal pool = \case
 -- Property
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "WorkerPool state-machine"
-  [ testProperty
+tests :: Spec
+tests = describe "WorkerPool state-machine" $ sequence_
+  [ it
       "real pool agrees with the model on worker count + processed total" $
       H.withTests 40 propWorkerPool
   ]

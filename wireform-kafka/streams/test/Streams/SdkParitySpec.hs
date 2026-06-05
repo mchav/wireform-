@@ -12,8 +12,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Data.ByteString as BS
 import qualified Kafka.Client.Consumer as C
@@ -50,35 +49,35 @@ import Kafka.Streams.Time
   , usePartitionTimeOnInvalidTimestamp
   )
 
-tests :: TestTree
-tests = testGroup "SDK parity shims (audit pass)"
-  [ testGroup "Kafka.Client.Consumer JVM-equivalence shims"
+tests :: Spec
+tests = describe "SDK parity shims (audit pass)" $ sequence_
+  [ describe "Kafka.Client.Consumer JVM-equivalence shims" $ sequence_
       [ consumerRecords_groupings
       , offsetAndMetadata_builder
       , subscriptionPattern_match
       , offsetCommitCallback_compiles
       ]
-  , testGroup "Kafka.Streams.Processor.Mock"
+  , describe "Kafka.Streams.Processor.Mock" $ sequence_
       [ mock_captures_forwards
       , mock_captures_punctuators
       , mock_commit_request_flag
       ]
-  , testGroup "Kafka.Common (v2 audit additions)"
+  , describe "Kafka.Common (v2 audit additions)" $ sequence_
       [ common_node_endpoint_smoke
       , common_acl_wildcard
       , common_quota_helpers
       , timeextractor_use_partition_time
       ]
-  , testGroup "Kafka.Client.AdminClient long-tail RPCs (v3 audit additions)"
+  , describe "Kafka.Client.AdminClient long-tail RPCs (v3 audit additions)" $ sequence_
       [ admin_extras_value_smoke
       ]
-  , testGroup "v3+: leftover gaps from v2 honest-list"
+  , describe "v3+: leftover gaps from v2 honest-list" $ sequence_
       [ unlimited_windows_smoke
       , list_serde_roundtrip
       , task_assignor_default
       , per_error_streams_exceptions
       ]
-  , testGroup "v4: protocol-codegen-dependent admin RPCs"
+  , describe "v4: protocol-codegen-dependent admin RPCs" $ sequence_
       [ feature_metadata_value_smoke
       , feature_update_value_smoke
       , abort_transaction_spec_value_smoke
@@ -86,7 +85,7 @@ tests = testGroup "SDK parity shims (audit pass)"
       , share_group_describe_value_smoke
       , fenced_producer_value_smoke
       ]
-  , testGroup "v4: KIP-924 + KIP-714 runtime wiring"
+  , describe "v4: KIP-924 + KIP-714 runtime wiring" $ sequence_
       [ task_assignor_plugin_configurable
       , task_assignor_plugin_invocable
       , telemetry_id_is_16_bytes
@@ -116,56 +115,54 @@ mkRec t p o = C.ConsumerRecord
   , C.headers   = []
   }
 
-consumerRecords_groupings :: TestTree
+consumerRecords_groupings :: Spec
 consumerRecords_groupings =
-  testCase "ConsumerRecords: partition/topic/next-offset projections" $ do
+  it "ConsumerRecords: partition/topic/next-offset projections" $ do
     let rs = SDK.ConsumerRecords
           [ mkRec "events" 0 10
           , mkRec "events" 0 11
           , mkRec "events" 1 20
           , mkRec "audit"  0 30
           ]
-    SDK.consumerRecordsCount rs @?= 4
-    SDK.consumerRecordsPartitions rs @?=
+    SDK.consumerRecordsCount rs `shouldBe` 4
+    SDK.consumerRecordsPartitions rs `shouldBe`
       Set.fromList
         [ C.TopicPartition "events" 0
         , C.TopicPartition "events" 1
         , C.TopicPartition "audit"  0
         ]
     map C.offset (SDK.recordsByPartition (C.TopicPartition "events" 0) rs)
-      @?= [10, 11]
+      `shouldBe` [10, 11]
     Map.keys (SDK.recordsByTopic rs)
-      @?= ["audit", "events"]
-    SDK.consumerRecordsNextOffsets rs @?=
+      `shouldBe` ["audit", "events"]
+    SDK.consumerRecordsNextOffsets rs `shouldBe`
       HashMap.fromList
         [ (C.TopicPartition "events" 0, 12)
         , (C.TopicPartition "events" 1, 21)
         , (C.TopicPartition "audit"  0, 31)
         ]
 
-offsetAndMetadata_builder :: TestTree
+offsetAndMetadata_builder :: Spec
 offsetAndMetadata_builder =
-  testCase "OffsetAndMetadata: builder applies metadata + leader epoch" $ do
+  it "OffsetAndMetadata: builder applies metadata + leader epoch" $ do
     let oam0 = SDK.offsetAndMetadata 42
         oam  = SDK.withLeaderEpoch 7 (SDK.withMetadata "ckpt" oam0)
-    SDK.oamOffset oam      @?= 42
-    SDK.oamMetadata oam    @?= "ckpt"
-    SDK.oamLeaderEpoch oam @?= Just 7
+    SDK.oamOffset oam      `shouldBe` 42
+    SDK.oamMetadata oam    `shouldBe` "ckpt"
+    SDK.oamLeaderEpoch oam `shouldBe` Just 7
 
-subscriptionPattern_match :: TestTree
+subscriptionPattern_match :: Spec
 subscriptionPattern_match =
-  testCase "SubscriptionPattern: matches by regex" $ do
+  it "SubscriptionPattern: matches by regex" $ do
     case SDK.subscriptionPattern "events\\.[a-z]+" of
       Left e   -> error ("regex compile failed: " <> e)
       Right sp -> do
-        assertBool "matches events.user"
-          (SDK.matchesSubscriptionPattern sp "events.user")
-        assertBool "does not match events.UPPER"
-          (not (SDK.matchesSubscriptionPattern sp "events.UPPER"))
+        (SDK.matchesSubscriptionPattern sp "events.user") `shouldBe` True
+        (not (SDK.matchesSubscriptionPattern sp "events.UPPER")) `shouldBe` True
 
-offsetCommitCallback_compiles :: TestTree
+offsetCommitCallback_compiles :: Spec
 offsetCommitCallback_compiles =
-  testCase "OffsetCommitCallback type unifies with user callbacks" $ do
+  it "OffsetCommitCallback type unifies with user callbacks" $ do
     let cb :: SDK.OffsetCommitCallback
         cb _ _ = pure ()
     cb Map.empty Nothing -- shape-only check; success is the unit return
@@ -175,44 +172,44 @@ offsetCommitCallback_compiles =
 -- MockProcessorContext
 ----------------------------------------------------------------------
 
-mock_captures_forwards :: TestTree
+mock_captures_forwards :: Spec
 mock_captures_forwards =
-  testCase "MockProcessorContext: forwardRecord lands in capturedForwards" $ do
+  it "MockProcessorContext: forwardRecord lands in capturedForwards" $ do
     mock <- M.newMockProcessorContext "test-app" (P.TaskId 0 0)
     let ctx = M.mockContext mock
     P.forwardRecord ctx (mkRecord (Just "k1") ("hello" :: T.Text) (Timestamp 0))
     P.forwardRecord ctx (mkRecord (Just "k2") ("world" :: T.Text) (Timestamp 1))
     fs <- M.capturedForwards mock
-    length fs @?= 2
+    length fs `shouldBe` 2
 
-mock_captures_punctuators :: TestTree
+mock_captures_punctuators :: Spec
 mock_captures_punctuators =
-  testCase "MockProcessorContext: schedule registers a punctuator" $ do
+  it "MockProcessorContext: schedule registers a punctuator" $ do
     mock <- M.newMockProcessorContext "test-app" (P.TaskId 0 0)
     let ctx  = M.mockContext mock
     let pun  = P.Punctuator (\_ -> pure ())
     _ <- P.schedule ctx 1000 P.WallClockTimePunctuation pun
     ps <- M.capturedPunctuators mock
-    length ps @?= 1
-    map M.cpType ps @?= [P.WallClockTimePunctuation]
+    length ps `shouldBe` 1
+    map M.cpType ps `shouldBe` [P.WallClockTimePunctuation]
 
-mock_commit_request_flag :: TestTree
+mock_commit_request_flag :: Spec
 mock_commit_request_flag =
-  testCase "MockProcessorContext: requestCommit toggles the commit flag" $ do
+  it "MockProcessorContext: requestCommit toggles the commit flag" $ do
     mock <- M.newMockProcessorContext "test-app" (P.TaskId 0 0)
-    M.commitRequested mock >>= (@?= False)
+    M.commitRequested mock >>= (`shouldBe` False)
     P.requestCommit (M.mockContext mock)
-    M.commitRequested mock >>= (@?= True)
-    M.readCommitRequested mock >>= (@?= True)
-    M.commitRequested mock >>= (@?= False)
+    M.commitRequested mock >>= (`shouldBe` True)
+    M.readCommitRequested mock >>= (`shouldBe` True)
+    M.commitRequested mock >>= (`shouldBe` False)
 
 ----------------------------------------------------------------------
 -- Kafka.Common
 ----------------------------------------------------------------------
 
-common_node_endpoint_smoke :: TestTree
+common_node_endpoint_smoke :: Spec
 common_node_endpoint_smoke =
-  testCase "Kafka.Common: Node/Endpoint/Cluster value types compose" $ do
+  it "Kafka.Common: Node/Endpoint/Cluster value types compose" $ do
     let !node = Common.Node 1 "broker-1" 9092 (Just "rack-a")
         !ep   = Common.Endpoint "PLAINTEXT" "broker-1" 9092 "PLAINTEXT"
         !cl   = Common.emptyCluster
@@ -220,36 +217,36 @@ common_node_endpoint_smoke =
                   , Common.clusterNodes      = [node]
                   , Common.clusterController = Just node
                   }
-    Common.nodeId node @?= 1
-    Common.endpointPort ep @?= 9092
-    Common.clusterId cl @?= Just "cid"
-    Common.clusterController cl @?= Just node
+    Common.nodeId node `shouldBe` 1
+    Common.endpointPort ep `shouldBe` 9092
+    Common.clusterId cl `shouldBe` Just "cid"
+    Common.clusterController cl `shouldBe` Just node
 
-common_acl_wildcard :: TestTree
+common_acl_wildcard :: Spec
 common_acl_wildcard =
-  testCase "Kafka.Common.Acl: wildcard filter matches everything by construction" $ do
+  it "Kafka.Common.Acl: wildcard filter matches everything by construction" $ do
     let f = Acl.anyAclBindingFilter
-    Acl.acefOperation (Acl.aclbfEntryFilter f)      @?= Acl.AclAnyOp
-    Acl.acefPermissionType (Acl.aclbfEntryFilter f) @?= Acl.AclAnyPerm
+    Acl.acefOperation (Acl.aclbfEntryFilter f)      `shouldBe` Acl.AclAnyOp
+    Acl.acefPermissionType (Acl.aclbfEntryFilter f) `shouldBe` Acl.AclAnyPerm
     Resource.rpfResourceType (Acl.aclbfPatternFilter f)
-      @?= Resource.ResourceAny
+      `shouldBe` Resource.ResourceAny
 
-common_quota_helpers :: TestTree
+common_quota_helpers :: Spec
 common_quota_helpers =
-  testCase "Kafka.Common.Quota: ClientQuotaEntity + filter helpers" $ do
+  it "Kafka.Common.Quota: ClientQuotaEntity + filter helpers" $ do
     let e = Quota.clientQuotaEntity
               [ ("user", Just "alice")
               , ("client-id", Nothing)
               ]
-    Map.size (Quota.cqeEntries e) @?= 2
+    Map.size (Quota.cqeEntries e) `shouldBe` 2
     let c = Quota.exactMatch "user" "alice"
-    Quota.cqfcMatchType c @?= Quota.MatchExact "alice"
+    Quota.cqfcMatchType c `shouldBe` Quota.MatchExact "alice"
     let d = Quota.defaultEntity "user"
-    Quota.cqfcMatchType d @?= Quota.MatchDefault
+    Quota.cqfcMatchType d `shouldBe` Quota.MatchDefault
 
-timeextractor_use_partition_time :: TestTree
+timeextractor_use_partition_time :: Spec
 timeextractor_use_partition_time =
-  testCase
+  it
     "Kafka.Streams.Time.usePartitionTimeOnInvalidTimestamp: fall back to stream time on -1"
     $ do
         let ex :: TE T.Text T.Text
@@ -260,14 +257,14 @@ timeextractor_use_partition_time =
                 ("x" :: T.Text)
                 (Timestamp 100)
                 initialStreamTime
-        r1 @?= Timestamp 100
+        r1 `shouldBe` Timestamp 100
         -- Sentinel -1 + known stream time ⇒ stream time.
         r2 <- runTimestampExtractor ex
                 (Just "k")
                 ("x" :: T.Text)
                 (Timestamp (-1))
                 (StreamTime (Timestamp 42))
-        r2 @?= Timestamp 42
+        r2 `shouldBe` Timestamp 42
 
 -- Local type-alias so the @ScopedTypeVariables@-flavoured signature
 -- in 'timeextractor_use_partition_time' reads cleanly.
@@ -281,22 +278,22 @@ type TE k v = Kafka.Streams.Time.TimestampExtractor k v
 -- reachable and constructable. The operations themselves talk
 -- to a real broker and are covered by the integration suite
 -- under .github/workflows/wireform-kafka-integration.yml.
-admin_extras_value_smoke :: TestTree
+admin_extras_value_smoke :: Spec
 admin_extras_value_smoke =
-  testCase "Kafka.Client.AdminClient long-tail: public value types compose" $ do
+  it "Kafka.Client.AdminClient long-tail: public value types compose" $ do
     let np = Adm.NewPartitions
           { Adm.npTopicName      = "events"
           , Adm.npTotalCount     = 6
           , Adm.npNewAssignments = Just [[0, 1, 2], [1, 2, 0], [2, 0, 1]]
           }
-    Adm.npTotalCount np @?= 6
+    Adm.npTotalCount np `shouldBe` 6
     let gl = Adm.GroupListing
           { Adm.glGroupId      = "g1"
           , Adm.glProtocolType = "consumer"
           , Adm.glState        = Just Common.GroupStable
           , Adm.glType         = Just Common.ConsumerGroup
           }
-    Adm.glState gl @?= Just Common.GroupStable
+    Adm.glState gl `shouldBe` Just Common.GroupStable
     let acrOk = Adm.AclCreationResult
           { Adm.acrBinding =
               Acl.AclBinding
@@ -304,20 +301,20 @@ admin_extras_value_smoke =
                 (Acl.AccessControlEntry "User:alice" "*" Acl.AclRead Acl.AclAllow)
           , Adm.acrError = Nothing
           }
-    Adm.acrError acrOk @?= Nothing
+    Adm.acrError acrOk `shouldBe` Nothing
     let adr = Adm.AclDeletionResult { Adm.adrDeletedCount = 3, Adm.adrError = Nothing }
-    Adm.adrDeletedCount adr @?= 3
+    Adm.adrDeletedCount adr `shouldBe` 3
     -- v3b: partition reassignment + transaction admin value types.
     let prs = Adm.PartitionReassignmentSpec "in" 0 (Just [1, 2, 3])
-    Adm.prsTopic prs @?= "in"
+    Adm.prsTopic prs `shouldBe` "in"
     let opr = Adm.OngoingPartitionReassignment "in" 0 [1, 2, 3] [4] []
-    Adm.oprAddingReplicas opr @?= [4]
+    Adm.oprAddingReplicas opr `shouldBe` [4]
     let tl = Adm.TransactionListing
           { Adm.tlTransactionalId = "txn-1"
           , Adm.tlProducerId      = 100
           , Adm.tlState           = "Ongoing"
           }
-    Adm.tlState tl @?= "Ongoing"
+    Adm.tlState tl `shouldBe` "Ongoing"
     let td = Adm.TransactionDescription
           { Adm.tdTransactionalId = "txn-1"
           , Adm.tdProducerId      = 100
@@ -328,22 +325,22 @@ admin_extras_value_smoke =
           , Adm.tdTopicPartitions =
               [Adm.TransactionTopicPartitions "out" [0, 1, 2]]
           }
-    map Adm.ttpTopic (Adm.tdTopicPartitions td) @?= ["out"]
+    map Adm.ttpTopic (Adm.tdTopicPartitions td) `shouldBe` ["out"]
     let cqe = Adm.ClientQuotaEntry
           { Adm.cqeEntity =
               Quota.clientQuotaEntity [("user", Just "alice")]
           , Adm.cqeValues = Map.fromList [("producer_byte_rate", 1024)]
           }
-    Adm.cqeValues cqe @?= Map.fromList [("producer_byte_rate", 1024)]
+    Adm.cqeValues cqe `shouldBe` Map.fromList [("producer_byte_rate", 1024)]
     -- v3c: SCRAM credentials + producer / log-dir / delegation tokens.
     let sci = Adm.ScramCredentialInfo Adm.ScramSha256 4096
-    Adm.sciIterations sci @?= 4096
+    Adm.sciIterations sci `shouldBe` 4096
     let scu = Adm.ScramCredentialUpsertion "alice" Adm.ScramSha512 8192 "salt" "hashed"
-    Adm.scuMechanism scu @?= Adm.ScramSha512
+    Adm.scuMechanism scu `shouldBe` Adm.ScramSha512
     let ps = Adm.ProducerState 5001 1 42 0 0 (-1)
-    Adm.psProducerId ps @?= 5001
+    Adm.psProducerId ps `shouldBe` 5001
     let ldd = Adm.LogDirDescription "/var/log/kafka-data" 0 (1024 * 1024) 512000 []
-    Adm.lddPath ldd @?= "/var/log/kafka-data"
+    Adm.lddPath ldd `shouldBe` "/var/log/kafka-data"
     let dt = Adm.DelegationToken
           { Adm.dtTokenId         = "tid"
           , Adm.dtHmac            = "secret"
@@ -353,32 +350,32 @@ admin_extras_value_smoke =
           , Adm.dtExpiryTimestamp = 60000
           , Adm.dtMaxTimestamp    = 86400000
           }
-    Adm.dtTokenId dt @?= "tid"
+    Adm.dtTokenId dt `shouldBe` "tid"
 
 ----------------------------------------------------------------------
 -- v3+: leftover gaps from v2 honest-list
 ----------------------------------------------------------------------
 
-unlimited_windows_smoke :: TestTree
+unlimited_windows_smoke :: Spec
 unlimited_windows_smoke =
-  testCase "unlimitedWindows assigns a single never-ending window per record" $ do
+  it "unlimitedWindows assigns a single never-ending window per record" $ do
     let ws = W.unlimitedWindows
         ws_assigned = W.windowsAssign ws (Timestamp 1_000_000_000)
-    length ws_assigned @?= 1
+    length ws_assigned `shouldBe` 1
 
-list_serde_roundtrip :: TestTree
+list_serde_roundtrip :: Spec
 list_serde_roundtrip =
-  testCase "listSerde encodes + decodes a [Text]" $ do
+  it "listSerde encodes + decodes a [Text]" $ do
     let s   = Serde.listSerde Serde.textSerde
         xs  = ["alpha", "bravo", "charlie"] :: [T.Text]
         bs  = Serde.serialize s xs
-    Serde.deserialize s bs @?= Right xs
+    Serde.deserialize s bs `shouldBe` Right xs
     -- empty list edge case
-    Serde.deserialize s (Serde.serialize s ([] :: [T.Text])) @?= Right []
+    Serde.deserialize s (Serde.serialize s ([] :: [T.Text])) `shouldBe` Right []
 
-task_assignor_default :: TestTree
+task_assignor_default :: Spec
 task_assignor_default =
-  testCase "defaultTaskAssignor hands every task to the first client" $ do
+  it "defaultTaskAssignor hands every task to the first client" $ do
     let pidA = TA.ProcessId (UUID.fromWords 0 0 0 1)
         pidB = TA.ProcessId (UUID.fromWords 0 0 0 2)
         states = Map.fromList
@@ -392,11 +389,11 @@ task_assignor_default =
         tasks = Map.empty
         app = TA.ApplicationState tasks states TA.defaultAssignmentConfigs
     out <- TA.taAssign TA.defaultTaskAssignor app
-    Map.keys (TA.taAssignments out) @?= [pidA]
+    Map.keys (TA.taAssignments out) `shouldBe` [pidA]
 
-per_error_streams_exceptions :: TestTree
+per_error_streams_exceptions :: Spec
 per_error_streams_exceptions =
-  testCase "streams errors: per-Java-class discriminated constructors" $ do
+  it "streams errors: per-Java-class discriminated constructors" $ do
     -- Catchable by their specific type now; smoke test the
     -- record / newtype shape.
     let _ = Errors.BrokerNotFoundException "no broker"
@@ -407,7 +404,7 @@ per_error_streams_exceptions =
         _ = Errors.LockException "/tmp/state" "held by other"
         _ = Errors.InvalidConfigurationException "bad knob"
         _ = Errors.InvalidPartitionsException "negative count"
-    pure ()
+    pure () :: IO ()
 
 ----------------------------------------------------------------------
 -- v4: protocol-codegen-dependent admin RPCs
@@ -418,9 +415,9 @@ per_error_streams_exceptions =
 -- compose so user code can build requests / pattern-match
 -- responses offline.
 
-feature_metadata_value_smoke :: TestTree
+feature_metadata_value_smoke :: Spec
 feature_metadata_value_smoke =
-  testCase "FeatureMetadata + ranges compose" $ do
+  it "FeatureMetadata + ranges compose" $ do
     let !fm = Adm.FeatureMetadata
           { Adm.fmSupportedFeatures = Map.singleton "metadata.version"
               (Adm.SupportedFeatureRange 0 20)
@@ -428,33 +425,33 @@ feature_metadata_value_smoke =
               (Adm.FinalizedFeatureLevel 14 14)
           , Adm.fmFinalizedFeaturesEpoch = Just 42
           }
-    Map.size (Adm.fmSupportedFeatures fm) @?= 1
-    Map.size (Adm.fmFinalizedFeatures fm) @?= 1
-    Adm.fmFinalizedFeaturesEpoch fm @?= Just 42
+    Map.size (Adm.fmSupportedFeatures fm) `shouldBe` 1
+    Map.size (Adm.fmFinalizedFeatures fm) `shouldBe` 1
+    Adm.fmFinalizedFeaturesEpoch fm `shouldBe` Just 42
 
-feature_update_value_smoke :: TestTree
+feature_update_value_smoke :: Spec
 feature_update_value_smoke =
-  testCase "FeatureUpdate / UpgradeType compose" $ do
+  it "FeatureUpdate / UpgradeType compose" $ do
     let _ = Adm.FeatureUpdate "metadata.version" 16 Adm.UpgradeOnly
         _ = Adm.FeatureUpdate "metadata.version" 14 Adm.SafeDowngrade
         _ = Adm.FeatureUpdate "metadata.version" 14 Adm.UnsafeDowngrade
-    pure ()
+    pure () :: IO ()
 
-abort_transaction_spec_value_smoke :: TestTree
+abort_transaction_spec_value_smoke :: Spec
 abort_transaction_spec_value_smoke =
-  testCase "AbortTransactionSpec composes with multiple partitions" $ do
+  it "AbortTransactionSpec composes with multiple partitions" $ do
     let !spec = Adm.AbortTransactionSpec
           { Adm.atsProducerId       = 1000
           , Adm.atsProducerEpoch    = 7
           , Adm.atsCoordinatorEpoch = 3
           , Adm.atsTopicPartitions  = [("txn-topic", [0, 1, 2])]
           }
-    Adm.atsProducerId spec @?= 1000
-    length (Adm.atsTopicPartitions spec) @?= 1
+    Adm.atsProducerId spec `shouldBe` 1000
+    length (Adm.atsTopicPartitions spec) `shouldBe` 1
 
-consumer_group_describe2_value_smoke :: TestTree
+consumer_group_describe2_value_smoke :: Spec
 consumer_group_describe2_value_smoke =
-  testCase "KIP-848 ConsumerGroupDescription2 compose" $ do
+  it "KIP-848 ConsumerGroupDescription2 compose" $ do
     let !m = Adm.ConsumerGroupMember
           { Adm.cgmMemberId           = "m-1"
           , Adm.cgmInstanceId         = Nothing
@@ -476,11 +473,11 @@ consumer_group_describe2_value_smoke =
           , Adm.cgd2Members           = [m]
           , Adm.cgd2AuthorizedOperations = 0
           }
-    length (Adm.cgd2Members d) @?= 1
+    length (Adm.cgd2Members d) `shouldBe` 1
 
-share_group_describe_value_smoke :: TestTree
+share_group_describe_value_smoke :: Spec
 share_group_describe_value_smoke =
-  testCase "KIP-932 ShareGroupDescription compose" $ do
+  it "KIP-932 ShareGroupDescription compose" $ do
     let !m = Adm.ShareGroupMember
           { Adm.sgmMemberId           = "m-1"
           , Adm.sgmRackId             = Nothing
@@ -499,18 +496,18 @@ share_group_describe_value_smoke =
           , Adm.sgdMembers             = [m]
           , Adm.sgdAuthorizedOperations = 0
           }
-    length (Adm.sgdMembers d) @?= 1
+    length (Adm.sgdMembers d) `shouldBe` 1
 
-fenced_producer_value_smoke :: TestTree
+fenced_producer_value_smoke :: Spec
 fenced_producer_value_smoke =
-  testCase "FencedProducer composes" $ do
+  it "FencedProducer composes" $ do
     let !fp = Adm.FencedProducer
           { Adm.fpTransactionalId = "txn-id"
           , Adm.fpProducerId      = 123
           , Adm.fpProducerEpoch   = 4
           }
-    Adm.fpTransactionalId fp @?= "txn-id"
-    Adm.fpProducerEpoch fp @?= 4
+    Adm.fpTransactionalId fp `shouldBe` "txn-id"
+    Adm.fpProducerEpoch fp `shouldBe` 4
 
 ----------------------------------------------------------------------
 -- v4: KIP-924 TaskAssignor plug-in
@@ -521,20 +518,20 @@ fenced_producer_value_smoke =
 -- carries through 'StreamsConfig' unchanged, and a directly-
 -- invoked plug-in produces the expected 'TaskAssignment' shape.
 
-task_assignor_plugin_configurable :: TestTree
+task_assignor_plugin_configurable :: Spec
 task_assignor_plugin_configurable =
-  testCase "TaskAssignor plug-in carries through StreamsConfig" $ do
+  it "TaskAssignor plug-in carries through StreamsConfig" $ do
     let !cfg = Kafka.Streams.Config.defaultStreamsConfig
           { Kafka.Streams.Config.taskAssignor =
               Just TA.defaultTaskAssignor
           }
     case Kafka.Streams.Config.taskAssignor cfg of
-      Nothing -> assertBool "taskAssignor plug-in was dropped" False
+      Nothing -> (False) `shouldBe` True
       Just _  -> pure ()
 
-task_assignor_plugin_invocable :: TestTree
+task_assignor_plugin_invocable :: Spec
 task_assignor_plugin_invocable =
-  testCase "TaskAssignor plug-in produces a TaskAssignment" $ do
+  it "TaskAssignor plug-in produces a TaskAssignment" $ do
     let pid = TA.ProcessId UUID.nil
         emptyApp = TA.ApplicationState
           { TA.asAllTasks = Map.empty
@@ -555,48 +552,47 @@ task_assignor_plugin_invocable =
     -- confirms the assignor surface is end-to-end invocable
     -- (the runtime hook 'streamsRunUserAssignor' consumes the
     -- same shape).
-    Map.keysSet (TA.taAssignments out) @?= Set.singleton pid
+    Map.keysSet (TA.taAssignments out) `shouldBe` Set.singleton pid
 
 ----------------------------------------------------------------------
 -- v4: KIP-714 deterministic client-instance-id derivation
 ----------------------------------------------------------------------
 
-telemetry_id_is_16_bytes :: TestTree
+telemetry_id_is_16_bytes :: Spec
 telemetry_id_is_16_bytes =
-  testCase "clientInstanceIdFromText returns exactly 16 bytes" $ do
-    BS.length (Tel.clientInstanceIdFromText "")         @?= 16
-    BS.length (Tel.clientInstanceIdFromText "short")    @?= 16
+  it "clientInstanceIdFromText returns exactly 16 bytes" $ do
+    BS.length (Tel.clientInstanceIdFromText "")         `shouldBe` 16
+    BS.length (Tel.clientInstanceIdFromText "short")    `shouldBe` 16
     BS.length (Tel.clientInstanceIdFromText
                  "a-very-long-application-id-bigger-than-sixteen-bytes")
-                                                        @?= 16
+                                                        `shouldBe` 16
 
-telemetry_id_is_deterministic :: TestTree
+telemetry_id_is_deterministic :: Spec
 telemetry_id_is_deterministic =
-  testCase "clientInstanceIdFromText is deterministic" $ do
+  it "clientInstanceIdFromText is deterministic" $ do
     let a = Tel.clientInstanceIdFromText "wireform-streams-app"
         b = Tel.clientInstanceIdFromText "wireform-streams-app"
-    a @?= b
+    a `shouldBe` b
 
-telemetry_id_distinguishes_inputs :: TestTree
+telemetry_id_distinguishes_inputs :: Spec
 telemetry_id_distinguishes_inputs =
-  testCase "clientInstanceIdFromText distinguishes distinct seeds" $
-    assertBool "two short distinct seeds should differ"
-      (Tel.clientInstanceIdFromText "alpha"
-         /= Tel.clientInstanceIdFromText "beta")
+  it "clientInstanceIdFromText distinguishes distinct seeds" $
+    (Tel.clientInstanceIdFromText "alpha"
+         /= Tel.clientInstanceIdFromText "beta") `shouldBe` True
 
-telemetry_id_pads_short_inputs :: TestTree
+telemetry_id_pads_short_inputs :: Spec
 telemetry_id_pads_short_inputs =
-  testCase "clientInstanceIdFromText pads short seeds with \\0" $ do
+  it "clientInstanceIdFromText pads short seeds with \\0" $ do
     let bs = Tel.clientInstanceIdFromText "abc"
-    BS.take 3 bs    @?= "abc"
-    BS.drop 3 bs    @?= BS.replicate 13 0
+    BS.take 3 bs    `shouldBe` "abc"
+    BS.drop 3 bs    `shouldBe` BS.replicate 13 0
 
-telemetry_id_truncates_long_inputs :: TestTree
+telemetry_id_truncates_long_inputs :: Spec
 telemetry_id_truncates_long_inputs =
-  testCase "clientInstanceIdFromText truncates seeds longer than 16 bytes" $ do
+  it "clientInstanceIdFromText truncates seeds longer than 16 bytes" $ do
     let !seed = "abcdefghijklmnopqrstuvwxyz"   -- 26 bytes
         bs    = Tel.clientInstanceIdFromText seed
-    bs @?= "abcdefghijklmnop"
+    bs `shouldBe` "abcdefghijklmnop"
 
 ----------------------------------------------------------------------
 -- v4: KafkaStreams runtime hooks (clientInstanceId + assignor)
@@ -622,21 +618,21 @@ mkTinyKafkaStreams cfg = do
     Left err -> error (show err)
     Right v  -> Kafka.Streams.Runtime.newKafkaStreams cfg v
 
-streams_runtime_telemetry_id :: TestTree
+streams_runtime_telemetry_id :: Spec
 streams_runtime_telemetry_id =
-  testCase "kafkaStreamsClientInstanceId derives from application.id" $ do
+  it "kafkaStreamsClientInstanceId derives from application.id" $ do
     ks <- mkTinyKafkaStreams
       Kafka.Streams.Config.defaultStreamsConfig
         { Kafka.Streams.Config.applicationId    = "ti-app"
         , Kafka.Streams.Config.bootstrapServers = ["mock:0"]
         }
     bs <- Kafka.Streams.Runtime.kafkaStreamsClientInstanceId ks
-    BS.length bs                       @?= 16
-    bs @?= Tel.clientInstanceIdFromText "ti-app"
+    BS.length bs                       `shouldBe` 16
+    bs `shouldBe` Tel.clientInstanceIdFromText "ti-app"
 
-streams_runtime_user_assignor_default_nothing :: TestTree
+streams_runtime_user_assignor_default_nothing :: Spec
 streams_runtime_user_assignor_default_nothing =
-  testCase "streamsRunUserAssignor returns Nothing when no plug-in set" $ do
+  it "streamsRunUserAssignor returns Nothing when no plug-in set" $ do
     ks <- mkTinyKafkaStreams
       Kafka.Streams.Config.defaultStreamsConfig
         { Kafka.Streams.Config.applicationId    = "no-plugin"
@@ -645,11 +641,11 @@ streams_runtime_user_assignor_default_nothing =
     r <- Kafka.Streams.Runtime.streamsRunUserAssignor ks
     case r of
       Nothing -> pure ()
-      Just _  -> assertBool "expected Nothing without a plug-in" False
+      Just _  -> (False) `shouldBe` True
 
-streams_runtime_user_assignor_invoked_when_set :: TestTree
+streams_runtime_user_assignor_invoked_when_set :: Spec
 streams_runtime_user_assignor_invoked_when_set =
-  testCase "streamsRunUserAssignor invokes the configured TaskAssignor" $ do
+  it "streamsRunUserAssignor invokes the configured TaskAssignor" $ do
     fired <- newIORef False
     let probe = TA.defaultTaskAssignor
           { TA.taAssign = \app -> do
@@ -665,13 +661,13 @@ streams_runtime_user_assignor_invoked_when_set =
     r <- Kafka.Streams.Runtime.streamsRunUserAssignor ks
     seen <- readIORef fired
     case r of
-      Nothing -> assertBool "plug-in should have been invoked" False
+      Nothing -> (False) `shouldBe` True
       Just _  -> pure ()
-    seen @?= True
+    seen `shouldBe` True
 
-streams_application_state_starts_empty :: TestTree
+streams_application_state_starts_empty :: Spec
 streams_application_state_starts_empty =
-  testCase "streamsApplicationState reflects the local-only initial view" $ do
+  it "streamsApplicationState reflects the local-only initial view" $ do
     ks <- mkTinyKafkaStreams
       Kafka.Streams.Config.defaultStreamsConfig
         { Kafka.Streams.Config.applicationId    = "as-app"
@@ -680,6 +676,6 @@ streams_application_state_starts_empty =
     app <- Kafka.Streams.Runtime.streamsApplicationState ks
     -- Brand-new runtime: no owned partitions ⇒ no tasks, exactly
     -- one local client registered.
-    Map.size (TA.asAllTasks app)          @?= 0
-    Map.size (TA.asKafkaStreamsStates app) @?= 1
+    Map.size (TA.asAllTasks app)          `shouldBe` 0
+    Map.size (TA.asKafkaStreamsStates app) `shouldBe` 1
 

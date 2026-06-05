@@ -15,28 +15,27 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Consumer
 import Kafka.Client.Mock.Fault
 import Kafka.Client.Mock.Producer
 
-tests :: TestTree
-tests = testGroup "0009-mock_cluster"
-  [ testCase "mock cluster produces and consumes one record" $ do
+tests :: Spec
+tests = describe "0009-mock_cluster" $ sequence_
+  [ it "mock cluster produces and consumes one record" $ do
       cluster <- newMockCluster 1
       createTopic cluster "events" 1
       faults <- noFaults
       producer <- newMockProducer cluster faults Nothing
       sent <- sendMock producer "events" 0 Nothing (bytes "value") (ts 0)
-      sent @?= MPSent 0 0
+      sent `shouldBe` MPSent 0 0
       consumer <- newMockConsumer cluster faults (GroupId "group") ReadUncommitted 10
       subscribeMC consumer ["events"]
       polled <- pollMC consumer
       let values = map (\(_, _, rec) -> srValue rec) (prRecords polled)
-      values @?= [bytes "value"]
+      values `shouldBe` [bytes "value"]
   ]
 
 bytes :: Text -> BSC.ByteString

@@ -1,7 +1,6 @@
 module Test.ThriftCodeGen (thriftCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,8 +8,8 @@ import qualified Data.Vector as V
 import Thrift.Schema
 import Thrift.CodeGen (generateThriftTypes)
 
-thriftCodeGenTests :: TestTree
-thriftCodeGenTests = testGroup "Thrift.CodeGen"
+thriftCodeGenTests :: Spec
+thriftCodeGenTests = describe "Thrift.CodeGen" $ sequence_
   [ testStructCodeGen
   , testEnumCodeGen
   , testOptionalFieldCodeGen
@@ -20,8 +19,8 @@ thriftCodeGenTests = testGroup "Thrift.CodeGen"
   , testConstCodeGen
   ]
 
-testStructCodeGen :: TestTree
-testStructCodeGen = testCase "generates struct data type from Thrift schema" $ do
+testStructCodeGen :: Spec
+testStructCodeGen = it "generates struct data type from Thrift schema" $ do
   let schema = ThriftSchema
         { tsStructs = [ThriftStruct
             { tsName = "Person"
@@ -39,16 +38,16 @@ testStructCodeGen = testCase "generates struct data type from Thrift schema" $ d
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "personName is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "personAge is Maybe" ("Maybe Int32" `T.isInfixOf` code)
-  assertBool "personTags is Vector" ("Vector" `T.isInfixOf` code)
-  assertBool "contains ToThrift instance" ("instance ToThrift Person" `T.isInfixOf` code)
-  assertBool "contains FromThrift instance" ("instance FromThrift Person" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("Maybe Int32" `T.isInfixOf` code) `shouldBe` True
+  ("Vector" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToThrift Person" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromThrift Person" `T.isInfixOf` code) `shouldBe` True
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "generates enum sum type from Thrift schema" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "generates enum sum type from Thrift schema" $ do
   let schema = ThriftSchema
         { tsStructs = []
         , tsEnums = [ThriftEnum
@@ -60,15 +59,15 @@ testEnumCodeGen = testCase "generates enum sum type from Thrift schema" $ do
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
-  assertBool "contains ToThrift instance" ("instance ToThrift Color" `T.isInfixOf` code)
-  assertBool "contains FromThrift instance" ("instance FromThrift Color" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToThrift Color" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromThrift Color" `T.isInfixOf` code) `shouldBe` True
 
-testOptionalFieldCodeGen :: TestTree
-testOptionalFieldCodeGen = testCase "optional fields produce Maybe types" $ do
+testOptionalFieldCodeGen :: Spec
+testOptionalFieldCodeGen = it "optional fields produce Maybe types" $ do
   let schema = ThriftSchema
         { tsStructs = [ThriftStruct
             { tsName = "Optional"
@@ -84,10 +83,10 @@ testOptionalFieldCodeGen = testCase "optional fields produce Maybe types" $ do
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "contains Maybe Int64" ("Maybe Int64" `T.isInfixOf` code)
+  ("Maybe Int64" `T.isInfixOf` code) `shouldBe` True
 
-testListSetMapCodeGen :: TestTree
-testListSetMapCodeGen = testCase "lists -> Vector, sets -> Vector, maps -> Map" $ do
+testListSetMapCodeGen :: Spec
+testListSetMapCodeGen = it "lists -> Vector, sets -> Vector, maps -> Map" $ do
   let schema = ThriftSchema
         { tsStructs = [ThriftStruct
             { tsName = "Container"
@@ -105,12 +104,12 @@ testListSetMapCodeGen = testCase "lists -> Vector, sets -> Vector, maps -> Map" 
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "list -> Vector Text" ("Vector Text" `T.isInfixOf` code)
-  assertBool "set -> Vector Int32" ("Vector Int32" `T.isInfixOf` code)
-  assertBool "map -> Map Text Int64" ("Map Text Int64" `T.isInfixOf` code)
+  ("Vector Text" `T.isInfixOf` code) `shouldBe` True
+  ("Vector Int32" `T.isInfixOf` code) `shouldBe` True
+  ("Map Text Int64" `T.isInfixOf` code) `shouldBe` True
 
-testServiceCodeGen :: TestTree
-testServiceCodeGen = testCase "services produce method descriptors" $ do
+testServiceCodeGen :: Spec
+testServiceCodeGen = it "services produce method descriptors" $ do
   let schema = ThriftSchema
         { tsStructs = []
         , tsEnums = []
@@ -126,13 +125,13 @@ testServiceCodeGen = testCase "services produce method descriptors" $ do
             }]
         }
       code = generateThriftTypes schema
-  assertBool "contains service name" ("UserService" `T.isInfixOf` code)
-  assertBool "contains method descriptor type" ("UserServiceMethod" `T.isInfixOf` code)
-  assertBool "contains GetUser method" ("GetUser" `T.isInfixOf` code || "getUser" `T.isInfixOf` code)
-  assertBool "contains service name binding" ("UserServiceServiceName" `T.isInfixOf` code)
+  ("UserService" `T.isInfixOf` code) `shouldBe` True
+  ("UserServiceMethod" `T.isInfixOf` code) `shouldBe` True
+  ("GetUser" `T.isInfixOf` code || "getUser" `T.isInfixOf` code) `shouldBe` True
+  ("UserServiceServiceName" `T.isInfixOf` code) `shouldBe` True
 
-testTypedefCodeGen :: TestTree
-testTypedefCodeGen = testCase "generates type synonym for typedef" $ do
+testTypedefCodeGen :: Spec
+testTypedefCodeGen = it "generates type synonym for typedef" $ do
   let schema = ThriftSchema
         { tsStructs = []
         , tsEnums = []
@@ -144,11 +143,11 @@ testTypedefCodeGen = testCase "generates type synonym for typedef" $ do
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "contains type UserId = Int64" ("type UserId = Int64" `T.isInfixOf` code)
-  assertBool "contains type UserName = Text" ("type UserName = Text" `T.isInfixOf` code)
+  ("type UserId = Int64" `T.isInfixOf` code) `shouldBe` True
+  ("type UserName = Text" `T.isInfixOf` code) `shouldBe` True
 
-testConstCodeGen :: TestTree
-testConstCodeGen = testCase "generates constant values for consts" $ do
+testConstCodeGen :: Spec
+testConstCodeGen = it "generates constant values for consts" $ do
   let schema = ThriftSchema
         { tsStructs = []
         , tsEnums = []
@@ -160,7 +159,7 @@ testConstCodeGen = testCase "generates constant values for consts" $ do
         , tsServices = []
         }
       code = generateThriftTypes schema
-  assertBool "contains maxRetries :: Int32" ("maxRetries :: Int32" `T.isInfixOf` code)
-  assertBool "contains maxRetries = 3" ("maxRetries = 3" `T.isInfixOf` code)
-  assertBool "contains defaultName :: Text" ("defaultName :: Text" `T.isInfixOf` code)
-  assertBool "contains defaultName = \"guest\"" ("defaultName = \"guest\"" `T.isInfixOf` code)
+  ("maxRetries :: Int32" `T.isInfixOf` code) `shouldBe` True
+  ("maxRetries = 3" `T.isInfixOf` code) `shouldBe` True
+  ("defaultName :: Text" `T.isInfixOf` code) `shouldBe` True
+  ("defaultName = \"guest\"" `T.isInfixOf` code) `shouldBe` True

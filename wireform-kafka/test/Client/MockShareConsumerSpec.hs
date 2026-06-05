@@ -6,8 +6,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Client.Mock.Cluster
   ( GroupId (..)
@@ -35,13 +34,13 @@ import Kafka.Client.ShareConsumer
   , pollShareRecords
   )
 
-tests :: TestTree
-tests = testGroup "MockShareConsumer"
-  [ testCase "AckAccept removes a delivered record from future polls" accept_removes
-  , testCase "AckRelease redelivers a record with an incremented delivery count" release_redelivers
-  , testCase "AckReject completes a record without redelivery" reject_completes
-  , testCase "expired locks redeliver until max delivery count" lock_expiry_respects_max_delivery
-  , testCase "public ShareConsumer runner delegates poll and commit" public_runner_delegates
+tests :: Spec
+tests = describe "MockShareConsumer" $ sequence_
+  [ it "AckAccept removes a delivered record from future polls" accept_removes
+  , it "AckRelease redelivers a record with an incremented delivery count" release_redelivers
+  , it "AckReject completes a record without redelivery" reject_completes
+  , it "expired locks redeliver until max delivery count" lock_expiry_respects_max_delivery
+  , it "public ShareConsumer runner delegates poll and commit" public_runner_delegates
   ]
 
 accept_removes :: IO ()
@@ -50,20 +49,20 @@ accept_removes = do
   rec <- expectOne =<< pollShareMC consumer 10
   acknowledgeShareMC consumer (ackFor AckAccept rec)
   committed <- commitAcknowledgementsMC consumer
-  committed @?= [ackFor AckAccept rec]
+  committed `shouldBe` [ackFor AckAccept rec]
   again <- pollShareMC consumer 10
-  again @?= []
+  again `shouldBe` []
 
 release_redelivers :: IO ()
 release_redelivers = do
   (_cluster, consumer) <- seededConsumer "release"
   rec1 <- expectOne =<< pollShareMC consumer 10
-  srDeliveryCount rec1 @?= 1
+  srDeliveryCount rec1 `shouldBe` 1
   acknowledgeShareMC consumer (ackFor AckRelease rec1)
   _ <- commitAcknowledgementsMC consumer
   rec2 <- expectOne =<< pollShareMC consumer 10
-  srBaseOffset rec2 @?= srBaseOffset rec1
-  srDeliveryCount rec2 @?= 2
+  srBaseOffset rec2 `shouldBe` srBaseOffset rec1
+  srDeliveryCount rec2 `shouldBe` 2
 
 reject_completes :: IO ()
 reject_completes = do
@@ -72,19 +71,19 @@ reject_completes = do
   acknowledgeShareMC consumer (ackFor AckReject rec)
   _ <- commitAcknowledgementsMC consumer
   again <- pollShareMC consumer 10
-  again @?= []
+  again `shouldBe` []
 
 lock_expiry_respects_max_delivery :: IO ()
 lock_expiry_respects_max_delivery = do
   (cluster, consumer) <- seededConsumer "expiry"
   first <- expectOne =<< pollShareMC consumer 10
-  srDeliveryCount first @?= 1
+  srDeliveryCount first `shouldBe` 1
   tickClock cluster 11
   second <- expectOne =<< pollShareMC consumer 10
-  srDeliveryCount second @?= 2
+  srDeliveryCount second `shouldBe` 2
   tickClock cluster 11
   exhausted <- pollShareMC consumer 10
-  exhausted @?= []
+  exhausted `shouldBe` []
 
 public_runner_delegates :: IO ()
 public_runner_delegates = do
@@ -94,9 +93,9 @@ public_runner_delegates = do
   rec <- expectOne =<< pollShareRecords public 10
   acknowledgeShareRecord public (ackFor AckAccept rec)
   committed <- commitAcknowledgements public
-  committed @?= [ackFor AckAccept rec]
+  committed `shouldBe` [ackFor AckAccept rec]
   again <- pollShareRecords public 10
-  again @?= []
+  again `shouldBe` []
 
 seededConsumer :: Text -> IO (MockCluster, MockShareConsumer)
 seededConsumer suffix = do
@@ -105,7 +104,7 @@ seededConsumer suffix = do
   faults <- noFaults
   producer <- newMockProducer cluster faults Nothing
   sent <- sendMock producer "share-topic" 0 Nothing (bytes ("value-" <> suffix)) (ts 0)
-  sent @?= MPSent 0 0
+  sent `shouldBe` MPSent 0 0
   consumer <- newMockShareConsumer
     cluster
     (GroupId ("share-group-" <> suffix))
@@ -133,4 +132,4 @@ ts = fromIntegral
 expectOne :: [a] -> IO a
 expectOne xs = case xs of
   [x] -> pure x
-  _ -> fail ("expected exactly one record, got " <> show (length xs))
+  _ -> expectationFailure ("expected exactly one record, got " <> show (length xs))

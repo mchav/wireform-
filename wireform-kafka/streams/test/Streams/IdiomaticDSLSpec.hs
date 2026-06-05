@@ -14,14 +14,13 @@ import Control.Category ((>>>))
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Pipeline
 
-tests :: TestTree
-tests = testGroup "Pipeline (Haskell-native composable fragments)"
+tests :: Spec
+tests = describe "Pipeline (Haskell-native composable fragments)" $ sequence_
   [ pipeline_arrow_composition
   ]
 
@@ -34,9 +33,9 @@ ts = Timestamp . fromIntegral
 -- A Pipeline value composed with 'Category' @(>>>)@. The same
 -- pipeline value can be applied to many streams across many
 -- topologies.
-pipeline_arrow_composition :: TestTree
+pipeline_arrow_composition :: Spec
 pipeline_arrow_composition =
-  testCase "Category-composed pipeline applies end-to-end" $ do
+  it "Category-composed pipeline applies end-to-end" $ do
     let normalise :: Pipeline (KStream Text Text) (KStream Text Text)
         normalise =
               pmapValues T.toUpper
@@ -56,5 +55,5 @@ pipeline_arrow_composition =
     pipeInput driver (topicName "in") (Just "k3") (bytes "haskell") (ts 2) 0
     let outT = createOutputTopic driver (topicName "out") textSerde textSerde
     rs <- readKeyValuesToList outT
-    [v | Right (_, v) <- rs] @?= ["HELL", "HASK"]
+    [v | Right (_, v) <- rs] `shouldBe` ["HELL", "HASK"]
     closeDriver driver

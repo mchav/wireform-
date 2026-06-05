@@ -21,8 +21,7 @@ module Conformance.T0103.TransactionsLocal (tests) where
 
 import Data.IORef (readIORef)
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Transaction as Txn
 import qualified Kafka.Client.Internal.Heartbeat as HB
@@ -45,53 +44,53 @@ mkLocalTransaction = do
     (Conn.BrokerAddress "127.0.0.1" 1)
     60000
 
-tests :: TestTree
-tests = testGroup "0103-transactions_local"
-  [ testCase "fresh transaction is in Uninitialized state" $ do
+tests :: Spec
+tests = describe "0103-transactions_local" $ sequence_
+  [ it "fresh transaction is in Uninitialized state" $ do
       txn <- mkLocalTransaction
       st  <- Txn.getTransactionState txn
-      st @?= Txn.Uninitialized
+      st `shouldBe` Txn.Uninitialized
 
-  , testCase "valid state transitions: Uninitialized -> Ready -> InTransaction -> Committing -> Ready" $ do
+  , it "valid state transitions: Uninitialized -> Ready -> InTransaction -> Committing -> Ready" $ do
       txn <- mkLocalTransaction
       ok1 <- Txn.transitionState txn Txn.Ready
-      ok1 @?= True
+      ok1 `shouldBe` True
       ok2 <- Txn.transitionState txn Txn.InTransaction
-      ok2 @?= True
+      ok2 `shouldBe` True
       ok3 <- Txn.transitionState txn Txn.Committing
-      ok3 @?= True
+      ok3 `shouldBe` True
       ok4 <- Txn.transitionState txn Txn.Ready
-      ok4 @?= True
+      ok4 `shouldBe` True
 
-  , testCase "InTransaction is unreachable from Uninitialized (must initTransactions first)" $ do
+  , it "InTransaction is unreachable from Uninitialized (must initTransactions first)" $ do
       txn <- mkLocalTransaction
       ok  <- Txn.transitionState txn Txn.InTransaction
-      ok @?= False
+      ok `shouldBe` False
       st  <- Txn.getTransactionState txn
-      st @?= Txn.Uninitialized
+      st `shouldBe` Txn.Uninitialized
 
-  , testCase "Ready cannot jump straight to Ready (must commit/abort)" $ do
+  , it "Ready cannot jump straight to Ready (must commit/abort)" $ do
       txn <- mkLocalTransaction
       _   <- Txn.transitionState txn Txn.Ready
       _   <- Txn.transitionState txn Txn.InTransaction
       ok  <- Txn.transitionState txn Txn.Ready
-      ok @?= False
+      ok `shouldBe` False
 
-  , testCase "producer ID and epoch start unset" $ do
+  , it "producer ID and epoch start unset" $ do
       txn <- mkLocalTransaction
       pid <- readIORef (Txn.txnProducerId txn)
       ep  <- readIORef (Txn.txnProducerEpoch txn)
-      pid @?= Nothing
-      ep  @?= Nothing
+      pid `shouldBe` Nothing
+      ep  `shouldBe` Nothing
 
-  , testCase "transactional id is preserved" $ do
+  , it "transactional id is preserved" $ do
       txn <- mkLocalTransaction
       Txn.txnTransactionalId txn
-        @?= Txn.TransactionalId "wireform-conformance-0103"
+        `shouldBe` Txn.TransactionalId "wireform-conformance-0103"
 
   -- Suppress unused-import warning while we wait for HB to come back
   -- in scope (used by other ports).
-  , testCase "heartbeat module is importable (symbol smoke)" $ do
+  , it "heartbeat module is importable (symbol smoke)" $ do
       let _ = HB.createHeartbeatState
-      pure ()
+      pure () :: IO ()
   ]

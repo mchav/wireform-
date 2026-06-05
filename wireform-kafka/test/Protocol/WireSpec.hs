@@ -16,40 +16,39 @@ import Data.Word (Word16, Word32)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives as WP
 
-tests :: TestTree
-tests = testGroup "Wire codec"
-  [ testGroup "fixed-width primitives — round trip"
-      [ testProperty "Int8"   prop_int8
-      , testProperty "Int16"  prop_int16
-      , testProperty "Int32"  prop_int32
-      , testProperty "Int64"  prop_int64
-      , testProperty "Word16" prop_word16
-      , testProperty "Word32" prop_word32
-      , testProperty "Bool"   prop_bool
+tests :: Spec
+tests = describe "Wire codec" $ sequence_
+  [ describe "fixed-width primitives — round trip" $ sequence_
+      [ it "Int8"   prop_int8
+      , it "Int16"  prop_int16
+      , it "Int32"  prop_int32
+      , it "Int64"  prop_int64
+      , it "Word16" prop_word16
+      , it "Word32" prop_word32
+      , it "Bool"   prop_bool
       ]
-  , testGroup "variable-length integers — round trip"
-      [ testProperty "VarInt"  prop_varint
-      , testProperty "VarLong" prop_varlong
-      , testProperty "UVarInt" prop_uvarint
+  , describe "variable-length integers — round trip" $ sequence_
+      [ it "VarInt"  prop_varint
+      , it "VarLong" prop_varlong
+      , it "UVarInt" prop_uvarint
       ]
-  , testGroup "Kafka strings / bytes / arrays — round trip"
-      [ testProperty "KafkaString"   prop_kafka_string
-      , testProperty "CompactString" prop_compact_string
-      , testProperty "KafkaBytes"    prop_kafka_bytes
-      , testProperty "CompactBytes"  prop_compact_bytes
+  , describe "Kafka strings / bytes / arrays — round trip" $ sequence_
+      [ it "KafkaString"   prop_kafka_string
+      , it "CompactString" prop_compact_string
+      , it "KafkaBytes"    prop_kafka_bytes
+      , it "CompactBytes"  prop_compact_bytes
       ]
-  , testGroup "edge cases"
-      [ testCase "runWireGet on truncated input returns Left"
+  , describe "edge cases" $ sequence_
+      [ it "runWireGet on truncated input returns Left"
           truncated_left
-      , testCase "VarInt longer than 5 bytes is rejected"
+      , it "VarInt longer than 5 bytes is rejected"
           oversized_varint
       ]
   ]

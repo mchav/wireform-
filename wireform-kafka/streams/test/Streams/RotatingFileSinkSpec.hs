@@ -17,8 +17,7 @@ import System.Directory
   )
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
   ( Timestamp (..)
@@ -40,8 +39,8 @@ import qualified Kafka.Streams.Printed as Printed
 -- the test bodies still read as low-level handle operations.
 import qualified Kafka.Streams.Printed as RF
 
-tests :: TestTree
-tests = testGroup "Kafka.Streams.Printed (rotating-file sink)"
+tests :: Spec
+tests = describe "Kafka.Streams.Printed (rotating-file sink)" $ sequence_
   [ rotating_basic_write
   , rotating_size_based_rollover
   , printed_to_rotating_file
@@ -55,9 +54,9 @@ ts = Timestamp . fromIntegral
 
 -- | A simple no-rotation run: every record ends up in the
 -- active file.
-rotating_basic_write :: TestTree
+rotating_basic_write :: Spec
 rotating_basic_write =
-  testCase "no-rotation: every record lands in the active file" $
+  it "no-rotation: every record lands in the active file" $
     withSystemTempDirectory "wireform-rot-sink" $ \dir -> do
       let logPath = dir </> "stream.log"
       bracket
@@ -75,17 +74,17 @@ rotating_basic_write =
             closeDriver driver
 
       exists <- doesFileExist logPath
-      assertBool "active log exists" exists
+      (exists) `shouldBe` True
       txt <- readFile logPath
-      assertBool ("contains alpha: " <> txt) ("alpha" `T.isInfixOf` T.pack txt)
-      assertBool ("contains beta: "  <> txt) ("beta"  `T.isInfixOf` T.pack txt)
+      (if ("alpha" `T.isInfixOf` T.pack txt) then pure () else expectationFailure ("contains alpha: " <> txt))
+      (if ("beta"  `T.isInfixOf` T.pack txt) then pure () else expectationFailure ("contains beta: "  <> txt))
 
 -- | A size-based rollover triggers exactly when the next write
 -- would exceed 'rfMaxBytes'. We feed enough records to clear
 -- the size cap once and assert that an archive file appeared.
-rotating_size_based_rollover :: TestTree
+rotating_size_based_rollover :: Spec
 rotating_size_based_rollover =
-  testCase "size-based rollover produces an archive file" $
+  it "size-based rollover produces an archive file" $
     withSystemTempDirectory "wireform-rot-sink-roll" $ \dir -> do
       createDirectoryIfMissing True dir
       let logPath = dir </> "stream.log"
@@ -110,19 +109,17 @@ rotating_size_based_rollover =
       -- We expect the active file (stream.log) plus at least one
       -- archive (stream.YYYYMMDDThhmmssZ.log).
       let archives = filter (\e -> e /= "stream.log") entries
-      assertBool
-        ("expected at least one archived file, got: " <> show entries)
-        (not (null archives))
-      length entries @?= length entries -- silence unused
+      (if (not (null archives)) then pure () else expectationFailure ("expected at least one archived file, got: " <> show entries))
+      length entries `shouldBe` length entries -- silence unused
       mapM_ (removeFile . (dir </>)) entries
 
 -- | End-to-end: 'Printed.withPrintedRotatingFile' wires
 -- 'Kafka.Streams.Printed' to the rotating file sink with a
 -- proper lifecycle bracket. Mirrors the JVM
 -- @KStream.print(Printed.toFile(path))@ with auto rotation.
-printed_to_rotating_file :: TestTree
+printed_to_rotating_file :: Spec
 printed_to_rotating_file =
-  testCase "Printed.withPrintedRotatingFile end-to-end with label override" $
+  it "Printed.withPrintedRotatingFile end-to-end with label override" $
     withSystemTempDirectory "wireform-printed" $ \dir -> do
       let logPath = dir </> "p.log"
       Printed.withPrintedRotatingFile
@@ -138,7 +135,5 @@ printed_to_rotating_file =
             pipeInput driver (topicName "in") (Just "k1") (bytes "hello") (ts 0) 0
             closeDriver driver
       txt <- readFile logPath
-      assertBool ("contains label: " <> txt)
-        ("[from-printed]" `T.isInfixOf` T.pack txt)
-      assertBool ("contains value: " <> txt)
-        ("hello" `T.isInfixOf` T.pack txt)
+      (if ("[from-printed]" `T.isInfixOf` T.pack txt) then pure () else expectationFailure ("contains label: " <> txt))
+      (if ("hello" `T.isInfixOf` T.pack txt) then pure () else expectationFailure ("contains value: " <> txt))

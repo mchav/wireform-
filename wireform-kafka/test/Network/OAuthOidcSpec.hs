@@ -6,57 +6,56 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import Data.IORef
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Network.Auth.OAuthBearer as OAuth
 import qualified Kafka.Network.Auth.OAuthOidc as O
 import qualified Kafka.Time as KafkaTime
 
-tests :: TestTree
-tests = testGroup "OAuth/OIDC + PKCE (KIP-768 / KIP-1169)"
-  [ testCase "PKCE plain method passes the verifier through"
+tests :: Spec
+tests = describe "OAuth/OIDC + PKCE (KIP-768 / KIP-1169)" $ sequence_
+  [ it "PKCE plain method passes the verifier through"
       pkce_plain
-  , testCase "PKCE S256 produces a non-empty url-safe digest"
+  , it "PKCE S256 produces a non-empty url-safe digest"
       pkce_s256
-  , testCase "tokenRefreshDeadlineMs uses 75% of remaining lifetime"
+  , it "tokenRefreshDeadlineMs uses 75% of remaining lifetime"
       refresh_deadline
-  , testCase "shouldRefreshToken trips before expiry"
+  , it "shouldRefreshToken trips before expiry"
       should_refresh
-  , testCase "TokenCache stores + retrieves"
+  , it "TokenCache stores + retrieves"
       cache_round_trip
-  , testCase "oidcTokenProvider reuses a fresh cached token"
+  , it "oidcTokenProvider reuses a fresh cached token"
       provider_uses_fresh_cache
-  , testCase "oidcTokenProvider fetches and stores a stale token"
+  , it "oidcTokenProvider fetches and stores a stale token"
       provider_refreshes_stale_cache
-  , testCase "oidcTokenProvider requires a PKCE verifier when enabled"
+  , it "oidcTokenProvider requires a PKCE verifier when enabled"
       provider_requires_pkce_verifier
   ]
 
 pkce_plain :: IO ()
 pkce_plain = do
   let v = O.mkPkceVerifier (BSC.pack "alphabet-soup")
-  O.pkceChallenge O.PkcePlain v @?= O.unPkceVerifier v
+  O.pkceChallenge O.PkcePlain v `shouldBe` O.unPkceVerifier v
 
 pkce_s256 :: IO ()
 pkce_s256 = do
   let v = O.mkPkceVerifier (BS.replicate 32 0)
       c = O.pkceChallenge O.PkceS256 v
   -- Non-empty + url-safe (no '+' / '/' / '=')
-  assertBool "non-empty"   (not (T.null c))
-  assertBool "url-safe"    (T.all (\ch -> ch /= '+' && ch /= '/' && ch /= '=') c)
+  (not (T.null c)) `shouldBe` True
+  (T.all (\ch -> ch /= '+' && ch /= '/' && ch /= '=') c) `shouldBe` True
 
 refresh_deadline :: IO ()
 refresh_deadline =
   -- issued at 0, expires at 1000 -> 75% threshold = 750.
-  O.tokenRefreshDeadlineMs (mkToken 0 1000) @?= 750
+  O.tokenRefreshDeadlineMs (mkToken 0 1000) `shouldBe` 750
 
 should_refresh :: IO ()
 should_refresh = do
   let t = mkToken 0 1000
-  O.shouldRefreshToken 500 t  @?= False
-  O.shouldRefreshToken 800 t  @?= True
-  O.shouldRefreshToken 1100 t @?= True
+  O.shouldRefreshToken 500 t  `shouldBe` False
+  O.shouldRefreshToken 800 t  `shouldBe` True
+  O.shouldRefreshToken 1100 t `shouldBe` True
 
 cache_round_trip :: IO ()
 cache_round_trip = do
@@ -64,9 +63,9 @@ cache_round_trip = do
   let t = mkToken 0 1000
   O.storeToken c "client-1" t
   m <- O.lookupToken c "client-1"
-  m @?= Just t
+  m `shouldBe` Just t
   m2 <- O.lookupToken c "missing"
-  m2 @?= Nothing
+  m2 `shouldBe` Nothing
 
 provider_uses_fresh_cache :: IO ()
 provider_uses_fresh_cache = do
@@ -87,9 +86,9 @@ provider_uses_fresh_cache = do
   O.storeToken cache (O.oidcClientId cfg) token
   resolved <- OAuth.resolveOAuthToken (O.oidcTokenProvider cfg cache fetcher)
   case resolved of
-    Right tok -> OAuth.oauthTokenBytes tok @?= "cached"
-    Left err -> assertBool err False
-  readIORef calls >>= (@?= 0)
+    Right tok -> OAuth.oauthTokenBytes tok `shouldBe` "cached"
+    Left err -> (if (False) then pure () else expectationFailure (err))
+  readIORef calls >>= (`shouldBe` 0)
 
 provider_refreshes_stale_cache :: IO ()
 provider_refreshes_stale_cache = do
@@ -115,11 +114,11 @@ provider_refreshes_stale_cache = do
   O.storeToken cache (O.oidcClientId cfg) stale
   resolved <- OAuth.resolveOAuthToken (O.oidcTokenProvider cfg cache fetcher)
   case resolved of
-    Right tok -> OAuth.oauthTokenBytes tok @?= "fresh"
-    Left err -> assertBool err False
-  readIORef calls >>= (@?= 1)
+    Right tok -> OAuth.oauthTokenBytes tok `shouldBe` "fresh"
+    Left err -> (if (False) then pure () else expectationFailure (err))
+  readIORef calls >>= (`shouldBe` 1)
   cached <- O.lookupToken cache (O.oidcClientId cfg)
-  cached @?= Just fresh
+  cached `shouldBe` Just fresh
 
 provider_requires_pkce_verifier :: IO ()
 provider_requires_pkce_verifier = do
@@ -133,9 +132,9 @@ provider_requires_pkce_verifier = do
         }
   resolved <- OAuth.resolveOAuthToken (O.oidcTokenProvider cfg cache fetcher)
   case resolved of
-    Left err -> assertBool "mentions PKCE" ("PKCE" `T.isInfixOf` T.pack err)
-    Right _ -> assertBool "expected missing PKCE verifier to fail" False
-  readIORef calls >>= (@?= 0)
+    Left err -> ("PKCE" `T.isInfixOf` T.pack err) `shouldBe` True
+    Right _ -> (False) `shouldBe` True
+  readIORef calls >>= (`shouldBe` 0)
 
 testConfig :: Bool -> O.OidcClientConfig
 testConfig usePkce = O.OidcClientConfig

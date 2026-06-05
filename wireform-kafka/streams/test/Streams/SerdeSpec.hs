@@ -12,53 +12,52 @@ import qualified Data.Text as T
 import Hedgehog ((===), forAll, property)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "Serde"
-  [ testGroup "round-trip"
-      [ testProperty "byteStringSerde" $ property $ do
+tests :: Spec
+tests = describe "Serde" $ sequence_
+  [ describe "round-trip" $ sequence_
+      [ it "byteStringSerde" $ property $ do
           bs <- forAll (Gen.bytes (Range.linear 0 256))
           case deserialize byteStringSerde (serialize byteStringSerde bs) of
             Right bs' -> bs === bs'
             Left e    -> fail (T.unpack e)
-      , testProperty "textSerde" $ property $ do
+      , it "textSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 64) Gen.unicode)
           case deserialize textSerde (serialize textSerde t) of
             Right t' -> t === t'
             Left e    -> fail (T.unpack e)
-      , testProperty "int32Serde" $ property $ do
+      , it "int32Serde" $ property $ do
           n <- forAll (Gen.int32 Range.constantBounded)
           case deserialize int32Serde (serialize int32Serde n) of
             Right n' -> n === n'
             Left e    -> fail (T.unpack e)
-      , testProperty "int64Serde" $ property $ do
+      , it "int64Serde" $ property $ do
           n <- forAll (Gen.int64 Range.constantBounded)
           case deserialize int64Serde (serialize int64Serde n) of
             Right n' -> n === n'
             Left e    -> fail (T.unpack e)
-      , testProperty "doubleSerde" $ property $ do
+      , it "doubleSerde" $ property $ do
           d <- forAll (Gen.double (Range.linearFracFrom 0 (-1e9) 1e9))
           case deserialize doubleSerde (serialize doubleSerde d) of
             Right d' -> d === d'
             Left e    -> fail (T.unpack e)
-      , testProperty "lengthPrefixedSerde" $ property $ do
+      , it "lengthPrefixedSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 32) Gen.unicode)
           let s = lengthPrefixedSerde textSerde
           case deserialize s (serialize s t) of
             Right t' -> t === t'
             Left e    -> fail (T.unpack e)
-      , testProperty "prefixedSerde" $ property $ do
+      , it "prefixedSerde" $ property $ do
           t <- forAll (Gen.text (Range.linear 0 32) Gen.unicode)
           let s = prefixedSerde 0x42 textSerde
           case deserialize s (serialize s t) of
             Right t' -> t === t'
             Left e    -> fail (T.unpack e)
-      , testProperty "imap of int32 over string-of-digits" $ property $ do
+      , it "imap of int32 over string-of-digits" $ property $ do
           n <- forAll (Gen.int32 (Range.constantFrom 0 0 1000))
           let textOfInt :: Serde Int32
               textOfInt = imap (T.pack . show) (read . T.unpack) textSerde
@@ -66,34 +65,34 @@ tests = testGroup "Serde"
             Right n' -> n === n'
             Left e    -> fail (T.unpack e)
       ]
-  , testGroup "specific encodings"
-      [ testCase "int32 BE wire format" $
-          serialize int32Serde 1 @?= BS.pack [0,0,0,1]
-      , testCase "int64 BE wire format" $
-          serialize int64Serde 1 @?= BS.pack [0,0,0,0,0,0,0,1]
-      , testCase "int32 negative" $
-          serialize int32Serde (-1) @?= BS.pack [0xFF,0xFF,0xFF,0xFF]
-      , testCase "voidSerde rejects non-empty" $
+  , describe "specific encodings" $ sequence_
+      [ it "int32 BE wire format" $
+          serialize int32Serde 1 `shouldBe` BS.pack [0,0,0,1]
+      , it "int64 BE wire format" $
+          serialize int64Serde 1 `shouldBe` BS.pack [0,0,0,0,0,0,0,1]
+      , it "int32 negative" $
+          serialize int32Serde (-1) `shouldBe` BS.pack [0xFF,0xFF,0xFF,0xFF]
+      , it "voidSerde rejects non-empty" $
           case deserialize voidSerde (BS.pack [1]) of
             Left _  -> pure ()
-            Right _ -> fail "voidSerde should reject non-empty input"
-      , testCase "prefixedSerde rejects wrong tag" $
+            Right _ -> expectationFailure "voidSerde should reject non-empty input"
+      , it "prefixedSerde rejects wrong tag" $
           let s = prefixedSerde 0x42 textSerde
               encoded = BS.cons 0x99 (serialize textSerde "hello")
            in case deserialize s encoded of
                 Left _  -> pure ()
-                Right _ -> fail "prefixedSerde should reject wrong tag"
-      , testCase "lengthPrefixedSerde rejects truncated header" $
+                Right _ -> expectationFailure "prefixedSerde should reject wrong tag"
+      , it "lengthPrefixedSerde rejects truncated header" $
           case deserialize (lengthPrefixedSerde textSerde) (BS.pack [0,0]) of
             Left _  -> pure ()
-            Right _ -> fail "should reject"
-      , testCase "lengthPrefixedSerde rejects size mismatch" $
+            Right _ -> expectationFailure "should reject"
+      , it "lengthPrefixedSerde rejects size mismatch" $
           let bogus = BS.pack [0,0,0,5,1,2,3]  -- claims 5 bytes, has 3
            in case deserialize (lengthPrefixedSerde byteStringSerde) bogus of
                 Left _  -> pure ()
-                Right _ -> fail "should reject"
+                Right _ -> expectationFailure "should reject"
       ]
-  , testGroup "DeserializationHandler"
+  , describe "DeserializationHandler" $ sequence_
       [ deser_log_and_continue
       , deser_log_and_fail
       ]
@@ -113,9 +112,9 @@ strictGoodSerde = mkSerde
            Right t -> Left ("rejected: " <> t)
            Left e  -> Left e)
 
-deser_log_and_continue :: TestTree
+deser_log_and_continue :: Spec
 deser_log_and_continue =
-  testCase "logAndContinue handler skips bad records, processes good ones" $ do
+  it "logAndContinue handler skips bad records, processes good ones" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde strictGoodSerde)
     toTopic (topicName "out") (produced textSerde strictGoodSerde) s
@@ -128,12 +127,12 @@ deser_log_and_continue =
         pipeInput driver (topicName "in") Nothing (BSC.pack "good") (Timestamp 1) 0
         pipeInput driver (topicName "in") Nothing (BSC.pack "bad2") (Timestamp 2) 0
         out <- readOutput driver (topicName "out")
-        length out @?= 1
+        length out `shouldBe` 1
         closeDriver driver
 
-deser_log_and_fail :: TestTree
+deser_log_and_fail :: Spec
 deser_log_and_fail =
-  testCase "logAndFail handler raises on the first bad record" $ do
+  it "logAndFail handler raises on the first bad record" $ do
     b <- newStreamsBuilder
     s <- streamFromTopic b (topicName "in") (consumed textSerde strictGoodSerde)
     toTopic (topicName "out") (produced textSerde strictGoodSerde) s
@@ -148,5 +147,5 @@ deser_log_and_fail =
             :: IO (Either SomeException ())
         case ePipe of
           Left _  -> pure ()
-          Right _ -> fail "expected logAndFail to raise"
+          Right _ -> expectationFailure "expected logAndFail to raise"
         closeDriver driver

@@ -9,8 +9,7 @@ import Control.Concurrent.MVar
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.State.Store
@@ -18,8 +17,8 @@ import Kafka.Streams.State.Store
   , kvIteratorToList
   )
 
-tests :: TestTree
-tests = testGroup "InteractiveQueries"
+tests :: Spec
+tests = describe "InteractiveQueries" $ sequence_
   [ iq_get_and_count
   , iq_concurrent_read_during_writes
   , iq_range_iterator
@@ -31,9 +30,9 @@ bytes = BSC.pack . T.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-iq_get_and_count :: TestTree
+iq_get_and_count :: Spec
 iq_get_and_count =
-  testCase "queryEngineStore returns the same data as the in-task accessor" $ do
+  it "queryEngineStore returns the same data as the in-task accessor" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -49,15 +48,15 @@ iq_get_and_count =
     case mRO of
       Nothing -> error "iq store missing"
       Just ro -> do
-        ro.roKvGet "k1" >>= (@?= Just "v1updated")
-        ro.roKvGet "k2" >>= (@?= Just "v2")
-        ro.roKvGet "k3" >>= (@?= Nothing)
-        ro.roKvCount >>= (@?= 2)
+        ro.roKvGet "k1" >>= (`shouldBe` Just "v1updated")
+        ro.roKvGet "k2" >>= (`shouldBe` Just "v2")
+        ro.roKvGet "k3" >>= (`shouldBe` Nothing)
+        ro.roKvCount >>= (`shouldBe` 2)
     closeDriver driver
 
-iq_concurrent_read_during_writes :: TestTree
+iq_concurrent_read_during_writes :: Spec
 iq_concurrent_read_during_writes =
-  testCase "queryEngineStore is safe under concurrent reads + writes" $ do
+  it "queryEngineStore is safe under concurrent reads + writes" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -89,7 +88,7 @@ iq_concurrent_read_during_writes =
       [1 .. 1000 :: Int]
     takeMVar finished
     -- Final state should be the last value we wrote.
-    ro.roKvGet "k" >>= (@?= Just "v1000")
+    ro.roKvGet "k" >>= (`shouldBe` Just "v1000")
     closeDriver driver
   where
     loop :: Int -> IO () -> IO ()
@@ -100,9 +99,9 @@ iq_concurrent_read_during_writes =
       _ <- ro.roKvGet "k"
       pure ()
 
-iq_range_iterator :: TestTree
+iq_range_iterator :: Spec
 iq_range_iterator =
-  testCase "queryEngineStore: range iterator returns expected keys" $ do
+  it "queryEngineStore: range iterator returns expected keys" $ do
     b <- newStreamsBuilder
     kt <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -119,5 +118,5 @@ iq_range_iterator =
     Just ro <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore kt)
     it <- ro.roKvRange "b" "d"
     xs <- kvIteratorToList it
-    map fst xs @?= ["b", "c", "d"]
+    map fst xs `shouldBe` ["b", "c", "d"]
     closeDriver driver

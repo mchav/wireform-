@@ -7,16 +7,15 @@ import Data.Word (Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit hiding (assert)
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified BSON.Value as B
 import BSON.Encode (encode)
 import BSON.Decode (decode)
 
-bsonTests :: TestTree
-bsonTests = testGroup "BSON"
+bsonTests :: Spec
+bsonTests = describe "BSON" $ sequence_
   [ unitTests
   , propertyRoundtrips
   , edgeCases
@@ -24,102 +23,102 @@ bsonTests = testGroup "BSON"
   , newTypeTests
   ]
 
-unitTests :: TestTree
-unitTests = testGroup "Unit roundtrips"
-  [ testCase "Null" $ do
+unitTests :: Spec
+unitTests = describe "Unit roundtrips" $ sequence_
+  [ it "Null" $ do
       let val = B.Document (V.singleton (T.pack "x", B.Null))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Bool true" $ do
+  , it "Bool true" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Bool True))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Bool false" $ do
+  , it "Bool false" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Bool False))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Int32" $ do
+  , it "Int32" $ do
       let val = B.Document (V.singleton (T.pack "n", B.Int32 42))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Int64" $ do
+  , it "Int64" $ do
       let val = B.Document (V.singleton (T.pack "n", B.Int64 (-999999999999)))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Double" $ do
+  , it "Double" $ do
       let val = B.Document (V.singleton (T.pack "d", B.Double 3.14))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "String" $ do
+  , it "String" $ do
       let val = B.Document (V.singleton (T.pack "s", B.String (T.pack "hello world")))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Binary" $ do
+  , it "Binary" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 (BS.pack [1,2,3,4])))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "DateTime" $ do
+  , it "DateTime" $ do
       let val = B.Document (V.singleton (T.pack "dt", B.DateTime 1609459200000))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "ObjectId" $ do
+  , it "ObjectId" $ do
       let oid = BS.pack [0x50,0x7f,0x1f,0x77,0xbc,0xf8,0x6c,0xd7,0x99,0x43,0x90,0x11]
           val = B.Document (V.singleton (T.pack "id", B.ObjectId oid))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Regex" $ do
+  , it "Regex" $ do
       let val = B.Document (V.singleton (T.pack "r", B.Regex (T.pack "abc.*") (T.pack "i")))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Nested document" $ do
+  , it "Nested document" $ do
       let inner = B.Document (V.singleton (T.pack "x", B.Int32 1))
           val = B.Document (V.singleton (T.pack "nested", inner))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Array" $ do
+  , it "Array" $ do
       let val = B.Document (V.singleton (T.pack "arr",
                   B.Array (V.fromList [B.Int32 1, B.Int32 2, B.Int32 3])))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
   ]
 
-propertyRoundtrips :: TestTree
-propertyRoundtrips = testGroup "Property roundtrips"
-  [ testProperty "Int32 roundtrip" $ property $ do
+propertyRoundtrips :: Spec
+propertyRoundtrips = describe "Property roundtrips" $ sequence_
+  [ it "Int32 roundtrip" $ property $ do
       n <- forAll $ Gen.int32 Range.linearBounded
       let val = B.Document (V.singleton (T.pack "v", B.Int32 n))
       decode (encode val) === Right val
 
-  , testProperty "Int64 roundtrip" $ property $ do
+  , it "Int64 roundtrip" $ property $ do
       n <- forAll $ Gen.int64 Range.linearBounded
       let val = B.Document (V.singleton (T.pack "v", B.Int64 n))
       decode (encode val) === Right val
 
-  , testProperty "Double roundtrip" $ property $ do
+  , it "Double roundtrip" $ property $ do
       d <- forAll $ Gen.double (Range.linearFrac (-1e12) 1e12)
       let val = B.Document (V.singleton (T.pack "v", B.Double d))
       decode (encode val) === Right val
 
-  , testProperty "String roundtrip" $ property $ do
+  , it "String roundtrip" $ property $ do
       t <- forAll $ Gen.text (Range.linear 0 128) Gen.alphaNum
       let val = B.Document (V.singleton (T.pack "v", B.String t))
       decode (encode val) === Right val
 
-  , testProperty "Binary roundtrip" $ property $ do
+  , it "Binary roundtrip" $ property $ do
       bs <- forAll $ Gen.bytes (Range.linear 0 256)
       let val = B.Document (V.singleton (T.pack "v", B.Binary 0x00 bs))
       decode (encode val) === Right val
 
-  , testProperty "Bool roundtrip" $ property $ do
+  , it "Bool roundtrip" $ property $ do
       b <- forAll Gen.bool
       let val = B.Document (V.singleton (T.pack "v", B.Bool b))
       decode (encode val) === Right val
 
-  , testProperty "DateTime roundtrip" $ property $ do
+  , it "DateTime roundtrip" $ property $ do
       ms <- forAll $ Gen.int64 Range.linearBounded
       let val = B.Document (V.singleton (T.pack "v", B.DateTime ms))
       decode (encode val) === Right val
 
-  , testProperty "Nested document roundtrip" $ property $ do
+  , it "Nested document roundtrip" $ property $ do
       n <- forAll $ Gen.int32 Range.linearBounded
       t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
       b <- forAll Gen.bool
@@ -134,13 +133,13 @@ propertyRoundtrips = testGroup "Property roundtrips"
             ])
       decode (encode val) === Right val
 
-  , testProperty "Array roundtrip" $ property $ do
+  , it "Array roundtrip" $ property $ do
       ns <- forAll $ Gen.list (Range.linear 0 10) (Gen.int32 Range.linearBounded)
       let arr = B.Array (V.fromList (map B.Int32 ns))
           val = B.Document (V.singleton (T.pack "a", arr))
       decode (encode val) === Right val
 
-  , testProperty "Multiple fields roundtrip" $ property $ do
+  , it "Multiple fields roundtrip" $ property $ do
       n <- forAll $ Gen.int32 Range.linearBounded
       m <- forAll $ Gen.int64 Range.linearBounded
       t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
@@ -155,124 +154,124 @@ propertyRoundtrips = testGroup "Property roundtrips"
       decode (encode val) === Right val
   ]
 
-edgeCases :: TestTree
-edgeCases = testGroup "Edge cases"
-  [ testCase "Empty document" $ do
+edgeCases :: Spec
+edgeCases = describe "Edge cases" $ sequence_
+  [ it "Empty document" $ do
       let val = B.Document V.empty
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Empty string" $ do
+  , it "Empty string" $ do
       let val = B.Document (V.singleton (T.pack "s", B.String T.empty))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Empty binary" $ do
+  , it "Empty binary" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 BS.empty))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Empty array" $ do
+  , it "Empty array" $ do
       let val = B.Document (V.singleton (T.pack "a", B.Array V.empty))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Nested arrays" $ do
+  , it "Nested arrays" $ do
       let val = B.Document (V.singleton (T.pack "a",
                   B.Array (V.singleton (B.Array (V.singleton (B.Int32 42))))))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Multiple fields" $ do
+  , it "Multiple fields" $ do
       let val = B.Document (V.fromList
                   [ (T.pack "a", B.Int32 1)
                   , (T.pack "b", B.String (T.pack "two"))
                   , (T.pack "c", B.Bool True)
                   , (T.pack "d", B.Null)
                   ])
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Decode empty input" $
+  , it "Decode empty input" $
       case decode BS.empty of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected error on empty input"
+        Right _ -> expectationFailure "expected error on empty input"
   ]
 
-wireFormatTests :: TestTree
-wireFormatTests = testGroup "Wire format"
-  [ testCase "Empty document is 5 bytes" $ do
+wireFormatTests :: Spec
+wireFormatTests = describe "Wire format" $ sequence_
+  [ it "Empty document is 5 bytes" $ do
       let bs = encode (B.Document V.empty)
-      BS.length bs @?= 5
-      BS.unpack bs @?= [5, 0, 0, 0, 0]
+      BS.length bs `shouldBe` 5
+      BS.unpack bs `shouldBe` [5, 0, 0, 0, 0]
 
-  , testCase "Document size is first 4 LE bytes" $ do
+  , it "Document size is first 4 LE bytes" $ do
       let bs = encode (B.Document V.empty)
           sz = BS.index bs 0
-      sz @?= 5
+      sz `shouldBe` 5
 
-  , testCase "Document ends with 0x00" $ do
+  , it "Document ends with 0x00" $ do
       let bs = encode (B.Document V.empty)
-      BS.last bs @?= 0x00
+      BS.last bs `shouldBe` 0x00
 
-  , testCase "Bool true type tag is 0x08" $ do
+  , it "Bool true type tag is 0x08" $ do
       let bs = encode (B.Document (V.singleton (T.pack "b", B.Bool True)))
-      BS.index bs 4 @?= 0x08
+      BS.index bs 4 `shouldBe` 0x08
   ]
 
-newTypeTests :: TestTree
-newTypeTests = testGroup "New BSON types"
-  [ testCase "Undefined roundtrip" $ do
+newTypeTests :: Spec
+newTypeTests = describe "New BSON types" $ sequence_
+  [ it "Undefined roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "u", B.Undefined))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "MinKey roundtrip" $ do
+  , it "MinKey roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "mk", B.MinKey))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "MaxKey roundtrip" $ do
+  , it "MaxKey roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "mk", B.MaxKey))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "JavaScript roundtrip" $ do
+  , it "JavaScript roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "js", B.JavaScript (T.pack "function(){}")))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Symbol roundtrip" $ do
+  , it "Symbol roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "sym", B.Symbol (T.pack "mySymbol")))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Timestamp roundtrip" $ do
+  , it "Timestamp roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "ts", B.Timestamp 6832747927879254017))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Decimal128 roundtrip" $ do
+  , it "Decimal128 roundtrip" $ do
       let d128 = BS.pack [0..15]
           val = B.Document (V.singleton (T.pack "d", B.Decimal128 d128))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "JavaScriptScope roundtrip" $ do
+  , it "JavaScriptScope roundtrip" $ do
       let scope = B.Document (V.singleton (T.pack "x", B.Int32 42))
           val = B.Document (V.singleton (T.pack "jss", B.JavaScriptScope (T.pack "return x") scope))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Binary with subtype roundtrip" $ do
+  , it "Binary with subtype roundtrip" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Binary 0x04 (BS.pack [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Binary subtype 0x00 (generic)" $ do
+  , it "Binary subtype 0x00 (generic)" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 (BS.pack [0xDE, 0xAD])))
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
 
-  , testCase "Binary subtype preserved" $ do
+  , it "Binary subtype preserved" $ do
       let val = B.Document (V.singleton (T.pack "b", B.Binary 0x05 (BS.pack [1,2,3])))
           Right (B.Document fields) = decode (encode val)
           (_, B.Binary sub _) = V.head fields
-      sub @?= 0x05
+      sub `shouldBe` 0x05
 
-  , testCase "MinKey type tag is 0xFF" $ do
+  , it "MinKey type tag is 0xFF" $ do
       let bs = encode (B.Document (V.singleton (T.pack "mk", B.MinKey)))
-      BS.index bs 4 @?= 0xFF
+      BS.index bs 4 `shouldBe` 0xFF
 
-  , testCase "MaxKey type tag is 0x7F" $ do
+  , it "MaxKey type tag is 0x7F" $ do
       let bs = encode (B.Document (V.singleton (T.pack "mk", B.MaxKey)))
-      BS.index bs 4 @?= 0x7F
+      BS.index bs 4 `shouldBe` 0x7F
 
-  , testCase "Multiple new types in one document" $ do
+  , it "Multiple new types in one document" $ do
       let val = B.Document (V.fromList
             [ (T.pack "js", B.JavaScript (T.pack "1+1"))
             , (T.pack "ts", B.Timestamp 100)
@@ -281,5 +280,5 @@ newTypeTests = testGroup "New BSON types"
             , (T.pack "u", B.Undefined)
             , (T.pack "sym", B.Symbol (T.pack "x"))
             ])
-      decode (encode val) @?= Right val
+      decode (encode val) `shouldBe` Right val
   ]

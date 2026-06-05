@@ -21,8 +21,7 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Arrow.Types as AT
 import Arrow.Record
@@ -55,54 +54,54 @@ import Test.Arrow.RecordTHTypes
   , tradeTHSnake
   )
 
-arrowRecordTests :: TestTree
-arrowRecordTests = testGroup "Arrow.Record"
-  [ testCase "combinator API round-trip" $ do
+arrowRecordTests :: Spec
+arrowRecordTests = describe "Arrow.Record" $ sequence_
+  [ it "combinator API round-trip" $ do
       let (sch, cols) = encodeTable tradeTable sampleTrades
       case decodeTable tradeTable sch cols of
-        Left  e  -> assertFailure $ "decodeTable: " ++ e
-        Right rs -> rs @?= sampleTrades
+        Left  e  -> expectationFailure $ "decodeTable: " ++ e
+        Right rs -> rs `shouldBe` sampleTrades
 
-  , testCase "tableSchema produces the expected fields" $ do
+  , it "tableSchema produces the expected fields" $ do
       let sch = tableSchema tradeTable
           names = V.map (\f -> (AT.fieldName f, AT.fieldNullable f))
                         (AT.arrowFields sch)
-      names @?= V.fromList
+      names `shouldBe` V.fromList
         [ ("sym",  False)
         , ("qty",  False)
         , ("note", True)
         ]
 
-  , testCase "Generic deriver round-trip" $ do
+  , it "Generic deriver round-trip" $ do
       -- 'tradeGen' uses genericTable; field names come from the
       -- record selectors (tradeSym / tradeQty / tradeNote),
       -- encoders from the HasEncoder instances on their types.
       let (sch, cols) = encodeTable tradeGen sampleTradesGen
       case decodeTable tradeGen sch cols of
-        Left  e  -> assertFailure $ "decodeTable (generic): " ++ e
-        Right rs -> rs @?= sampleTradesGen
+        Left  e  -> expectationFailure $ "decodeTable (generic): " ++ e
+        Right rs -> rs `shouldBe` sampleTradesGen
 
-  , testCase "TH deriveTable round-trip" $ do
+  , it "TH deriveTable round-trip" $ do
       let (sch, cols) = encodeTable tradeTH sampleTradesTH
       case decodeTable tradeTH sch cols of
-        Left  e  -> assertFailure $ "TH decodeTable: " ++ e
-        Right rs -> rs @?= sampleTradesTH
+        Left  e  -> expectationFailure $ "TH decodeTable: " ++ e
+        Right rs -> rs `shouldBe` sampleTradesTH
 
-  , testCase "TH deriveTableWith renames column names" $ do
+  , it "TH deriveTableWith renames column names" $ do
       let sch = tableSchema tradeTHSnake
           names = V.map AT.fieldName (AT.arrowFields sch)
       -- deriveTableWith (map toLower) lowercases each selector.
-      names @?= V.fromList ["tradesymsnake", "tradeqtysnake", "tradenotesnake"]
+      names `shouldBe` V.fromList ["tradesymsnake", "tradeqtysnake", "tradenotesnake"]
 
-  , testCase "newtype via contramap / fmap" $ do
+  , it "newtype via contramap / fmap" $ do
       -- UserId wraps Int64 but serialises as the underlying
       -- column. The HasEncoder / HasDecoder instances below make
       -- this work with genericTable too.
       let rs = V.fromList [UserRow (UserId 1) "alice", UserRow (UserId 2) "bob"]
       let (sch, cols) = encodeTable userTable rs
       case decodeTable userTable sch cols of
-        Left  e    -> assertFailure $ "decodeTable (newtype): " ++ e
-        Right rs'  -> rs' @?= rs
+        Left  e    -> expectationFailure $ "decodeTable (newtype): " ++ e
+        Right rs'  -> rs' `shouldBe` rs
   ]
 
 -- ============================================================

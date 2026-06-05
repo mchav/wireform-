@@ -10,8 +10,7 @@ import Data.ByteString (ByteString)
 import Data.Int (Int64)
 import Data.Text (Text)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertFailure)
+import Test.Syd
 
 import Kafka.Streams (int64Serde, storeName, textSerde)
 import Kafka.Streams.Serde (serialize)
@@ -48,48 +47,48 @@ kb = Just . serialize textSerde
 vb :: Int64 -> Maybe ByteString
 vb = Just . serialize int64Serde
 
-tests :: TestTree
-tests = testGroup "Backfill"
+tests :: Spec
+tests = describe "Backfill" $ sequence_
   [ changelog_rebuilds_store
   , changelog_from_offset
   , snapshot_then_tail
   , cdc_drains_into_store
   ]
 
-changelog_rebuilds_store :: TestTree
+changelog_rebuilds_store :: Spec
 changelog_rebuilds_store =
-  testCase "backfillFromChangelog applies puts and tombstones" $ do
+  it "backfillFromChangelog applies puts and tombstones" $ do
     topic <- newInMemoryChangelogTopic
     _ <- publishEntry topic storeNm (kb "k1") (vb 10)
     _ <- publishEntry topic storeNm (kb "k2") (vb 20)
     _ <- publishEntry topic storeNm (kb "k1") Nothing       -- tombstone
     store <- newStore
     res <- backfillFromChangelog store storeNm textSerde int64Serde topic 0
-    backfillApplied res    @?= 3
-    backfillFromOffset res @?= 0
-    backfillToOffset res   @?= 3
+    backfillApplied res    `shouldBe` 3
+    backfillFromOffset res `shouldBe` 0
+    backfillToOffset res   `shouldBe` 3
     v1 <- kvsGet store "k1"
     v2 <- kvsGet store "k2"
-    v1 @?= Nothing
-    v2 @?= Just 20
+    v1 `shouldBe` Nothing
+    v2 `shouldBe` Just 20
 
-changelog_from_offset :: TestTree
+changelog_from_offset :: Spec
 changelog_from_offset =
-  testCase "backfillFromChangelog starts at the given offset" $ do
+  it "backfillFromChangelog starts at the given offset" $ do
     topic <- newInMemoryChangelogTopic
     _ <- publishEntry topic storeNm (kb "a") (vb 1)   -- offset 0
     _ <- publishEntry topic storeNm (kb "b") (vb 2)   -- offset 1
     store <- newStore
     res <- backfillFromChangelog store storeNm textSerde int64Serde topic 1
-    backfillApplied res @?= 1
+    backfillApplied res `shouldBe` 1
     va <- kvsGet store "a"
     vb' <- kvsGet store "b"
-    va  @?= Nothing       -- offset 0 skipped
-    vb' @?= Just 2
+    va  `shouldBe` Nothing       -- offset 0 skipped
+    vb' `shouldBe` Just 2
 
-snapshot_then_tail :: TestTree
+snapshot_then_tail :: Spec
 snapshot_then_tail =
-  testCase "backfillFromSnapshot restores blob then replays the tail" $ do
+  it "backfillFromSnapshot restores blob then replays the tail" $ do
     os <- inMemoryObjectStore "obj"
     -- Build & snapshot a source store at advancedTo = 1.
     src <- newStore
@@ -97,7 +96,7 @@ snapshot_then_tail =
     kvsPut src "b" 2
     snapR <- snapshotStore os storeNm (SnapshotId 1) 1
                (serialize textSerde) (serialize int64Serde) src
-    snapR @?= Right ()
+    snapR `shouldBe` Right ()
     -- Changelog: offset 0 should be ignored (before advancedTo),
     -- offset 1 replayed.
     topic <- newInMemoryChangelogTopic
@@ -106,27 +105,27 @@ snapshot_then_tail =
     dest <- newStore
     res <- backfillFromSnapshot os storeNm dest textSerde int64Serde topic
     case res of
-      Left e   -> assertFailure ("backfill failed: " <> show e)
+      Left e   -> expectationFailure ("backfill failed: " <> show e)
       Right br -> do
-        backfillFromOffset br @?= 1
+        backfillFromOffset br `shouldBe` 1
         va <- kvsGet dest "a"
         vb' <- kvsGet dest "b"
         vc <- kvsGet dest "c"
-        va  @?= Just 1     -- from snapshot, NOT 99 (offset 0 skipped)
-        vb' @?= Just 2     -- from snapshot
-        vc  @?= Just 3     -- from changelog tail
+        va  `shouldBe` Just 1     -- from snapshot, NOT 99 (offset 0 skipped)
+        vb' `shouldBe` Just 2     -- from snapshot
+        vc  `shouldBe` Just 3     -- from changelog tail
 
-cdc_drains_into_store :: TestTree
+cdc_drains_into_store :: Spec
 cdc_drains_into_store =
-  testCase "cdcBackfill applies compacted CDC events to the store" $ do
+  it "cdcBackfill applies compacted CDC events to the store" $ do
     (src, h) <- inMemoryCDCSource "t"
     store <- newStore
     pushCDC h (CDCEvent CDCInsert "a" Nothing (Just 1) 0 (Timestamp 0))
     pushCDC h (CDCEvent CDCInsert "b" Nothing (Just 2) 1 (Timestamp 0))
     pushCDC h (CDCEvent CDCUpdate "a" (Just 1) (Just 9) 2 (Timestamp 0))
     res <- cdcBackfill src store
-    cdcApplied res @?= 2          -- compacted to last-per-key
+    cdcApplied res `shouldBe` 2          -- compacted to last-per-key
     va <- kvsGet store "a"
     vb' <- kvsGet store "b"
-    va  @?= Just 9
-    vb' @?= Just 2
+    va  `shouldBe` Just 9
+    vb' `shouldBe` Just 2

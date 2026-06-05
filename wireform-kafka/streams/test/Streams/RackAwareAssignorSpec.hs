@@ -13,8 +13,7 @@ module Streams.RackAwareAssignorSpec (tests) where
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Processor (TaskId (..))
 import Kafka.Streams.Runtime.Assignor
@@ -25,8 +24,8 @@ m i = MemberId (T.pack ("m" <> show i))
 t :: Int -> TaskId
 t i = TaskId 0 (fromIntegral i)
 
-tests :: TestTree
-tests = testGroup "Rack-aware assignor (KIP-925)"
+tests :: Spec
+tests = describe "Rack-aware assignor (KIP-925)" $ sequence_
   [ same_rack_wins_among_lightest
   , rack_info_empty_equals_plain_assign
   , standbys_prefer_different_rack
@@ -36,9 +35,9 @@ tests = testGroup "Rack-aware assignor (KIP-925)"
 -- 1. Same-rack tie-break
 ----------------------------------------------------------------------
 
-same_rack_wins_among_lightest :: TestTree
+same_rack_wins_among_lightest :: Spec
 same_rack_wins_among_lightest =
-  testCase "Lightest-loaded members in matching rack are preferred over off-rack" $ do
+  it "Lightest-loaded members in matching rack are preferred over off-rack" $ do
     let members = Set.fromList [m 0, m 1, m 2]
         -- 1 task. Two members are lightest-loaded (everyone
         -- starts at 0), so the rack tie-breaker decides.
@@ -60,17 +59,15 @@ same_rack_wins_among_lightest =
                   | (memb, asg) <- Map.toList na
                   , Set.member (t 0) asg.active
                   ]
-    assertBool
-      ("task landed on " <> show owner <> " not a rack-b member")
-      (owner `elem` [m 1, m 2])
+    (if (owner `elem` [m 1, m 2]) then pure () else expectationFailure ("task landed on " <> show owner <> " not a rack-b member"))
 
 ----------------------------------------------------------------------
 -- 2. Empty rack info = same as plain assign
 ----------------------------------------------------------------------
 
-rack_info_empty_equals_plain_assign :: TestTree
+rack_info_empty_equals_plain_assign :: Spec
 rack_info_empty_equals_plain_assign =
-  testCase "assignRackAware with empty RackInfo: identical to assign" $ do
+  it "assignRackAware with empty RackInfo: identical to assign" $ do
     let members = Set.fromList [m 0, m 1]
         tasks   = Set.fromList [t i | i <- [0 .. 3]]
         ri      = RackInfo Map.empty Map.empty
@@ -81,15 +78,15 @@ rack_info_empty_equals_plain_assign =
     -- can differ (the rack-aware standby placement sorts by
     -- (load, cost, idx) which can pick a different
     -- deterministic order); we don't compare standbys here.
-    Map.map (\ta -> ta.active) a @?= Map.map (\ta -> ta.active) b
+    Map.map (\ta -> ta.active) a `shouldBe` Map.map (\ta -> ta.active) b
 
 ----------------------------------------------------------------------
 -- 3. Standbys prefer different rack
 ----------------------------------------------------------------------
 
-standbys_prefer_different_rack :: TestTree
+standbys_prefer_different_rack :: Spec
 standbys_prefer_different_rack =
-  testCase "Standby for a task placed in rack X prefers a member in rack Y" $ do
+  it "Standby for a task placed in rack X prefers a member in rack Y" $ do
     let members = Set.fromList [m 0, m 1, m 2, m 3]
         tasks   = Set.fromList [t 0]
         ri = RackInfo
@@ -113,14 +110,12 @@ standbys_prefer_different_rack =
         standbys = ownersOf (\ta -> ta.standby)
     -- Active should land in rack-a (cheapest traffic for the
     -- task's partitions in rack-a).
-    actives @?= [m 0]
+    actives `shouldBe` [m 0]
     -- Standby should land in rack-b (the non-overlap cost
     -- pushes it away from rack-a where the active lives).
     case standbys of
-      [s] -> assertBool
-               ("standby landed on " <> show s
-                  <> " not a rack-b member")
-               (s `elem` [m 2, m 3])
+      [s] -> (if (s `elem` [m 2, m 3]) then pure () else expectationFailure ("standby landed on " <> show s
+                  <> " not a rack-b member"))
       _ ->
         error
           ("expected exactly one standby, got "

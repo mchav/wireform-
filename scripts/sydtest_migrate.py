@@ -355,6 +355,31 @@ def _skip_ws(src: str, i: int) -> int:
     return i
 
 
+def _read_dollar_expr(src: str, i: int, base_indent: int) -> tuple[str, int]:
+    """Read an expression starting at i that continues across lines until
+    a non-blank line dedents to <= base_indent. Returns (expr, end)."""
+    n = len(src)
+    k = i
+    while k < n:
+        nl = src.find("\n", k)
+        if nl == -1:
+            k = n
+            break
+        m = nl + 1
+        ls = m
+        while m < n and src[m] in " \t":
+            m += 1
+        if m >= n or src[m] == "\n":
+            # EOF or blank line ends the expression
+            k = nl
+            break
+        if (m - ls) <= base_indent:
+            k = nl
+            break
+        k = nl + 1
+    return src[i:k].rstrip(), k
+
+
 def _read_arg(src: str, i: int):
     """Read one Haskell expression argument starting at i. Supports a
     parenthesised group, a string literal, or a bare token. Returns
@@ -398,6 +423,8 @@ def _convert_assert_bool(src: str) -> tuple[str, list[str]]:
             i = j + len(needle)
             continue
         out.append(src[i:j])
+        line_start = src.rfind("\n", 0, j) + 1
+        base_indent = j - line_start
         k = _skip_ws(src, j + len(needle))
         msg, k = _read_arg(src, k)
         if msg is None:
@@ -406,8 +433,14 @@ def _convert_assert_bool(src: str) -> tuple[str, list[str]]:
             i = max(k, j + len(needle))
             continue
         e = _skip_ws(src, k)
-        cond, eend = _read_arg(src, e)
-        if cond is None:
+        if e < len(src) and src[e] == "$":
+            # `assertBool MSG $ EXPR` — EXPR runs to the dedent back to
+            # (or past) the assertBool column.
+            e2 = _skip_ws(src, e + 1)
+            cond, eend = _read_dollar_expr(src, e2, base_indent)
+        else:
+            cond, eend = _read_arg(src, e)
+        if cond is None or cond.strip() == "":
             notes.append("assertBool: could not parse condition; skipped")
             out.append(src[j:e])
             i = e

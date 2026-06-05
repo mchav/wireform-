@@ -1,7 +1,6 @@
 module Test.FlatBuffersCodeGen (flatBuffersCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -9,8 +8,8 @@ import qualified Data.Vector as V
 import FlatBuffers.Schema
 import FlatBuffers.CodeGen (generateFlatBuffersTypes)
 
-flatBuffersCodeGenTests :: TestTree
-flatBuffersCodeGenTests = testGroup "FlatBuffers.CodeGen"
+flatBuffersCodeGenTests :: Spec
+flatBuffersCodeGenTests = describe "FlatBuffers.CodeGen" $ sequence_
   [ testTableCodeGen
   , testStructCodeGen
   , testEnumCodeGen
@@ -29,8 +28,8 @@ emptySchema = FlatBuffersSchema
   , fbsAttributes = V.empty
   }
 
-testTableCodeGen :: TestTree
-testTableCodeGen = testCase "generates table record with Maybe for optional fields" $ do
+testTableCodeGen :: Spec
+testTableCodeGen = it "generates table record with Maybe for optional fields" $ do
   let schema = emptySchema
         { fbsDecls = V.fromList
             [ FBTable (TableDef
@@ -43,14 +42,14 @@ testTableCodeGen = testCase "generates table record with Maybe for optional fiel
             ]
         }
       code = generateFlatBuffersTypes schema
-  assertBool "contains data Monster" ("data Monster = Monster" `T.isInfixOf` code)
-  assertBool "contains monsterName field" ("monsterName" `T.isInfixOf` code)
-  assertBool "contains monsterHp field" ("monsterHp" `T.isInfixOf` code)
-  assertBool "name is Maybe (no default)" ("Maybe Text" `T.isInfixOf` code)
-  assertBool "hp is strict (has default)" ("!Int32" `T.isInfixOf` code)
+  ("data Monster = Monster" `T.isInfixOf` code) `shouldBe` True
+  ("monsterName" `T.isInfixOf` code) `shouldBe` True
+  ("monsterHp" `T.isInfixOf` code) `shouldBe` True
+  ("Maybe Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int32" `T.isInfixOf` code) `shouldBe` True
 
-testStructCodeGen :: TestTree
-testStructCodeGen = testCase "generates strict struct record" $ do
+testStructCodeGen :: Spec
+testStructCodeGen = it "generates strict struct record" $ do
   let schema = emptySchema
         { fbsDecls = V.fromList
             [ FBStruct (FBStructDef
@@ -64,14 +63,14 @@ testStructCodeGen = testCase "generates strict struct record" $ do
             ]
         }
       code = generateFlatBuffersTypes schema
-  assertBool "contains data Vec3" ("data Vec3 = Vec3" `T.isInfixOf` code)
-  assertBool "contains vec3X" ("vec3X" `T.isInfixOf` code)
-  assertBool "contains vec3Y" ("vec3Y" `T.isInfixOf` code)
-  assertBool "contains vec3Z" ("vec3Z" `T.isInfixOf` code)
-  assertBool "strict Float" ("!Float" `T.isInfixOf` code)
+  ("data Vec3 = Vec3" `T.isInfixOf` code) `shouldBe` True
+  ("vec3X" `T.isInfixOf` code) `shouldBe` True
+  ("vec3Y" `T.isInfixOf` code) `shouldBe` True
+  ("vec3Z" `T.isInfixOf` code) `shouldBe` True
+  ("!Float" `T.isInfixOf` code) `shouldBe` True
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "generates enum sum type" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "generates enum sum type" $ do
   let schema = emptySchema
         { fbsDecls = V.fromList
             [ FBEnum (FBEnumDef
@@ -86,13 +85,13 @@ testEnumCodeGen = testCase "generates enum sum type" $ do
             ]
         }
       code = generateFlatBuffersTypes schema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
 
-testUnionCodeGen :: TestTree
-testUnionCodeGen = testCase "generates union sum type" $ do
+testUnionCodeGen :: Spec
+testUnionCodeGen = it "generates union sum type" $ do
   let schema = emptySchema
         { fbsDecls = V.fromList
             [ FBUnion (FBUnionDef
@@ -102,12 +101,12 @@ testUnionCodeGen = testCase "generates union sum type" $ do
             ]
         }
       code = generateFlatBuffersTypes schema
-  assertBool "contains data Equipment" ("data Equipment" `T.isInfixOf` code)
-  assertBool "contains EquipmentWeapon" ("EquipmentWeapon" `T.isInfixOf` code)
-  assertBool "contains EquipmentArmor" ("EquipmentArmor" `T.isInfixOf` code)
+  ("data Equipment" `T.isInfixOf` code) `shouldBe` True
+  ("EquipmentWeapon" `T.isInfixOf` code) `shouldBe` True
+  ("EquipmentArmor" `T.isInfixOf` code) `shouldBe` True
 
-testTableOptionalFields :: TestTree
-testTableOptionalFields = testCase "table fields without default get Maybe" $ do
+testTableOptionalFields :: Spec
+testTableOptionalFields = it "table fields without default get Maybe" $ do
   let schema = emptySchema
         { fbsDecls = V.fromList
             [ FBTable (TableDef
@@ -119,4 +118,4 @@ testTableOptionalFields = testCase "table fields without default get Maybe" $ do
             ]
         }
       code = generateFlatBuffersTypes schema
-  assertBool "contains Maybe Int64" ("Maybe Int64" `T.isInfixOf` code)
+  ("Maybe Int64" `T.isInfixOf` code) `shouldBe` True

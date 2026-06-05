@@ -33,8 +33,8 @@ import Data.Void (Void)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Topology.Free as F
@@ -137,9 +137,9 @@ runWith optCfg ops inputs = do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Optimizer equivalence"
-  [ testProperty "optimised compile observably equals un-optimised" $
+tests :: Spec
+tests = describe "Optimizer equivalence" $ sequence_
+  [ it "optimised compile observably equals un-optimised" $
       H.withTests 80 propEquivalence
   ]
 

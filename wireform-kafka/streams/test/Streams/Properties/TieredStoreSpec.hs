@@ -28,9 +28,8 @@ import Data.Map.Strict (Map)
 import qualified Hedgehog as H
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
 import Kafka.Streams.State.KeyValue.Tiered
@@ -67,16 +66,16 @@ newPair cap every = do
 -- Unit
 ----------------------------------------------------------------------
 
-unit_put_then_get :: TestTree
+unit_put_then_get :: Spec
 unit_put_then_get =
-  testCase "put then get goes through hot" $ do
+  it "put then get goes through hot" $ do
     kv <- newPair 100 0
     kvsPut kv 1 100
-    kvsGet kv 1 >>= (@?= Just 100)
+    kvsGet kv 1 >>= (`shouldBe` Just 100)
 
-unit_promote_on_read :: TestTree
+unit_promote_on_read :: Spec
 unit_promote_on_read =
-  testCase "read of cold-only key promotes to hot" $ do
+  it "read of cold-only key promotes to hot" $ do
     hot  <- inMemoryKeyValueStore @K @V (storeName "hot")
     cold <- inMemoryColdTier @K @V "cold"
     -- Seed cold with a key the hot doesn't see.
@@ -87,13 +86,13 @@ unit_promote_on_read =
       , tcEvict      = countBasedEviction 100
       , tcEvictEvery = 0
       }
-    kvsGet wrapped 7 >>= (@?= Just 7000)
+    kvsGet wrapped 7 >>= (`shouldBe` Just 7000)
     -- After the read, the key is in hot.
-    kvsGet hot 7 >>= (@?= Just 7000)
+    kvsGet hot 7 >>= (`shouldBe` Just 7000)
 
-unit_eviction_demotes :: TestTree
+unit_eviction_demotes :: Spec
 unit_eviction_demotes =
-  testCase "exceeding hot capacity demotes the overflow to cold" $ do
+  it "exceeding hot capacity demotes the overflow to cold" $ do
     hot  <- inMemoryKeyValueStore @K @V (storeName "hot")
     cold <- inMemoryColdTier @K @V "cold"
     (wrapped, _stats) <- tieredKeyValueStore TieredConfig
@@ -108,14 +107,14 @@ unit_eviction_demotes =
     kvsPut wrapped 3 3
     -- Cold now contains the oldest entry.
     coldEntries <- ctScan cold
-    length coldEntries @?= 1
+    length coldEntries `shouldBe` 1
     -- Hot has the latest 2.
     hotN <- kvsApproxEntries hot
-    hotN @?= 2
+    hotN `shouldBe` 2
 
-unit_delete_clears_cold :: TestTree
+unit_delete_clears_cold :: Spec
 unit_delete_clears_cold =
-  testCase "delete of a cold-only key clears it" $ do
+  it "delete of a cold-only key clears it" $ do
     hot  <- inMemoryKeyValueStore @K @V (storeName "hot")
     cold <- inMemoryColdTier @K @V "cold"
     ctPut cold 9 9000
@@ -124,9 +123,9 @@ unit_delete_clears_cold =
       , tcEvict = countBasedEviction 100, tcEvictEvery = 0
       }
     mv <- kvsDelete wrapped 9
-    mv @?= Just 9000
-    kvsGet wrapped 9 >>= (@?= Nothing)
-    ctScan cold >>= (@?= [])
+    mv `shouldBe` Just 9000
+    kvsGet wrapped 9 >>= (`shouldBe` Nothing)
+    ctScan cold >>= (`shouldBe` [])
 
 ----------------------------------------------------------------------
 -- Properties
@@ -195,14 +194,14 @@ prop_get_path_matches_plain = H.property $ do
 -- Tests
 ----------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Tiered KV store"
+tests :: Spec
+tests = describe "Tiered KV store" $ sequence_
   [ unit_put_then_get
   , unit_promote_on_read
   , unit_eviction_demotes
   , unit_delete_clears_cold
-  , testProperty "tiered store agrees with a plain store on kvsAll" $
+  , it "tiered store agrees with a plain store on kvsAll" $
       H.withTests 120 prop_tiered_matches_plain
-  , testProperty "tiered store agrees with a plain store on point lookups" $
+  , it "tiered store agrees with a plain store on point lookups" $
       H.withTests 120 prop_get_path_matches_plain
   ]

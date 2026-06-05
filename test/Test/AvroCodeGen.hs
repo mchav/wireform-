@@ -1,7 +1,6 @@
 module Test.AvroCodeGen (avroCodeGenTests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -11,8 +10,8 @@ import qualified Data.Vector as V
 import Avro.Schema
 import Avro.CodeGen (generateAvroTypes)
 
-avroCodeGenTests :: TestTree
-avroCodeGenTests = testGroup "Avro.CodeGen"
+avroCodeGenTests :: Spec
+avroCodeGenTests = describe "Avro.CodeGen" $ sequence_
   [ testRecordCodeGen
   , testEnumCodeGen
   , testNullableUnionCodeGen
@@ -34,20 +33,20 @@ personSchema = AvroRecord
     ]
   }
 
-testRecordCodeGen :: TestTree
-testRecordCodeGen = testCase "generates record data type + instances from Avro schema" $ do
+testRecordCodeGen :: Spec
+testRecordCodeGen = it "generates record data type + instances from Avro schema" $ do
   let code = generateAvroTypes personSchema
-  assertBool "contains data Person" ("data Person = Person" `T.isInfixOf` code)
-  assertBool "contains personName field" ("personName" `T.isInfixOf` code)
-  assertBool "contains personAge field" ("personAge" `T.isInfixOf` code)
-  assertBool "contains personEmail field" ("personEmail" `T.isInfixOf` code)
-  assertBool "personName is Text" ("!Text" `T.isInfixOf` code)
-  assertBool "personAge is Int32" ("!Int32" `T.isInfixOf` code)
-  assertBool "personEmail is Maybe Text" ("Maybe Text" `T.isInfixOf` code)
-  assertBool "contains ToAvro instance" ("instance ToAvro Person" `T.isInfixOf` code)
-  assertBool "contains FromAvro instance" ("instance FromAvro Person" `T.isInfixOf` code)
-  assertBool "contains deriving Show Eq" ("Show, Eq" `T.isInfixOf` code)
-  assertBool "contains deriving NFData" ("NFData" `T.isInfixOf` code)
+  ("data Person = Person" `T.isInfixOf` code) `shouldBe` True
+  ("personName" `T.isInfixOf` code) `shouldBe` True
+  ("personAge" `T.isInfixOf` code) `shouldBe` True
+  ("personEmail" `T.isInfixOf` code) `shouldBe` True
+  ("!Text" `T.isInfixOf` code) `shouldBe` True
+  ("!Int32" `T.isInfixOf` code) `shouldBe` True
+  ("Maybe Text" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToAvro Person" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromAvro Person" `T.isInfixOf` code) `shouldBe` True
+  ("Show, Eq" `T.isInfixOf` code) `shouldBe` True
+  ("NFData" `T.isInfixOf` code) `shouldBe` True
 
 colorSchema :: AvroType
 colorSchema = AvroEnum
@@ -59,19 +58,19 @@ colorSchema = AvroEnum
   , avroEnumDefault = Nothing
   }
 
-testEnumCodeGen :: TestTree
-testEnumCodeGen = testCase "generates enum sum type from Avro schema" $ do
+testEnumCodeGen :: Spec
+testEnumCodeGen = it "generates enum sum type from Avro schema" $ do
   let code = generateAvroTypes colorSchema
-  assertBool "contains data Color" ("data Color" `T.isInfixOf` code)
-  assertBool "contains ColorRed" ("ColorRed" `T.isInfixOf` code)
-  assertBool "contains ColorGreen" ("ColorGreen" `T.isInfixOf` code)
-  assertBool "contains ColorBlue" ("ColorBlue" `T.isInfixOf` code)
-  assertBool "contains ToAvro instance" ("instance ToAvro Color" `T.isInfixOf` code)
-  assertBool "contains FromAvro instance" ("instance FromAvro Color" `T.isInfixOf` code)
-  assertBool "contains Enum, Bounded deriving" ("Enum, Bounded" `T.isInfixOf` code)
+  ("data Color" `T.isInfixOf` code) `shouldBe` True
+  ("ColorRed" `T.isInfixOf` code) `shouldBe` True
+  ("ColorGreen" `T.isInfixOf` code) `shouldBe` True
+  ("ColorBlue" `T.isInfixOf` code) `shouldBe` True
+  ("instance ToAvro Color" `T.isInfixOf` code) `shouldBe` True
+  ("instance FromAvro Color" `T.isInfixOf` code) `shouldBe` True
+  ("Enum, Bounded" `T.isInfixOf` code) `shouldBe` True
 
-testNullableUnionCodeGen :: TestTree
-testNullableUnionCodeGen = testCase "union [null, T] produces Maybe T" $ do
+testNullableUnionCodeGen :: Spec
+testNullableUnionCodeGen = it "union [null, T] produces Maybe T" $ do
   let schema = AvroRecord
         { avroRecordName = "OptionalField"
         , avroRecordNamespace = Nothing
@@ -83,10 +82,10 @@ testNullableUnionCodeGen = testCase "union [null, T] produces Maybe T" $ do
           ]
         }
       code = generateAvroTypes schema
-  assertBool "contains Maybe Int64" ("Maybe Int64" `T.isInfixOf` code)
+  ("Maybe Int64" `T.isInfixOf` code) `shouldBe` True
 
-testNestedRecordCodeGen :: TestTree
-testNestedRecordCodeGen = testCase "nested records produce separate data types" $ do
+testNestedRecordCodeGen :: Spec
+testNestedRecordCodeGen = it "nested records produce separate data types" $ do
   let addressSchema = AvroRecord
         { avroRecordName = "Address"
         , avroRecordNamespace = Nothing
@@ -110,15 +109,15 @@ testNestedRecordCodeGen = testCase "nested records produce separate data types" 
           ]
         }
       code = generateAvroTypes schema
-  assertBool "contains data Address" ("data Address = Address" `T.isInfixOf` code)
-  assertBool "contains data Employee" ("data Employee = Employee" `T.isInfixOf` code)
-  assertBool "contains addressStreet" ("addressStreet" `T.isInfixOf` code)
-  assertBool "contains addressCity" ("addressCity" `T.isInfixOf` code)
-  assertBool "contains employeeName" ("employeeName" `T.isInfixOf` code)
-  assertBool "contains employeeAddress" ("employeeAddress" `T.isInfixOf` code)
+  ("data Address = Address" `T.isInfixOf` code) `shouldBe` True
+  ("data Employee = Employee" `T.isInfixOf` code) `shouldBe` True
+  ("addressStreet" `T.isInfixOf` code) `shouldBe` True
+  ("addressCity" `T.isInfixOf` code) `shouldBe` True
+  ("employeeName" `T.isInfixOf` code) `shouldBe` True
+  ("employeeAddress" `T.isInfixOf` code) `shouldBe` True
 
-testArrayAndMapCodeGen :: TestTree
-testArrayAndMapCodeGen = testCase "arrays -> Vector, maps -> Map Text" $ do
+testArrayAndMapCodeGen :: Spec
+testArrayAndMapCodeGen = it "arrays -> Vector, maps -> Map Text" $ do
   let schema = AvroRecord
         { avroRecordName = "Container"
         , avroRecordNamespace = Nothing
@@ -131,5 +130,5 @@ testArrayAndMapCodeGen = testCase "arrays -> Vector, maps -> Map Text" $ do
           ]
         }
       code = generateAvroTypes schema
-  assertBool "contains Vector" ("Vector" `T.isInfixOf` code)
-  assertBool "contains Map Text" ("Map Text" `T.isInfixOf` code)
+  ("Vector" `T.isInfixOf` code) `shouldBe` True
+  ("Map Text" `T.isInfixOf` code) `shouldBe` True

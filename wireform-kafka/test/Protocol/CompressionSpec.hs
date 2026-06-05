@@ -10,13 +10,12 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Hedgehog (Property, Gen, (===), forAll, property, assert, annotate, evalIO)
 import qualified Kafka.Compression.Types as Compression
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Hedgehog (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 -- | Main test group for compression codecs
-compressionTests :: TestTree
-compressionTests = testGroup "Compression"
+compressionTests :: Spec
+compressionTests = describe "Compression" $ sequence_
   [ codecPropertyTests
   , codecUnitTests
   , codecEdgeCaseTests
@@ -27,17 +26,17 @@ compressionTests = testGroup "Compression"
 -- Property-based tests
 -- -----------------------------------------------------------------------------
 
-codecPropertyTests :: TestTree
-codecPropertyTests = testGroup "Property Tests"
-  [ testProperty "NoCompression round-trip preserves data" prop_noCompression_roundTrip
-  , testProperty "Gzip round-trip preserves data" prop_gzip_roundTrip
-  , testProperty "Zstd round-trip preserves data" prop_zstd_roundTrip
-  , testProperty "Lz4 round-trip preserves data" prop_lz4_roundTrip
-  , testProperty "Snappy round-trip preserves data" prop_snappy_roundTrip
-  , testProperty "All codecs preserve empty data" prop_empty_roundTrip
-  , testProperty "All codecs preserve single byte" prop_singleByte_roundTrip
-  , testProperty "All codecs preserve large data" prop_largeData_roundTrip
-  , testProperty "Repeated data compresses well" prop_repeatedData_compresses
+codecPropertyTests :: Spec
+codecPropertyTests = describe "Property Tests" $ sequence_
+  [ it "NoCompression round-trip preserves data" prop_noCompression_roundTrip
+  , it "Gzip round-trip preserves data" prop_gzip_roundTrip
+  , it "Zstd round-trip preserves data" prop_zstd_roundTrip
+  , it "Lz4 round-trip preserves data" prop_lz4_roundTrip
+  , it "Snappy round-trip preserves data" prop_snappy_roundTrip
+  , it "All codecs preserve empty data" prop_empty_roundTrip
+  , it "All codecs preserve single byte" prop_singleByte_roundTrip
+  , it "All codecs preserve large data" prop_largeData_roundTrip
+  , it "Repeated data compresses well" prop_repeatedData_compresses
   ]
 
 -- | Test that NoCompression codec preserves data exactly
@@ -128,67 +127,67 @@ prop_repeatedData_compresses = property $ do
 -- Unit tests
 -- -----------------------------------------------------------------------------
 
-codecUnitTests :: TestTree
-codecUnitTests = testGroup "Unit Tests"
-  [ testCase "codecId returns correct IDs" test_codecId
-  , testCase "codecName returns correct names" test_codecName
-  , testCase "parseCompressionCodec parses correctly" test_parseCodec
-  , testCase "parseCompressionCodec is case-insensitive" test_parseCodec_caseInsensitive
-  , testCase "NoCompression is identity" test_noCompression_identity
+codecUnitTests :: Spec
+codecUnitTests = describe "Unit Tests" $ sequence_
+  [ it "codecId returns correct IDs" test_codecId
+  , it "codecName returns correct names" test_codecName
+  , it "parseCompressionCodec parses correctly" test_parseCodec
+  , it "parseCompressionCodec is case-insensitive" test_parseCodec_caseInsensitive
+  , it "NoCompression is identity" test_noCompression_identity
   ]
 
 test_codecId :: IO ()
 test_codecId = do
-  Compression.codecId Compression.NoCompression @?= 0
-  Compression.codecId Compression.Gzip @?= 1
-  Compression.codecId Compression.Snappy @?= 2
-  Compression.codecId Compression.Lz4 @?= 3
-  Compression.codecId Compression.Zstd @?= 4
+  Compression.codecId Compression.NoCompression `shouldBe` 0
+  Compression.codecId Compression.Gzip `shouldBe` 1
+  Compression.codecId Compression.Snappy `shouldBe` 2
+  Compression.codecId Compression.Lz4 `shouldBe` 3
+  Compression.codecId Compression.Zstd `shouldBe` 4
 
 test_codecName :: IO ()
 test_codecName = do
-  Compression.codecName Compression.NoCompression @?= "none"
-  Compression.codecName Compression.Gzip @?= "gzip"
-  Compression.codecName Compression.Snappy @?= "snappy"
-  Compression.codecName Compression.Lz4 @?= "lz4"
-  Compression.codecName Compression.Zstd @?= "zstd"
+  Compression.codecName Compression.NoCompression `shouldBe` "none"
+  Compression.codecName Compression.Gzip `shouldBe` "gzip"
+  Compression.codecName Compression.Snappy `shouldBe` "snappy"
+  Compression.codecName Compression.Lz4 `shouldBe` "lz4"
+  Compression.codecName Compression.Zstd `shouldBe` "zstd"
 
 test_parseCodec :: IO ()
 test_parseCodec = do
-  Compression.parseCompressionCodec "none" @?= Just Compression.NoCompression
-  Compression.parseCompressionCodec "gzip" @?= Just Compression.Gzip
-  Compression.parseCompressionCodec "snappy" @?= Just Compression.Snappy
-  Compression.parseCompressionCodec "lz4" @?= Just Compression.Lz4
-  Compression.parseCompressionCodec "zstd" @?= Just Compression.Zstd
-  Compression.parseCompressionCodec "unknown" @?= Nothing
+  Compression.parseCompressionCodec "none" `shouldBe` Just Compression.NoCompression
+  Compression.parseCompressionCodec "gzip" `shouldBe` Just Compression.Gzip
+  Compression.parseCompressionCodec "snappy" `shouldBe` Just Compression.Snappy
+  Compression.parseCompressionCodec "lz4" `shouldBe` Just Compression.Lz4
+  Compression.parseCompressionCodec "zstd" `shouldBe` Just Compression.Zstd
+  Compression.parseCompressionCodec "unknown" `shouldBe` Nothing
 
 test_parseCodec_caseInsensitive :: IO ()
 test_parseCodec_caseInsensitive = do
-  Compression.parseCompressionCodec "GZIP" @?= Just Compression.Gzip
-  Compression.parseCompressionCodec "Zstd" @?= Just Compression.Zstd
-  Compression.parseCompressionCodec "LZ4" @?= Just Compression.Lz4
-  Compression.parseCompressionCodec "SNAPPY" @?= Just Compression.Snappy
+  Compression.parseCompressionCodec "GZIP" `shouldBe` Just Compression.Gzip
+  Compression.parseCompressionCodec "Zstd" `shouldBe` Just Compression.Zstd
+  Compression.parseCompressionCodec "LZ4" `shouldBe` Just Compression.Lz4
+  Compression.parseCompressionCodec "SNAPPY" `shouldBe` Just Compression.Snappy
 
 test_noCompression_identity :: IO ()
 test_noCompression_identity = do
   let input = "Hello, Kafka!"
   result <- Compression.compress Compression.NoCompression input
-  result @?= Right input
+  result `shouldBe` Right input
   
   result2 <- Compression.decompress Compression.NoCompression input
-  result2 @?= Right input
+  result2 `shouldBe` Right input
 
 -- -----------------------------------------------------------------------------
 -- Edge case tests
 -- -----------------------------------------------------------------------------
 
-codecEdgeCaseTests :: TestTree
-codecEdgeCaseTests = testGroup "Edge Cases"
-  [ testCase "Empty data compresses and decompresses" test_empty_data
-  , testCase "Single byte data works" test_single_byte
-  , testCase "Maximum byte value works" test_max_byte
-  , testCase "All zeros compresses well" test_all_zeros
-  , testCase "Random data compresses poorly" test_random_data
+codecEdgeCaseTests :: Spec
+codecEdgeCaseTests = describe "Edge Cases" $ sequence_
+  [ it "Empty data compresses and decompresses" test_empty_data
+  , it "Single byte data works" test_single_byte
+  , it "Maximum byte value works" test_max_byte
+  , it "All zeros compresses well" test_all_zeros
+  , it "Random data compresses poorly" test_random_data
   ]
 
 test_empty_data :: IO ()
@@ -198,19 +197,19 @@ test_empty_data = do
   where
     testCodecWithEmpty codec = do
       result <- roundTripCodec codec BS.empty
-      result @?= Right BS.empty
+      result `shouldBe` Right BS.empty
 
 test_single_byte :: IO ()
 test_single_byte = do
   let input = BS.singleton 42
   let codecs = [Compression.NoCompression, Compression.Gzip, Compression.Zstd, Compression.Lz4, Compression.Snappy]
-  mapM_ (\codec -> roundTripCodec codec input >>= (@?= Right input)) codecs
+  mapM_ (\codec -> roundTripCodec codec input >>= (`shouldBe` Right input)) codecs
 
 test_max_byte :: IO ()
 test_max_byte = do
   let input = BS.singleton 255
   let codecs = [Compression.NoCompression, Compression.Gzip, Compression.Zstd, Compression.Lz4, Compression.Snappy]
-  mapM_ (\codec -> roundTripCodec codec input >>= (@?= Right input)) codecs
+  mapM_ (\codec -> roundTripCodec codec input >>= (`shouldBe` Right input)) codecs
 
 test_all_zeros :: IO ()
 test_all_zeros = do
@@ -221,14 +220,13 @@ test_all_zeros = do
     testCompresses input codec = do
       compressed <- Compression.compress codec input
       case compressed of
-        Left err -> assertBool ("Compression failed: " ++ err) False
+        Left err -> (if (False) then pure () else expectationFailure ("Compression failed: " ++ err))
         Right compressedData -> do
           -- All zeros should compress very well
-          assertBool "Compressed size should be much smaller" 
-            (BS.length compressedData < BS.length input `div` 10)
+          (BS.length compressedData < BS.length input `div` 10) `shouldBe` True
           -- And should decompress correctly
           decompressed <- Compression.decompress codec compressedData
-          decompressed @?= Right input
+          decompressed `shouldBe` Right input
 
 test_random_data :: IO ()
 test_random_data = do
@@ -236,27 +234,27 @@ test_random_data = do
   -- But it should still round-trip correctly
   let input = BS.pack [0..255] <> BS.pack [255,254..0]
   let codecs = [Compression.Gzip, Compression.Zstd, Compression.Lz4, Compression.Snappy]
-  mapM_ (\codec -> roundTripCodec codec input >>= (@?= Right input)) codecs
+  mapM_ (\codec -> roundTripCodec codec input >>= (`shouldBe` Right input)) codecs
 
 -- -----------------------------------------------------------------------------
 -- Interoperability tests
 -- -----------------------------------------------------------------------------
 
-codecInteropTests :: TestTree
-codecInteropTests = testGroup "Codec Interoperability"
-  [ testCase "Codec IDs match Kafka protocol" test_kafka_codec_ids
-  , testCase "All codec names are valid" test_codec_names_valid
-  , testCase "All codecs are in parseCompressionCodec" test_all_codecs_parseable
+codecInteropTests :: Spec
+codecInteropTests = describe "Codec Interoperability" $ sequence_
+  [ it "Codec IDs match Kafka protocol" test_kafka_codec_ids
+  , it "All codec names are valid" test_codec_names_valid
+  , it "All codecs are in parseCompressionCodec" test_all_codecs_parseable
   ]
 
 test_kafka_codec_ids :: IO ()
 test_kafka_codec_ids = do
   -- These IDs must match the Kafka wire protocol specification
-  (Compression.codecId Compression.NoCompression :: Int8) @?= 0
-  (Compression.codecId Compression.Gzip :: Int8) @?= 1
-  (Compression.codecId Compression.Snappy :: Int8) @?= 2
-  (Compression.codecId Compression.Lz4 :: Int8) @?= 3
-  (Compression.codecId Compression.Zstd :: Int8) @?= 4
+  (Compression.codecId Compression.NoCompression :: Int8) `shouldBe` 0
+  (Compression.codecId Compression.Gzip :: Int8) `shouldBe` 1
+  (Compression.codecId Compression.Snappy :: Int8) `shouldBe` 2
+  (Compression.codecId Compression.Lz4 :: Int8) `shouldBe` 3
+  (Compression.codecId Compression.Zstd :: Int8) `shouldBe` 4
 
 test_codec_names_valid :: IO ()
 test_codec_names_valid = do
@@ -265,7 +263,7 @@ test_codec_names_valid = do
   where
     testNameValid codec = do
       let name = Compression.codecName codec
-      assertBool ("Codec name should not be empty: " ++ show codec) (not $ BS8.null $ BS8.pack $ show name)
+      (if (not $ BS8.null $ BS8.pack $ show name) then pure () else expectationFailure ("Codec name should not be empty: " ++ show codec))
 
 test_all_codecs_parseable :: IO ()
 test_all_codecs_parseable = do
@@ -275,7 +273,7 @@ test_all_codecs_parseable = do
     testParseable codec = do
       let name = Compression.codecName codec
       let parsed = Compression.parseCompressionCodec name
-      parsed @?= Just codec
+      parsed `shouldBe` Just codec
 
 -- -----------------------------------------------------------------------------
 -- Helper functions

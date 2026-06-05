@@ -30,22 +30,22 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVR
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MR
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader as RH
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 
-tests :: TestTree
-tests = testGroup "Round-trip"
-  [ testGroup "Protocol Messages"
-      [ testProperty "RequestHeader generated wire round-trip"
+tests :: Spec
+tests = describe "Round-trip" $ sequence_
+  [ describe "Protocol Messages" $ sequence_
+      [ it "RequestHeader generated wire round-trip"
           prop_requestHeader
-      , testProperty "ApiVersionsRequest generated wire round-trip"
+      , it "ApiVersionsRequest generated wire round-trip"
           prop_apiVersionsRequest
-      , testProperty "MetadataRequest generated wire round-trip"
+      , it "MetadataRequest generated wire round-trip"
           prop_metadataRequest
       ]
   ]

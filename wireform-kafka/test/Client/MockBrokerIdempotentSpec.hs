@@ -8,8 +8,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Fault
@@ -25,8 +24,8 @@ unbytes = T.pack . BSC.unpack
 ts :: Integer -> Int64
 ts = fromIntegral
 
-tests :: TestTree
-tests = testGroup "MockBrokerIdempotent"
+tests :: Spec
+tests = describe "MockBrokerIdempotent" $ sequence_
   [ idempotent_uninitialised_send_fails
   , idempotent_round_trip_assigns_increasing_sequence
   , idempotent_per_partition_sequence_independent
@@ -34,9 +33,9 @@ tests = testGroup "MockBrokerIdempotent"
   , idempotent_propagates_underlying_fault
   ]
 
-idempotent_uninitialised_send_fails :: TestTree
+idempotent_uninitialised_send_fails :: Spec
 idempotent_uninitialised_send_fails =
-  testCase "sendIdempotent before initProducerId returns ISUninitialised" $ do
+  it "sendIdempotent before initProducerId returns ISUninitialised" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -47,9 +46,9 @@ idempotent_uninitialised_send_fails =
       ISUninitialised -> pure ()
       other           -> error ("expected ISUninitialised, got " <> show other)
 
-idempotent_round_trip_assigns_increasing_sequence :: TestTree
+idempotent_round_trip_assigns_increasing_sequence :: Spec
 idempotent_round_trip_assigns_increasing_sequence =
-  testCase "post-init sends get strictly increasing sequence numbers" $ do
+  it "post-init sends get strictly increasing sequence numbers" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -61,15 +60,15 @@ idempotent_round_trip_assigns_increasing_sequence =
     r3 <- sendIdempotent is p "t" 0 Nothing (bytes "c") (ts 2)
     case (r1, r2, r3) of
       (ISSent _ s1, ISSent _ s2, ISSent _ s3) ->
-        [s1, s2, s3] @?= [0, 1, 2]
+        [s1, s2, s3] `shouldBe` [0, 1, 2]
       _ -> error ("unexpected: " <> show (r1, r2, r3))
     -- The producer wrote three records to the underlying log.
     log_ <- dumpPartition c "t" 0
-    map (unbytes . srValue) log_ @?= ["a", "b", "c"]
+    map (unbytes . srValue) log_ `shouldBe` ["a", "b", "c"]
 
-idempotent_per_partition_sequence_independent :: TestTree
+idempotent_per_partition_sequence_independent :: Spec
 idempotent_per_partition_sequence_independent =
-  testCase "sequence numbers are independent across partitions" $ do
+  it "sequence numbers are independent across partitions" $ do
     c <- newMockCluster 1
     createTopic c "t" 2
     fp <- noFaults
@@ -81,15 +80,15 @@ idempotent_per_partition_sequence_independent =
     r1a <- sendIdempotent is p "t" 1 Nothing (bytes "a1") (ts 0)
     case (r0a, r0b, r1a) of
       (ISSent _ s0a, ISSent _ s0b, ISSent _ s1a) -> do
-        [s0a, s0b] @?= [0, 1]
-        s1a @?= 0    -- partition-1 starts its own sequence
+        [s0a, s0b] `shouldBe` [0, 1]
+        s1a `shouldBe` 0    -- partition-1 starts its own sequence
       _ -> error "unexpected"
-    nextSequence is "t" 0 >>= (@?= 2)
-    nextSequence is "t" 1 >>= (@?= 1)
+    nextSequence is "t" 0 >>= (`shouldBe` 2)
+    nextSequence is "t" 1 >>= (`shouldBe` 1)
 
-idempotent_dedup_short_circuits_on_replay :: TestTree
+idempotent_dedup_short_circuits_on_replay :: Spec
 idempotent_dedup_short_circuits_on_replay =
-  testCase "first send writes; the dedup table records the assignment" $ do
+  it "first send writes; the dedup table records the assignment" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -100,20 +99,20 @@ idempotent_dedup_short_circuits_on_replay =
     r1 <- sendIdempotent is p "t" 0 Nothing (bytes "v0") (ts 0)
     case r1 of
       ISSent off seqN -> do
-        off  @?= 0
-        seqN @?= 0
+        off  `shouldBe` 0
+        seqN `shouldBe` 0
       other -> error ("unexpected " <> show other)
     log_ <- dumpPartition c "t" 0
-    length log_ @?= 1
+    length log_ `shouldBe` 1
     -- Second send advances sequence to 1 (no replay semantics
     -- without an explicit 'replayIdempotent' helper; the dedup
     -- machinery is in place — see nextSequence below).
     _ <- sendIdempotent is p "t" 0 Nothing (bytes "v1") (ts 1)
-    nextSequence is "t" 0 >>= (@?= 2)
+    nextSequence is "t" 0 >>= (`shouldBe` 2)
 
-idempotent_propagates_underlying_fault :: TestTree
+idempotent_propagates_underlying_fault :: Spec
 idempotent_propagates_underlying_fault =
-  testCase "an underlying produce fault is surfaced as ISFault" $ do
+  it "an underlying produce fault is surfaced as ISFault" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -123,8 +122,8 @@ idempotent_propagates_underlying_fault =
     initProducerId is (ProducerId 1) 0
     r <- sendIdempotent is p "t" 0 Nothing (bytes "v") (ts 0)
     case r of
-      ISFault (MPFault e) -> isRetriable e @?= True
+      ISFault (MPFault e) -> isRetriable e `shouldBe` True
       other               -> error ("unexpected " <> show other)
     -- Sequence didn't advance for partition 0 since the underlying
     -- send didn't succeed. Next send picks up at sequence 0 again.
-    nextSequence is "t" 0 >>= (@?= 0)
+    nextSequence is "t" 0 >>= (`shouldBe` 0)

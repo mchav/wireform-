@@ -11,27 +11,26 @@ module Client.InterceptorSpec (tests) where
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as Consumer
 import qualified Kafka.Client.Producer as Producer
 
-tests :: TestTree
-tests = testGroup "Interceptor APIs"
-  [ testCase "ProducerConfig: default interceptor is identity"
+tests :: Spec
+tests = describe "Interceptor APIs" $ sequence_
+  [ it "ProducerConfig: default interceptor is identity"
       defaultProducerInterceptorIsIdentity
-  , testCase "ProducerConfig: default onAcknowledgement is no-op"
+  , it "ProducerConfig: default onAcknowledgement is no-op"
       defaultProducerOnAckIsNoOp
-  , testCase "ProducerConfig: interceptor can rewrite topic / key / value"
+  , it "ProducerConfig: interceptor can rewrite topic / key / value"
       interceptorCanRewriteRecord
-  , testCase "ConsumerConfig: default interceptor is identity"
+  , it "ConsumerConfig: default interceptor is identity"
       defaultConsumerInterceptorIsIdentity
-  , testCase "ConsumerConfig: default onCommit is no-op"
+  , it "ConsumerConfig: default onCommit is no-op"
       defaultConsumerOnCommitIsNoOp
-  , testCase "ConsumerConfig: interceptor can drop / rewrite records"
+  , it "ConsumerConfig: interceptor can drop / rewrite records"
       consumerInterceptorCanDropRecords
-  , testCase "ConsumerConfig: onCommit receives the offsets passed in"
+  , it "ConsumerConfig: onCommit receives the offsets passed in"
       consumerOnCommitReceivesOffsets
   ]
 
@@ -47,7 +46,7 @@ defaultProducerInterceptorIsIdentity = do
         , timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg rec_
-  out @?= rec_
+  out `shouldBe` rec_
 
 defaultProducerOnAckIsNoOp :: IO ()
 defaultProducerOnAckIsNoOp = do
@@ -83,14 +82,14 @@ interceptorCanRewriteRecord = do
         , Producer.timestamp = Nothing
         }
   out <- Producer.producerInterceptor cfg input
-  out.topic   @?= "events-suffix"
-  out.headers @?= [("trace-id", "abc")]
+  out.topic   `shouldBe` "events-suffix"
+  out.headers `shouldBe` [("trace-id", "abc")]
 
 defaultConsumerInterceptorIsIdentity :: IO ()
 defaultConsumerInterceptorIsIdentity = do
   let cfg = Consumer.defaultConsumerConfig
   out <- Consumer.consumerInterceptor cfg sampleRecords
-  out @?= sampleRecords
+  out `shouldBe` sampleRecords
 
 defaultConsumerOnCommitIsNoOp :: IO ()
 defaultConsumerOnCommitIsNoOp = do
@@ -111,7 +110,7 @@ consumerInterceptorCanDropRecords = do
         , sampleRec "k2" "v2"
         ]
   out <- Consumer.consumerInterceptor cfg input
-  map (.key) out @?= [Just "k1", Just "k2"]
+  map (.key) out `shouldBe` [Just "k1", Just "k2"]
 
 consumerOnCommitReceivesOffsets :: IO ()
 consumerOnCommitReceivesOffsets = do
@@ -125,7 +124,7 @@ consumerOnCommitReceivesOffsets = do
                 ]
   Consumer.consumerOnCommit cfg offsets
   got <- readIORef ref
-  got @?= offsets
+  got `shouldBe` offsets
 
 sampleRecords :: [Consumer.ConsumerRecord]
 sampleRecords = [sampleRec "k" "v"]

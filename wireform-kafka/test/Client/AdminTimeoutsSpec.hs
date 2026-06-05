@@ -2,46 +2,45 @@
 
 module Client.AdminTimeoutsSpec (tests) where
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Client.AdminTimeouts as A
 
-tests :: TestTree
-tests = testGroup "AdminClient timeouts + routing (KIP-540 / 918 / 919)"
-  [ testCase "AdminUseDefault uses default.api.timeout.ms"
+tests :: Spec
+tests = describe "AdminClient timeouts + routing (KIP-540 / 918 / 919)" $ sequence_
+  [ it "AdminUseDefault uses default.api.timeout.ms"
       use_default
-  , testCase "AdminTimeoutMs overrides default"
+  , it "AdminTimeoutMs overrides default"
       explicit_timeout
-  , testCase "AdminNoDeadline returns Nothing"
+  , it "AdminNoDeadline returns Nothing"
       no_deadline
-  , testCase "metadata reads -> RouteAnyBroker"
+  , it "metadata reads -> RouteAnyBroker"
       metadata_route
-  , testCase "topic / config / acl mutations -> RouteControllerBroker"
+  , it "topic / config / acl mutations -> RouteControllerBroker"
       mutation_route
-  , testCase "broker / quorum lifecycle -> RouteKRaftQuorum"
+  , it "broker / quorum lifecycle -> RouteKRaftQuorum"
       kraft_route
   ]
 
 use_default :: IO ()
-use_default = A.effectiveDeadlineMs 1000 30_000 A.AdminUseDefault @?= Just 31_000
+use_default = A.effectiveDeadlineMs 1000 30_000 A.AdminUseDefault `shouldBe` Just 31_000
 
 explicit_timeout :: IO ()
-explicit_timeout = A.effectiveDeadlineMs 1000 30_000 (A.AdminTimeoutMs 5_000) @?= Just 6_000
+explicit_timeout = A.effectiveDeadlineMs 1000 30_000 (A.AdminTimeoutMs 5_000) `shouldBe` Just 6_000
 
 no_deadline :: IO ()
-no_deadline = A.effectiveDeadlineMs 1000 30_000 A.AdminNoDeadline @?= Nothing
+no_deadline = A.effectiveDeadlineMs 1000 30_000 A.AdminNoDeadline `shouldBe` Nothing
 
 metadata_route :: IO ()
-metadata_route = A.routeOperation A.AdminMetadataRead @?= A.RouteAnyBroker
+metadata_route = A.routeOperation A.AdminMetadataRead `shouldBe` A.RouteAnyBroker
 
 mutation_route :: IO ()
 mutation_route = do
-  A.routeOperation A.AdminTopicMutation  @?= A.RouteControllerBroker
-  A.routeOperation A.AdminConfigMutation @?= A.RouteControllerBroker
-  A.routeOperation A.AdminAclMutation    @?= A.RouteControllerBroker
+  A.routeOperation A.AdminTopicMutation  `shouldBe` A.RouteControllerBroker
+  A.routeOperation A.AdminConfigMutation `shouldBe` A.RouteControllerBroker
+  A.routeOperation A.AdminAclMutation    `shouldBe` A.RouteControllerBroker
 
 kraft_route :: IO ()
 kraft_route = do
-  A.routeOperation A.AdminBrokerLifecycle  @?= A.RouteKRaftQuorum
-  A.routeOperation A.AdminQuorumManagement @?= A.RouteKRaftQuorum
+  A.routeOperation A.AdminBrokerLifecycle  `shouldBe` A.RouteKRaftQuorum
+  A.routeOperation A.AdminQuorumManagement `shouldBe` A.RouteKRaftQuorum

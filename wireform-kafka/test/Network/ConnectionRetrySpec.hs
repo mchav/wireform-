@@ -9,9 +9,8 @@ import Data.List (isInfixOf)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit hiding (assert)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Network.Connection as Conn
 
@@ -101,8 +100,8 @@ prop_jitterAddsRandomness = property $ do
   assert $ maxDelay - minDelay > 50  -- At least 50ms variation
 
 -- | Test that connection gives up after max retries
-unit_givesUpAfterMaxRetries :: TestTree
-unit_givesUpAfterMaxRetries = testCase "Connection gives up after max retries" $ do
+unit_givesUpAfterMaxRetries :: Spec
+unit_givesUpAfterMaxRetries = it "Connection gives up after max retries" $ do
   let config = Conn.defaultConnectionConfig
         { Conn.connMaxRetries = 2
         , Conn.connRetryDelay = 10  -- Short delay for testing
@@ -116,20 +115,19 @@ unit_givesUpAfterMaxRetries = testCase "Connection gives up after max retries" $
   case result of
     Left err -> do
       -- Should mention the number of attempts
-      assertBool ("Error should mention attempts: " ++ err) 
-                 (("after" `isInfixOf` err) && ("attempts" `isInfixOf` err))
+      (if (("after" `isInfixOf` err) && ("attempts" `isInfixOf` err)) then pure () else expectationFailure ("Error should mention attempts: " ++ err))
     Right _ -> 
-      assertFailure "Connection should have failed"
+      expectationFailure "Connection should have failed"
 
 -- | Test that successful connection doesn't retry
-unit_successfulConnectionNoRetry :: TestTree
-unit_successfulConnectionNoRetry = testCase "Successful connection doesn't retry" $ do
+unit_successfulConnectionNoRetry :: Spec
+unit_successfulConnectionNoRetry = it "Successful connection doesn't retry" $ do
   -- This test would require a mock connection or actual Kafka broker
   -- For now, we just verify the config works
   let config = Conn.defaultConnectionConfig
         { Conn.connMaxRetries = 3
         }
-  assertBool "Config is valid" (Conn.connMaxRetries config == 3)
+  (Conn.connMaxRetries config == 3) `shouldBe` True
 
 -- | Test exponential backoff calculation with different multipliers
 prop_differentMultipliers :: Property
@@ -167,15 +165,15 @@ prop_differentMultipliers = property $ do
   
   assert $ ratio >= minRatio && ratio <= maxRatio
 
-tests :: TestTree
-tests = testGroup "Connection Retry (KIP-580)"
-  [ testGroup "Properties"
-      [ testProperty "Backoff increases exponentially" prop_backoffIncreasesExponentially
-      , testProperty "Backoff respects max limit" prop_backoffRespectsMaxLimit
-      , testProperty "Jitter adds randomness" prop_jitterAddsRandomness
-      , testProperty "Different multipliers work correctly" prop_differentMultipliers
+tests :: Spec
+tests = describe "Connection Retry (KIP-580)" $ sequence_
+  [ describe "Properties" $ sequence_
+      [ it "Backoff increases exponentially" prop_backoffIncreasesExponentially
+      , it "Backoff respects max limit" prop_backoffRespectsMaxLimit
+      , it "Jitter adds randomness" prop_jitterAddsRandomness
+      , it "Different multipliers work correctly" prop_differentMultipliers
       ]
-  , testGroup "Unit Tests"
+  , describe "Unit Tests" $ sequence_
       [ unit_givesUpAfterMaxRetries
       , unit_successfulConnectionNoRetry
       ]

@@ -22,8 +22,8 @@ module Test.Columnar.Properties (columnarPropertyTests) where
 
 import qualified Data.Vector as V
 import Hedgehog
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
@@ -31,22 +31,22 @@ import qualified Wireform.Columnar as Col
 
 import qualified Test.Columnar.Gen as G
 
-columnarPropertyTests :: TestTree
-columnarPropertyTests = testGroup "Wireform.Columnar properties"
-  [ testGroup "cross-format round-trips (every Format round-trips the same inputs)"
-      [ testProperty "Arrow stream" (propCrossFormat Col.Arrow     Col.defaultWriteOptions)
-      , testProperty "Arrow file"   (propCrossFormat Col.ArrowFile Col.defaultWriteOptions)
-      , testProperty "ORC"          (propCrossFormat Col.ORC       Col.defaultWriteOptions)
-      , testProperty "Parquet"      (propCrossFormat Col.Parquet   parquetOpts)
+columnarPropertyTests :: Spec
+columnarPropertyTests = describe "Wireform.Columnar properties" $ sequence_
+  [ describe "cross-format round-trips (every Format round-trips the same inputs)" $ sequence_
+      [ it "Arrow stream" (propCrossFormat Col.Arrow     Col.defaultWriteOptions)
+      , it "Arrow file"   (propCrossFormat Col.ArrowFile Col.defaultWriteOptions)
+      , it "ORC"          (propCrossFormat Col.ORC       Col.defaultWriteOptions)
+      , it "Parquet"      (propCrossFormat Col.Parquet   parquetOpts)
       ]
-  , testGroup "per-format bridge coverage"
-      [ testProperty "Arrow (stream): full ColumnArray coverage"
+  , describe "per-format bridge coverage" $ sequence_
+      [ it "Arrow (stream): full ColumnArray coverage"
           (propBridge Col.Arrow     Col.defaultWriteOptions G.genArrowOnly)
-      , testProperty "Arrow (file): full ColumnArray coverage"
+      , it "Arrow (file): full ColumnArray coverage"
           (propBridge Col.ArrowFile Col.defaultWriteOptions G.genArrowOnly)
-      , testProperty "Parquet: required + nullable flat + temporal"
+      , it "Parquet: required + nullable flat + temporal"
           (propBridge Col.Parquet   parquetOpts              G.genParquetBridge)
-      , testProperty "ORC: nullable flat + temporal"
+      , it "ORC: nullable flat + temporal"
           (propBridge Col.ORC       Col.defaultWriteOptions  G.genORCBridge)
       ]
   ]

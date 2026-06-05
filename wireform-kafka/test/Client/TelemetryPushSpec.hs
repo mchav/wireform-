@@ -4,22 +4,21 @@
 module Client.TelemetryPushSpec (tests) where
 
 import qualified Data.Set as Set
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import qualified Kafka.Telemetry.Push as P
 
-tests :: TestTree
-tests = testGroup "Telemetry push (KIP-714)"
-  [ testCase "no subscription -> RefreshSubscription"
+tests :: Spec
+tests = describe "Telemetry push (KIP-714)" $ sequence_
+  [ it "no subscription -> RefreshSubscription"
       no_sub
-  , testCase "stale subscription -> Refresh"
+  , it "stale subscription -> Refresh"
       stale_sub
-  , testCase "subscription valid + push interval elapsed -> Push"
+  , it "subscription valid + push interval elapsed -> Push"
       time_to_push
-  , testCase "valid subscription, before interval -> Sleep"
+  , it "valid subscription, before interval -> Sleep"
       not_yet
-  , testCase "terminating -> Done"
+  , it "terminating -> Done"
       terminating
   ]
 
@@ -28,7 +27,7 @@ mkSub = (P.noSubscription "client-1") { P.tsPushIntervalMs = 1000 }
 
 no_sub :: IO ()
 no_sub =
-  P.planTelemetryStep 1000 P.initialState @?= P.TARefreshSubscription
+  P.planTelemetryStep 1000 P.initialState `shouldBe` P.TARefreshSubscription
 
 stale_sub :: IO ()
 stale_sub = do
@@ -38,7 +37,7 @@ stale_sub = do
         }
   -- Refresh interval = 5 * pushIntervalMs = 5000
   -- now = 6000, elapsed = 6000 -> refresh.
-  P.planTelemetryStep 6000 st @?= P.TARefreshSubscription
+  P.planTelemetryStep 6000 st `shouldBe` P.TARefreshSubscription
 
 time_to_push :: IO ()
 time_to_push = do
@@ -48,7 +47,7 @@ time_to_push = do
         , P.tsmLastPushAtMs = 1000
         }
   -- now = 2500, elapsed-since-push = 1500 >= 1000ms interval.
-  P.planTelemetryStep 2500 st @?= P.TAPushNow mempty
+  P.planTelemetryStep 2500 st `shouldBe` P.TAPushNow mempty
 
 not_yet :: IO ()
 not_yet = do
@@ -65,4 +64,4 @@ not_yet = do
 terminating :: IO ()
 terminating =
   let st = P.initialState { P.tsmTerminating = True }
-  in P.planTelemetryStep 1000 st @?= P.TADone
+  in P.planTelemetryStep 1000 st `shouldBe` P.TADone

@@ -15,8 +15,8 @@ import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
 import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Primitives as WP
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.Hedgehog
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 prop_roundtrip_kafka_string :: Property
 prop_roundtrip_kafka_string = property $ do
@@ -57,8 +57,8 @@ genKafkaArrayInt32 = Gen.choice
        pure (P.mkKafkaArray (V.fromList values))
   ]
 
-tests :: TestTree
-tests = testGroup "Simple Round-Trip Tests"
-  [ testProperty "KafkaString round-trips" prop_roundtrip_kafka_string
-  , testProperty "KafkaArray Int32 round-trips" prop_roundtrip_kafka_array_int32
+tests :: Spec
+tests = describe "Simple Round-Trip Tests" $ sequence_
+  [ it "KafkaString round-trips" prop_roundtrip_kafka_string
+  , it "KafkaArray Int32 round-trips" prop_roundtrip_kafka_array_int32
   ]

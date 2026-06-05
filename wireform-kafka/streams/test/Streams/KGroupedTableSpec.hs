@@ -14,14 +14,13 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.KGroupedTable
 
-tests :: TestTree
-tests = testGroup "KGroupedTable (KIP-150)"
+tests :: Spec
+tests = describe "KGroupedTable (KIP-150)" $ sequence_
   [ count_updates_subtract_prior
   , reduce_subtracts_then_adds
   , aggregate_handles_first_record_specially
@@ -41,9 +40,9 @@ ts = Timestamp
 -- 1. count: every update to the same key keeps the count at 1
 ----------------------------------------------------------------------
 
-count_updates_subtract_prior :: TestTree
+count_updates_subtract_prior :: Spec
 count_updates_subtract_prior =
-  testCase "count: re-keying a KTable update doesn't double-count" $ do
+  it "count: re-keying a KTable update doesn't double-count" $ do
     b <- newStreamsBuilder
     -- A KTable keyed by orderId, value = customerId. Group by
     -- customerId, then count orders per customer. Updating
@@ -74,8 +73,8 @@ count_updates_subtract_prior =
     mStore <- getKeyValueStore @Text @Int64 driver (ctlStore counts)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "A" >>= (@?= Just 0)
-        kvsGet kvs "B" >>= (@?= Just 2)
+        kvsGet kvs "A" >>= (`shouldBe` Just 0)
+        kvsGet kvs "B" >>= (`shouldBe` Just 2)
       Nothing -> error "store missing"
     closeDriver driver
 
@@ -83,9 +82,9 @@ count_updates_subtract_prior =
 -- 2. reduce: subtractor undoes prior, adder applies new
 ----------------------------------------------------------------------
 
-reduce_subtracts_then_adds :: TestTree
+reduce_subtracts_then_adds :: Spec
 reduce_subtracts_then_adds =
-  testCase "reduce: sum-by-key updates correctly under value changes" $ do
+  it "reduce: sum-by-key updates correctly under value changes" $ do
     b <- newStreamsBuilder
     -- order -> amount. Group by a constant key "TOTAL".
     table <- tableFromTopic b (topicName "amounts")
@@ -113,7 +112,7 @@ reduce_subtracts_then_adds =
     mStore <- getKeyValueStore @Text @Int64 driver (ctlStore totals)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "TOTAL" >>= (@?= Just 101)
+        kvsGet kvs "TOTAL" >>= (`shouldBe` Just 101)
       Nothing -> error "store missing"
     closeDriver driver
 
@@ -121,9 +120,9 @@ reduce_subtracts_then_adds =
 -- 3. aggregate: first-record path goes through adder against initial
 ----------------------------------------------------------------------
 
-aggregate_handles_first_record_specially :: TestTree
+aggregate_handles_first_record_specially :: Spec
 aggregate_handles_first_record_specially =
-  testCase "aggregate: first record per key uses initialiser as the seed" $ do
+  it "aggregate: first record per key uses initialiser as the seed" $ do
     b <- newStreamsBuilder
     table <- tableFromTopic b (topicName "scores")
               (consumed textSerde int64Serde)
@@ -153,7 +152,7 @@ aggregate_handles_first_record_specially =
     mStore <- getKeyValueStore @Text @Int64 driver (ctlStore highs)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "HIGH" >>= (@?= Just 12)
+        kvsGet kvs "HIGH" >>= (`shouldBe` Just 12)
       Nothing -> error "store missing"
     closeDriver driver
 
@@ -161,9 +160,9 @@ aggregate_handles_first_record_specially =
 -- 4. filterNotTable: KTable.filterNot
 ----------------------------------------------------------------------
 
-filter_not_table_drops_matches :: TestTree
+filter_not_table_drops_matches :: Spec
 filter_not_table_drops_matches =
-  testCase "KTable.filterNot: records matching the predicate are tombstoned" $ do
+  it "KTable.filterNot: records matching the predicate are tombstoned" $ do
     b <- newStreamsBuilder
     src <- tableFromTopic b (topicName "in")
             (consumed textSerde textSerde)
@@ -186,8 +185,8 @@ filter_not_table_drops_matches =
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kept)
     case mStore of
       Just kvs -> do
-        kvsGet kvs "k1" >>= (@?= Just "ok")
-        kvsGet kvs "k2" >>= (@?= Nothing)
-        kvsGet kvs "k3" >>= (@?= Just "yes")
+        kvsGet kvs "k1" >>= (`shouldBe` Just "ok")
+        kvsGet kvs "k2" >>= (`shouldBe` Nothing)
+        kvsGet kvs "k3" >>= (`shouldBe` Just "yes")
       Nothing -> error "store missing"
     closeDriver driver

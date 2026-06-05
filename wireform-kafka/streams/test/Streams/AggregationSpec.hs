@@ -7,13 +7,12 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "Aggregation"
+tests :: Spec
+tests = describe "Aggregation" $ sequence_
   [ count_per_key
   , reduce_per_key
   , aggregate_with_init
@@ -31,8 +30,8 @@ i64Bytes = serialize int64Serde
 t :: Int64 -> Timestamp
 t = Timestamp
 
-count_per_key :: TestTree
-count_per_key = testCase "count per key writes monotone counts" $ do
+count_per_key :: Spec
+count_per_key = it "count per key writes monotone counts" $ do
   b <- newStreamsBuilder
   src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
   let g = grouped textSerde textSerde
@@ -53,12 +52,12 @@ count_per_key = testCase "count per key writes monotone counts" $ do
     Just kvs -> do
       ca <- kvsGet kvs "a"
       cb <- kvsGet kvs "b"
-      ca @?= Just 3
-      cb @?= Just 1
+      ca `shouldBe` Just 3
+      cb `shouldBe` Just 1
   closeDriver driver
 
-reduce_per_key :: TestTree
-reduce_per_key = testCase "reduce sums values per key" $ do
+reduce_per_key :: Spec
+reduce_per_key = it "reduce sums values per key" $ do
   b <- newStreamsBuilder
   src <- streamFromTopic b (topicName "in")
            (consumed textSerde int64Serde)
@@ -78,12 +77,12 @@ reduce_per_key = testCase "reduce sums values per key" $ do
   case mStore of
     Nothing  -> error "store missing"
     Just kvs -> do
-      kvsGet kvs "a" >>= (@?= Just 17)
-      kvsGet kvs "b" >>= (@?= Just 101)
+      kvsGet kvs "a" >>= (`shouldBe` Just 17)
+      kvsGet kvs "b" >>= (`shouldBe` Just 101)
   closeDriver driver
 
-aggregate_with_init :: TestTree
-aggregate_with_init = testCase "aggregate with non-trivial init" $ do
+aggregate_with_init :: Spec
+aggregate_with_init = it "aggregate with non-trivial init" $ do
   b <- newStreamsBuilder
   src <- streamFromTopic b (topicName "in")
            (consumed textSerde int64Serde)
@@ -104,11 +103,11 @@ aggregate_with_init = testCase "aggregate with non-trivial init" $ do
   mStore <- getKeyValueStore @Text @Int64 driver (ctlStore table)
   case mStore of
     Nothing  -> error "store missing"
-    Just kvs -> kvsGet kvs "x" >>= (@?= Just 30)
+    Just kvs -> kvsGet kvs "x" >>= (`shouldBe` Just 30)
   closeDriver driver
 
-windowed_count :: TestTree
-windowed_count = testCase "tumbling windowed count" $ do
+windowed_count :: Spec
+windowed_count = it "tumbling windowed count" $ do
   b <- newStreamsBuilder
   src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
   let g = grouped textSerde textSerde
@@ -130,13 +129,13 @@ windowed_count = testCase "tumbling windowed count" $ do
   case mStore of
     Nothing  -> error "window store missing"
     Just ws  -> do
-      wsFetch ws "k" (Timestamp 0)   >>= (@?= Just 3)
-      wsFetch ws "k" (Timestamp 100) >>= (@?= Just 2)
+      wsFetch ws "k" (Timestamp 0)   >>= (`shouldBe` Just 3)
+      wsFetch ws "k" (Timestamp 100) >>= (`shouldBe` Just 2)
   closeDriver driver
 
-windowed_count_drops_late_record_past_grace :: TestTree
+windowed_count_drops_late_record_past_grace :: Spec
 windowed_count_drops_late_record_past_grace =
-  testCase "records past windowEnd + grace are dropped from windowed agg" $ do
+  it "records past windowEnd + grace are dropped from windowed agg" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     let g = grouped textSerde textSerde
@@ -159,13 +158,13 @@ windowed_count_drops_late_record_past_grace =
 
     mStore <- getWindowStore @Text @Int64 driver (wthStore table)
     case mStore of
-      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (@?= Just 2)
+      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
       Nothing -> error "store missing"
     closeDriver driver
 
-windowed_count_accepts_late_record_within_grace :: TestTree
+windowed_count_accepts_late_record_within_grace :: Spec
 windowed_count_accepts_late_record_within_grace =
-  testCase "records within the grace period are still aggregated" $ do
+  it "records within the grace period are still aggregated" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     let g = grouped textSerde textSerde
@@ -185,6 +184,6 @@ windowed_count_accepts_late_record_within_grace =
 
     mStore <- getWindowStore @Text @Int64 driver (wthStore table)
     case mStore of
-      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (@?= Just 2)
+      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
       Nothing -> error "store missing"
     closeDriver driver

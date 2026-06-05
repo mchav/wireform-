@@ -10,8 +10,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Consumer
@@ -27,8 +26,8 @@ unbytes = T.pack . BSC.unpack
 ts :: Integer -> Int64
 ts = fromIntegral
 
-tests :: TestTree
-tests = testGroup "MockBrokerStore"
+tests :: Spec
+tests = describe "MockBrokerStore" $ sequence_
   [ store_offset_does_not_commit
   , commit_stored_drains_local_store
   , store_then_commit_then_offset_visible
@@ -43,9 +42,9 @@ tests = testGroup "MockBrokerStore"
 -- Manual offset store
 ----------------------------------------------------------------------
 
-store_offset_does_not_commit :: TestTree
+store_offset_does_not_commit :: Spec
 store_offset_does_not_commit =
-  testCase "storeOffsetMC writes locally without touching the cluster" $ do
+  it "storeOffsetMC writes locally without touching the cluster" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     let g = GroupId "g"
@@ -55,14 +54,14 @@ store_offset_does_not_commit =
     storeOffsetMC cons "t" 0 42
     -- Local store has it.
     sm <- storedOffsets cons
-    Map.lookup ("t", 0) sm @?= Just 42
+    Map.lookup ("t", 0) sm `shouldBe` Just 42
     -- Cluster offset store does NOT.
     gm <- groupOffsetsFor c g
-    Map.lookup ("t", 0) gm @?= Nothing
+    Map.lookup ("t", 0) gm `shouldBe` Nothing
 
-commit_stored_drains_local_store :: TestTree
+commit_stored_drains_local_store :: Spec
 commit_stored_drains_local_store =
-  testCase "commitStoredOffsetsMC commits + clears the local store" $ do
+  it "commitStoredOffsetsMC commits + clears the local store" $ do
     c <- newMockCluster 1
     createTopic c "t" 2
     let g = GroupId "g"
@@ -74,15 +73,15 @@ commit_stored_drains_local_store =
     Right () <- commitStoredOffsetsMC cons
     -- Cluster sees both.
     gm <- groupOffsetsFor c g
-    Map.lookup ("t", 0) gm @?= Just 5
-    Map.lookup ("t", 1) gm @?= Just 9
+    Map.lookup ("t", 0) gm `shouldBe` Just 5
+    Map.lookup ("t", 1) gm `shouldBe` Just 9
     -- Local store is empty.
     sm <- storedOffsets cons
-    Map.size sm @?= 0
+    Map.size sm `shouldBe` 0
 
-store_then_commit_then_offset_visible :: TestTree
+store_then_commit_then_offset_visible :: Spec
 store_then_commit_then_offset_visible =
-  testCase "store + commit reflects in the cluster's group offset store" $ do
+  it "store + commit reflects in the cluster's group offset store" $ do
     c <- newMockCluster 1
     createTopic c "t" 2
     let g = GroupId "shared"
@@ -94,8 +93,8 @@ store_then_commit_then_offset_visible =
     Right () <- commitStoredOffsetsMC a
     -- The cluster's group offset store has both entries.
     gm <- groupOffsetsFor c g
-    Map.lookup ("t", 0) gm @?= Just 17
-    Map.lookup ("t", 1) gm @?= Just 23
+    Map.lookup ("t", 0) gm `shouldBe` Just 17
+    Map.lookup ("t", 1) gm `shouldBe` Just 23
     -- A second consumer joining the same group sees the offset
     -- for whichever partition the assignor gave it. With members
     -- sorted [a, b] and 2 partitions, b gets partition 1.
@@ -103,11 +102,11 @@ store_then_commit_then_offset_visible =
     subscribeMC b ["t"]
     refreshAssignment a   -- a refreshes too, may revoke partition 1
     pos <- currentPosition b "t" 1
-    pos @?= Just 23
+    pos `shouldBe` Just 23
 
-commit_stored_with_fault_keeps_local :: TestTree
+commit_stored_with_fault_keeps_local :: Spec
 commit_stored_with_fault_keeps_local =
-  testCase "commit fault leaves the local store intact for retry" $ do
+  it "commit fault leaves the local store intact for retry" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     let g = GroupId "g"
@@ -118,41 +117,41 @@ commit_stored_with_fault_keeps_local =
     storeOffsetMC cons "t" 0 99
     r <- commitStoredOffsetsMC cons
     case r of
-      Left e -> isRetriable e @?= True
+      Left e -> isRetriable e `shouldBe` True
       Right _ -> error "expected Left"
     -- Local store is unchanged so the next attempt re-tries the same offsets.
     sm <- storedOffsets cons
-    Map.lookup ("t", 0) sm @?= Just 99
+    Map.lookup ("t", 0) sm `shouldBe` Just 99
     -- Second commit (no fault) succeeds and clears the store.
     Right () <- commitStoredOffsetsMC cons
     sm2 <- storedOffsets cons
-    Map.size sm2 @?= 0
+    Map.size sm2 `shouldBe` 0
 
 ----------------------------------------------------------------------
 -- Immediate flush
 ----------------------------------------------------------------------
 
-flush_sync_returns_right :: TestTree
+flush_sync_returns_right :: Spec
 flush_sync_returns_right =
-  testCase "flushMockSync returns Right immediately (synchronous in-memory mock)" $ do
+  it "flushMockSync returns Right immediately (synchronous in-memory mock)" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
     p  <- newMockProducer c fp Nothing
     _  <- sendMock p "t" 0 Nothing (bytes "v") (ts 0)
     r  <- flushMockSync p 5000
-    r @?= Right ()
+    r `shouldBe` Right ()
     -- 'producerPendingCount' is always zero since sends are sync.
     n <- producerPendingCount p
-    n @?= 0
+    n `shouldBe` 0
 
 ----------------------------------------------------------------------
 -- Send batch (barrier batch)
 ----------------------------------------------------------------------
 
-send_batch_round_trip :: TestTree
+send_batch_round_trip :: Spec
 send_batch_round_trip =
-  testCase "sendBatchMock produces one result per record, in input order" $ do
+  it "sendBatchMock produces one result per record, in input order" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -166,9 +165,9 @@ send_batch_round_trip =
       [MPSent 0 0, MPSent 0 1, MPSent 0 2] -> pure ()
       other -> error ("unexpected " <> show other)
 
-send_batch_assigns_increasing_offsets :: TestTree
+send_batch_assigns_increasing_offsets :: Spec
 send_batch_assigns_increasing_offsets =
-  testCase "every record in the batch lands at a contiguous offset" $ do
+  it "every record in the batch lands at a contiguous offset" $ do
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
@@ -177,11 +176,11 @@ send_batch_assigns_increasing_offsets =
                  | i <- [0 .. 9 :: Int] ]
     rs <- sendBatchMock p batch
     let !offsets = [ off | MPSent _ off <- rs ]
-    offsets @?= [0 .. 9]
+    offsets `shouldBe` [0 .. 9]
 
-send_batch_partition_routing_per_record :: TestTree
+send_batch_partition_routing_per_record :: Spec
 send_batch_partition_routing_per_record =
-  testCase "sendBatchMock honours each record's partition argument" $ do
+  it "sendBatchMock honours each record's partition argument" $ do
     c <- newMockCluster 1
     createTopic c "t" 3
     fp <- noFaults
@@ -199,6 +198,6 @@ send_batch_partition_routing_per_record =
     p0 <- map (unbytes . srValue) <$> dumpPartition c "t" 0
     p1 <- map (unbytes . srValue) <$> dumpPartition c "t" 1
     p2 <- map (unbytes . srValue) <$> dumpPartition c "t" 2
-    p0 @?= ["p0a", "p0b"]
-    p1 @?= ["p1a"]
-    p2 @?= ["p2a"]
+    p0 `shouldBe` ["p0a", "p0b"]
+    p1 `shouldBe` ["p1a"]
+    p2 `shouldBe` ["p2a"]

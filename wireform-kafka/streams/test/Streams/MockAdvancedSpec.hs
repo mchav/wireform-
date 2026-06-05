@@ -12,8 +12,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import qualified Kafka.Streams.Mock.Cluster as MC
@@ -32,8 +31,8 @@ unbytes = T.pack . BSC.unpack
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
-tests :: TestTree
-tests = testGroup "MockAdvanced"
+tests :: Spec
+tests = describe "MockAdvanced" $ sequence_
   [ headers_round_trip
   , empty_headers_round_trip
   , epoch_bumps_on_commit
@@ -49,9 +48,9 @@ tests = testGroup "MockAdvanced"
 -- Headers
 ----------------------------------------------------------------------
 
-headers_round_trip :: TestTree
+headers_round_trip :: Spec
 headers_round_trip =
-  testCase "sendMockH stores headers; pollMC returns them on the StoredRecord" $ do
+  it "sendMockH stores headers; pollMC returns them on the StoredRecord" $ do
     c  <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
@@ -62,44 +61,44 @@ headers_round_trip =
     subscribeMC cons [topicName "out"]
     PollResult rs _ <- pollMC cons
     case rs of
-      [(_, _, sr)] -> srHeaders sr @?= hdrs
+      [(_, _, sr)] -> srHeaders sr `shouldBe` hdrs
       _            -> error "expected exactly one record"
 
-empty_headers_round_trip :: TestTree
+empty_headers_round_trip :: Spec
 empty_headers_round_trip =
-  testCase "sendMock without headers stores an empty header list" $ do
+  it "sendMock without headers stores an empty header list" $ do
     c  <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
     p  <- newMockProducer c fp Nothing
     _  <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
     [sr] <- dumpPartition c (topicName "out") 0
-    srHeaders sr @?= []
+    srHeaders sr `shouldBe` []
 
 ----------------------------------------------------------------------
 -- Epoch fencing
 ----------------------------------------------------------------------
 
-epoch_bumps_on_commit :: TestTree
+epoch_bumps_on_commit :: Spec
 epoch_bumps_on_commit =
-  testCase "commitTxn / abortTxn bump the cluster's per-txn-id epoch" $ do
+  it "commitTxn / abortTxn bump the cluster's per-txn-id epoch" $ do
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
     p1 <- newMockProducer c fp (Just (TxnId "tx"))
     Right () <- beginTxnMP p1
-    currentTxnEpoch c (TxnId "tx") >>= (@?= 0)
+    currentTxnEpoch c (TxnId "tx") >>= (`shouldBe` 0)
     Right () <- commitTxnMP p1
-    currentTxnEpoch c (TxnId "tx") >>= (@?= 1)
+    currentTxnEpoch c (TxnId "tx") >>= (`shouldBe` 1)
     -- Re-using the same txn id bumps again on the next commit.
     p2 <- newMockProducer c fp (Just (TxnId "tx"))
     Right () <- beginTxnMP p2
     Right () <- abortTxnMP p2
-    currentTxnEpoch c (TxnId "tx") >>= (@?= 2)
+    currentTxnEpoch c (TxnId "tx") >>= (`shouldBe` 2)
 
-producer_fenced_after_concurrent_commit :: TestTree
+producer_fenced_after_concurrent_commit :: Spec
 producer_fenced_after_concurrent_commit =
-  testCase "stale-epoch producer is fenced when a sibling commits the same txn id" $ do
+  it "stale-epoch producer is fenced when a sibling commits the same txn id" $ do
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
@@ -119,15 +118,15 @@ producer_fenced_after_concurrent_commit =
       other    -> error ("expected MPFenced, got " <> show other)
     -- The stale send's payload never landed.
     log_ <- dumpPartition c (topicName "out") 0
-    map (unbytes . srValue) log_ @?= ["fresh"]
+    map (unbytes . srValue) log_ `shouldBe` ["fresh"]
 
 ----------------------------------------------------------------------
 -- Multi-partition txn
 ----------------------------------------------------------------------
 
-multi_partition_txn_commit_advances_lso :: TestTree
+multi_partition_txn_commit_advances_lso :: Spec
 multi_partition_txn_commit_advances_lso =
-  testCase "commitTxn advances LSO on every partition the txn touched" $ do
+  it "commitTxn advances LSO on every partition the txn touched" $ do
     c <- newMockCluster 1
     createTopic c (topicName "ledger") 3
     fp <- noFaults
@@ -140,25 +139,25 @@ multi_partition_txn_commit_advances_lso =
     mapM_ (\part -> do
               Just hwm <- partitionHWM c (topicName "ledger") part
               Just lso <- partitionLastStableOffset c (topicName "ledger") part
-              hwm @?= 1
-              lso @?= 0)
+              hwm `shouldBe` 1
+              lso `shouldBe` 0)
           [0, 1, 2]
     Right () <- commitTxnMP p
     -- Post-commit: LSO catches up to HWM on all three.
     mapM_ (\part -> do
               Just hwm <- partitionHWM c (topicName "ledger") part
               Just lso <- partitionLastStableOffset c (topicName "ledger") part
-              hwm @?= 1
-              lso @?= 1)
+              hwm `shouldBe` 1
+              lso `shouldBe` 1)
           [0, 1, 2]
 
 ----------------------------------------------------------------------
 -- Multi-consumer rebalance
 ----------------------------------------------------------------------
 
-two_consumers_split_partitions_round_robin :: TestTree
+two_consumers_split_partitions_round_robin :: Spec
 two_consumers_split_partitions_round_robin =
-  testCase "two consumers in one group split partitions deterministically" $ do
+  it "two consumers in one group split partitions deterministically" $ do
     c <- newMockCluster 1
     createTopic c (topicName "in") 4
     fp <- noFaults
@@ -177,15 +176,15 @@ two_consumers_split_partitions_round_robin =
     -- partitions sorted by topic + index) gives:
     --   c1 -> partitions 0, 2
     --   c2 -> partitions 1, 3
-    map snd a1 @?= [0, 2]
-    map snd a2 @?= [1, 3]
+    map snd a1 `shouldBe` [0, 2]
+    map snd a2 `shouldBe` [1, 3]
     -- Together they cover every partition exactly once.
     Set.fromList (a1 ++ a2)
-      @?= Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
+      `shouldBe` Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
 
-three_consumers_one_leaves_partitions_redistribute :: TestTree
+three_consumers_one_leaves_partitions_redistribute :: Spec
 three_consumers_one_leaves_partitions_redistribute =
-  testCase "leaving the group triggers re-assignment on the survivors" $ do
+  it "leaving the group triggers re-assignment on the survivors" $ do
     c <- newMockCluster 1
     createTopic c (topicName "in") 6
     fp <- noFaults
@@ -199,9 +198,9 @@ three_consumers_one_leaves_partitions_redistribute =
     aBefore <- L.sort <$> assignedPartitions a
     bBefore <- L.sort <$> assignedPartitions b
     cBefore <- L.sort <$> assignedPartitions cConsumer
-    map snd aBefore @?= [0, 3]
-    map snd bBefore @?= [1, 4]
-    map snd cBefore @?= [2, 5]
+    map snd aBefore `shouldBe` [0, 3]
+    map snd bBefore `shouldBe` [1, 4]
+    map snd cBefore `shouldBe` [2, 5]
 
     -- 'b' leaves; 'a' and 'c' refresh.
     MC.leaveGroup c g (MemberId "b")
@@ -213,16 +212,16 @@ three_consumers_one_leaves_partitions_redistribute =
     -- Two members + six partitions = 3 each. Sorted alphabetically:
     --   a -> partitions 0, 2, 4
     --   c -> partitions 1, 3, 5
-    map snd aAfter @?= [0, 2, 4]
-    map snd cAfter @?= [1, 3, 5]
+    map snd aAfter `shouldBe` [0, 2, 4]
+    map snd cAfter `shouldBe` [1, 3, 5]
 
 ----------------------------------------------------------------------
 -- Coordinator retry
 ----------------------------------------------------------------------
 
-coordinator_retry_then_success :: TestTree
+coordinator_retry_then_success :: Spec
 coordinator_retry_then_success =
-  testCase "two queued NotCoordinator errors fail commits 1 + 2; commit 3 succeeds" $ do
+  it "two queued NotCoordinator errors fail commits 1 + 2; commit 3 succeeds" $ do
     c <- newMockCluster 1
     createTopic c (topicName "in") 1
     let g = GroupId "g"
@@ -235,20 +234,20 @@ coordinator_retry_then_success =
     r3 <- commitOffsetsMC cons [(topicName "in", 0, 1)]
     case (r1, r2, r3) of
       (Left e1, Left e2, Right ()) -> do
-        isRetriable e1 @?= True
-        isRetriable e2 @?= True
+        isRetriable e1 `shouldBe` True
+        isRetriable e2 `shouldBe` True
       _ -> error "expected 2 failures, then success"
     -- Final committed offset is what r3 wrote.
     m <- groupOffsetsFor c g
-    Map.lookup (topicName "in", 0) m @?= Just 1
+    Map.lookup (topicName "in", 0) m `shouldBe` Just 1
 
 ----------------------------------------------------------------------
 -- Multi-topic single-consumer assignment
 ----------------------------------------------------------------------
 
-several_topics_one_consumer :: TestTree
+several_topics_one_consumer :: Spec
 several_topics_one_consumer =
-  testCase "subscribing to N topics assigns every partition of every topic" $ do
+  it "subscribing to N topics assigns every partition of every topic" $ do
     c <- newMockCluster 1
     createTopic c (topicName "alpha") 2
     createTopic c (topicName "beta")  3
@@ -258,7 +257,7 @@ several_topics_one_consumer =
     cons <- newMockConsumer c fp g ReadUncommitted 100
     subscribeMC cons [topicName "alpha", topicName "beta", topicName "gamma"]
     asg <- L.sort <$> assignedPartitions cons
-    L.sort asg @?=
+    L.sort asg `shouldBe`
       L.sort
         [ (topicName "alpha", 0), (topicName "alpha", 1)
         , (topicName "beta",  0), (topicName "beta",  1), (topicName "beta", 2)

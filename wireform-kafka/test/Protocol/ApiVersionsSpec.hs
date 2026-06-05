@@ -10,9 +10,8 @@ import qualified Data.Map.Strict as Map
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit (Assertion, assertEqual, testCase)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import Kafka.Network.Connection (BrokerAddress(..))
 import qualified Kafka.Protocol.ApiVersions as AV
@@ -32,13 +31,13 @@ genApiVersionRange = do
   return $ AV.ApiVersionRange minVer maxVer
 
 -- | Test creating an empty version cache
-unit_createVersionCache :: Assertion
+unit_createVersionCache :: IO ()
 unit_createVersionCache = do
   cache <- AV.createVersionCache
   
   -- Query for non-existent broker should return Nothing
   result <- atomically $ AV.queryApiVersion cache (BrokerAddress "localhost" 9092) 0
-  assertEqual "Empty cache should return Nothing" Nothing result
+  result `shouldBe` Nothing
 
 -- | Test querying a non-existent API key
 prop_queryNonExistentApiKey :: Property
@@ -135,22 +134,22 @@ prop_versionsAboveRangeNotSupported = property $ do
   assert $ not supported
 
 -- | All tests for API version negotiation
-tests :: TestTree
-tests = testGroup "ApiVersions"
-  [ testGroup "Version Cache"
-      [ testCase "Create empty cache" unit_createVersionCache
-      , testProperty "Query non-existent API key returns Nothing" prop_queryNonExistentApiKey
+tests :: Spec
+tests = describe "ApiVersions" $ sequence_
+  [ describe "Version Cache" $ sequence_
+      [ it "Create empty cache" unit_createVersionCache
+      , it "Query non-existent API key returns Nothing" prop_queryNonExistentApiKey
       ]
-  , testGroup "Version Selection"
-      [ testProperty "Select appropriate version" prop_selectVersion
-      , testProperty "Returns Nothing when client too old" prop_selectVersionClientTooOld
-      , testProperty "Prefers broker max when client higher" prop_selectVersionPrefersLower
+  , describe "Version Selection" $ sequence_
+      [ it "Select appropriate version" prop_selectVersion
+      , it "Returns Nothing when client too old" prop_selectVersionClientTooOld
+      , it "Prefers broker max when client higher" prop_selectVersionPrefersLower
       ]
-  , testGroup "Version Support"
-      [ testProperty "Check if version supported" prop_isVersionSupported
-      , testProperty "Versions in range are supported" prop_versionsInRangeSupported
-      , testProperty "Versions below range not supported" prop_versionsBelowRangeNotSupported
-      , testProperty "Versions above range not supported" prop_versionsAboveRangeNotSupported
+  , describe "Version Support" $ sequence_
+      [ it "Check if version supported" prop_isVersionSupported
+      , it "Versions in range are supported" prop_versionsInRangeSupported
+      , it "Versions below range not supported" prop_versionsBelowRangeNotSupported
+      , it "Versions above range not supported" prop_versionsAboveRangeNotSupported
       ]
   ]
 

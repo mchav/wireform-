@@ -14,8 +14,7 @@ module Streams.Properties.StoreRefSpec (tests) where
 
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=), assertBool)
+import Test.Syd
 
 import qualified Kafka.Streams.Processor as Processor
 import Kafka.Streams.Processor (TaskId (..))
@@ -35,8 +34,8 @@ import Kafka.Streams.State.Store
   )
 import Kafka.Streams.State.Ref
 
-tests :: TestTree
-tests = testGroup "Typed StoreRef"
+tests :: Spec
+tests = describe "Typed StoreRef" $ sequence_
   [ kvref_round_trip
   , kvref_wrong_kind_returns_nothing
   , kvref_missing_store_returns_nothing
@@ -67,18 +66,18 @@ withKVStore sName k = do
 -- Tests
 ----------------------------------------------------------------------
 
-kvref_round_trip :: TestTree
+kvref_round_trip :: Spec
 kvref_round_trip =
-  testCase "getKVStoreRef: builder ref -> registered store -> typed read/write" $ do
+  it "getKVStoreRef: builder ref -> registered store -> typed read/write" $ do
     withKVStore "counter" $ \ref ctx -> do
       mStore <- getKVStoreRef ctx ref
       let kv = fromJust mStore
       kvsPut kv "k1" 7
-      kvsGet kv "k1" >>= (@?= Just 7)
+      kvsGet kv "k1" >>= (`shouldBe` Just 7)
 
-kvref_wrong_kind_returns_nothing :: TestTree
+kvref_wrong_kind_returns_nothing :: Spec
 kvref_wrong_kind_returns_nothing =
-  testCase "getWindowStoreRef on a KV-attached store returns Nothing" $ do
+  it "getWindowStoreRef on a KV-attached store returns Nothing" $ do
     withKVStore "kv-only" $ \_ ctx -> do
       -- Forge a window ref pointing at the same name; the
       -- runtime can't possibly produce this ref legitimately, so
@@ -88,28 +87,28 @@ kvref_wrong_kind_returns_nothing =
       mW <- getWindowStoreRef ctx bogus
       case mW of
         Nothing -> pure ()
-        Just _  -> assertBool "expected Nothing for wrong-kind ref" False
+        Just _  -> (False) `shouldBe` True
 
-kvref_missing_store_returns_nothing :: TestTree
+kvref_missing_store_returns_nothing :: Spec
 kvref_missing_store_returns_nothing =
-  testCase "getKVStoreRef returns Nothing when the topology forgot the store" $ do
+  it "getKVStoreRef returns Nothing when the topology forgot the store" $ do
     mctx <- newMockProcessorContext "test-app" (TaskId 0 0)
     let ref :: StoreRef 'SKKV T.Text Int
         ref = storeRefOfBuilder (storeName "never-registered")
     mS <- getKVStoreRef (mockContext mctx) ref
     case mS of
       Nothing -> pure ()
-      Just _  -> assertBool "expected Nothing for missing store" False
+      Just _  -> (False) `shouldBe` True
 
-someref_projection :: TestTree
+someref_projection :: Spec
 someref_projection =
-  testCase "someStoreRefName projects all three SomeStoreRef arms" $ do
+  it "someStoreRefName projects all three SomeStoreRef arms" $ do
     let kv :: StoreRef 'SKKV Int Int
         kv = storeRefOfBuilder (storeName "kv")
         wn :: StoreRef 'SKWindow Int Int
         wn = storeRefOfBuilder (storeName "win")
         ses :: StoreRef 'SKSession Int Int
         ses = storeRefOfBuilder (storeName "sess")
-    someStoreRefName (SomeKVRef kv)      @?= storeName "kv"
-    someStoreRefName (SomeWindowRef wn)  @?= storeName "win"
-    someStoreRefName (SomeSessionRef ses) @?= storeName "sess"
+    someStoreRefName (SomeKVRef kv)      `shouldBe` storeName "kv"
+    someStoreRefName (SomeWindowRef wn)  `shouldBe` storeName "win"
+    someStoreRefName (SomeSessionRef ses) `shouldBe` storeName "sess"

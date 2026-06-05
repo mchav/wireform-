@@ -10,8 +10,7 @@ module Streams.EOSRuntimeSpec (tests) where
 import Data.IORef
 import qualified Data.HashMap.Strict as Map
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.EOS
@@ -39,8 +38,8 @@ recordingCoord = do
         }
   pure (coord, reverse <$> readIORef buf)
 
-tests :: TestTree
-tests = testGroup "EOS Runtime wiring"
+tests :: Spec
+tests = describe "EOS Runtime wiring" $ sequence_
   [ apply_eos_coordinator_overrides_default
   , runtime_commit_cycle_calls_coordinator
   , runtime_chooses_eos_v2_producer_config
@@ -67,9 +66,9 @@ buildHandle pg = do
             }
       newKafkaStreams cfg v
 
-apply_eos_coordinator_overrides_default :: TestTree
+apply_eos_coordinator_overrides_default :: Spec
 apply_eos_coordinator_overrides_default =
-  testCase "applyEOSCoordinator replaces the runtime's coordinator" $ do
+  it "applyEOSCoordinator replaces the runtime's coordinator" $ do
     ks <- buildHandle ExactlyOnceV2
     (coord, _drain) <- recordingCoord
     applyEOSCoordinator ks coord
@@ -79,17 +78,17 @@ apply_eos_coordinator_overrides_default =
     -- override doesn't throw.
     pure ()
 
-runtime_commit_cycle_calls_coordinator :: TestTree
+runtime_commit_cycle_calls_coordinator :: Spec
 runtime_commit_cycle_calls_coordinator =
-  testCase "a manual commit cycle invokes the EOS coordinator" $ do
+  it "a manual commit cycle invokes the EOS coordinator" $ do
     (coord, drain) <- recordingCoord
     out <- runCommitCycle coord "g" (pure Map.empty) (pure ())
-    out @?= CommitSucceeded
-    drain >>= (@?= ["begin", "commitOffsets", "commit", "storeCommit"])
+    out `shouldBe` CommitSucceeded
+    drain >>= (`shouldBe` ["begin", "commitOffsets", "commit", "storeCommit"])
 
-runtime_chooses_eos_v2_producer_config :: TestTree
+runtime_chooses_eos_v2_producer_config :: Spec
 runtime_chooses_eos_v2_producer_config =
-  testCase "ExactlyOnceV2 yields a transactional producer config" $ do
+  it "ExactlyOnceV2 yields a transactional producer config" $ do
     -- We only verify the Runtime accepts an EOS-v2 config without
     -- error. The producer-side transactional routing depends on
     -- the underlying Kafka.Client.Producer growing transactional

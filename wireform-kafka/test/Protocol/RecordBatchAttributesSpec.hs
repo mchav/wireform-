@@ -27,51 +27,50 @@ import Data.Int (Int16)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, testCase, (@?=))
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Syd
+import Test.Syd.Hedgehog ()
 
 import qualified Kafka.Compression.Types as Compression
 import qualified Kafka.Protocol.RecordBatch as RB
 
-tests :: TestTree
-tests = testGroup "RecordBatch attributes (bit-level)"
-  [ testGroup "compression codec bits 0-2"
-      [ testCase "NoCompression -> 0x00"
-          (encodeOnly noCompression @?= 0x00)
-      , testCase "Gzip          -> 0x01"
+tests :: Spec
+tests = describe "RecordBatch attributes (bit-level)" $ sequence_
+  [ describe "compression codec bits 0-2" $ sequence_
+      [ it "NoCompression -> 0x00"
+          (encodeOnly noCompression `shouldBe` 0x00)
+      , it "Gzip          -> 0x01"
           (encodeOnly (noCompression { RB.attrCompressionType = Compression.Gzip })
-             @?= 0x01)
-      , testCase "Snappy        -> 0x02"
+             `shouldBe` 0x01)
+      , it "Snappy        -> 0x02"
           (encodeOnly (noCompression { RB.attrCompressionType = Compression.Snappy })
-             @?= 0x02)
-      , testCase "Lz4           -> 0x03"
+             `shouldBe` 0x02)
+      , it "Lz4           -> 0x03"
           (encodeOnly (noCompression { RB.attrCompressionType = Compression.Lz4 })
-             @?= 0x03)
-      , testCase "Zstd          -> 0x04"
+             `shouldBe` 0x03)
+      , it "Zstd          -> 0x04"
           (encodeOnly (noCompression { RB.attrCompressionType = Compression.Zstd })
-             @?= 0x04)
+             `shouldBe` 0x04)
       ]
 
-  , testCase "timestamp type bit 3" $ do
+  , it "timestamp type bit 3" $ do
       encodeOnly (noCompression { RB.attrTimestampType = RB.CreateTime })
-        @?= 0x00
+        `shouldBe` 0x00
       encodeOnly (noCompression { RB.attrTimestampType = RB.LogAppendTime })
-        @?= 0x08
+        `shouldBe` 0x08
 
-  , testCase "transactional bit 4" $ do
+  , it "transactional bit 4" $ do
       encodeOnly (noCompression { RB.attrIsTransactional = True })
-        @?= 0x10
+        `shouldBe` 0x10
 
-  , testCase "control bit 5" $ do
+  , it "control bit 5" $ do
       encodeOnly (noCompression { RB.attrIsControl = True })
-        @?= 0x20
+        `shouldBe` 0x20
 
-  , testCase "delete-horizon bit 6 (KIP-534)" $ do
+  , it "delete-horizon bit 6 (KIP-534)" $ do
       encodeOnly (noCompression { RB.attrHasDeleteHorizon = True })
-        @?= 0x40
+        `shouldBe` 0x40
 
-  , testCase "all flags + zstd composes correctly" $ do
+  , it "all flags + zstd composes correctly" $ do
       let attrs = RB.Attributes
             { RB.attrCompressionType = Compression.Zstd
             , RB.attrTimestampType   = RB.LogAppendTime
@@ -80,12 +79,12 @@ tests = testGroup "RecordBatch attributes (bit-level)"
             , RB.attrHasDeleteHorizon = True
             }
       encodeOnly attrs
-        @?= (0x04 + 0x08 + 0x10 + 0x20 + 0x40)  -- 0x7C
+        `shouldBe` (0x04 + 0x08 + 0x10 + 0x20 + 0x40)  -- 0x7C
 
-  , testGroup "round-trip"
-      [ testProperty "decode . encode == id (any combination)"
+  , describe "round-trip" $ sequence_
+      [ it "decode . encode == id (any combination)"
           prop_attrs_round_trip
-      , testProperty "encode never sets bits 7..15"
+      , it "encode never sets bits 7..15"
           prop_attrs_no_high_bits
       ]
   ]

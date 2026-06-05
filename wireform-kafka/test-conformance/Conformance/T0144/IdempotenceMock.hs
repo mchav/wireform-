@@ -21,8 +21,7 @@ module Conformance.T0144.IdempotenceMock (tests) where
 import qualified Control.Concurrent.STM as STM
 import qualified Data.HashMap.Strict as HashMap
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Client.Consumer as C
 import qualified Kafka.Client.Transaction as Txn
@@ -42,32 +41,32 @@ mkTxn = do
     (Conn.BrokerAddress "127.0.0.1" 1)
     60000
 
-tests :: TestTree
-tests = testGroup "0144-idempotence_mock (partial)"
-  [ testCase "fresh transaction has no per-partition sequence numbers" $ do
+tests :: Spec
+tests = describe "0144-idempotence_mock (partial)" $ sequence_
+  [ it "fresh transaction has no per-partition sequence numbers" $ do
       txn <- mkTxn
       seqs <- STM.readTVarIO (Txn.txnSequenceNumbers txn)
-      HashMap.size seqs @?= 0
+      HashMap.size seqs `shouldBe` 0
 
-  , testCase "fresh transaction has no tracked partitions" $ do
+  , it "fresh transaction has no tracked partitions" $ do
       txn <- mkTxn
       ps  <- STM.readTVarIO (Txn.txnPartitions txn)
-      length (foldr (\p acc -> p : acc) [] ps) @?= 0
+      length (foldr (\p acc -> p : acc) [] ps) `shouldBe` 0
 
-  , testCase "partition tracking type is the same as the consumer's" $ do
+  , it "partition tracking type is the same as the consumer's" $ do
       -- The librdkafka idempotent producer's per-partition sequence
       -- map is keyed by (topic, partition); ours uses the same key
       -- type as the consumer. This makes commitOffsetsInTransaction
       -- and the consumer's poll-driven offset tracking interoperate.
       let _ = C.TopicPartition "t" 0
-      pure ()
+      pure () :: IO ()
 
-  , testCase "heartbeat module dependency is in scope (mock-cluster TODO marker)" $ do
+  , it "heartbeat module dependency is in scope (mock-cluster TODO marker)" $ do
       -- When we land an in-process mock broker, the rest of this
       -- file becomes positive tests against simulated produce
       -- responses. For now we keep the dependency live so the
       -- conformance file compiles against the same module the real
       -- producer uses.
       let _ = HB.createHeartbeatState
-      pure ()
+      pure () :: IO ()
   ]

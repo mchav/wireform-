@@ -17,14 +17,13 @@ diff-able.
 -}
 module Conformance.T0043.NoConnection (tests) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import qualified Kafka.Network.Connection as Conn
 
-tests :: TestTree
-tests = testGroup "0043-no_connection"
-  [ testCase "connect to invalid host gives up after max retries" $ do
+tests :: Spec
+tests = describe "0043-no_connection" $ sequence_
+  [ it "connect to invalid host gives up after max retries" $ do
       let cfg = Conn.defaultConnectionConfig
             { Conn.connMaxRetries = 1
             , Conn.connRetryDelay = 10
@@ -36,9 +35,9 @@ tests = testGroup "0043-no_connection"
       r <- Conn.connect addr cfg
       case r of
         Left _ -> pure ()
-        Right _ -> assertFailure "expected connection failure, got success"
+        Right _ -> expectationFailure "expected connection failure, got success"
 
-  , testCase "exponential backoff respects the max delay cap" $ do
+  , it "exponential backoff respects the max delay cap" $ do
       let cfg = Conn.defaultConnectionConfig
             { Conn.connRetryDelay      = 10
             , Conn.connBackoffMaxMs    = 50
@@ -47,6 +46,5 @@ tests = testGroup "0043-no_connection"
             }
       -- attempt 0: ~10 ms, attempt 5: 10 * 2^5 = 320 ms, capped to 50 ms.
       d <- Conn.calculateBackoffDelay 5 cfg
-      assertBool ("attempt-5 delay (" <> show d <> " us) is at most 50 ms * 1.2 jitter")
-        (d <= 50 * 1000 * 2)
+      (if (d <= 50 * 1000 * 2) then pure () else expectationFailure ("attempt-5 delay (" <> show d <> " us) is at most 50 ms * 1.2 jitter"))
   ]

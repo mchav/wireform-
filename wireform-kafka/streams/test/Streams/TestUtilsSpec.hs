@@ -5,13 +5,12 @@ module Streams.TestUtilsSpec (tests) where
 
 import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Syd
 
 import Kafka.Streams.Imperative
 
-tests :: TestTree
-tests = testGroup "TestInputTopic / TestOutputTopic"
+tests :: Spec
+tests = describe "TestInputTopic / TestOutputTopic" $ sequence_
   [ pipe_kv_round_trips
   , pipe_all_in_order
   , read_values_to_list
@@ -27,21 +26,21 @@ passthroughDriver = do
   topo <- buildTopology b
   newDriver topo "tu-app"
 
-pipe_kv_round_trips :: TestTree
+pipe_kv_round_trips :: Spec
 pipe_kv_round_trips =
-  testCase "pipeKV + readKV through TestInputTopic / TestOutputTopic" $ do
+  it "pipeKV + readKV through TestInputTopic / TestOutputTopic" $ do
     d <- passthroughDriver
     let inT  = createInputTopic  d (topicName "in")  textSerde textSerde
         outT = createOutputTopic d (topicName "out") textSerde textSerde
     pipeKV inT (Just "k") "hello"
     Just (Right (mk, v)) <- readKV outT
-    mk @?= Just "k"
-    v  @?= "hello"
+    mk `shouldBe` Just "k"
+    v  `shouldBe` "hello"
     closeDriver d
 
-pipe_all_in_order :: TestTree
+pipe_all_in_order :: Spec
 pipe_all_in_order =
-  testCase "pipeAll preserves submission order" $ do
+  it "pipeAll preserves submission order" $ do
     d <- passthroughDriver
     let inT  = createInputTopic  d (topicName "in")  textSerde textSerde
         outT = createOutputTopic d (topicName "out") textSerde textSerde
@@ -51,30 +50,30 @@ pipe_all_in_order =
       , (Just "c", "v3", Timestamp 2)
       ]
     vs <- readValuesToList outT
-    vs @?= ["v1", "v2", "v3"]
+    vs `shouldBe` ["v1", "v2", "v3"]
     closeDriver d
 
-read_values_to_list :: TestTree
+read_values_to_list :: Spec
 read_values_to_list =
-  testCase "readValuesToList drains the entire topic" $ do
+  it "readValuesToList drains the entire topic" $ do
     d <- passthroughDriver
     let inT  = createInputTopic  d (topicName "in")  textSerde textSerde
         outT = createOutputTopic d (topicName "out") textSerde textSerde
     mapM_ (\v -> pipeValue inT v) ["x", "y", "z"]
-    readValuesToList outT >>= (@?= ["x", "y", "z"])
+    readValuesToList outT >>= (`shouldBe` ["x", "y", "z"])
     -- Subsequent read returns nothing — readOutput drains.
-    readValuesToList outT >>= (@?= [])
+    readValuesToList outT >>= (`shouldBe` [])
     closeDriver d
 
-is_output_empty_after_drain :: TestTree
+is_output_empty_after_drain :: Spec
 is_output_empty_after_drain =
-  testCase "isOutputEmpty: True before any input, False after, then True post-drain" $ do
+  it "isOutputEmpty: True before any input, False after, then True post-drain" $ do
     d <- passthroughDriver
     let inT  = createInputTopic  d (topicName "in")  textSerde textSerde
         outT = createOutputTopic d (topicName "out") textSerde textSerde
-    isOutputEmpty outT >>= (@?= True)
+    isOutputEmpty outT >>= (`shouldBe` True)
     pipeValue inT "x"
-    isOutputEmpty outT >>= (@?= False)
+    isOutputEmpty outT >>= (`shouldBe` False)
     _ <- readValuesToList outT
-    isOutputEmpty outT >>= (@?= True)
+    isOutputEmpty outT >>= (`shouldBe` True)
     closeDriver d
