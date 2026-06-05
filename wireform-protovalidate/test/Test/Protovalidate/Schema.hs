@@ -10,8 +10,7 @@ import Data.List (sort)
 import Data.Text (Text)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import Protovalidate
 
@@ -51,23 +50,23 @@ userRules =
 ids :: [Violation] -> [Text]
 ids = sort . map violationConstraintId
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "schema + typed validation"
-    [ testCase "rules are extracted from .proto annotations" $
-        assertBool "expected some field rules" (not (null (mrFields userRules)))
-    , testCase "valid typed message passes (no dynamic conversion)" $
-        validateValue validator (User "ab" 30 "alice@example.com") @?= []
-    , testCase "invalid typed message reports each rule + message CEL" $
+  describe
+    "schema + typed validation" $ sequence_
+    [ it "rules are extracted from .proto annotations" $
+        (not (null (mrFields userRules))) `shouldBe` True
+    , it "valid typed message passes (no dynamic conversion)" $
+        validateValue validator (User "ab" 30 "alice@example.com") `shouldBe` []
+    , it "invalid typed message reports each rule + message CEL" $
         ids (validateValue validator (User "" 200 "bad"))
-          @?= sort ["string.min_len", "uint32.lte", "string.email", "id_required_with_age"]
-    , testCase "compiled validator is reusable across messages" $
+          `shouldBe` sort ["string.min_len", "uint32.lte", "string.email", "id_required_with_age"]
+    , it "compiled validator is reusable across messages" $
         map (null . validateValue validator)
           [ User "ab" 1 "a@b.co"
           , User "" 1 "a@b.co"
           ]
-          @?= [True, False]
+          `shouldBe` [True, False]
     ]
   where
     validator = compileValidator userRules

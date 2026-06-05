@@ -7,8 +7,7 @@ module Test.Protovalidate.Validation (tests) where
 import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Syd
 
 import CEL (Value (..), celMapFromList)
 import Protovalidate
@@ -38,11 +37,11 @@ userRules =
         "!has(this.first_name) || has(this.last_name)"
     ]
 
-tests :: TestTree
+tests :: Spec
 tests =
-  testGroup
-    "validation"
-    [ testCase "valid user has no violations" $
+  describe
+    "validation" $ sequence_
+    [ it "valid user has no violations" $
         validate
           ( msg
               [ ("id", VString "12345678-1234-1234-1234-123456789abc")
@@ -53,8 +52,8 @@ tests =
               ]
           )
           userRules
-          @?= []
-    , testCase "invalid user reports each failing rule" $
+          `shouldBe` []
+    , it "invalid user reports each failing rule" $
         ids
           ( validate
               ( msg
@@ -66,48 +65,48 @@ tests =
               )
               userRules
           )
-          @?= sort ["string.uuid", "uint32.lte", "string.email", "first_name_requires_last_name"]
-    , testCase "string length rules" $
+          `shouldBe` sort ["string.uuid", "uint32.lte", "string.email", "first_name_requires_last_name"]
+    , it "string length rules" $
         ids (validate (msg [("name", VString "ab")]) lenRules)
-          @?= ["string.min_len"]
-    , testCase "numeric comparison rules" $
+          `shouldBe` ["string.min_len"]
+    , it "numeric comparison rules" $
         ids (validate (msg [("n", VInt 5)]) numRules)
-          @?= sort ["int64.gt", "int64.lte"]
-    , testCase "in / not_in" $
+          `shouldBe` sort ["int64.gt", "int64.lte"]
+    , it "in / not_in" $
         ids (validate (msg [("color", VString "purple")]) setRules)
-          @?= ["string.in"]
-    , testCase "repeated unique + min_items" $
+          `shouldBe` ["string.in"]
+    , it "repeated unique + min_items" $
         ids (validate (msg [("tags", VList (V.fromList [VString "a", VString "a"]))]) repeatedRules)
-          @?= sort ["repeated.min_items", "repeated.unique"]
-    , testCase "required field absent" $
+          `shouldBe` sort ["repeated.min_items", "repeated.unique"]
+    , it "required field absent" $
         ids (validate (msg []) requiredRules)
-          @?= ["required"]
-    , testCase "required field present" $
-        validate (msg [("token", VString "abc")]) requiredRules @?= []
-    , testCase "ignore_empty skips empty value" $
-        validate (msg [("name", VString "")]) ignoreEmptyRules @?= []
-    , testCase "nested message validation reports nested path" $
+          `shouldBe` ["required"]
+    , it "required field present" $
+        validate (msg [("token", VString "abc")]) requiredRules `shouldBe` []
+    , it "ignore_empty skips empty value" $
+        validate (msg [("name", VString "")]) ignoreEmptyRules `shouldBe` []
+    , it "nested message validation reports nested path" $
         map violationFieldPath (validate (msg [("profile", msg [("email", VString "bad")])]) nestedRules)
-          @?= ["profile.email"]
-    , testCase "field-level custom CEL" $
+          `shouldBe` ["profile.email"]
+    , it "field-level custom CEL" $
         ids (validate (msg [("n", VInt 7)]) customRules)
-          @?= ["n.even"]
-    , testCase "ip / hostname formats" $
+          `shouldBe` ["n.even"]
+    , it "ip / hostname formats" $
         validate (msg [("host", VString "192.168.0.1"), ("name", VString "example.com")]) hostRules
-          @?= []
-    , testCase "bytes prefix rule" $
-        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesPrefixRules) @?= ["bytes.prefix"]
-    , testCase "bytes ip rule (4 or 16 bytes)" $ do
-        validate (msg [("b", VBytes "\x7f\x00\x00\x01")]) bytesIpRules @?= []
-        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesIpRules) @?= ["bytes.ip"]
-    , testCase "double finite rule" $ do
-        validate (msg [("d", VDouble 1.5)]) finiteRules @?= []
-        ids (validate (msg [("d", VDouble (1 / 0))]) finiteRules) @?= ["double.finite"]
-    , testCase "string len_bytes rule" $
-        ids (validate (msg [("s", VString "ab")]) lenBytesRules) @?= ["string.len_bytes"]
-    , testCase "string tuuid rule" $ do
-        validate (msg [("s", VString "0123456789abcdef0123456789abcdef")]) tuuidRules @?= []
-        ids (validate (msg [("s", VString "nope")]) tuuidRules) @?= ["string.tuuid"]
+          `shouldBe` []
+    , it "bytes prefix rule" $
+        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesPrefixRules) `shouldBe` ["bytes.prefix"]
+    , it "bytes ip rule (4 or 16 bytes)" $ do
+        validate (msg [("b", VBytes "\x7f\x00\x00\x01")]) bytesIpRules `shouldBe` []
+        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesIpRules) `shouldBe` ["bytes.ip"]
+    , it "double finite rule" $ do
+        validate (msg [("d", VDouble 1.5)]) finiteRules `shouldBe` []
+        ids (validate (msg [("d", VDouble (1 / 0))]) finiteRules) `shouldBe` ["double.finite"]
+    , it "string len_bytes rule" $
+        ids (validate (msg [("s", VString "ab")]) lenBytesRules) `shouldBe` ["string.len_bytes"]
+    , it "string tuuid rule" $ do
+        validate (msg [("s", VString "0123456789abcdef0123456789abcdef")]) tuuidRules `shouldBe` []
+        ids (validate (msg [("s", VString "nope")]) tuuidRules) `shouldBe` ["string.tuuid"]
     ]
   where
     lenRules = messageRules [("name", fieldRules KString [minLen 3, maxLen 10])] []
