@@ -413,16 +413,25 @@ sinkForwarder :: Engine -> Topo.SinkSpec -> NodeForwarder
 sinkForwarder engine spec = \rec ->
   case (Topo.sinkKeySerde spec, Topo.sinkValueSerde spec) of
     (Topo.AnySerde ks, Topo.AnySerde vs) -> do
-      let !serK = serialize (unsafeCoerce ks :: Serde Erased)
-          !serV = serialize (unsafeCoerce vs :: Serde Erased)
-          !keyB = serK <$> recordKey rec
-          !valB = serV (recordValue rec)
+      let !erasedK = unsafeCoerce ks :: Serde Erased
+          !erasedV = unsafeCoerce vs :: Serde Erased
+          !keyB = serialize erasedK <$> recordKey rec
+          !valB = serialize erasedV (recordValue rec)
+          -- Stamp the serdes' header contributions (e.g. schema-identity
+          -- headers) onto the outgoing record, mirroring the typed
+          -- producer path ('Kafka.Client.Producer.publish'). Headers
+          -- already on the record (carried from upstream, including any
+          -- trace-context headers) are preserved and the serde headers
+          -- appended; built-in serdes contribute 'mempty'.
+          !keyHdrs = maybe mempty (serializeHeaders erasedK) (recordKey rec)
+          !valHdrs = serializeHeaders erasedV (recordValue rec)
+          !outHdrs = recordHeaders rec <> keyHdrs <> valHdrs
           out = CollectedRecord
             { crTopic     = Topo.sinkTopic spec
             , crKey       = keyB
             , crValue     = valB
             , crTimestamp = recordTimestamp rec
-            , crHeaders   = recordHeaders rec
+            , crHeaders   = outHdrs
             , crPartition = Nothing
             }
       collectorSend (engineCollector engine) out

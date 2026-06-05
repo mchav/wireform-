@@ -19,12 +19,14 @@ import Control.Category ((>>>))
 import Data.Void (Void)
 
 import Kafka.Streams
+import qualified Kafka.Streams.Imperative as Imp
 import qualified Kafka.Streams.Materialized as Mat
 import qualified Kafka.Streams.Topology as Topo
 import qualified Kafka.Streams.Topology.Free as F
 import Kafka.Streams.Driver (OutputRecord (..), decodeOutput)
 import Kafka.Streams.Time (Timestamp (..))
-import Kafka.Streams.Types (Header (..), headersFromList)
+import Kafka.Streams.Types (Header (..), headersFromList, headersToList)
+import qualified Kafka.Headers as KH
 
 import Kafka.Streams.Replay
 
@@ -78,7 +80,14 @@ tests = testGroup "Replay"
   , headers_survive_replay
   , offset_window_selects
   , pacer_sees_gaps
+  , replay_record_seeds_serde_headers
+  , sink_stamps_serde_headers
   ]
+
+-- A value serde that stamps a schema-identity header on produce.
+-- 'serializeHeaders' uses the base 'Kafka.Headers.Headers'.
+schemaSerde =
+  withHeaders (const (KH.fromList [("schema-id", "42")])) textSerde
 
 ----------------------------------------------------------------------
 
@@ -187,6 +196,40 @@ pacer_sees_gaps =
     _ <- runReplayPaced topo "pace" defaultReplayPlan pacer recs
     gaps <- readIORef ref
     reverse gaps @?= [25, 5]
+
+replay_record_seeds_serde_headers :: TestTree
+replay_record_seeds_serde_headers =
+  testCase "replayRecord seeds headers from the serdes' serializeHeaders" $ do
+    let r = replayRecord textSerde schemaSerde (topicName "in")
+                         (Just "k") "v" (Timestamp 0)
+    headersToList (rrHeaders r) @?= [Header "schema-id" "42"]
+
+sink_stamps_serde_headers :: TestTree
+sink_stamps_serde_headers =
+  testCase "the sink stamps the value serde's headers on output" $ do
+    topo <- sinkTopo
+    -- Input record with no headers; the sink's value serde contributes
+    -- the schema-id header on the way out.
+    let rec = replayRecordBytes (topicName "in") (Just "k") "v" (Timestamp 0) 0
+    res <- runReplay topo "sink-hdr" defaultReplayPlan [rec]
+    case lookup (topicName "out") (replayOutputs res) of
+      Just [cr] -> case decodeOutput textSerde textSerde cr of
+        Right o -> headersToList (orHeaders o) @?= [Header "schema-id" "42"]
+        Left e  -> assertFailure ("decode failed: " <> show e)
+      other -> assertFailure ("expected one output, got "
+                                <> show (fmap length other))
+
+-- Passthrough whose sink uses a header-stamping value serde.
+sinkTopo :: IO Topo.TopologyValid
+sinkTopo = do
+  b <- Imp.newStreamsBuilder
+  s <- Imp.streamFromTopic b (topicName "in")
+         (Imp.consumed textSerde textSerde)
+  Imp.toTopic (topicName "out") (Imp.produced textSerde schemaSerde) s
+  topo <- Imp.buildTopology b
+  case Topo.validateTopology topo of
+    Left err -> error (show err)
+    Right v  -> pure v
 
 ----------------------------------------------------------------------
 -- Helpers

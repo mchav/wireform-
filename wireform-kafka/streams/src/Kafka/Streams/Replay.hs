@@ -95,7 +95,7 @@ import Kafka.Streams.Driver
   , readOutputAll
   )
 import Kafka.Streams.Errors (logAndContinue)
-import Kafka.Streams.Serde (Serde, serialize)
+import Kafka.Streams.Serde (Serde, serialize, serializeHeaders)
 import Kafka.Streams.State.Store
   ( StoreName
   , kvIteratorToList
@@ -134,7 +134,12 @@ data ReplayRecord = ReplayRecord
   } deriving stock (Eq, Show)
 
 -- | Build a 'ReplayRecord' from typed key / value via serdes
--- (partition 0, no headers). Attach headers with 'withHeaders'.
+-- (partition 0). The record's headers are seeded from the serdes'
+-- 'serializeHeaders' channels — @keySerde@ then @valueSerde@,
+-- matching the typed producer path
+-- ('Kafka.Client.Producer.publish') — so schema-identity serdes
+-- stamp their headers automatically. Append more (e.g. trace
+-- context) with 'replayWithHeaders'.
 replayRecord
   :: Serde k -> Serde v
   -> TopicName -> Maybe k -> v -> Timestamp
@@ -145,9 +150,11 @@ replayRecord ks vs topic mk v ts = ReplayRecord
   , rrValue     = serialize vs v
   , rrTimestamp = ts
   , rrPartition = 0
-  , rrHeaders   = emptyHeaders
+  , rrHeaders   = keyHdrs <> serializeHeaders vs v
   , rrOffset    = Nothing
   }
+  where
+    keyHdrs = maybe mempty (serializeHeaders ks) mk
 
 -- | Build a 'ReplayRecord' straight from key / value bytes
 -- (no headers, no offset). Attach with 'withHeaders' / 'withOffset'.
@@ -157,9 +164,11 @@ replayRecordBytes
 replayRecordBytes topic key value ts part =
   ReplayRecord topic key value ts part emptyHeaders Nothing
 
--- | Attach headers to a record.
+-- | Append headers to a record (preserving any the serdes already
+-- contributed via 'replayRecord'). Use for trace-context / OTel
+-- headers that ride alongside schema-identity headers.
 replayWithHeaders :: Headers -> ReplayRecord -> ReplayRecord
-replayWithHeaders hs r = r { rrHeaders = hs }
+replayWithHeaders hs r = r { rrHeaders = rrHeaders r <> hs }
 
 -- | Attach an original source offset to a record (for offset-window
 -- selection).

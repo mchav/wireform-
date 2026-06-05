@@ -37,14 +37,12 @@ import Data.Bifunctor (Bifunctor (..))
 import Data.ByteString (ByteString)
 import Data.Hashable (Hashable)
 import Data.Int (Int32, Int64)
-import Data.List (foldl')
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
+import qualified Kafka.Headers as KH
 import Kafka.Streams.Time (Timestamp)
 
 -- | Topic name; thin newtype to avoid mixing topic names with other
@@ -81,48 +79,40 @@ data Header = Header
   }
   deriving stock (Eq, Ord, Show, Generic)
 
--- | Ordered, possibly-duplicating header collection (matches the Java
--- @org.apache.kafka.common.header.Headers@ semantics).
-newtype Headers = Headers { headerEntries :: Seq Header }
-  deriving stock (Eq, Show, Generic)
-
--- | Concatenation, preserving order and duplicate keys (Kafka
--- permits duplicates). Lets two header sets be merged with '<>'.
-instance Semigroup Headers where
-  Headers a <> Headers b = Headers (a <> b)
-
--- | 'mempty' is the empty header set.
-instance Monoid Headers where
-  mempty = emptyHeaders
+-- | Record headers are the base client's 'Kafka.Headers.Headers' —
+-- ordered @(name, value)@ pairs over a 'Data.Vector.Vector'. Streams
+-- shares the one type (rather than a separate @Seq@-backed copy) so a
+-- serde's 'Kafka.Serde.serializeHeaders' output drops straight onto a
+-- record with no conversion. 'Header' is a typed accessor over the
+-- same pairs.
+type Headers = KH.Headers
 
 emptyHeaders :: Headers
-emptyHeaders = Headers Seq.empty
+emptyHeaders = KH.empty
 
 headersFromList :: [Header] -> Headers
-headersFromList = Headers . Seq.fromList
+headersFromList = KH.fromList . map (\h -> (headerKey h, headerValue h))
 
 headersToList :: Headers -> [Header]
-headersToList (Headers s) = foldr (:) [] s
+headersToList = map (uncurry Header) . KH.toList
 
+-- | Append a header at the end (Kafka permits duplicate keys).
 addHeader :: Header -> Headers -> Headers
-addHeader h (Headers s) = Headers (s Seq.|> h)
+addHeader h = KH.insert (headerKey h) (headerValue h)
 
+-- | Drop every header with the given name.
 removeHeader :: Text -> Headers -> Headers
-removeHeader k (Headers s) =
-  Headers (Seq.filter ((/= k) . headerKey) s)
+removeHeader = KH.delete
 
 -- | Last header with a given key (mirrors @Headers#lastHeader@).
 lastHeader :: Text -> Headers -> Maybe Header
-lastHeader k (Headers s) =
-  case Seq.viewr (Seq.filter ((== k) . headerKey) s) of
-    Seq.EmptyR -> Nothing
-    _ Seq.:> h -> Just h
+lastHeader k hs = case reverse (KH.lookupAll k hs) of
+  (v : _) -> Just (Header k v)
+  []      -> Nothing
 
 -- | All headers with the given key, in insertion order.
 allHeaders :: Text -> Headers -> [Header]
-allHeaders k (Headers s) =
-  foldl' (\acc h -> if headerKey h == k then h : acc else acc) []
-    (Seq.reverse s)
+allHeaders k = map (Header k) . KH.lookupAll k
 
 -- | A record flowing through the topology. Mirrors the Java
 -- @org.apache.kafka.streams.processor.api.Record@ shape (key, value,
