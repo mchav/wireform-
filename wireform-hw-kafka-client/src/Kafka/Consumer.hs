@@ -55,14 +55,12 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString (ByteString)
 import Data.Int (Int64)
 import Data.Map (Map)
-import Data.Set (Set)
 import Kafka.Consumer.ConsumerProperties as X
 import Kafka.Consumer.Subscription as X
 import Kafka.Consumer.Types as X hiding (KafkaConsumer)
 import Kafka.Consumer.Types (KafkaConsumer (..))
 import Kafka.Internal.Callbacks
-  ( Callback
-  , errorCallbacks
+  ( errorCallbacks
   , offsetCommitCallbacks
   , rebalanceCallbacks
   )
