@@ -7,4 +7,5 @@ module Proto.OrcaLoadReport where
 
 import Proto.TH (loadProto)
 
+
 $(loadProto "proto/official/orca_load_report.proto")

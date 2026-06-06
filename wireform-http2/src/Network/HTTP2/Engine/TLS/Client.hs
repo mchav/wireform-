@@ -2,101 +2,109 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | gRPC-friendly HTTP\/2-over-TLS client engine, OpenSSL-backed.
---
--- The vendored grapesy engine's @http2-tls@-shaped client API.
--- Originally backed by the pure-Haskell @tls@ package; now goes
--- through "Wireform.Network.TLS.OpenSSL" so the engine + grpc
--- speak the same OpenSSL bridge as the rest of the repo.
---
--- 'runWithConfig' opens a TCP connection, performs the OpenSSL TLS
--- handshake (with ALPN @h2@), allocates an 'H2C.Config' over the
--- resulting 'SslConn', and drives 'H2C.run'.
-module Network.HTTP2.Engine.TLS.Client
-  ( -- * Settings
-    Settings (..)
-  , defaultSettings
-    -- * Runners
-  , runWithConfig
-  , defaultClientConfig
-    -- * Re-exports
-  , ClientConfig
-    -- * OpenSSL re-exports for callers that want fine-grained control
-  , module Wireform.Network.TLS.OpenSSL
-  ) where
 
-import qualified Control.Exception as E
+{- | gRPC-friendly HTTP\/2-over-TLS client engine, OpenSSL-backed.
+
+The vendored grapesy engine's @http2-tls@-shaped client API.
+Originally backed by the pure-Haskell @tls@ package; now goes
+through "Wireform.Network.TLS.OpenSSL" so the engine + grpc
+speak the same OpenSSL bridge as the rest of the repo.
+
+'runWithConfig' opens a TCP connection, performs the OpenSSL TLS
+handshake (with ALPN @h2@), allocates an 'H2C.Config' over the
+resulting 'SslConn', and drives 'H2C.run'.
+-}
+module Network.HTTP2.Engine.TLS.Client (
+  -- * Settings
+  Settings (..),
+  defaultSettings,
+
+  -- * Runners
+  runWithConfig,
+  defaultClientConfig,
+
+  -- * Re-exports
+  ClientConfig,
+
+  -- * OpenSSL re-exports for callers that want fine-grained control
+  module Wireform.Network.TLS.OpenSSL,
+) where
+
+import Control.Exception qualified as E
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Internal as BSI
-import qualified Data.IORef as IORef
-import qualified Network.Socket as NS
-import qualified System.TimeManager as TM
-import Network.Socket (AddrInfo, AddrInfoFlag, PortNumber, Socket, HostName)
-
-import Wireform.Network.TLS.OpenSSL
-import Wireform.Network.TLS.Config
-  ( TlsClientConfig (..)
-  , buildClientCtx
-  , defaultTlsClientConfig
-  )
-
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Internal qualified as BSI
+import Data.IORef qualified as IORef
 import Network.HTTP2.Engine.Client (ClientConfig)
-import qualified Network.HTTP2.Engine.Client as H2C
+import Network.HTTP2.Engine.Client qualified as H2C
 import Network.HTTP2.Engine.Types (Authority, defaultPositionReadMaker)
+import Network.Socket (AddrInfo, AddrInfoFlag, HostName, PortNumber, Socket)
+import Network.Socket qualified as NS
+import System.TimeManager qualified as TM
+import Wireform.Network.TLS.Config (
+  TlsClientConfig (..),
+  buildClientCtx,
+  defaultTlsClientConfig,
+ )
+import Wireform.Network.TLS.OpenSSL
 
--- | TLS client settings.
---
--- All fields except 'settingsKeyLogger' / 'settingsValidateCert' /
--- 'settingsCAStorePath' are wireform-network / http2-engine tuning
--- knobs that don't depend on a TLS backend.
+
+{- | TLS client settings.
+
+All fields except 'settingsKeyLogger' / 'settingsValidateCert' /
+'settingsCAStorePath' are wireform-network / http2-engine tuning
+knobs that don't depend on a TLS backend.
+-}
 data Settings = Settings
-  { settingsKeyLogger                :: String -> IO ()
-  , settingsValidateCert             :: !Bool
-  , settingsCAStorePath              :: !(Maybe FilePath)
-    -- ^ Additional PEM trust roots beyond the system store.  When
-    -- 'Nothing', only the system store + whatever 'tlsClientCaBundle'
-    -- the caller's @TlsClientConfig@ adds.
-  , settingsClientCertificate        :: !(Maybe (FilePath, FilePath))
-    -- ^ Optional client certificate for mTLS.
-  , settingsAddrInfoFlags            :: ![AddrInfoFlag]
-  , settingsCacheLimit               :: !Int
-  , settingsConcurrentStreams        :: !Int
-  , settingsConnectionWindowSize     :: !Int
-  , settingsStreamWindowSize         :: !Int
-  , settingsServerNameOverride       :: !(Maybe HostName)
-  , settingsUseServerNameIndication  :: !Bool
-  , settingsOpenClientSocket         :: AddrInfo -> IO Socket
-  , settingsUseEarlyData             :: !Bool
-  , settingsTimeout                  :: !Int
-  , settingsPingRateLimit            :: !Int
-  , settingsEmptyFrameRateLimit      :: !Int
-  , settingsSettingsRateLimit        :: !Int
-  , settingsRstRateLimit             :: !Int
+  { settingsKeyLogger :: String -> IO ()
+  , settingsValidateCert :: !Bool
+  , settingsCAStorePath :: !(Maybe FilePath)
+  -- ^ Additional PEM trust roots beyond the system store.  When
+  -- 'Nothing', only the system store + whatever 'tlsClientCaBundle'
+  -- the caller's @TlsClientConfig@ adds.
+  , settingsClientCertificate :: !(Maybe (FilePath, FilePath))
+  -- ^ Optional client certificate for mTLS.
+  , settingsAddrInfoFlags :: ![AddrInfoFlag]
+  , settingsCacheLimit :: !Int
+  , settingsConcurrentStreams :: !Int
+  , settingsConnectionWindowSize :: !Int
+  , settingsStreamWindowSize :: !Int
+  , settingsServerNameOverride :: !(Maybe HostName)
+  , settingsUseServerNameIndication :: !Bool
+  , settingsOpenClientSocket :: AddrInfo -> IO Socket
+  , settingsUseEarlyData :: !Bool
+  , settingsTimeout :: !Int
+  , settingsPingRateLimit :: !Int
+  , settingsEmptyFrameRateLimit :: !Int
+  , settingsSettingsRateLimit :: !Int
+  , settingsRstRateLimit :: !Int
   }
+
 
 defaultSettings :: Settings
-defaultSettings = Settings
-  { settingsKeyLogger                = \_ -> pure ()
-  , settingsValidateCert             = True
-  , settingsCAStorePath              = Nothing
-  , settingsClientCertificate        = Nothing
-  , settingsAddrInfoFlags            = []
-  , settingsCacheLimit               = 64
-  , settingsConcurrentStreams        = 64
-  , settingsConnectionWindowSize     = 16777216
-  , settingsStreamWindowSize         = 262144
-  , settingsServerNameOverride       = Nothing
-  , settingsUseServerNameIndication  = True
-  , settingsOpenClientSocket         = defaultOpenClientSocket
-  , settingsUseEarlyData             = False
-  , settingsTimeout                  = 30
-  , settingsPingRateLimit            = 10
-  , settingsEmptyFrameRateLimit      = 4
-  , settingsSettingsRateLimit        = 4
-  , settingsRstRateLimit             = 4
-  }
+defaultSettings =
+  Settings
+    { settingsKeyLogger = \_ -> pure ()
+    , settingsValidateCert = True
+    , settingsCAStorePath = Nothing
+    , settingsClientCertificate = Nothing
+    , settingsAddrInfoFlags = []
+    , settingsCacheLimit = 64
+    , settingsConcurrentStreams = 64
+    , settingsConnectionWindowSize = 16777216
+    , settingsStreamWindowSize = 262144
+    , settingsServerNameOverride = Nothing
+    , settingsUseServerNameIndication = True
+    , settingsOpenClientSocket = defaultOpenClientSocket
+    , settingsUseEarlyData = False
+    , settingsTimeout = 30
+    , settingsPingRateLimit = 10
+    , settingsEmptyFrameRateLimit = 4
+    , settingsSettingsRateLimit = 4
+    , settingsRstRateLimit = 4
+    }
+
 
 defaultOpenClientSocket :: AddrInfo -> IO Socket
 defaultOpenClientSocket addr = do
@@ -104,28 +112,32 @@ defaultOpenClientSocket addr = do
   NS.connect sock (NS.addrAddress addr)
   pure sock
 
+
 -- | Build a 'ClientConfig' from the supplied 'Settings' + authority.
 defaultClientConfig :: Settings -> Authority -> ClientConfig
-defaultClientConfig Settings{..} auth =
+defaultClientConfig Settings {..} auth =
   H2C.defaultClientConfig
     { H2C.authority = auth
     , H2C.connectionWindowSize = settingsConnectionWindowSize
-    , H2C.settings = (H2C.settings H2C.defaultClientConfig)
-        { H2C.initialWindowSize = settingsStreamWindowSize
-        , H2C.maxConcurrentStreams = Just (fromIntegral settingsConcurrentStreams)
-        , H2C.pingRateLimit = settingsPingRateLimit
-        , H2C.emptyFrameRateLimit = settingsEmptyFrameRateLimit
-        , H2C.settingsRateLimit = settingsSettingsRateLimit
-        , H2C.rstRateLimit = settingsRstRateLimit
-        }
+    , H2C.settings =
+        (H2C.settings H2C.defaultClientConfig)
+          { H2C.initialWindowSize = settingsStreamWindowSize
+          , H2C.maxConcurrentStreams = Just (fromIntegral settingsConcurrentStreams)
+          , H2C.pingRateLimit = settingsPingRateLimit
+          , H2C.emptyFrameRateLimit = settingsEmptyFrameRateLimit
+          , H2C.settingsRateLimit = settingsSettingsRateLimit
+          , H2C.rstRateLimit = settingsRstRateLimit
+          }
     }
 
--- | Run a TLS-protected HTTP\/2 client over OpenSSL.
---
--- Opens a TCP connection to @serverName:port@ (using the caller-
--- supplied 'settingsOpenClientSocket'), does an OpenSSL TLS
--- handshake with ALPN @h2@, allocates an 'H2C.Config' over the
--- resulting 'SslConn', and drives 'H2C.run'.
+
+{- | Run a TLS-protected HTTP\/2 client over OpenSSL.
+
+Opens a TCP connection to @serverName:port@ (using the caller-
+supplied 'settingsOpenClientSocket'), does an OpenSSL TLS
+handshake with ALPN @h2@, allocates an 'H2C.Config' over the
+resulting 'SslConn', and drives 'H2C.run'.
+-}
 runWithConfig
   :: ClientConfig
   -> Settings
@@ -133,53 +145,63 @@ runWithConfig
   -> PortNumber
   -> H2C.Client a
   -> IO a
-runWithConfig cliCfg Settings{..} serverName port client = do
-  let hints = NS.defaultHints
-        { NS.addrSocketType = NS.Stream
-        , NS.addrFlags      = settingsAddrInfoFlags
-        }
+runWithConfig cliCfg Settings {..} serverName port client = do
+  let hints =
+        NS.defaultHints
+          { NS.addrSocketType = NS.Stream
+          , NS.addrFlags = settingsAddrInfoFlags
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just serverName) (Just (show port))
   case addrs of
     [] -> error "runWithConfig: no addresses"
-    (addr:_) -> E.bracket (settingsOpenClientSocket addr) NS.close $ \sock -> do
-      ctx <- buildClientCtxFromSettings serverName Settings{..}
-      conn <- newClient ctx sock (Just (BS8.pack (sniHost serverName Settings{..})))
-      _ <- if settingsValidateCert
-             then setClientHostnameVerify conn (BS8.pack serverName)
-             else pure ()
+    (addr : _) -> E.bracket (settingsOpenClientSocket addr) NS.close $ \sock -> do
+      ctx <- buildClientCtxFromSettings serverName Settings {..}
+      conn <- newClient ctx sock (Just (BS8.pack (sniHost serverName Settings {..})))
+      _ <-
+        if settingsValidateCert
+          then setClientHostnameVerify conn (BS8.pack serverName)
+          else pure ()
       recvN <- mkTlsRecvN conn
       cfg <- buildClientConfig (tlsSendFn conn) recvN
       r <- H2C.run cliCfg cfg client
-      E.catch @E.SomeException (freeConn conn >> freeCtx ctx >> pure ())
+      E.catch @E.SomeException
+        (freeConn conn >> freeCtx ctx >> pure ())
         (\_ -> pure ())
       pure r
 
--- | SNI hostname selection: override if requested, else the
--- connect-time hostname.
+
+{- | SNI hostname selection: override if requested, else the
+connect-time hostname.
+-}
 sniHost :: HostName -> Settings -> HostName
-sniHost connectHost Settings{settingsServerNameOverride} =
+sniHost connectHost Settings {settingsServerNameOverride} =
   case settingsServerNameOverride of
-    Just h  -> h
+    Just h -> h
     Nothing -> connectHost
 
--- | Translate the engine 'Settings' into a configured client
--- 'SslCtx' (ALPN @h2@, optional CA bundle, optional client cert,
--- verify mode).
+
+{- | Translate the engine 'Settings' into a configured client
+'SslCtx' (ALPN @h2@, optional CA bundle, optional client cert,
+verify mode).
+-}
 buildClientCtxFromSettings :: HostName -> Settings -> IO SslCtx
-buildClientCtxFromSettings _serverName Settings{..} = do
-  let tlsCfg = defaultTlsClientConfig
-        { tlsClientVerifyPeer  = settingsValidateCert
-        , tlsClientCaBundle    = settingsCAStorePath
-        , tlsClientCertificate = settingsClientCertificate
-        , tlsClientAlpn        = ["h2"]
-        }
+buildClientCtxFromSettings _serverName Settings {..} = do
+  let tlsCfg =
+        defaultTlsClientConfig
+          { tlsClientVerifyPeer = settingsValidateCert
+          , tlsClientCaBundle = settingsCAStorePath
+          , tlsClientCertificate = settingsClientCertificate
+          , tlsClientAlpn = ["h2"]
+          }
   ctx <- buildClientCtx tlsCfg
   setAlpnClient ctx ["h2"]
   pure ctx
 
--- | Build a recvN over the OpenSSL connection with a small leftover
--- buffer (TLS returns plaintext in chunks of indeterminate size;
--- the engine asks for exact byte counts).
+
+{- | Build a recvN over the OpenSSL connection with a small leftover
+buffer (TLS returns plaintext in chunks of indeterminate size;
+the engine asks for exact byte counts).
+-}
 mkTlsRecvN :: SslConn -> IO (Int -> IO ByteString)
 mkTlsRecvN conn = do
   leftoverRef <- IORef.newIORef BS.empty
@@ -202,12 +224,13 @@ mkTlsRecvN conn = do
               -- whatever the OpenSSL recv produced (it may be less
               -- if the record was smaller than the buffer).
               chunk <- BSI.createUptoN 16384 $ \dst ->
-                         recvFn dst 16384
+                recvFn dst 16384
               if BS.null chunk
                 then pure (BS.concat (reverse acc))
                 else do
                   IORef.writeIORef leftoverRef chunk
                   recvLoop leftoverRef remaining acc
+
 
 buildClientConfig
   :: SendFn
@@ -215,9 +238,10 @@ buildClientConfig
   -> IO H2C.Config
 buildClientConfig sendFn readN = do
   mgr <- TM.initialize (30 * 1000 * 1000)
-  pure H2C.Config
-    { H2C.confSendFn            = sendFn
-    , H2C.confReadN             = readN
-    , H2C.confPositionReadMaker = defaultPositionReadMaker
-    , H2C.confTimeoutManager    = mgr
-    }
+  pure
+    H2C.Config
+      { H2C.confSendFn = sendFn
+      , H2C.confReadN = readN
+      , H2C.confPositionReadMaker = defaultPositionReadMaker
+      , H2C.confTimeoutManager = mgr
+      }

@@ -21,6 +21,8 @@ repos:
             |temporal-test/
             |compare-bench/gen/
             |wireform-grpc/
+            |grpc-spec/
+            |wireform-http2/
           )
 
       - id: hlint
@@ -35,4 +37,6 @@ repos:
             |temporal-test/
             |compare-bench/gen/
             |wireform-grpc/
+            |grpc-spec/
+            |wireform-http2/
           )

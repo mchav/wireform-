@@ -1881,15 +1881,17 @@ hasExtensions msg = any isExt (msgElements msg)
     isExt (MEExtensions _ _) = True
     isExt _ = False
 
+
 genToJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genToJSONInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fqn = fqProtoName (gcPkg ctx) scope
       overrides = genJsonOverrides (gcOpts ctx)
       hasExts = hasExtensions msg
-      headDoc = if hasExts
-                  then txt "instance Given PJExt.ExtensionRegistry => Aeson.ToJSON " <> pretty tyN <> txt " where"
-                  else instanceHead "Aeson.ToJSON" tyN
+      headDoc =
+        if hasExts
+          then txt "instance Given PJExt.ExtensionRegistry => Aeson.ToJSON " <> pretty tyN <> txt " where"
+          else instanceHead "Aeson.ToJSON" tyN
   in case Map.lookup fqn overrides of
       Just jo ->
         vsep
@@ -1904,18 +1906,20 @@ genToJSONInstance ctx scope msg =
                 vsep
                   [ txt "toJSON msg = jsonObject"
                   , indent 4 $ case fields of
-                      [] -> if hasExts
-                              then txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <> txt ")"
-                              else txt "[]"
+                      [] ->
+                        if hasExts
+                          then txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <> txt ")"
+                          else txt "[]"
                       (f0 : fs) ->
                         vsep $
-                          (if hasExts
-                             then [ txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <+> txt "++" ]
-                             else [])
-                          <> [ txt "[ " <> genToJSONField ctx f0
-                             , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) fs)
-                             , txt "]" <> if hasExts then txt ")" else emptyDoc
-                             ]
+                          ( if hasExts
+                              then [txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <+> txt "++"]
+                              else []
+                          )
+                            <> [ txt "[ " <> genToJSONField ctx f0
+                               , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) fs)
+                               , txt "]" <> if hasExts then txt ")" else emptyDoc
+                               ]
                   ]
             ]
 
@@ -1941,9 +1945,10 @@ genFromJSONInstance ctx scope msg =
       fqn = fqProtoName (gcPkg ctx) scope
       overrides = genJsonOverrides (gcOpts ctx)
       hasExts = hasExtensions msg
-      headDoc = if hasExts
-                  then txt "instance Given PJExt.ExtensionRegistry => Aeson.FromJSON " <> pretty tyN <> txt " where"
-                  else instanceHead "Aeson.FromJSON" tyN
+      headDoc =
+        if hasExts
+          then txt "instance Given PJExt.ExtensionRegistry => Aeson.FromJSON " <> pretty tyN <> txt " where"
+          else instanceHead "Aeson.FromJSON" tyN
   in case Map.lookup fqn overrides of
       Just jo ->
         vsep
@@ -1953,17 +1958,23 @@ genFromJSONInstance ctx scope msg =
       Nothing ->
         let fields = extractAllFieldsJSON ctx scope (msgElements msg)
             extsAssign = if hasExts then txt "exts" else txt "[]"
-            extsBind = if hasExts
-                         then [ txt "exts <- either fail pure (PJExt.parseExtensionsFromJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" obj)" :: Text) ]
-                         else []
+            extsBind =
+              if hasExts
+                then [txt "exts <- either fail pure (PJExt.parseExtensionsFromJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" obj)" :: Text)]
+                else []
         in case fields of
             [] ->
               vsep
                 [ headDoc
                 , indent 2 $
                     if hasExts
-                      then txt "parseJSON = Aeson.withObject " <> pretty ("\"" :: Text) <> pretty tyN <> pretty ("\" $ \\obj -> do" :: Text)
-                           <> line <> indent 4 (vsep (extsBind <> [ txt "pure default" <> pretty tyN, indent 2 (braceBlock [txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign]) ]))
+                      then
+                        txt "parseJSON = Aeson.withObject "
+                          <> pretty ("\"" :: Text)
+                          <> pretty tyN
+                          <> pretty ("\" $ \\obj -> do" :: Text)
+                          <> line
+                          <> indent 4 (vsep (extsBind <> [txt "pure default" <> pretty tyN, indent 2 (braceBlock [txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign])]))
                       else txt "parseJSON _ = pure default" <> pretty tyN
                 ]
             (f0 : frest) ->

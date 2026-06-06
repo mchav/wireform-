@@ -53,3 +53,8 @@
 
 # compare-bench/gen: generated proto-lens comparison types
 - ignore: {within: [Proto.Bench, Proto.Bench_Fields]}
+
+# ---------------------------------------------------------------------------
+# wireform-http: record-update lambda can't be eta-reduced to const
+# ---------------------------------------------------------------------------
+- ignore: {name: "Use const", within: [Network.HTTP.Server]}

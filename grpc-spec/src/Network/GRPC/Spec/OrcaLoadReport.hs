@@ -1,5 +1,6 @@
 module Network.GRPC.Spec.OrcaLoadReport (
-    OrcaLoadReport
-  ) where
+  OrcaLoadReport,
+) where
 
 import Proto.OrcaLoadReport
+

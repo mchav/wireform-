@@ -883,19 +883,29 @@ mkHasFieldInstances scope tyName fields =
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       mkHasFieldDec tyName (snakeToCamel name) fname ty
 
+
 mkHasFieldDec :: Name -> Text -> Name -> Type -> Q [Dec]
 mkHasFieldDec tyName fnameStr fname ty = do
   msgVar <- newName "msg"
   aVar <- newName "a"
   let nameLit = LitT (StrTyLit (T.unpack fnameStr))
       instTy = foldl AppT (ConT ''PS.HasField) [ConT tyName, nameLit, ty]
-      getFld = FunD 'PS.getField
-        [Clause [VarP msgVar] (NormalB (AppE (VarE fname) (VarE msgVar))) []]
-      setFld = FunD 'PS.setField
-        [Clause [VarP aVar, VarP msgVar]
-          (NormalB (RecUpdE (VarE msgVar) [(fname, VarE aVar)])) []]
-      fdesc = FunD 'PS.fieldDescriptor
-        [Clause [WildP, WildP] (NormalB (VarE 'undefined)) []]
+      getFld =
+        FunD
+          'PS.getField
+          [Clause [VarP msgVar] (NormalB (AppE (VarE fname) (VarE msgVar))) []]
+      setFld =
+        FunD
+          'PS.setField
+          [ Clause
+              [VarP aVar, VarP msgVar]
+              (NormalB (RecUpdE (VarE msgVar) [(fname, VarE aVar)]))
+              []
+          ]
+      fdesc =
+        FunD
+          'PS.fieldDescriptor
+          [Clause [WildP, WildP] (NormalB (VarE 'undefined)) []]
   pure [InstanceD Nothing [] instTy [getFld, setFld, fdesc]]
 
 

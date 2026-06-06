@@ -5,7 +5,8 @@
 -- | Wire-compatible @google.rpc.Status@ generated via wireform-proto.
 module Proto.Status where
 
-import Proto.TH (loadProto)
 import Proto.Google.Protobuf.Any qualified
+import Proto.TH (loadProto)
+
 
 $(loadProto "proto/official/status.proto")

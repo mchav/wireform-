@@ -1,65 +1,71 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Server-side frame I\/O loop for the wireform-http2 gRPC engine.
---
--- The runtime that backs 'Network.HTTP2.Engine.Server.run'. Designed
--- for gRPC's request shape:
---
---   * HEADERS [END_HEADERS] (request headers)
---   * DATA frames (request body) optionally followed by HEADERS
---     [END_HEADERS, END_STREAM] for inbound trailers
---   * The handler invokes 'respond' with a 'Response' that the engine
---     translates into HEADERS / DATA / trailing HEADERS frames.
---
--- The implementation is intentionally narrower than @http2@ 5.3.x:
--- no PUSH_PROMISE, no responseFile, no CONTINUATION-fragmented
--- HEADERS, no priority enforcement. Flow control is implemented in
--- aggregate (auto WINDOW_UPDATE) rather than per-stream-careful.
-module Network.HTTP2.Engine.Run.Server
-  ( RunEnv (..)
-  , EngineAux (..)
-  , EnginePushPromise (..)
-  , runServer
-  ) where
+
+{- | Server-side frame I\/O loop for the wireform-http2 gRPC engine.
+
+The runtime that backs 'Network.HTTP2.Engine.Server.run'. Designed
+for gRPC's request shape:
+
+  * HEADERS [END_HEADERS] (request headers)
+  * DATA frames (request body) optionally followed by HEADERS
+    [END_HEADERS, END_STREAM] for inbound trailers
+  * The handler invokes 'respond' with a 'Response' that the engine
+    translates into HEADERS / DATA / trailing HEADERS frames.
+
+The implementation is intentionally narrower than @http2@ 5.3.x:
+no PUSH_PROMISE, no responseFile, no CONTINUATION-fragmented
+HEADERS, no priority enforcement. Flow control is implemented in
+aggregate (auto WINDOW_UPDATE) rather than per-stream-careful.
+-}
+module Network.HTTP2.Engine.Run.Server (
+  RunEnv (..),
+  EngineAux (..),
+  EnginePushPromise (..),
+  runServer,
+) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, catch, finally, throwIO, toException, try)
-import Control.Monad (forever, unless, when, void)
+import Control.Monad (forever, unless, void, when)
 import Data.Bits ((.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BSB
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Internal as BSI
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.CaseInsensitive as CI
+import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as BSB
+import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Internal qualified as BSI
+import Data.ByteString.Lazy qualified as LBS
+import Data.CaseInsensitive qualified as CI
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Word (Word32)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (plusPtr)
-import qualified Network.HTTP.Types as HTTP
-import Network.Socket (SockAddr)
-import qualified System.TimeManager as TM
-
-import Network.HTTP2.Connection (Connection, closeConnection,
-  connHpackDecoder, connHpackEncoder, newConnectionFromTransport,
-  sendFrame)
-import qualified Network.HTTP2.Connection as Conn
+import Network.HTTP.Types qualified as HTTP
+import Network.HTTP2.Client (ClientStreamError (..))
+import Network.HTTP2.Connection (
+  Connection,
+  closeConnection,
+  connHpackDecoder,
+  connHpackEncoder,
+  newConnectionFromTransport,
+  sendFrame,
+ )
+import Network.HTTP2.Connection qualified as Conn
 import Network.HTTP2.Connection.Settings (encodeSettings)
-import qualified Network.HTTP2.Connection.Settings as ConnSettings
-import Network.HTTP2.Frame
-import Network.HTTP2.HPACK
-import Network.HTTP2.Transport (Transport (..), SendFn)
-import Network.HTTP2.Types (FrameType (..))
-import qualified Network.HTTP2.Types as H2
-import qualified Network.HTTP2.Types as Wire
-
-import Network.HTTP2.Client (ClientStreamError(..))
+import Network.HTTP2.Connection.Settings qualified as ConnSettings
 import Network.HTTP2.Engine.Settings (Settings (..))
 import Network.HTTP2.Engine.Types
+import Network.HTTP2.Frame
+import Network.HTTP2.HPACK
+import Network.HTTP2.Transport (SendFn, Transport (..))
+import Network.HTTP2.Types (FrameType (..))
+import Network.HTTP2.Types qualified as H2
+import Network.HTTP2.Types qualified as Wire
+import Network.Socket (SockAddr)
+import System.TimeManager qualified as TM
+
 
 -- | Connection-scoped configuration the engine needs.
 data RunEnv = RunEnv
@@ -72,17 +78,22 @@ data RunEnv = RunEnv
   , envPeerSockAddr :: !SockAddr
   }
 
--- | Mirror of 'Aux' from Engine.Server, lifted here so this module
--- doesn't depend on Engine.Server.
+
+{- | Mirror of 'Aux' from Engine.Server, lifted here so this module
+doesn't depend on Engine.Server.
+-}
 data EngineAux = EngineAux
   { envAuxTimeHandle :: !TM.Handle
   , envAuxMySockAddr :: !SockAddr
   , envAuxPeerSockAddr :: !SockAddr
   }
 
--- | Mirror of 'PushPromise' from Engine.Server (not used; gRPC
--- doesn't emit push promises).
+
+{- | Mirror of 'PushPromise' from Engine.Server (not used; gRPC
+doesn't emit push promises).
+-}
 data EnginePushPromise = EnginePushPromise !ByteString !OutObj
+
 
 -- | Per-stream worker mailbox.
 data StreamMb = StreamMb
@@ -92,11 +103,13 @@ data StreamMb = StreamMb
   , smClosedRemote :: !(IORef Bool)
   }
 
+
 data InputItem
   = InputChunk !ByteString
   | InputFinal !ByteString
   | InputEnd
   | InputError !SomeException
+
 
 -- | Drive the server connection.
 runServer
@@ -105,11 +118,12 @@ runServer
   -> IO ()
 runServer env handler = do
   let transport = engineTransport env
-  conn <- newConnectionFromTransport
-            Conn.RoleServer
-            (engineSettingsToWire (envSettings env))
-            (\_ _ _ -> pure ())
-            transport
+  conn <-
+    newConnectionFromTransport
+      Conn.RoleServer
+      (engineSettingsToWire (envSettings env))
+      (\_ _ _ -> pure ())
+      transport
   preface <- envReadN env (BS.length connectionPreface)
   if preface /= connectionPreface
     then closeConnection conn Wire.ProtocolError "bad preface"
@@ -118,6 +132,7 @@ runServer env handler = do
       streamsRef <- newIORef Map.empty
       connLoop env conn handler streamsRef
         `finally` closeConnection conn Wire.NoError ""
+
 
 -- | Transport adapter over the env's send/recv callbacks.
 engineTransport :: RunEnv -> Transport
@@ -137,23 +152,28 @@ engineTransport env =
     , tClose = pure ()
     }
 
+
 engineSettingsToWire :: Settings -> H2.Settings
-engineSettingsToWire s = H2.defaultSettings
-  { H2.settingsHeaderTableSize = fromIntegral (headerTableSize s)
-  , H2.settingsEnablePush = enablePush s
-  , H2.settingsMaxConcurrentStreams = maxConcurrentStreams s
-  , H2.settingsInitialWindowSize = fromIntegral (initialWindowSize s)
-  , H2.settingsMaxFrameSize = fromIntegral (maxFrameSize s)
-  , H2.settingsMaxHeaderListSize = maxHeaderListSize s
-  }
+engineSettingsToWire s =
+  H2.defaultSettings
+    { H2.settingsHeaderTableSize = fromIntegral (headerTableSize s)
+    , H2.settingsEnablePush = enablePush s
+    , H2.settingsMaxConcurrentStreams = maxConcurrentStreams s
+    , H2.settingsInitialWindowSize = fromIntegral (initialWindowSize s)
+    , H2.settingsMaxFrameSize = fromIntegral (maxFrameSize s)
+    , H2.settingsMaxHeaderListSize = maxHeaderListSize s
+    }
+
 
 sendServerPrefaceFrames :: Connection -> Settings -> IO ()
 sendServerPrefaceFrames conn s = do
   let params = encodeSettings (engineSettingsToWire s)
-      frame = Frame
-        (FrameHeader (fromIntegral (length params * 6)) FrameSettings 0 0)
-        (SettingsFrame params)
+      frame =
+        Frame
+          (FrameHeader (fromIntegral (length params * 6)) FrameSettings 0 0)
+          (SettingsFrame params)
   sendFrame conn frame
+
 
 -- | Frame dispatch loop.
 connLoop
@@ -170,11 +190,18 @@ connLoop env conn handler streamsRef = loop
         Nothing -> do
           streams <- readIORef streamsRef
           let err = toException ClientStreamConnectionClosed
-          mapM_ (\mb -> atomically $ writeTBQueue (smInputQueue mb)
-                          (InputError err)) (Map.elems streams)
+          mapM_
+            ( \mb ->
+                atomically $
+                  writeTBQueue
+                    (smInputQueue mb)
+                    (InputError err)
+            )
+            (Map.elems streams)
         Just (Frame hdr payload) -> do
           handleFrame env conn handler streamsRef hdr payload
           loop
+
 
 pumpFrame :: RunEnv -> IO (Maybe Frame)
 pumpFrame env = do
@@ -190,6 +217,7 @@ pumpFrame env = do
           Left _ -> pure Nothing
           Right p -> pure (Just (Frame hdr p))
 
+
 handleFrame
   :: RunEnv
   -> Connection
@@ -204,7 +232,6 @@ handleFrame env conn handler streamsRef hdr payload = case fhType hdr of
     | otherwise -> do
         let ack = Frame (FrameHeader 0 FrameSettings flagAck 0) (SettingsFrame [])
         sendFrame conn ack
-
   FramePing
     | testFlag (fhFlags hdr) flagAck -> pure ()
     | otherwise -> case payload of
@@ -212,11 +239,8 @@ handleFrame env conn handler streamsRef hdr payload = case fhType hdr of
           let pong = Frame (FrameHeader 8 FramePing flagAck 0) (PingFrame opaque)
           sendFrame conn pong
         _ -> pure ()
-
   FrameWindowUpdate -> pure ()
-
   FrameGoAway -> pure ()
-
   FrameHeaders
     | testFlag (fhFlags hdr) flagEndHeaders -> case payload of
         HeadersFrame _ block -> do
@@ -236,7 +260,6 @@ handleFrame env conn handler streamsRef hdr payload = case fhType hdr of
         _ -> pure ()
     | otherwise ->
         closeConnection conn Wire.ProtocolError "fragmented HEADERS unsupported"
-
   FrameData -> case payload of
     DataFrame body -> do
       streams <- readIORef streamsRef
@@ -260,22 +283,23 @@ handleFrame env conn handler streamsRef hdr payload = case fhType hdr of
             (True, False) -> pure ()
           let len = fhLength hdr
           when (len > 0) $
-            void $ trySendWindowUpdates conn (fhStreamId hdr) len
+            void $
+              trySendWindowUpdates conn (fhStreamId hdr) len
     _ -> pure ()
-
   FrameRSTStream -> do
     streams <- readIORef streamsRef
     case Map.lookup (fhStreamId hdr) streams of
       Nothing -> pure ()
       Just mb -> do
         writeIORef (smClosedRemote mb) True
-        atomically $ writeTBQueue (smInputQueue mb)
-          (InputError (toException ClientStreamConnectionClosed))
+        atomically $
+          writeTBQueue
+            (smInputQueue mb)
+            (InputError (toException ClientStreamConnectionClosed))
         mCancel <- readIORef (smCancel mb)
         case mCancel of
           Just c -> c (Just (toException ClientStreamConnectionClosed))
           Nothing -> pure ()
-
   _ -> pure ()
 
 
@@ -308,32 +332,37 @@ startStream env conn handler streamsRef hdr headers = do
       readChunk = do
         item <- atomically $ readTBQueue inputQ
         case item of
-          InputChunk bs  -> pure (bs, False)
-          InputFinal bs  -> pure (bs, True)
-          InputEnd       -> pure (BS.empty, True)
+          InputChunk bs -> pure (bs, False)
+          InputFinal bs -> pure (bs, True)
+          InputEnd -> pure (BS.empty, True)
           InputError exc -> throwIO exc
-      inpObj = InpObj
-        { inpObjHeaders = tokeniseHeaders headers
-        , inpObjBodySize = Nothing
-        , inpObjBody = readChunk
-        , inpObjTrailers = trailerRef
-        }
+      inpObj =
+        InpObj
+          { inpObjHeaders = tokeniseHeaders headers
+          , inpObjBodySize = Nothing
+          , inpObjBody = readChunk
+          , inpObjTrailers = trailerRef
+          }
 
   timeHandle <- TM.register (envTimeoutManager env) (pure ())
-  let aux = EngineAux
-        { envAuxTimeHandle = timeHandle
-        , envAuxMySockAddr = envMySockAddr env
-        , envAuxPeerSockAddr = envPeerSockAddr env
-        }
+  let aux =
+        EngineAux
+          { envAuxTimeHandle = timeHandle
+          , envAuxMySockAddr = envMySockAddr env
+          , envAuxPeerSockAddr = envPeerSockAddr env
+          }
 
-  _ <- forkIO $
-    (handler inpObj aux $ \resp _pushes ->
-        sendOutObj conn cancelRef sid resp)
-      `catch` (\(_ :: SomeException) -> sendRstStream conn sid Wire.InternalError)
-      `finally` do
-        atomicModifyIORef' streamsRef (\m -> (Map.delete sid m, ()))
-        TM.cancel timeHandle
+  _ <-
+    forkIO $
+      ( handler inpObj aux $ \resp _pushes ->
+          sendOutObj conn cancelRef sid resp
+      )
+        `catch` (\(_ :: SomeException) -> sendRstStream conn sid Wire.InternalError)
+        `finally` do
+          atomicModifyIORef' streamsRef (\m -> (Map.delete sid m, ()))
+          TM.cancel timeHandle
   pure ()
+
 
 -- | Send a complete 'OutObj' onto the wire.
 sendOutObj
@@ -372,6 +401,7 @@ sendOutObj conn cancelRef sid (OutObj hdrs body trailerMaker) = do
     OutBodyFile _ ->
       error "Network.HTTP2.Engine.Run.Server: OutBodyFile not supported"
 
+
 runStreamingPushFlush
   :: Connection
   -> IORef (Maybe (Maybe SomeException -> IO ()))
@@ -382,6 +412,7 @@ runStreamingPushFlush
 runStreamingPushFlush conn cancelRef sid tm body =
   runStreamingIface conn cancelRef sid tm $ \iface ->
     body (outBodyPush iface) (outBodyFlush iface)
+
 
 runStreamingIface
   :: Connection
@@ -417,13 +448,14 @@ runStreamingIface conn cancelRef sid trailerMakerInit body = do
           if null tr
             then sendData conn sid BS.empty True
             else sendTrailerBlock conn sid (ciHeadersToRaw tr)
-      iface = OutBodyIface
-        { outBodyUnmask = id
-        , outBodyPush = \b -> pushOne (LBS.toStrict (BSB.toLazyByteString b))
-        , outBodyPushFinal = \b -> pushFinal (LBS.toStrict (BSB.toLazyByteString b))
-        , outBodyCancel = cancel
-        , outBodyFlush = flushBody
-        }
+      iface =
+        OutBodyIface
+          { outBodyUnmask = id
+          , outBodyPush = \b -> pushOne (LBS.toStrict (BSB.toLazyByteString b))
+          , outBodyPushFinal = \b -> pushFinal (LBS.toStrict (BSB.toLazyByteString b))
+          , outBodyCancel = cancel
+          , outBodyFlush = flushBody
+          }
   writeIORef cancelRef (Just cancel)
   r <- try (body iface)
   writeIORef cancelRef Nothing
@@ -436,16 +468,19 @@ runStreamingIface conn cancelRef sid trailerMakerInit body = do
       throwIO e
     Right () -> finalise
 
+
 updateMaker :: IORef TrailersMaker -> Maybe ByteString -> IO ()
 updateMaker ref mbs = do
   tm <- readIORef ref
   next <- tm mbs
   case next of
     NextTrailersMaker tm' -> writeIORef ref tm'
-    Trailers _            -> pure ()
+    Trailers _ -> pure ()
+
 
 ciHeadersToRaw :: [HTTP.Header] -> [(ByteString, ByteString)]
 ciHeadersToRaw = map (\(k, v) -> (CI.original k, v))
+
 
 sendTrailerBlock :: Connection -> H2.StreamId -> [(ByteString, ByteString)] -> IO ()
 sendTrailerBlock conn sid hdrs = do
@@ -453,34 +488,42 @@ sendTrailerBlock conn sid hdrs = do
     encodeHeaderBlock defaultEncodeStrategy encoder hdrs
   sendHeaders conn sid block True
 
+
 sendHeaders :: Connection -> H2.StreamId -> ByteString -> Bool -> IO ()
 sendHeaders conn sid block endStream =
   let flags = flagEndHeaders .|. (if endStream then flagEndStream else 0)
-      frame = Frame
-        (FrameHeader (fromIntegral (BS.length block)) FrameHeaders flags sid)
-        (HeadersFrame Nothing block)
-   in sendFrame conn frame
+      frame =
+        Frame
+          (FrameHeader (fromIntegral (BS.length block)) FrameHeaders flags sid)
+          (HeadersFrame Nothing block)
+  in sendFrame conn frame
+
 
 sendData :: Connection -> H2.StreamId -> ByteString -> Bool -> IO ()
 sendData conn sid body endStream =
   let flags = if endStream then flagEndStream else 0
-      frame = Frame
-        (FrameHeader (fromIntegral (BS.length body)) FrameData flags sid)
-        (DataFrame body)
-   in sendFrame conn frame
+      frame =
+        Frame
+          (FrameHeader (fromIntegral (BS.length body)) FrameData flags sid)
+          (DataFrame body)
+  in sendFrame conn frame
+
 
 sendRstStream :: Connection -> H2.StreamId -> Wire.ErrorCode -> IO ()
 sendRstStream conn sid code =
-  let frame = Frame
-        (FrameHeader 4 FrameRSTStream 0 sid)
-        (RSTStreamFrame code)
-   in sendFrame conn frame `catch` (\(_ :: SomeException) -> pure ())
+  let frame =
+        Frame
+          (FrameHeader 4 FrameRSTStream 0 sid)
+          (RSTStreamFrame code)
+  in sendFrame conn frame `catch` (\(_ :: SomeException) -> pure ())
+
 
 trySendWindowUpdates :: Connection -> H2.StreamId -> Word32 -> IO Bool
-trySendWindowUpdates conn sid len = do
+trySendWindowUpdates conn sid len =
+  do
     let connWu = Frame (FrameHeader 4 FrameWindowUpdate 0 0) (WindowUpdateFrame len)
         streamWu = Frame (FrameHeader 4 FrameWindowUpdate 0 sid) (WindowUpdateFrame len)
     sendFrame conn connWu
     sendFrame conn streamWu
     pure True
-  `catch` \(_ :: SomeException) -> pure False
+    `catch` \(_ :: SomeException) -> pure False
