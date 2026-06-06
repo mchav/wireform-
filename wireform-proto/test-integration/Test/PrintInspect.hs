@@ -140,6 +140,138 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
+        , it "proto2 group roundtrip (desugared to message + field)" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  repeated group Result = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "extensions with options roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "nested extend roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional int32 e = 100;"
+                    , "  }"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "aggregate with list / extension-key values roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto3\";"
+                    , "option (x) = { tags: [\"a\", \"b\"] };"
+                    , "option (y) = { [foo.bar]: 1 };"
+                    ]
+            roundtripTest src
+        , it "editions reserved identifiers roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "editions reserved identifiers print unquoted" $ do
+            let src =
+                  T.unlines
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" src of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let printed = printProtoFile pf
+                T.isInfixOf "reserved foo, bar;" printed `shouldBe` True
+                T.isInfixOf "\"foo\"" printed `shouldBe` False
+        , it "proto3 reserved names still print quoted" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto3\";"
+                    , "message M {"
+                    , "  reserved \"foo\", \"bar\";"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" src of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let printed = printProtoFile pf
+                T.isInfixOf "reserved \"foo\", \"bar\";" printed `shouldBe` True
+        ]
+    , describe
+        "Exact printing (byte-for-byte)" $ sequence_
+        [ it "reproduces a complex file byte-for-byte" $
+            exactPrintTest complexProto
+        , it "preserves a trailing ';' after a message block" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  string name = 1;"
+                , "};"
+                ]
+        , it "preserves a trailing ';' after enum and service blocks" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , "enum Status {"
+                , "  UNKNOWN = 0;"
+                , "};"
+                , "service Greeter {"
+                , "  rpc SayHello (Req) returns (Resp);"
+                , "};"
+                ]
+        , it "preserves stray ';' between and inside declarations" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto3\";"
+                , ";"
+                , "message A {"
+                , "  ;"
+                , "  int32 x = 1;"
+                , "  ;"
+                , "  message Inner {"
+                , "    int32 y = 1;"
+                , "  };"
+                , "}"
+                , ";"
+                ]
+        , it "preserves proto2 group source verbatim" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto2\";"
+                , "message M {"
+                , "  repeated group Result = 1 {"
+                , "    optional int32 x = 1;"
+                , "  }"
+                , "}"
+                ]
+        , it "preserves extensions options source verbatim" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto2\";"
+                , "message M {"
+                , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                , "}"
+                ]
         ]
     , describe
         "AST inspection" $ sequence_
@@ -246,6 +378,14 @@ roundtripTest src =
       case parseProtoFile "<printed>" printed of
         Left e -> expectationFailure ("Re-parse failed: " <> show e <> "\n\nPrinted:\n" <> T.unpack printed)
         Right ast2 -> ast1 `shouldBe` ast2
+
+
+-- | Parse with spans, then assert 'exactPrint' reproduces the source byte-for-byte.
+exactPrintTest :: Text -> IO ()
+exactPrintTest src =
+  case parseProtoFileWithSpans "<test>" src of
+    Left e -> expectationFailure ("Parse failed: " <> show e)
+    Right ast -> exactPrint ast `shouldBe` src
 
 
 complexProto :: Text

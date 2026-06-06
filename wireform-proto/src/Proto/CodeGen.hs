@@ -840,6 +840,7 @@ genNestedElement ctx scope = \case
   MEMessage inner -> genMessage ctx scope inner
   MEEnum ed -> genEnum ctx scope ed
   MEOneof od -> [genOneofDecl ctx scope od, genOneofToJSONInstance ctx scope od, genOneofFromJSONInstance ctx scope od, genOneofHashableInstance ctx scope od]
+  MEExtend extName fields -> genExtensionBlock ctx scope extName fields
   _ -> []
 
 
@@ -1877,7 +1878,7 @@ genLabelLit (Just Repeated) = txt "LabelRepeated"
 hasExtensions :: MessageDef -> Bool
 hasExtensions msg = any isExt (msgElements msg)
   where
-    isExt (MEExtensions _) = True
+    isExt (MEExtensions _ _) = True
     isExt _ = False
 
 genToJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann

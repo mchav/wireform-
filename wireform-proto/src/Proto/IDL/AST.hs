@@ -57,6 +57,7 @@ module Proto.IDL.AST (
   OneofField' (..),
   OneofField,
   ReservedDef (..),
+  ReservedName (..),
   ReservedRange (..),
 
   -- * Enums
@@ -340,8 +341,13 @@ data MessageElement' p
     MEMapField !(MapField' p)
   | -- | A reserved declaration.
     MEReserved !ReservedDef
-  | -- | An extensions range declaration.
-    MEExtensions ![ExtensionRange]
+  | -- | An extensions range declaration, with any trailing options
+    -- (e.g. @extensions 4 to 8 [verification = UNVERIFIED];@ or an
+    -- editions @[declaration = {…}]@ list).
+    MEExtensions ![ExtensionRange] ![OptionDef' p]
+  | -- | A nested @extend@ block (proto2) declaring extension fields on
+    -- another type, with the extended type name and the additional fields.
+    MEExtend !Text ![FieldDef' p]
   | -- | A message-level option.
     MEOption !(OptionDef' p)
   | -- | Standalone comment inside a message body.
@@ -525,7 +531,22 @@ data ReservedDef
   = -- | Reserved field number ranges.
     ReservedNumbers ![ReservedRange]
   | -- | Reserved field names.
-    ReservedNames ![Text]
+    ReservedNames ![ReservedName]
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+
+{- | A single name in a @reserved@ declaration.
+
+proto2/proto3 spell reserved names as quoted string literals; editions
+(2023+) spell them as bare identifiers. The spelling is retained so that
+printing reproduces the correct token for the file's syntax.
+-}
+data ReservedName
+  = -- | A quoted reserved name, e.g. @"foo"@ (proto2/proto3).
+    QuotedReservedName !Text
+  | -- | A bare-identifier reserved name, e.g. @foo@ (editions 2023+).
+    IdentReservedName !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -911,7 +932,8 @@ stripMsgElem = \case
   MEOneof o -> MEOneof (stripOneof o)
   MEMapField mf -> MEMapField (stripMapField mf)
   MEReserved r -> MEReserved r
-  MEExtensions e -> MEExtensions e
+  MEExtensions e opts -> MEExtensions e (fmap stripOption opts)
+  MEExtend n fs -> MEExtend n (fmap stripField fs)
   MEOption o -> MEOption (stripOption o)
   MEComment cs -> MEComment cs
 

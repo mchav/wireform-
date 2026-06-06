@@ -107,7 +107,15 @@ printMessageElement depth = \case
   MEOneof od -> printOneof depth od <> "\n"
   MEMapField mf -> printDoc depth (mapDoc mf) <> indent depth <> printMapField mf <> "\n"
   MEReserved rd -> indent depth <> printReserved rd <> "\n"
-  MEExtensions exs -> indent depth <> "extensions " <> printExtensionRanges exs <> ";\n"
+  MEExtensions exs opts -> indent depth <> "extensions " <> printExtensionRanges exs <> printFieldOptions opts <> ";\n"
+  MEExtend name fields ->
+    indent depth
+      <> "extend "
+      <> name
+      <> " {\n"
+      <> T.concat (fmap (\f -> indent (depth + 1) <> printField f <> "\n") fields)
+      <> indent depth
+      <> "}\n"
   MEOption opt -> indent depth <> "option " <> printOptionAssignment opt <> ";\n"
   MEComment cs -> printCommentBlock depth cs <> "\n"
 
@@ -311,7 +319,13 @@ printReserved = \case
   ReservedNumbers ranges ->
     "reserved " <> T.intercalate ", " (fmap printReservedRange ranges) <> ";"
   ReservedNames names ->
-    "reserved " <> T.intercalate ", " (fmap (\n -> "\"" <> n <> "\"") names) <> ";"
+    "reserved " <> T.intercalate ", " (fmap printReservedName names) <> ";"
+
+
+printReservedName :: ReservedName -> Text
+printReservedName = \case
+  QuotedReservedName n -> "\"" <> escapeProtoString n <> "\""
+  IdentReservedName n -> n
 
 
 printReservedRange :: ReservedRange -> Text

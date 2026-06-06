@@ -351,9 +351,434 @@ parserTests =
               Right pf -> case protoTopLevels pf of
                 [TLMessage msg] -> case msgElements msg of
                   [MEReserved (ReservedNames names)] ->
-                    names `shouldBe` ["foo", "bar"]
+                    names `shouldBe` [QuotedReservedName "foo", QuotedReservedName "bar"]
                   _ -> expectationFailure "Expected reserved names"
                 _ -> expectationFailure "Expected one message"
+        ]
+    , describe
+        "Empty statements (trailing/stray semicolons)" $ sequence_
+        [ it "trailing ';' after a message block (protoc tolerates '};')" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Foo {"
+                    , "  string name = 1;"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> do
+                  msgName msg `shouldBe` "Foo"
+                  length (msgElements msg) `shouldBe` 1
+                _ -> expectationFailure "Expected exactly one message"
+        , it "trailing ';' after an enum block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum Status {"
+                    , "  UNKNOWN = 0;"
+                    , "  ACTIVE = 1;"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> do
+                  enumName ed `shouldBe` "Status"
+                  length (enumValues ed) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one enum"
+        , it "trailing ';' after a service block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "service Greeter {"
+                    , "  rpc SayHello (HelloRequest) returns (HelloReply);"
+                    , "};"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLService svc] -> svcName svc `shouldBe` "Greeter"
+                _ -> expectationFailure "Expected exactly one service"
+        , it "trailing ';' after a nested message inside a message body" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Outer {"
+                    , "  message Inner {"
+                    , "    int32 value = 1;"
+                    , "  };"
+                    , "  enum E {"
+                    , "    A = 0;"
+                    , "  };"
+                    , "  Inner inner = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> do
+                  msgName msg `shouldBe` "Outer"
+                  let nested = filter isNestedMsg (msgElements msg)
+                  length nested `shouldBe` 1
+                _ -> expectationFailure "Expected exactly one message"
+        , it "trailing ';' after a oneof block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Msg {"
+                    , "  oneof value {"
+                    , "    string name = 1;"
+                    , "    int32 id = 2;"
+                    , "  };"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] -> case msgElements msg of
+                  [MEOneof od] -> length (oneofFields od) `shouldBe` 2
+                  _ -> expectationFailure "Expected exactly one oneof"
+                _ -> expectationFailure "Expected exactly one message"
+        , it "stray ';' between top-level declarations" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , ";"
+                    , "message A { int32 x = 1; };"
+                    , ";"
+                    , "message B { int32 y = 1; }"
+                    , ";"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> length (protoTopLevels pf) `shouldBe` 2
+        , it "stray ';' between message elements" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Msg {"
+                    , "  ;"
+                    , "  int32 x = 1;"
+                    , "  ;"
+                    , "  int32 y = 2;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage msg] ->
+                  length (extractFieldDefs (msgElements msg)) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one message"
+        , it "stray ';' inside an enum body" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum E {"
+                    , "  ;"
+                    , "  A = 0;"
+                    , "  ;"
+                    , "  B = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> length (enumValues ed) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one enum"
+        , it "stray ';' inside a service body and after an rpc block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "service S {"
+                    , "  ;"
+                    , "  rpc A (Req) returns (Resp) {"
+                    , "    option deprecated = true;"
+                    , "    ;"
+                    , "  };"
+                    , "  rpc B (Req) returns (Resp);"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLService svc] -> length (svcRpcs svc) `shouldBe` 2
+                _ -> expectationFailure "Expected exactly one service"
+        , it "trailing ';' after an extend block" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "extend Foo {"
+                    , "  optional int32 bar = 100;"
+                    , "};"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "still rejects a genuinely missing closing brace" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message Foo {"
+                    , "  string name = 1;"
+                    , ";"
+                    ]
+            (isLeft (parseProtoFile "<test>" input)) `shouldBe` True
+        ]
+    , describe
+        "Lexical & grammar conformance" $ sequence_
+        [ it "enum reserved numeric ranges (to / to max)" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum E {"
+                    , "  A = 0;"
+                    , "  reserved 2, 5 to 9, 100 to max;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> length (enumValues ed) `shouldBe` 1
+                _ -> expectationFailure "Expected one enum"
+        , it "identifier prefixed by 'true' is an identifier, not a bool" $
+            fileOptValue "trueish" `shouldBe` Just (CIdent "trueish")
+        , it "identifier prefixed by 'inf' is an identifier, not infinity" $
+            fileOptValue "information" `shouldBe` Just (CIdent "information")
+        , it "bare 'true' is still a boolean" $
+            fileOptValue "true" `shouldBe` Just (CBool True)
+        , it "bare 'inf' is still infinity" $
+            case fileOptValue "inf" of
+              Just (CFloat d) -> (isInfinite d && d > 0) `shouldBe` True
+              other -> expectationFailure ("expected +inf, got " <> show other)
+        , it "bare 'nan' is still NaN" $
+            case fileOptValue "nan" of
+              Just (CFloat d) -> isNaN d `shouldBe` True
+              other -> expectationFailure ("expected NaN, got " <> show other)
+        , it "leading-dot float (.5)" $
+            fileOptValue ".5" `shouldBe` Just (CFloat 0.5)
+        , it "trailing-dot float (5.)" $
+            fileOptValue "5." `shouldBe` Just (CFloat 5.0)
+        , it "negative leading-dot float (-.25)" $
+            fileOptValue "-.25" `shouldBe` Just (CFloat (-0.25))
+        , it "single-hex-digit escape (\\xA)" $
+            fileOptValue "\"\\xA\"" `shouldBe` Just (CString "\n")
+        , it "two-hex-digit escape still works (\\x41)" $
+            fileOptValue "\"\\x41\"" `shouldBe` Just (CString "A")
+        , it "BMP unicode escape (\\u00e9)" $
+            fileOptValue "\"caf\\u00e9\"" `shouldBe` Just (CString "caf\233")
+        , it "full unicode escape (\\U0001F600)" $
+            fileOptValue "\"\\U0001F600\"" `shouldBe` Just (CString "\128512")
+        , it "nested extension option name (a).(b).c" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "option (a).(b).c = 1;"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoOptions pf of
+                [opt] ->
+                  optNameParts (optName opt)
+                    `shouldBe` [ExtensionOption "a", ExtensionOption "b", SimpleOption "c"]
+                _ -> expectationFailure "Expected one option"
+        ]
+    , describe
+        "Groups and extension-range options" $ sequence_
+        [ it "proto2 group desugars to a nested message plus a field" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  repeated group Result = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEMessage nested, MEField fld] -> do
+                    msgName nested `shouldBe` "Result"
+                    length (msgElements nested) `shouldBe` 1
+                    fieldName fld `shouldBe` "result"
+                    fieldType fld `shouldBe` FTNamed "Result"
+                    fieldNumber fld `shouldBe` FieldNumber 1
+                    fieldLabel fld `shouldBe` Just Repeated
+                  _ -> expectationFailure "Expected a nested message followed by a field"
+                _ -> expectationFailure "Expected one message"
+        , it "unlabeled group parses" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  group G = 2 {"
+                    , "    optional int32 y = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "a field whose name starts with 'group' is still a field" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message M {"
+                    , "  int32 grouping = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEField fld] -> fieldName fld `shouldBe` "grouping"
+                  _ -> expectationFailure "Expected a single field"
+                _ -> expectationFailure "Expected one message"
+        , it "extensions with a verification option" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtensions ranges opts] -> do
+                    length ranges `shouldBe` 1
+                    length opts `shouldBe` 1
+                  _ -> expectationFailure "Expected an extensions declaration"
+                _ -> expectationFailure "Expected one message"
+        , it "extensions with a declaration aggregate option" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 100 to max [declaration = { number: 100 full_name: \".foo.bar\" type: \".Baz\" }];"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "extensions without options still parse (empty option list)" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtensions _ opts] -> length opts `shouldBe` 0
+                  _ -> expectationFailure "Expected an extensions declaration"
+                _ -> expectationFailure "Expected one message"
+        ]
+    , describe
+        "Nested extends" $ sequence_
+        [ it "extend inside a message body is retained as MEExtend" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional int32 e = 100;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtend owner fields] -> do
+                    owner `shouldBe` "N"
+                    length fields `shouldBe` 1
+                  _ -> expectationFailure "Expected a single MEExtend element"
+                _ -> expectationFailure "Expected one message"
+        , it "group inside a nested extend hoists the group message" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional group G = 100 {"
+                    , "      optional int32 x = 1;"
+                    , "    }"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> do
+                  let exts = filter isExtendElem (msgElements m)
+                      msgs = filter isMsgElem (msgElements m)
+                  length exts `shouldBe` 1
+                  length msgs `shouldBe` 1
+                _ -> expectationFailure "Expected one message"
+        , it "group inside a top-level extend hoists a top-level message" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "extend N {"
+                    , "  optional group G = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let tops = protoTopLevels pf
+                length tops `shouldBe` 2
+                any isTopExtend tops `shouldBe` True
+                any isTopMessage tops `shouldBe` True
+        ]
+    , describe
+        "Rich aggregate option values" $ sequence_
+        [ it "list values desugar to repeated key/value pairs" $
+            fileOptValue "{ tags: [\"a\", \"b\"] }"
+              `shouldBe` Just (CAggregate [("tags", CString "a"), ("tags", CString "b")])
+        , it "extension keys keep their brackets" $
+            fileOptValue "{ [foo.bar]: 1 }"
+              `shouldBe` Just (CAggregate [("[foo.bar]", CInt 1)])
+        , it "Any-URL keys are accepted" $
+            (isRight (parseProtoFile "<test>" (unlines' ["syntax = \"proto3\";", "option (x) = { [type.googleapis.com/foo.Bar]: { a: 1 } };"])))
+              `shouldBe` True
+        , it "angle-bracket message values are accepted" $
+            case fileOptValue "{ sub < a: 1 > }" of
+              Just (CAggregate [("sub", CAggregate [("a", CInt 1)])]) -> pure ()
+              other -> expectationFailure ("unexpected: " <> show other)
+        ]
+    , describe
+        "Editions reserved identifiers" $ sequence_
+        [ it "message reserved accepts bare identifiers" $ do
+            let input =
+                  unlines'
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEReserved (ReservedNames names)] ->
+                    names `shouldBe` [IdentReservedName "foo", IdentReservedName "bar"]
+                  _ -> expectationFailure "Expected reserved names"
+                _ -> expectationFailure "Expected one message"
+        , it "enum reserved accepts a bare identifier" $ do
+            let input =
+                  unlines'
+                    [ "edition = \"2023\";"
+                    , "enum E {"
+                    , "  A = 0;"
+                    , "  reserved FOO;"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
         ]
     , describe
         "Complex proto files" $ sequence_
@@ -584,6 +1009,26 @@ isNestedMsg (MEMessage _) = True
 isNestedMsg _ = False
 
 
+isExtendElem :: MessageElement -> Bool
+isExtendElem (MEExtend _ _) = True
+isExtendElem _ = False
+
+
+isMsgElem :: MessageElement -> Bool
+isMsgElem (MEMessage _) = True
+isMsgElem _ = False
+
+
+isTopExtend :: TopLevel -> Bool
+isTopExtend (TLExtend _ _) = True
+isTopExtend _ = False
+
+
+isTopMessage :: TopLevel -> Bool
+isTopMessage (TLMessage _) = True
+isTopMessage _ = False
+
+
 extractFieldDefs :: [MessageElement] -> [FieldDef]
 extractFieldDefs = concatMap go
   where
@@ -593,3 +1038,16 @@ extractFieldDefs = concatMap go
 
 unlines' :: [Text] -> Text
 unlines' = mconcat . fmap (<> "\n")
+
+
+{- | Parse a single file-level @option (x) = <rhs>;@ and return the parsed
+constant value. Used to exercise the constant/literal lexer in isolation.
+-}
+fileOptValue :: Text -> Maybe Constant
+fileOptValue rhs =
+  let input = unlines' ["syntax = \"proto3\";", "option (x) = " <> rhs <> ";"]
+  in case parseProtoFile "<test>" input of
+      Right pf -> case protoOptions pf of
+        [opt] -> Just (optValue opt)
+        _ -> Nothing
+      Left _ -> Nothing

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-unused-imports -Wno-orphans -Wno-missing-signatures
                  -Wno-incomplete-patterns -Wno-incomplete-uni-patterns #-}
@@ -40,15 +41,10 @@ instance Given ExtensionRegistry where
   given = emptyExtensionRegistry
 
 -- A small inline schema covering the common shapes.
+-- The generated record and enum types already derive 'NFData'
+-- (via the deriver's anyclass clause), so the bench's deepseq
+-- forcing works without hand-written instances.
 $(loadProto "bench/Bench.proto")
-
--- All loadProto-generated record types already derive Generic;
--- bolt on NFData via Generic for the bench's deepseq forcing.
-deriving anyclass instance NFData Person
-deriving anyclass instance NFData Numbers
-deriving anyclass instance NFData Status
-deriving anyclass instance NFData Choice
-deriving anyclass instance NFData Choice'Choice
 
 ------------------------------------------------------------------------
 -- Test inputs
@@ -195,7 +191,7 @@ main = do
   putStrLn "Status enum (open-enum representation):"
   let !sKnown   = sampleStatus
       !sBytesK  = PE.encodeMessage sKnown
-      !sUnknown = sampleStatus { personStatus = Status'Unknown 12345 }
+      !sUnknown = sampleStatus { personStatus = Status''Unrecognized 12345 }
       !sBytesU  = PE.encodeMessage sUnknown
   bench "encode known enum"   (\_ -> PE.encodeMessage sKnown) BS.length
   bench "decode known enum"

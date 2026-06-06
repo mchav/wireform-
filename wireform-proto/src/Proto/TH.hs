@@ -534,6 +534,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
                 (scParents childScope)
                 hooks
                 ed
+            MEExtend owner fields -> extendToDecls (scPackage childScope) owner fields
             _ -> pure []
         )
         (msgElements msg)
@@ -579,7 +580,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
   let ufSelName = unknownFieldsName tyName
       hasExts = any isExt (msgElements msg)
         where
-          isExt (MEExtensions _) = True
+          isExt (MEExtensions _ _) = True
           isExt _ = False
       aesonUfSel = if hasExts then Just ufSelName else Nothing
   aesonDecs <-

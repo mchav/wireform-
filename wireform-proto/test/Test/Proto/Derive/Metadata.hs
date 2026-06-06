@@ -77,7 +77,7 @@ tests =
             -- Open-enum representation: an unknown wire value
             -- now round-trips through the synthetic 'Unknown'
             -- variant rather than disappearing as 'Nothing'.
-            PS.fromProtoEnumValue 99 `shouldBe` Just (Status'Unknown 99)
+            PS.fromProtoEnumValue 99 `shouldBe` Just (Status''Unrecognized 99)
         , it "protoEnumValues lists every declared value" $ do
             let values = PS.protoEnumValues (Proxy :: Proxy Status)
             values

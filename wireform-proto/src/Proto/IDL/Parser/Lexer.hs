@@ -197,13 +197,21 @@ floatLiteral =
                 void (char '.')
                 frac <- takeWhileP Nothing isDigit
                 ex <- option "" exponentPart
-                pure (read (T.unpack whole <> "." <> T.unpack frac <> T.unpack ex))
+                -- @read@ rejects a bare trailing dot (e.g. "1."), so
+                -- normalise an empty fractional part to a single zero.
+                let fracStr = if T.null frac then "0" else T.unpack frac
+                pure (read (T.unpack whole <> "." <> fracStr <> T.unpack ex))
+            , try $ do
+                void (char '.')
+                frac <- takeWhile1P Nothing isDigit
+                ex <- option "" exponentPart
+                pure (read ("0." <> T.unpack frac <> T.unpack ex))
             , try $ do
                 whole <- takeWhile1P Nothing isDigit
                 ex <- exponentPart
                 pure (read (T.unpack whole <> T.unpack ex))
-            , 1 / 0 <$ (string "inf" <|> string "infinity")
-            , (0 / 0) <$ string "nan"
+            , 1 / 0 <$ try (keywordTok "infinity" <|> keywordTok "inf")
+            , (0 / 0) <$ try (keywordTok "nan")
             ]
         pure (sign n)
     )
@@ -248,15 +256,37 @@ stringLiteral =
           , '\\' <$ char '\\'
           , '\'' <$ char '\''
           , '"' <$ char '"'
+          , '?' <$ char '?'
           , hexEscape
+          , unicode4Escape
+          , unicode8Escape
           , octEscape
           ]
 
+    hexValue :: [Char] -> Int
+    hexValue = foldl (\acc c -> acc * 16 + digitToInt c) 0
+
+    -- @\xH@ or @\xHH@: one or two hex digits (protoc allows a single digit).
     hexEscape = do
       void (char 'x' <|> char 'X')
       d1 <- hexDigitChar
-      d2 <- hexDigitChar
-      pure (chr (digitToInt d1 * 16 + digitToInt d2))
+      md2 <- optional hexDigitChar
+      pure (chr (hexValue (d1 : maybe [] (: []) md2)))
+
+    -- @\uHHHH@: a Basic-Multilingual-Plane code point (always valid).
+    unicode4Escape = do
+      void (char 'u')
+      ds <- count 4 hexDigitChar
+      pure (chr (hexValue ds))
+
+    -- @\UHHHHHHHH@: a full code point; reject values above U+10FFFF.
+    unicode8Escape = do
+      void (char 'U')
+      ds <- count 8 hexDigitChar
+      let cp = hexValue ds
+      if cp <= 0x10FFFF
+        then pure (chr cp)
+        else fail "invalid Unicode code point in \\U escape (above U+10FFFF)"
 
     octEscape = do
       d1 <- octDigitChar
@@ -274,18 +304,32 @@ boolLiteral :: Parser Bool
 boolLiteral =
   lexeme
     ( choice
-        [ True <$ string "true"
-        , False <$ string "false"
+        [ True <$ try (keywordTok "true")
+        , False <$ try (keywordTok "false")
         ]
     )
     <?> "boolean (true or false)"
+
+
+-- | Characters that may continue an identifier.
+isIdentChar :: Char -> Bool
+isIdentChar c = isAlphaNum c || c == '_'
 
 
 -- | Parse a reserved keyword, ensuring it is not a prefix of an identifier.
 reserved :: Text -> Parser ()
 reserved w = lexeme $ do
   void (string w)
-  notFollowedBy (satisfy (\c -> isAlphaNum c || c == '_'))
+  notFollowedBy (satisfy isIdentChar)
+
+
+{- | Match a bare keyword token (no trailing-whitespace handling) that must
+not be immediately followed by an identifier character. Used for value
+keywords like @true@ / @inf@ so identifiers that merely start with them
+(e.g. @trueish@, @information@) are not mis-tokenised as the keyword.
+-}
+keywordTok :: Text -> Parser Text
+keywordTok w = string w <* notFollowedBy (satisfy isIdentChar)
 
 
 -- ---------------------------------------------------------------------------

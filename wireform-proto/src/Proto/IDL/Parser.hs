@@ -17,12 +17,12 @@ import Control.Monad (void)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
 import Proto.IDL.AST
-import Proto.IDL.AST.Span (Span, SrcSpan (..), mkSpan, noSpan)
+import Proto.IDL.AST.Span (Span, SrcSpan (..), mkSpan)
 import Proto.IDL.Parser.Error (renderParseError, renderParseErrors)
 import Proto.IDL.Parser.Lexer
 import Text.Megaparsec hiding (option)
@@ -63,12 +63,12 @@ parseProto :: CommentMap -> Parser (ProtoFile' Parsed)
 parseProto cm = do
   sc
   syn <- option Proto3 syntaxOrEdition
-  stmts <- many (topLevelStmt cm)
+  stmts <- manyStmts (topLevelStmt cm)
   eof
   let pkg = firstJust (\case TLStmtPackage p -> Just p; _ -> Nothing) stmts
   let imps = concatMap (\case TLStmtImport i -> [i]; _ -> []) stmts
   let opts = concatMap (\case TLStmtOption o -> [o]; _ -> []) stmts
-  let topDefs = concatMap (\case TLStmtTopLevel t -> [t]; _ -> []) stmts
+  let topDefs = concatMap (\case TLStmtTopLevel t -> [t]; TLStmtTopLevels ts -> ts; _ -> []) stmts
   pure
     ProtoFile
       { protoSyntax = syn
@@ -87,11 +87,26 @@ firstJust f (x : xs) = case f x of
   Nothing -> firstJust f xs
 
 
+{- | Parse zero or more statements, tolerating empty statements (bare @;@).
+
+The proto grammar models a stray semicolon as @emptyStatement = ";"@, which
+@protoc@ accepts wherever a statement may appear. The most common case is the
+trailing @;@ that follows a message, enum, or service block (e.g.
+@message Foo { ... };@), but bare semicolons are also valid between and inside
+declarations.
+-}
+manyStmts :: Parser a -> Parser [a]
+manyStmts p = catMaybes <$> many ((Nothing <$ semi) <|> (Just <$> p))
+
+
 data TLStmt
   = TLStmtPackage Text
   | TLStmtImport (ImportDef' Parsed)
   | TLStmtOption (OptionDef' Parsed)
   | TLStmtTopLevel (TopLevel' Parsed)
+  | -- | One statement that expands to several top-level definitions, e.g. an
+    -- @extend@ block containing a group (which hoists the group's message).
+    TLStmtTopLevels [TopLevel' Parsed]
 
 
 syntaxOrEdition :: Parser Syntax
@@ -135,7 +150,7 @@ topLevelStmt cm = do
     "message" -> TLStmtTopLevel . TLMessage <$> messageDef cm doc start
     "enum" -> TLStmtTopLevel . TLEnum <$> enumDef cm doc start
     "service" -> TLStmtTopLevel . TLService <$> serviceDef cm doc start
-    "extend" -> TLStmtTopLevel <$> extendDef cm
+    "extend" -> TLStmtTopLevels <$> extendDef cm
     _ ->
       fail
         ( "unexpected keyword '"
@@ -144,12 +159,37 @@ topLevelStmt cm = do
         )
 
 
-extendDef :: CommentMap -> Parser (TopLevel' Parsed)
+extendDef :: CommentMap -> Parser [TopLevel' Parsed]
 extendDef cm = do
   reserved "extend"
   name <- fullIdent
-  fields <- braces (many (fieldDef cm))
-  pure (TLExtend name fields)
+  (fields, groupMsgs) <- extendBody cm
+  -- A group inside an extend hoists its message definition to the enclosing
+  -- (here, file) scope, matching how protoc models groups.
+  pure (TLExtend name fields : fmap TLMessage groupMsgs)
+
+
+{- | Parse the body of an @extend@ block: fields and (proto2) groups, plus
+empty statements. Returns the extension fields and any group message
+definitions that must be hoisted to the enclosing scope.
+-}
+extendBody :: CommentMap -> Parser ([FieldDef' Parsed], [MessageDef' Parsed])
+extendBody cm = braces (mconcat <$> manyStmts (extendElem cm))
+
+
+extendElem :: CommentMap -> Parser ([FieldDef' Parsed], [MessageDef' Parsed])
+extendElem cm = do
+  start <- getOffset
+  doc <- getDoc cm
+  lbl <- optional fieldLabelP
+  isGroup <- option False (True <$ try (reserved "group"))
+  if isGroup
+    then do
+      (nested, fld) <- groupParts cm doc lbl start
+      pure ([fld], [nested])
+    else do
+      f <- fieldRest doc lbl start
+      pure ([f], [])
 
 
 packageDecl :: Parser Text
@@ -197,10 +237,10 @@ optionAssignment = do
 optionName :: Parser OptionName
 optionName = do
   first <- optionNamePart
-  rest <- many (symbol "." *> simpleOptionPart)
+  -- Parts after the first may also be extension names in parentheses,
+  -- e.g. @option (a).(b).c = …@, which protoc accepts.
+  rest <- many (symbol "." *> optionNamePart)
   pure OptionName {optNameParts = first : rest}
-  where
-    simpleOptionPart = SimpleOption <$> identifier
 
 
 optionNamePart :: Parser OptionNamePart
@@ -225,59 +265,97 @@ constant =
 
 
 aggregateLiteral :: Parser [(Text, Constant)]
-aggregateLiteral = braces (many aggregateField)
+aggregateLiteral = aggBody braces <|> aggBody angles
   where
+    -- A message value may be delimited by braces or, in text format, angles.
+    aggBody delim = delim (concat <$> many aggregateField)
+
+    aggregateField :: Parser [(Text, Constant)]
     aggregateField = do
-      key <- identifier
-      -- Both "key: value" and "key { ... }" are valid
-      val <- (symbol ":" *> constant) <|> (CAggregate <$> aggregateLiteral)
+      key <- aggKey
+      vals <- aggValue
       _ <- optional (comma <|> semi)
-      pure (key, val)
+      pure (fmap ((,) key) vals)
+
+    -- A field key is a bare identifier or a bracketed extension / Any-URL name
+    -- (e.g. @[foo.bar]@ or @[type.googleapis.com/foo.Bar]@). The brackets are
+    -- kept in the stored key so it round-trips.
+    aggKey = aggExtKey <|> identifier
+    aggExtKey = do
+      void (symbol "[")
+      d <- fullIdent
+      suffix <- option "" ((\t -> "/" <> t) <$> (symbol "/" *> fullIdent))
+      void (symbol "]")
+      pure ("[" <> d <> suffix <> "]")
+
+    -- "key: <scalar|list|message>" or the colon-less "key { … }" / "key < … >".
+    aggValue =
+      (symbol ":" *> (aggListValue <|> ((: []) <$> constant)))
+        <|> ((: []) . CAggregate <$> aggregateLiteral)
+
+    -- List values "[a, b, c]" desugar into repeated (key, value) pairs — the
+    -- text-format equivalent of writing the key several times.
+    aggListValue = brackets (constant `sepBy` comma)
 
 
 messageDef :: CommentMap -> Maybe Text -> Int -> Parser (MessageDef' Parsed)
 messageDef cm doc start = do
   reserved "message"
   name <- identifier <?> "message name"
-  elems <- braces (many (messageElement cm))
+  elems <- braces (concat <$> manyStmts (messageElement cm))
   end <- getOffset
   pure MessageDef {msgExt = mkSpan start end, msgDoc = doc, msgName = name, msgElements = elems}
 
 
-messageElement :: CommentMap -> Parser (MessageElement' Parsed)
+{- | Parse one message-body element. Returns a list because a proto2 @group@
+desugars into two elements (the nested message plus its field); every other
+element yields a singleton.
+-}
+messageElement :: CommentMap -> Parser [MessageElement' Parsed]
 messageElement cm = do
   start <- getOffset
   doc <- getDoc cm
-  kw <- lookAhead (identifier <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)")
+  kw <- lookAhead (identifier <?> "message element (field, group, enum, message, oneof, map, option, reserved, or extensions)")
   case kw of
-    "reserved" -> MEReserved <$> reservedDecl
-    "extensions" -> MEExtensions <$> extensionsDecl
-    "option" -> MEOption <$> optionDecl start
-    "enum" -> MEEnum <$> enumDef cm doc start
-    "message" -> MEMessage <$> messageDef cm doc start
-    "oneof" -> MEOneof <$> oneofDef cm doc start
-    "map" -> MEMapField <$> mapFieldDef cm doc start
-    _ -> MEField <$> fieldDef' doc start
+    "reserved" -> one (MEReserved <$> reservedDecl)
+    "extensions" -> one (uncurry MEExtensions <$> extensionsDecl)
+    "option" -> one (MEOption <$> optionDecl start)
+    "enum" -> one (MEEnum <$> enumDef cm doc start)
+    "message" -> one (MEMessage <$> messageDef cm doc start)
+    "oneof" -> one (MEOneof <$> oneofDef cm doc start)
+    "map" -> one (MEMapField <$> mapFieldDef cm doc start)
+    "extend" -> nestedExtend cm
+    _ -> fieldOrGroupDef cm doc start
+  where
+    one = fmap (: [])
 
 
-fieldDef :: CommentMap -> Parser (FieldDef' Parsed)
-fieldDef cm = do
-  start <- getOffset
-  doc <- getDoc cm
-  fieldDef' doc start
+{- | Parse a nested @extend@ block inside a message body. Yields the
+'MEExtend' element plus any hoisted group messages (as sibling
+'MEMessage' elements in the enclosing message).
+-}
+nestedExtend :: CommentMap -> Parser [MessageElement' Parsed]
+nestedExtend cm = do
+  reserved "extend"
+  name <- fullIdent
+  (fields, groupMsgs) <- extendBody cm
+  pure (MEExtend name fields : fmap MEMessage groupMsgs)
 
 
-fieldDef' :: Maybe Text -> Int -> Parser (FieldDef' Parsed)
-fieldDef' doc start = do
-  lbl <-
-    optional
-      ( choice
-          [ try (Optional <$ reserved "optional")
-          , try (Required <$ reserved "required")
-          , try (Repeated <$ reserved "repeated")
-          ]
-          <?> "field label (optional, required, or repeated)"
-      )
+-- | A field label (proto2 @optional@/@required@ or @repeated@).
+fieldLabelP :: Parser FieldLabel
+fieldLabelP =
+  choice
+    [ try (Optional <$ reserved "optional")
+    , try (Required <$ reserved "required")
+    , try (Repeated <$ reserved "repeated")
+    ]
+    <?> "field label (optional, required, or repeated)"
+
+
+-- | Parse a field given its (already-consumed) label.
+fieldRest :: Maybe Text -> Maybe FieldLabel -> Int -> Parser (FieldDef' Parsed)
+fieldRest doc lbl start = do
   ft <- parseFieldType
   name <- identifier <?> "field name"
   equals
@@ -295,6 +373,56 @@ fieldDef' doc start = do
       , fieldNumber = num
       , fieldOptions = opts
       }
+
+
+{- | Parse either a regular field or a proto2 @group@.
+
+A group (@[label] group Name = N [opts] { body }@) is deprecated syntax that
+is semantically a nested message plus a field of that message type. We desugar
+it the way @protoc@ does: emit the nested message named @Name@ and a field
+named after the lower-cased group name. (The group wire-type — tags 3/4 — is
+not emitted by the code generator; the field encodes as a normal submessage.)
+-}
+fieldOrGroupDef :: CommentMap -> Maybe Text -> Int -> Parser [MessageElement' Parsed]
+fieldOrGroupDef cm doc start = do
+  lbl <- optional fieldLabelP
+  isGroup <- option False (True <$ try (reserved "group"))
+  if isGroup
+    then (\(nested, fld) -> [MEMessage nested, MEField fld]) <$> groupParts cm doc lbl start
+    else fmap ((: []) . MEField) (fieldRest doc lbl start)
+
+
+{- | Parse a group body (the @group@ keyword has already been consumed) into
+its constituent nested message and field, the way protoc models a group.
+The @group@ field name is the lower-cased group name.
+-}
+groupParts :: CommentMap -> Maybe Text -> Maybe FieldLabel -> Int -> Parser (MessageDef' Parsed, FieldDef' Parsed)
+groupParts cm doc lbl start = do
+  name <- identifier <?> "group name"
+  equals
+  num <- FieldNumber . fromIntegral <$> (intLiteral <?> "field number")
+  opts <- fieldOptionList
+  elems <- braces (concat <$> manyStmts (messageElement cm))
+  end <- getOffset
+  let sp = mkSpan start end
+      nested =
+        MessageDef
+          { msgExt = sp
+          , msgDoc = doc
+          , msgName = name
+          , msgElements = elems
+          }
+      fld =
+        FieldDef
+          { fieldExt = sp
+          , fieldDoc = doc
+          , fieldLabel = lbl
+          , fieldType = FTNamed name
+          , fieldName = T.toLower name
+          , fieldNumber = num
+          , fieldOptions = opts
+          }
+  pure (nested, fld)
 
 
 parseFieldType :: Parser FieldType
@@ -373,7 +501,7 @@ oneofDef cm doc start = do
   reserved "oneof"
   name <- identifier
   (fields, opts) <- braces $ do
-    items <- many (Left <$> try oneofOption <|> Right <$> oneofField cm)
+    items <- manyStmts (Left <$> try oneofOption <|> Right <$> oneofField cm)
     let os = concatMap (either (: []) (const [])) items
     let fs = concatMap (either (const []) (: [])) items
     pure (fs, os)
@@ -423,7 +551,10 @@ reservedDecl = do
   semi
   pure res
   where
-    reservedNames = ReservedNames <$> (stringLiteral `sepBy1` comma)
+    -- proto2/proto3 use quoted names; editions (2023+) use bare identifiers.
+    -- The spelling is retained so printing reproduces the right token.
+    reservedNames = ReservedNames <$> (reservedName `sepBy1` comma)
+    reservedName = (QuotedReservedName <$> stringLiteral) <|> (IdentReservedName <$> identifier)
     reservedNumbers = ReservedNumbers <$> (reservedRange `sepBy1` comma)
     reservedRange = do
       start <- fromIntegral <$> intLiteral
@@ -434,12 +565,15 @@ reservedDecl = do
         Just (Just e) -> pure (ReservedRange start e)
 
 
-extensionsDecl :: Parser [ExtensionRange]
+extensionsDecl :: Parser ([ExtensionRange], [OptionDef' Parsed])
 extensionsDecl = do
   reserved "extensions"
   ranges <- extensionRange `sepBy1` comma
+  -- Optional trailing options, e.g. @[verification = UNVERIFIED]@ or an
+  -- editions @[declaration = {…}]@ list; same bracket syntax as field options.
+  opts <- fieldOptionList
   semi
-  pure ranges
+  pure (ranges, opts)
   where
     extensionRange = do
       start <- fromIntegral <$> intLiteral
@@ -458,7 +592,7 @@ enumDef :: CommentMap -> Maybe Text -> Int -> Parser (EnumDef' Parsed)
 enumDef cm doc start = do
   reserved "enum"
   name <- identifier
-  items <- braces (many (enumItem cm))
+  items <- braces (manyStmts (enumItem cm))
   let vals = mapMaybe (\case EIValue v -> Just v; _ -> Nothing) items
       opts = mapMaybe (\case EIOption o -> Just o; _ -> Nothing) items
   end <- getOffset
@@ -485,8 +619,17 @@ enumItem cm =
 enumReservedDecl :: Parser ()
 enumReservedDecl = do
   reserved "reserved"
-  _ <- (stringLiteral `sepBy1` comma) <|> (fmap (T.pack . show) <$> (intLiteral `sepBy1` comma))
+  -- Either reserved names (quoted in proto2/proto3, bare identifiers in
+  -- editions) or reserved numbers/ranges. Enum reserved ranges
+  -- (@reserved 1 to 10;@, @reserved 5 to max;@) are accepted just like
+  -- message reserved ranges; the values aren't retained in the AST.
+  void (try ((stringLiteral <|> identifier) `sepBy1` comma)) <|> void (enumReservedRange `sepBy1` comma)
   semi
+  where
+    enumReservedRange = do
+      _ <- intLiteral
+      _ <- optional (reserved "to" *> (reserved "max" <|> void intLiteral))
+      pure ()
 
 
 enumValueDef :: CommentMap -> Parser (EnumValue' Parsed)
@@ -514,7 +657,7 @@ serviceDef cm doc start = do
   reserved "service"
   name <- identifier
   (rpcs, opts) <- braces $ do
-    items <- many (Left <$> try (getOffset >>= optionDecl) <|> Right <$> rpcDef cm)
+    items <- manyStmts (Left <$> try (getOffset >>= optionDecl) <|> Right <$> rpcDef cm)
     pure
       ( concatMap (either (const []) (: [])) items
       , concatMap (either (: []) (const [])) items
@@ -560,7 +703,7 @@ rpcDef cm = do
       , rpcOptions = opts
       }
   where
-    rpcBody = braces (many (getOffset >>= optionDecl >>= \o -> optional semi >> pure o))
+    rpcBody = braces (manyStmts (getOffset >>= optionDecl))
 
 
 -- -----------------------------------------------------------------------
@@ -708,7 +851,8 @@ msgElemStartLine src = \case
   MEMapField mf -> spanLine src (mapExt mf)
   MEOption o -> spanLine src (optExt o)
   MEReserved _ -> Nothing
-  MEExtensions _ -> Nothing
+  MEExtensions _ _ -> Nothing
+  MEExtend _ _ -> Nothing
   MEComment _ -> Nothing
 
 
@@ -721,7 +865,8 @@ msgElemEndLine src = \case
   MEMapField mf -> spanEndLine src (mapExt mf)
   MEOption o -> spanEndLine src (optExt o)
   MEReserved _ -> Nothing
-  MEExtensions _ -> Nothing
+  MEExtensions _ _ -> Nothing
+  MEExtend _ _ -> Nothing
   MEComment _ -> Nothing
 
 
