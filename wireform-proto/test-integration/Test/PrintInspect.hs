@@ -160,6 +160,34 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
+        , it "nested extend roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional int32 e = 100;"
+                    , "  }"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "aggregate with list / extension-key values roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto3\";"
+                    , "option (x) = { tags: [\"a\", \"b\"] };"
+                    , "option (y) = { [foo.bar]: 1 };"
+                    ]
+            roundtripTest src
+        , it "editions reserved identifiers roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            roundtripTest src
         ]
     , describe
         "Exact printing (byte-for-byte)" $ sequence_

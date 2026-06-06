@@ -840,6 +840,7 @@ genNestedElement ctx scope = \case
   MEMessage inner -> genMessage ctx scope inner
   MEEnum ed -> genEnum ctx scope ed
   MEOneof od -> [genOneofDecl ctx scope od, genOneofToJSONInstance ctx scope od, genOneofFromJSONInstance ctx scope od, genOneofHashableInstance ctx scope od]
+  MEExtend extName fields -> genExtensionBlock ctx scope extName fields
   _ -> []
 
 

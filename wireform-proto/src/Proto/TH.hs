@@ -534,6 +534,7 @@ messageToDecls'' scopeCtx cfg hooks msg = do
                 (scParents childScope)
                 hooks
                 ed
+            MEExtend owner fields -> extendToDecls (scPackage childScope) owner fields
             _ -> pure []
         )
         (msgElements msg)

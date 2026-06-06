@@ -344,6 +344,9 @@ data MessageElement' p
     -- (e.g. @extensions 4 to 8 [verification = UNVERIFIED];@ or an
     -- editions @[declaration = {…}]@ list).
     MEExtensions ![ExtensionRange] ![OptionDef' p]
+  | -- | A nested @extend@ block (proto2) declaring extension fields on
+    -- another type, with the extended type name and the additional fields.
+    MEExtend !Text ![FieldDef' p]
   | -- | A message-level option.
     MEOption !(OptionDef' p)
   | -- | Standalone comment inside a message body.
@@ -914,6 +917,7 @@ stripMsgElem = \case
   MEMapField mf -> MEMapField (stripMapField mf)
   MEReserved r -> MEReserved r
   MEExtensions e opts -> MEExtensions e (fmap stripOption opts)
+  MEExtend n fs -> MEExtend n (fmap stripField fs)
   MEOption o -> MEOption (stripOption o)
   MEComment cs -> MEComment cs
 

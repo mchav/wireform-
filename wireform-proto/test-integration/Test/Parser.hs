@@ -676,6 +676,110 @@ parserTests =
                 _ -> expectationFailure "Expected one message"
         ]
     , describe
+        "Nested extends" $ sequence_
+        [ it "extend inside a message body is retained as MEExtend" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional int32 e = 100;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtend owner fields] -> do
+                    owner `shouldBe` "N"
+                    length fields `shouldBe` 1
+                  _ -> expectationFailure "Expected a single MEExtend element"
+                _ -> expectationFailure "Expected one message"
+        , it "group inside a nested extend hoists the group message" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extend N {"
+                    , "    optional group G = 100 {"
+                    , "      optional int32 x = 1;"
+                    , "    }"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> do
+                  let exts = filter isExtendElem (msgElements m)
+                      msgs = filter isMsgElem (msgElements m)
+                  length exts `shouldBe` 1
+                  length msgs `shouldBe` 1
+                _ -> expectationFailure "Expected one message"
+        , it "group inside a top-level extend hoists a top-level message" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "extend N {"
+                    , "  optional group G = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let tops = protoTopLevels pf
+                length tops `shouldBe` 2
+                any isTopExtend tops `shouldBe` True
+                any isTopMessage tops `shouldBe` True
+        ]
+    , describe
+        "Rich aggregate option values" $ sequence_
+        [ it "list values desugar to repeated key/value pairs" $
+            fileOptValue "{ tags: [\"a\", \"b\"] }"
+              `shouldBe` Just (CAggregate [("tags", CString "a"), ("tags", CString "b")])
+        , it "extension keys keep their brackets" $
+            fileOptValue "{ [foo.bar]: 1 }"
+              `shouldBe` Just (CAggregate [("[foo.bar]", CInt 1)])
+        , it "Any-URL keys are accepted" $
+            (isRight (parseProtoFile "<test>" (unlines' ["syntax = \"proto3\";", "option (x) = { [type.googleapis.com/foo.Bar]: { a: 1 } };"])))
+              `shouldBe` True
+        , it "angle-bracket message values are accepted" $
+            case fileOptValue "{ sub < a: 1 > }" of
+              Just (CAggregate [("sub", CAggregate [("a", CInt 1)])]) -> pure ()
+              other -> expectationFailure ("unexpected: " <> show other)
+        ]
+    , describe
+        "Editions reserved identifiers" $ sequence_
+        [ it "message reserved accepts bare identifiers" $ do
+            let input =
+                  unlines'
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEReserved (ReservedNames names)] -> names `shouldBe` ["foo", "bar"]
+                  _ -> expectationFailure "Expected reserved names"
+                _ -> expectationFailure "Expected one message"
+        , it "enum reserved accepts a bare identifier" $ do
+            let input =
+                  unlines'
+                    [ "edition = \"2023\";"
+                    , "enum E {"
+                    , "  A = 0;"
+                    , "  reserved FOO;"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        ]
+    , describe
         "Complex proto files" $ sequence_
         [ it "full proto file" $ do
             let input = complexProto
@@ -902,6 +1006,26 @@ complexProto =
 isNestedMsg :: MessageElement -> Bool
 isNestedMsg (MEMessage _) = True
 isNestedMsg _ = False
+
+
+isExtendElem :: MessageElement -> Bool
+isExtendElem (MEExtend _ _) = True
+isExtendElem _ = False
+
+
+isMsgElem :: MessageElement -> Bool
+isMsgElem (MEMessage _) = True
+isMsgElem _ = False
+
+
+isTopExtend :: TopLevel -> Bool
+isTopExtend (TLExtend _ _) = True
+isTopExtend _ = False
+
+
+isTopMessage :: TopLevel -> Bool
+isTopMessage (TLMessage _) = True
+isTopMessage _ = False
 
 
 extractFieldDefs :: [MessageElement] -> [FieldDef]
