@@ -583,6 +583,99 @@ parserTests =
                 _ -> expectationFailure "Expected one option"
         ]
     , describe
+        "Groups and extension-range options" $ sequence_
+        [ it "proto2 group desugars to a nested message plus a field" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  repeated group Result = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEMessage nested, MEField fld] -> do
+                    msgName nested `shouldBe` "Result"
+                    length (msgElements nested) `shouldBe` 1
+                    fieldName fld `shouldBe` "result"
+                    fieldType fld `shouldBe` FTNamed "Result"
+                    fieldNumber fld `shouldBe` FieldNumber 1
+                    fieldLabel fld `shouldBe` Just Repeated
+                  _ -> expectationFailure "Expected a nested message followed by a field"
+                _ -> expectationFailure "Expected one message"
+        , it "unlabeled group parses" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  group G = 2 {"
+                    , "    optional int32 y = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "a field whose name starts with 'group' is still a field" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "message M {"
+                    , "  int32 grouping = 1;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEField fld] -> fieldName fld `shouldBe` "grouping"
+                  _ -> expectationFailure "Expected a single field"
+                _ -> expectationFailure "Expected one message"
+        , it "extensions with a verification option" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtensions ranges opts] -> do
+                    length ranges `shouldBe` 1
+                    length opts `shouldBe` 1
+                  _ -> expectationFailure "Expected an extensions declaration"
+                _ -> expectationFailure "Expected one message"
+        , it "extensions with a declaration aggregate option" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 100 to max [declaration = { number: 100 full_name: \".foo.bar\" type: \".Baz\" }];"
+                    , "}"
+                    ]
+            (isRight (parseProtoFile "<test>" input)) `shouldBe` True
+        , it "extensions without options still parse (empty option list)" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLMessage m] -> case msgElements m of
+                  [MEExtensions _ opts] -> length opts `shouldBe` 0
+                  _ -> expectationFailure "Expected an extensions declaration"
+                _ -> expectationFailure "Expected one message"
+        ]
+    , describe
         "Complex proto files" $ sequence_
         [ it "full proto file" $ do
             let input = complexProto

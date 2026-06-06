@@ -140,6 +140,26 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
+        , it "proto2 group roundtrip (desugared to message + field)" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  repeated group Result = 1 {"
+                    , "    optional int32 x = 1;"
+                    , "  }"
+                    , "}"
+                    ]
+            roundtripTest src
+        , it "extensions with options roundtrip" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto2\";"
+                    , "message M {"
+                    , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                    , "}"
+                    ]
+            roundtripTest src
         ]
     , describe
         "Exact printing (byte-for-byte)" $ sequence_
@@ -178,6 +198,24 @@ printInspectTests =
                 , "  };"
                 , "}"
                 , ";"
+                ]
+        , it "preserves proto2 group source verbatim" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto2\";"
+                , "message M {"
+                , "  repeated group Result = 1 {"
+                , "    optional int32 x = 1;"
+                , "  }"
+                , "}"
+                ]
+        , it "preserves extensions options source verbatim" $
+            exactPrintTest $
+              T.unlines
+                [ "syntax = \"proto2\";"
+                , "message M {"
+                , "  extensions 4 to 8 [verification = UNVERIFIED];"
+                , "}"
                 ]
         ]
     , describe

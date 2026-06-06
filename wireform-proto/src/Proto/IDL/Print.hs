@@ -107,7 +107,7 @@ printMessageElement depth = \case
   MEOneof od -> printOneof depth od <> "\n"
   MEMapField mf -> printDoc depth (mapDoc mf) <> indent depth <> printMapField mf <> "\n"
   MEReserved rd -> indent depth <> printReserved rd <> "\n"
-  MEExtensions exs -> indent depth <> "extensions " <> printExtensionRanges exs <> ";\n"
+  MEExtensions exs opts -> indent depth <> "extensions " <> printExtensionRanges exs <> printFieldOptions opts <> ";\n"
   MEOption opt -> indent depth <> "option " <> printOptionAssignment opt <> ";\n"
   MEComment cs -> printCommentBlock depth cs <> "\n"
 

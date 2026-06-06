@@ -340,8 +340,10 @@ data MessageElement' p
     MEMapField !(MapField' p)
   | -- | A reserved declaration.
     MEReserved !ReservedDef
-  | -- | An extensions range declaration.
-    MEExtensions ![ExtensionRange]
+  | -- | An extensions range declaration, with any trailing options
+    -- (e.g. @extensions 4 to 8 [verification = UNVERIFIED];@ or an
+    -- editions @[declaration = {…}]@ list).
+    MEExtensions ![ExtensionRange] ![OptionDef' p]
   | -- | A message-level option.
     MEOption !(OptionDef' p)
   | -- | Standalone comment inside a message body.
@@ -911,7 +913,7 @@ stripMsgElem = \case
   MEOneof o -> MEOneof (stripOneof o)
   MEMapField mf -> MEMapField (stripMapField mf)
   MEReserved r -> MEReserved r
-  MEExtensions e -> MEExtensions e
+  MEExtensions e opts -> MEExtensions e (fmap stripOption opts)
   MEOption o -> MEOption (stripOption o)
   MEComment cs -> MEComment cs
 

@@ -251,25 +251,31 @@ messageDef :: CommentMap -> Maybe Text -> Int -> Parser (MessageDef' Parsed)
 messageDef cm doc start = do
   reserved "message"
   name <- identifier <?> "message name"
-  elems <- braces (manyStmts (messageElement cm))
+  elems <- braces (concat <$> manyStmts (messageElement cm))
   end <- getOffset
   pure MessageDef {msgExt = mkSpan start end, msgDoc = doc, msgName = name, msgElements = elems}
 
 
-messageElement :: CommentMap -> Parser (MessageElement' Parsed)
+{- | Parse one message-body element. Returns a list because a proto2 @group@
+desugars into two elements (the nested message plus its field); every other
+element yields a singleton.
+-}
+messageElement :: CommentMap -> Parser [MessageElement' Parsed]
 messageElement cm = do
   start <- getOffset
   doc <- getDoc cm
-  kw <- lookAhead (identifier <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)")
+  kw <- lookAhead (identifier <?> "message element (field, group, enum, message, oneof, map, option, reserved, or extensions)")
   case kw of
-    "reserved" -> MEReserved <$> reservedDecl
-    "extensions" -> MEExtensions <$> extensionsDecl
-    "option" -> MEOption <$> optionDecl start
-    "enum" -> MEEnum <$> enumDef cm doc start
-    "message" -> MEMessage <$> messageDef cm doc start
-    "oneof" -> MEOneof <$> oneofDef cm doc start
-    "map" -> MEMapField <$> mapFieldDef cm doc start
-    _ -> MEField <$> fieldDef' doc start
+    "reserved" -> one (MEReserved <$> reservedDecl)
+    "extensions" -> one (uncurry MEExtensions <$> extensionsDecl)
+    "option" -> one (MEOption <$> optionDecl start)
+    "enum" -> one (MEEnum <$> enumDef cm doc start)
+    "message" -> one (MEMessage <$> messageDef cm doc start)
+    "oneof" -> one (MEOneof <$> oneofDef cm doc start)
+    "map" -> one (MEMapField <$> mapFieldDef cm doc start)
+    _ -> fieldOrGroupDef cm doc start
+  where
+    one = fmap (: [])
 
 
 fieldDef :: CommentMap -> Parser (FieldDef' Parsed)
@@ -279,17 +285,26 @@ fieldDef cm = do
   fieldDef' doc start
 
 
+-- | A field label (proto2 @optional@/@required@ or @repeated@).
+fieldLabelP :: Parser FieldLabel
+fieldLabelP =
+  choice
+    [ try (Optional <$ reserved "optional")
+    , try (Required <$ reserved "required")
+    , try (Repeated <$ reserved "repeated")
+    ]
+    <?> "field label (optional, required, or repeated)"
+
+
 fieldDef' :: Maybe Text -> Int -> Parser (FieldDef' Parsed)
 fieldDef' doc start = do
-  lbl <-
-    optional
-      ( choice
-          [ try (Optional <$ reserved "optional")
-          , try (Required <$ reserved "required")
-          , try (Repeated <$ reserved "repeated")
-          ]
-          <?> "field label (optional, required, or repeated)"
-      )
+  lbl <- optional fieldLabelP
+  fieldRest doc lbl start
+
+
+-- | Parse a field given its (already-consumed) label.
+fieldRest :: Maybe Text -> Maybe FieldLabel -> Int -> Parser (FieldDef' Parsed)
+fieldRest doc lbl start = do
   ft <- parseFieldType
   name <- identifier <?> "field name"
   equals
@@ -307,6 +322,53 @@ fieldDef' doc start = do
       , fieldNumber = num
       , fieldOptions = opts
       }
+
+
+{- | Parse either a regular field or a proto2 @group@.
+
+A group (@[label] group Name = N [opts] { body }@) is deprecated syntax that
+is semantically a nested message plus a field of that message type. We desugar
+it the way @protoc@ does: emit the nested message named @Name@ and a field
+named after the lower-cased group name. (The group wire-type — tags 3/4 — is
+not emitted by the code generator; the field encodes as a normal submessage.)
+-}
+fieldOrGroupDef :: CommentMap -> Maybe Text -> Int -> Parser [MessageElement' Parsed]
+fieldOrGroupDef cm doc start = do
+  lbl <- optional fieldLabelP
+  isGroup <- option False (True <$ try (reserved "group"))
+  if isGroup
+    then groupDef cm doc lbl start
+    else fmap ((: []) . MEField) (fieldRest doc lbl start)
+
+
+-- | Parse a group body (the @group@ keyword has already been consumed).
+groupDef :: CommentMap -> Maybe Text -> Maybe FieldLabel -> Int -> Parser [MessageElement' Parsed]
+groupDef cm doc lbl start = do
+  name <- identifier <?> "group name"
+  equals
+  num <- FieldNumber . fromIntegral <$> (intLiteral <?> "field number")
+  opts <- fieldOptionList
+  elems <- braces (concat <$> manyStmts (messageElement cm))
+  end <- getOffset
+  let sp = mkSpan start end
+      nested =
+        MessageDef
+          { msgExt = sp
+          , msgDoc = doc
+          , msgName = name
+          , msgElements = elems
+          }
+      fld =
+        FieldDef
+          { fieldExt = sp
+          , fieldDoc = doc
+          , fieldLabel = lbl
+          , fieldType = FTNamed name
+          , fieldName = T.toLower name
+          , fieldNumber = num
+          , fieldOptions = opts
+          }
+  pure [MEMessage nested, MEField fld]
 
 
 parseFieldType :: Parser FieldType
@@ -446,12 +508,15 @@ reservedDecl = do
         Just (Just e) -> pure (ReservedRange start e)
 
 
-extensionsDecl :: Parser [ExtensionRange]
+extensionsDecl :: Parser ([ExtensionRange], [OptionDef' Parsed])
 extensionsDecl = do
   reserved "extensions"
   ranges <- extensionRange `sepBy1` comma
+  -- Optional trailing options, e.g. @[verification = UNVERIFIED]@ or an
+  -- editions @[declaration = {…}]@ list; same bracket syntax as field options.
+  opts <- fieldOptionList
   semi
-  pure ranges
+  pure (ranges, opts)
   where
     extensionRange = do
       start <- fromIntegral <$> intLiteral
@@ -728,7 +793,7 @@ msgElemStartLine src = \case
   MEMapField mf -> spanLine src (mapExt mf)
   MEOption o -> spanLine src (optExt o)
   MEReserved _ -> Nothing
-  MEExtensions _ -> Nothing
+  MEExtensions _ _ -> Nothing
   MEComment _ -> Nothing
 
 
@@ -741,7 +806,7 @@ msgElemEndLine src = \case
   MEMapField mf -> spanEndLine src (mapExt mf)
   MEOption o -> spanEndLine src (optExt o)
   MEReserved _ -> Nothing
-  MEExtensions _ -> Nothing
+  MEExtensions _ _ -> Nothing
   MEComment _ -> Nothing
 
 

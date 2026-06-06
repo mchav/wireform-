@@ -1877,7 +1877,7 @@ genLabelLit (Just Repeated) = txt "LabelRepeated"
 hasExtensions :: MessageDef -> Bool
 hasExtensions msg = any isExt (msgElements msg)
   where
-    isExt (MEExtensions _) = True
+    isExt (MEExtensions _ _) = True
     isExt _ = False
 
 genToJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
