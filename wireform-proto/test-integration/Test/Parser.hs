@@ -525,6 +525,64 @@ parserTests =
             (isLeft (parseProtoFile "<test>" input)) `shouldBe` True
         ]
     , describe
+        "Lexical & grammar conformance" $ sequence_
+        [ it "enum reserved numeric ranges (to / to max)" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "enum E {"
+                    , "  A = 0;"
+                    , "  reserved 2, 5 to 9, 100 to max;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoTopLevels pf of
+                [TLEnum ed] -> length (enumValues ed) `shouldBe` 1
+                _ -> expectationFailure "Expected one enum"
+        , it "identifier prefixed by 'true' is an identifier, not a bool" $
+            fileOptValue "trueish" `shouldBe` Just (CIdent "trueish")
+        , it "identifier prefixed by 'inf' is an identifier, not infinity" $
+            fileOptValue "information" `shouldBe` Just (CIdent "information")
+        , it "bare 'true' is still a boolean" $
+            fileOptValue "true" `shouldBe` Just (CBool True)
+        , it "bare 'inf' is still infinity" $
+            case fileOptValue "inf" of
+              Just (CFloat d) -> (isInfinite d && d > 0) `shouldBe` True
+              other -> expectationFailure ("expected +inf, got " <> show other)
+        , it "bare 'nan' is still NaN" $
+            case fileOptValue "nan" of
+              Just (CFloat d) -> isNaN d `shouldBe` True
+              other -> expectationFailure ("expected NaN, got " <> show other)
+        , it "leading-dot float (.5)" $
+            fileOptValue ".5" `shouldBe` Just (CFloat 0.5)
+        , it "trailing-dot float (5.)" $
+            fileOptValue "5." `shouldBe` Just (CFloat 5.0)
+        , it "negative leading-dot float (-.25)" $
+            fileOptValue "-.25" `shouldBe` Just (CFloat (-0.25))
+        , it "single-hex-digit escape (\\xA)" $
+            fileOptValue "\"\\xA\"" `shouldBe` Just (CString "\n")
+        , it "two-hex-digit escape still works (\\x41)" $
+            fileOptValue "\"\\x41\"" `shouldBe` Just (CString "A")
+        , it "BMP unicode escape (\\u00e9)" $
+            fileOptValue "\"caf\\u00e9\"" `shouldBe` Just (CString "caf\233")
+        , it "full unicode escape (\\U0001F600)" $
+            fileOptValue "\"\\U0001F600\"" `shouldBe` Just (CString "\128512")
+        , it "nested extension option name (a).(b).c" $ do
+            let input =
+                  unlines'
+                    [ "syntax = \"proto3\";"
+                    , "option (a).(b).c = 1;"
+                    ]
+            case parseProtoFile "<test>" input of
+              Left e -> expectationFailure (show e)
+              Right pf -> case protoOptions pf of
+                [opt] ->
+                  optNameParts (optName opt)
+                    `shouldBe` [ExtensionOption "a", ExtensionOption "b", SimpleOption "c"]
+                _ -> expectationFailure "Expected one option"
+        ]
+    , describe
         "Complex proto files" $ sequence_
         [ it "full proto file" $ do
             let input = complexProto
@@ -762,3 +820,16 @@ extractFieldDefs = concatMap go
 
 unlines' :: [Text] -> Text
 unlines' = mconcat . fmap (<> "\n")
+
+
+{- | Parse a single file-level @option (x) = <rhs>;@ and return the parsed
+constant value. Used to exercise the constant/literal lexer in isolation.
+-}
+fileOptValue :: Text -> Maybe Constant
+fileOptValue rhs =
+  let input = unlines' ["syntax = \"proto3\";", "option (x) = " <> rhs <> ";"]
+  in case parseProtoFile "<test>" input of
+      Right pf -> case protoOptions pf of
+        [opt] -> Just (optValue opt)
+        _ -> Nothing
+      Left _ -> Nothing

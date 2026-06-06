@@ -209,10 +209,10 @@ optionAssignment = do
 optionName :: Parser OptionName
 optionName = do
   first <- optionNamePart
-  rest <- many (symbol "." *> simpleOptionPart)
+  -- Parts after the first may also be extension names in parentheses,
+  -- e.g. @option (a).(b).c = …@, which protoc accepts.
+  rest <- many (symbol "." *> optionNamePart)
   pure OptionName {optNameParts = first : rest}
-  where
-    simpleOptionPart = SimpleOption <$> identifier
 
 
 optionNamePart :: Parser OptionNamePart
@@ -497,8 +497,16 @@ enumItem cm =
 enumReservedDecl :: Parser ()
 enumReservedDecl = do
   reserved "reserved"
-  _ <- (stringLiteral `sepBy1` comma) <|> (fmap (T.pack . show) <$> (intLiteral `sepBy1` comma))
+  -- Either quoted reserved names or reserved numbers/ranges. Enum reserved
+  -- ranges (@reserved 1 to 10;@, @reserved 5 to max;@) are accepted just like
+  -- message reserved ranges; the values aren't retained in the AST.
+  void (stringLiteral `sepBy1` comma) <|> void (enumReservedRange `sepBy1` comma)
   semi
+  where
+    enumReservedRange = do
+      _ <- intLiteral
+      _ <- optional (reserved "to" *> (reserved "max" <|> void intLiteral))
+      pure ()
 
 
 enumValueDef :: CommentMap -> Parser (EnumValue' Parsed)
