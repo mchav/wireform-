@@ -552,7 +552,9 @@ reservedDecl = do
   pure res
   where
     -- proto2/proto3 use quoted names; editions (2023+) use bare identifiers.
-    reservedNames = ReservedNames <$> ((stringLiteral <|> identifier) `sepBy1` comma)
+    -- The spelling is retained so printing reproduces the right token.
+    reservedNames = ReservedNames <$> (reservedName `sepBy1` comma)
+    reservedName = (QuotedReservedName <$> stringLiteral) <|> (IdentReservedName <$> identifier)
     reservedNumbers = ReservedNumbers <$> (reservedRange `sepBy1` comma)
     reservedRange = do
       start <- fromIntegral <$> intLiteral

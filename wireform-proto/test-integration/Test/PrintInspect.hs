@@ -188,6 +188,33 @@ printInspectTests =
                     , "}"
                     ]
             roundtripTest src
+        , it "editions reserved identifiers print unquoted" $ do
+            let src =
+                  T.unlines
+                    [ "edition = \"2023\";"
+                    , "message M {"
+                    , "  reserved foo, bar;"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" src of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let printed = printProtoFile pf
+                T.isInfixOf "reserved foo, bar;" printed `shouldBe` True
+                T.isInfixOf "\"foo\"" printed `shouldBe` False
+        , it "proto3 reserved names still print quoted" $ do
+            let src =
+                  T.unlines
+                    [ "syntax = \"proto3\";"
+                    , "message M {"
+                    , "  reserved \"foo\", \"bar\";"
+                    , "}"
+                    ]
+            case parseProtoFile "<test>" src of
+              Left e -> expectationFailure (show e)
+              Right pf -> do
+                let printed = printProtoFile pf
+                T.isInfixOf "reserved \"foo\", \"bar\";" printed `shouldBe` True
         ]
     , describe
         "Exact printing (byte-for-byte)" $ sequence_

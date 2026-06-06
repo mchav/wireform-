@@ -319,7 +319,13 @@ printReserved = \case
   ReservedNumbers ranges ->
     "reserved " <> T.intercalate ", " (fmap printReservedRange ranges) <> ";"
   ReservedNames names ->
-    "reserved " <> T.intercalate ", " (fmap (\n -> "\"" <> n <> "\"") names) <> ";"
+    "reserved " <> T.intercalate ", " (fmap printReservedName names) <> ";"
+
+
+printReservedName :: ReservedName -> Text
+printReservedName = \case
+  QuotedReservedName n -> "\"" <> escapeProtoString n <> "\""
+  IdentReservedName n -> n
 
 
 printReservedRange :: ReservedRange -> Text

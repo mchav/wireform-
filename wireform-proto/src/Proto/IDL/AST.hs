@@ -57,6 +57,7 @@ module Proto.IDL.AST (
   OneofField' (..),
   OneofField,
   ReservedDef (..),
+  ReservedName (..),
   ReservedRange (..),
 
   -- * Enums
@@ -530,7 +531,22 @@ data ReservedDef
   = -- | Reserved field number ranges.
     ReservedNumbers ![ReservedRange]
   | -- | Reserved field names.
-    ReservedNames ![Text]
+    ReservedNames ![ReservedName]
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+
+{- | A single name in a @reserved@ declaration.
+
+proto2/proto3 spell reserved names as quoted string literals; editions
+(2023+) spell them as bare identifiers. The spelling is retained so that
+printing reproduces the correct token for the file's syntax.
+-}
+data ReservedName
+  = -- | A quoted reserved name, e.g. @"foo"@ (proto2/proto3).
+    QuotedReservedName !Text
+  | -- | A bare-identifier reserved name, e.g. @foo@ (editions 2023+).
+    IdentReservedName !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 

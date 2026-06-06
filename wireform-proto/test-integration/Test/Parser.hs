@@ -351,7 +351,7 @@ parserTests =
               Right pf -> case protoTopLevels pf of
                 [TLMessage msg] -> case msgElements msg of
                   [MEReserved (ReservedNames names)] ->
-                    names `shouldBe` ["foo", "bar"]
+                    names `shouldBe` [QuotedReservedName "foo", QuotedReservedName "bar"]
                   _ -> expectationFailure "Expected reserved names"
                 _ -> expectationFailure "Expected one message"
         ]
@@ -765,7 +765,8 @@ parserTests =
               Left e -> expectationFailure (show e)
               Right pf -> case protoTopLevels pf of
                 [TLMessage m] -> case msgElements m of
-                  [MEReserved (ReservedNames names)] -> names `shouldBe` ["foo", "bar"]
+                  [MEReserved (ReservedNames names)] ->
+                    names `shouldBe` [IdentReservedName "foo", IdentReservedName "bar"]
                   _ -> expectationFailure "Expected reserved names"
                 _ -> expectationFailure "Expected one message"
         , it "enum reserved accepts a bare identifier" $ do
