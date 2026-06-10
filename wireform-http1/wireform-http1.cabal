@@ -100,7 +100,7 @@ library
     primitive >= 0.8 && < 0.10,
     stm >= 2.5 && < 2.7,
     text >= 2.0 && < 2.2,
-    time >= 1.11 && < 1.15,
+    time >= 1.11 && < 1.16,
     unix >= 2.7 && < 2.9,
     vector >= 0.13 && < 0.14,
     wireform-core,

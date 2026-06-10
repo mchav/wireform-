@@ -15,10 +15,11 @@
 
         # GHC build matrix — add/remove entries to test against
         # different compilers. Shell names become `nix develop .#ghcXY`.
-        # Covers the released GHC 9.4–9.14 line (odd minors are
-        # unreleased dev snapshots and are intentionally omitted).
+        # Covers the released GHC 9.6–9.14 line (odd minors are
+        # unreleased dev snapshots and are intentionally omitted). GHC 9.4
+        # is excluded: wireform-core's parser uses the delimited-continuation
+        # primop PromptTag#, which only exists from GHC 9.6 onward.
         ghcMatrix = {
-          ghc94  = "ghc94";
           ghc96  = "ghc96";
           ghc98  = "ghc98";
           ghc910 = "ghc910";
@@ -212,6 +213,15 @@
             perFormatAttrs // {
               wireform = wireformAttr;
               crc32c   = crc32cUnrestricted;
+              # wireform-http / wireform-kafka need hs-opentelemetry-api 1.0,
+              # which nixpkgs hasn't packaged yet (it ships 0.3.1.0). Pull the
+              # 1.0.0.0 release straight from Hackage. doJailbreak relaxes its
+              # bounds against the pinned package set.
+              hs-opentelemetry-api = hlib.doJailbreak (self.callHackageDirect {
+                pkg = "hs-opentelemetry-api";
+                ver = "1.0.0.0";
+                sha256 = "0bb1c930jzdgp1mpal930ig78mppk1rl63cjjazdgi90jdn1lz3r";
+              } {});
               # C-library names cabal2nix resolves against the Haskell
               # package set. These are unambiguous C libs (pkgconfig /
               # extra-libraries), with no Haskell package of the same name:

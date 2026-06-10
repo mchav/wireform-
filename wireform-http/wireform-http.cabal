@@ -139,7 +139,7 @@ library
     text-short           >= 0.1  && < 0.2,
     stm                  >= 2.5  && < 2.6,
     text                 >= 2.0  && < 2.2,
-    time                 >= 1.11 && < 1.13,
+    time                 >= 1.11 && < 1.16,
     unliftio             >= 0.2  && < 0.3,
     unliftio-core        >= 0.2  && < 0.3,
     unordered-containers >= 0.2  && < 0.3,

@@ -13,8 +13,9 @@ let
   knownNames = builtins.attrNames metadata;
 
   # The full released GHC line the flake exposes (`<pkg>-<ghc>` outputs).
-  # Keep in sync with `ghcMatrix` in flake.nix.
-  allGhcVersions = [ "ghc94" "ghc96" "ghc98" "ghc910" "ghc912" "ghc914" ];
+  # Keep in sync with `ghcMatrix` in flake.nix. (GHC 9.4 is excluded: the
+  # core parser needs the PromptTag# primop, which is GHC 9.6+.)
+  allGhcVersions = [ "ghc96" "ghc98" "ghc910" "ghc912" "ghc914" ];
 
   # Per-package GHC support overrides. A package absent from this map
   # builds across the full matrix. Entries here narrow the matrix for
@@ -27,8 +28,8 @@ let
   #     stack) does not compile on GHC 9.10+ in the pinned nixpkgs.
   ghcOverrides = {
     wireform-html = [ "ghc98" "ghc910" "ghc912" "ghc914" ];
-    grpc-spec     = [ "ghc94" "ghc96" "ghc98" ];
-    wireform-grpc = [ "ghc94" "ghc96" "ghc98" ];
+    grpc-spec     = [ "ghc96" "ghc98" ];
+    wireform-grpc = [ "ghc96" "ghc98" ];
   };
 
   # Word-boundary match: "wireform-core" must NOT match inside
