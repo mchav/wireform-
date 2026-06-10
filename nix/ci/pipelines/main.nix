@@ -18,7 +18,6 @@ let
   affected = changes.affectedPackages changedFiles;
   hasAffected = affected != {};
 
-  ghcVersions = [ "ghc96" "ghc98" "ghc910" "ghc912" ];
   defaultGHC = "ghc98";
 
   inherit (ci) nixAgents;
@@ -28,7 +27,9 @@ let
 
   # ------------------------------------------------------------------
   # Build group: nix build every affected package x GHC (flake exposes
-  # <pkg>-<shell> outputs; Buildkite interpolates {{matrix.ghc}})
+  # <pkg>-<shell> outputs; Buildkite interpolates {{matrix.ghc}}). Each
+  # package carries its own supported-GHC list (packages.nix), so the
+  # matrix only fans out to compilers that can actually build it.
   # ------------------------------------------------------------------
   buildSteps = ci.forPackagesSorted affected (pkg:
     ci.command {
@@ -39,7 +40,7 @@ let
       timeout = 45;
       priority = if pkg.tier == "core" then 5 else 0;
       matrix = {
-        setup = { ghc = ghcVersions; };
+        setup = { ghc = pkg.ghcVersions; };
       };
     }
   );

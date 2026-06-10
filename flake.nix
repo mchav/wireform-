@@ -15,11 +15,15 @@
 
         # GHC build matrix — add/remove entries to test against
         # different compilers. Shell names become `nix develop .#ghcXY`.
+        # Covers the released GHC 9.4–9.14 line (odd minors are
+        # unreleased dev snapshots and are intentionally omitted).
         ghcMatrix = {
+          ghc94  = "ghc94";
           ghc96  = "ghc96";
           ghc98  = "ghc98";
           ghc910 = "ghc910";
           ghc912 = "ghc912";
+          ghc914 = "ghc914";
         };
 
         defaultGHC = "ghc98";
@@ -103,13 +107,30 @@
           wireform-delta             = ./wireform-delta;
           wireform-hudi              = ./wireform-hudi;
           wireform-grpc              = ./wireform-grpc;
+          # Previously only present transitively / via a one-off
+          # callCabal2nix; listed here so each is exposed as a
+          # per-GHC package output the CI matrix can build.
+          hermes                     = ./hermes;
+          grpc-spec                  = ./grpc-spec;
+          wireform-websocket         = ./wireform-websocket;
+          wireform-cel               = ./wireform-cel;
+          wireform-protovalidate     = ./wireform-protovalidate;
+          wireform-hw-kafka-client   = ./wireform-hw-kafka-client;
         };
 
-        # Cabal flags to enable on specific packages. Mirrors the
-        # `package <name>` blocks in `cabal.project`.
+        # Cabal flags to enable on specific packages.
+        #
+        # NOTE: the optional codec flags (+snappy/+zstd/+lz4) are
+        # deliberately NOT enabled for the `nix build` outputs. Under
+        # cabal2nix, `extra-libraries: zstd` and the Haskell
+        # `build-depends: zstd` both resolve to `haskellPackages.zstd`,
+        # and the overlay binds that name to the C library (pkgs.zstd)
+        # so `extra-libraries` link. Enabling the flag would then ask
+        # for the Haskell `zstd` package under the same (now-shadowed)
+        # name and fail with "missing or private dependencies: zstd".
+        # The codec paths are exercised by the `cabal test` step, which
+        # solves against Hackage rather than the pinned nix package set.
         packageFlags = {
-          wireform = [ "snappy" "zstd" ];
-          wireform-arrow = [ "zstd" "lz4" ];
         };
 
         applyFlags = name: drv:
@@ -123,21 +144,36 @@
         # misbehave under sandboxing, and dependency-cycle
         # packages like wireform-columnar-core would deadlock the
         # build graph). Use `cabal test` inside the dev shell instead.
+        # wireform-kafka-protocol's library reads its sources from a
+        # sibling tree (`hs-source-dirs: ../wireform-kafka/src`). A bare
+        # callCabal2nix copies only the package directory, so the sibling
+        # path is absent in the sandbox ("can't find source for
+        # Kafka/Protocol/Generated/..."). Stitch both directories into a
+        # single source root and point cabal2nix at the subpath.
+        kafkaProtocolSrc = pkgs.runCommand "wireform-kafka-protocol-src" {} ''
+          mkdir -p $out/wireform-kafka-protocol $out/wireform-kafka
+          cp -R ${./wireform-kafka-protocol}/. $out/wireform-kafka-protocol/
+          cp -R ${./wireform-kafka/src} $out/wireform-kafka/src
+        '';
+
         haskellOverlay = self: super:
           let
+            mkRaw = name: src:
+              if name == "wireform-kafka-protocol"
+              then self.callCabal2nixWithOptions name kafkaProtocolSrc
+                     "--subpath wireform-kafka-protocol" {}
+              else self.callCabal2nix name src {};
             mkPkg = name: src:
               applyFlags name
                 (hlib.overrideCabal (drv: {
                   doBenchmark = false;
                   doCheck    = false;
                 })
-                  (self.callCabal2nix name src {}));
+                  (mkRaw name src));
             perFormatAttrs = lib.mapAttrs mkPkg wireformPackages;
             wireformAttr = applyFlags "wireform"
               (hlib.overrideCabal (drv: { doBenchmark = false; })
                 (self.callCabal2nix "wireform" ./. {}));
-            hermesAttr = hlib.overrideCabal (drv: { doBenchmark = false; })
-              (self.callCabal2nix "hermes" ./hermes {});
             # crc32c-0.2.2 in nixpkgs lists only x86 Darwin as supported,
             # but Google's crc32c C library has ARMv8 CRC hardware support.
             # Lift the false platform restriction so grpc-spec (and
@@ -148,7 +184,6 @@
           in
             perFormatAttrs // {
               wireform = wireformAttr;
-              hermes   = hermesAttr;
               crc32c   = crc32cUnrestricted;
               # Map pkg-config names (cabal `pkgconfig-depends`) and
               # bare C library names (cabal `extra-libraries`) to
