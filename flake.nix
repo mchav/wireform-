@@ -191,6 +191,16 @@
           };
 
         devShells = builtins.mapAttrs (_: mkDevShell) ghcMatrix;
+
+        packagesForGhc = ghcAttr:
+          let
+            hp = (pkgs.haskell.packages.${ghcAttr}).override {
+              overrides = haskellOverlay;
+            };
+            perFormat = lib.getAttrs (lib.attrNames wireformPackages) hp;
+          in perFormat // {
+            wireform = hp.wireform;
+          };
       in
       {
         devShells = devShells // {
@@ -200,14 +210,26 @@
         # Every per-format package is also exposed as a build
         # output for downstream Nix consumers. The umbrella
         # `wireform` is the default.
+        #
+        # Unsuffixed names use defaultGHC (ghc98). CI matrix jobs
+        # use <pkg>-<shell> (e.g. wireform-core-ghc96).
         packages =
-          let hp = (pkgs.haskell.packages.${defaultGHC}).override {
-                overrides = haskellOverlay;
-              };
-              perFormat = lib.getAttrs (lib.attrNames wireformPackages) hp;
-          in perFormat // {
-            wireform = hp.wireform;
-            default  = hp.wireform;
+          let
+            defaultPkgs = packagesForGhc defaultGHC;
+            matrixPkgs = lib.foldl' (acc: shellName:
+              let
+                ghcAttr = ghcMatrix.${shellName};
+                pkgs_ = packagesForGhc ghcAttr;
+                suffixed = lib.mapAttrs'
+                  (name: drv: {
+                    name = "${name}-${shellName}";
+                    value = drv;
+                  })
+                  pkgs_;
+              in acc // suffixed
+            ) {} (lib.attrNames ghcMatrix);
+          in defaultPkgs // matrixPkgs // {
+            default = defaultPkgs.wireform;
           };
 
         # Buildkite pipeline generators.

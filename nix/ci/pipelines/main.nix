@@ -19,29 +19,22 @@ let
   hasAffected = affected != {};
 
   ghcVersions = [ "ghc96" "ghc98" "ghc910" "ghc912" ];
-  defaultGHC  = "ghc98";
+  defaultGHC = "ghc98";
 
   inherit (ci) nixAgents;
-
-  # Human-readable GHC label: "ghc98" -> "9.8"
-  ghcLabel = ghc:
-    let
-      digits = lib.removePrefix "ghc" ghc;
-      major = builtins.substring 0 1 digits;
-      minor = builtins.substring 1 (builtins.stringLength digits - 1) digits;
-    in "${major}.${minor}";
 
   # Slug-safe key from package name: wireform-core -> wireform_core
   keyOf = name: builtins.replaceStrings [ "-" ] [ "_" ] name;
 
   # ------------------------------------------------------------------
-  # Build group: nix build every affected package x GHC version
+  # Build group: nix build every affected package x GHC (flake exposes
+  # <pkg>-<shell> outputs; Buildkite interpolates {{matrix.ghc}})
   # ------------------------------------------------------------------
   buildSteps = ci.forPackagesSorted affected (pkg:
     ci.command {
-      label = "${pkg.emoji} ${pkg.name}";
+      label = "${pkg.emoji} ${pkg.name} ({{matrix.ghc}})";
       key = "build-${keyOf pkg.name}";
-      command = "nix build .#packages.x86_64-linux.${pkg.name} --print-build-logs";
+      command = "nix build .#packages.x86_64-linux.${pkg.name}-{{matrix.ghc}} --print-build-logs";
       agents = nixAgents;
       timeout = 45;
       priority = if pkg.tier == "core" then 5 else 0;
