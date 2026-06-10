@@ -166,20 +166,28 @@
           wireform-kafka = [ pkgs.snappy ];
         };
 
-        haskellOverlay = self: super:
+        # GHC versions whose Haskell ecosystem is newer than our cabal
+        # upper bounds (e.g. template-haskell shipped with the compiler),
+        # where we strip bounds with `doJailbreak` so the build can proceed.
+        # Keep this list as small as possible: on every other GHC the cabal
+        # bounds are enforced, so real version-bound problems surface as
+        # solver errors and get fixed in the cabal files rather than hidden.
+        jailbreakGhcs = [ "ghc914" ];
+
+        mkHaskellOverlay = ghcName: self: super:
           let
+            maybeJailbreak =
+              if builtins.elem ghcName jailbreakGhcs
+              then hlib.doJailbreak
+              else lib.id;
             mkRaw = name: src:
               if name == "wireform-kafka-protocol"
               then self.callCabal2nixWithOptions name kafkaProtocolSrc
                      "--subpath wireform-kafka-protocol" {}
               else self.callCabal2nix name src {};
-            # Drop version bounds on our own packages so a single source
-            # tree builds across the whole GHC 9.4–9.14 matrix without
-            # hand-editing every cabal `base`/`template-haskell` bound.
-            # Genuine API incompatibilities still surface as compile errors.
             mkPkg = name: src:
               applyFlags name
-                (hlib.doJailbreak
+                (maybeJailbreak
                   (hlib.overrideCabal (drv: {
                     doBenchmark = false;
                     doCheck    = false;
@@ -190,7 +198,7 @@
                     (mkRaw name src)));
             perFormatAttrs = lib.mapAttrs mkPkg wireformPackages;
             wireformAttr = applyFlags "wireform"
-              (hlib.doJailbreak
+              (maybeJailbreak
                 (hlib.overrideCabal (drv: { doBenchmark = false; })
                   (self.callCabal2nix "wireform" ./. {})));
             # crc32c-0.2.2 in nixpkgs lists only x86 Darwin as supported,
@@ -222,7 +230,7 @@
         mkDevShell = ghcAttr:
           let
             hp = (pkgs.haskell.packages.${ghcAttr}).override {
-              overrides = haskellOverlay;
+              overrides = mkHaskellOverlay ghcAttr;
             };
             # Every package the workspace ships, so a single
             # `nix develop` shell can build any of them via
@@ -252,7 +260,7 @@
         packagesForGhc = ghcAttr:
           let
             hp = (pkgs.haskell.packages.${ghcAttr}).override {
-              overrides = haskellOverlay;
+              overrides = mkHaskellOverlay ghcAttr;
             };
             perFormat = lib.getAttrs (lib.attrNames wireformPackages) hp;
           in perFormat // {
