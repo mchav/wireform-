@@ -15,6 +15,8 @@ let
     ];
   };
 
+  nixAgents = { queue = "nix"; };
+
   # ------------------------------------------------------------------
   # Step constructors
   # ------------------------------------------------------------------
@@ -23,7 +25,7 @@ let
     { label
     , command
     , key             ? null
-    , agents          ? {}
+    , agents          ? nixAgents
     , env             ? {}
     , depends_on      ? null
     , soft_fail       ? false
@@ -51,6 +53,7 @@ let
   mkGroup = label:
     { key         ? null
     , steps
+    , agents      ? nixAgents
     , depends_on  ? null
     , if_         ? null
     , skip        ? false
@@ -60,7 +63,7 @@ let
     compact {
       _type = "group";
       group = label;
-      inherit key steps depends_on skip notify allow_dependency_failure;
+      inherit key steps agents depends_on skip notify allow_dependency_failure;
       "if" = if_;
     };
 
@@ -96,6 +99,7 @@ let
     , key      ? null
     , async    ? false
     , build    ? {}
+    , agents   ? nixAgents
     , soft_fail ? false
     , if_      ? null
     , depends_on ? null
@@ -103,7 +107,7 @@ let
     compact {
       _type = "trigger";
       trigger = pipeline;
-      inherit label key async build soft_fail depends_on;
+      inherit label key async build agents soft_fail depends_on;
       "if" = if_;
     };
 
@@ -115,7 +119,7 @@ let
     { flakeRef
     , label    ? ":nix: Build ${flakeRef}"
     , key      ? null
-    , agents   ? { queue = "nix"; }
+    , agents   ? nixAgents
     , timeout  ? 45
     , priority ? null
     , depends_on ? null
@@ -130,7 +134,7 @@ let
     { flakeRef
     , label    ? ":test_tube: Check ${flakeRef}"
     , key      ? null
-    , agents   ? { queue = "nix"; }
+    , agents   ? nixAgents
     , timeout  ? 45
     , depends_on ? null
     , soft_fail ? false
@@ -179,7 +183,7 @@ let
 
   mkPipeline =
     { env     ? {}
-    , agents  ? {}
+    , agents  ? nixAgents
     , steps
     , notify  ? []
     }:
@@ -204,5 +208,5 @@ in {
   inherit barrier;
   inherit forPackages forPackagesSorted withGhcMatrix;
   inherit byTier withTests withBenchmarks;
-  inherit defaultRetry compact;
+  inherit defaultRetry compact nixAgents;
 }

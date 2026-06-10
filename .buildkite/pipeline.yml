@@ -1,3 +1,6 @@
+env:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+
 steps:
   - label: ":pipeline: Generate Pipeline"
     key: "generate"

@@ -1,7 +1,7 @@
 # Interop pipeline: gRPC cross-language, Kafka live-broker, WebSocket Autobahn.
 #
 # These tests require external services (Docker containers, reference
-# gRPC servers, Autobahn fuzzer) and run on dedicated agent queues.
+# gRPC servers, Autobahn fuzzer) on the nix queue with docker=true.
 { lib
 , changedFiles ? []
 }:
@@ -14,7 +14,9 @@ let
 
   affected = changes.affectedPackages changedFiles;
   defaultGHC = "ghc98";
-  nixAgents = { queue = "nix"; };
+
+  inherit (ci) nixAgents;
+  dockerAgents = nixAgents // { docker = "true"; };
 
   keyOf = name: builtins.replaceStrings [ "-" ] [ "_" ] name;
 
@@ -42,7 +44,7 @@ let
     command = [
       "nix develop .#${defaultGHC} --command cabal run wireform-grpc-interop -- --self-test"
     ];
-    agents = nixAgents // { docker = "true"; };
+    agents = dockerAgents;
     timeout = 20;
   };
 
@@ -53,7 +55,7 @@ let
     command = [
       "wireform-grpc/scripts/cross-language-interop.sh ${lang}"
     ];
-    agents = nixAgents // { docker = "true"; };
+    agents = dockerAgents;
     timeout = 20;
     soft_fail = true;
   };
@@ -79,7 +81,7 @@ let
       "docker compose -f wireform-kafka/docker/docker-compose.yml down"
     ];
     env = { KAFKA_VERSION = version; };
-    agents = nixAgents // { docker = "true"; };
+    agents = dockerAgents;
     timeout = 30;
     retry = {
       automatic = [
@@ -105,7 +107,7 @@ let
       "sleep 2"
       "docker run --rm --net=host crossbario/autobahn-testsuite wstest -m fuzzingclient -s wireform-websocket/autobahn/fuzzingclient.json"
     ];
-    agents = nixAgents // { docker = "true"; };
+    agents = dockerAgents;
     timeout = 30;
     artifact_paths = [ "wireform-websocket/autobahn/reports/**/*" ];
   };

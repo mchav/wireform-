@@ -21,7 +21,7 @@ let
   ghcVersions = [ "ghc96" "ghc98" "ghc910" "ghc912" ];
   defaultGHC  = "ghc98";
 
-  nixAgents = { queue = "nix"; };
+  inherit (ci) nixAgents;
 
   # Human-readable GHC label: "ghc98" -> "9.8"
   ghcLabel = ghc:
