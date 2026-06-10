@@ -53,7 +53,6 @@ let
   mkGroup = label:
     { key         ? null
     , steps
-    , agents      ? nixAgents
     , depends_on  ? null
     , if_         ? null
     , skip        ? false
@@ -63,7 +62,7 @@ let
     compact {
       _type = "group";
       group = label;
-      inherit key steps agents depends_on skip notify allow_dependency_failure;
+      inherit key steps depends_on skip notify allow_dependency_failure;
       "if" = if_;
     };
 
