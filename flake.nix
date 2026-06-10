@@ -156,6 +156,16 @@
           cp -R ${./wireform-kafka/src} $out/wireform-kafka/src
         '';
 
+        # `snappy` is ambiguous: wireform-kafka uses it as a C library
+        # (`pkgconfig-depends: snappy`) while wireform-orc uses the Haskell
+        # binding (`build-depends: snappy`). We bind the global name to the
+        # Haskell package (so orc resolves) and feed kafka the system
+        # library through pkgconfig here. `liblz4`/`libzstd`/`lz4` are
+        # C-only names mapped in the overlay below; `zstd` is Haskell-only.
+        cLibPkgconfigDeps = {
+          wireform-kafka = [ pkgs.snappy ];
+        };
+
         haskellOverlay = self: super:
           let
             mkRaw = name: src:
@@ -163,17 +173,26 @@
               then self.callCabal2nixWithOptions name kafkaProtocolSrc
                      "--subpath wireform-kafka-protocol" {}
               else self.callCabal2nix name src {};
+            # Drop version bounds on our own packages so a single source
+            # tree builds across the whole GHC 9.4–9.14 matrix without
+            # hand-editing every cabal `base`/`template-haskell` bound.
+            # Genuine API incompatibilities still surface as compile errors.
             mkPkg = name: src:
               applyFlags name
-                (hlib.overrideCabal (drv: {
-                  doBenchmark = false;
-                  doCheck    = false;
-                })
-                  (mkRaw name src));
+                (hlib.doJailbreak
+                  (hlib.overrideCabal (drv: {
+                    doBenchmark = false;
+                    doCheck    = false;
+                    libraryPkgconfigDepends =
+                      (drv.libraryPkgconfigDepends or [])
+                      ++ (cLibPkgconfigDeps.${name} or []);
+                  })
+                    (mkRaw name src)));
             perFormatAttrs = lib.mapAttrs mkPkg wireformPackages;
             wireformAttr = applyFlags "wireform"
-              (hlib.overrideCabal (drv: { doBenchmark = false; })
-                (self.callCabal2nix "wireform" ./. {}));
+              (hlib.doJailbreak
+                (hlib.overrideCabal (drv: { doBenchmark = false; })
+                  (self.callCabal2nix "wireform" ./. {})));
             # crc32c-0.2.2 in nixpkgs lists only x86 Darwin as supported,
             # but Google's crc32c C library has ARMv8 CRC hardware support.
             # Lift the false platform restriction so grpc-spec (and
@@ -185,15 +204,18 @@
             perFormatAttrs // {
               wireform = wireformAttr;
               crc32c   = crc32cUnrestricted;
-              # Map pkg-config names (cabal `pkgconfig-depends`) and
-              # bare C library names (cabal `extra-libraries`) to
-              # system packages so cabal2nix-generated derivations
-              # can find them.
+              # C-library names cabal2nix resolves against the Haskell
+              # package set. These are unambiguous C libs (pkgconfig /
+              # extra-libraries), with no Haskell package of the same name:
+              #   liblz4/libzstd  -> wireform-kafka `pkgconfig-depends`
+              #   lz4             -> wireform-columnar-core `extra-libraries`
+              #   openssl         -> `pkgconfig-depends`
+              # `zstd` and `snappy` are deliberately left as Haskell
+              # bindings (build-depends users); kafka's C `snappy` is
+              # supplied via `cLibPkgconfigDeps` above.
               liblz4   = pkgs.lz4;
-              lz4      = pkgs.lz4;
-              snappy   = pkgs.snappy;
               libzstd  = pkgs.zstd;
-              zstd     = pkgs.zstd;
+              lz4      = pkgs.lz4;
               openssl  = pkgs.openssl;
             };
 

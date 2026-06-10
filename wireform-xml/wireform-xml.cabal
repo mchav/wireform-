@@ -32,7 +32,7 @@ library
   import: defaults
   hs-source-dirs: src
   c-sources: cbits/fast_xml.c
-  include-dirs: cbits
+  include-dirs: cbits cbits/simde
   cc-options: -O3 -march=native
   exposed-modules:
     XML.Class
