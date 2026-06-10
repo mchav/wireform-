@@ -47,7 +47,7 @@ library
     vector >= 0.13 && < 0.14,
     containers >= 0.6 && < 0.9,
     deepseq >= 1.4 && < 1.6,
-    template-haskell >= 2.18 && < 2.24
+    template-haskell >= 2.18 && < 2.25
 
 benchmark wireform-bencode-bench
   import: defaults

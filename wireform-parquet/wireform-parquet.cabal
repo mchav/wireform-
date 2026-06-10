@@ -98,7 +98,7 @@ library
     deepseq >= 1.4 && < 1.6,
     crypton >= 1.0 && < 1.1,
     memory >= 0.18 && < 0.19,
-    template-haskell >= 2.18 && < 2.24
+    template-haskell >= 2.18 && < 2.25
 
   if flag(snappy)
     cpp-options: -DHAVE_SNAPPY

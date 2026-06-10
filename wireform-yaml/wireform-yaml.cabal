@@ -56,7 +56,7 @@ library
     aeson >= 2.1 && < 2.3,
     scientific >= 0.3 && < 0.4,
     deepseq >= 1.4 && < 1.6,
-    template-haskell >= 2.18 && < 2.24
+    template-haskell >= 2.18 && < 2.25
 
 benchmark wireform-yaml-bench
   import: defaults

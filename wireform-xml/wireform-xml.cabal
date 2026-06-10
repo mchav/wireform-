@@ -61,7 +61,7 @@ library
     primitive >= 0.7 && < 0.10,
     containers >= 0.6 && < 0.9,
     megaparsec >= 9.0 && < 10,
-    template-haskell >= 2.18 && < 2.24,
+    template-haskell >= 2.18 && < 2.25,
     prettyprinter >= 1.7 && < 1.8,
     aeson >= 2.1 && < 2.3,
     scientific >= 0.3 && < 0.4,

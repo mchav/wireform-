@@ -63,7 +63,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-derive,
-    template-haskell >= 2.18 && < 2.24,
+    template-haskell >= 2.18 && < 2.25,
     bytestring >= 0.11 && < 0.13,
     containers >= 0.6 && < 0.9,
     text >= 2.0 && < 2.2,

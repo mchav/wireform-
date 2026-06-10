@@ -67,7 +67,7 @@ library
     crypton >= 1.0 && < 1.1,
     deepseq >= 1.4 && < 1.6,
     memory >= 0.18 && < 0.19,
-    template-haskell >= 2.18 && < 2.24
+    template-haskell >= 2.18 && < 2.25
   if flag(zstd)
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2

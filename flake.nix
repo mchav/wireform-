@@ -166,13 +166,13 @@
           wireform-kafka = [ pkgs.snappy ];
         };
 
-        # GHC versions whose Haskell ecosystem is newer than our cabal
-        # upper bounds (e.g. template-haskell shipped with the compiler),
-        # where we strip bounds with `doJailbreak` so the build can proceed.
-        # Keep this list as small as possible: on every other GHC the cabal
-        # bounds are enforced, so real version-bound problems surface as
-        # solver errors and get fixed in the cabal files rather than hidden.
-        jailbreakGhcs = [ "ghc914" ];
+        # GHC versions on which we strip cabal version bounds with
+        # `doJailbreak`. Prefer fixing bounds at the source (bump the cap in
+        # the offending cabal file) so the constraint stays meaningful; this
+        # list is the escape hatch for cases that can't be fixed that way.
+        # Currently empty: the template-haskell <2.24 caps that blocked GHC
+        # 9.14 were bumped to <2.25 in the cabal files instead.
+        jailbreakGhcs = [ ];
 
         mkHaskellOverlay = ghcName: self: super:
           let
