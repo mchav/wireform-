@@ -1,6 +1,4 @@
-# Cursor Cloud agent instructions
-
-See [agents.md](agents.md) for full wireform development guidelines (codegen, performance, module layout).
+# wireform Development Guidelines
 
 ## Cursor Cloud specific instructions
 
@@ -48,5 +46,481 @@ Subsequent builds reuse `~/.cabal/store` and are much faster.
 ### Gotchas
 
 - **`loadProto` splice sites need `DataKinds`:** the IDL bridge emits `Proto.Schema.HasField` instances whose field-name argument is a type-level string literal, so any module containing a `$(loadProto …)` splice must enable `{-# LANGUAGE DataKinds #-}`. Forgetting it surfaces as `Illegal type: "<field>" Perhaps you intended to use DataKinds` at the splice line. (`exe:wireform-conformance-runner`, `test:wireform-proto-derive-test`, and `bench:loadproto-bench` were previously missing this and now build.) Generated enums also carry a synthetic open-enum constructor named `<Enum>''Unrecognized !Int32` (two apostrophes — see `unknownConNameFor`); reference that, not `<Enum>'Unknown`.
-- **First build is slow** — use `-j2` on small cloud VMs; see [agents.md — Toolchain](agents.md#toolchain).
-- **Heavy optional flags** (`+python-interop`, `+dataframe-bridge`, etc.) are off by default; see the Cabal flags table in [agents.md](agents.md#cabal-flags-worth-knowing).
+- **First build is slow** — use `-j2` on small cloud VMs; see [Toolchain](#toolchain).
+- **Heavy optional flags** (`+python-interop`, `+dataframe-bridge`, etc.) are off by default; see the Cabal flags table in [Cabal flags worth knowing](#cabal-flags-worth-knowing).
+
+## Code Generation Principles
+
+**All message types must come from the code generator.** This includes well-known
+types (`Timestamp`, `Duration`, `Struct`, etc.), descriptor types, and benchmark
+types. Hand-written wire encode/decode instances are not permitted because they
+drift from what the code generator produces and mask codegen bugs.
+
+- Well-known types live in `src/Proto/Google/Protobuf/*.hs` and are generated
+  from the `.proto` files in `proto/google/protobuf/`.
+- Supplementary logic (e.g. `packAny`, RFC 3339 formatting, `TypeRegistry`)
+  belongs in companion modules like `Proto.Google.Protobuf.Any.Util` or
+  `Proto.JSON.WellKnown`. These import the generated types but never define
+  wire-level instances.
+- Benchmark comparison types must also be code-generated so that benchmarks
+  measure the *actual* codegen output, not idealised hand-written decoders.
+
+### Never hand-edit a generated file
+
+Generated files are **output**, not source. Editing them creates silent drift
+between what the codegen produces and what the repo claims it produces; the
+next regen pass clobbers the edit and the change disappears. The pattern that
+broke this rule before:
+
+  * a generated module needed a tweak (an extra import, a missing instance,
+    a fixed comment),
+  * the tweak was applied directly to `<Format>/Generated/Foo.hs`,
+  * the codegen kept generating the old shape,
+  * a later regen wiped the tweak and reintroduced the original bug.
+
+**Always make the change in the codegen** (`<Format>.CodeGen.*` /
+`<Format>/codegen/`) and **regenerate**. The regen output is what gets committed.
+
+#### Audit before committing
+
+Before committing changes that touch any `*/Generated/*.hs` file, run a
+regen + diff to make sure the source tree exactly matches what the codegen
+produces. For Kafka:
+
+```
+./scripts/regen-kafka-protocol.sh /path/to/kafka/clients/src/main/resources/common/message
+git diff --stat wireform-kafka/src/Kafka/Protocol/Generated/
+# expect zero non-codegen diff (only what your codegen change introduced)
+```
+
+If `git diff` shows changes you did not intend, you have a hand-edit somewhere
+in the source tree (or a stale Generator output). Revert the hand-edit, fold
+the intent into the codegen instead, and re-regen.
+
+#### Per-package README AUTOGEN regions
+
+The same rule applies to the per-package `wireform-X/README.md` files:
+anything between paired `<!-- BEGIN_AUTOGEN <key> -->` and
+`<!-- END_AUTOGEN <key> -->` markers is owned by `wireform-stats`'s
+`regen-stats` tool and rewritten on every run. Edit the surrounding
+prose freely; never edit between markers. The regen-stats CI job
+(`.github/workflows/regen-stats.yml`) fails the build if anything in
+those regions has drifted from what the tool would produce.
+
+Defined keys: `tests`, `coverage`, `coverage:table`,
+`bench:<id>`. See [`wireform-stats/README.md`](wireform-stats/README.md)
+for the schema and the regen workflow.
+
+#### Per-format codegen entry points
+
+| Format        | Codegen entry                                              | Regen helper                                  | Generated dir                                       |
+| ------------- | ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| `wireform-proto` | `gen-wkt` executable, sources in `wireform-proto/wkt-codegen/` | (manual: `cabal run gen-wkt`)                | `wireform-proto/src/Proto/Google/Protobuf/`         |
+| `wireform-kafka` | `wireform-kafka:exe:kafka-codegen`, sources in `wireform-kafka/codegen/Kafka/Protocol/Codegen/` | `scripts/regen-kafka-protocol.sh`             | `wireform-kafka/src/Kafka/Protocol/Generated/`      |
+| `wireform-kafka-protocol` | (same `kafka-codegen` output tree) | `scripts/regen-kafka-protocol.sh` | `wireform-kafka/src/Kafka/Protocol/Generated/` (sources); `wireform-kafka-protocol/wireform-kafka-protocol.cabal` lists exposed modules |
+
+#### Kafka-specific notes
+
+The `kafka-codegen` exe **deletes every existing `.hs` file in the output
+directory** before writing fresh output (`cleanGeneratedFiles` in
+`codegen-exe/Main.hs`). Consequences:
+
+  * Any module in `wireform-kafka/src/Kafka/Protocol/Generated/` whose schema
+    is **not** in the supplied message-dir will be deleted by a regen.
+  * If `wireform-kafka.cabal` lists modules that aren't in the schema dir
+    (e.g. `KIP-932` share-group messages, `StreamsGroup*` from a newer Kafka
+    than what you regenerated against), the build will break after a regen
+    until the cabal file is updated to match.
+
+When importing a newer Kafka schema set, also reconcile the cabal
+`exposed-modules` list in the same change: every regen-produced `.hs`
+should appear there, and every entry there should map to a regen-produced
+`.hs`.
+
+Wire types live in the separate package `wireform-kafka-protocol`
+(same `wireform-kafka/src` tree via `hs-source-dirs`). `wireform-kafka`
+depends on it but does **not** use `reexported-modules` (keeps Haddock
+clean). Client code in `wireform-kafka` imports protocol modules with
+`PackageImports` (`import qualified "wireform-kafka-protocol" …`) so GHC
+does not compile duplicate copies of `Kafka.Protocol.Generated.*`.
+After a regen, run `scripts/split-kafka-protocol-package.py` if module
+membership changed, or update `wireform-kafka-protocol.cabal` manually.
+
+## Performance
+
+### Allocation discipline
+
+- **Unboxed sums** for finite branching (success / failure / end-of-input).
+  Never use boxed `Either` or `Maybe` on an internal hot path.
+- **`withTag` CPS** for the decode loop tag dispatch, where continuations are
+  statically known lambdas that GHC will inline.
+- **Unboxed `Int#`** for offsets threaded through the decoder.
+- Avoid `IORef` in benchmarks where an unboxed accumulator loop suffices.
+
+### String / Text handling
+
+- Never round-trip through `String`. No `T.pack (show n)`, no
+  `reads (T.unpack t)`, no `T.pack . show`. Use `Data.Text.Builder` or
+  direct numeric-to-Text conversion instead.
+- For integer formatting, write directly to a `Builder` or use a purpose-built
+  `intToText` helper.
+- For parsing integers from `Text`, use `Data.Text.Read.decimal` /
+  `Data.Text.Read.signed` rather than `reads . T.unpack`.
+
+### Numeric patterns
+
+- When you need both quotient and remainder, use `divMod` or `quotRem` in a
+  single call rather than separate `div` and `mod` on the same operands.
+- Prefer `quot`/`rem` over `div`/`mod` for non-negative values (avoids the
+  sign-correction branch).
+
+### Data structures
+
+- **No plain tuples** in domain-specific return types. Define a small strict
+  record with `{-# UNPACK #-}` on numeric fields. Tuples hide meaning and
+  prevent GHC from unboxing nested fields.
+- **GrowList is a last resort.** Each `snoc` allocates a cons cell + a
+  `GrowList` node (≈48 bytes on 64-bit). Prefer:
+  1. `VecBuilder` (IO-based doubling array) when inside IO/ST.
+  2. `Data.Vector.create` + `MV.grow` in an ST block when the final size
+     is unknown but the builder can be scoped.
+  3. If stuck in a pure context (the Decoder monad), a chunked representation
+     with amortised allocation (e.g. small arrays of 64 elements, chained)
+     is better than a cons-per-element list.
+
+### Decoder monad style
+
+- The `Decoder` newtype wraps `ByteString -> Int# -> (# (# a, Int# #) | DecodeError #)`.
+  All primitives (`getVarint`, `getText`, etc.) return unboxed sums.
+- In hand-optimised decoders, use `withTag` + direct `runDecoder#` calls for
+  each field. In generated code, the monadic `do` notation with `getTagOrU`
+  is acceptable (slightly less optimal but far simpler to generate).
+- Always `{-# INLINE messageDecoder #-}` on instances.
+
+## Code style
+
+- Do not use list comprehensions. Prefer `do` block syntax or
+  higher-order functions.
+- Prefer datatype-specific functions with better complexity over
+  `toList` / `fromList` conversions.
+- No `threadDelay` in tests.
+- Keep lens usage to where the alternative would be unwieldy; comment
+  complex lens expressions.
+- Property-based tests via Hedgehog. Do not test things inherent to
+  the language (e.g. setting a record field and reading it back).
+
+## Toolchain
+
+CI builds against GHC `9.6.4` and `9.8.4` (see
+`.github/workflows/ci.yml`). When working from a fresh VM that
+doesn't already have the Haskell toolchain installed:
+
+- **Apt packages** (Ubuntu 24.04, root):
+  ```
+  apt-get install -y build-essential libgmp-dev libffi-dev libffi8 \
+    libncurses-dev libtinfo6 zlib1g-dev libnuma-dev xz-utils \
+    protobuf-compiler
+  ```
+- **Haskell toolchain via ghcup**:
+  ```
+  curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 sh
+  source /root/.ghcup/env
+  ghcup install ghc 9.6.4 --set
+  ghcup install cabal 3.10.3.0 --set
+  cabal update
+  ```
+- **Cross-language interop tests** (optional): `pip3 install pyarrow`
+  for the pyarrow round-trip suites in `wireform-parquet/test/Main.hs`,
+  and `pip3 install protobuf` for `python-interop`.
+- **First build is slow.** `cabal build all` rebuilds the whole
+  workspace (~12 min on a 2-core VM) plus the Hackage dep
+  closure; subsequent builds reuse `~/.cabal/store`. Use
+  `cabal build all -j2 --ghc-options="-j2"` on small VMs.
+
+If you find yourself running this often, propose an env-setup
+agent at <https://cursor.com/onboard> so the cloud-agent base
+image bakes the toolchain in.
+
+### Cabal flags worth knowing
+
+The repo opts into a few heavyweight optional dep trees behind
+flags so the default `cabal build all` stays lean:
+
+| Flag                  | Pulls in                              | Used by                                |
+| --------------------- | ------------------------------------- | -------------------------------------- |
+| `+python-interop`     | `process` + a python3 runtime         | `python-interop` test-suite            |
+| `+dataframe-bridge`   | `dataframe` (and its cassava/regex/zstd/zlib/granite/vector-algorithms tree) | `example-dataframe-bridge` exe         |
+| `+snappy`             | `snappy-c`                            | Avro container files                   |
+| `+zstd`               | `libzstd`                             | Parquet ZSTD column chunks, Arrow      |
+| `+lz4`                | `liblz4`                              | Parquet LZ4_RAW column chunks, Arrow   |
+| `+rest-client`        | `http-client` etc.                    | `Iceberg.Catalog.REST.Client`          |
+| `+brotli`             | `libbrotli`                           | Parquet Brotli codec                   |
+| `+profile`            | (none)                                | `profile-rewriter` cost-centre build   |
+
+When adding a new optional dependency that has a heavy or
+flaky-to-install transitive closure, add it behind a Cabal flag
+the same way (default `False`, `manual: True`).
+
+## Module layout
+
+The repo is a monorepo: one umbrella package `wireform` plus 27
+per-format / shared-infrastructure packages listed in `cabal.project`.
+Each format owns a top-level Haskell namespace (`<Format>.*`); the
+umbrella `wireform` package only exposes thin `Wireform.<Format>`
+facades and the `wireform-gen` CLI. Cross-package conventions live
+under the `Wireform.*` namespace (in `wireform-core` and
+`wireform-derive`).
+
+If you are adding or moving modules, update this section *and* the
+relevant `*.cabal` `exposed-modules` list in the same change.
+
+### Umbrella
+
+| Package          | Top-level namespace              | Notes |
+| ---------------- | -------------------------------- | ----- |
+| `wireform`       | `Wireform.<Format>` (facades)    | Re-exports each format under `Wireform.*` (`Wireform.Proto`, `Wireform.Avro`, …, `Wireform.Kafka`) and ships the `wireform-gen` multi-format codegen CLI plus the conformance/profiling/example executables. `Wireform.Columnar` is the cross-format columnar entry point — `decodeIter` / `decodeProjectedIter` / `decodeFilteredIter` / `decodeProjectedFilteredIter` (Parquet + ORC pushdown), `decodeRecordsIter` (Arrow.Record.Table-driven typed records with auto-projection), `decodeDatasetIter` / `decodeDatasetRowSlicedIter` / `decodeHeterogeneousDatasetIter` / `decodePartitionedDataset` (multi-file). |
+
+### Shared infrastructure (`Wireform.*` namespace)
+
+| Package             | Exposed modules                                                                                                                                                                                                          | Purpose |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `wireform-core`     | `Wireform.FFI`, `Wireform.Encode.Direct`, `Wireform.Hash`                                                                                                                                                                | Shared C-FFI primitives (`fast_decode.c`, `fast_scan.c`, `wireform_hash_simd.c`), the direct-write encode buffer, and the SIMD hashing surface. No format code. |
+| `wireform-derive`   | `Wireform.Derive`, `Wireform.Derive.Backend`, `Wireform.Derive.NameStyle`, `Wireform.Derive.Modifier`, `Wireform.Derive.TypeInfo`, `Wireform.Derive.ModifierInfo`, `Wireform.Derive.Extension`, `Wireform.Derive.Aeson`  | Annotation-driven TH deriver core. `Modifier` / `ModifierInfo` are the cross-backend annotation vocabulary; `Backend` / `BackendModifier` (in `Extension`) are how a format opts in. `NameStyle` and `TypeInfo` are the rename + reification helpers used by every per-format `<Format>.Derive`. `Wireform.Derive.Aeson` is the canonical worked example deriver — it lives here (rather than a separate `wireform-derive-aeson` package) so the deriver core has a self-contained reference user. |
+| `wireform-columnar` | `Columnar.IO`, `Columnar.Predicate`, `Columnar.SIMD`, `Columnar.Stream`                                                                                                                                                  | Shared by every columnar package: `Columnar.IO` is the mmap-aware file loader (`loadFile` defaults to mmap above 64 KiB, eager below); `Columnar.Predicate` is the `PValue`/`PColPredicate`/`Predicate` vocabulary all per-format pushdown evaluators feed into; `Columnar.Stream` is the pull-based `Iter` / `IterIO` plus combinators (`iterChunk`, `iterScan`, `iterMergeBy`, `iterIOPrefetch`, `iterParallelMap`); `Columnar.SIMD` is the SIMD-accelerated bit-unpacking / RLE kernel shared with the C side via `cbits/columnar_simd.c` + vendored `simde`. |
+
+### Per-format packages — Haskell `<Format>.*` namespace
+
+Each per-format package conventionally exposes the same module
+shape:
+
+```
+<Format>                         -- (sometimes) top-level umbrella module
+<Format>.Class                   -- typeclass(es) for value-level codecs
+<Format>.Encode / <Format>.Decode -- low-level encode / decode primitives
+<Format>.Value                   -- dynamic / untyped value ADT
+<Format>.Derive                  -- annotation-driven TH deriver (consumes Wireform.Derive)
+<Format>.Schema | .Parser | .CodeGen | .QQ | .Registry  -- IDL surface where the format has one
+<Format>.JSON                    -- self-describing-format ↔ JSON bridge
+```
+
+Derivers (`<Format>.Derive`) are structural twins: they import
+`Wireform.Derive`, reify the type, walk the `ModifierInfo`, and
+splice instance declarations for `<Format>.Class`. To add a new
+format, the path of least resistance is "clone the nearest
+existing `<Format>.Derive` and adapt the value-mapping calls".
+
+| Package               | Exposed modules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Notes |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| `wireform-cbor`       | `CBOR.Class`, `CBOR.Encode`, `CBOR.Decode`, `CBOR.Derive`, `CBOR.Value`, `CBOR.Diagnostic`, `CBOR.JSON`, `CBOR.QQ`, `CBOR.Stream`, `CBOR.TagRegistry`, `CBOR.CDDL`, `CBOR.CDDLSchema`, `CBOR.CDDLCodeGen`                                                                                                                                                                                                                                                                                                                                       | RFC 8949 CBOR + CDDL schema & codegen. |
+| `wireform-msgpack`    | `MsgPack.Class`, `MsgPack.Encode`, `MsgPack.Decode`, `MsgPack.Derive`, `MsgPack.Value`, `MsgPack.JSON`, `MsgPack.RPC`, `MsgPack.Stream`                                                                                                                                                                                                                                                                                                                                                                                                          | MessagePack + msgpack-RPC. |
+| `wireform-thrift`     | `Thrift.Class`, `Thrift.Encode`, `Thrift.Decode`, `Thrift.Derive`, `Thrift.Value`, `Thrift.Wire`, `Thrift.Schema`, `Thrift.Parser`, `Thrift.CodeGen`, `Thrift.Message`, `Thrift.Transport`, `Thrift.Registry`, `Thrift.JSON`, `Thrift.QQ`                                                                                                                                                                                                                                                                                                       | Apache Thrift binary / compact + IDL. |
+| `wireform-avro`       | `Avro.Class`, `Avro.Encode`, `Avro.Decode`, `Avro.Derive`, `Avro.Value`, `Avro.Wire`, `Avro.Schema`, `Avro.Schema.Parse`, `Avro.IDL`, `Avro.IDLConvert`, `Avro.Container`, `Avro.Resolution`, `Avro.Fingerprint`, `Avro.Protocol`, `Avro.JSON`, `Avro.QQ`, `Avro.Registry`, `Avro.CodeGen`                                                                                                                                                                                                                                                       | Apache Avro + IDL + container files. |
+| `wireform-bson`       | `BSON.Class`, `BSON.Encode`, `BSON.Decode`, `BSON.Derive`, `BSON.Value`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | BSON (MongoDB). |
+| `wireform-ion`        | `Ion.Class`, `Ion.Encode`, `Ion.Decode`, `Ion.Derive`, `Ion.Value`, `Ion.SchemaLang`, `Ion.ISLSchema`, `Ion.ISLCodeGen`, `Ion.QQ`                                                                                                                                                                                                                                                                                                                                                                                                                | Amazon Ion + Ion Schema Language (ISL). |
+| `wireform-edn`        | `EDN.Class`, `EDN.Encode`, `EDN.Decode`, `EDN.Derive`, `EDN.Value`, `EDN.JSON`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Extensible Data Notation. |
+| `wireform-toml`       | `TOML.Class`, `TOML.Encode`, `TOML.Decode`, `TOML.Derive`, `TOML.Value`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | TOML 1.0 / 1.1. Conformance against the upstream [toml-test](https://github.com/toml-lang/toml-test) suite is opt-in via `TOML_TEST_SUITE=/path/to/clone` at test time (the test binary picks up either the repo root or its `tests/` subdirectory). |
+| `wireform-yaml`       | `YAML.Class`, `YAML.Encode`, `YAML.Decode`, `YAML.Derive`, `YAML.Encoding`, `YAML.JSON`, `YAML.Value`                                                                                                                                                                                                                                                                                                                                                                                                                                            | YAML 1.2 (block + flow styles, anchors / aliases, tags, block literal / folded scalars, multi-document streams). Conformance against the upstream [yaml-test-suite](https://github.com/yaml/yaml-test-suite) is opt-in via `YAML_TEST_SUITE=/path/to/clone` at test time. |
+| `wireform-bencode`    | `Bencode.Class`, `Bencode.Encode`, `Bencode.Decode`, `Bencode.Derive`, `Bencode.Value`                                                                                                                                                                                                                                                                                                                                                                                                                                                          | BitTorrent bencode. |
+| `wireform-fory`       | `Fory.Class`, `Fory.Encode`, `Fory.Decode`, `Fory.Derive`, `Fory.Encoding`, `Fory.IO`, `Fory.MetaString`, `Fory.MetaString.Encoder`, `Fory.MetaString.Hash`, `Fory.Options`, `Fory.Struct`, `Fory.TypeId`, `Fory.Value`                                                                                                                                                                                                                                                                                                                                       | Apache Fory (formerly Fury) xlang serialization. Wire-compatible with `pyfory` 0.17 for: `null`, `bool`, `int*`/`varint*`, `uint*`/`varuint*`, `float32`/`float64`, `string` (with LATIN-1 / UTF-8 selection), `binary`, `LIST` / `SET` (chunked `collect_flag` format incl. `TRACKING_REF`), `MAP` (chunked key-type/value-type), `NAMED_STRUCT` (with `Fory.Struct.StructSchema` registered on both sides; produces byte-identical bytes incl. the 4-byte fingerprint hash and pyfory's canonical field reordering), one-dimensional primitive arrays (`BoolArray` … `Float64Array`, byte-length payloads matching pyfory's NumPy serializer), reference tracking (`Fory.Options.eoRefTracking`; structural sharing detected via `Hashable Value`), and meta-string compression (the five LowerSpecial / LowerUpperDigitSpecial / FirstToLowerSpecial / AllToLowerSpecial / UTF-8 encodings + MurmurHash3-x64-128 hashcodes for >16-byte strings). Verified by `wireform-fory-interop` (45 / 45 cases passing). The remaining ❌ is pyfory-compatible `NAMED_COMPATIBLE_STRUCT` (schema evolution): its bit-packed `TypeDef` field-info layout is deferred. The in-package self-describing `CompatibleStructVal` round-trips fine; only cross-language interop for it is unfinished. See `Fory.Encode`'s haddock for the exact wire shape. |
+| `wireform-csv`        | `CSV.Class`, `CSV.Encode`, `CSV.Decode`, `CSV.Derive`, `CSV.Value`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | CSV / tab / pipe-separated. |
+| `wireform-ndjson`     | `NDJSON.Encode`, `NDJSON.Decode`, `NDJSON.Derive`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Newline-delimited JSON (line framing on top of aeson). |
+| `wireform-asn1`       | `ASN1.Encode`, `ASN1.Decode`, `ASN1.Derive`, `ASN1.Value`, `ASN1.Schema`, `ASN1.Parser`, `ASN1.CodeGen`, `ASN1.QQ`                                                                                                                                                                                                                                                                                                                                                                                                                              | ASN.1 BER / DER. |
+| `wireform-bond`       | `Bond.Encode`, `Bond.Decode`, `Bond.Derive`, `Bond.Value`, `Bond.Schema`, `Bond.Parser`, `Bond.CodeGen`, `Bond.Registry`, `Bond.QQ`                                                                                                                                                                                                                                                                                                                                                                                                              | Microsoft Bond. |
+| `wireform-flatbuffers`| `FlatBuffers.Encode`, `FlatBuffers.Decode`, `FlatBuffers.Derive`, `FlatBuffers.Value`, `FlatBuffers.Schema`, `FlatBuffers.Parser`, `FlatBuffers.CodeGen`, `FlatBuffers.Registry`, `FlatBuffers.QQ`                                                                                                                                                                                                                                                                                                                                              | Google FlatBuffers + IDL. |
+| `wireform-capnproto`  | `CapnProto.Encode`, `CapnProto.Decode`, `CapnProto.Derive`, `CapnProto.Value`, `CapnProto.Schema`, `CapnProto.Parser`, `CapnProto.CodeGen`, `CapnProto.Registry`, `CapnProto.QQ`                                                                                                                                                                                                                                                                                                                                                                | Cap'n Proto + IDL. |
+| `wireform-columnar`   | `Columnar.IO`, `Columnar.Predicate`, `Columnar.SIMD`, `Columnar.Stream`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Format-agnostic columnar primitives shared by Arrow / Parquet / ORC. `Columnar.Stream` exposes pull-based `Iter` / `IterIO` + combinators (`iterChunk`, `iterScan`, `iterMergeBy`, `iterIOPrefetch`, `iterParallelMap`); `Columnar.Predicate` is the shared pushdown vocabulary; `Columnar.IO` is the mmap-aware file loader (`loadFile` / `loadFileMmap` / `loadFileEager`). |
+| `wireform-arrow`      | `Arrow.Types` (incl. `schemaFingerprint` / `schemaEquivalent`), `Arrow.Column` (incl. `validateMapKeysSorted`), `Arrow.Record` (incl. `structE`/`structEMaybe` + `structD`/`structDMaybe`, `columnDWithDefault`, `subsetTable`/`projectTable`, `NameStrategy`/`applyNameStrategy`), `Arrow.Record.Generic`, `Arrow.Record.TH`, `Arrow.Derive`, `Arrow.IPC`, `Arrow.FlatBufferIPC`, `Arrow.Stream`, `Arrow.File`, `Arrow.Write`                                                                                                                     | Apache Arrow IPC / records. Test suite lives in `test-derive/` (separate from the main `test/` so the deriver fixtures isolate easily). Uses the `+zstd` and `+lz4` flags. |
+| `wireform-parquet`    | `Parquet.Types`, `Parquet.Footer`, `Parquet.Read` (path + handle helpers: `loadParquetFilePath` / `openParquetReader`), `Parquet.Write`, `Parquet.Aggregate` (count(*) / count(col) / min / max from stats), `Parquet.Page`, `Parquet.PageIndex`, `Parquet.Levels`, `Parquet.LevelsEncode`, `Parquet.Nested`, `Parquet.Compress`, `Parquet.Delta`, `Parquet.DeltaEncode`, `Parquet.ByteStreamSplit`, `Parquet.BloomFilter`, `Parquet.NullPagesBitmap`, `Parquet.Encryption`, `Parquet.Thrift.Schema`, `Parquet.Arrow`, `Parquet.HighLevel`, `Parquet.Derive` | Apache Parquet (reader / writer / Thrift schema bridge). Test suite in `test-derive/`. |
+| `wireform-orc`        | `ORC.Types`, `ORC.Footer`, `ORC.Stripe`, `ORC.RowIndex`, `ORC.BloomFilter` (incl. `decodeBloomFilter` + `bfCheckBytes` / `bfCheckLong`), `ORC.Encryption`, `ORC.Read` (path + handle helpers, `decompressORCStreamSized`), `ORC.Write`, `ORC.Aggregate` (count + min/max + sum from stats), `ORC.Statistics` (predicate evaluator), `ORC`, `ORC.Arrow` (incl. `streamStripesFilteredIter` / `streamStripesProjectedFilteredIter`), `ORC.Proto.Schema`, `ORC.Derive`                                                                              | Apache ORC. Test suite in `test-derive/`. |
+| `wireform-iceberg`    | `Iceberg.Types`, `Iceberg.Snapshot`, `Iceberg.Manifest`, `Iceberg.ManifestMerge`, `Iceberg.Partition`, `Iceberg.Sort`, `Iceberg.Transform`, `Iceberg.Expression`, `Iceberg.Update`, `Iceberg.Validate`, `Iceberg.Read`, `Iceberg.Write`, `Iceberg.Maintenance`, `Iceberg.MetricsConfig`, `Iceberg.SchemaCompat`, `Iceberg.SchemaEvolution`, `Iceberg.SingleValue`, `Iceberg.BoundTrunc`, `Iceberg.Murmur3`, `Iceberg.Geometry`, `Iceberg.Variant{,.Parquet,.Shredding}`, `Iceberg.Puffin`, `Iceberg.Delete`, `Iceberg.DeletionVector`, `Iceberg.View`, `Iceberg.Parquet`, `Iceberg.JSON`, `Iceberg.Catalog.{Glue,Hadoop,REST,REST.Client,Sql}`, `Iceberg.Derive` | Apache Iceberg table format + catalog clients. Behind `+rest-client` flag for the HTTP client. Test suite in `test-derive/`. **Iceberg-specific** table-format interop (manifests / manifest-list / table-metadata round-tripped through pyiceberg + fastavro) lives in `wireform-iceberg/probe/Probe.hs` + `wireform-iceberg/scripts/iceberg_interop.py`; the in-process catalog (Glue / Hadoop / REST / Sql) is exercised separately by `Test.Iceberg.Catalog*` HUnit tests. |
+| `wireform-delta`      | `Delta.Log` (typed actions; `parseLogLine` / `parseLogFile`; `TableSnapshot` + `applyAction` / `snapshotFromActions`; `parseDeltaSchema`; `AddStats` decoder; `LastCheckpoint`); `Delta.Checkpoint` (path-aware decoder for `*.checkpoint.parquet` rows — `add` / `remove` / `metaData` / `protocol` reconstructed including `partitionValues` / `tags` / `partitionColumns` / `configuration` / `readerFeatures` / `writerFeatures` / `deletionVector`); `Delta.IO` (`openDeltaTable` w/ checkpoint short-circuit, `openDeltaTableAt` time-travel, `historyEntries` for the @DESCRIBE HISTORY@ surface, `activeFilePaths` / `dtActiveFiles` / `partitionedActiveFiles` flat snapshot helpers). | Delta Lake transaction log reader. Interop against `deltalake` (delta-rs) covers unpartitioned, partitioned, checkpointed (v11 + post-checkpoint APPEND/OVERWRITE), partitioned + checkpointed (cross-checks `partitionValues` map + `partitionColumns` list out of the checkpoint Parquet), and time-travel + history (cross-checks `historyEntries` against `DeltaTable.history()` and `openDeltaTableAt v=2` against `DeltaTable(.., version=2)`). Out of scope so far: deletion-vector application, column mapping, V2 multi-part checkpoint format. |
+| `wireform-hudi`       | `Hudi.Timeline` (`parseInstantFileName`; sort/filter helpers; `HoodieCommitMetadata` + `HoodieWriteStat` JSON; `HoodieReplaceCommitMetadata` for replacecommit instants — supersedes prior file slices via `partitionToReplaceFileIds`; `HoodieCleanMetadata` + `HoodieCleanPartitionMetadata` for clean instants; `FileSlice` / `TableState` + `applyCommit` / `applyReplaceCommit` / `applyClean` / `tableStateFromCommits`); `Hudi.Avro` (Avro container decoder for the 1.x+ instant payload format); `Hudi.IO` (`openHudiTable`, `openHudiTableAt` time-travel, `activeFiles` / `activeBaseFilePaths` flat snapshot, `tableSchemaFromCommits`).         | Apache Hudi timeline reader (Copy-on-Write). Interop against `hudi-rs` covers JSON instants, Avro 1.x+ instants, and replacecommit instants (verifies `INSERT_OVERWRITE` correctly drops the replaced fileId). Out of scope so far: MoR log-block decoding, record-level merge keys, the metadata table. |
+| `wireform-lance`      | `Lance.Format` (data-file envelope + 40-byte data-file footer + 16-byte manifest footer); `Lance.IO` (`openLanceFile`, `openLanceManifest`, `openLanceDataset`, `openLanceDatasetAt` time-travel, `findManifestVersions`, `decodeManifestFileName`/`encodeManifestFileName`); `Lance.Manifest` (typed protobuf decoder + `datasetActiveDataFiles` / `datasetActiveDataFilePaths` / `datasetSchemaFields` (`LanceSchemaField` flat schema readout) / `datasetWriterVersion` / `datasetTimestampMillis`); `Lance.Pb.Lance.{File,Table}` (auto-generated by `cabal run wireform-lance:gen-lance-pb` from `proto/lance/{file,table}.proto`).        | Apache Lance file + dataset reader. Interop against `pylance` covers `--file` (40-byte footer) and `--dataset` (versions + manifest body + active fragment list + schema readout + writer version + version timestamp, all cross-checked against `lance.dataset(...).versions()` / `.schema` / `.get_fragments()`). The protobuf `ColumnMetadata` decoder for individual data files still lives downstream; this module exposes the byte ranges that decoder would consume. |
+| `wireform-xml`        | `XML.Class`, `XML.Encode`, `XML.Decode`, `XML.Derive`, `XML.Value`, `XML.Schema`, `XML.SAX`, `XML.DSL`, `XML.QQ`, `XML.FastDOM`, `XML.Generic`, `XML.Incremental`, `XML.Path`, `XML.XSLT`, `XML.CodeGen`                                                                                                                                                                                                                                                                                                                                        | XML 1.0 + SAX / DOM / XSLT / XPath. |
+| `wireform-html`       | `HTML.Value`, `HTML.Parse`, `HTML.Encode`, `HTML.Class`, `HTML.Derive`, `HTML.TagId`, `HTML.DOM`, `HTML.Selector`, `HTML.Rewriter`                                                                                                                                                                                                                                                                                                                                                                                                              | HTML5 parser + DOM + CSS selectors + streaming rewriter. Has its own benchmarks (`bench/HTMLBench.hs`, `bench/ProfileRewriter.hs`). |
+| `wireform-grpc`       | `Network.GRPC.{Client,Server,Common,*}` — see cabal for the full list                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | **Vendored from [`grapesy`](https://github.com/well-typed/grapesy) by Edsko de Vries.** Modules under `Network.GRPC.Util.*` are intentionally `other-modules` (private). Do not match wireform's `<Format>.*` shape; do not retrofit module headers or codegen-generated style here without coordinating an upstream sync. |
+| `wireform-kafka`      | `Kafka` (umbrella), `Kafka.Protocol.{RecordBatch,RecordBatchWire,CRC32C,ApiVersions,VersionNegotiation}`, `Kafka.Network.{Connection, Auth.{Plain,SCRAM,SASL}}`, `Kafka.Compression.{Gzip,Lz4,Snappy,Zstd,Types}`, `Kafka.Client.{Producer,Consumer,AdminClient,Transaction,Metadata,Pipeline,Internal.*}`, `Kafka.Telemetry.OpenTelemetry`. | Pure-Haskell native client for the Apache Kafka wire protocol (TCP / TLS / SASL / compression / version negotiation / transactions / consumer groups / pipelining / OTel). Depends on `wireform-kafka-protocol` for wire/generated types (import explicitly; not re-exported). Codegen: `wireform-kafka-codegen` + `scripts/regen-kafka-protocol.sh`. C FFI in `cbits/{crc32c,snappy_ffi,lz4_ffi}.c`. Tests gated by `WIREFORM_KAFKA_BROKER=host:port`; `Protocol.Generated.{Comprehensive,KnownGood}` need `test-vectors.json`. |
+| `wireform-kafka-protocol` | `Kafka.Protocol.{Primitives,Message,Wire.*}`, `Kafka.Protocol.Generated.*` (one module per API key). | Generated request/response records and wire codec. Sources under `wireform-kafka/src`; separate package so Haddock and linking stay unambiguous. Regen via `scripts/regen-kafka-protocol.sh`; keep `wireform-kafka-protocol.cabal` `exposed-modules` in sync. |
+| `wireform-websocket` | `Network.WebSocket{,.Frame,.Handshake,.Connection,.Message,.Server,.Client}`. | RFC 6455 WebSocket built on `Wireform.Parser` streaming mode + `Wireform.Builder`; SHA-1 + base64 handshake via `Wireform.Base64`. Standalone TCP / TLS listener (`runWebSocketServer`); `acceptWebSocketOn{Socket,Tls}` hand-off for integrating with the `wireform-http` server's accept loop. Client connect over `ws://` and `wss://` via `Wireform.Network.TLS.OpenSSL`. |
+| `wireform-protovalidate` | `Protovalidate`, `Protovalidate.{Format,Library,Rules,Constraint,Eval,Schema,Class,Proto,Violation}` | [protovalidate](https://protovalidate.com/) (CEL-driven Protobuf validation) for the proto stack. Depends on `wireform-cel` + `wireform-proto`. `Protovalidate.Library` registers protovalidate's CEL extension functions (`isEmail`/`isHostname`/`isHostAndPort`/`isIp`/`isIpPrefix`/`isUri`/`isUriRef`/`isNan`/`isInf`/`unique`); `Protovalidate.Format` has the underlying pure RFC predicates; `Protovalidate.Rules` encodes the standard rules as CEL over `this`/`rules`; `Protovalidate.Eval` binds field values + rules and collects `Violation`s (nested-message + repeated paths, custom field/message CEL); `Protovalidate.Schema` reads `(buf.validate.*)` annotations off a parsed `.proto` AST (`parseProtoRules`) into `MessageRules`; `Protovalidate.Class` is the compile-once typed path (`compileValidator`/`runValidator`/`validateValue` + a `ToCel` Generic deriving so generated records validate without a `DynamicMessage` round trip); `Protovalidate.Descriptor` reads `buf.validate` rules out of a compiled `FileDescriptorProto` (extension #1159 on `FieldOptions`/`MessageOptions`, now possible because `Proto.Google.Protobuf.Descriptor` preserves unknown fields); `Protovalidate.TH.compileMessageValidator` reads a `.proto`'s rules at compile time and emits a `Value -> [Violation]` whose every predicate (standard rules inlined over `this`, plus custom `cel`) is compiled to Haskell via `CEL.TH.compileCelFn` — no runtime parse/AST-walk; `Protovalidate.Refined` reifies rules as `refined` refinement types — native predicates for length/count/comparison rules and a type-level-`Symbol` `Cel`/`CelWith` predicate that runs CEL at validation time, so well-known formats and arbitrary/custom `cel` predicates also become refinement types (`refinedFieldType` emits the `Refined (...) T` type expression a code generator would splice); `Protovalidate.Proto` still bridges schemaless `Proto.Dynamic.DynamicMessage` → CEL. Advanced rules: time-relative timestamps (`lt_now`/`gt_now`/`within`) via `validateAt` (binds `now`); `map.keys`/`map.values` sub-rules (`mapKeys`/`mapValues`, reported at `field[key]`, extracted from `.proto` map fields); `enum.defined_only` (`definedOnly`); oneof `required` (`oneofRequired`, also extracted from `(buf.validate.oneof)`); `string.well_known_regex` (`wellKnownRegex`); `(buf.validate.predefined)` reusable constraints via `frPredefined` (CEL + bound `rule`). `.proto` extraction (`parseProtoRules`) resolves these from source: `enum.defined_only` (enum value numbers → `this in [...]`, scalar + `repeated.items`), `string.well_known_regex` (+`strict`), `timestamp`/`duration` `{seconds,nanos}` message-literal bounds (and `timestamp.within`), `map.keys`/`map.values`, and oneof `required`. The `Protovalidate.TH` compiled path inlines the time-literal bounds (`timestamp(..)`/`duration("..s")`) and rides custom constraints (so defined_only/well_known_regex compile too); now-relative/map-key-value/predefined stay interpreted. `Protovalidate.Descriptor` (compiled `FileDescriptorProto`) covers the standard #1159 rules. |
+| `wireform-cel` | `CEL`, `CEL.{Value,Syntax,Parser,Eval,Stdlib,Environment,Error,TH}` | A conformant [Common Expression Language](https://github.com/google/cel-spec/blob/master/doc/langdef.md) parser + evaluator over a dynamic `Value` model: full grammar/lexis (incl. backtick-escaped idents), number-line numeric semantics (`1 == 1u == 1.0` with cel-go's lossy cross-type rule, NaN unordered), error-absorbing `&&`/`||`, the comprehension macros (`has`/`all`/`exists`/`exists_one`/`map`/`filter` plus the two-variable `macros2` forms `all`/`exists`/`existsOne`/`transformList`/`transformMap`), and the standard library of operators, conversions, string/regex functions, and `Timestamp`/`Duration` support (named IANA timezones via `tz`). Passes the upstream cel-spec conformance suite for all non-message core files (`pass=1124 skip=128 fail=0`; skips are protobuf-message cases). Opt-in conformance runner gated by `CEL_SPEC_DIR` (like `TOML_TEST_SUITE`). The evaluator (`CEL.Eval`) is structured as per-node combinators (`compileExpr :: Expr -> Env -> Either CelError Value`); `CEL.TH` reuses them: `[cel\|…\|]`/`compileCel` bake the parsed `Expr` as a `Lift`able constant, and `[celFn\|…\|]`/`compileCelFn` emit the program as Haskell (each node → a combinator call) with no runtime AST walk. Not yet: protobuf message values, the optional type-checker. |
+
+### `wireform-proto` — bigger surface, historical layout
+
+The protobuf package predates the per-format split and is the
+largest in the repo. It owns the `Proto.*` namespace and contains
+both the IDL toolchain and the generated well-known types.
+
+```
+Proto.AST                              -- .proto IDL AST
+Proto.Parser, Proto.Parser.{Lexer, Resolver, Error}
+                                       -- IDL parser pipeline
+Proto.Wire, Proto.Wire.{Encode, Decode, Result}
+                                       -- wire-format primitives (tags, varints,
+                                          unboxed-sum decode results)
+Proto.Encode, Proto.Encode.{Direct, Lazy, Archetype}
+Proto.Decode, Proto.Decode.{Fast, Stream, Streaming, Collect}
+                                       -- `Collect` is the error-accumulating
+                                          diagnostic decode (`decodeCollecting`):
+                                          schema-driven, collects all recoverable
+                                          issues with field paths instead of
+                                          failing fast
+                                       -- high-level encode / decode typeclasses
+                                          and the hand-tuned hot paths
+Proto.SizedBuilder, Proto.VectorBuilder
+                                       -- builder utilities used by encoders
+Proto.CodeGen, Proto.CodeGen.{Combinators, Decode, Encode, Service, Hooks, Types}
+                                       -- pure-text Haskell code generator
+Proto.TH                               -- IDL → TH bridge (`loadProto`,
+                                          `loadProtoWith`, `loRepConfig`)
+Proto.Derive                           -- annotation-driven TH deriver: hand-written
+                                          records + `ANN tag`/`wireOverride`/
+                                          `customModifier` produce instances
+Proto.Derive.Internal                  -- body builders shared by `Proto.Derive`
+                                          and `Proto.TH` (so the IDL bridge and the
+                                          annotation deriver emit identical code)
+Proto.Repr                             -- per-field representation choices
+                                          (`StringRep`, `BytesRep`, `RepeatedRep`,
+                                          `MapRep`, `FieldRep`, `RepConfig`)
+Proto.Schema                           -- runtime type metadata
+Proto.Compat                           -- version-compat helpers
+Proto.Lens, Proto.Inspect, Proto.Print -- lens accessors, debug printers
+Proto.Annotations                      -- `Annotation`s reified by the deriver
+Proto.Options, Proto.Options.Custom    -- proto file/message/field options
+Proto.Extension                        -- proto2 `extend`s
+Proto.Registry                         -- runtime type registry + `IsMessage` marker + `discoverRegistry` TH splice
+Proto.Setup                            -- Cabal `Setup.hs` integration
+Proto.QQ                               -- proto-source QuasiQuoter
+Proto.Dynamic                          -- dynamic (untyped) messages
+Proto.TextFormat                       -- pbtxt serialisation
+Proto.TDP                              -- transparent dynamic proto support
+Proto.Conformance                      -- protobuf conformance test driver
+Proto.Church                           -- Church-encoded message walks
+Proto.Descriptor.Convert               -- AST ↔ descriptor.proto bridge
+Proto.GRPC                             -- gRPC service-method codegen
+Proto.JSON, Proto.JSON.WellKnown       -- proto3 JSON mapping (canonical encoding)
+Proto.Internal.{Either, Maybe}         -- strict unboxed sums for hot loops
+                                          (intra-package `.Internal`; do not import
+                                          from outside `wireform-proto`)
+Proto.Google.Protobuf.*                -- code-generated well-known types from
+                                          `proto/google/protobuf/*.proto`
+Proto.Google.Protobuf.*.Util           -- supplementary logic for well-known
+                                          types (`packAny`, RFC 3339 formatting,
+                                          `TypeRegistry`, `FieldMask` ops, etc.)
+```
+
+Everything under `Proto.Google.Protobuf.*` is regenerated from the
+.proto files in `proto/google/protobuf/` by the `gen-wkt`
+executable; see "Code Generation Principles" above.
+
+## Annotation-driven deriver vocabulary
+
+Every per-format `Derive` module accepts the same `Modifier`
+vocabulary from `wireform-derive`. Rule of thumb when adding a new
+constructor to `Wireform.Derive.Modifier.Modifier`:
+
+1. Bump `wireform-derive` to a new version (any constructor add is
+   technically API-breaking under PVP).
+2. Extend `Wireform.Derive.ModifierInfo.ModifierInfo` with the
+   resolved field, plus a `ConflictX` constructor in `ModifierError`.
+3. Wire the new field into `mergeOne` and `shadowOne`.
+4. Per-format derivers consult `mi<Whatever>` and silently ignore
+   the field if the modifier does not apply to their backend (e.g.
+   `miMapKey` is proto-only).
+
+Backend-specific payloads that should not pollute the core ADT use
+the `Wireform.Derive.Extension.BackendModifier` typeclass — see
+`XmlFieldOpt`, `HtmlFieldOpt`, and `Asn1Tag` for examples.
+
+## HTTP wire-format libraries (`hermes`)
+
+The `hermes/` package is the **canonical home for HTTP header
+parsing and rendering** in this monorepo. It is vendored from
+`MercuryTechnologies/hermes` and rebranded under the wireform
+umbrella, but it has not been forked in spirit: when the wire
+grammar of an HTTP construct needs to be touched, the change goes
+in `hermes`, not in a downstream `wireform-http*` module.
+
+### What hermes owns
+
+| Concern | Module(s) |
+| --- | --- |
+| Per-header `KnownHeader` instances (parse + render + cardinality) | `Network.HTTP.Headers.{Accept, AcceptEncoding, AcceptLanguage, Age, Allow, Authorization, CacheControl, CacheStatus, Connection, ContentDisposition, ContentEncoding, ContentLength, ContentType, Cookie, Date, ETag, Expires, From, Host, IfMatch, IfModifiedSince, IfNoneMatch, IfUnmodifiedSince, KeepAlive, LastModified, Location, Origin, ProxyAuthorization, Referer, RetryAfter, Server, SetCookie, Settings, Sunset, TransferEncoding, UserAgent, Vary, WWWAuthenticate}` |
+| IANA registries (codings, methods-via-Allow, header-field-name CI strings) | `Network.HTTP.{ContentCoding, ContentNegotiation}`, `Network.HTTP.Headers.HeaderFieldName` |
+| Quality-weighted lists (`q=` parsing, `WeightedMediaRange`, `WeightedLanguage`) | `Network.HTTP.ContentNegotiation`, `Network.HTTP.Headers.AcceptLanguage` |
+| HTTP-date (IMF-fixdate, RFC 850, asctime) | `Network.HTTP.Headers.Date` |
+| Percent-decoding (RFC 3986 + the C fast path) | `Network.HTTP.URL.Decode` (+ `cbits/url_decode.c`) |
+| Builder primitives shared by every header renderer | `Network.HTTP.Headers.Mason`, `Network.HTTP.Headers.Rendering.Util` |
+| Parser primitives (`rfc9110Token`, `quotedString`, `weightParser`, `ows`) shared by every header parser | `Network.HTTP.Headers.Parsing.Util` |
+
+If a header you need is in that list, **call into hermes**. Do not
+hand-roll a `BS.split 0x3B` / `BS.break (== 0x2C)` parser that
+duplicates a `KnownHeader` instance — those will drift, miss
+quoted-string escaping, miss obs-fold, and surprise the next
+person who reads the code.
+
+### When to extend hermes vs. when to wrap it
+
+Pick the option that matches the kind of change you're making.
+**Default to extending hermes.**
+
+1. **Wire grammar / RFC compliance change** → `hermes/`. New
+   header? New parameter? Bug in the q-value parser? Tightening a
+   token check? That's a `KnownHeader` change. Add (or update) the
+   instance in `Network.HTTP.Headers.<Name>`, including
+   `parseFromHeaders` and `renderToHeaders`. Don't redefine the
+   parser in `wireform-http`.
+
+2. **Smart-constructor / domain wrapper / IsString instance** →
+   `wireform-http*`. Hermes intentionally stays close to the wire
+   types (often `ShortText` or `[Word8]` shaped); the
+   ergonomic API that callers actually consume — newtypes,
+   `IsString`, request combinators like `withRange` or
+   `ifNoneMatch`, default values — lives in
+   `Network.HTTP.Client.<Topic>`.
+
+3. **Cross-cutting client / server policy** → `wireform-http*`.
+   Cache freshness (RFC 9111), redirect following, retry, cookie
+   jar, content-encoding registry of decompressors, the
+   middleware stack, the connection pool. Hermes parses the
+   `Cache-Control` directive list; *deciding what to cache* is a
+   client concern that lives in `wireform-http`.
+
+4. **A header that hermes simply doesn't have yet** → add it to
+   hermes. Mirror the closest existing instance (e.g. `RetryAfter`
+   for delta-or-date shapes, `Accept` for q-weighted lists,
+   `SetCookie` for attribute-bag shapes), wire the
+   `KnownHeader` cardinality / direction correctly, and
+   re-export through the appropriate downstream module.
+
+When you do extend hermes, **also** check whether the new parser
+should be wired into a `wireform-http` middleware (e.g. retry
+honoring `Retry-After`, conditional revalidation honoring `Vary`,
+proxy honoring `Proxy-Authenticate`).
+
+### Heuristics for spotting "this should call hermes"
+
+If you find yourself writing one of the following patterns in
+`wireform-http*` or `wireform-grpc`, stop and check whether the
+hermes module above already covers the same ground:
+
+* Splitting on `0x2C` / `0x3B` to peel apart a header value.
+* A bespoke `parseQuality` / `parseQ` / weight-list parser.
+* A copy of the IMF-fixdate format string.
+* A `case BS.elemIndex 0x3D bs of` dance to extract an `auth-param`.
+* A new `data MyChallenge = MyChallenge { realm :: …, nonce :: … }`
+  when `Network.HTTP.Headers.Authorization.Credentials` already
+  models the same shape.
+* A handwritten `case rendered of "gzip" -> …; "br" -> …` dispatch
+  on `Content-Encoding` (use `Network.HTTP.ContentCoding` instead).
+
+### Rule of thumb
+
+> Wire grammar lives in hermes. Domain modeling and policy live
+> in `wireform-http*`. If you can't make a change cleanly because
+> the grammar in hermes is missing a piece, **add it to hermes
+> first**, then build the wrapper.
+
+Touching hermes is fine — it ships from this monorepo. Avoid
+forking grammars across packages.

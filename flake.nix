@@ -209,6 +209,21 @@
             wireform = hp.wireform;
             default  = hp.wireform;
           };
+
+        # Buildkite pipeline generators.
+        # Preview locally:
+        #   nix eval .#ci.main --json --arg changedFiles '["wireform-core/src/Foo.hs"]' | jq .
+        #   nix eval .#ci.interop --json --arg changedFiles '["wireform-grpc/src/Foo.hs"]' | jq .
+        ci = {
+          main = args: import ./nix/ci/pipelines/main.nix ({ inherit lib; } // args);
+          interop = args: import ./nix/ci/pipelines/interop.nix ({ inherit lib; } // args);
+          packages = import ./nix/ci/packages.nix { inherit lib; };
+          dsl = import ./nix/ci/dsl.nix { inherit lib; };
+          changes = import ./nix/ci/changes.nix {
+            inherit lib;
+            packages = import ./nix/ci/packages.nix { inherit lib; };
+          };
+        };
       }
     );
 }

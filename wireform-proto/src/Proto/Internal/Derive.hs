@@ -510,7 +510,7 @@ mkDecodeInstance = mkDecodeInstanceWith defaultMessageMeta
 mkDecodeInstanceWith :: MessageMeta -> Type -> Name -> [ProtoField] -> Q Dec
 mkDecodeInstanceWith meta ty conName fs = do
   body <- messageDecoderBodyWith meta conName fs
-  -- agents.md ("Performance" → "Decoder monad style") requires
+  -- AGENTS.md ("Performance" → "Decoder monad style") requires
   -- @{-# INLINE messageDecoder #-}@ on every instance: the
   -- continuation-passing dispatch in 'getTagOrU' is only worth its
   -- weight when GHC can see the lambda for each field. Mirrors what

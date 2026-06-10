@@ -1,0 +1,14 @@
+steps:
+  - label: ":pipeline: Generate Pipeline"
+    key: "generate"
+    command: ".buildkite/generate.sh"
+    agents:
+      queue: "nix"
+    artifact_paths:
+      - "pipeline-main.json"
+      - "pipeline-interop.json"
+    timeout_in_minutes: 10
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2

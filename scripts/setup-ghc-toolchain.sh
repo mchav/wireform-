@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap GHC/Cabal on a fresh Ubuntu VM per agents.md.
+# Bootstrap GHC/Cabal on a fresh Ubuntu VM per AGENTS.md.
 set -euo pipefail
 
 if ! command -v apt-get >/dev/null 2>&1; then
