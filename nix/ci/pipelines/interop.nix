@@ -39,7 +39,7 @@ let
   # gRPC interop
   # ------------------------------------------------------------------
   grpcSelfTest = ci.command {
-    label = ":grpc: Self-test (wireform-to-wireform)";
+    label = ":satellite_antenna: Self-test (wireform-to-wireform)";
     key = "grpc-self";
     command = [
       "nix develop .#${defaultGHC} --command cabal run wireform-grpc-interop -- --self-test"
@@ -49,7 +49,7 @@ let
   };
 
   grpcCrossLanguage = lang: ci.command {
-    label = ":grpc: Cross-language (${lang})";
+    label = ":satellite_antenna: Cross-language (${lang})";
     key = "grpc-${lang}";
     depends_on = "grpc-self";
     command = [
@@ -60,7 +60,7 @@ let
     soft_fail = true;
   };
 
-  grpcGroup = ci.group ":grpc: gRPC Interop" {
+  grpcGroup = ci.group ":satellite_antenna: gRPC Interop" {
     key = "grpc-interop";
     steps =
       [ grpcSelfTest ]

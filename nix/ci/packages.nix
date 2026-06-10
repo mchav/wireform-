@@ -133,47 +133,47 @@ let
     wireform-kafka-protocol= { path = "wireform-kafka-protocol";emoji = ":kafka:";            tier = "core"; };
 
     # -- format ------------------------------------------------------
-    wireform-proto         = { path = "wireform-proto";         emoji = ":protobuf:";         tier = "format"; codegen = true; };
-    wireform-avro          = { path = "wireform-avro";          emoji = ":avro:";             tier = "format"; };
-    wireform-thrift        = { path = "wireform-thrift";        emoji = ":thrift:";           tier = "format"; };
-    wireform-cbor          = { path = "wireform-cbor";          emoji = ":cbor:";             tier = "format"; };
+    wireform-proto         = { path = "wireform-proto";         emoji = ":label:";         tier = "format"; codegen = true; };
+    wireform-avro          = { path = "wireform-avro";          emoji = ":books:";             tier = "format"; };
+    wireform-thrift        = { path = "wireform-thrift";        emoji = ":ledger:";           tier = "format"; };
+    wireform-cbor          = { path = "wireform-cbor";          emoji = ":bookmark_tabs:";             tier = "format"; };
     wireform-msgpack       = { path = "wireform-msgpack";       emoji = ":package:";          tier = "format"; };
-    wireform-bson          = { path = "wireform-bson";          emoji = ":bson:";             tier = "format"; };
-    wireform-ion           = { path = "wireform-ion";           emoji = ":ion:";              tier = "format"; };
-    wireform-capnproto     = { path = "wireform-capnproto";     emoji = ":capnproto:";        tier = "format"; };
-    wireform-flatbuffers   = { path = "wireform-flatbuffers";   emoji = ":flatbuffers:";      tier = "format"; };
-    wireform-bond          = { path = "wireform-bond";          emoji = ":bond:";             tier = "format"; };
-    wireform-asn1          = { path = "wireform-asn1";          emoji = ":asn1:";             tier = "format"; };
-    wireform-xml           = { path = "wireform-xml";           emoji = ":xml:";              tier = "format"; };
+    wireform-bson          = { path = "wireform-bson";          emoji = ":page_with_curl:";             tier = "format"; };
+    wireform-ion           = { path = "wireform-ion";           emoji = ":dna:";              tier = "format"; };
+    wireform-capnproto     = { path = "wireform-capnproto";     emoji = ":gift:";        tier = "format"; };
+    wireform-flatbuffers   = { path = "wireform-flatbuffers";   emoji = ":bento:";      tier = "format"; };
+    wireform-bond          = { path = "wireform-bond";          emoji = ":link:";             tier = "format"; };
+    wireform-asn1          = { path = "wireform-asn1";          emoji = ":lock:";             tier = "format"; };
+    wireform-xml           = { path = "wireform-xml";           emoji = ":newspaper:";              tier = "format"; };
     wireform-html          = { path = "wireform-html";          emoji = ":html:";             tier = "format"; };
-    wireform-edn           = { path = "wireform-edn";           emoji = ":edn:";             tier = "format"; };
-    wireform-bencode       = { path = "wireform-bencode";       emoji = ":bencode:";          tier = "format"; };
-    wireform-toml          = { path = "wireform-toml";          emoji = ":toml:";             tier = "format"; };
+    wireform-edn           = { path = "wireform-edn";           emoji = ":paperclip:";             tier = "format"; };
+    wireform-bencode       = { path = "wireform-bencode";       emoji = ":open_file_folder:";          tier = "format"; };
+    wireform-toml          = { path = "wireform-toml";          emoji = ":wrench:";             tier = "format"; };
     wireform-yaml          = { path = "wireform-yaml";          emoji = ":yaml:";             tier = "format"; };
-    wireform-csv           = { path = "wireform-csv";           emoji = ":csv:";              tier = "format"; };
+    wireform-csv           = { path = "wireform-csv";           emoji = ":page_facing_up:";              tier = "format"; };
     wireform-ndjson        = { path = "wireform-ndjson";        emoji = ":json:";             tier = "format"; };
-    wireform-fory          = { path = "wireform-fory";          emoji = ":fory:";             tier = "format"; };
+    wireform-fory          = { path = "wireform-fory";          emoji = ":truck:";             tier = "format"; };
 
     # -- columnar ----------------------------------------------------
-    wireform-arrow         = { path = "wireform-arrow";         emoji = ":arrow:";            tier = "columnar"; };
-    wireform-parquet       = { path = "wireform-parquet";       emoji = ":parquet:";          tier = "columnar"; };
-    wireform-orc           = { path = "wireform-orc";           emoji = ":orc:";              tier = "columnar"; };
-    wireform-columnar      = { path = "wireform-columnar";      emoji = ":columnar:";         tier = "columnar"; };
-    wireform-iceberg       = { path = "wireform-iceberg";       emoji = ":iceberg:";          tier = "columnar"; };
-    wireform-delta         = { path = "wireform-delta";         emoji = ":delta:";            tier = "columnar"; };
-    wireform-lance         = { path = "wireform-lance";         emoji = ":lance:";            tier = "columnar"; };
-    wireform-hudi          = { path = "wireform-hudi";          emoji = ":hudi:";             tier = "columnar"; };
+    wireform-arrow         = { path = "wireform-arrow";         emoji = ":card_index_dividers:";            tier = "columnar"; };
+    wireform-parquet       = { path = "wireform-parquet";       emoji = ":file_cabinet:";          tier = "columnar"; };
+    wireform-orc           = { path = "wireform-orc";           emoji = ":card_file_box:";              tier = "columnar"; };
+    wireform-columnar      = { path = "wireform-columnar";      emoji = ":abacus:";         tier = "columnar"; };
+    wireform-iceberg       = { path = "wireform-iceberg";       emoji = ":ice_cube:";          tier = "columnar"; };
+    wireform-delta         = { path = "wireform-delta";         emoji = ":ocean:";            tier = "columnar"; };
+    wireform-lance         = { path = "wireform-lance";         emoji = ":floppy_disk:";            tier = "columnar"; };
+    wireform-hudi          = { path = "wireform-hudi";          emoji = ":ship:";             tier = "columnar"; };
 
     # -- network -----------------------------------------------------
     wireform-network       = { path = "wireform-network";       emoji = ":electric_plug:";    tier = "network"; };
     hermes                 = { path = "hermes";                 emoji = ":envelope:";         tier = "network"; };
-    wireform-http1         = { path = "wireform-http1";         emoji = ":http:";             tier = "network"; };
-    wireform-http2         = { path = "wireform-http2";         emoji = ":http:";             tier = "network"; };
+    wireform-http1         = { path = "wireform-http1";         emoji = ":signal_strength:";             tier = "network"; };
+    wireform-http2         = { path = "wireform-http2";         emoji = ":signal_strength:";             tier = "network"; };
     wireform-http          = { path = "wireform-http";          emoji = ":globe_with_meridians:"; tier = "network"; };
     wireform-http-wai      = { path = "wireform-http-wai";      emoji = ":bridge_at_night:";  tier = "network"; };
     wireform-websocket     = { path = "wireform-websocket";     emoji = ":satellite:";        tier = "network"; };
-    grpc-spec              = { path = "grpc-spec";              emoji = ":grpc:";             tier = "network"; };
-    wireform-grpc          = { path = "wireform-grpc";          emoji = ":grpc:";             tier = "network"; };
+    grpc-spec              = { path = "grpc-spec";              emoji = ":satellite_antenna:";             tier = "network"; };
+    wireform-grpc          = { path = "wireform-grpc";          emoji = ":satellite_antenna:";             tier = "network"; };
     wireform-kafka         = { path = "wireform-kafka";         emoji = ":kafka:";            tier = "network"; };
     wireform-hw-kafka-client = { path = "wireform-hw-kafka-client"; emoji = ":kafka:";        tier = "network"; };
 

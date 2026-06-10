@@ -123,7 +123,7 @@ let
   # ------------------------------------------------------------------
   codegenSteps = lib.optionals (builtins.hasAttr "wireform-proto" affected) [
     (ci.command {
-      label = ":protobuf: gen-wkt verify";
+      label = ":label: gen-wkt verify";
       key = "codegen-wkt";
       command = [
         "nix develop .#${defaultGHC} --command cabal run gen-wkt"
