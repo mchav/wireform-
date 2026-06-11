@@ -215,13 +215,20 @@
               crc32c   = crc32cUnrestricted;
               # wireform-http / wireform-kafka need hs-opentelemetry-api 1.0,
               # which nixpkgs hasn't packaged yet (it ships 0.3.1.0). Pull the
-              # 1.0.0.0 release straight from Hackage. doJailbreak relaxes its
-              # bounds against the pinned package set.
-              hs-opentelemetry-api = hlib.doJailbreak (self.callHackageDirect {
-                pkg = "hs-opentelemetry-api";
-                ver = "1.0.0.0";
-                sha256 = "0bb1c930jzdgp1mpal930ig78mppk1rl63cjjazdgi90jdn1lz3r";
-              } {});
+              # 1.0.0.0 release from Hackage via fetchzip, which hashes the
+              # UNPACKED tree — stable regardless of which mirror://hackage
+              # gzip the agent fetches (callHackageDirect hashes the tarball,
+              # whose compression varies per mirror and broke CI). doJailbreak
+              # relaxes its bounds against the pinned package set.
+              hs-opentelemetry-api = hlib.doJailbreak (self.callCabal2nix "hs-opentelemetry-api"
+                (pkgs.fetchzip {
+                  url = "https://hackage.haskell.org/package/hs-opentelemetry-api-1.0.0.0/hs-opentelemetry-api-1.0.0.0.tar.gz";
+                  sha256 = "sha256-COhj9Ms1eu1Gt9wTC21oQ37k6vJ9mxlJvYpHtvXff6A=";
+                }) {});
+              # tasty-hspec in nixpkgs caps base <4.22, which excludes GHC
+              # 9.14 (base 4.22). It is pulled in as a transitive test
+              # dependency of some upstream package; jailbreak so it builds.
+              tasty-hspec = hlib.doJailbreak super.tasty-hspec;
               # C-library names cabal2nix resolves against the Haskell
               # package set. These are unambiguous C libs (pkgconfig /
               # extra-libraries), with no Haskell package of the same name:
