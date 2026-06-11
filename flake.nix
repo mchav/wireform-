@@ -264,12 +264,26 @@
             hp = (pkgs.haskell.packages.${ghcAttr}).override {
               overrides = mkHaskellOverlay ghcAttr;
             };
+            # `cabal.project` forces `wireform-arrow: +zstd +lz4`, so any
+            # `cabal` invocation in the shell (e.g. `cabal run
+            # wireform-grpc-interop`, `cabal test`) needs the `lz4-hs` and
+            # `zstd` Haskell packages in the shell's package db. The plain
+            # `nix build` outputs keep the codec flags off (see the
+            # packageFlags NOTE), so re-derive arrow *for the shell only*
+            # with the flags on — callCabal2nixWithOptions regenerates the
+            # dependency set so lz4-hs / zstd are actually pulled into the
+            # shellFor closure rather than just toggling a configure flag.
+            arrowWithCodecs =
+              hlib.overrideCabal (_: { doCheck = false; doBenchmark = false; })
+                (hp.callCabal2nixWithOptions "wireform-arrow" ./wireform-arrow
+                  "--flag=lz4 --flag=zstd" {});
             # Every package the workspace ships, so a single
             # `nix develop` shell can build any of them via
             # `cabal build <pkg>`.
             workspaceDrvs =
               lib.attrValues
-                (lib.getAttrs (lib.attrNames wireformPackages) hp);
+                (lib.getAttrs (lib.attrNames wireformPackages)
+                  (hp // { wireform-arrow = arrowWithCodecs; }));
           in
           hp.shellFor {
             packages = _: workspaceDrvs;
