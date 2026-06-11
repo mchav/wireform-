@@ -25,6 +25,7 @@ repos:
             |wireform-grpc/
             |grpc-spec/
             |wireform-http2/
+            |wireform-core/src/Wireform/Builder/Internal/Prim\.hs
           )
 
       - id: hlint
