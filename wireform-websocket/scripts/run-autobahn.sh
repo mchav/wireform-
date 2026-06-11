@@ -71,12 +71,25 @@ case "$(uname -s)" in
 esac
 
 echo "==> Running Autobahn fuzzingclient against echo server …"
+# Run as the host user so the report files written into the mounted
+# /reports dir are owned by us, not root. Otherwise the container (which
+# runs as root by default) leaves root-owned files inside the git
+# checkout, and the next non-root `git clean` on this agent fails with
+# "permission denied", wedging the agent's checkout entirely.
 ${DOCKER:-docker} run --rm \
+  --user "$(id -u):$(id -g)" \
   "${DOCKER_NET[@]}" \
   -v "$HERE/test-conformance/config:/config" \
   -v "$HERE/test-conformance/reports:/reports" \
   crossbario/autobahn-testsuite \
   wstest -m fuzzingclient -s "/config/$(basename "$SPEC")"
+
+# Belt-and-suspenders: if anything in /reports still ended up root-owned
+# (e.g. an image that ignores --user), chown it back via a root container
+# so the working tree stays clean for the next checkout.
+${DOCKER:-docker} run --rm \
+  -v "$HERE/test-conformance/reports:/reports" \
+  busybox chown -R "$(id -u):$(id -g)" /reports 2>/dev/null || true
 
 # 5. Summarise the JSON report.
 echo "==> Parsing report …"
