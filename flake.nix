@@ -181,6 +181,15 @@
               if builtins.elem ghcName jailbreakGhcs
               then hlib.doJailbreak
               else lib.id;
+            # Build a Haskell package straight from its Hackage release,
+            # hashing the UNPACKED tree (fetchzip) so the hash is stable
+            # across mirror://hackage gzip variance. Used for deps that are
+            # newer than what the pinned nixpkgs provides.
+            callHackageZip = name: ver: sha256:
+              hlib.doJailbreak (self.callCabal2nix name (pkgs.fetchzip {
+                url = "https://hackage.haskell.org/package/${name}-${ver}/${name}-${ver}.tar.gz";
+                inherit sha256;
+              }) {});
             mkRaw = name: src:
               if name == "wireform-kafka-protocol"
               then self.callCabal2nixWithOptions name kafkaProtocolSrc
@@ -214,17 +223,19 @@
               wireform = wireformAttr;
               crc32c   = crc32cUnrestricted;
               # wireform-http / wireform-kafka need hs-opentelemetry-api 1.0,
-              # which nixpkgs hasn't packaged yet (it ships 0.3.1.0). Pull the
-              # 1.0.0.0 release from Hackage via fetchzip, which hashes the
-              # UNPACKED tree — stable regardless of which mirror://hackage
-              # gzip the agent fetches (callHackageDirect hashes the tarball,
-              # whose compression varies per mirror and broke CI). doJailbreak
-              # relaxes its bounds against the pinned package set.
-              hs-opentelemetry-api = hlib.doJailbreak (self.callCabal2nix "hs-opentelemetry-api"
-                (pkgs.fetchzip {
-                  url = "https://hackage.haskell.org/package/hs-opentelemetry-api-1.0.0.0/hs-opentelemetry-api-1.0.0.0.tar.gz";
-                  sha256 = "sha256-COhj9Ms1eu1Gt9wTC21oQ37k6vJ9mxlJvYpHtvXff6A=";
-                }) {});
+              # which nixpkgs hasn't packaged (it ships 0.3.1.0). The 1.0
+              # release split the package, so pull the whole trio from
+              # Hackage: api -> api-types + semantic-conventions (>=1.40);
+              # nixpkgs has only semantic-conventions 0.1 and no api-types.
+              hs-opentelemetry-api =
+                callHackageZip "hs-opentelemetry-api" "1.0.0.0"
+                  "sha256-COhj9Ms1eu1Gt9wTC21oQ37k6vJ9mxlJvYpHtvXff6A=";
+              hs-opentelemetry-api-types =
+                callHackageZip "hs-opentelemetry-api-types" "1.0.0.0"
+                  "sha256-9ByP41wlV45TMCqbyyVpwejQDi5fsG0+j8bMk8ORLw8=";
+              hs-opentelemetry-semantic-conventions =
+                callHackageZip "hs-opentelemetry-semantic-conventions" "1.40.0.0"
+                  "sha256-7cIC9dTrd5bJjAsiEyyupi1xSZyc17FpjbACnm0p5ik=";
               # tasty-hspec in nixpkgs caps base <4.22, which excludes GHC
               # 9.14 (base 4.22). It is pulled in as a transitive test
               # dependency of some upstream package; jailbreak so it builds.
