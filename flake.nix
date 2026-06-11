@@ -287,8 +287,22 @@
             # with the flags on — callCabal2nixWithOptions regenerates the
             # dependency set so lz4-hs / zstd are actually pulled into the
             # shellFor closure rather than just toggling a configure flag.
+            # The dev shell must be self-contained: every `cabal test` /
+            # `cabal bench` / `cabal run <suite>` run in CI (the interop
+            # kafka / grpc jobs and main.nix's test / bench / conformance /
+            # haddock steps) resolves its build plan purely against the
+            # shell's GHC package db. The plain `nix build` outputs keep
+            # checks and benchmarks off so the build matrix stays lean, but
+            # `shellFor` only pulls a package's *test* / *benchmark*
+            # dependencies into the db when doCheck / doBenchmark are on.
+            # Turn them on for the shell so sydtest, criterion, hedgehog, …
+            # land in the db; otherwise cabal falls back to a (frequently
+            # absent on fresh agents) Hackage index and tries to build the
+            # test deps from source — the [Cabal-7043]/[Cabal-7070] "solver
+            # did not find a plan that included the test suites" failures.
+            withTestDeps = drv: hlib.doBenchmark (hlib.doCheck drv);
             arrowWithCodecs =
-              hlib.overrideCabal (_: { doCheck = false; doBenchmark = false; })
+              withTestDeps
                 (hp.callCabal2nixWithOptions "wireform-arrow" ./wireform-arrow
                   "--flag=lz4 --flag=zstd" {});
             # Every package the workspace ships, so a single
@@ -296,8 +310,11 @@
             # `cabal build <pkg>`.
             workspaceDrvs =
               lib.attrValues
-                (lib.getAttrs (lib.attrNames wireformPackages)
-                  (hp // { wireform-arrow = arrowWithCodecs; }));
+                (lib.mapAttrs
+                  (n: drv:
+                    if n == "wireform-arrow" then arrowWithCodecs
+                    else withTestDeps drv)
+                  (lib.getAttrs (lib.attrNames wireformPackages) hp));
           in
           hp.shellFor {
             packages = _: workspaceDrvs;
