@@ -16,13 +16,13 @@ delimitation round-trip correctly.
 -}
 module Main (main) where
 
-import qualified Data.ByteString as BS
-import System.Environment (getArgs)
-import System.IO (BufferMode (..), hSetBuffering, stdout)
-
+import Data.ByteString qualified as BS
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
+import System.Environment (getArgs)
+import System.IO (BufferMode (..), hSetBuffering, stdout)
+
 
 main :: IO ()
 main = do
@@ -30,39 +30,44 @@ main = do
   args <- getArgs
   let port = case args of
         (p : _) -> p
-        []      -> "8000"
-  let cfg = defaultServerConfig
-        { serverHost = "0.0.0.0"
-        , serverPort = port
-        , serverHandler = echoHandler
-        , serverListenBacklog = 4096
-        }
+        [] -> "8000"
+  let cfg =
+        defaultServerConfig
+          { serverHost = "0.0.0.0"
+          , serverPort = port
+          , serverHandler = echoHandler
+          , serverListenBacklog = 4096
+          }
   putStrLn $ "wireform-http1-echo-server: listening on port " <> port
   runServer cfg
+
 
 -- | Read whatever the request body is, return it verbatim.
 echoHandler :: Handler
 echoHandler req = do
   body <- drainAll (requestBody req)
-  pure Response
-    { responseStatus  = OK
-    , responseVersion = HTTP_1_1
-    , responseHeaders =
-        [ ("Content-Type", "application/octet-stream")
-        , ("Server", "wireform-http1")
-        ]
-    , responseBody = BodyBytes body
-    , responseTrailers = pure []
-    }
+  pure
+    Response
+      { responseStatus = OK
+      , responseVersion = HTTP_1_1
+      , responseHeaders =
+          [ ("Content-Type", "application/octet-stream")
+          , ("Server", "wireform-http1")
+          ]
+      , responseBody = BodyBytes body
+      , responseTrailers = pure []
+      }
 
--- | Pull every chunk out of a 'Body' producer and concatenate.
---
--- We deliberately do /not/ catch exceptions here: if the body
--- producer throws (e.g. a 'ProtocolException' from a malformed chunk
--- size line), we want the exception to propagate up to the server's
--- handler-runner, which turns it into a 400 + close response. A
--- swallowing drainAll would silently return a partial body and ship
--- a misleading 200.
+
+{- | Pull every chunk out of a 'Body' producer and concatenate.
+
+We deliberately do /not/ catch exceptions here: if the body
+producer throws (e.g. a 'ProtocolException' from a malformed chunk
+size line), we want the exception to propagate up to the server's
+handler-runner, which turns it into a 400 + close response. A
+swallowing drainAll would silently return a partial body and ship
+a misleading 200.
+-}
 drainAll :: Body -> IO BS.ByteString
 drainAll BodyEmpty = pure BS.empty
 drainAll (BodyBytes bs) = pure bs

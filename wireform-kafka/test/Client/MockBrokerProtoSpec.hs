@@ -1,36 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Final-batch librdkafka mock-test ports:
--- telemetry counters (0150), consumer-group generation id (0147),
--- KRaft controller role (0148), reauthentication deadline (0142).
+{- | Final-batch librdkafka mock-test ports:
+telemetry counters (0150), consumer-group generation id (0147),
+KRaft controller role (0148), reauthentication deadline (0142).
+-}
 module Client.MockBrokerProtoSpec (tests) where
-
-import Test.Syd
 
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Telemetry
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "MockBrokerProto" $ sequence_
-  [ -- Telemetry
-    telemetry_starts_at_zero
-  , telemetry_bumps_independently_per_op
-  , telemetry_snapshot_is_consistent_under_increment
-    -- Generation id
-  , generation_starts_at_zero
-  , generation_bumps_on_join
-  , generation_bumps_on_leave
-  , generation_per_group_independent
-    -- KRaft
-  , kraft_default_combined
-  , kraft_role_round_trips
-  , controller_initial_is_first_broker
-  , controller_can_be_reassigned
-    -- Reauth
-  , reauth_deadline_default_unset
-  , reauth_deadline_round_trips
-  , reauth_expired_when_clock_advances_past_deadline
-  ]
+tests =
+  describe "MockBrokerProto" $
+    sequence_
+      [ -- Telemetry
+        telemetry_starts_at_zero
+      , telemetry_bumps_independently_per_op
+      , telemetry_snapshot_is_consistent_under_increment
+      , -- Generation id
+        generation_starts_at_zero
+      , generation_bumps_on_join
+      , generation_bumps_on_leave
+      , generation_per_group_independent
+      , -- KRaft
+        kraft_default_combined
+      , kraft_role_round_trips
+      , controller_initial_is_first_broker
+      , controller_can_be_reassigned
+      , -- Reauth
+        reauth_deadline_default_unset
+      , reauth_deadline_round_trips
+      , reauth_expired_when_clock_advances_past_deadline
+      ]
+
 
 ----------------------------------------------------------------------
 -- Telemetry
@@ -40,13 +44,14 @@ telemetry_starts_at_zero :: Spec
 telemetry_starts_at_zero =
   it "newTelemetryCounters: every counter starts at 0" $ do
     tc <- newTelemetryCounters
-    s  <- snapshotCounters tc
-    tsProduce s   `shouldBe` 0
-    tsFetch s     `shouldBe` 0
-    tsCommit s    `shouldBe` 0
-    tsTxnBegin s  `shouldBe` 0
+    s <- snapshotCounters tc
+    tsProduce s `shouldBe` 0
+    tsFetch s `shouldBe` 0
+    tsCommit s `shouldBe` 0
+    tsTxnBegin s `shouldBe` 0
     tsTxnCommit s `shouldBe` 0
-    tsTxnAbort s  `shouldBe` 0
+    tsTxnAbort s `shouldBe` 0
+
 
 telemetry_bumps_independently_per_op :: Spec
 telemetry_bumps_independently_per_op =
@@ -54,20 +59,21 @@ telemetry_bumps_independently_per_op =
     tc <- newTelemetryCounters
     bumpProduce tc
     bumpProduce tc
-    bumpFetch   tc
-    bumpCommit  tc
-    bumpCommit  tc
-    bumpCommit  tc
-    bumpTxnBegin  tc
+    bumpFetch tc
+    bumpCommit tc
+    bumpCommit tc
+    bumpCommit tc
+    bumpTxnBegin tc
     bumpTxnCommit tc
-    bumpTxnAbort  tc
+    bumpTxnAbort tc
     s <- snapshotCounters tc
-    tsProduce s   `shouldBe` 2
-    tsFetch s     `shouldBe` 1
-    tsCommit s    `shouldBe` 3
-    tsTxnBegin s  `shouldBe` 1
+    tsProduce s `shouldBe` 2
+    tsFetch s `shouldBe` 1
+    tsCommit s `shouldBe` 3
+    tsTxnBegin s `shouldBe` 1
     tsTxnCommit s `shouldBe` 1
-    tsTxnAbort s  `shouldBe` 1
+    tsTxnAbort s `shouldBe` 1
+
 
 telemetry_snapshot_is_consistent_under_increment :: Spec
 telemetry_snapshot_is_consistent_under_increment =
@@ -76,6 +82,7 @@ telemetry_snapshot_is_consistent_under_increment =
     mapM_ (\_ -> bumpProduce tc) [1 .. 1000 :: Int]
     s <- snapshotCounters tc
     tsProduce s `shouldBe` 1000
+
 
 ----------------------------------------------------------------------
 -- Generation id
@@ -88,6 +95,7 @@ generation_starts_at_zero =
     g <- currentGeneration c (GroupId "g")
     g `shouldBe` GenerationId 0
 
+
 generation_bumps_on_join :: Spec
 generation_bumps_on_join =
   it "joinGroup bumps the generation id" $ do
@@ -98,6 +106,7 @@ generation_bumps_on_join =
     joinGroup c g (MemberId "m2") []
     currentGeneration c g >>= (`shouldBe` GenerationId 2)
 
+
 generation_bumps_on_leave :: Spec
 generation_bumps_on_leave =
   it "leaveGroup also bumps the generation id" $ do
@@ -107,6 +116,7 @@ generation_bumps_on_leave =
     currentGeneration c g >>= (`shouldBe` GenerationId 1)
     leaveGroup c g (MemberId "m1")
     currentGeneration c g >>= (`shouldBe` GenerationId 2)
+
 
 generation_per_group_independent :: Spec
 generation_per_group_independent =
@@ -120,6 +130,7 @@ generation_per_group_independent =
     currentGeneration c g1 >>= (`shouldBe` GenerationId 2)
     currentGeneration c g2 >>= (`shouldBe` GenerationId 1)
 
+
 ----------------------------------------------------------------------
 -- KRaft
 ----------------------------------------------------------------------
@@ -129,6 +140,7 @@ kraft_default_combined =
   it "newMockCluster defaults to KRaftCombined" $ do
     c <- newMockCluster 1
     kraftRole c >>= (`shouldBe` KRaftCombined)
+
 
 kraft_role_round_trips :: Spec
 kraft_role_round_trips =
@@ -141,11 +153,13 @@ kraft_role_round_trips =
     setKRaftRole c KRaftCombined
     kraftRole c >>= (`shouldBe` KRaftCombined)
 
+
 controller_initial_is_first_broker :: Spec
 controller_initial_is_first_broker =
   it "the cluster's initial controller is the first broker" $ do
     c <- newMockCluster 3
     controllerBroker c >>= (`shouldBe` Just (BrokerId 0))
+
 
 controller_can_be_reassigned :: Spec
 controller_can_be_reassigned =
@@ -155,6 +169,7 @@ controller_can_be_reassigned =
     controllerBroker c >>= (`shouldBe` Just (BrokerId 2))
     setControllerBroker c Nothing
     controllerBroker c >>= (`shouldBe` Nothing)
+
 
 ----------------------------------------------------------------------
 -- Reauth
@@ -167,6 +182,7 @@ reauth_deadline_default_unset =
     reauthDeadline c >>= (`shouldBe` Nothing)
     isReauthExpired c >>= (`shouldBe` False)
 
+
 reauth_deadline_round_trips :: Spec
 reauth_deadline_round_trips =
   it "setReauthDeadline / reauthDeadline round-trips" $ do
@@ -176,6 +192,7 @@ reauth_deadline_round_trips =
     setReauthDeadline c Nothing
     reauthDeadline c >>= (`shouldBe` Nothing)
 
+
 reauth_expired_when_clock_advances_past_deadline :: Spec
 reauth_expired_when_clock_advances_past_deadline =
   it "isReauthExpired flips True when tickClock crosses the deadline" $ do
@@ -184,5 +201,5 @@ reauth_expired_when_clock_advances_past_deadline =
     isReauthExpired c >>= (`shouldBe` False)
     tickClock c 50
     isReauthExpired c >>= (`shouldBe` False)
-    tickClock c 60          -- now at 110 > 100
+    tickClock c 60 -- now at 110 > 100
     isReauthExpired c >>= (`shouldBe` True)

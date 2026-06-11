@@ -51,8 +51,8 @@ encodeLengthPrefixedHybrid bw vals =
   let !payload = encodeRLEHybrid bw vals
       !len = BS.length payload
   in BL.toStrict $
-      B.toLazyByteString $
-        B.word32LE (fromIntegral len) <> B.byteString payload
+       B.toLazyByteString $
+         B.word32LE (fromIntegral len) <> B.byteString payload
 
 
 {- | Encode the RLE-hybrid payload (no length prefix). Picks between a
@@ -83,8 +83,8 @@ rleRun bw value count =
           | i <- [0 .. valueBytesCount - 1]
           ]
   in BL.toStrict $
-      B.toLazyByteString $
-        encodeULeb128 (fromIntegral header) <> B.byteString valueBytes
+       B.toLazyByteString $
+         encodeULeb128 (fromIntegral header) <> B.byteString valueBytes
 
 
 {- | Single BIT_PACKED run covering the entire input. The header is the
@@ -104,8 +104,8 @@ bitPackedRun bw vals =
       !packed = packBitsLsb bw padded
       !header = (nGroups `shiftL` 1) .|. 1
   in BL.toStrict $
-      B.toLazyByteString $
-        encodeULeb128 (fromIntegral header) <> B.byteString packed
+       B.toLazyByteString $
+         encodeULeb128 (fromIntegral header) <> B.byteString packed
 
 
 {- | LSB-first bit packing. Mirrors what 'Parquet.Levels.decodeBitPacked'
@@ -129,14 +129,14 @@ packBitsLsb bw vals =
                     !valueIdx = globalBit `quot` bw
                     !innerBit = globalBit `rem` bw
                 in if valueIdx >= VP.length vals
-                    then go (bit + 1) acc
-                    else
-                      let !v = fromIntegral (VP.unsafeIndex vals valueIdx) :: Word32
-                          !b =
-                            if (v `shiftR` innerBit) .&. 1 == 1
-                              then acc .|. (1 `shiftL` bit)
-                              else acc
-                      in go (bit + 1) b
+                     then go (bit + 1) acc
+                     else
+                       let !v = fromIntegral (VP.unsafeIndex vals valueIdx) :: Word32
+                           !b =
+                             if (v `shiftR` innerBit) .&. 1 == 1
+                               then acc .|. (1 `shiftL` bit)
+                               else acc
+                       in go (bit + 1) b
       in fromIntegral (go 0 (0 :: Int))
 
 

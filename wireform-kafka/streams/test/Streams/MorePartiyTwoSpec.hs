@@ -1,23 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the latest tier-of-parity:
--- Topology.optimize, addReadOnlyStateStore, lag listener.
+{- | Tests for the latest tier-of-parity:
+Topology.optimize, addReadOnlyStateStore, lag listener.
+-}
 module Streams.MorePartiyTwoSpec (tests) where
 
 import Data.IORef
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "ParityRoundTwo" $ sequence_
-  [ optimize_topology_is_identity_when_off
-  , optimize_topology_with_default_config
-  , lag_listener_receives_published_snapshot
-  , lag_listener_default_does_nothing
-  ]
+tests =
+  describe "ParityRoundTwo" $
+    sequence_
+      [ optimize_topology_is_identity_when_off
+      , optimize_topology_with_default_config
+      , lag_listener_receives_published_snapshot
+      , lag_listener_default_does_nothing
+      ]
+
 
 mkSimpleTopo :: IO Topology
 mkSimpleTopo = do
@@ -26,17 +30,20 @@ mkSimpleTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   buildTopology b
 
+
 optimize_topology_is_identity_when_off :: Spec
 optimize_topology_is_identity_when_off =
   it "optimizeTopology is the identity when no toggles are enabled" $ do
     topo <- mkSimpleTopo
-    let cfg = OptimizationConfig
-          { optMergeRepartitionTopics = False
-          , optReuseSourceKTable      = False
-          }
+    let cfg =
+          OptimizationConfig
+            { optMergeRepartitionTopics = False
+            , optReuseSourceKTable = False
+            }
         topo' = optimizeTopology cfg topo
     -- Same node count after optimisation (currently a no-op).
     length (topoOrder topo') `shouldBe` length (topoOrder topo)
+
 
 optimize_topology_with_default_config :: Spec
 optimize_topology_with_default_config =
@@ -44,18 +51,23 @@ optimize_topology_with_default_config =
     topo <- mkSimpleTopo
     let topo' = optimizeTopology defaultOptimizationConfig topo
     case validateTopology topo' of
-      Right _  -> pure ()
+      Right _ -> pure ()
       Left err -> error (show err)
+
 
 mkRuntime :: IO KafkaStreams
 mkRuntime = do
   topo <- mkSimpleTopo
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> newKafkaStreams defaultStreamsConfig
-                    { applicationId    = "lag-app"
-                    , bootstrapServers = ["mock:0"]
-                    } v
+    Left err -> error (show err)
+    Right v ->
+      newKafkaStreams
+        defaultStreamsConfig
+          { applicationId = "lag-app"
+          , bootstrapServers = ["mock:0"]
+          }
+        v
+
 
 lag_listener_receives_published_snapshot :: Spec
 lag_listener_receives_published_snapshot =
@@ -71,6 +83,7 @@ lag_listener_receives_published_snapshot =
     publishLag ks snapshot
     readIORef received >>= (`shouldBe` snapshot)
     closeKafkaStreams ks
+
 
 lag_listener_default_does_nothing :: Spec
 lag_listener_default_does_nothing =

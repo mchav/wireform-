@@ -342,16 +342,16 @@ byteString :: ByteString -> Parser m e ()
 byteString bs = Parser \env eob s st ->
   let !(BSI.BS _ (I# len#)) = bs
   in case len# <=# minusAddr# eob s of
-      1# -> case memcmpAddr# s (bsAddr# bs) len# of
-        0# -> (# st, OK# () (plusAddr# s len#) #)
-        _ -> (# st, Fail# #)
-      _ -> case ensureNSlow env eob s len# st of
-        (# st', OK# _ s' #) -> case readEnd# env st' of
-          (# st'', _ #) ->
-            case memcmpAddr# s' (bsAddr# bs) len# of
-              0# -> (# st'', OK# () (plusAddr# s' len#) #)
-              _ -> (# st'', Fail# #)
-        (# st', x #) -> (# st', unsafeCoerce# x #)
+       1# -> case memcmpAddr# s (bsAddr# bs) len# of
+         0# -> (# st, OK# () (plusAddr# s len#) #)
+         _ -> (# st, Fail# #)
+       _ -> case ensureNSlow env eob s len# st of
+         (# st', OK# _ s' #) -> case readEnd# env st' of
+           (# st'', _ #) ->
+             case memcmpAddr# s' (bsAddr# bs) len# of
+               0# -> (# st'', OK# () (plusAddr# s' len#) #)
+               _ -> (# st'', Fail# #)
+         (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE byteString #-}
 
 
@@ -408,22 +408,22 @@ takeBs total
   | otherwise = Parser \env eob s st ->
       let !(I# mask#) = peMask env
       in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
-          1# -> runParser# (takeBsSlice @m total) env eob s st
-          -- Drain path is Stream-monomorphic so that 'modeCheckpoint'
-          -- in the loop body resolves to 'checkpoint' at compile time
-          -- (no per-iteration dictionary indirection).  'coerce' is
-          -- safe because the 'm' phantom parameter of 'Parser' has
-          -- role phantom — 'Parser Stream e a' and 'Parser m e a'
-          -- have identical runtime representation.  Pure mode never
-          -- reaches this branch at runtime (peMask is maxBound for
-          -- Pure, so the bounds check always picks the fast slice).
-          _ ->
-            runParser#
-              (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
-              env
-              eob
-              s
-              st
+           1# -> runParser# (takeBsSlice @m total) env eob s st
+           -- Drain path is Stream-monomorphic so that 'modeCheckpoint'
+           -- in the loop body resolves to 'checkpoint' at compile time
+           -- (no per-iteration dictionary indirection).  'coerce' is
+           -- safe because the 'm' phantom parameter of 'Parser' has
+           -- role phantom — 'Parser Stream e a' and 'Parser m e a'
+           -- have identical runtime representation.  Pure mode never
+           -- reaches this branch at runtime (peMask is maxBound for
+           -- Pure, so the bounds check always picks the fast slice).
+           _ ->
+             runParser#
+               (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
+               env
+               eob
+               s
+               st
 {-# INLINE takeBs #-}
 
 
@@ -441,16 +441,16 @@ takeBsCopy total
   | otherwise = Parser \env eob s st ->
       let !(I# mask#) = peMask env
       in case (case total of I# n# -> (n# -# 1#) <=# mask#) of
-          1# -> runParser# (takeBsCopySingle @m total) env eob s st
-          -- See 'takeBs' for why the drain path is Stream-monomorphic
-          -- + 'coerce'd back to 'Parser m'.
-          _ ->
-            runParser#
-              (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
-              env
-              eob
-              s
-              st
+           1# -> runParser# (takeBsCopySingle @m total) env eob s st
+           -- See 'takeBs' for why the drain path is Stream-monomorphic
+           -- + 'coerce'd back to 'Parser m'.
+           _ ->
+             runParser#
+               (coerce (takeBsDrainStream @e total) :: Parser m e ByteString)
+               env
+               eob
+               s
+               st
 {-# INLINE takeBsCopy #-}
 
 
@@ -623,10 +623,10 @@ skipBack (I# n#) = Parser \env _ s st ->
   let !target = plusAddr# s (negateInt# n#)
       !(Ptr anchorPtr#) = peAnchorCur env
   in case readAddrOffAddr# anchorPtr# 0# st of
-      (# st', anchorCur# #) ->
-        case leAddr# anchorCur# target of
-          1# -> (# st', OK# () target #)
-          _ -> (# st', Fail# #)
+       (# st', anchorCur# #) ->
+         case leAddr# anchorCur# target of
+           1# -> (# st', OK# () target #)
+           _ -> (# st', Fail# #)
 {-# INLINE skipBack #-}
 
 
@@ -747,8 +747,8 @@ withSatisfyAscii f p = withEnsure# 1# $ Parser \env eob s st ->
       1# ->
         let !ch = C# c1
         in if f ch
-            then runParser# (p ch) env eob (plusAddr# s 1#) st
-            else (# st, Fail# #)
+             then runParser# (p ch) env eob (plusAddr# s 1#) st
+             else (# st, Fail# #)
       _ -> (# st, Fail# #)
 {-# INLINE withSatisfyAscii #-}
 
@@ -811,8 +811,8 @@ fusedSatisfy charPred _bytePred = withEnsure# 1# $ Parser \env eob s st ->
       1# ->
         let !ch = C# (chr# (word2Int# (word8ToWord# w)))
         in if charPred ch
-            then (# st, OK# ch (plusAddr# s 1#) #)
-            else (# st, Fail# #)
+             then (# st, OK# ch (plusAddr# s 1#) #)
+             else (# st, Fail# #)
       _ -> case runParser# (anyChar @m) env eob s st of
         (# st', OK# c s' #) -> if charPred c then (# st', OK# c s' #) else (# st', Fail# #)
         x -> x
@@ -1006,10 +1006,10 @@ isolate :: ParserMode m => Int -> Parser m e a -> Parser m e a
 isolate (I# n#) (Parser p) = withEnsure# n# $ Parser \env _ s st ->
   let !isolEnd = plusAddr# s n#
   in case p env isolEnd s st of
-      (# st', OK# a s' #) -> case eqAddr# s' isolEnd of
-        1# -> (# st', OK# a s' #)
-        _ -> (# st', Fail# #)
-      (# st', x #) -> (# st', unsafeCoerce# x #)
+       (# st', OK# a s' #) -> case eqAddr# s' isolEnd of
+         1# -> (# st', OK# a s' #)
+         _ -> (# st', Fail# #)
+       (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE isolate #-}
 
 

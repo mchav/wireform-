@@ -1,33 +1,36 @@
--- | QuasiQuoter for inline Ion Schema Language (ISL) definitions.
---
--- @
--- {-\# LANGUAGE QuasiQuotes \#-}
--- {-\# LANGUAGE TemplateHaskell \#-}
--- import Ion.QQ
---
--- [isl|
---   type::{ name: Person, fields: { name: string, age: int } }
--- |]
--- @
-module Ion.QQ
-  ( isl
-  ) where
+{- | QuasiQuoter for inline Ion Schema Language (ISL) definitions.
 
-import qualified Data.Text as T
+@
+{\-\# LANGUAGE QuasiQuotes \#-\}
+{\-\# LANGUAGE TemplateHaskell \#-\}
+import Ion.QQ
+
+[isl|
+  type::{ name: Person, fields: { name: string, age: int } }
+|]
+@
+-}
+module Ion.QQ (
+  isl,
+) where
+
+import Data.Text qualified as T
+import Ion.ISLCodeGen (deriveISL)
+import Ion.SchemaLang (parseISL)
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 
-import Ion.SchemaLang (parseISL)
-import Ion.ISLCodeGen (deriveISL)
 
 -- | QuasiQuoter for Ion Schema Language.
 isl :: QuasiQuoter
-isl = QuasiQuoter
-  { quoteExp  = \_ -> fail "isl: not an expression quoter"
-  , quotePat  = \_ -> fail "isl: not a pattern quoter"
-  , quoteType = \_ -> fail "isl: not a type quoter"
-  , quoteDec  = islDec
-  }
+isl =
+  QuasiQuoter
+    { quoteExp = \_ -> fail "isl: not an expression quoter"
+    , quotePat = \_ -> fail "isl: not a pattern quoter"
+    , quoteType = \_ -> fail "isl: not a type quoter"
+    , quoteDec = islDec
+    }
+
 
 islDec :: String -> Q [Dec]
 islDec src = do

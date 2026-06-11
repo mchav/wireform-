@@ -2,34 +2,40 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the latest parity batch:
--- KStream.print / values, AutoOffsetReset, StreamPartitioner,
--- BufferConfig, ProcessorContext.commit().
+{- | Tests for the latest parity batch:
+KStream.print / values, AutoOffsetReset, StreamPartitioner,
+BufferConfig, ProcessorContext.commit().
+-}
 module Streams.MoreParityThreeSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
+
 tests :: Spec
-tests = describe "ParityRoundThree" $ sequence_
-  [ values_stream_drops_keys
-  , print_stream_writes_to_handle
-  , consumed_default_is_earliest
-  , consumed_with_offset_reset_policy
-  , buffer_config_helpers
-  , partitioner_default_returns_nothing
-  ]
+tests =
+  describe "ParityRoundThree" $
+    sequence_
+      [ values_stream_drops_keys
+      , print_stream_writes_to_handle
+      , consumed_default_is_earliest
+      , consumed_with_offset_reset_policy
+      , buffer_config_helpers
+      , partitioner_default_returns_nothing
+      ]
+
 
 values_stream_drops_keys :: Spec
 values_stream_drops_keys =
@@ -39,12 +45,14 @@ values_stream_drops_keys =
     valued <- valuesStream src
     seen <- newIORef ([] :: [Text])
     let bld = kstreamBuilder valued
-        proc_ = pure Processor
-          { procName    = processorName "OBS"
-          , procInit    = \_ -> pure ()
-          , procClose   = pure ()
-          , procProcess = \r -> modifyIORef' seen (recordValue r :)
-          }
+        proc_ =
+          pure
+            Processor
+              { procName = processorName "OBS"
+              , procInit = \_ -> pure ()
+              , procClose = pure ()
+              , procProcess = \r -> modifyIORef' seen (recordValue r :)
+              }
     nm <- freshNodeName bld "OBS"
     withTopology_ bld $ Kafka.Streams.Imperative.addProcessor nm [kstreamParent valued] proc_
     topo <- buildTopology bld
@@ -53,6 +61,7 @@ values_stream_drops_keys =
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "b") (t 1) 0
     closeDriver driver
     reverse <$> readIORef seen >>= (`shouldBe` ["a", "b"])
+
 
 print_stream_writes_to_handle :: Spec
 print_stream_writes_to_handle =
@@ -70,11 +79,13 @@ print_stream_writes_to_handle =
     let l = head lines_
     (if ("[debug]" `T.isInfixOf` T.pack l) then pure () else expectationFailure ("missing prefix in " <> l))
 
+
 consumed_default_is_earliest :: Spec
 consumed_default_is_earliest =
   it "consumed defaults to OffsetEarliest" $ do
     let c = consumed textSerde textSerde
     consumedOffsetReset c `shouldBe` OffsetEarliest
+
 
 consumed_with_offset_reset_policy :: Spec
 consumed_with_offset_reset_policy =
@@ -82,13 +93,15 @@ consumed_with_offset_reset_policy =
     let c = withOffsetResetPolicy OffsetLatest (consumed textSerde textSerde)
     consumedOffsetReset c `shouldBe` OffsetLatest
 
+
 buffer_config_helpers :: Spec
 buffer_config_helpers =
   it "BufferConfig helpers set the right limit" $ do
-    unboundedBufferConfig.maxBytes    `shouldBe` Nothing
-    unboundedBufferConfig.maxRecords  `shouldBe` Nothing
+    unboundedBufferConfig.maxBytes `shouldBe` Nothing
+    unboundedBufferConfig.maxRecords `shouldBe` Nothing
     (maxBytesBufferConfig 1024).maxBytes `shouldBe` Just 1024
     (maxRecordsBufferConfig 100).maxRecords `shouldBe` Just 100
+
 
 partitioner_default_returns_nothing :: Spec
 partitioner_default_returns_nothing =

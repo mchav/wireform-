@@ -26,51 +26,57 @@ is looked up at link time) but calls will fail at runtime. The server
 falls back gracefully: 'sendBodyFile' rethrows the error, which the
 server's outer 'try' catches and turns into a 500 + close.
 -}
-module Network.HTTP1.SendFile
-  ( sendFile
-  , sendFileFd
-  , sendMore
-  ) where
+module Network.HTTP1.SendFile (
+  sendFile,
+  sendFileFd,
+  sendMore,
+) where
 
 import Control.Exception (throwIO)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Word (Word64)
 import Foreign.C.Error (Errno (..), eINTR, errnoToIOError, getErrno)
 import Foreign.C.Types (CInt (..), CSize (..))
 import Foreign.Marshal.Alloc (alloca)
-import qualified Foreign.Ptr
 import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Ptr qualified
 import Foreign.Storable (poke)
 import Network.Socket (Socket, withFdSocket)
 import System.Posix.Types (COff (..), CSsize (..), Fd (..))
 
--- | Linux @sendfile(2)@.
---
--- @ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);@
---
--- A @safe@ ccall (not @unsafe@): @sendfile@ may block waiting for
--- socket buffer space and we want the GHC RTS to schedule other
--- Haskell threads on the same capability while we're parked.
+
+{- | Linux @sendfile(2)@.
+
+@ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);@
+
+A @safe@ ccall (not @unsafe@): @sendfile@ may block waiting for
+socket buffer space and we want the GHC RTS to schedule other
+Haskell threads on the same capability while we're parked.
+-}
 foreign import ccall safe "sys/sendfile.h sendfile"
   c_sendfile :: CInt -> CInt -> Ptr COff -> CSize -> IO CSsize
 
--- | Send @length@ bytes starting at @offset@ from a file descriptor
--- to a socket. Loops until all bytes are sent or 'EOF' is hit on the
--- file. Throws an IOError on any non-@EINTR@ failure.
---
--- The socket must be connected. We do not touch the socket's
--- @SO_LINGER@ or @TCP_CORK@ state — applications that want
--- header + body to land in a single TCP segment should set
--- @TCP_CORK@ themselves around the head + 'sendFile' pair.
+
+{- | Send @length@ bytes starting at @offset@ from a file descriptor
+to a socket. Loops until all bytes are sent or 'EOF' is hit on the
+file. Throws an IOError on any non-@EINTR@ failure.
+
+The socket must be connected. We do not touch the socket's
+@SO_LINGER@ or @TCP_CORK@ state — applications that want
+header + body to land in a single TCP segment should set
+@TCP_CORK@ themselves around the head + 'sendFile' pair.
+-}
 sendFile :: Socket -> Fd -> Word64 -> Word64 -> IO ()
 sendFile sock fileFd offset0 totalLen =
   withFdSocket sock $ \sockFdInt -> do
     let sockFd = fromIntegral sockFdInt :: CInt
     sendFileFd sockFd fileFd offset0 totalLen
 
--- | Same as 'sendFile' but takes a raw socket file descriptor. Useful
--- when you already have one (e.g. from a custom event loop).
+
+{- | Same as 'sendFile' but takes a raw socket file descriptor. Useful
+when you already have one (e.g. from a custom event loop).
+-}
 sendFileFd :: CInt -> Fd -> Word64 -> Word64 -> IO ()
 sendFileFd sockFd (Fd fileFdInt) = loop
   where
@@ -91,30 +97,34 @@ sendFileFd sockFd (Fd fileFdInt) = loop
           if err == eINTR
             then loop offset remaining
             else throwSendfileError err
-        else if n == 0
-          -- File ended before we expected (e.g. the user-supplied
-          -- length lied). Bail; the caller is responsible for
-          -- having stat'd the file size correctly.
-          then pure ()
-          else loop (offset + fromIntegral n) (remaining - fromIntegral n)
+        else
+          if n == 0
+            -- File ended before we expected (e.g. the user-supplied
+            -- length lied). Bail; the caller is responsible for
+            -- having stat'd the file size correctly.
+            then pure ()
+            else loop (offset + fromIntegral n) (remaining - fromIntegral n)
+
 
 throwSendfileError :: Errno -> IO a
 throwSendfileError err =
   throwIO $ errnoToIOError "sendfile" err Nothing Nothing
 {-# NOINLINE throwSendfileError #-}
 
+
 ------------------------------------------------------------------------
 -- send(MSG_MORE)
 ------------------------------------------------------------------------
 
--- | Linux-only @send(2)@ with the @MSG_MORE@ flag. Tells the kernel
--- "I have more data coming on this socket; do not transmit until the
--- next non-MORE send (or sendfile) flushes". Effect-equivalent to
--- @TCP_CORK@ but without the per-request setsockopt syscall pair.
---
--- The server uses this for the head of a sendfile response so the
--- head + body land in one TCP segment. Returns when all bytes have
--- been sent, looping on @EINTR@. Throws on any other failure.
+{- | Linux-only @send(2)@ with the @MSG_MORE@ flag. Tells the kernel
+"I have more data coming on this socket; do not transmit until the
+next non-MORE send (or sendfile) flushes". Effect-equivalent to
+@TCP_CORK@ but without the per-request setsockopt syscall pair.
+
+The server uses this for the head of a sendfile response so the
+head + body land in one TCP segment. Returns when all bytes have
+been sent, looping on @EINTR@. Throws on any other failure.
+-}
 sendMore :: Socket -> BS.ByteString -> IO ()
 sendMore sock bs
   | BS.null bs = pure ()
@@ -136,6 +146,7 @@ sendMore sock bs
 
     plusPtr' :: Ptr a -> Int -> Ptr a
     plusPtr' p n = Foreign.Ptr.plusPtr p n
+
 
 foreign import ccall safe "hs_http1_send_more"
   c_send_more :: CInt -> Ptr () -> CSize -> IO CSsize

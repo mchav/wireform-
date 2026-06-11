@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import Ion.Class (ToIon, FromIon, encodeIon, decodeIon)
+import GHC.Generics (Generic)
+import Ion.Class (FromIon, ToIon, decodeIon, encodeIon)
+
 
 data Event = Event
   { eventType :: !Text
   , timestamp :: !Int
-  , payload   :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToIon, FromIon)
+  , payload :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToIon, FromIon)
+
 
 main :: IO ()
 main = do
@@ -25,7 +29,7 @@ main = do
 
   case decodeIon bytes of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Event)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeIon (encodeIon evt) == Right evt)
 

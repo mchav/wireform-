@@ -122,18 +122,21 @@ data TlsConnectionConfig = TlsConnectionConfig
   { tlsServerName :: !String
   -- ^ SNI \/ X.509 hostname (defaults to 'connectionHost').
   , tlsValidateCert :: !Bool
-  -- ^ When 'True' (default), the server certificate chain and
-  --   hostname are verified against the system trust store.
+  {- ^ When 'True' (default), the server certificate chain and
+  hostname are verified against the system trust store.
+  -}
   , tlsClientCertificate :: !(Maybe (FilePath, FilePath))
-  -- ^ @(certChainPEM, privateKeyPEM)@ for mutual TLS (mTLS).
-  --   'Nothing' means no client cert is presented (the common
-  --   case). Corresponds to
-  --   'Wireform.Network.TLS.Config.tlsClientCertificate'.
+  {- ^ @(certChainPEM, privateKeyPEM)@ for mutual TLS (mTLS).
+  'Nothing' means no client cert is presented (the common
+  case). Corresponds to
+  'Wireform.Network.TLS.Config.tlsClientCertificate'.
+  -}
   , tlsMinVersion :: !TlsProtoVersion
-  -- ^ Minimum acceptable TLS protocol version.  Defaults to
-  --   'Tls12'.  Set to 'Tls13' to reject TLS 1.2 handshakes
-  --   (recommended for new deployments where the peer is known
-  --   to support TLS 1.3).
+  {- ^ Minimum acceptable TLS protocol version.  Defaults to
+  'Tls12'.  Set to 'Tls13' to reject TLS 1.2 handshakes
+  (recommended for new deployments where the peer is known
+  to support TLS 1.3).
+  -}
   }
 
 
@@ -217,8 +220,8 @@ withConnectionVia cfg mProxy mAuth action = case connectionTls cfg of
     Nothing ->
       let preferred = preferredVersion (connectionVersionRange cfg)
       in if preferred == U.HTTP2
-          then withPlaintextHttp2 cfg action
-          else withPlaintextHttp1 cfg action
+           then withPlaintextHttp2 cfg action
+           else withPlaintextHttp1 cfg action
 
 
 withTlsConnection :: ConnectionConfig -> TlsConnectionConfig -> (Connection -> IO a) -> IO a

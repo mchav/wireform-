@@ -62,10 +62,11 @@ module Wireform.Columnar (
 
   -- * Records (via 'Arrow.Record.Table')
 
-  -- | One-call helpers that lift a 'ArR.Table'-described record
-  -- type all the way to / from a columnar wire format. Equivalent
-  -- to @'encode' fmt opts schema [cols]@ / the inverse, but lets
-  -- callers work in Haskell value space end-to-end.
+  {- | One-call helpers that lift a 'ArR.Table'-described record
+  type all the way to / from a columnar wire format. Equivalent
+  to @'encode' fmt opts schema [cols]@ / the inverse, but lets
+  callers work in Haskell value space end-to-end.
+  -}
   encodeRecords,
   decodeRecords,
   decodeRecordsIter,
@@ -75,10 +76,11 @@ module Wireform.Columnar (
 
   -- * Per-format passthroughs
 
-  -- | When callers need format-specific knobs beyond what the
-  -- unified options record exposes, drop down to the per-format
-  -- modules. 'encode' / 'decode' are deliberately lossy in
-  -- exchange for a uniform surface.
+  {- | When callers need format-specific knobs beyond what the
+  unified options record exposes, drop down to the per-format
+  modules. 'encode' / 'decode' are deliberately lossy in
+  exchange for a uniform surface.
+  -}
   module Arrow.Stream,
   module Parquet.HighLevel,
   module ORC,
@@ -134,22 +136,26 @@ import Parquet.Predicate qualified as Pred
 
 -- | Which columnar format 'encode' / 'decode' should use.
 data Format
-  = -- | Apache Arrow IPC /stream/ format (pyarrow's @ipc.new_stream@
-    -- shape). Produces a contiguous stream frame; read with
-    -- 'Arrow.Stream.decodeArrowStream'.
+  = {- | Apache Arrow IPC /stream/ format (pyarrow's @ipc.new_stream@
+    shape). Produces a contiguous stream frame; read with
+    'Arrow.Stream.decodeArrowStream'.
+    -}
     Arrow
-  | -- | Apache Arrow IPC /file/ format (@ARROW1@ sentinel +
-    -- Footer block indexes). Seek-friendly; read with
-    -- 'Arrow.Stream.decodeArrowFile'.
+  | {- | Apache Arrow IPC /file/ format (@ARROW1@ sentinel +
+    Footer block indexes). Seek-friendly; read with
+    'Arrow.Stream.decodeArrowFile'.
+    -}
     ArrowFile
-  | -- | Apache Parquet. Uses 'Parquet.Arrow.arrowToParquet' to
-    -- lower the input batches to flat Parquet columns. Nested
-    -- types (struct / list / map) fall through to an error —
-    -- for those use 'Parquet.HighLevel.encodeParquetNested'
-    -- directly.
+  | {- | Apache Parquet. Uses 'Parquet.Arrow.arrowToParquet' to
+    lower the input batches to flat Parquet columns. Nested
+    types (struct / list / map) fall through to an error —
+    for those use 'Parquet.HighLevel.encodeParquetNested'
+    directly.
+    -}
     Parquet
-  | -- | Apache ORC. Uses 'ORC.Arrow.arrowToORC' to lower the
-    -- input batches; each batch becomes one stripe.
+  | {- | Apache ORC. Uses 'ORC.Arrow.arrowToORC' to lower the
+    input batches; each batch becomes one stripe.
+    -}
     ORC
   deriving (Show, Eq, Ord, Enum, Bounded)
 
@@ -174,12 +180,14 @@ let opts = 'defaultWriteOptions'
 -}
 data WriteOptions = WriteOptions
   { arrowWrite :: !Arrow.WriteOptions
-  -- ^ Used when 'Format' is 'Arrow' or 'ArrowFile'. Body
-  -- compression, dictionary-handling strategy.
+  {- ^ Used when 'Format' is 'Arrow' or 'ArrowFile'. Body
+  compression, dictionary-handling strategy.
+  -}
   , parquetWrite :: !Parquet.WriteOptions
-  -- ^ Used when 'Format' is 'Parquet'. Compression codec,
-  -- page version, page index, per-column encryption, footer
-  -- encryption, bloom filters.
+  {- ^ Used when 'Format' is 'Parquet'. Compression codec,
+  page version, page index, per-column encryption, footer
+  encryption, bloom filters.
+  -}
   , orcWrite :: !ORC.WriteOptions
   -- ^ Used when 'Format' is 'ORC'. Stripe encryption plan.
   }
@@ -665,8 +673,8 @@ projectFieldsByName names sch =
               ++ show nm
               ++ " not present in source schema"
   in do
-      fs <- traverse pickOne names
-      Right sch {AT.arrowFields = V.fromList fs}
+       fs <- traverse pickOne names
+       Right sch {AT.arrowFields = V.fromList fs}
 
 
 -- ============================================================
@@ -705,13 +713,13 @@ decodeDatasetIter fmt opts ((firstName, firstBs) : rest) = do
       outer = IS.iterFromIndexed (length rest) $ \i ->
         let (name, bs) = rest !! i
         in case decodeIter fmt opts bs of
-            Left e -> Left (name ++ ": " ++ e)
-            Right (sch', it) ->
-              if sch' /= sch
-                then
-                  Left $
-                    name ++ ": schema mismatch with first file in dataset"
-                else Right it
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               if sch' /= sch
+                 then
+                   Left $
+                     name ++ ": schema mismatch with first file in dataset"
+                 else Right it
   Right (sch, IS.iterAppend firstIt (IS.iterConcat outer))
 
 
@@ -733,13 +741,13 @@ decodeDatasetProjectedIter fmt opts names ((firstName, firstBs) : rest) = do
       outer = IS.iterFromIndexed (length rest) $ \i ->
         let (name, bs) = rest !! i
         in case decodeProjectedIter fmt opts names bs of
-            Left e -> Left (name ++ ": " ++ e)
-            Right (sch', it) ->
-              if sch' /= firstSch
-                then
-                  Left $
-                    name ++ ": schema mismatch with first file in projected dataset"
-                else Right it
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               if sch' /= firstSch
+                 then
+                   Left $
+                     name ++ ": schema mismatch with first file in projected dataset"
+                 else Right it
   Right (firstSch, IS.iterAppend firstIt (IS.iterConcat outer))
 
 
@@ -792,28 +800,28 @@ decodeHeterogeneousDatasetIter opts ((firstFmt, firstName, firstBs) : rest) = do
       outer = IS.iterFromIndexed (length rest) $ \i ->
         let (fmt, name, bs) = rest !! i
         in case decodeIter fmt opts bs of
-            Left e -> Left (name ++ ": " ++ e)
-            Right (sch', it) ->
-              -- Use both schemaEquivalent (the structural
-              -- check) and schemaFingerprint (the byte-level
-              -- check that includes Arrow-type details
-              -- schemaEquivalent's per-field show happens to
-              -- normalise identically). If they disagree the
-              -- mismatch error includes both fingerprints to
-              -- help the caller diagnose which field differs.
-              let !otherFp = AT.schemaFingerprint sch'
-              in if AT.schemaEquivalent sch' sch && otherFp == firstFp
-                  then Right it
-                  else
-                    Left $
-                      name
-                        ++ ": schema mismatch with first file ("
-                        ++ firstName
-                        ++ "): "
-                        ++ "first fingerprint="
-                        ++ show firstFp
-                        ++ ", this fingerprint="
-                        ++ show otherFp
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               -- Use both schemaEquivalent (the structural
+               -- check) and schemaFingerprint (the byte-level
+               -- check that includes Arrow-type details
+               -- schemaEquivalent's per-field show happens to
+               -- normalise identically). If they disagree the
+               -- mismatch error includes both fingerprints to
+               -- help the caller diagnose which field differs.
+               let !otherFp = AT.schemaFingerprint sch'
+               in if AT.schemaEquivalent sch' sch && otherFp == firstFp
+                    then Right it
+                    else
+                      Left $
+                        name
+                          ++ ": schema mismatch with first file ("
+                          ++ firstName
+                          ++ "): "
+                          ++ "first fingerprint="
+                          ++ show firstFp
+                          ++ ", this fingerprint="
+                          ++ show otherFp
   Right (sch, IS.iterAppend firstIt (IS.iterConcat outer))
 
 

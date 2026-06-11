@@ -1,47 +1,48 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Compile CEL to Haskell at /compile time/.
---
--- Two levels are offered:
---
---   * 'cel' / 'compileCel' parse the CEL at compile time and splice the
---     resulting 'CEL.Syntax.Expr' as a baked-in constant (no runtime parse;
---     evaluation still walks the AST once via 'CEL.evaluate').
---
---   * 'celFn' / 'compileCelFn' go further and emit the fully-compiled program
---     as Haskell: each CEL node becomes a direct call to the corresponding
---     "CEL.Eval" combinator, producing a @'Env' -> 'Either' 'CelError'
---     'Value'@ closure with no AST walk and no per-node dispatch at runtime.
---     GHC compiles and optimizes the result like any other Haskell.
---
--- A CEL syntax error in any of these becomes a compile error.
---
--- @
--- {-# LANGUAGE QuasiQuotes #-}
--- import CEL
--- import CEL.TH (celFn)
---
--- check :: Env -> Either CelError Value
--- check = [celFn| this.size() >= 3 && this.startsWith('x') |]
--- @
-module CEL.TH
-  ( -- * Compile to a baked-in AST
-    cel
-  , compileCel
+{- | Compile CEL to Haskell at /compile time/.
 
-    -- * Compile to Haskell (a 'CEL.Eval.Compiled' closure)
-  , celFn
-  , compileCelFn
-  ) where
+Two levels are offered:
 
-import qualified Data.Text as T
-import Language.Haskell.TH (Exp, Q, listE)
-import Language.Haskell.TH.Quote (QuasiQuoter (..))
-import Language.Haskell.TH.Syntax (lift)
+  * 'cel' / 'compileCel' parse the CEL at compile time and splice the
+    resulting 'CEL.Syntax.Expr' as a baked-in constant (no runtime parse;
+    evaluation still walks the AST once via 'CEL.evaluate').
+
+  * 'celFn' / 'compileCelFn' go further and emit the fully-compiled program
+    as Haskell: each CEL node becomes a direct call to the corresponding
+    "CEL.Eval" combinator, producing a @'Env' -> 'Either' 'CelError'
+    'Value'@ closure with no AST walk and no per-node dispatch at runtime.
+    GHC compiles and optimizes the result like any other Haskell.
+
+A CEL syntax error in any of these becomes a compile error.
+
+@
+{\-# LANGUAGE QuasiQuotes #-\}
+import CEL
+import CEL.TH (celFn)
+
+check :: Env -> Either CelError Value
+check = [celFn| this.size() >= 3 && this.startsWith('x') |]
+@
+-}
+module CEL.TH (
+  -- * Compile to a baked-in AST
+  cel,
+  compileCel,
+
+  -- * Compile to Haskell (a 'CEL.Eval.Compiled' closure)
+  celFn,
+  compileCelFn,
+) where
 
 import CEL.Eval
 import CEL.Parser (parse)
 import CEL.Syntax
+import Data.Text qualified as T
+import Language.Haskell.TH (Exp, Q, listE)
+import Language.Haskell.TH.Quote (QuasiQuoter (..))
+import Language.Haskell.TH.Syntax (lift)
+
 
 ----------------------------------------------------------------------
 -- AST-baking splice
@@ -53,27 +54,34 @@ compileCel src = case parseSrc src of
   Left err -> fail err
   Right expr -> lift expr
 
--- | Expression quasiquoter producing a compile-time-parsed 'Expr':
--- @[cel| 1 + 2 |]@.
+
+{- | Expression quasiquoter producing a compile-time-parsed 'Expr':
+@[cel| 1 + 2 |]@.
+-}
 cel :: QuasiQuoter
 cel = exprQuoter compileCel
+
 
 ----------------------------------------------------------------------
 -- Compile-to-Haskell splice
 ----------------------------------------------------------------------
 
--- | Parse CEL at compile time and emit the fully-compiled program as a
--- 'CEL.Eval.Compiled' (@Env -> Either CelError Value@) — each node becomes a
--- direct combinator call, so there is no runtime AST walk.
+{- | Parse CEL at compile time and emit the fully-compiled program as a
+'CEL.Eval.Compiled' (@Env -> Either CelError Value@) — each node becomes a
+direct combinator call, so there is no runtime AST walk.
+-}
 compileCelFn :: String -> Q Exp
 compileCelFn src = case parseSrc src of
   Left err -> fail err
   Right expr -> emit expr
 
--- | Expression quasiquoter producing a fully-compiled closure:
--- @[celFn| this.size() >= 3 |]@.
+
+{- | Expression quasiquoter producing a fully-compiled closure:
+@[celFn| this.size() >= 3 |]@.
+-}
 celFn :: QuasiQuoter
 celFn = exprQuoter compileCelFn
+
 
 ----------------------------------------------------------------------
 -- Emitter: Expr -> Haskell (combinator tree)
@@ -101,6 +109,7 @@ emit expr = case expr of
   where
     emitEntry (k, v) = [|($(emit k), $(emit v))|]
 
+
 emitCall :: Maybe Expr -> T.Text -> [Expr] -> Q Exp
 emitCall Nothing "has" [ESelect e f] = [|cHas $(emit e) $(lift f)|]
 emitCall Nothing "has" [_] = [|cHasInvalid|]
@@ -111,6 +120,7 @@ emitCall recv name args =
   where
     emitMaybe Nothing = [|Nothing|]
     emitMaybe (Just r) = [|Just $(emit r)|]
+
 
 emitMacro :: Expr -> T.Text -> [Expr] -> Maybe (Q Exp)
 emitMacro recv name args = case (name, args) of
@@ -131,6 +141,7 @@ emitMacro recv name args = case (name, args) of
   ("transformMap", [EIdent _ a, EIdent _ b, p, t]) -> Just [|cTransformMap $(emit recv) $(lift a) $(lift b) (Just $(emit p)) $(emit t)|]
   _ -> Nothing
 
+
 ----------------------------------------------------------------------
 -- Shared
 ----------------------------------------------------------------------
@@ -139,6 +150,7 @@ parseSrc :: String -> Either String Expr
 parseSrc src = case parse (T.pack src) of
   Left err -> Left ("CEL.TH: parse error: " <> err)
   Right expr -> Right expr
+
 
 exprQuoter :: (String -> Q Exp) -> QuasiQuoter
 exprQuoter q =

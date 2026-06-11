@@ -1,55 +1,73 @@
 {-# LANGUAGE BangPatterns #-}
+
 module Main where
 
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString as BS
 import Control.Exception (evaluate)
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import GHC.Stats
-import System.Mem (performGC)
 import HTML.Parse (parseHTML, tokenizeOnlyIO, treeBuildOnlyIO)
 import HTML.Value (HTMLDocument)
+import System.Mem (performGC)
+
 
 mediumHTML :: BS.ByteString
 mediumHTML =
   let header = "<html><body><div class=\"catalog\">\n"
       footer = "</div></body></html>\n"
       mkItem :: Int -> String
-      mkItem i = concat
-        [ "  <div class=\"item\" id=\"i", show i, "\">\n"
-        , "    <span class=\"name\">Product ", show i, "</span>\n"
-        , "    <span class=\"price\">", show (fromIntegral i * 9.99 :: Double), "</span>\n"
-        , "    <p class=\"description\">This is the description for product number "
-        , show i, " in our catalog</p>\n"
-        , "    <span class=\"category\">Category ", show (i `mod` 10), "</span>\n"
-        , "    <span class=\"inStock\">", if even i then "true" else "false", "</span>\n"
-        , "  </div>\n"
-        ]
-      items = concatMap mkItem [1..100 :: Int]
+      mkItem i =
+        concat
+          [ "  <div class=\"item\" id=\"i"
+          , show i
+          , "\">\n"
+          , "    <span class=\"name\">Product "
+          , show i
+          , "</span>\n"
+          , "    <span class=\"price\">"
+          , show (fromIntegral i * 9.99 :: Double)
+          , "</span>\n"
+          , "    <p class=\"description\">This is the description for product number "
+          , show i
+          , " in our catalog</p>\n"
+          , "    <span class=\"category\">Category "
+          , show (i `mod` 10)
+          , "</span>\n"
+          , "    <span class=\"inStock\">"
+          , if even i then "true" else "false"
+          , "</span>\n"
+          , "  </div>\n"
+          ]
+      items = concatMap mkItem [1 .. 100 :: Int]
   in BS8.pack (header ++ items ++ footer)
+
 
 parseHTMLIO :: BS.ByteString -> IO HTMLDocument
 parseHTMLIO !bs = evaluate $! parseHTML bs
 {-# NOINLINE parseHTMLIO #-}
 
+
 tokenizeIO :: BS.ByteString -> IO Int
 tokenizeIO !bs = tokenizeOnlyIO bs
 {-# NOINLINE tokenizeIO #-}
 
+
 treeBuildIO :: BS.ByteString -> IO ()
 treeBuildIO !bs = treeBuildOnlyIO bs
 {-# NOINLINE treeBuildIO #-}
+
 
 bench :: String -> Int -> IO a -> IO (Int, Double)
 bench label n act = do
   performGC
   s0 <- getRTSStats
   let !alloc0 = allocated_bytes s0
-      !mut0   = mutator_elapsed_ns s0
+      !mut0 = mutator_elapsed_ns s0
   go n
   performGC
   s1 <- getRTSStats
   let !alloc1 = allocated_bytes s1
-      !mut1   = mutator_elapsed_ns s1
+      !mut1 = mutator_elapsed_ns s1
       !totalAlloc = alloc1 - alloc0
       !perIter = totalAlloc `div` fromIntegral n
       !mutNs = mut1 - mut0
@@ -65,6 +83,7 @@ bench label n act = do
     go 0 = pure ()
     go !i = act >> go (i - 1)
 
+
 main :: IO ()
 main = do
   rtsEnabled <- getRTSStatsEnabled
@@ -73,8 +92,8 @@ main = do
     else do
       putStrLn $ "Input: " ++ show (BS.length mediumHTML) ++ " bytes"
       let n = 5000
-      (tokAlloc, _tokMbps)    <- bench "tokenize-only" n (tokenizeIO mediumHTML)
-      (tbAlloc, _tbMbps)      <- bench "tree-build-only" n (treeBuildIO mediumHTML)
+      (tokAlloc, _tokMbps) <- bench "tokenize-only" n (tokenizeIO mediumHTML)
+      (tbAlloc, _tbMbps) <- bench "tree-build-only" n (treeBuildIO mediumHTML)
       (parseAlloc, _parseMbps) <- bench "full-parse" n (parseHTMLIO mediumHTML)
       putStrLn ""
       putStrLn "--- breakdown ---"

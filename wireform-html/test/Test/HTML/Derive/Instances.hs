@@ -4,8 +4,8 @@
 module Test.HTML.Derive.Instances () where
 
 import HTML.Derive
-
 import Test.HTML.Derive.Types
+
 
 deriveHTML ''User
 deriveHTML ''Color

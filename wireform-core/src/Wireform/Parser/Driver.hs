@@ -146,7 +146,7 @@ runParserInternal t p startPos = mask \restore -> do
               (# s', Err# e #) ->
                 (# s', StepErr startPos e #)
         in case prompt# tag body s1 of
-            (# s2, step #) -> (# s2, (env', step) #)
+             (# s2, step #) -> (# s2, (env', step) #)
 
     driverLoop restore t env base msk sz startPos highWaterRef tsRef step0
 
@@ -344,7 +344,7 @@ parseByteString p b = unsafeDupablePerformIO $ do
                 (# s', Fail# #) -> (# s', StepFail 0 #)
                 (# s', Err# e #) -> (# s', StepErr 0 e #)
           in case prompt# tag body s1 of
-              (# s2, step #) -> unIO (classifyStep step) s2
+               (# s2, step #) -> unIO (classifyStep step) s2
   where
     classifyStep (StepDone _ a) = pure (Right a)
     classifyStep (StepFail pos) = pure (Left (ParseFail pos))

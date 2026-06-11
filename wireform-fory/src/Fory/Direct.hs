@@ -104,40 +104,44 @@ its Fory wire bytes directly into the IO encoder, with no
 'Fory.Value.Value' allocation.
 -}
 class ForyTypeId a => EncodeDirect a where
-  -- | Emit the type-tagged payload (no slot flag, no header).
-  -- The default 'encodeDirect' wrapper writes the
-  -- @0x02@ header byte and the @0xFF NOT_NULL_VALUE@
-  -- slot flag, then calls this.
+  {- | Emit the type-tagged payload (no slot flag, no header).
+  The default 'encodeDirect' wrapper writes the
+  @0x02@ header byte and the @0xFF NOT_NULL_VALUE@
+  slot flag, then calls this.
+  -}
   directEncodePayload :: IO.Encoder -> a -> IO ()
 
 
-  -- | Optional fast-path writer for inner loops (lists, maps,
-  -- struct fields). Returns the maximum byte size of a single
-  -- payload plus a raw 'Ptr Word8'-based writer that updates
-  -- the cursor without touching the encoder's IORefs. When
-  -- 'Just', the list / map encoder reserves @perElem * len@
-  -- bytes once with 'IO.withReservedRaw' and writes every
-  -- element in a tight loop. When 'Nothing', the inner loop
-  -- falls back to per-element 'directEncodePayload' (which
-  -- pays the 'ensure' / 'IORef' cycle each call).
+  {- | Optional fast-path writer for inner loops (lists, maps,
+  struct fields). Returns the maximum byte size of a single
+  payload plus a raw 'Ptr Word8'-based writer that updates
+  the cursor without touching the encoder's IORefs. When
+  'Just', the list / map encoder reserves @perElem * len@
+  bytes once with 'IO.withReservedRaw' and writes every
+  element in a tight loop. When 'Nothing', the inner loop
+  falls back to per-element 'directEncodePayload' (which
+  pays the 'ensure' / 'IORef' cycle each call).
+  -}
   directRawPoke :: Maybe (Int, Ptr Word8 -> Int -> a -> IO Int)
   directRawPoke = Nothing
 
 
 class ForyTypeId a => DecodeDirect a where
-  -- | Read the type-tagged payload assuming the slot byte is
-  -- @NOT_NULL_VALUE@ and the tag has already been consumed by
-  -- 'readSlotAndTag'.
+  {- | Read the type-tagged payload assuming the slot byte is
+  @NOT_NULL_VALUE@ and the tag has already been consumed by
+  'readSlotAndTag'.
+  -}
   directDecodePayload :: D.DecodeM a
 
 
-  -- | Optional fast-path reader for inner loops. Mirrors
-  -- 'directRawPoke' on the encode side: returns a raw
-  -- 'Ptr Word8'-based reader that advances the cursor without
-  -- touching the decoder's IORefs. When 'Just', the
-  -- list / Vector decoder calls 'D.readSameTypeBatch' which
-  -- pays the cursor 'IORef' cycle exactly twice for the
-  -- entire batch.
+  {- | Optional fast-path reader for inner loops. Mirrors
+  'directRawPoke' on the encode side: returns a raw
+  'Ptr Word8'-based reader that advances the cursor without
+  touching the decoder's IORefs. When 'Just', the
+  list / Vector decoder calls 'D.readSameTypeBatch' which
+  pays the cursor 'IORef' cycle exactly twice for the
+  entire batch.
+  -}
   directRawPeek :: Maybe (Ptr Word8 -> Int -> IO (a, Int))
   directRawPeek = Nothing
 

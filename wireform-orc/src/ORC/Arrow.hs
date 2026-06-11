@@ -142,10 +142,10 @@ arrowToORC
   :: AT.Schema
   -> [V.Vector AC.ColumnArray]
   -> Either
-      String
-      ( V.Vector OT.ORCType
-      , [(V.Vector (Word64, Word64, ByteString), Word64)]
-      )
+       String
+       ( V.Vector OT.ORCType
+       , [(V.Vector (Word64, Word64, ByteString), Word64)]
+       )
 arrowToORC sch batches = do
   -- Step 1: walk the schema depth-first, assigning an ORC
   -- column id per node (root=0, top-level leaves 1..N, then
@@ -593,10 +593,10 @@ columnArrayToORCStreams !cid = go
           !nanos = VP.map (\ns -> ns `rem` 1_000_000_000) nsVec
           !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
       in presentPrefix mPres c
-          <> V.fromList
-            [ (streamData, c, secBs)
-            , (streamSecondary, c, nanoBs)
-            ]
+           <> V.fromList
+             [ (streamData, c, secBs)
+             , (streamSecondary, c, nanoBs)
+             ]
 
     -- Nullable timestamp: PRESENT mask + per-present timestamp
     -- pair (DATA + SECONDARY).
@@ -608,10 +608,10 @@ columnArrayToORCStreams !cid = go
           !nanos = VP.map (\ns -> ns `rem` 1_000_000_000) nsVec
           !(secBs, nanoBs) = OW.encodeTimestampColumn secs nanos
       in V.fromList
-          [ (streamPresent, c, pres)
-          , (streamData, c, secBs)
-          , (streamSecondary, c, nanoBs)
-          ]
+           [ (streamPresent, c, pres)
+           , (streamData, c, secBs)
+           , (streamSecondary, c, nanoBs)
+           ]
     boolStreams mPres !c xs =
       presentPrefix mPres c
         <> V.singleton (streamData, c, OW.encodeBooleanRLE xs)
@@ -624,10 +624,10 @@ columnArrayToORCStreams !cid = go
     stringStreams mPres !c bytesVec =
       let !(dataBs, lengthBs) = OW.encodeStringDirectColumn (V.map decodeBytesAsText bytesVec)
       in presentPrefix mPres c
-          <> V.fromList
-            [ (streamData, c, dataBs)
-            , (streamLength, c, lengthBs)
-            ]
+           <> V.fromList
+             [ (streamData, c, dataBs)
+             , (streamLength, c, lengthBs)
+             ]
 
     presentPrefix Nothing _ = V.empty
     presentPrefix (Just p) c = V.singleton (streamPresent, c, p)
@@ -1205,8 +1205,8 @@ projectFields names sch =
               ++ show nm
               ++ " not present in target schema"
   in do
-      fs <- traverse pickOne names
-      Right sch {AT.arrowFields = V.fromList fs}
+       fs <- traverse pickOne names
+       Right sch {AT.arrowFields = V.fromList fs}
 
 
 -- ============================================================

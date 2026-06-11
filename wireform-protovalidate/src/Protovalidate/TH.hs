@@ -1,71 +1,76 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Generate a protobuf message validator __at compile time__, with every
--- rule's CEL compiled to Haskell.
---
--- Where "Protovalidate.Eval" interprets each constraint's CEL on every call,
--- 'compileMessageValidator' reads a @.proto@'s @buf.validate@ rules at compile
--- time and emits a @'Value' -> ['Violation']@ function in which each rule (the
--- standard ones, inlined to a self-contained CEL expression over @this@, and
--- any custom @(buf.validate.field).cel@) is turned into Haskell via
--- "CEL.TH".'CEL.TH.compileCelFn'. There is no runtime parsing, no AST walk,
--- and no per-node dispatch — GHC optimizes the predicates like ordinary code.
---
--- @
--- {-# LANGUAGE TemplateHaskell #-}
--- import Protovalidate
--- import Protovalidate.TH (compileMessageValidator)
--- import MyProtoSource (userProto)   -- a separate module (stage restriction)
---
--- validateUser :: Value -> [Violation]
--- validateUser = $(compileMessageValidator userProto \"User\")
--- @
---
--- The current generator validates the message's own fields (standard +
--- custom + message-level CEL); nested-message and repeated-element recursion
--- is not yet emitted.
-module Protovalidate.TH
-  ( compileMessageValidator
-  , messageValidatorE
-  , runCompiledValidator
-  , CompiledConstraint
-  ) where
+{- | Generate a protobuf message validator __at compile time__, with every
+rule's CEL compiled to Haskell.
 
-import qualified Data.ByteString as BS
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
-import Language.Haskell.TH (Exp, Q, listE)
-import Language.Haskell.TH.Syntax (lift)
+Where "Protovalidate.Eval" interprets each constraint's CEL on every call,
+'compileMessageValidator' reads a @.proto@'s @buf.validate@ rules at compile
+time and emits a @'Value' -> ['Violation']@ function in which each rule (the
+standard ones, inlined to a self-contained CEL expression over @this@, and
+any custom @(buf.validate.field).cel@) is turned into Haskell via
+"CEL.TH".'CEL.TH.compileCelFn'. There is no runtime parsing, no AST walk,
+and no per-node dispatch — GHC optimizes the predicates like ordinary code.
+
+@
+{\-# LANGUAGE TemplateHaskell #-\}
+import Protovalidate
+import Protovalidate.TH (compileMessageValidator)
+import MyProtoSource (userProto)   -- a separate module (stage restriction)
+
+validateUser :: Value -> [Violation]
+validateUser = $(compileMessageValidator userProto \"User\")
+@
+
+The current generator validates the message's own fields (standard +
+custom + message-level CEL); nested-message and repeated-element recursion
+is not yet emitted.
+-}
+module Protovalidate.TH (
+  compileMessageValidator,
+  messageValidatorE,
+  runCompiledValidator,
+  CompiledConstraint,
+) where
 
 import CEL.Environment (bind)
 import CEL.Error (errMsg)
 import CEL.Eval (Compiled)
 import CEL.TH (compileCelFn)
 import CEL.Value (Duration (..), Timestamp (..), Value (..), celMapLookup)
+import Data.ByteString qualified as BS
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Vector qualified as V
+import Language.Haskell.TH (Exp, Q, listE)
+import Language.Haskell.TH.Syntax (lift)
 import Protovalidate.Constraint (Constraint (..))
 import Protovalidate.Library (libraryEnv)
 import Protovalidate.Rules
 import Protovalidate.Schema (parseProtoRules)
 import Protovalidate.Violation (Violation (..))
 
--- | A compiled constraint: its id, fallback message, and the CEL program
--- compiled to Haskell.
+
+{- | A compiled constraint: its id, fallback message, and the CEL program
+compiled to Haskell.
+-}
 type CompiledConstraint = (Text, Text, Compiled)
+
 
 ----------------------------------------------------------------------
 -- Compile-time generation
 ----------------------------------------------------------------------
 
--- | Parse a @.proto@ at compile time and emit a compiled validator
--- (@'Value' -> ['Violation']@) for the named message.
+{- | Parse a @.proto@ at compile time and emit a compiled validator
+(@'Value' -> ['Violation']@) for the named message.
+-}
 compileMessageValidator :: Text -> Text -> Q Exp
 compileMessageValidator protoSrc name = case parseProtoRules protoSrc of
   Left err -> fail ("Protovalidate.TH: " <> T.unpack err)
   Right rs -> case lookup name rs of
     Nothing -> fail ("Protovalidate.TH: no message named " <> T.unpack name)
     Just mr -> messageValidatorE mr
+
 
 -- | Emit a compiled validator for an already-known 'MessageRules'.
 messageValidatorE :: MessageRules -> Q Exp
@@ -78,13 +83,16 @@ messageValidatorE mr = do
       conExps <- mapM emitConstraint (fieldConstraints fr)
       [|($(lift fname), $(listE (map pure conExps)))|]
 
+
 -- Emit one (id, message, compiledProgram) triple.
 emitConstraint :: (Text, Text, Text) -> Q Exp
 emitConstraint (cid, msg, src) =
   [|($(lift cid), $(lift msg), $(compileCelFn (T.unpack src)))|]
 
+
 fromCustom :: Constraint -> (Text, Text, Text)
 fromCustom c = (constraintId c, constraintMessage c, constraintSource c)
+
 
 -- The (id, message, self-contained CEL) triples for a field: applicable
 -- standard rules (inlined over @this@) plus custom CEL constraints.
@@ -103,19 +111,22 @@ fieldConstraints fr =
         ]
     active v = case v of VBool False -> False; _ -> True
 
+
 standardMeta :: RuleKind -> Text -> (Text, Text)
 standardMeta kind rf =
   case lookup rf [(r, (constraintId c, constraintMessage c)) | (r, c) <- standardConstraints kind] of
     Just m -> m
     Nothing -> (rf, "constraint failed")
 
+
 ----------------------------------------------------------------------
 -- Runtime support (referenced by the emitted code)
 ----------------------------------------------------------------------
 
--- | Run a compiled validator: per-field constraints (with @this@ bound to the
--- field value) and message-level constraints (with @this@ bound to the whole
--- message). Used by the code 'compileMessageValidator' emits.
+{- | Run a compiled validator: per-field constraints (with @this@ bound to the
+field value) and message-level constraints (with @this@ bound to the whole
+message). Used by the code 'compileMessageValidator' emits.
+-}
 runCompiledValidator
   :: [(Text, [CompiledConstraint])]
   -> [CompiledConstraint]
@@ -133,21 +144,23 @@ runCompiledValidator fields msgCons msg =
     runCons path this = concatMap (one path this)
     one path this (cid, m, prog) =
       let env = bind "this" this libraryEnv
-       in case prog env of
-            Right (VBool True) -> []
-            Right (VString "") -> []
-            Right (VBool False) -> [Violation path cid m]
-            Right (VString s) -> [Violation path cid s]
-            Right _ -> [Violation path cid "constraint must evaluate to bool or string"]
-            Left e -> [Violation path cid ("evaluation error: " <> errMsg e)]
+      in case prog env of
+           Right (VBool True) -> []
+           Right (VString "") -> []
+           Right (VBool False) -> [Violation path cid m]
+           Right (VString s) -> [Violation path cid s]
+           Right _ -> [Violation path cid "constraint must evaluate to bool or string"]
+           Left e -> [Violation path cid ("evaluation error: " <> errMsg e)]
+
 
 ----------------------------------------------------------------------
 -- Inlining standard rules to self-contained CEL (over @this@)
 ----------------------------------------------------------------------
 
--- | A self-contained CEL expression (referencing only @this@) for a standard
--- rule, with the rule value inlined as a literal. 'Nothing' for rules with no
--- direct CEL form.
+{- | A self-contained CEL expression (referencing only @this@) for a standard
+rule, with the rule value inlined as a literal. 'Nothing' for rules with no
+direct CEL form.
+-}
 inlineRuleCel :: Text -> Value -> Maybe Text
 inlineRuleCel rf value = case rf of
   "const" -> Just ("this == " <> celLit value)
@@ -193,6 +206,7 @@ inlineRuleCel rf value = case rf of
   "finite" -> Just "!isInf(this) && !isNan(this)"
   _ -> Nothing
 
+
 celLit :: Value -> Text
 celLit = \case
   VBool b -> if b then "true" else "false"
@@ -210,6 +224,7 @@ celLit = \case
     tshow :: Show a => a -> Text
     tshow = T.pack . show
 
+
 -- A CEL @duration("…s")@ literal. Seconds plus a 9-digit fractional part for
 -- any nanoseconds (trailing zeros trimmed).
 celDuration :: Duration -> Text
@@ -222,12 +237,14 @@ celDuration (Duration s n)
     sign = if s < 0 || n < 0 then "-" else ""
     frac =
       let padded = T.justifyRight 9 '0' (tshow (abs (fromIntegral n :: Integer)))
-       in case T.dropWhileEnd (== '0') padded of
-            "" -> "0"
-            t -> t
+      in case T.dropWhileEnd (== '0') padded of
+           "" -> "0"
+           t -> t
+
 
 celString :: Text -> Text
 celString s = "'" <> T.replace "'" "\\'" (T.replace "\\" "\\\\" s) <> "'"
+
 
 -- A CEL bytes literal: every octet as a @\\xHH@ escape inside @b'…'@.
 celBytes :: BS.ByteString -> Text

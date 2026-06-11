@@ -1,63 +1,71 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The validation engine: evaluate a message's standard and custom CEL
--- constraints and collect 'Violation's.
---
--- A message is represented as a CEL 'VMap' from field name to value (use
--- "Protovalidate.Proto" to obtain one from a @wireform-proto@ dynamic
--- message). Each field's value is bound to @this@ and its rule message to
--- @rules@ before the applicable standard constraints (and any custom CEL) are
--- evaluated. A constraint that yields @false@ — or a non-empty @string@ —
--- produces a violation.
-module Protovalidate.Eval
-  ( validate
-  , validateAt
-  , validateIn
-  , evalConstraint
-  ) where
+{- | The validation engine: evaluate a message's standard and custom CEL
+constraints and collect 'Violation's.
 
-import qualified Data.ByteString as BS
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
+A message is represented as a CEL 'VMap' from field name to value (use
+"Protovalidate.Proto" to obtain one from a @wireform-proto@ dynamic
+message). Each field's value is bound to @this@ and its rule message to
+@rules@ before the applicable standard constraints (and any custom CEL) are
+evaluated. A constraint that yields @false@ — or a non-empty @string@ —
+produces a violation.
+-}
+module Protovalidate.Eval (
+  validate,
+  validateAt,
+  validateIn,
+  evalConstraint,
+) where
 
 import CEL (evaluate)
 import CEL.Environment (Env, bind)
 import CEL.Error (CelError, errMsg, invalidArg)
-import CEL.Value
-  ( CelMap
-  , Timestamp
-  , Value (..)
-  , celMapEntries
-  , celMapFromList
-  , celMapLookup
-  , celMapSize
-  )
+import CEL.Value (
+  CelMap,
+  Timestamp,
+  Value (..),
+  celMapEntries,
+  celMapFromList,
+  celMapLookup,
+  celMapSize,
+ )
+import Data.ByteString qualified as BS
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Vector qualified as V
 import Protovalidate.Constraint (Constraint (..))
 import Protovalidate.Library (libraryEnv)
 import Protovalidate.Rules
 import Protovalidate.Violation (Violation (..))
 
--- | Validate a message (as a CEL value, normally a 'VMap') against a
--- 'MessageRules' using the standard protovalidate CEL environment (base CEL
--- plus the protovalidate extension library).
+
+{- | Validate a message (as a CEL value, normally a 'VMap') against a
+'MessageRules' using the standard protovalidate CEL environment (base CEL
+plus the protovalidate extension library).
+-}
 validate :: Value -> MessageRules -> [Violation]
 validate = validateIn libraryEnv
 
--- | As 'validate', but with @now@ bound to the given timestamp, so the
--- time-relative timestamp rules (@lt_now@ / @gt_now@ / @within@) can be
--- evaluated deterministically.
+
+{- | As 'validate', but with @now@ bound to the given timestamp, so the
+time-relative timestamp rules (@lt_now@ / @gt_now@ / @within@) can be
+evaluated deterministically.
+-}
 validateAt :: Timestamp -> Value -> MessageRules -> [Violation]
 validateAt now = validateIn (bind "now" (VTimestamp now) libraryEnv)
 
--- | As 'validate', but with a caller-supplied base environment (e.g. with
--- additional custom functions or variables registered).
+
+{- | As 'validate', but with a caller-supplied base environment (e.g. with
+additional custom functions or variables registered).
+-}
 validateIn :: Env -> Value -> MessageRules -> [Violation]
 validateIn env = validateMessage env ""
 
--- | Evaluate a single constraint in an environment where @this@/@rules@ are
--- already bound. Returns 'Nothing' when satisfied, or @'Just' message@ for a
--- violation.
+
+{- | Evaluate a single constraint in an environment where @this@/@rules@ are
+already bound. Returns 'Nothing' when satisfied, or @'Just' message@ for a
+violation.
+-}
 evalConstraint :: Env -> Constraint -> Either CelError (Maybe Text)
 evalConstraint env con = case evaluate env (constraintExpr con) of
   Left err -> Left err
@@ -67,10 +75,12 @@ evalConstraint env con = case evaluate env (constraintExpr con) of
   Right (VString s) -> Right (Just s)
   Right _ -> Left (invalidArg "constraint expression must evaluate to bool or string")
 
+
 validateMessage :: Env -> Text -> Value -> MessageRules -> [Violation]
 validateMessage env path msg mr =
   concatMap (validateNamedField env path msg) (mrFields mr)
     ++ runConstraints (bind "this" msg env) path (mrCustom mr)
+
 
 validateNamedField :: Env -> Text -> Value -> (Text, FieldRules) -> [Violation]
 validateNamedField env prefixPath msg (name, fr) =
@@ -82,9 +92,11 @@ validateNamedField env prefixPath msg (name, fr) =
   where
     fieldPath = if T.null prefixPath then name else prefixPath <> "." <> name
 
+
 lookupField :: Text -> Value -> Maybe Value
 lookupField name (VMap m) = celMapLookup (VString name) m
 lookupField _ _ = Nothing
+
 
 validateFieldValue :: Env -> Text -> Value -> FieldRules -> [Violation]
 validateFieldValue env path v fr
@@ -122,7 +134,7 @@ validateFieldValue env path v fr
             valViols = case frMapValues fr of
               Just vr -> concatMap (\(k, val) -> validateFieldValue env (keyed path k) val vr) entries
               Nothing -> []
-         in keyViols ++ valViols
+        in keyViols ++ valViols
       _ -> []
 
     nestedViols = case (frMessage fr, v) of
@@ -131,11 +143,14 @@ validateFieldValue env path v fr
         concat (zipWith (\i x -> validateMessage env (indexed path i) x mr) [0 ..] (V.toList xs))
       _ -> []
 
+
 indexed :: Text -> Int -> Text
 indexed path i = path <> "[" <> T.pack (show i) <> "]"
 
+
 keyed :: Text -> Value -> Text
 keyed path k = path <> "[" <> renderKeyText k <> "]"
+
 
 renderKeyText :: Value -> Text
 renderKeyText = \case
@@ -145,14 +160,17 @@ renderKeyText = \case
   VBool b -> if b then "true" else "false"
   other -> T.pack (show other)
 
+
 rulesAsMap :: [(Text, Value)] -> CelMap
 rulesAsMap rs = celMapFromList [(VString k, v) | (k, v) <- rs]
+
 
 ruleActive :: Text -> [(Text, Value)] -> Bool
 ruleActive ruleField rs = case lookup ruleField rs of
   Nothing -> False
   Just (VBool False) -> False
   Just _ -> True
+
 
 runConstraints :: Env -> Text -> [Constraint] -> [Violation]
 runConstraints env path = concatMap go
@@ -161,6 +179,7 @@ runConstraints env path = concatMap go
       Left err -> [Violation path (constraintId con) ("evaluation error: " <> errMsg err)]
       Right Nothing -> []
       Right (Just m) -> [Violation path (constraintId con) m]
+
 
 isZeroValue :: Value -> Bool
 isZeroValue = \case

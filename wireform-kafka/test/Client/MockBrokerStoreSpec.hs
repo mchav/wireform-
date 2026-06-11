@@ -1,42 +1,49 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Manual offset store + immediate flush + barrier-batch tests.
--- Mirrors librdkafka 0125 (immediate flush), 0130 (store offsets),
--- 0137 (barrier batch).
+{- | Manual offset store + immediate flush + barrier-batch tests.
+Mirrors librdkafka 0125 (immediate flush), 0130 (store offsets),
+0137 (barrier batch).
+-}
 module Client.MockBrokerStoreSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import qualified Data.Text as T
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Test.Syd
-
+import Data.Text qualified as T
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Consumer
 import Kafka.Client.Mock.Fault
 import Kafka.Client.Mock.Producer
+import Test.Syd
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
+
 
 ts :: Integer -> Int64
 ts = fromIntegral
 
+
 tests :: Spec
-tests = describe "MockBrokerStore" $ sequence_
-  [ store_offset_does_not_commit
-  , commit_stored_drains_local_store
-  , store_then_commit_then_offset_visible
-  , commit_stored_with_fault_keeps_local
-  , flush_sync_returns_right
-  , send_batch_round_trip
-  , send_batch_assigns_increasing_offsets
-  , send_batch_partition_routing_per_record
-  ]
+tests =
+  describe "MockBrokerStore" $
+    sequence_
+      [ store_offset_does_not_commit
+      , commit_stored_drains_local_store
+      , store_then_commit_then_offset_visible
+      , commit_stored_with_fault_keeps_local
+      , flush_sync_returns_right
+      , send_batch_round_trip
+      , send_batch_assigns_increasing_offsets
+      , send_batch_partition_routing_per_record
+      ]
+
 
 ----------------------------------------------------------------------
 -- Manual offset store
@@ -59,6 +66,7 @@ store_offset_does_not_commit =
     gm <- groupOffsetsFor c g
     Map.lookup ("t", 0) gm `shouldBe` Nothing
 
+
 commit_stored_drains_local_store :: Spec
 commit_stored_drains_local_store =
   it "commitStoredOffsetsMC commits + clears the local store" $ do
@@ -78,6 +86,7 @@ commit_stored_drains_local_store =
     -- Local store is empty.
     sm <- storedOffsets cons
     Map.size sm `shouldBe` 0
+
 
 store_then_commit_then_offset_visible :: Spec
 store_then_commit_then_offset_visible =
@@ -100,9 +109,10 @@ store_then_commit_then_offset_visible =
     -- sorted [a, b] and 2 partitions, b gets partition 1.
     b <- newMockConsumerWithId c fp g (MemberId "b") ReadUncommitted 100
     subscribeMC b ["t"]
-    refreshAssignment a   -- a refreshes too, may revoke partition 1
+    refreshAssignment a -- a refreshes too, may revoke partition 1
     pos <- currentPosition b "t" 1
     pos `shouldBe` Just 23
+
 
 commit_stored_with_fault_keeps_local :: Spec
 commit_stored_with_fault_keeps_local =
@@ -127,6 +137,7 @@ commit_stored_with_fault_keeps_local =
     sm2 <- storedOffsets cons
     Map.size sm2 `shouldBe` 0
 
+
 ----------------------------------------------------------------------
 -- Immediate flush
 ----------------------------------------------------------------------
@@ -137,13 +148,14 @@ flush_sync_returns_right =
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    _  <- sendMock p "t" 0 Nothing (bytes "v") (ts 0)
-    r  <- flushMockSync p 5000
+    p <- newMockProducer c fp Nothing
+    _ <- sendMock p "t" 0 Nothing (bytes "v") (ts 0)
+    r <- flushMockSync p 5000
     r `shouldBe` Right ()
     -- 'producerPendingCount' is always zero since sends are sync.
     n <- producerPendingCount p
     n `shouldBe` 0
+
 
 ----------------------------------------------------------------------
 -- Send batch (barrier batch)
@@ -155,15 +167,18 @@ send_batch_round_trip =
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    rs <- sendBatchMock p
-      [ ("t", 0, Just (bytes "k1"), bytes "v1", ts 0)
-      , ("t", 0, Just (bytes "k2"), bytes "v2", ts 1)
-      , ("t", 0, Just (bytes "k3"), bytes "v3", ts 2)
-      ]
+    p <- newMockProducer c fp Nothing
+    rs <-
+      sendBatchMock
+        p
+        [ ("t", 0, Just (bytes "k1"), bytes "v1", ts 0)
+        , ("t", 0, Just (bytes "k2"), bytes "v2", ts 1)
+        , ("t", 0, Just (bytes "k3"), bytes "v3", ts 2)
+        ]
     case rs of
       [MPSent 0 0, MPSent 0 1, MPSent 0 2] -> pure ()
       other -> error ("unexpected " <> show other)
+
 
 send_batch_assigns_increasing_offsets :: Spec
 send_batch_assigns_increasing_offsets =
@@ -171,12 +186,15 @@ send_batch_assigns_increasing_offsets =
     c <- newMockCluster 1
     createTopic c "t" 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    let !batch = [ ("t", 0, Nothing, bytes ("v" <> T.pack (show i)), ts 0)
-                 | i <- [0 .. 9 :: Int] ]
+    p <- newMockProducer c fp Nothing
+    let !batch =
+          [ ("t", 0, Nothing, bytes ("v" <> T.pack (show i)), ts 0)
+          | i <- [0 .. 9 :: Int]
+          ]
     rs <- sendBatchMock p batch
-    let !offsets = [ off | MPSent _ off <- rs ]
+    let !offsets = [off | MPSent _ off <- rs]
     offsets `shouldBe` [0 .. 9]
+
 
 send_batch_partition_routing_per_record :: Spec
 send_batch_partition_routing_per_record =
@@ -184,13 +202,15 @@ send_batch_partition_routing_per_record =
     c <- newMockCluster 1
     createTopic c "t" 3
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    rs <- sendBatchMock p
-      [ ("t", 0, Nothing, bytes "p0a", ts 0)
-      , ("t", 1, Nothing, bytes "p1a", ts 0)
-      , ("t", 2, Nothing, bytes "p2a", ts 0)
-      , ("t", 0, Nothing, bytes "p0b", ts 1)
-      ]
+    p <- newMockProducer c fp Nothing
+    rs <-
+      sendBatchMock
+        p
+        [ ("t", 0, Nothing, bytes "p0a", ts 0)
+        , ("t", 1, Nothing, bytes "p1a", ts 0)
+        , ("t", 2, Nothing, bytes "p2a", ts 0)
+        , ("t", 0, Nothing, bytes "p0b", ts 1)
+        ]
     case rs of
       [MPSent 0 0, MPSent 1 0, MPSent 2 0, MPSent 0 1] -> pure ()
       other -> error ("unexpected " <> show other)

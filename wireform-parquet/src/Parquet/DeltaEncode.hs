@@ -70,16 +70,16 @@ encodeDeltaBinaryPackedRaw vs =
           <> encodeULeb (fromIntegral numMiniblocks)
           <> encodeULeb (fromIntegral n)
   in if n == 0
-      then BL.toStrict (B.toLazyByteString (header <> encodeZigzagLeb 0))
-      else
-        let !firstVal = VP.unsafeIndex vs 0
-            !deltas = VP.zipWith (-) (VP.tail vs) (VP.init vs)
-            !blocks = encodeBlocks blockSize numMiniblocks miniblockSize deltas
-            !payload =
-              header
-                <> encodeZigzagLeb firstVal
-                <> blocks
-        in BL.toStrict (B.toLazyByteString payload)
+       then BL.toStrict (B.toLazyByteString (header <> encodeZigzagLeb 0))
+       else
+         let !firstVal = VP.unsafeIndex vs 0
+             !deltas = VP.zipWith (-) (VP.tail vs) (VP.init vs)
+             !blocks = encodeBlocks blockSize numMiniblocks miniblockSize deltas
+             !payload =
+               header
+                 <> encodeZigzagLeb firstVal
+                 <> blocks
+         in BL.toStrict (B.toLazyByteString payload)
 
 
 encodeBlocks :: Int -> Int -> Int -> VP.Vector Int64 -> B.Builder
@@ -91,7 +91,7 @@ encodeBlocks blockSize numMiniblocks miniblockSize deltas =
             let !chunkLen = min blockSize (n - off)
                 !chunk = VP.slice off chunkLen deltas
             in encodeOneBlock numMiniblocks miniblockSize chunk
-                <> go (off + blockSize)
+                 <> go (off + blockSize)
   in go 0
 
 
@@ -102,8 +102,8 @@ encodeOneBlock numMiniblocks miniblockSize chunk =
       !mini = splitIntoMiniblocks numMiniblocks miniblockSize chunk
       !bitWidths = map (miniblockBitWidth minDelta) mini
   in encodeZigzagLeb minDelta
-      <> mconcat (map (B.word8 . fromIntegral) bitWidths)
-      <> mconcat (zipWith (encodeMiniblockPayload minDelta miniblockSize) bitWidths mini)
+       <> mconcat (map (B.word8 . fromIntegral) bitWidths)
+       <> mconcat (zipWith (encodeMiniblockPayload minDelta miniblockSize) bitWidths mini)
 
 
 -- Split a block (possibly less than blockSize values) into miniblocks,
@@ -149,9 +149,9 @@ encodeMiniblockPayload minDelta miniblockSize bw vs =
   let !totalBits = miniblockSize * bw
       !totalBytes = (totalBits + 7) `shiftR` 3
   in mconcat
-      [ B.word8 (byteAt byteIdx)
-      | byteIdx <- [0 .. totalBytes - 1]
-      ]
+       [ B.word8 (byteAt byteIdx)
+       | byteIdx <- [0 .. totalBytes - 1]
+       ]
   where
     n = VP.length vs
 
@@ -165,17 +165,17 @@ encodeMiniblockPayload minDelta miniblockSize bw vs =
                     !valIdx = globalBit `quot` bw
                     !innerBit = globalBit `rem` bw
                 in if valIdx >= n
-                    then go (bit + 1) acc
-                    else
-                      let !v =
-                            fromIntegral
-                              (VP.unsafeIndex vs valIdx - minDelta)
-                              :: Word64
-                          !flag =
-                            if (v `shiftR` innerBit) .&. 1 == 1
-                              then acc .|. (1 `shiftL` bit)
-                              else acc
-                      in go (bit + 1) flag
+                     then go (bit + 1) acc
+                     else
+                       let !v =
+                             fromIntegral
+                               (VP.unsafeIndex vs valIdx - minDelta)
+                               :: Word64
+                           !flag =
+                             if (v `shiftR` innerBit) .&. 1 == 1
+                               then acc .|. (1 `shiftL` bit)
+                               else acc
+                       in go (bit + 1) flag
       in fromIntegral (go 0 (0 :: Int))
 
 

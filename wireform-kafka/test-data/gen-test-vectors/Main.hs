@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE TypeApplications #-}
 
-{-|
+{- |
 Module      : Main
 Description : Generate test-vectors.json from in-tree encoders
 
@@ -40,236 +40,288 @@ Usage:
 -}
 module Main (main) where
 
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Encode.Pretty as Aeson
-import qualified Data.ByteArray.Encoding as BA
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Encode.Pretty qualified as Aeson
+import Data.ByteArray.Encoding qualified as BA
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int16)
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Vector as V
-import qualified System.IO as IO
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
+import System.IO qualified as IO
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest qualified as AVReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsResponse qualified as AVResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest qualified as FCReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse qualified as FCResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatRequest qualified as HBReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatResponse qualified as HBResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupRequest qualified as LGReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupResponse qualified as LGResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest qualified as MReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataResponse qualified as MResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitRequest qualified as OCReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitResponse qualified as OCResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest qualified as OFReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse qualified as OFResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateRequest qualified as SAReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateResponse qualified as SAResp
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeRequest qualified as SHReq
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeResponse qualified as SHResp
+import "wireform-kafka-protocol" Kafka.Protocol.Primitives qualified as P
+import "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec qualified as WC
 
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsRequest as AVReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.ApiVersionsResponse as AVResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatRequest as HBReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.HeartbeatResponse as HBResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupRequest as LGReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.LeaveGroupResponse as LGResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataRequest as MReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.MetadataResponse as MResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeRequest as SHReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslHandshakeResponse as SHResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateRequest as SAReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.SaslAuthenticateResponse as SAResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorRequest as FCReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.FindCoordinatorResponse as FCResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitRequest as OCReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetCommitResponse as OCResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchRequest as OFReq
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.OffsetFetchResponse as OFResp
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
 
 ------------------------------------------------------------------------
 -- Vector record
 ------------------------------------------------------------------------
 
 data Vector = Vector
-  { vApiKey      :: !(Maybe Int16)
+  { vApiKey :: !(Maybe Int16)
   , vMessageType :: !Text
-  , vVersion     :: !Int16
-  , vTestCase    :: !Text
+  , vVersion :: !Int16
+  , vTestCase :: !Text
   , vDescription :: !Text
-  , vHex         :: !Text
+  , vHex :: !Text
   }
 
+
 instance Aeson.ToJSON Vector where
-  toJSON v = Aeson.object
-    [ "api_key"      Aeson..= vApiKey v
-    , "message_type" Aeson..= vMessageType v
-    , "version"      Aeson..= vVersion v
-    , "test_case"    Aeson..= vTestCase v
-    , "description"  Aeson..= vDescription v
-    , "hex"          Aeson..= vHex v
-    ]
+  toJSON v =
+    Aeson.object
+      [ "api_key" Aeson..= vApiKey v
+      , "message_type" Aeson..= vMessageType v
+      , "version" Aeson..= vVersion v
+      , "test_case" Aeson..= vTestCase v
+      , "description" Aeson..= vDescription v
+      , "hex" Aeson..= vHex v
+      ]
+
 
 vector
   :: Maybe Int16
-  -> Text     -- ^ message type
-  -> Int16    -- ^ version
-  -> Text     -- ^ test case slug
-  -> Text     -- ^ human-readable description
+  -> Text
+  -- ^ message type
+  -> Int16
+  -- ^ version
+  -> Text
+  -- ^ test case slug
+  -> Text
+  -- ^ human-readable description
   -> BS.ByteString
   -> Vector
-vector apiKey ty ver slug descr bs = Vector
-  { vApiKey      = apiKey
-  , vMessageType = ty
-  , vVersion     = ver
-  , vTestCase    = slug
-  , vDescription = descr
-  , vHex         = TE.decodeUtf8 (BA.convertToBase BA.Base16 bs)
-  }
+vector apiKey ty ver slug descr bs =
+  Vector
+    { vApiKey = apiKey
+    , vMessageType = ty
+    , vVersion = ver
+    , vTestCase = slug
+    , vDescription = descr
+    , vHex = TE.decodeUtf8 (BA.convertToBase BA.Base16 bs)
+    }
+
 
 ------------------------------------------------------------------------
 -- Sample value builders
 ------------------------------------------------------------------------
 
 apiVersionsReqV3 :: AVReq.ApiVersionsRequest
-apiVersionsReqV3 = AVReq.ApiVersionsRequest
-  { AVReq.apiVersionsRequestClientSoftwareName    = P.mkKafkaString "wireform-kafka"
-  , AVReq.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString "0.1.0"
-  }
+apiVersionsReqV3 =
+  AVReq.ApiVersionsRequest
+    { AVReq.apiVersionsRequestClientSoftwareName = P.mkKafkaString "wireform-kafka"
+    , AVReq.apiVersionsRequestClientSoftwareVersion = P.mkKafkaString "0.1.0"
+    }
+
 
 apiVersionsRespV3 :: AVResp.ApiVersionsResponse
-apiVersionsRespV3 = AVResp.ApiVersionsResponse
-  { AVResp.apiVersionsResponseErrorCode    = 0
-  , AVResp.apiVersionsResponseApiKeys      = P.mkKafkaArray V.empty
-  , AVResp.apiVersionsResponseThrottleTimeMs = 0
-  , AVResp.apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty
-  , AVResp.apiVersionsResponseFinalizedFeaturesEpoch = -1
-  , AVResp.apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty
-  , AVResp.apiVersionsResponseZkMigrationReady = False
-  }
+apiVersionsRespV3 =
+  AVResp.ApiVersionsResponse
+    { AVResp.apiVersionsResponseErrorCode = 0
+    , AVResp.apiVersionsResponseApiKeys = P.mkKafkaArray V.empty
+    , AVResp.apiVersionsResponseThrottleTimeMs = 0
+    , AVResp.apiVersionsResponseSupportedFeatures = P.mkKafkaArray V.empty
+    , AVResp.apiVersionsResponseFinalizedFeaturesEpoch = -1
+    , AVResp.apiVersionsResponseFinalizedFeatures = P.mkKafkaArray V.empty
+    , AVResp.apiVersionsResponseZkMigrationReady = False
+    }
+
 
 heartbeatReqV4 :: HBReq.HeartbeatRequest
-heartbeatReqV4 = HBReq.HeartbeatRequest
-  { HBReq.heartbeatRequestGroupId         = P.mkKafkaString "wf-test-group"
-  , HBReq.heartbeatRequestGenerationId    = 7
-  , HBReq.heartbeatRequestMemberId        = P.mkKafkaString "consumer-1"
-  , HBReq.heartbeatRequestGroupInstanceId = P.KafkaString P.Null
-  }
+heartbeatReqV4 =
+  HBReq.HeartbeatRequest
+    { HBReq.heartbeatRequestGroupId = P.mkKafkaString "wf-test-group"
+    , HBReq.heartbeatRequestGenerationId = 7
+    , HBReq.heartbeatRequestMemberId = P.mkKafkaString "consumer-1"
+    , HBReq.heartbeatRequestGroupInstanceId = P.KafkaString P.Null
+    }
+
 
 heartbeatRespV4 :: HBResp.HeartbeatResponse
-heartbeatRespV4 = HBResp.HeartbeatResponse
-  { HBResp.heartbeatResponseThrottleTimeMs = 0
-  , HBResp.heartbeatResponseErrorCode      = 0
-  }
+heartbeatRespV4 =
+  HBResp.HeartbeatResponse
+    { HBResp.heartbeatResponseThrottleTimeMs = 0
+    , HBResp.heartbeatResponseErrorCode = 0
+    }
+
 
 leaveGroupReqV4 :: LGReq.LeaveGroupRequest
-leaveGroupReqV4 = LGReq.LeaveGroupRequest
-  { LGReq.leaveGroupRequestGroupId  = P.mkKafkaString "wf-test-group"
-  , LGReq.leaveGroupRequestMemberId = P.KafkaString P.Null
-  , LGReq.leaveGroupRequestMembers  = P.mkKafkaArray $ V.singleton $
-      LGReq.MemberIdentity
-        { LGReq.memberIdentityMemberId        = P.mkKafkaString "consumer-1"
-        , LGReq.memberIdentityGroupInstanceId = P.KafkaString P.Null
-        , LGReq.memberIdentityReason          = P.mkKafkaString "shutdown"
-        }
-  }
+leaveGroupReqV4 =
+  LGReq.LeaveGroupRequest
+    { LGReq.leaveGroupRequestGroupId = P.mkKafkaString "wf-test-group"
+    , LGReq.leaveGroupRequestMemberId = P.KafkaString P.Null
+    , LGReq.leaveGroupRequestMembers =
+        P.mkKafkaArray $
+          V.singleton $
+            LGReq.MemberIdentity
+              { LGReq.memberIdentityMemberId = P.mkKafkaString "consumer-1"
+              , LGReq.memberIdentityGroupInstanceId = P.KafkaString P.Null
+              , LGReq.memberIdentityReason = P.mkKafkaString "shutdown"
+              }
+    }
+
 
 leaveGroupRespV4 :: LGResp.LeaveGroupResponse
-leaveGroupRespV4 = LGResp.LeaveGroupResponse
-  { LGResp.leaveGroupResponseThrottleTimeMs = 0
-  , LGResp.leaveGroupResponseErrorCode      = 0
-  , LGResp.leaveGroupResponseMembers        = P.mkKafkaArray V.empty
-  }
+leaveGroupRespV4 =
+  LGResp.LeaveGroupResponse
+    { LGResp.leaveGroupResponseThrottleTimeMs = 0
+    , LGResp.leaveGroupResponseErrorCode = 0
+    , LGResp.leaveGroupResponseMembers = P.mkKafkaArray V.empty
+    }
+
 
 metadataReqV9 :: MReq.MetadataRequest
-metadataReqV9 = MReq.MetadataRequest
-  { MReq.metadataRequestTopics = P.mkKafkaArray $ V.fromList
-      [ MReq.MetadataRequestTopic
-          { MReq.metadataRequestTopicTopicId = P.nullUuid
-          , MReq.metadataRequestTopicName    = P.mkKafkaString "events"
-          }
-      ]
-  , MReq.metadataRequestAllowAutoTopicCreation                      = True
-  , MReq.metadataRequestIncludeClusterAuthorizedOperations          = False
-  , MReq.metadataRequestIncludeTopicAuthorizedOperations            = False
-  }
+metadataReqV9 =
+  MReq.MetadataRequest
+    { MReq.metadataRequestTopics =
+        P.mkKafkaArray $
+          V.fromList
+            [ MReq.MetadataRequestTopic
+                { MReq.metadataRequestTopicTopicId = P.nullUuid
+                , MReq.metadataRequestTopicName = P.mkKafkaString "events"
+                }
+            ]
+    , MReq.metadataRequestAllowAutoTopicCreation = True
+    , MReq.metadataRequestIncludeClusterAuthorizedOperations = False
+    , MReq.metadataRequestIncludeTopicAuthorizedOperations = False
+    }
+
 
 metadataRespV9 :: MResp.MetadataResponse
-metadataRespV9 = MResp.MetadataResponse
-  { MResp.metadataResponseThrottleTimeMs              = 0
-  , MResp.metadataResponseBrokers                     = P.mkKafkaArray V.empty
-  , MResp.metadataResponseClusterId                   = P.KafkaString P.Null
-  , MResp.metadataResponseControllerId                = -1
-  , MResp.metadataResponseTopics                      = P.mkKafkaArray V.empty
-  , MResp.metadataResponseClusterAuthorizedOperations = -2147483648
-  , MResp.metadataResponseErrorCode                   = 0
-  }
+metadataRespV9 =
+  MResp.MetadataResponse
+    { MResp.metadataResponseThrottleTimeMs = 0
+    , MResp.metadataResponseBrokers = P.mkKafkaArray V.empty
+    , MResp.metadataResponseClusterId = P.KafkaString P.Null
+    , MResp.metadataResponseControllerId = -1
+    , MResp.metadataResponseTopics = P.mkKafkaArray V.empty
+    , MResp.metadataResponseClusterAuthorizedOperations = -2147483648
+    , MResp.metadataResponseErrorCode = 0
+    }
+
 
 saslHandshakeReqV1 :: SHReq.SaslHandshakeRequest
-saslHandshakeReqV1 = SHReq.SaslHandshakeRequest
-  { SHReq.saslHandshakeRequestMechanism = P.mkKafkaString "SCRAM-SHA-512" }
+saslHandshakeReqV1 =
+  SHReq.SaslHandshakeRequest
+    { SHReq.saslHandshakeRequestMechanism = P.mkKafkaString "SCRAM-SHA-512"
+    }
+
 
 saslHandshakeRespV1 :: SHResp.SaslHandshakeResponse
-saslHandshakeRespV1 = SHResp.SaslHandshakeResponse
-  { SHResp.saslHandshakeResponseErrorCode  = 0
-  , SHResp.saslHandshakeResponseMechanisms = P.mkKafkaArray $ V.fromList
-      [ P.mkKafkaString "PLAIN"
-      , P.mkKafkaString "SCRAM-SHA-256"
-      , P.mkKafkaString "SCRAM-SHA-512"
-      , P.mkKafkaString "OAUTHBEARER"
-      , P.mkKafkaString "AWS_MSK_IAM"
-      ]
-  }
+saslHandshakeRespV1 =
+  SHResp.SaslHandshakeResponse
+    { SHResp.saslHandshakeResponseErrorCode = 0
+    , SHResp.saslHandshakeResponseMechanisms =
+        P.mkKafkaArray $
+          V.fromList
+            [ P.mkKafkaString "PLAIN"
+            , P.mkKafkaString "SCRAM-SHA-256"
+            , P.mkKafkaString "SCRAM-SHA-512"
+            , P.mkKafkaString "OAUTHBEARER"
+            , P.mkKafkaString "AWS_MSK_IAM"
+            ]
+    }
+
 
 saslAuthReqV1 :: SAReq.SaslAuthenticateRequest
-saslAuthReqV1 = SAReq.SaslAuthenticateRequest
-  { SAReq.saslAuthenticateRequestAuthBytes =
-      P.mkKafkaBytes (BS.pack [0x00, 0x61, 0x6c, 0x69, 0x63, 0x65, 0x00, 0x70, 0x77])
-  }
+saslAuthReqV1 =
+  SAReq.SaslAuthenticateRequest
+    { SAReq.saslAuthenticateRequestAuthBytes =
+        P.mkKafkaBytes (BS.pack [0x00, 0x61, 0x6c, 0x69, 0x63, 0x65, 0x00, 0x70, 0x77])
+    }
+
 
 saslAuthRespV1 :: SAResp.SaslAuthenticateResponse
-saslAuthRespV1 = SAResp.SaslAuthenticateResponse
-  { SAResp.saslAuthenticateResponseErrorCode         = 0
-  , SAResp.saslAuthenticateResponseErrorMessage      = P.KafkaString P.Null
-  , SAResp.saslAuthenticateResponseAuthBytes         = P.mkKafkaBytes BS.empty
-  , SAResp.saslAuthenticateResponseSessionLifetimeMs = 0
-  }
+saslAuthRespV1 =
+  SAResp.SaslAuthenticateResponse
+    { SAResp.saslAuthenticateResponseErrorCode = 0
+    , SAResp.saslAuthenticateResponseErrorMessage = P.KafkaString P.Null
+    , SAResp.saslAuthenticateResponseAuthBytes = P.mkKafkaBytes BS.empty
+    , SAResp.saslAuthenticateResponseSessionLifetimeMs = 0
+    }
+
 
 findCoordReqV3 :: FCReq.FindCoordinatorRequest
-findCoordReqV3 = FCReq.FindCoordinatorRequest
-  { FCReq.findCoordinatorRequestKey            = P.mkKafkaString "wf-test-group"
-  , FCReq.findCoordinatorRequestKeyType        = 0
-  , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
-  }
+findCoordReqV3 =
+  FCReq.FindCoordinatorRequest
+    { FCReq.findCoordinatorRequestKey = P.mkKafkaString "wf-test-group"
+    , FCReq.findCoordinatorRequestKeyType = 0
+    , FCReq.findCoordinatorRequestCoordinatorKeys = P.mkKafkaArray V.empty
+    }
+
 
 findCoordRespV3 :: FCResp.FindCoordinatorResponse
-findCoordRespV3 = FCResp.FindCoordinatorResponse
-  { FCResp.findCoordinatorResponseThrottleTimeMs = 0
-  , FCResp.findCoordinatorResponseErrorCode      = 0
-  , FCResp.findCoordinatorResponseErrorMessage   = P.KafkaString P.Null
-  , FCResp.findCoordinatorResponseNodeId         = 1
-  , FCResp.findCoordinatorResponseHost           = P.mkKafkaString "broker-1"
-  , FCResp.findCoordinatorResponsePort           = 9092
-  , FCResp.findCoordinatorResponseCoordinators   = P.mkKafkaArray V.empty
-  }
+findCoordRespV3 =
+  FCResp.FindCoordinatorResponse
+    { FCResp.findCoordinatorResponseThrottleTimeMs = 0
+    , FCResp.findCoordinatorResponseErrorCode = 0
+    , FCResp.findCoordinatorResponseErrorMessage = P.KafkaString P.Null
+    , FCResp.findCoordinatorResponseNodeId = 1
+    , FCResp.findCoordinatorResponseHost = P.mkKafkaString "broker-1"
+    , FCResp.findCoordinatorResponsePort = 9092
+    , FCResp.findCoordinatorResponseCoordinators = P.mkKafkaArray V.empty
+    }
+
 
 offsetCommitReqV2 :: OCReq.OffsetCommitRequest
-offsetCommitReqV2 = OCReq.OffsetCommitRequest
-  { OCReq.offsetCommitRequestGroupId                    = P.mkKafkaString "wf-test-group"
-  , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch  = 7
-  , OCReq.offsetCommitRequestMemberId                   = P.mkKafkaString "consumer-1"
-  , OCReq.offsetCommitRequestGroupInstanceId            = P.KafkaString P.Null
-  , OCReq.offsetCommitRequestRetentionTimeMs            = -1
-  , OCReq.offsetCommitRequestTopics                     = P.mkKafkaArray V.empty
-  }
+offsetCommitReqV2 =
+  OCReq.OffsetCommitRequest
+    { OCReq.offsetCommitRequestGroupId = P.mkKafkaString "wf-test-group"
+    , OCReq.offsetCommitRequestGenerationIdOrMemberEpoch = 7
+    , OCReq.offsetCommitRequestMemberId = P.mkKafkaString "consumer-1"
+    , OCReq.offsetCommitRequestGroupInstanceId = P.KafkaString P.Null
+    , OCReq.offsetCommitRequestRetentionTimeMs = -1
+    , OCReq.offsetCommitRequestTopics = P.mkKafkaArray V.empty
+    }
+
 
 offsetCommitRespV2 :: OCResp.OffsetCommitResponse
-offsetCommitRespV2 = OCResp.OffsetCommitResponse
-  { OCResp.offsetCommitResponseThrottleTimeMs = 0
-  , OCResp.offsetCommitResponseTopics         = P.mkKafkaArray V.empty
-  }
+offsetCommitRespV2 =
+  OCResp.OffsetCommitResponse
+    { OCResp.offsetCommitResponseThrottleTimeMs = 0
+    , OCResp.offsetCommitResponseTopics = P.mkKafkaArray V.empty
+    }
+
 
 offsetFetchReqV5 :: OFReq.OffsetFetchRequest
-offsetFetchReqV5 = OFReq.OffsetFetchRequest
-  { OFReq.offsetFetchRequestGroupId       = P.mkKafkaString "wf-test-group"
-  , OFReq.offsetFetchRequestTopics        = P.mkKafkaArray V.empty
-  , OFReq.offsetFetchRequestGroups        = P.mkKafkaArray V.empty
-  , OFReq.offsetFetchRequestRequireStable = False
-  }
+offsetFetchReqV5 =
+  OFReq.OffsetFetchRequest
+    { OFReq.offsetFetchRequestGroupId = P.mkKafkaString "wf-test-group"
+    , OFReq.offsetFetchRequestTopics = P.mkKafkaArray V.empty
+    , OFReq.offsetFetchRequestGroups = P.mkKafkaArray V.empty
+    , OFReq.offsetFetchRequestRequireStable = False
+    }
+
 
 offsetFetchRespV5 :: OFResp.OffsetFetchResponse
-offsetFetchRespV5 = OFResp.OffsetFetchResponse
-  { OFResp.offsetFetchResponseThrottleTimeMs = 0
-  , OFResp.offsetFetchResponseTopics         = P.mkKafkaArray V.empty
-  , OFResp.offsetFetchResponseErrorCode      = 0
-  , OFResp.offsetFetchResponseGroups         = P.mkKafkaArray V.empty
-  }
+offsetFetchRespV5 =
+  OFResp.OffsetFetchResponse
+    { OFResp.offsetFetchResponseThrottleTimeMs = 0
+    , OFResp.offsetFetchResponseTopics = P.mkKafkaArray V.empty
+    , OFResp.offsetFetchResponseErrorCode = 0
+    , OFResp.offsetFetchResponseGroups = P.mkKafkaArray V.empty
+    }
+
 
 ------------------------------------------------------------------------
 -- Vector list
@@ -277,61 +329,134 @@ offsetFetchRespV5 = OFResp.OffsetFetchResponse
 
 vectors :: [Vector]
 vectors =
-  [ vector (Just 18) "ApiVersionsRequest" 3 "default"
+  [ vector
+      (Just 18)
+      "ApiVersionsRequest"
+      3
+      "default"
       "ApiVersionsRequest v3 (default client name + version)"
       (WC.runEncodeVer @AVReq.ApiVersionsRequest 3 apiVersionsReqV3)
-  , vector (Just 18) "ApiVersionsResponse" 3 "ok"
+  , vector
+      (Just 18)
+      "ApiVersionsResponse"
+      3
+      "ok"
       "ApiVersionsResponse v3 (no error, no API entries)"
       (WC.runEncodeVer @AVResp.ApiVersionsResponse 3 apiVersionsRespV3)
-  , vector (Just 12) "HeartbeatRequest" 4 "ok"
+  , vector
+      (Just 12)
+      "HeartbeatRequest"
+      4
+      "ok"
       "HeartbeatRequest v4 (group=wf-test-group, member=consumer-1, gen=7)"
       (WC.runEncodeVer @HBReq.HeartbeatRequest 4 heartbeatReqV4)
-  , vector (Just 12) "HeartbeatResponse" 4 "ok"
+  , vector
+      (Just 12)
+      "HeartbeatResponse"
+      4
+      "ok"
       "HeartbeatResponse v4 (success)"
       (WC.runEncodeVer @HBResp.HeartbeatResponse 4 heartbeatRespV4)
-  , vector (Just 13) "LeaveGroupRequest" 4 "single-member"
+  , vector
+      (Just 13)
+      "LeaveGroupRequest"
+      4
+      "single-member"
       "LeaveGroupRequest v4 (single member, reason=shutdown)"
       (WC.runEncodeVer @LGReq.LeaveGroupRequest 4 leaveGroupReqV4)
-  , vector (Just 13) "LeaveGroupResponse" 4 "ok"
+  , vector
+      (Just 13)
+      "LeaveGroupResponse"
+      4
+      "ok"
       "LeaveGroupResponse v4 (no error)"
       (WC.runEncodeVer @LGResp.LeaveGroupResponse 4 leaveGroupRespV4)
-  , vector (Just 3) "MetadataRequest" 9 "single-topic"
+  , vector
+      (Just 3)
+      "MetadataRequest"
+      9
+      "single-topic"
       "MetadataRequest v9 (single topic 'events', auto-create on)"
       (WC.runEncodeVer @MReq.MetadataRequest 9 metadataReqV9)
-  , vector (Just 3) "MetadataResponse" 9 "empty-cluster"
+  , vector
+      (Just 3)
+      "MetadataResponse"
+      9
+      "empty-cluster"
       "MetadataResponse v9 (no brokers, no topics)"
       (WC.runEncodeVer @MResp.MetadataResponse 9 metadataRespV9)
-  , vector (Just 17) "SaslHandshakeRequest" 1 "scram-sha-512"
+  , vector
+      (Just 17)
+      "SaslHandshakeRequest"
+      1
+      "scram-sha-512"
       "SaslHandshakeRequest v1 (mechanism=SCRAM-SHA-512)"
       (WC.runEncodeVer @SHReq.SaslHandshakeRequest 1 saslHandshakeReqV1)
-  , vector (Just 17) "SaslHandshakeResponse" 1 "five-mechanisms"
+  , vector
+      (Just 17)
+      "SaslHandshakeResponse"
+      1
+      "five-mechanisms"
       "SaslHandshakeResponse v1 (PLAIN/SCRAM-256/SCRAM-512/OAUTHBEARER/AWS_MSK_IAM)"
       (WC.runEncodeVer @SHResp.SaslHandshakeResponse 1 saslHandshakeRespV1)
-  , vector (Just 36) "SaslAuthenticateRequest" 1 "plain"
+  , vector
+      (Just 36)
+      "SaslAuthenticateRequest"
+      1
+      "plain"
       "SaslAuthenticateRequest v1 (PLAIN: \\0alice\\0pw)"
       (WC.runEncodeVer @SAReq.SaslAuthenticateRequest 1 saslAuthReqV1)
-  , vector (Just 36) "SaslAuthenticateResponse" 1 "ok"
+  , vector
+      (Just 36)
+      "SaslAuthenticateResponse"
+      1
+      "ok"
       "SaslAuthenticateResponse v1 (success, no payload)"
       (WC.runEncodeVer @SAResp.SaslAuthenticateResponse 1 saslAuthRespV1)
-  , vector (Just 10) "FindCoordinatorRequest" 3 "consumer-group"
+  , vector
+      (Just 10)
+      "FindCoordinatorRequest"
+      3
+      "consumer-group"
       "FindCoordinatorRequest v3 (group=wf-test-group, type=group)"
       (WC.runEncodeVer @FCReq.FindCoordinatorRequest 3 findCoordReqV3)
-  , vector (Just 10) "FindCoordinatorResponse" 3 "ok"
+  , vector
+      (Just 10)
+      "FindCoordinatorResponse"
+      3
+      "ok"
       "FindCoordinatorResponse v3 (broker-1:9092, node 1)"
       (WC.runEncodeVer @FCResp.FindCoordinatorResponse 3 findCoordRespV3)
-  , vector (Just 8) "OffsetCommitRequest" 2 "no-topics"
+  , vector
+      (Just 8)
+      "OffsetCommitRequest"
+      2
+      "no-topics"
       "OffsetCommitRequest v2 (group=wf-test-group, no topics)"
       (WC.runEncodeVer @OCReq.OffsetCommitRequest 2 offsetCommitReqV2)
-  , vector (Just 8) "OffsetCommitResponse" 2 "ok"
+  , vector
+      (Just 8)
+      "OffsetCommitResponse"
+      2
+      "ok"
       "OffsetCommitResponse v2 (no per-topic responses)"
       (WC.runEncodeVer @OCResp.OffsetCommitResponse 2 offsetCommitRespV2)
-  , vector (Just 9) "OffsetFetchRequest" 5 "no-topics"
+  , vector
+      (Just 9)
+      "OffsetFetchRequest"
+      5
+      "no-topics"
       "OffsetFetchRequest v5 (no topics, require_stable=false)"
       (WC.runEncodeVer @OFReq.OffsetFetchRequest 5 offsetFetchReqV5)
-  , vector (Just 9) "OffsetFetchResponse" 5 "ok"
+  , vector
+      (Just 9)
+      "OffsetFetchResponse"
+      5
+      "ok"
       "OffsetFetchResponse v5 (no topics, no error)"
       (WC.runEncodeVer @OFResp.OffsetFetchResponse 5 offsetFetchRespV5)
   ]
+
 
 main :: IO ()
 main = do

@@ -3,16 +3,19 @@
 module Streams.StateListenerSpec (tests) where
 
 import Data.IORef
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "StateListener" $ sequence_
-  [ listener_observes_close_transition
-  , listener_default_does_nothing
-  , listener_can_be_replaced
-  ]
+tests =
+  describe "StateListener" $
+    sequence_
+      [ listener_observes_close_transition
+      , listener_default_does_nothing
+      , listener_can_be_replaced
+      ]
+
 
 mkHandle :: IO KafkaStreams
 mkHandle = do
@@ -21,11 +24,15 @@ mkHandle = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   topo <- buildTopology b
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> newKafkaStreams defaultStreamsConfig
-                   { applicationId = "sl-app"
-                   , bootstrapServers = ["mock:0"]
-                   } v
+    Left err -> error (show err)
+    Right v ->
+      newKafkaStreams
+        defaultStreamsConfig
+          { applicationId = "sl-app"
+          , bootstrapServers = ["mock:0"]
+          }
+        v
+
 
 listener_observes_close_transition :: Spec
 listener_observes_close_transition =
@@ -36,9 +43,11 @@ listener_observes_close_transition =
     closeKafkaStreams ks
     -- closeKafkaStreams transitions Created -> Closing -> Closed.
     seen <- reverse <$> readIORef log_
-    seen `shouldBe` [ (StreamsCreated, StreamsClosing)
-             , (StreamsClosing, StreamsClosed)
-             ]
+    seen
+      `shouldBe` [ (StreamsCreated, StreamsClosing)
+                 , (StreamsClosing, StreamsClosed)
+                 ]
+
 
 listener_default_does_nothing :: Spec
 listener_default_does_nothing =
@@ -47,6 +56,7 @@ listener_default_does_nothing =
     closeKafkaStreams ks
     -- If we reached here without exception, default works.
     streamsStatus ks >>= (`shouldBe` StreamsClosed)
+
 
 listener_can_be_replaced :: Spec
 listener_can_be_replaced =
@@ -59,5 +69,5 @@ listener_can_be_replaced =
     closeKafkaStreams ks
     aN <- readIORef a
     bN <- readIORef b
-    aN `shouldBe` 0     -- replaced before any transition
-    bN `shouldBe` 2     -- two transitions (Closing, Closed)
+    aN `shouldBe` 0 -- replaced before any transition
+    bN `shouldBe` 2 -- two transitions (Closing, Closed)

@@ -1,79 +1,94 @@
--- | The evaluation environment: variable bindings, the resolution container
--- (protobuf package scope), and optional user-supplied extension functions.
-module CEL.Environment
-  ( Env (..)
-  , Overload
-  , emptyEnv
-  , bind
-  , bindAll
-  , bindLocal
-  , withContainer
-  , addFunction
-  , lookupVar
-  , lookupLocal
-  , lookupFunction
-  ) where
-
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Text (Text)
+{- | The evaluation environment: variable bindings, the resolution container
+(protobuf package scope), and optional user-supplied extension functions.
+-}
+module CEL.Environment (
+  Env (..),
+  Overload,
+  emptyEnv,
+  bind,
+  bindAll,
+  bindLocal,
+  withContainer,
+  addFunction,
+  lookupVar,
+  lookupLocal,
+  lookupFunction,
+) where
 
 import CEL.Error (CelError)
 import CEL.Value (Value)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 
--- | A user function overload: given the evaluated arguments, either decline
--- (@Nothing@, so another overload / a standard function may apply) or produce
--- a result / error.
+
+{- | A user function overload: given the evaluated arguments, either decline
+(@Nothing@, so another overload / a standard function may apply) or produce
+a result / error.
+-}
 type Overload = [Value] -> Maybe (Either CelError Value)
+
 
 -- | An evaluation environment.
 data Env = Env
   { envVars :: !(Map Text Value)
   -- ^ Bound variables keyed by their (possibly qualified) name.
   , envLocals :: !(Map Text Value)
-  -- ^ Comprehension-local variables. These take precedence over every
-  -- package-based resolution rule (see the name-resolution rules in the spec),
-  -- so they are resolved before 'envVars' and before container qualification.
+  {- ^ Comprehension-local variables. These take precedence over every
+  package-based resolution rule (see the name-resolution rules in the spec),
+  so they are resolved before 'envVars' and before container qualification.
+  -}
   , envContainer :: !Text
-  -- ^ The container / package used for relative name resolution. Empty for
-  -- the root scope.
+  {- ^ The container / package used for relative name resolution. Empty for
+  the root scope.
+  -}
   , envFuncs :: !(Map Text [Overload])
   -- ^ User-supplied extension functions, tried before the standard library.
   }
+
 
 -- | An environment with no bindings, no container, and no extension functions.
 emptyEnv :: Env
 emptyEnv = Env Map.empty Map.empty "" Map.empty
 
+
 -- | Bind a single variable.
 bind :: Text -> Value -> Env -> Env
 bind k v env = env {envVars = Map.insert k v (envVars env)}
+
 
 -- | Bind several variables at once.
 bindAll :: [(Text, Value)] -> Env -> Env
 bindAll kvs env = env {envVars = Map.union (Map.fromList kvs) (envVars env)}
 
--- | Bind a comprehension-local variable. Locals shadow both globals and the
--- package namespace when resolving simple names.
+
+{- | Bind a comprehension-local variable. Locals shadow both globals and the
+package namespace when resolving simple names.
+-}
 bindLocal :: Text -> Value -> Env -> Env
 bindLocal k v env = env {envLocals = Map.insert k v (envLocals env)}
+
 
 -- | Set the resolution container (protobuf package scope).
 withContainer :: Text -> Env -> Env
 withContainer c env = env {envContainer = c}
+
 
 -- | Register an extension function overload under a name.
 addFunction :: Text -> Overload -> Env -> Env
 addFunction name ov env =
   env {envFuncs = Map.insertWith (++) name [ov] (envFuncs env)}
 
+
 -- | Look up a bound variable by exact name.
 lookupVar :: Text -> Env -> Maybe Value
 lookupVar k env = Map.lookup k (envVars env)
 
+
 -- | Look up a comprehension-local variable by exact name.
 lookupLocal :: Text -> Env -> Maybe Value
 lookupLocal k env = Map.lookup k (envLocals env)
+
 
 -- | Try the registered extension functions for a name against the arguments.
 lookupFunction :: Text -> [Value] -> Env -> Maybe (Either CelError Value)

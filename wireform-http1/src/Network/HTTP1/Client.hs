@@ -15,38 +15,42 @@ handshaked 'Wireform.Network.TLS.OpenSSL.SslConn') and call
 
 A pooled variant lives in "Network.HTTP1.Client.Pool".
 -}
-module Network.HTTP1.Client
-  ( ClientConfig (..)
-  , defaultClientConfig
-  , ClientConnection (..)
-  , openClientConnection
-  , closeClientConnection
-  , withClientConnection
-    -- * Per-request API
-  , sendRequest
-  , sendRequestOn
-  , sendRequestOnWithExpect
-    -- * Connection introspection
-  , clientConnectionSocket
-  ) where
+module Network.HTTP1.Client (
+  ClientConfig (..),
+  defaultClientConfig,
+  ClientConnection (..),
+  openClientConnection,
+  closeClientConnection,
+  withClientConnection,
+
+  -- * Per-request API
+  sendRequest,
+  sendRequestOn,
+  sendRequestOnWithExpect,
+
+  -- * Connection introspection
+  clientConnectionSocket,
+) where
 
 import Control.Exception (bracket)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import Network.Socket (Socket)
-import qualified Network.Socket as NS
-import System.Timeout (timeout)
-
-import qualified Wireform.Builder as B
-import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
-
-import Network.HTTP1.Chunked
-  (encodeChunk, encodeLastChunk, encodeLastChunkWithTrailers)
+import Data.ByteString qualified as BS
+import Network.HTTP1.Chunked (
+  encodeChunk,
+  encodeLastChunk,
+  encodeLastChunkWithTrailers,
+ )
 import Network.HTTP1.Connection
 import Network.HTTP1.Encode (requestBuilder)
 import Network.HTTP1.Parser
-import qualified Network.HTTP1.StreamingReader as SR
+import Network.HTTP1.StreamingReader qualified as SR
 import Network.HTTP1.Types
+import Network.Socket (Socket)
+import Network.Socket qualified as NS
+import System.Timeout (timeout)
+import Wireform.Builder qualified as B
+import Wireform.Transport.Send (sendBuilderDirect, sendByteString)
+
 
 data ClientConfig = ClientConfig
   { clientHost :: !String
@@ -54,27 +58,34 @@ data ClientConfig = ClientConfig
   , clientMaxHeaderBytes :: !Int
   }
 
+
 defaultClientConfig :: ClientConfig
-defaultClientConfig = ClientConfig
-  { clientHost = "127.0.0.1"
-  , clientPort = "80"
-  , clientMaxHeaderBytes = 32 * 1024
-  }
+defaultClientConfig =
+  ClientConfig
+    { clientHost = "127.0.0.1"
+    , clientPort = "80"
+    , clientMaxHeaderBytes = 32 * 1024
+    }
 
--- | Opaque handle for a client-side HTTP\/1.x connection.  Construct
--- via 'openClientConnection' (TCP) or by wrapping a
--- 'newConnectionFromTls' yourself (TLS).
-newtype ClientConnection = ClientConnection { unClientConnection :: Connection }
 
--- | The underlying socket if the connection has one (TCP and TLS both
--- do; the TLS variant deliberately doesn't expose it through the
--- sendfile fast path).
+{- | Opaque handle for a client-side HTTP\/1.x connection.  Construct
+via 'openClientConnection' (TCP) or by wrapping a
+'newConnectionFromTls' yourself (TLS).
+-}
+newtype ClientConnection = ClientConnection {unClientConnection :: Connection}
+
+
+{- | The underlying socket if the connection has one (TCP and TLS both
+do; the TLS variant deliberately doesn't expose it through the
+sendfile fast path).
+-}
 clientConnectionSocket :: ClientConnection -> Maybe Socket
 clientConnectionSocket (ClientConnection c) = connectionSocket c
 
+
 openClientConnection :: ClientConfig -> IO ClientConnection
 openClientConnection cfg = do
-  let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
+  let hints = NS.defaultHints {NS.addrSocketType = NS.Stream}
   addrs <- NS.getAddrInfo (Just hints) (Just (clientHost cfg)) (Just (clientPort cfg))
   case addrs of
     [] -> error "wireform-http1: no address found"
@@ -84,57 +95,66 @@ openClientConnection cfg = do
       NS.setSocketOption sock NS.NoDelay 1
       ClientConnection <$> newConnectionFromSocket sock
 
+
 closeClientConnection :: ClientConnection -> IO ()
 closeClientConnection (ClientConnection c) = closeConnection c
+
 
 withClientConnection :: ClientConfig -> (ClientConnection -> IO a) -> IO a
 withClientConnection cfg = bracket (openClientConnection cfg) closeClientConnection
 
--- | Send a single request on a freshly-opened connection and return
--- the response. The connection is closed afterwards.
---
--- The response body is fully read and materialised as a
--- 'BodyBytes' before the connection is torn down — otherwise the
--- magic ring the body producer reads from would be freed by the
--- 'closeClientConnection' that the inner bracket runs, and the
--- producer's subsequent reads would access unmapped memory.
--- Applications that need to stream large response bodies should
--- use 'sendRequestOn' with their own 'withClientConnection'
--- scope so the connection (and its ring) stays alive while the
--- body is being consumed.
+
+{- | Send a single request on a freshly-opened connection and return
+the response. The connection is closed afterwards.
+
+The response body is fully read and materialised as a
+'BodyBytes' before the connection is torn down — otherwise the
+magic ring the body producer reads from would be freed by the
+'closeClientConnection' that the inner bracket runs, and the
+producer's subsequent reads would access unmapped memory.
+Applications that need to stream large response bodies should
+use 'sendRequestOn' with their own 'withClientConnection'
+scope so the connection (and its ring) stays alive while the
+body is being consumed.
+-}
 sendRequest :: ClientConfig -> Request -> IO (Either ParseError Response)
 sendRequest cfg req = withClientConnection cfg $ \conn -> do
   r <- sendRequestOn conn req
   case r of
-    Left e     -> pure (Left e)
+    Left e -> pure (Left e)
     Right resp -> do
-      bs  <- collectBody (responseBody resp)
+      bs <- collectBody (responseBody resp)
       trs <- responseTrailers resp
-      pure $ Right resp
-        { responseBody     = BodyBytes bs
-        , responseTrailers = pure trs
-        }
+      pure $
+        Right
+          resp
+            { responseBody = BodyBytes bs
+            , responseTrailers = pure trs
+            }
+
 
 -- | Drain a 'Body' into a single contiguous 'ByteString'.
 collectBody :: Body -> IO ByteString
 collectBody = \case
-  BodyEmpty           -> pure BS.empty
-  BodyBytes bs        -> pure bs
-  BodyPreEncoded _    -> pure BS.empty
-  BodyFile _          -> pure BS.empty
+  BodyEmpty -> pure BS.empty
+  BodyBytes bs -> pure bs
+  BodyPreEncoded _ -> pure BS.empty
+  BodyFile _ -> pure BS.empty
   BodyStream producer -> loop []
     where
       loop acc = do
         mc <- producer
         case mc of
           Nothing -> pure (BS.concat (reverse acc))
-          Just c  -> loop (c : acc)
+          Just c -> loop (c : acc)
 
--- | Send a request on an existing connection (for keep-alive \/
--- pipelining). The returned response's body is a streaming producer;
--- you MUST consume it (or call 'drainBody') before sending another
--- request on the same connection — otherwise the next response will
--- be misframed.
+
+{- | Send a request on an existing connection (for keep-alive \/
+pipelining). The returned response's body is a streaming producer;
+you MUST consume it (or call 'drainBody') before sending another
+request on the same connection — otherwise the next response will
+be misframed.
+-}
 sendRequestOn :: ClientConnection -> Request -> IO (Either ParseError Response)
 sendRequestOn (ClientConnection conn) req = do
   case requestBody req of
@@ -151,40 +171,43 @@ sendRequestOn (ClientConnection conn) req = do
       connectionSendBuilderDirect conn (requestBuilder req)
       streamChunked conn producer (requestTrailers req)
     BodyPreEncoded _ -> pure ()
-    -- ^ Pre-encoded request bodies are unusual but not nonsensical
+    -- \^ Pre-encoded request bodies are unusual but not nonsensical
     -- (e.g. a pre-built JSON payload). The Body has already been
     -- baked into the request bytes the user constructed; if they
     -- wanted it sent here they should have used BodyBytes.
     BodyFile _ -> pure ()
-    -- ^ Client-side sendfile is a follow-up. For now you can stream
-    -- a file with @BodyStream@ + a producer that 'hGet's chunks.
+  -- \^ Client-side sendfile is a follow-up. For now you can stream
+  -- a file with @BodyStream@ + a producer that 'hGet's chunks.
   -- Read the response head.  RFC 9110 §15.2 / RFC 9112 §4.1: 1xx
   -- (informational) responses are interim — keep reading until we
   -- see the final one.  This is how an @Expect: 100-continue@ on
   -- the request gets its 100 acknowledgement transparently absorbed.
   readFinal conn (requestMethod req)
 
--- | Two-stage @Expect: 100-continue@ send (RFC 9110 §10.1.1).
---
--- Sends the request headers first, then waits up to @timeoutUs@
--- microseconds for an interim response from the server:
---
--- * If the server sends @100 Continue@ (or any other 1xx), the
---   request body is sent and the final response is read.
--- * If the server sends a non-1xx response (e.g. @417 Expectation
---   Failed@) before the body is transmitted, the body is /not/
---   sent and the server's response is returned verbatim.  The
---   caller should inspect the status and retry without @Expect@ if
---   appropriate.
--- * If @timeoutUs@ elapses with no interim response, the body is
---   sent unconditionally, as permitted by RFC 9110 §10.1.1.
---
--- This function is called automatically by 'Network.HTTP.Connection.sendOn'
--- when the request carries an @Expect: 100-continue@ header.
+
+{- | Two-stage @Expect: 100-continue@ send (RFC 9110 §10.1.1).
+
+Sends the request headers first, then waits up to @timeoutUs@
+microseconds for an interim response from the server:
+
+* If the server sends @100 Continue@ (or any other 1xx), the
+  request body is sent and the final response is read.
+* If the server sends a non-1xx response (e.g. @417 Expectation
+  Failed@) before the body is transmitted, the body is /not/
+  sent and the server's response is returned verbatim.  The
+  caller should inspect the status and retry without @Expect@ if
+  appropriate.
+* If @timeoutUs@ elapses with no interim response, the body is
+  sent unconditionally, as permitted by RFC 9110 §10.1.1.
+
+This function is called automatically by 'Network.HTTP.Connection.sendOn'
+when the request carries an @Expect: 100-continue@ header.
+-}
 sendRequestOnWithExpect
   :: ClientConnection
   -> Request
-  -> Int             -- ^ timeout in microseconds (e.g. 1_000_000 for 1 s)
+  -> Int
+  -- ^ timeout in microseconds (e.g. 1_000_000 for 1 s)
   -> IO (Either ParseError Response)
 sendRequestOnWithExpect (ClientConnection conn) req timeoutUs = do
   -- Step 1: send request headers (no body).
@@ -206,10 +229,12 @@ sendRequestOnWithExpect (ClientConnection conn) req timeoutUs = do
           -- Non-1xx before body was sent (e.g. 417): return the
           -- server's response and skip the body.
           (body, trailersIO) <- readBodyAndTrailers conn framing
-          pure $ Right resp0
-            { responseBody     = body
-            , responseTrailers = trailersIO
-            }
+          pure $
+            Right
+              resp0
+                { responseBody = body
+                , responseTrailers = trailersIO
+                }
   where
     is1xx (Status code) = code >= 100 && code < 200
 
@@ -218,43 +243,48 @@ sendRequestOnWithExpect (ClientConnection conn) req timeoutUs = do
       readFinal conn (requestMethod req)
 
     sendBody = case requestBody req of
-      BodyEmpty    -> pure ()
+      BodyEmpty -> pure ()
       BodyBytes bs
         | BS.null bs -> pure ()
-        | otherwise  -> connectionSendBytes conn bs
+        | otherwise -> connectionSendBytes conn bs
       BodyStream producer -> streamChunked conn producer (requestTrailers req)
       BodyPreEncoded _ -> pure ()
       BodyFile _ -> pure ()
+
 
 -- | Read response heads, skipping 1xx interim responses.
 readFinal :: Connection -> Method -> IO (Either ParseError Response)
 readFinal conn method = do
   hE <- readResponseHead conn method
   case hE of
-    Left SR.ReadUnexpectedEof      -> pure (Left ParseUnexpectedEof)
+    Left SR.ReadUnexpectedEof -> pure (Left ParseUnexpectedEof)
     Left (SR.ReadMessageTooLong _) -> pure (Left ParseMessageTooLong)
     Left (SR.ReadTransportError _) -> pure (Left ParseUnexpectedEof)
-    Left (SR.ReadParse e)          -> pure (Left e)
+    Left (SR.ReadParse e) -> pure (Left e)
     Right (resp0, framing)
       | is1xx (responseStatus resp0) -> readFinal conn method
       | otherwise -> do
           (body, trailersIO) <- readBodyAndTrailers conn framing
-          pure $ Right resp0
-            { responseBody     = body
-            , responseTrailers = trailersIO
-            }
+          pure $
+            Right
+              resp0
+                { responseBody = body
+                , responseTrailers = trailersIO
+                }
   where
     is1xx (Status code) = code >= 100 && code < 200
 
--- | Stream a chunked body, then emit the terminating zero-size
--- chunk.  If the request supplies a non-empty trailer block
--- ('requestTrailers'), they are emitted in the trailer-fields
--- section of the final chunk per RFC 9112 §7.1.2; otherwise the
--- final chunk is a bare @\"0\\r\\n\\r\\n\"@.
---
--- The trailers action is run lazily — after the producer has
--- returned 'Nothing' — so callers can compute trailers from
--- streaming-body state (e.g. content digests, row counts).
+
+{- | Stream a chunked body, then emit the terminating zero-size
+chunk.  If the request supplies a non-empty trailer block
+('requestTrailers'), they are emitted in the trailer-fields
+section of the final chunk per RFC 9112 §7.1.2; otherwise the
+final chunk is a bare @\"0\\r\\n\\r\\n\"@.
+
+The trailers action is run lazily — after the producer has
+returned 'Nothing' — so callers can compute trailers from
+streaming-body state (e.g. content digests, row counts).
+-}
 streamChunked :: Connection -> IO (Maybe ByteString) -> IO Headers -> IO ()
 streamChunked conn producer trailersIO = loop
   where
@@ -268,4 +298,4 @@ streamChunked conn producer trailersIO = loop
             else connectionSendBuilder conn (encodeLastChunkWithTrailers trls)
         Just bs
           | BS.null bs -> loop
-          | otherwise  -> connectionSendBuilder conn (encodeChunk bs) >> loop
+          | otherwise -> connectionSendBuilder conn (encodeChunk bs) >> loop

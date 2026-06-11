@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import CBOR.Class (FromCBOR, ToCBOR, decodeCBOR, encodeCBOR)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import CBOR.Class (ToCBOR, FromCBOR, encodeCBOR, decodeCBOR)
+import GHC.Generics (Generic)
+
 
 data Measurement = Measurement
   { sensor :: !Text
-  , value  :: !Double
-  , unit   :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToCBOR, FromCBOR)
+  , value :: !Double
+  , unit :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToCBOR, FromCBOR)
+
 
 main :: IO ()
 main = do
@@ -25,7 +29,7 @@ main = do
 
   case decodeCBOR bytes of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Measurement)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeCBOR (encodeCBOR m) == Right m)
 

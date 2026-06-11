@@ -2,9 +2,10 @@ module Main where
 
 import Test.Syd
 import Test.Syd.OptParse (Settings (..), Threads (..), defaultSettings)
-import qualified Wireform.Network.TLS.OpenSSL.Test as TLS
-import qualified Wireform.Network.Transport.Receive.Test as Receive
-import qualified Wireform.Network.Transport.Roundtrip.Test as Roundtrip
+import Wireform.Network.TLS.OpenSSL.Test qualified as TLS
+import Wireform.Network.Transport.Receive.Test qualified as Receive
+import Wireform.Network.Transport.Roundtrip.Test qualified as Roundtrip
+
 
 main :: IO ()
 main =

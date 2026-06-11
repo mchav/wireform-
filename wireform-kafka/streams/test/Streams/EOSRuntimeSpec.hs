@@ -1,49 +1,55 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the 'KafkaStreams' runtime + EOS coordinator wiring.
--- These do NOT require a broker — they install a recording
--- coordinator via 'applyEOSCoordinator' and verify the call
--- sequence by manually triggering the runtime's commit cycle.
+{- | Tests for the 'KafkaStreams' runtime + EOS coordinator wiring.
+These do NOT require a broker — they install a recording
+coordinator via 'applyEOSCoordinator' and verify the call
+sequence by manually triggering the runtime's commit cycle.
+-}
 module Streams.EOSRuntimeSpec (tests) where
 
+import Data.HashMap.Strict qualified as Map
 import Data.IORef
-import qualified Data.HashMap.Strict as Map
 import Data.Text (Text)
+import Kafka.Streams.Imperative
+import Kafka.Streams.Runtime.EOS (
+  CommitOutcome (..),
+  EOSCoordinator (..),
+  runCommitCycle,
+ )
 import Test.Syd
 
-import Kafka.Streams.Imperative
-import Kafka.Streams.Runtime.EOS
-  ( CommitOutcome (..)
-  , EOSCoordinator (..)
-  , runCommitCycle
-  )
 
 recordingCoord :: IO (EOSCoordinator, IO [Text])
 recordingCoord = do
   buf <- newIORef ([] :: [Text])
   let log_ s = modifyIORef' buf (s :)
-      coord = EOSCoordinator
-        { initTxn          = log_ "init"   *> pure (Right ())
-        , beginTxn         = log_ "begin"  *> pure (Right ())
-        , commitTxn        = log_ "commit" *> pure (Right ())
-        , abortTxn         = log_ "abort"  *> pure (Right ())
-        , commitOffsets = \_ _ ->
-            log_ "commitOffsets" *> pure (Right ())
-        , storeCommit = log_ "storeCommit" *> pure (Right ())
-        , storeAbort  = log_ "storeAbort"  *> pure (Right ())
-        , preCommit2PC = pure (Right ())
-        , commit2PC    = pure (Right ())
-        , abort2PC     = pure ()
-        }
+      coord =
+        EOSCoordinator
+          { initTxn = log_ "init" *> pure (Right ())
+          , beginTxn = log_ "begin" *> pure (Right ())
+          , commitTxn = log_ "commit" *> pure (Right ())
+          , abortTxn = log_ "abort" *> pure (Right ())
+          , commitOffsets = \_ _ ->
+              log_ "commitOffsets" *> pure (Right ())
+          , storeCommit = log_ "storeCommit" *> pure (Right ())
+          , storeAbort = log_ "storeAbort" *> pure (Right ())
+          , preCommit2PC = pure (Right ())
+          , commit2PC = pure (Right ())
+          , abort2PC = pure ()
+          }
   pure (coord, reverse <$> readIORef buf)
 
+
 tests :: Spec
-tests = describe "EOS Runtime wiring" $ sequence_
-  [ apply_eos_coordinator_overrides_default
-  , runtime_commit_cycle_calls_coordinator
-  , runtime_chooses_eos_v2_producer_config
-  ]
+tests =
+  describe "EOS Runtime wiring" $
+    sequence_
+      [ apply_eos_coordinator_overrides_default
+      , runtime_commit_cycle_calls_coordinator
+      , runtime_chooses_eos_v2_producer_config
+      ]
+
 
 -- We don't actually start the runtime against a broker here; we
 -- exercise the orchestration by constructing a 'KafkaStreams'
@@ -56,15 +62,17 @@ buildHandle pg = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   topo <- buildTopology b
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> do
-      let cfg = defaultStreamsConfig
-            { applicationId       = "eos-rt-app"
-            , bootstrapServers    = ["mock:0"]
-            , processingGuarantee = pg
-            , numStreamThreads    = 1
-            }
+    Left err -> error (show err)
+    Right v -> do
+      let cfg =
+            defaultStreamsConfig
+              { applicationId = "eos-rt-app"
+              , bootstrapServers = ["mock:0"]
+              , processingGuarantee = pg
+              , numStreamThreads = 1
+              }
       newKafkaStreams cfg v
+
 
 apply_eos_coordinator_overrides_default :: Spec
 apply_eos_coordinator_overrides_default =
@@ -78,6 +86,7 @@ apply_eos_coordinator_overrides_default =
     -- override doesn't throw.
     pure ()
 
+
 runtime_commit_cycle_calls_coordinator :: Spec
 runtime_commit_cycle_calls_coordinator =
   it "a manual commit cycle invokes the EOS coordinator" $ do
@@ -85,6 +94,7 @@ runtime_commit_cycle_calls_coordinator =
     out <- runCommitCycle coord "g" (pure Map.empty) (pure ())
     out `shouldBe` CommitSucceeded
     drain >>= (`shouldBe` ["begin", "commitOffsets", "commit", "storeCommit"])
+
 
 runtime_chooses_eos_v2_producer_config :: Spec
 runtime_chooses_eos_v2_producer_config =

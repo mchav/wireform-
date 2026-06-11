@@ -81,12 +81,14 @@ import Wireform.Derive.NameStyle
 data Rename
   = -- | Use this exact 'Text' as the wire key.
     RenameTo !Text
-  | -- | Apply a 'NameStyle' transformation. Evaluated entirely at
-    -- splice time, so the result is baked into the generated code as
-    -- a literal 'Text'.
+  | {- | Apply a 'NameStyle' transformation. Evaluated entirely at
+    splice time, so the result is baked into the generated code as
+    a literal 'Text'.
+    -}
     RenameStyle !NameStyle
-  | -- | Apply the named @Text -> Text@ function at runtime. Use only
-    -- when 'NameStyle' cannot express the desired transformation.
+  | {- | Apply the named @Text -> Text@ function at runtime. Use only
+    when 'NameStyle' cannot express the desired transformation.
+    -}
     RenameFn !Name
   deriving stock (Eq, Ord, Show, Data, Generic)
 
@@ -97,19 +99,23 @@ data Rename
 
 -- | Force a non-default wire encoding for a numeric or string field.
 data WireOverride
-  = -- | Use ZigZag encoding for signed integers (proto's @sint32@ /
-    -- @sint64@).
+  = {- | Use ZigZag encoding for signed integers (proto's @sint32@ /
+    @sint64@).
+    -}
     WireZigZag
-  | -- | Use a fixed-width little-endian encoding (proto's @fixed32@
-    -- / @fixed64@ / @sfixed32@ / @sfixed64@).
+  | {- | Use a fixed-width little-endian encoding (proto's @fixed32@
+    / @fixed64@ / @sfixed32@ / @sfixed64@).
+    -}
     WireFixed
   | -- | Pack a repeated scalar field (proto3 default for scalars).
     WirePacked
-  | -- | Encode this field as a UTF-8 'Text' regardless of the inferred
-    -- representation.
+  | {- | Encode this field as a UTF-8 'Text' regardless of the inferred
+    representation.
+    -}
     WireString
-  | -- | Encode this field as raw bytes regardless of the inferred
-    -- representation.
+  | {- | Encode this field as raw bytes regardless of the inferred
+    representation.
+    -}
     WireBytes
   deriving stock (Eq, Ord, Show, Data, Generic)
 
@@ -154,20 +160,25 @@ annotation can simultaneously inform several backends.
 data Modifier
   = -- | Rename a field on the wire.
     ModRename !Rename
-  | -- | Encode / decode the field via the named @newtype@-style
-    -- coercion target.
+  | {- | Encode / decode the field via the named @newtype@-style
+    coercion target.
+    -}
     ModCoerce !Name
-  | -- | Inline the contents of this nested record into its parent's
-    -- field set, rather than nesting it as a sub-message.
+  | {- | Inline the contents of this nested record into its parent's
+    field set, rather than nesting it as a sub-message.
+    -}
     ModFlatten
-  | -- | Omit this field from the wire encoding entirely (decoders
-    -- supply 'mempty' / @def@).
+  | {- | Omit this field from the wire encoding entirely (decoders
+    supply 'mempty' / @def@).
+    -}
     ModSkip
-  | -- | Use the named function as the field's default when decoding
-    -- a missing value.
+  | {- | Use the named function as the field's default when decoding
+    a missing value.
+    -}
     ModDefaults !Name
-  | -- | Manually fix this field's numeric tag / id (proto field
-    -- number, Thrift field id).
+  | {- | Manually fix this field's numeric tag / id (proto field
+    number, Thrift field id).
+    -}
     ModTag !Int
   | -- | Mark a field required (Thrift / proto2 semantics).
     ModRequired
@@ -177,32 +188,37 @@ data Modifier
     ModWireOverride !WireOverride
   | -- | Apply the inner modifiers /only/ for the listed backends.
     ModForBackends ![Backend] ![Modifier]
-  | -- | Apply this single modifier /only/ for the listed backends.
-    -- Equivalent to @ModForBackends bs [m]@; provided for cheaper
-    -- pretty-printing and tighter @ANN@ payloads in common cases.
+  | {- | Apply this single modifier /only/ for the listed backends.
+    Equivalent to @ModForBackends bs [m]@; provided for cheaper
+    pretty-printing and tighter @ANN@ payloads in common cases.
+    -}
     ModBackendOnly ![Backend] !Modifier
-  | -- | Skip this name entirely for the listed backends. Equivalent to
-    -- @ModForBackends bs [ModSkip]@; provided as its own constructor
-    -- so per-format derivers can short-circuit cheaply.
+  | {- | Skip this name entirely for the listed backends. Equivalent to
+    @ModForBackends bs [ModSkip]@; provided as its own constructor
+    so per-format derivers can short-circuit cheaply.
+    -}
     ModBackendDisable ![Backend]
-  | -- | Backend-specific opaque payload. Tagged by an arbitrary
-    -- 'Text' identifier so backends can recognise their own; the
-    -- payload itself is a 'String' rather than a 'ByteString'
-    -- because GHC's 'ANN' machinery serialises the modifier via
-    -- @Data.Data@, which works for any algebraic type but fails on
-    -- the sealed 'ByteString' instance.
+  | {- | Backend-specific opaque payload. Tagged by an arbitrary
+    'Text' identifier so backends can recognise their own; the
+    payload itself is a 'String' rather than a 'ByteString'
+    because GHC's 'ANN' machinery serialises the modifier via
+    @Data.Data@, which works for any algebraic type but fails on
+    the sealed 'ByteString' instance.
+    -}
     ModCustom !Text !String
-  | -- | This @HashMap@ / @Map@ field is encoded as a proto3 @map@.
-    -- The 'MapKeyScalar' picks the wire encoding for the key half.
-    -- Value type is inferred from the field's Haskell type.
-    --
-    -- Only consulted by the proto deriver; other backends ignore it.
+  | {- | This @HashMap@ / @Map@ field is encoded as a proto3 @map@.
+    The 'MapKeyScalar' picks the wire encoding for the key half.
+    Value type is inferred from the field's Haskell type.
+
+    Only consulted by the proto deriver; other backends ignore it.
+    -}
     ModMapKey !MapKeyScalar
-  | -- | Group this constructor (in a sum) or this field (in a
-    -- record) into the named proto @oneof@. All fields sharing the
-    -- same group name encode under one @oneof@ block.
-    --
-    -- Only consulted by the proto deriver; other backends ignore it.
+  | {- | Group this constructor (in a sum) or this field (in a
+    record) into the named proto @oneof@. All fields sharing the
+    same group name encode under one @oneof@ block.
+
+    Only consulted by the proto deriver; other backends ignore it.
+    -}
     ModOneof !Text
   deriving stock (Eq, Ord, Show, Data, Generic)
 

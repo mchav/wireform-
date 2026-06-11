@@ -96,7 +96,7 @@ dictFromList :: [(ByteString, Encoding)] -> Encoding
 dictFromList kvs =
   let !sorted = sortBy (comparing fst) kvs
   in Encoding
-      ( BB.char7 'd'
-          <> foldl' (\b (k, v) -> b <> runEncoding (bytes k) <> runEncoding v) mempty sorted
-          <> BB.char7 'e'
-      )
+       ( BB.char7 'd'
+           <> foldl' (\b (k, v) -> b <> runEncoding (bytes k) <> runEncoding v) mempty sorted
+           <> BB.char7 'e'
+       )

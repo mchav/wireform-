@@ -1,26 +1,30 @@
--- | ASN.1 Module Definition Language schema types.
---
--- Defines the abstract syntax tree for ASN.1 module definitions,
--- including SEQUENCE, CHOICE, ENUMERATED, and basic ASN.1 types
--- with constraint support (range, size).
-module ASN1.Schema
-  ( ASN1Module(..)
-  , TagMode(..)
-  , TypeAssignment(..)
-  , ASN1TypeDef(..)
-  , ComponentType(..)
-  , Constraint(..)
-  ) where
+{- | ASN.1 Module Definition Language schema types.
+
+Defines the abstract syntax tree for ASN.1 module definitions,
+including SEQUENCE, CHOICE, ENUMERATED, and basic ASN.1 types
+with constraint support (range, size).
+-}
+module ASN1.Schema (
+  ASN1Module (..),
+  TagMode (..),
+  TypeAssignment (..),
+  ASN1TypeDef (..),
+  ComponentType (..),
+  Constraint (..),
+) where
 
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
 
+
 data ASN1Module = ASN1Module
-  { asnModuleName   :: !Text
-  , asnTagMode      :: !TagMode
-  , asnAssignments  :: !(Vector TypeAssignment)
-  } deriving stock (Show, Eq)
+  { asnModuleName :: !Text
+  , asnTagMode :: !TagMode
+  , asnAssignments :: !(Vector TypeAssignment)
+  }
+  deriving stock (Show, Eq)
+
 
 data TagMode
   = AutomaticTags
@@ -29,8 +33,10 @@ data TagMode
   | DefaultTags
   deriving stock (Show, Eq, Ord, Enum, Bounded)
 
+
 data TypeAssignment = TypeAssignment !Text !ASN1TypeDef
   deriving stock (Show, Eq)
+
 
 data ASN1TypeDef
   = TDSequence !(Vector ComponentType)
@@ -52,8 +58,10 @@ data ASN1TypeDef
   | TDDefault !ASN1TypeDef !Text
   deriving stock (Show, Eq)
 
+
 data ComponentType = ComponentType !Text !ASN1TypeDef !Bool
   deriving stock (Show, Eq)
+
 
 data Constraint
   = RangeConstraint !(Maybe Int64) !(Maybe Int64)

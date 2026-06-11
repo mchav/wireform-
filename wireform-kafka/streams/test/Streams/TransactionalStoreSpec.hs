@@ -4,36 +4,46 @@
 -- | Tests for the KIP-892 'TransactionalStore' overlay.
 module Streams.TransactionalStoreSpec (tests) where
 
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
 import Hedgehog
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Kafka.Streams.State.KeyValue.InMemory qualified as Mem
+import Kafka.Streams.State.Store qualified as Store
+import Kafka.Streams.State.Transactional qualified as TX
 import Test.Syd
 import Test.Syd.Hedgehog ()
 
-import qualified Kafka.Streams.State.KeyValue.InMemory as Mem
-import qualified Kafka.Streams.State.Store as Store
-import qualified Kafka.Streams.State.Transactional as TX
 
 tests :: Spec
-tests = describe "TransactionalStore (KIP-892)" $ sequence_
-  [ it "buffered put -> commit visible on underlying"
-      put_commit_visible
-  , it "buffered put -> abort discards"
-      put_abort_invisible
-  , it "read-your-writes within the open transaction"
-      ryw
-  , it "buffered delete on commit applies"
-      delete_commit
-  , it "putIfAbsent honours the underlying store"
-      put_if_absent
-  , it "abort is a no-op on the underlying store"
-      prop_abort_noop
-  ]
+tests =
+  describe "TransactionalStore (KIP-892)" $
+    sequence_
+      [ it
+          "buffered put -> commit visible on underlying"
+          put_commit_visible
+      , it
+          "buffered put -> abort discards"
+          put_abort_invisible
+      , it
+          "read-your-writes within the open transaction"
+          ryw
+      , it
+          "buffered delete on commit applies"
+          delete_commit
+      , it
+          "putIfAbsent honours the underlying store"
+          put_if_absent
+      , it
+          "abort is a no-op on the underlying store"
+          prop_abort_noop
+      ]
+
 
 mkStore :: IO (Store.KeyValueStore Text Text)
 mkStore = Mem.inMemoryKeyValueStore (Store.storeName "t")
+
 
 put_commit_visible :: IO ()
 put_commit_visible = do
@@ -48,6 +58,7 @@ put_commit_visible = do
   post <- Store.kvsGet underlying "k"
   post `shouldBe` Just "v"
 
+
 put_abort_invisible :: IO ()
 put_abort_invisible = do
   underlying <- mkStore
@@ -58,6 +69,7 @@ put_abort_invisible = do
   post <- Store.kvsGet underlying "k"
   post `shouldBe` Nothing
 
+
 ryw :: IO ()
 ryw = do
   underlying <- mkStore
@@ -67,6 +79,7 @@ ryw = do
   -- Read-your-writes: the buffer wins.
   r <- Store.kvsGet kvs "k"
   r `shouldBe` Just "v"
+
 
 delete_commit :: IO ()
 delete_commit = do
@@ -82,6 +95,7 @@ delete_commit = do
   post <- Store.kvsGet underlying "k"
   post `shouldBe` Nothing
 
+
 put_if_absent :: IO ()
 put_if_absent = do
   underlying <- mkStore
@@ -94,6 +108,7 @@ put_if_absent = do
   TX.txnCommit ts
   post <- Store.kvsGet underlying "k"
   post `shouldBe` Just "v"
+
 
 prop_abort_noop :: Property
 prop_abort_noop = property $ do

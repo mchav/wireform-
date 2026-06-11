@@ -9,43 +9,48 @@ This is intentionally simple — the surface matches the @http-client@
 manager's pool shape without adopting its TLS / SOCKS / cookie jar
 machinery, which belongs in a separate layer.
 -}
-module Network.HTTP1.Client.Pool
-  ( Pool
-  , PoolConfig (..)
-  , defaultPoolConfig
-  , newPool
-  , withPooledRequest
-  , destroyPool
-  ) where
+module Network.HTTP1.Client.Pool (
+  Pool,
+  PoolConfig (..),
+  defaultPoolConfig,
+  newPool,
+  withPooledRequest,
+  destroyPool,
+) where
 
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
-import qualified Data.Map.Strict as Map
-
+import Data.Map.Strict qualified as Map
 import Network.HTTP1.Client
 import Network.HTTP1.Headers
 import Network.HTTP1.Parser
 import Network.HTTP1.Types
 
+
 data PoolConfig = PoolConfig
   { poolPerHostIdle :: !Int
-    -- ^ Maximum idle connections kept per @(host, port)@ key.
+  -- ^ Maximum idle connections kept per @(host, port)@ key.
   }
 
+
 defaultPoolConfig :: PoolConfig
-defaultPoolConfig = PoolConfig { poolPerHostIdle = 8 }
+defaultPoolConfig = PoolConfig {poolPerHostIdle = 8}
+
 
 type Key = (String, String)
+
 
 data Pool = Pool
   { poolCfg :: !PoolConfig
   , poolMap :: !(TVar (Map.Map Key (TVar [ClientConnection])))
   }
 
+
 newPool :: PoolConfig -> IO Pool
 newPool cfg = do
   m <- newTVarIO Map.empty
-  pure Pool { poolCfg = cfg, poolMap = m }
+  pure Pool {poolCfg = cfg, poolMap = m}
+
 
 -- | Drop every cached connection. Safe to call multiple times.
 destroyPool :: Pool -> IO ()
@@ -57,10 +62,12 @@ destroyPool pool = do
     pure (concat qs)
   mapM_ closeClientConnection conns
 
--- | Borrow a connection from the pool (or open a new one), run the
--- request, then return the connection if it remained usable. The
--- response's body MUST be fully consumed inside the callback because
--- we can't reuse the connection until the body is drained.
+
+{- | Borrow a connection from the pool (or open a new one), run the
+request, then return the connection if it remained usable. The
+response's body MUST be fully consumed inside the callback because
+we can't reuse the connection until the body is drained.
+-}
 withPooledRequest
   :: Pool
   -> ClientConfig
@@ -85,6 +92,7 @@ withPooledRequest pool cfg req action = do
       Just v | any (== ConnClose) (parseConnection v) -> False
       _ -> True
 
+
 checkOut :: Pool -> ClientConfig -> IO ClientConnection
 checkOut pool cfg = do
   mc <- atomically $ do
@@ -101,6 +109,7 @@ checkOut pool cfg = do
   case mc of
     Just c -> pure c
     Nothing -> openClientConnection cfg
+
 
 checkIn :: Pool -> ClientConfig -> ClientConnection -> IO ()
 checkIn pool cfg conn = do

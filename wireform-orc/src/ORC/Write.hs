@@ -111,8 +111,8 @@ encodeDirectChunk vals signed =
       !byte1 = lenLow
       !packed = packBitsMSB transformed w
   in B.word8 (fromIntegral byte0)
-      <> B.word8 (fromIntegral byte1)
-      <> B.byteString packed
+       <> B.word8 (fromIntegral byte1)
+       <> B.byteString packed
 
 
 ------------------------------------------------------------------------
@@ -188,21 +188,21 @@ encodeStringDictColumn texts =
             | otherwise =
                 let !t = V.unsafeIndex texts i
                 in case Map.lookup t dict of
-                    Just k ->
-                      go
-                        (i + 1)
-                        dict
-                        uniqAcc
-                        (V.snoc idxAcc (fromIntegral k :: Int64))
-                    Nothing ->
-                      let !k = Map.size dict
-                          !dict' = Map.insert t k dict
-                          !uniqAcc' = t : uniqAcc
-                      in go
-                          (i + 1)
-                          dict'
-                          uniqAcc'
-                          (V.snoc idxAcc (fromIntegral k :: Int64))
+                     Just k ->
+                       go
+                         (i + 1)
+                         dict
+                         uniqAcc
+                         (V.snoc idxAcc (fromIntegral k :: Int64))
+                     Nothing ->
+                       let !k = Map.size dict
+                           !dict' = Map.insert t k dict
+                           !uniqAcc' = t : uniqAcc
+                       in go
+                            (i + 1)
+                            dict'
+                            uniqAcc'
+                            (V.snoc idxAcc (fromIntegral k :: Int64))
       !uniques = V.fromList (reverse uniqueRev)
       !(dictBytes, lengthBs) = encodeStringDirectColumn uniques
       -- Convert the boxed indices vector to a primitive one; the RLE
@@ -229,9 +229,9 @@ writeFloatLE :: Float -> B.Builder
 writeFloatLE !f =
   let !w = castFloatToWord32 f
   in B.word8 (fromIntegral (w .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 24) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 24) .&. 0xFF))
 
 
 {-# INLINE writeDoubleLE #-}
@@ -239,13 +239,13 @@ writeDoubleLE :: Double -> B.Builder
 writeDoubleLE !d =
   let !w = castDoubleToWord64 d
   in B.word8 (fromIntegral (w .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 24) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 32) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 40) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 48) .&. 0xFF))
-      <> B.word8 (fromIntegral ((w `shiftR` 56) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 8) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 16) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 24) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 32) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 40) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 48) .&. 0xFF))
+       <> B.word8 (fromIntegral ((w `shiftR` 56) .&. 0xFF))
 
 
 ------------------------------------------------------------------------
@@ -545,12 +545,14 @@ comes from the IV derived from @(stripeId, streamOffset)@.
 -}
 data StripeEncryption = StripeEncryption
   { seLocalKey :: !ByteString
-  -- ^ Column variant's local key (16 / 24 / 32 bytes, matching the
-  -- 'Enc.EncryptionAlgorithm'). Produced by the caller, typically
-  -- from a KMS; this module doesn't pick it.
+  {- ^ Column variant's local key (16 / 24 / 32 bytes, matching the
+  'Enc.EncryptionAlgorithm'). Produced by the caller, typically
+  from a KMS; this module doesn't pick it.
+  -}
   , seStripeId :: !Word64
-  -- ^ Monotonic stripe identifier; fed into the stream-key +
-  -- stream-IV derivation.
+  {- ^ Monotonic stripe identifier; fed into the stream-key +
+  stream-IV derivation.
+  -}
   }
   deriving (Show, Eq)
 
@@ -614,9 +616,10 @@ buildEncryptedORCFile
   :: V.Vector ORCType
   -> V.Vector (V.Vector (Word64, Word64, ByteString))
   -> V.Vector (Maybe StripeEncryption)
-  -- ^ One entry per stripe; 'Nothing' leaves that stripe in
-  -- plaintext, 'Just' encrypts its streams with AES-CTR using the
-  -- derived per-stripe key.
+  {- ^ One entry per stripe; 'Nothing' leaves that stripe in
+  plaintext, 'Just' encrypts its streams with AES-CTR using the
+  derived per-stripe key.
+  -}
   -> Enc.Encryption
   -- ^ File-level encryption metadata emitted in the footer.
   -> Either String ByteString

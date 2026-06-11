@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-{-|
+{- |
 Module      : Kafka.Streams.Topology.Optimization
 Description : KIP-295 / @StreamsConfig.topology.optimization@ toggles
 
@@ -23,20 +23,22 @@ internal set of booleans the topology builder consults. The actual
 rewrites would call 'shouldReuseSourceTopics' etc. when assembling
 the topology DAG.
 -}
-module Kafka.Streams.Topology.Optimization
-  ( TopologyOptimizationLevel (..)
-  , OptimizationFlags (..)
-  , noOptimizations
-  , optimizationFlags
-  , parseOptimizationLevel
-  , optimizationLevelText
-  ) where
+module Kafka.Streams.Topology.Optimization (
+  TopologyOptimizationLevel (..),
+  OptimizationFlags (..),
+  noOptimizations,
+  optimizationFlags,
+  parseOptimizationLevel,
+  optimizationLevelText,
+) where
 
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
--- | The user-visible @topology.optimization@ knob. Mirrors the
--- Java enum verbatim.
+
+{- | The user-visible @topology.optimization@ knob. Mirrors the
+Java enum verbatim.
+-}
 data TopologyOptimizationLevel
   = OptimizeNone
   | OptimizeReuseKtableSourceTopics
@@ -45,44 +47,51 @@ data TopologyOptimizationLevel
   | OptimizeAll
   deriving stock (Eq, Show, Generic)
 
--- | Internal projection of the user's knob into the set of
--- rewriter passes that should run.
+
+{- | Internal projection of the user's knob into the set of
+rewriter passes that should run.
+-}
 data OptimizationFlags = OptimizationFlags
-  { flagReuseSourceTopics      :: !Bool
+  { flagReuseSourceTopics :: !Bool
   , flagMergeRepartitionTopics :: !Bool
-  , flagSingleStoreSelfJoin    :: !Bool
+  , flagSingleStoreSelfJoin :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
+
 noOptimizations :: OptimizationFlags
 noOptimizations = OptimizationFlags False False False
+
 
 optimizationFlags :: TopologyOptimizationLevel -> OptimizationFlags
 optimizationFlags = \case
   OptimizeNone -> noOptimizations
   OptimizeReuseKtableSourceTopics ->
-    noOptimizations { flagReuseSourceTopics = True }
+    noOptimizations {flagReuseSourceTopics = True}
   OptimizeMergeRepartitionTopics ->
-    noOptimizations { flagMergeRepartitionTopics = True }
+    noOptimizations {flagMergeRepartitionTopics = True}
   OptimizeSingleStoreSelfJoin ->
-    noOptimizations { flagSingleStoreSelfJoin = True }
+    noOptimizations {flagSingleStoreSelfJoin = True}
   OptimizeAll -> OptimizationFlags True True True
 
--- | Parse the textual config value users put in their
--- @StreamsConfig@ properties. Mirrors the Java enum's @valueOf@.
+
+{- | Parse the textual config value users put in their
+@StreamsConfig@ properties. Mirrors the Java enum's @valueOf@.
+-}
 parseOptimizationLevel :: Text -> Maybe TopologyOptimizationLevel
 parseOptimizationLevel = \case
-  "none"                          -> Just OptimizeNone
-  "reuse.ktable.source.topics"    -> Just OptimizeReuseKtableSourceTopics
-  "merge.repartition.topics"      -> Just OptimizeMergeRepartitionTopics
-  "single.store.self.join"        -> Just OptimizeSingleStoreSelfJoin
-  "all"                           -> Just OptimizeAll
-  _                               -> Nothing
+  "none" -> Just OptimizeNone
+  "reuse.ktable.source.topics" -> Just OptimizeReuseKtableSourceTopics
+  "merge.repartition.topics" -> Just OptimizeMergeRepartitionTopics
+  "single.store.self.join" -> Just OptimizeSingleStoreSelfJoin
+  "all" -> Just OptimizeAll
+  _ -> Nothing
+
 
 optimizationLevelText :: TopologyOptimizationLevel -> Text
 optimizationLevelText = \case
-  OptimizeNone                    -> "none"
+  OptimizeNone -> "none"
   OptimizeReuseKtableSourceTopics -> "reuse.ktable.source.topics"
-  OptimizeMergeRepartitionTopics  -> "merge.repartition.topics"
-  OptimizeSingleStoreSelfJoin     -> "single.store.self.join"
-  OptimizeAll                     -> "all"
+  OptimizeMergeRepartitionTopics -> "merge.repartition.topics"
+  OptimizeSingleStoreSelfJoin -> "single.store.self.join"
+  OptimizeAll -> "all"

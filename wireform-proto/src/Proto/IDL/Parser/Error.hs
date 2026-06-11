@@ -76,15 +76,15 @@ renderOneError sourceLines bundle err =
           else Nothing
       pointer = makePointer lineNumWidth effectiveCol (pointerWidth err)
   in unlines $
-      catMaybes
-        [ Just $ "error: " <> summary
-        , Just $ pad <> " --> " <> filePath <> ":" <> show line <> ":" <> show col
-        , Just $ pad <> " |"
-        , contextBefore
-        , effectiveLine
-        , Just $ pointer <> " " <> details
-        , Just $ pad <> " |"
-        ]
+       catMaybes
+         [ Just $ "error: " <> summary
+         , Just $ pad <> " --> " <> filePath <> ":" <> show line <> ":" <> show col
+         , Just $ pad <> " |"
+         , contextBefore
+         , effectiveLine
+         , Just $ pointer <> " " <> details
+         , Just $ pad <> " |"
+         ]
 
 
 getSourceLine :: [Text] -> Int -> Maybe Text
@@ -136,12 +136,12 @@ describeItem :: ErrorItem Char -> String
 describeItem (Tokens ts) =
   let s = NE.toList ts
   in case s of
-      [c]
-        | c == '\n' -> "newline"
-        | c == '\t' -> "tab"
-        | c == ' ' -> "space"
-        | otherwise -> "'" <> [c] <> "'"
-      _ -> "\"" <> escapeString s <> "\""
+       [c]
+         | c == '\n' -> "newline"
+         | c == '\t' -> "tab"
+         | c == ' ' -> "space"
+         | otherwise -> "'" <> [c] <> "'"
+       _ -> "\"" <> escapeString s <> "\""
 describeItem (Label cs) = NE.toList cs
 describeItem EndOfInput = "end of input"
 
@@ -203,9 +203,9 @@ formatExpectedGroups :: ExpectedGroup -> String
 formatExpectedGroups (ExpectedGroup labels toks eoi) =
   let allParts = labels <> toks <> (if eoi then ["end of input"] else [])
   in case allParts of
-      [] -> "something"
-      [x] -> x
-      _ -> commaOr allParts
+       [] -> "something"
+       [x] -> x
+       _ -> commaOr allParts
 
 
 commaOr :: [String] -> String

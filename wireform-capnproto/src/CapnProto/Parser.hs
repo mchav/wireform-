@@ -1,44 +1,47 @@
--- | Cap'n Proto schema parser.
---
--- Parses Cap'n Proto schema definitions into a 'CapnProto.Schema.CapnProtoSchema'
--- AST using Megaparsec. Supports structs with numbered fields, enums,
--- constants, interfaces, unions, and the Cap'n Proto type system.
---
--- @
--- struct Person {
---   name \@0 :Text;
---   age  \@1 :UInt32;
--- }
--- @
---
--- @
--- import CapnProto.Parser (parseCapnProto)
--- let Right schema = parseCapnProto input
--- @
-module CapnProto.Parser
-  ( parseCapnProto
-  ) where
+{- | Cap'n Proto schema parser.
 
-import Control.Monad (void)
-import Data.Char (isAlphaNum, isAlpha)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Void (Void)
-import Data.Word (Word16, Word64)
-import qualified Data.Vector as V
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
+Parses Cap'n Proto schema definitions into a 'CapnProto.Schema.CapnProtoSchema'
+AST using Megaparsec. Supports structs with numbered fields, enums,
+constants, interfaces, unions, and the Cap'n Proto type system.
+
+@
+struct Person {
+  name \@0 :Text;
+  age  \@1 :UInt32;
+}
+@
+
+@
+import CapnProto.Parser (parseCapnProto)
+let Right schema = parseCapnProto input
+@
+-}
+module CapnProto.Parser (
+  parseCapnProto,
+) where
 
 import CapnProto.Schema
+import Control.Monad (void)
+import Data.Char (isAlpha, isAlphaNum)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Vector qualified as V
+import Data.Void (Void)
+import Data.Word (Word16, Word64)
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import Text.Megaparsec.Char.Lexer qualified as L
+
 
 type Parser = Parsec Void Text
+
 
 parseCapnProto :: Text -> Either String CapnProtoSchema
 parseCapnProto input =
   case parse (sc *> schemaP <* eof) "<capnp>" input of
     Left err -> Left (errorBundlePretty err)
-    Right s  -> Right s
+    Right s -> Right s
+
 
 --------------------------------------------------------------------------------
 -- Whitespace / lexer helpers
@@ -47,23 +50,29 @@ parseCapnProto input =
 sc :: Parser ()
 sc = L.space space1 (L.skipLineComment "#") empty
 
+
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
+
 
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
+
 braces :: Parser a -> Parser a
 braces = between (symbol "{") (symbol "}")
 
+
 parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")
+
 
 identifier :: Parser Text
 identifier = lexeme $ do
   c <- satisfy (\ch -> isAlpha ch || ch == '_')
   rest <- takeWhileP Nothing (\ch -> isAlphaNum ch || ch == '_' || ch == '.')
   pure (T.cons c rest)
+
 
 stringLiteral :: Parser Text
 stringLiteral = lexeme $ do
@@ -72,6 +81,7 @@ stringLiteral = lexeme $ do
   void (char '"')
   pure content
 
+
 --------------------------------------------------------------------------------
 -- Top-level schema
 --------------------------------------------------------------------------------
@@ -79,18 +89,21 @@ stringLiteral = lexeme $ do
 schemaP :: Parser CapnProtoSchema
 schemaP = do
   items <- many topLevelP
-  let fileId  = listToMaybe' [fid | TLFileId fid <- items]
+  let fileId = listToMaybe' [fid | TLFileId fid <- items]
       imports = V.fromList [i | TLImport i <- items]
-      decls   = V.fromList [d | TLDecl d <- items]
-  pure CapnProtoSchema
-    { csFileId  = fileId
-    , csImports = imports
-    , csDecls   = decls
-    }
+      decls = V.fromList [d | TLDecl d <- items]
+  pure
+    CapnProtoSchema
+      { csFileId = fileId
+      , csImports = imports
+      , csDecls = decls
+      }
+
 
 listToMaybe' :: [a] -> Maybe a
-listToMaybe' []    = Nothing
-listToMaybe' (x:_) = Just x
+listToMaybe' [] = Nothing
+listToMaybe' (x : _) = Just x
+
 
 data TopLevel
   = TLFileId !Word64
@@ -98,13 +111,16 @@ data TopLevel
   | TLDecl !Declaration
   | TLUsing
 
+
 topLevelP :: Parser TopLevel
-topLevelP = choice
-  [ TLFileId <$> fileIdP
-  , TLImport <$> importP
-  , TLUsing <$ usingP
-  , TLDecl <$> declarationP
-  ]
+topLevelP =
+  choice
+    [ TLFileId <$> fileIdP
+    , TLImport <$> importP
+    , TLUsing <$ usingP
+    , TLDecl <$> declarationP
+    ]
+
 
 --------------------------------------------------------------------------------
 -- File ID: @0xHEXDIGITS;
@@ -117,6 +133,7 @@ fileIdP = lexeme $ do
   n <- L.hexadecimal
   void (symbol ";")
   pure n
+
 
 --------------------------------------------------------------------------------
 -- Import: using import "file.capnp".Name;
@@ -131,6 +148,7 @@ importP = try $ do
   void (symbol ";")
   pure path
 
+
 usingP :: Parser ()
 usingP = do
   void (symbol "using")
@@ -141,29 +159,34 @@ usingP = do
   _ <- optional (symbol "." *> identifier)
   void (symbol ";")
 
+
 --------------------------------------------------------------------------------
 -- Declarations
 --------------------------------------------------------------------------------
 
 declarationP :: Parser Declaration
-declarationP = choice
-  [ DStruct <$> structP
-  , DEnum <$> enumP
-  , DInterface <$> interfaceP
-  , try constDeclP
-  , try annotationP'
-  ]
+declarationP =
+  choice
+    [ DStruct <$> structP
+    , DEnum <$> enumP
+    , DInterface <$> interfaceP
+    , try constDeclP
+    , try annotationP'
+    ]
+
 
 constDeclP :: Parser Declaration
 constDeclP = do
   (name, ty, val) <- constP
   pure (DConst name ty val)
 
+
 annotationP' :: Parser Declaration
 annotationP' = do
   name <- annotationDeclP
   ty <- annotationTypeP
   pure (DAnnotation name ty)
+
 
 --------------------------------------------------------------------------------
 -- Struct
@@ -177,25 +200,30 @@ structP = do
   let fields = V.fromList [f | SMField f <- members]
       nested = V.fromList [d | SMNested d <- members]
       unions = V.fromList [u | SMUnion u <- members]
-  pure StructDef
-    { sdName   = name
-    , sdFields = fields
-    , sdNested = nested
-    , sdUnions = unions
-    }
+  pure
+    StructDef
+      { sdName = name
+      , sdFields = fields
+      , sdNested = nested
+      , sdUnions = unions
+      }
+
 
 data StructMember
   = SMField !FieldDef
   | SMNested !Declaration
   | SMUnion !UnionDef
 
+
 structMemberP :: Parser StructMember
-structMemberP = choice
-  [ SMUnion <$> unionP
-  , SMNested <$> try (DStruct <$> structP)
-  , SMNested <$> try (DEnum <$> enumP)
-  , SMField <$> fieldDefP
-  ]
+structMemberP =
+  choice
+    [ SMUnion <$> unionP
+    , SMNested <$> try (DStruct <$> structP)
+    , SMNested <$> try (DEnum <$> enumP)
+    , SMField <$> fieldDefP
+    ]
+
 
 fieldAnnotationP :: Parser (Text, Maybe Text)
 fieldAnnotationP = do
@@ -204,8 +232,10 @@ fieldAnnotationP = do
   val <- optional (parens (stringLiteral <|> lexeme (takeWhile1P Nothing (\c -> c /= ')' && c /= '\n'))))
   pure (name, val)
 
+
 fieldAnnotationsP :: Parser (V.Vector (Text, Maybe Text))
 fieldAnnotationsP = V.fromList <$> many (try fieldAnnotationP)
+
 
 fieldDefP :: Parser FieldDef
 fieldDefP = do
@@ -217,16 +247,19 @@ fieldDefP = do
   dflt <- optional (symbol "=" *> defaultValueP)
   anns <- fieldAnnotationsP
   void (symbol ";")
-  pure FieldDef
-    { fdName        = name
-    , fdOrdinal     = ordinal
-    , fdType        = ty
-    , fdDefault     = dflt
-    , fdAnnotations = anns
-    }
+  pure
+    FieldDef
+      { fdName = name
+      , fdOrdinal = ordinal
+      , fdType = ty
+      , fdDefault = dflt
+      , fdAnnotations = anns
+      }
+
 
 defaultValueP :: Parser Text
 defaultValueP = lexeme $ takeWhile1P Nothing (\c -> c /= ';' && c /= '\n' && c /= '$')
+
 
 --------------------------------------------------------------------------------
 -- Union
@@ -236,7 +269,8 @@ unionP :: Parser UnionDef
 unionP = do
   void (symbol "union")
   fields <- braces (many fieldDefP)
-  pure UnionDef { udFields = V.fromList fields }
+  pure UnionDef {udFields = V.fromList fields}
+
 
 --------------------------------------------------------------------------------
 -- Enum
@@ -247,10 +281,12 @@ enumP = do
   void (symbol "enum")
   name <- identifier
   vals <- braces (many enumValueP)
-  pure EnumDef
-    { edName   = name
-    , edValues = V.fromList vals
-    }
+  pure
+    EnumDef
+      { edName = name
+      , edValues = V.fromList vals
+      }
+
 
 enumValueP :: Parser (Text, Word16)
 enumValueP = do
@@ -259,6 +295,7 @@ enumValueP = do
   ordinal <- lexeme L.decimal
   void (symbol ";")
   pure (name, ordinal)
+
 
 --------------------------------------------------------------------------------
 -- Interface
@@ -269,10 +306,12 @@ interfaceP = do
   void (symbol "interface")
   name <- identifier
   methods <- braces (many methodP)
-  pure InterfaceDef
-    { idName    = name
-    , idMethods = V.fromList methods
-    }
+  pure
+    InterfaceDef
+      { idName = name
+      , idMethods = V.fromList methods
+      }
+
 
 methodP :: Parser MethodDef
 methodP = do
@@ -283,11 +322,13 @@ methodP = do
   void (symbol "->")
   ret <- parens returnTypeP
   void (symbol ";")
-  pure MethodDef
-    { mdName   = name
-    , mdParams = V.fromList params
-    , mdReturn = ret
-    }
+  pure
+    MethodDef
+      { mdName = name
+      , mdParams = V.fromList params
+      , mdReturn = ret
+      }
+
 
 paramP :: Parser (Text, CapnType)
 paramP = do
@@ -296,11 +337,13 @@ paramP = do
   ty <- capnTypeP
   pure (name, ty)
 
+
 returnTypeP :: Parser CapnType
 returnTypeP = do
   _ <- optional identifier
   _ <- optional (symbol ":")
   capnTypeP
+
 
 --------------------------------------------------------------------------------
 -- Const
@@ -317,6 +360,7 @@ constP = do
   void (symbol ";")
   pure (name, ty, T.strip val)
 
+
 --------------------------------------------------------------------------------
 -- Annotation declaration
 --------------------------------------------------------------------------------
@@ -326,6 +370,7 @@ annotationDeclP = do
   void (symbol "annotation")
   identifier
 
+
 annotationTypeP :: Parser CapnType
 annotationTypeP = do
   void (symbol ":")
@@ -333,29 +378,32 @@ annotationTypeP = do
   void (symbol ";")
   pure ty
 
+
 --------------------------------------------------------------------------------
 -- Types
 --------------------------------------------------------------------------------
 
 capnTypeP :: Parser CapnType
-capnTypeP = choice
-  [ CTVoid    <$ symbol "Void"
-  , CTBool    <$ symbol "Bool"
-  , CTInt8    <$ symbol "Int8"
-  , CTInt16   <$ symbol "Int16"
-  , CTInt32   <$ symbol "Int32"
-  , CTInt64   <$ symbol "Int64"
-  , CTUInt8   <$ symbol "UInt8"
-  , CTUInt16  <$ symbol "UInt16"
-  , CTUInt32  <$ symbol "UInt32"
-  , CTUInt64  <$ symbol "UInt64"
-  , CTFloat32 <$ symbol "Float32"
-  , CTFloat64 <$ symbol "Float64"
-  , CTText    <$ symbol "Text"
-  , CTData    <$ symbol "Data"
-  , listTypeP
-  , CTNamed <$> identifier
-  ]
+capnTypeP =
+  choice
+    [ CTVoid <$ symbol "Void"
+    , CTBool <$ symbol "Bool"
+    , CTInt8 <$ symbol "Int8"
+    , CTInt16 <$ symbol "Int16"
+    , CTInt32 <$ symbol "Int32"
+    , CTInt64 <$ symbol "Int64"
+    , CTUInt8 <$ symbol "UInt8"
+    , CTUInt16 <$ symbol "UInt16"
+    , CTUInt32 <$ symbol "UInt32"
+    , CTUInt64 <$ symbol "UInt64"
+    , CTFloat32 <$ symbol "Float32"
+    , CTFloat64 <$ symbol "Float64"
+    , CTText <$ symbol "Text"
+    , CTData <$ symbol "Data"
+    , listTypeP
+    , CTNamed <$> identifier
+    ]
+
 
 listTypeP :: Parser CapnType
 listTypeP = do

@@ -113,8 +113,9 @@ data AnyCodec = AnyCodec
   , acFromJSON :: !(Aeson.Value -> Either String ByteString)
   -- ^ Encode a JSON value to wire bytes.
   , acIsWkt :: !Bool
-  -- ^ True for well-known types that use the
-  -- @{"\@type": …, "value": …}@ envelope.
+  {- ^ True for well-known types that use the
+  @{"\@type": …, "value": …}@ envelope.
+  -}
   }
 
 
@@ -170,9 +171,9 @@ registerMessage p reg =
           , acIsWkt = False
           }
   in reg
-      { trCodecs = Map.insert name codec (trCodecs reg)
-      , trDecoders = Map.insert name (SomeDecoder p) (trDecoders reg)
-      }
+       { trCodecs = Map.insert name codec (trCodecs reg)
+       , trDecoders = Map.insert name (SomeDecoder p) (trDecoders reg)
+       }
 
 
 {- | Register a raw JSON codec (for well-known types with custom JSON

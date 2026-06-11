@@ -2,20 +2,23 @@
 
 module Streams.TopologyDescriptionSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Text as T
+import Data.ByteString.Char8 qualified as BSC
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "TopologyDescription" $ sequence_
-  [ describe_simple_passthrough
-  , describe_lists_stores
-  , pretty_includes_arrows_and_topics
-  , two_sub_topologies_via_through
-  , through_topic_round_trips_in_driver
-  ]
+tests =
+  describe "TopologyDescription" $
+    sequence_
+      [ describe_simple_passthrough
+      , describe_lists_stores
+      , pretty_includes_arrows_and_topics
+      , two_sub_topologies_via_through
+      , through_topic_round_trips_in_driver
+      ]
+
 
 simpleTopo :: IO Topology
 simpleTopo = do
@@ -25,6 +28,7 @@ simpleTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s'
   buildTopology b
 
+
 describe_simple_passthrough :: Spec
 describe_simple_passthrough =
   it "describeTopology returns one sub-topology with the right node count" $ do
@@ -32,20 +36,22 @@ describe_simple_passthrough =
     let td = describeTopology topo
     length (tdSubtopologies td) `shouldBe` 1
     case tdSubtopologies td of
-      [st] -> length (stNodes st) `shouldBe` 3   -- source + map + sink
-      _    -> error "expected exactly one sub-topology"
+      [st] -> length (stNodes st) `shouldBe` 3 -- source + map + sink
+      _ -> error "expected exactly one sub-topology"
+
 
 describe_lists_stores :: Spec
 describe_lists_stores =
   it "tdStores enumerates every declared state store" $ do
     b <- newStreamsBuilder
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
-    let g  = grouped textSerde textSerde
+    let g = grouped textSerde textSerde
         kg = groupByKey g src
     _ <- countStream (materializedAs (storeName "my-counter")) kg
     topo <- buildTopology b
     let td = describeTopology topo
     map unStoreName (tdStores td) `shouldBe` ["my-counter"]
+
 
 pretty_includes_arrows_and_topics :: Spec
 pretty_includes_arrows_and_topics =
@@ -53,7 +59,8 @@ pretty_includes_arrows_and_topics =
     topo <- simpleTopo
     let txt = pretty (describeTopology topo)
     -- Spot-check a handful of expected substrings.
-    mapM_ (\needle -> (if (needle `T.isInfixOf` txt) then pure () else expectationFailure (T.unpack needle <> " missing in:\n" <> T.unpack txt)))
+    mapM_
+      (\needle -> (if (needle `T.isInfixOf` txt) then pure () else expectationFailure (T.unpack needle <> " missing in:\n" <> T.unpack txt)))
       [ "Topologies:"
       , "Sub-topology: 0"
       , "Source:"
@@ -63,6 +70,7 @@ pretty_includes_arrows_and_topics =
       , "-->"
       , "<--"
       ]
+
 
 ----------------------------------------------------------------------
 -- Sub-topology splitting + driver auto-feedback
@@ -77,12 +85,14 @@ twoSubTopologyTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s''
   buildTopology b
 
+
 two_sub_topologies_via_through :: Spec
 two_sub_topologies_via_through =
   it "throughTopic boundary splits the topology into two sub-topologies" $ do
     topo <- twoSubTopologyTopo
     let td = describeTopology topo
     length (tdSubtopologies td) `shouldBe` 2
+
 
 through_topic_round_trips_in_driver :: Spec
 through_topic_round_trips_in_driver =

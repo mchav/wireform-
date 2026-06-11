@@ -199,27 +199,27 @@ escapeTextBuilder t =
       | otherwise =
           let !b = BS.index bs off
           in case b of
-              0x3C -> BB.byteString (BS.take off BS.empty) <> BB.byteString "&lt;" <> escapeBS bs (off + 1) len
-              _ -> scanClean bs off off len
+               0x3C -> BB.byteString (BS.take off BS.empty) <> BB.byteString "&lt;" <> escapeBS bs (off + 1) len
+               _ -> scanClean bs off off len
 
     scanClean !bs !start !off !len
       | off >= len = BB.byteString (BS.take (off - start) (BS.drop start bs))
       | otherwise =
           let !b = BS.index bs off
           in case b of
-              0x3C ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&lt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x3E ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&gt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x26 ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&amp;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              _ -> scanClean bs start (off + 1) len
+               0x3C ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&lt;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               0x3E ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&gt;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               0x26 ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&amp;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               _ -> scanClean bs start (off + 1) len
 
 
 lookupAttrArr :: Text -> SmallArray HTMLAttribute -> Maybe Text
@@ -251,14 +251,14 @@ setAttrArr name val arr =
   let !n = sizeofSmallArray arr
       !idx = findAttrIdx name arr
   in if idx >= 0
-      then runSmallArray $ do
-        ma <- thawSmallArray arr 0 n
-        writeSmallArray ma idx (HTMLAttribute name val)
-        pure ma
-      else runSmallArray $ do
-        ma <- newSmallArray (n + 1) (HTMLAttribute name val)
-        copySmallArray ma 0 arr 0 n
-        pure ma
+       then runSmallArray $ do
+         ma <- thawSmallArray arr 0 n
+         writeSmallArray ma idx (HTMLAttribute name val)
+         pure ma
+       else runSmallArray $ do
+         ma <- newSmallArray (n + 1) (HTMLAttribute name val)
+         copySmallArray ma 0 arr 0 n
+         pure ma
 {-# INLINE setAttrArr #-}
 
 
@@ -267,12 +267,12 @@ removeAttrArr name arr =
   let !n = sizeofSmallArray arr
       !idx = findAttrIdx name arr
   in if idx < 0
-      then arr
-      else runSmallArray $ do
-        ma <- newSmallArray (n - 1) (HTMLAttribute "" "")
-        copySmallArray ma 0 arr 0 idx
-        copySmallArray ma idx arr (idx + 1) (n - idx - 1)
-        pure ma
+       then arr
+       else runSmallArray $ do
+         ma <- newSmallArray (n - 1) (HTMLAttribute "" "")
+         copySmallArray ma 0 arr 0 idx
+         copySmallArray ma idx arr (idx + 1) (n - idx - 1)
+         pure ma
 {-# INLINE removeAttrArr #-}
 
 
@@ -365,15 +365,15 @@ hasAttrNameInTag (BS (ForeignPtr addr# _) _) !off !end name = go off
       | otherwise =
           let !j1 = skipWS j
           in if j1 >= end || rd j1 /= 0x3D
-              then go j1
-              else
-                let !j2 = skipWS (j1 + 1)
-                in if j2 >= end
-                    then go j2
-                    else case rd j2 of
-                      0x22 -> go (scanPast 0x22 (j2 + 1))
-                      0x27 -> go (scanPast 0x27 (j2 + 1))
-                      _ -> go (scanUnq j2)
+               then go j1
+               else
+                 let !j2 = skipWS (j1 + 1)
+                 in if j2 >= end
+                      then go j2
+                      else case rd j2 of
+                        0x22 -> go (scanPast 0x22 (j2 + 1))
+                        0x27 -> go (scanPast 0x27 (j2 + 1))
+                        _ -> go (scanUnq j2)
 
     scanPast !delim !j
       | j >= end = j

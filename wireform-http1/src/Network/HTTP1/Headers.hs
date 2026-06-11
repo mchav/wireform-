@@ -15,55 +15,65 @@ Tight design notes:
   Connection, Upgrade, Expect, Trailer) we expose @findContentLength@
   etc. that avoid the case-fold on each call site.
 -}
-module Network.HTTP1.Headers
-  ( -- * Types
-    Header
-  , HeaderName
-  , HeaderValue
-  , Headers
+module Network.HTTP1.Headers (
+  -- * Types
+  Header,
+  HeaderName,
+  HeaderValue,
+  Headers,
 
-    -- * Construction
-  , (=:)
+  -- * Construction
+  (=:),
 
-    -- * Lookups
-  , hLookup
-  , hLookupAll
-  , hHas
+  -- * Lookups
+  hLookup,
+  hLookupAll,
+  hHas,
 
-    -- * Framing-relevant lookups
-  , findContentLength
-  , findTransferEncoding
-  , findHost
-  , findConnection
-  , findExpect
-  , findUpgrade
-  , findTrailer
+  -- * Framing-relevant lookups
+  findContentLength,
+  findTransferEncoding,
+  findHost,
+  findConnection,
+  findExpect,
+  findUpgrade,
+  findTrailer,
 
-    -- * Connection-token parsing
-  , ConnectionOption (..)
-  , parseConnection
+  -- * Connection-token parsing
+  ConnectionOption (..),
+  parseConnection,
 
-    -- * Case-insensitive helpers
-  , headerNameIeq
-  ) where
+  -- * Case-insensitive helpers
+  headerNameIeq,
+) where
 
 import Control.DeepSeq (NFData (..))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
-
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BSC
 import Network.HTTP1.Internal.Ascii (asciiIeq)
 
+
 type HeaderName = ByteString
+
+
 type HeaderValue = ByteString
+
+
 type Header = (HeaderName, HeaderValue)
+
+
 type Headers = [Header]
+
 
 -- | Convenient construction: @\"content-type\" =: \"text\/plain\"@.
 {-# INLINE (=:) #-}
 (=:) :: HeaderName -> HeaderValue -> Header
 n =: v = (n, v)
+
+
 infixr 0 =:
+
 
 -- | First-match case-insensitive lookup.
 {-# INLINE hLookup #-}
@@ -75,8 +85,10 @@ hLookup name = go
       | asciiIeq n name = Just v
       | otherwise = go rest
 
--- | All matching values for a header, in document order. Used to
--- implement RFC 9110 § 5.2 "combine duplicates with commas" semantics.
+
+{- | All matching values for a header, in document order. Used to
+implement RFC 9110 § 5.2 "combine duplicates with commas" semantics.
+-}
 hLookupAll :: HeaderName -> Headers -> [HeaderValue]
 hLookupAll name = go
   where
@@ -85,6 +97,7 @@ hLookupAll name = go
       | asciiIeq n name = v : go rest
       | otherwise = go rest
 
+
 {-# INLINE hHas #-}
 hHas :: HeaderName -> Headers -> Bool
 hHas name = go
@@ -92,9 +105,11 @@ hHas name = go
     go [] = False
     go ((n, _) : rest) = asciiIeq n name || go rest
 
+
 {-# INLINE headerNameIeq #-}
 headerNameIeq :: HeaderName -> HeaderName -> Bool
 headerNameIeq = asciiIeq
+
 
 ------------------------------------------------------------------------
 -- Framing-relevant lookups
@@ -104,57 +119,68 @@ findContentLength :: Headers -> Maybe HeaderValue
 findContentLength = hLookup "content-length"
 {-# INLINE findContentLength #-}
 
+
 findTransferEncoding :: Headers -> Maybe HeaderValue
 findTransferEncoding = hLookup "transfer-encoding"
 {-# INLINE findTransferEncoding #-}
+
 
 findHost :: Headers -> Maybe HeaderValue
 findHost = hLookup "host"
 {-# INLINE findHost #-}
 
+
 findConnection :: Headers -> Maybe HeaderValue
 findConnection = hLookup "connection"
 {-# INLINE findConnection #-}
+
 
 findExpect :: Headers -> Maybe HeaderValue
 findExpect = hLookup "expect"
 {-# INLINE findExpect #-}
 
+
 findUpgrade :: Headers -> Maybe HeaderValue
 findUpgrade = hLookup "upgrade"
 {-# INLINE findUpgrade #-}
+
 
 findTrailer :: Headers -> Maybe HeaderValue
 findTrailer = hLookup "trailer"
 {-# INLINE findTrailer #-}
 
+
 ------------------------------------------------------------------------
 -- Connection: tokens
 ------------------------------------------------------------------------
 
--- | A parsed @Connection@ header token. We treat @close@ and
--- @keep-alive@ specially because they directly affect the persistent-
--- connection state machine (RFC 9112 § 9.3); everything else is a
--- generic option name that the application can match on.
+{- | A parsed @Connection@ header token. We treat @close@ and
+@keep-alive@ specially because they directly affect the persistent-
+connection state machine (RFC 9112 § 9.3); everything else is a
+generic option name that the application can match on.
+-}
 data ConnectionOption
   = ConnClose
   | ConnKeepAlive
   | ConnOption !ByteString
   deriving stock (Eq, Show)
 
+
 instance NFData ConnectionOption where
   rnf ConnClose = ()
   rnf ConnKeepAlive = ()
   rnf (ConnOption bs) = rnf bs
 
--- | Parse a comma-separated @Connection@ header field-value into
--- 'ConnectionOption' tokens.
---
--- @Connection: keep-alive, Upgrade, close@ becomes
--- @['ConnKeepAlive', 'ConnOption' \"upgrade\", 'ConnClose']@.
---
--- Token comparisons are case-insensitive; we lowercase via SIMD on the
--- way through.
+
+{- | Parse a comma-separated @Connection@ header field-value into
+'ConnectionOption' tokens.
+
+@Connection: keep-alive, Upgrade, close@ becomes
+@['ConnKeepAlive', 'ConnOption' \"upgrade\", 'ConnClose']@.
+
+Token comparisons are case-insensitive; we lowercase via SIMD on the
+way through.
+-}
 parseConnection :: HeaderValue -> [ConnectionOption]
 parseConnection raw =
   let

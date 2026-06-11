@@ -1,42 +1,43 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Runner for the upstream CEL conformance suite
--- (<https://github.com/google/cel-spec> @tests/simple/testdata/*.textproto@).
---
--- This is opt-in, matching the @TOML_TEST_SUITE@ / @YAML_TEST_SUITE@ pattern
--- used elsewhere in the monorepo: set @CEL_SPEC_DIR@ to a checkout of
--- @cel-spec@ (or directly to its @tests/simple/testdata@ directory) and run
--- the @wireform-cel-conformance@ test suite. Without the variable the runner
--- prints a notice and succeeds.
---
--- The runner parses the textproto @SimpleTestFile@ messages with a small
--- self-contained parser, decodes the expected @cel.expr.Value@ results and
--- variable bindings, evaluates each expression with this library, and reports
--- pass / skip / fail counts per file.
---
--- Tests that exercise features this library does not implement (protocol
--- buffer message values, CEL extension libraries, the optional type checker,
--- unknown tracking) are counted as /skipped/ rather than failed: skips happen
--- either because the expected value cannot be represented (e.g. an
--- @object_value@) or because evaluation reports an "unsupported" error.
+{- | Runner for the upstream CEL conformance suite
+(<https://github.com/google/cel-spec> @tests/simple/testdata/*.textproto@).
+
+This is opt-in, matching the @TOML_TEST_SUITE@ / @YAML_TEST_SUITE@ pattern
+used elsewhere in the monorepo: set @CEL_SPEC_DIR@ to a checkout of
+@cel-spec@ (or directly to its @tests/simple/testdata@ directory) and run
+the @wireform-cel-conformance@ test suite. Without the variable the runner
+prints a notice and succeeds.
+
+The runner parses the textproto @SimpleTestFile@ messages with a small
+self-contained parser, decodes the expected @cel.expr.Value@ results and
+variable bindings, evaluates each expression with this library, and reports
+pass / skip / fail counts per file.
+
+Tests that exercise features this library does not implement (protocol
+buffer message values, CEL extension libraries, the optional type checker,
+unknown tracking) are counted as /skipped/ rather than failed: skips happen
+either because the expected value cannot be represented (e.g. an
+@object_value@) or because evaluation reports an "unsupported" error.
+-}
 module Main (main) where
 
+import CEL
 import Control.Monad (forM, when)
-import Data.Char (chr, isAlphaNum, isHexDigit, digitToInt)
+import Data.ByteString qualified as BS
+import Data.Char (chr, digitToInt, isAlphaNum, isHexDigit)
 import Data.List (foldl', isSuffixOf, sortOn)
 import Data.Maybe (mapMaybe)
-import qualified Data.ByteString as BS
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Vector as V
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
 import Data.Word (Word8)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 
-import CEL
 
 ----------------------------------------------------------------------
 -- Textproto AST + parser
@@ -45,13 +46,23 @@ import CEL
 data PtVal = PStr [Word8] | PAtom String | PMsg Fields
   deriving stock (Show)
 
+
 type Fields = [(String, PtVal)]
 
+
 data Tok
-  = TLBrace | TRBrace | TLBrack | TRBrack | TLAngle | TRAngle
-  | TColon | TComma
-  | TStr [Word8] | TAtom String
+  = TLBrace
+  | TRBrace
+  | TLBrack
+  | TRBrack
+  | TLAngle
+  | TRAngle
+  | TColon
+  | TComma
+  | TStr [Word8]
+  | TAtom String
   deriving stock (Show, Eq)
+
 
 tokenize :: String -> [Tok]
 tokenize [] = []
@@ -70,8 +81,10 @@ tokenize (c : cs)
   | isAtomChar c = let (a, rest) = span isAtomChar (c : cs) in TAtom a : tokenize rest
   | otherwise = tokenize cs
 
+
 isAtomChar :: Char -> Bool
 isAtomChar c = isAlphaNum c || c `elem` ("_+-." :: String)
+
 
 scanStr :: Char -> String -> ([Word8], String)
 scanStr q = go []
@@ -100,25 +113,28 @@ scanStr q = go []
       'X' -> hexN 2 rest
       'u' -> uni 4 rest
       'U' -> uni 8 rest
-      _ | e >= '0' && e <= '7' -> octal (e : rest)
+      _
+        | e >= '0' && e <= '7' -> octal (e : rest)
         | otherwise -> (utf8 e, rest)
 
     hexN n s =
       let ds = takeWhile isHexDigit (take n s)
           consumed = length ds
-       in ([fromIntegral (foldl' (\a d -> a * 16 + digitToInt d) 0 ds)], drop consumed s)
+      in ([fromIntegral (foldl' (\a d -> a * 16 + digitToInt d) 0 ds)], drop consumed s)
     octal s =
       let (ds, _) = splitAt 3 s
           octs = takeWhile (\d -> d >= '0' && d <= '7') (take 3 ds)
-       in ([fromIntegral (foldl' (\a d -> a * 8 + digitToInt d) 0 octs)], drop (length octs) s)
+      in ([fromIntegral (foldl' (\a d -> a * 8 + digitToInt d) 0 octs)], drop (length octs) s)
     uni n s =
       let (ds, r) = splitAt n s
-       in if length ds == n && all isHexDigit ds
-            then (utf8 (chr (foldl' (\a d -> a * 16 + digitToInt d) 0 ds)), r)
-            else (utf8 '?', s)
+      in if length ds == n && all isHexDigit ds
+           then (utf8 (chr (foldl' (\a d -> a * 16 + digitToInt d) 0 ds)), r)
+           else (utf8 '?', s)
+
 
 utf8 :: Char -> [Word8]
 utf8 = BS.unpack . TE.encodeUtf8 . T.singleton
+
 
 -- Parse a sequence of fields up to a closing brace/angle (or end of input).
 parseFields :: [Tok] -> (Fields, [Tok])
@@ -130,7 +146,6 @@ parseFields = go []
       (TRAngle : rest) -> (reverse acc, rest)
       (TAtom name : rest) -> field name rest acc
       _ -> go acc (drop 1 toks) -- skip stray tokens defensively
-
     field name toks acc = case toks of
       (TColon : TLBrace : rest) -> sub name rest acc
       (TColon : TLAngle : rest) -> sub name rest acc
@@ -142,12 +157,12 @@ parseFields = go []
 
     sub name rest acc =
       let (fs, rest') = parseFields rest
-       in go ((name, PMsg fs) : acc) rest'
+      in go ((name, PMsg fs) : acc) rest'
 
     scalar name rest acc = case rest of
       (TStr bs : more) ->
         let (bs', more') = mergeStrs bs more
-         in go ((name, PStr bs') : acc) more'
+        in go ((name, PStr bs') : acc) more'
       (TAtom a : more) -> go ((name, PAtom a) : acc) more
       _ -> go acc rest
 
@@ -156,10 +171,10 @@ parseFields = go []
       _ ->
         let (item, rest) = parseItem toks
             acc' = (name, item) : acc
-         in case rest of
-              (TComma : rest') -> bracketList name rest' acc'
-              (TRBrack : rest') -> go acc' rest'
-              _ -> go acc' rest
+        in case rest of
+             (TComma : rest') -> bracketList name rest' acc'
+             (TRBrack : rest') -> go acc' rest'
+             _ -> go acc' rest
 
     parseItem toks = case toks of
       (TLBrace : rest) -> let (fs, r) = parseFields rest in (PMsg fs, r)
@@ -171,8 +186,10 @@ parseFields = go []
     mergeStrs bs (TStr more : rest) = mergeStrs (bs ++ more) rest
     mergeStrs bs rest = (bs, rest)
 
+
 parseFile :: String -> Fields
 parseFile = fst . parseFields . tokenize
+
 
 ----------------------------------------------------------------------
 -- Field helpers
@@ -181,18 +198,23 @@ parseFile = fst . parseFields . tokenize
 field1 :: String -> Fields -> Maybe PtVal
 field1 n fs = lookup n fs
 
+
 fieldAll :: String -> Fields -> [PtVal]
 fieldAll n fs = [v | (k, v) <- fs, k == n]
 
+
 asText :: PtVal -> Maybe Text
 asText (PStr bs) = Just (TE.decodeUtf8With lenient (BS.pack bs))
-  where lenient _ _ = Just '\xFFFD'
+  where
+    lenient _ _ = Just '\xFFFD'
 asText (PAtom a) = Just (T.pack a)
 asText _ = Nothing
+
 
 asMsg :: PtVal -> Maybe Fields
 asMsg (PMsg fs) = Just fs
 asMsg _ = Nothing
+
 
 ----------------------------------------------------------------------
 -- Decoding expected values / bindings
@@ -254,18 +276,18 @@ decodeValue fs = case mapMaybe tryField fs of
 
     decList (PMsg sub) =
       let items = fieldAll "values" sub
-       in case mapM (\pv -> asMsg pv >>= Just . decodeValue) items of
-            Just rs -> VList . V.fromList <$> sequence rs
-            Nothing -> Left "bad list element"
+      in case mapM (\pv -> asMsg pv >>= Just . decodeValue) items of
+           Just rs -> VList . V.fromList <$> sequence rs
+           Nothing -> Left "bad list element"
     decList _ = Left "expected list message"
 
     decMap (PMsg sub) =
       let entries = fieldAll "entries" sub
-       in do
-            kvs <- mapM decEntry entries
-            case celMap kvs of
-              Left e -> Left (T.unpack e)
-              Right m -> Right (VMap m)
+      in do
+           kvs <- mapM decEntry entries
+           case celMap kvs of
+             Left e -> Left (T.unpack e)
+             Right m -> Right (VMap m)
     decMap _ = Left "expected map message"
 
     decEntry (PMsg e) = do
@@ -275,6 +297,7 @@ decodeValue fs = case mapMaybe tryField fs of
       val <- decodeValue vF
       Right (k, val)
     decEntry _ = Left "bad map entry"
+
 
 typeFromName :: Text -> CelType
 typeFromName t = case t of
@@ -292,6 +315,7 @@ typeFromName t = case t of
   "google.protobuf.Duration" -> TyDuration
   _ -> TyMessage t
 
+
 -- A binding's value is an ExprValue { value | error | unknown }.
 decodeBinding :: Fields -> Either String (Text, Value)
 decodeBinding fs = do
@@ -304,11 +328,13 @@ decodeBinding fs = do
       Right (key, v)
     Nothing -> Left "binding is not a plain value (error/unknown)"
 
+
 ----------------------------------------------------------------------
 -- Running a single test
 ----------------------------------------------------------------------
 
 data Outcome = Pass | Skip String | Fail String
+
 
 runTest :: Fields -> Outcome
 runTest t =
@@ -317,28 +343,29 @@ runTest t =
     Just expr ->
       let container = maybe "" id (field1 "container" t >>= asText)
           bindingResults = map decodeBinding (mapMaybe asMsg (fieldAll "bindings" t))
-       in case sequence bindingResults of
-            Left reason -> Skip reason
-            Right binds ->
-              let env = withContainer container (bindAll binds emptyEnv)
-                  result = run env expr
-                  hasError = not (null (fieldAll "eval_error" t))
-               in case (field1 "value" t, hasError) of
-                    (Just valMsg, _) -> case asMsg valMsg of
-                      Nothing -> Skip "value not a message"
-                      Just vm -> case decodeValue vm of
-                        Left reason -> Skip ("expected value: " <> reason)
-                        Right expected -> case result of
-                          Right got
-                            | structEq got expected -> Pass
-                            | otherwise -> Fail ("want " <> show expected <> ", got " <> show got <> "  [" <> T.unpack expr <> "]")
-                          Left e
-                            | errKind e == ErrUnsupported -> Skip ("unsupported: " <> T.unpack (errMsg e))
-                            | otherwise -> Fail ("want " <> show expected <> ", got error " <> show e <> "  [" <> T.unpack expr <> "]")
-                    (Nothing, True) -> case result of
-                      Left _ -> Pass
-                      Right got -> Fail ("want error, got " <> show got <> "  [" <> T.unpack expr <> "]")
-                    (Nothing, False) -> Skip "no expected value or error"
+      in case sequence bindingResults of
+           Left reason -> Skip reason
+           Right binds ->
+             let env = withContainer container (bindAll binds emptyEnv)
+                 result = run env expr
+                 hasError = not (null (fieldAll "eval_error" t))
+             in case (field1 "value" t, hasError) of
+                  (Just valMsg, _) -> case asMsg valMsg of
+                    Nothing -> Skip "value not a message"
+                    Just vm -> case decodeValue vm of
+                      Left reason -> Skip ("expected value: " <> reason)
+                      Right expected -> case result of
+                        Right got
+                          | structEq got expected -> Pass
+                          | otherwise -> Fail ("want " <> show expected <> ", got " <> show got <> "  [" <> T.unpack expr <> "]")
+                        Left e
+                          | errKind e == ErrUnsupported -> Skip ("unsupported: " <> T.unpack (errMsg e))
+                          | otherwise -> Fail ("want " <> show expected <> ", got error " <> show e <> "  [" <> T.unpack expr <> "]")
+                  (Nothing, True) -> case result of
+                    Left _ -> Pass
+                    Right got -> Fail ("want error, got " <> show got <> "  [" <> T.unpack expr <> "]")
+                  (Nothing, False) -> Skip "no expected value or error"
+
 
 structEq :: Value -> Value -> Bool
 structEq a b = case (a, b) of
@@ -357,9 +384,10 @@ structEq a b = case (a, b) of
   (VMap x, VMap y) ->
     let ex = celMapEntries x
         ey = celMapEntries y
-     in length ex == length ey
-          && all (\(k, v) -> maybe False (structEq v) (celMapLookup k y)) ex
+    in length ex == length ey
+         && all (\(k, v) -> maybe False (structEq v) (celMapLookup k y)) ex
   _ -> False
+
 
 ----------------------------------------------------------------------
 -- Collecting tests from a file
@@ -370,7 +398,8 @@ collectTests file =
   let sections = mapMaybe asMsg (fieldAll "section" file)
       sectionTests = concatMap (\s -> mapMaybe asMsg (fieldAll "test" s)) sections
       topTests = mapMaybe asMsg (fieldAll "test" file)
-   in topTests ++ sectionTests
+  in topTests ++ sectionTests
+
 
 -- Files that exercise CEL extension libraries or checker-only behavior that
 -- are out of scope for the core language definition this package targets.
@@ -389,6 +418,7 @@ excludedFiles =
   , "enums.textproto" -- requires protobuf enum declarations
   ]
 
+
 ----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
@@ -405,7 +435,8 @@ main = do
       testdata <- resolveTestdata dir
       entries <- listDirectory testdata
       let files =
-            sortOn id
+            sortOn
+              id
               [ f
               | f <- entries
               , ".textproto" `isSuffixOf` f
@@ -420,9 +451,12 @@ main = do
             fs = [r | Fail r <- outcomes]
         putStrLn $
           padRight 26 f
-            <> "  pass=" <> padLeft 4 (show p)
-            <> "  skip=" <> padLeft 4 (show (length skips))
-            <> "  fail=" <> padLeft 4 (show (length fs))
+            <> "  pass="
+            <> padLeft 4 (show p)
+            <> "  skip="
+            <> padLeft 4 (show (length skips))
+            <> "  fail="
+            <> padLeft 4 (show (length fs))
         mapM_ (\r -> putStrLn ("    FAIL: " <> r)) (take 12 fs)
         when (length fs > 12) $
           putStrLn ("    ... and " <> show (length fs - 12) <> " more failures")
@@ -440,9 +474,11 @@ main = do
         "TOTAL  pass=" <> show totP <> "  skip=" <> show (length allSkips) <> "  fail=" <> show totF
       if totF == 0 then exitSuccess else exitFailure
 
+
 -- Group a skip reason into a coarse category (everything up to the first ':').
 skipCategory :: String -> String
 skipCategory = takeWhile (/= ':')
+
 
 tally :: [String] -> [(String, Int)]
 tally xs = sortOn (negate . snd) (foldr bump [] xs)
@@ -451,14 +487,17 @@ tally xs = sortOn (negate . snd) (foldr bump [] xs)
       Just _ -> map (\(k, n) -> if k == x then (k, n + 1) else (k, n)) acc
       Nothing -> (x, 1) : acc
 
+
 resolveTestdata :: FilePath -> IO FilePath
 resolveTestdata dir = do
   let nested = dir </> "tests" </> "simple" </> "testdata"
   haveNested <- doesDirectoryExist nested
   pure (if haveNested then nested else dir)
 
+
 padRight :: Int -> String -> String
 padRight n s = s ++ replicate (max 0 (n - length s)) ' '
+
 
 padLeft :: Int -> String -> String
 padLeft n s = replicate (max 0 (n - length s)) ' ' ++ s

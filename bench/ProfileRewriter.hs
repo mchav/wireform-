@@ -7,7 +7,7 @@ import Control.Exception (evaluate)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text qualified as T
-import GHC.Stats (getRTSStats, allocated_bytes)
+import GHC.Stats (allocated_bytes, getRTSStats)
 import HTML.Rewriter
 import HTML.Selector
 import System.Mem (performGC)
@@ -17,17 +17,30 @@ main :: IO ()
 main = do
   let header = "<html><body><div class=\"catalog\">\n"
       footer = "</div></body></html>\n"
-      mkItem i = BS8.pack $ concat
-        [ "  <div class=\"item\" id=\"i", show i, "\">\n"
-        , "    <span class=\"name\">Product ", show i, "</span>\n"
-        , "    <span class=\"price\">", show (fromIntegral i * 9.99 :: Double), "</span>\n"
-        , "    <p class=\"description\">This is the description for product number "
-        , show i, " in our catalog</p>\n"
-        , "    <span class=\"category\">Category ", show (i `mod` 10), "</span>\n"
-        , "    <span class=\"inStock\">", if even i then "true" else "false", "</span>\n"
-        , "  </div>\n"
-        ]
-      mediumHTML = BS.concat $ [header] <> fmap mkItem [1..100 :: Int] <> [footer]
+      mkItem i =
+        BS8.pack $
+          concat
+            [ "  <div class=\"item\" id=\"i"
+            , show i
+            , "\">\n"
+            , "    <span class=\"name\">Product "
+            , show i
+            , "</span>\n"
+            , "    <span class=\"price\">"
+            , show (fromIntegral i * 9.99 :: Double)
+            , "</span>\n"
+            , "    <p class=\"description\">This is the description for product number "
+            , show i
+            , " in our catalog</p>\n"
+            , "    <span class=\"category\">Category "
+            , show (i `mod` 10)
+            , "</span>\n"
+            , "    <span class=\"inStock\">"
+            , if even i then "true" else "false"
+            , "</span>\n"
+            , "  </div>\n"
+            ]
+      mediumHTML = BS.concat $ [header] <> fmap mkItem [1 .. 100 :: Int] <> [footer]
 
   let mp s = case parseSelector s of Right r -> r; Left e -> error (show e)
       selDiv = mp "div.item"

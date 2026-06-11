@@ -1,20 +1,21 @@
 module Main (main) where
 
+import Test.Protovalidate.Advanced qualified
+import Test.Protovalidate.Descriptor qualified
+import Test.Protovalidate.Format qualified
+import Test.Protovalidate.Refined qualified
+import Test.Protovalidate.Schema qualified
+import Test.Protovalidate.TH qualified
+import Test.Protovalidate.Validation qualified
 import Test.Syd
 
-import qualified Test.Protovalidate.Advanced
-import qualified Test.Protovalidate.Descriptor
-import qualified Test.Protovalidate.Format
-import qualified Test.Protovalidate.Refined
-import qualified Test.Protovalidate.Schema
-import qualified Test.Protovalidate.TH
-import qualified Test.Protovalidate.Validation
 
 main :: IO ()
 main =
-  sydTest $
-    describe
-      "wireform-protovalidate" $ sequence_
+  sydTest
+    $ describe
+      "wireform-protovalidate"
+    $ sequence_
       [ Test.Protovalidate.Format.tests
       , Test.Protovalidate.Validation.tests
       , Test.Protovalidate.Schema.tests

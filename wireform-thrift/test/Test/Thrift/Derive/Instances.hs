@@ -3,9 +3,9 @@
 
 module Test.Thrift.Derive.Instances () where
 
+import Test.Thrift.Derive.Types
 import Thrift.Derive
 
-import Test.Thrift.Derive.Types
 
 deriveThrift ''LogEntry
 deriveThrift ''RequestId

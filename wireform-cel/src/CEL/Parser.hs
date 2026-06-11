@@ -1,38 +1,38 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | Lexer and recursive-descent parser for CEL source text.
---
--- The parser implements the grammar from the CEL language definition,
--- including the precedence / associativity table, the full lexical syntax for
--- numeric, string, and bytes literals (raw and triple-quoted forms, the
--- complete escape-sequence set), reserved-word rejection, and the
--- message/struct construction form @Name{...}@.
---
--- Negative integer literals are folded at parse time so that
--- @-9223372036854775808@ (whose magnitude does not fit in a signed 64-bit
--- integer) parses to the minimum @int@ value, matching reference CEL behavior.
-module CEL.Parser
-  ( parse
-  , parseExpr
-  ) where
+{- | Lexer and recursive-descent parser for CEL source text.
 
+The parser implements the grammar from the CEL language definition,
+including the precedence / associativity table, the full lexical syntax for
+numeric, string, and bytes literals (raw and triple-quoted forms, the
+complete escape-sequence set), reserved-word rejection, and the
+message/struct construction form @Name{...}@.
+
+Negative integer literals are folded at parse time so that
+@-9223372036854775808@ (whose magnitude does not fit in a signed 64-bit
+integer) parses to the minimum @int@ value, matching reference CEL behavior.
+-}
+module CEL.Parser (
+  parse,
+  parseExpr,
+) where
+
+import CEL.Syntax
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, ord)
 import Data.Functor (($>))
 import Data.Int (Int64)
 import Data.List (foldl')
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Word (Word64, Word8)
-import qualified Data.Set as Set
-
 import Wireform.Parser
 import Wireform.Parser.Driver (parseByteString)
 import Wireform.Parser.Internal (Pure)
 
-import CEL.Syntax
 
 -- | Parse CEL source text into an 'Expr', or return a human-readable error.
 parse :: Text -> Either String Expr
@@ -41,6 +41,7 @@ parse src = do
   case runP (parseExpr <* expectTok TkEOF) toks of
     Left msg -> Left msg
     Right (e, _) -> Right e
+
 
 ----------------------------------------------------------------------
 -- Tokens
@@ -84,15 +85,32 @@ data Tok
   | TkEOF
   deriving stock (Eq, Show)
 
--- | Reserved identifiers that may not be used as variable / function /
--- selector / field names.
+
+{- | Reserved identifiers that may not be used as variable / function /
+selector / field names.
+-}
 reservedWords :: Set.Set Text
 reservedWords =
   Set.fromList
-    [ "as", "break", "const", "continue", "else", "for", "function"
-    , "if", "import", "let", "loop", "package", "namespace", "return"
-    , "var", "void", "while"
+    [ "as"
+    , "break"
+    , "const"
+    , "continue"
+    , "else"
+    , "for"
+    , "function"
+    , "if"
+    , "import"
+    , "let"
+    , "loop"
+    , "package"
+    , "namespace"
+    , "return"
+    , "var"
+    , "void"
+    , "while"
     ]
+
 
 ----------------------------------------------------------------------
 -- Lexer
@@ -104,17 +122,20 @@ reservedWords =
 -- to the pure helpers further below.
 type L = Parser Pure String
 
+
 -- | Tokenize CEL source text into the token stream consumed by the grammar.
 tokenize :: Text -> Either String [Tok]
 tokenize src = case parseByteString lexTokens (TE.encodeUtf8 src) of
   Right toks -> Right toks
   Left perr -> Left (renderParseError perr)
 
+
 renderParseError :: ParseError String -> String
 renderParseError = \case
   ParseErr _ e -> e
   ParseUnexpectedEof _ _ -> "unexpected end of input"
   _ -> "lexical error"
+
 
 lexTokens :: L [Tok]
 lexTokens = skipTrivia *> loop []
@@ -128,6 +149,7 @@ lexTokens = skipTrivia *> loop []
           skipTrivia
           loop (t : acc)
 
+
 -- Skip whitespace and @//@ line comments.
 skipTrivia :: L ()
 skipTrivia = skipMany (skipWhitespace <|> skipLineComment)
@@ -135,6 +157,7 @@ skipTrivia = skipMany (skipWhitespace <|> skipLineComment)
     skipWhitespace = skipSatisfyAscii isSpaceChar
     isSpaceChar c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
     skipLineComment = (word8 slash *> word8 slash) *> skipMany (satisfy (/= '\n'))
+
 
 -- One token. The driver loop guarantees we are not at end-of-input.
 lexToken :: L Tok
@@ -173,11 +196,13 @@ lexToken = do
   where
     consume t = anyChar_ $> t
 
+
 -- Identifier (or a keyword, classified by 'identTok').
 lexIdent :: L Tok
 lexIdent = do
   name <- byteStringOf (satisfy isIdentStart *> skipMany (satisfy isIdentChar))
   pure (identTok (TE.decodeUtf8 name))
+
 
 -- A string/bytes prefix (@r@/@b@) directly followed by a quote, otherwise an
 -- identifier that happens to start with that letter.
@@ -187,6 +212,7 @@ lexPrefixedOrIdent = stringWithPrefix <|> lexIdent
     stringWithPrefix = do
       (raw, bytes) <- scanPrefix
       if bytes then lexBytes raw else lexString raw
+
 
 -- Consume a run of @r@/@R@/@b@/@B@ prefix letters (at most one of each),
 -- succeeding only when directly followed by a quote.
@@ -204,6 +230,7 @@ scanPrefix = go False False
         (lookahead (satisfyAscii isQuote) $> (raw, bytes))
     isPrefixLetter c = c == 'r' || c == 'R' || c == 'b' || c == 'B'
 
+
 -- Backtick-quoted (escaped) identifier, e.g. @`content-type`@.
 lexBacktick :: L Tok
 lexBacktick = do
@@ -211,6 +238,7 @@ lexBacktick = do
   name <- byteStringOf (skipMany (satisfy (/= '\x60')))
   word8 backtick `cut` "unterminated backtick-quoted identifier"
   pure (TkEscIdent (TE.decodeUtf8 name))
+
 
 ----------------------------------------------------------------------
 -- String / bytes literals
@@ -221,10 +249,12 @@ lexString raw = do
   content <- scanQuoted raw
   either err (pure . TkStringLit) (processString raw content)
 
+
 lexBytes :: Bool -> L Tok
 lexBytes raw = do
   content <- scanQuoted raw
   either err (pure . TkBytesLit) (processBytes raw content)
+
 
 -- Read a quoted literal (single- or triple-quoted), returning the raw,
 -- still-escaped content as a 'String'.
@@ -236,6 +266,7 @@ scanQuoted raw = do
     (lookahead (word8 qb *> word8 qb))
     (skip 2 *> scanTriple raw q qb)
     (scanSingle raw q)
+
 
 scanSingle :: Bool -> Char -> L String
 scanSingle raw q = do
@@ -257,6 +288,7 @@ scanSingle raw q = do
         )
         empty
 
+
 scanTriple :: Bool -> Char -> Word8 -> L String
 scanTriple raw _q qb = do
   content <- byteStringOf (skipMany tripleChar)
@@ -269,6 +301,7 @@ scanTriple raw _q qb = do
       | otherwise =
           branch (word8 backslash) (anyChar_ `cut` "unterminated escape in string literal") anyChar_
 
+
 ----------------------------------------------------------------------
 -- Numeric literals
 ----------------------------------------------------------------------
@@ -276,12 +309,14 @@ scanTriple raw _q qb = do
 lexNumber :: L Tok
 lexNumber = hexLiteral <|> decimalLiteral
 
+
 hexLiteral :: L Tok
 hexLiteral = do
   _ <- byteString "0x" <|> byteString "0X"
   digits <- byteStringOf (skipSome (satisfyAscii isHexDigit)) `cut` "malformed hex literal"
   let n = foldl' (\acc d -> acc * 16 + toInteger (digitToInt d)) 0 (decodeBytes digits)
   withUintSuffix (TkUIntLit n) (TkIntLit n)
+
 
 decimalLiteral :: L Tok
 decimalLiteral = do
@@ -293,19 +328,21 @@ decimalLiteral = do
       | BS.null intPart -> empty -- a lone '.' is not a number
       | otherwise ->
           let n = readInteger (decodeBytes intPart)
-           in withUintSuffix (TkUIntLit n) (TkIntLit n)
+          in withUintSuffix (TkUIntLit n) (TkIntLit n)
     _ ->
       let lexeme =
             (if BS.null intPart then "0" else decodeBytes intPart)
               ++ maybe "" id mFrac
               ++ maybe "" id mExp
-       in case readDoubleMaybe lexeme of
-            Just d -> pure (TkDoubleLit d)
-            Nothing -> err ("malformed float literal: " ++ lexeme)
+      in case readDoubleMaybe lexeme of
+           Just d -> pure (TkDoubleLit d)
+           Nothing -> err ("malformed float literal: " ++ lexeme)
+
 
 -- A fraction @.digits@ — the dot is only consumed when a digit follows.
 fraction :: L String
 fraction = decodeBytes <$> byteStringOf (word8 dot *> skipSome (satisfyAscii isDigit))
+
 
 -- An exponent @e[+-]?digits@.
 exponentPart :: L String
@@ -317,10 +354,12 @@ exponentPart =
           *> skipSome (satisfyAscii isDigit)
       )
 
+
 -- Optionally consume a @u@/@U@ suffix, choosing the unsigned vs signed token.
 withUintSuffix :: Tok -> Tok -> L Tok
 withUintSuffix uintTok intTok =
   withOption (satisfyAscii (\c -> c == 'u' || c == 'U')) (const (pure uintTok)) (pure intTok)
+
 
 ----------------------------------------------------------------------
 -- Small lexing helpers
@@ -329,19 +368,23 @@ withUintSuffix uintTok intTok =
 isQuote :: Char -> Bool
 isQuote c = c == '"' || c == '\''
 
+
 -- Bytes captured by the tokenizer are always slices of valid UTF-8 (the source
 -- is decoded from 'Text'), taken on character boundaries.
 decodeBytes :: ByteString -> String
 decodeBytes = T.unpack . TE.decodeUtf8
 
+
 byteOf :: Char -> Word8
 byteOf = fromIntegral . ord
+
 
 dot, slash, backslash, backtick :: Word8
 dot = byteOf '.'
 slash = byteOf '/'
 backslash = byteOf '\\'
 backtick = byteOf '\x60'
+
 
 identTok :: Text -> Tok
 identTok t = case t of
@@ -351,14 +394,18 @@ identTok t = case t of
   "in" -> TkIn
   _ -> TkIdent t
 
+
 isStrPrefix :: Char -> Bool
 isStrPrefix c = c == 'r' || c == 'R' || c == 'b' || c == 'B'
+
 
 isIdentStart :: Char -> Bool
 isIdentStart c = c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
+
 isIdentChar :: Char -> Bool
 isIdentChar c = isIdentStart c || (c >= '0' && c <= '9')
+
 
 ----------------------------------------------------------------------
 -- Numeric value helpers
@@ -367,20 +414,24 @@ isIdentChar c = isIdentStart c || (c >= '0' && c <= '9')
 readInteger :: String -> Integer
 readInteger = foldl' (\acc d -> acc * 10 + toInteger (digitToInt d)) 0
 
+
 readDoubleMaybe :: String -> Maybe Double
 readDoubleMaybe s = case reads s of
   [(d, "")] -> Just d
   _ -> Nothing
 
+
 isHexDigit :: Char -> Bool
 isHexDigit c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+
 
 ----------------------------------------------------------------------
 -- String / bytes escape processing
 ----------------------------------------------------------------------
 
--- | Process the content of a string literal, interpreting escapes (unless
--- raw) and validating Unicode code points.
+{- | Process the content of a string literal, interpreting escapes (unless
+raw) and validating Unicode code points.
+-}
 processString :: Bool -> String -> Either String Text
 processString True content = Right (T.pack content)
 processString False content = T.pack <$> goS content
@@ -391,6 +442,7 @@ processString False content = T.pack <$> goS content
       validateCodePoint cp
       (chr cp :) <$> goS rest'
     goS (c : cs) = (c :) <$> goS cs
+
 
 -- | Process the content of a bytes literal into a raw byte sequence.
 processBytes :: Bool -> String -> Either String ByteString
@@ -403,11 +455,14 @@ processBytes False content = BS.pack <$> goB content
       (bytes ++) <$> goB rest'
     goB (c : cs) = (utf8Bytes c ++) <$> goB cs
 
+
 utf8Bytes :: Char -> [Word8]
 utf8Bytes = BS.unpack . TE.encodeUtf8 . T.singleton
 
--- | Decode one escape sequence (after the backslash) for a string literal,
--- returning a Unicode code point and the remaining input.
+
+{- | Decode one escape sequence (after the backslash) for a string literal,
+returning a Unicode code point and the remaining input.
+-}
 escapeCodePoint :: String -> Either String (Int, String)
 escapeCodePoint [] = Left "unterminated escape sequence"
 escapeCodePoint (c : cs) = case c of
@@ -427,11 +482,14 @@ escapeCodePoint (c : cs) = case c of
   'X' -> hexN 2 cs
   'u' -> hexN 4 cs
   'U' -> hexN 8 cs
-  _ | c >= '0' && c <= '3' -> octal3 (c : cs)
+  _
+    | c >= '0' && c <= '3' -> octal3 (c : cs)
     | otherwise -> Left ("invalid escape sequence: \\" ++ [c])
 
--- | Decode one escape sequence for a bytes literal, where @\\x@ and octal
--- escapes denote raw octets rather than code points.
+
+{- | Decode one escape sequence for a bytes literal, where @\\x@ and octal
+escapes denote raw octets rather than code points.
+-}
 escapeBytes :: String -> Either String ([Word8], String)
 escapeBytes [] = Left "unterminated escape sequence"
 escapeBytes (c : cs) = case c of
@@ -451,32 +509,38 @@ escapeBytes (c : cs) = case c of
   'X' -> byteHex cs
   'u' -> do (cp, r) <- hexN 4 cs; validateCodePoint cp; Right (utf8Bytes (chr cp), r)
   'U' -> do (cp, r) <- hexN 8 cs; validateCodePoint cp; Right (utf8Bytes (chr cp), r)
-  _ | c >= '0' && c <= '7' -> do (cp, r) <- octalByte (c : cs); Right ([fromIntegral cp], r)
+  _
+    | c >= '0' && c <= '7' -> do (cp, r) <- octalByte (c : cs); Right ([fromIntegral cp], r)
     | otherwise -> Left ("invalid escape sequence: \\" ++ [c])
   where
     byteHex s = do (n, r) <- hexN 2 s; Right ([fromIntegral n], r)
 
+
 hexN :: Int -> String -> Either String (Int, String)
 hexN n s =
   let (ds, rest) = splitAt n s
-   in if length ds == n && all isHexDigit ds
-        then Right (foldl' (\acc d -> acc * 16 + digitToInt d) 0 ds, rest)
-        else Left "invalid hexadecimal escape sequence"
+  in if length ds == n && all isHexDigit ds
+       then Right (foldl' (\acc d -> acc * 16 + digitToInt d) 0 ds, rest)
+       else Left "invalid hexadecimal escape sequence"
+
 
 octal3 :: String -> Either String (Int, String)
 octal3 s =
   let (ds, rest) = splitAt 3 s
-   in if length ds == 3 && all isOctDigit ds
-        then
-          let v = foldl' (\acc d -> acc * 8 + digitToInt d) 0 ds
-           in if v <= 0o377 then Right (v, rest) else Left "octal escape out of range"
-        else Left "invalid octal escape sequence"
+  in if length ds == 3 && all isOctDigit ds
+       then
+         let v = foldl' (\acc d -> acc * 8 + digitToInt d) 0 ds
+         in if v <= 0o377 then Right (v, rest) else Left "octal escape out of range"
+       else Left "invalid octal escape sequence"
+
 
 octalByte :: String -> Either String (Int, String)
 octalByte = octal3
 
+
 isOctDigit :: Char -> Bool
 isOctDigit c = c >= '0' && c <= '7'
+
 
 validateCodePoint :: Int -> Either String ()
 validateCodePoint cp
@@ -484,16 +548,19 @@ validateCodePoint cp
   | cp >= 0xD800 && cp <= 0xDFFF = Left "surrogate code point in escape sequence"
   | otherwise = Right ()
 
+
 ----------------------------------------------------------------------
 -- Parser monad
 ----------------------------------------------------------------------
 
 newtype P a = P {runP :: [Tok] -> Either String (a, [Tok])}
 
+
 instance Functor P where
   fmap f (P g) = P $ \ts -> case g ts of
     Left e -> Left e
     Right (a, ts') -> Right (f a, ts')
+
 
 instance Applicative P where
   pure a = P $ \ts -> Right (a, ts)
@@ -503,20 +570,24 @@ instance Applicative P where
       Left e -> Left e
       Right (a, ts'') -> Right (h a, ts'')
 
+
 instance Monad P where
   P g >>= f = P $ \ts -> case g ts of
     Left e -> Left e
     Right (a, ts') -> runP (f a) ts'
+
 
 peek :: P Tok
 peek = P $ \ts -> case ts of
   (t : _) -> Right (t, ts)
   [] -> Right (TkEOF, ts)
 
+
 advance :: P Tok
 advance = P $ \ts -> case ts of
   (t : rest) -> Right (t, rest)
   [] -> Right (TkEOF, [])
+
 
 expectTok :: Tok -> P ()
 expectTok expected = do
@@ -525,11 +596,14 @@ expectTok expected = do
     then pure ()
     else parseError ("expected " ++ show expected ++ " but found " ++ show t)
 
+
 parseError :: String -> P a
 parseError msg = P $ \_ -> Left msg
 
--- | Consume an identifier in a position where it names a variable / function:
--- reserved words are rejected, but backtick-escaped identifiers are accepted.
+
+{- | Consume an identifier in a position where it names a variable / function:
+reserved words are rejected, but backtick-escaped identifiers are accepted.
+-}
 identName :: P Text
 identName = do
   t <- advance
@@ -540,10 +614,12 @@ identName = do
     TkEscIdent n -> pure n
     _ -> parseError ("expected identifier but found " ++ show t)
 
--- | Consume a selector / field-init name. Per the grammar @SELECTOR@ only
--- excludes the keyword tokens (@true@/@false@/@null@/@in@, which are not
--- 'TkIdent's), so reserved words such as @as@ or @for@ /are/ valid here.
--- Backtick-escaped identifiers are also accepted.
+
+{- | Consume a selector / field-init name. Per the grammar @SELECTOR@ only
+excludes the keyword tokens (@true@/@false@/@null@/@in@, which are not
+'TkIdent's), so reserved words such as @as@ or @for@ /are/ valid here.
+Backtick-escaped identifiers are also accepted.
+-}
 selectorName :: P Text
 selectorName = do
   t <- advance
@@ -552,12 +628,14 @@ selectorName = do
     TkEscIdent n -> pure n
     _ -> parseError ("expected selector but found " ++ show t)
 
+
 ----------------------------------------------------------------------
 -- Grammar
 ----------------------------------------------------------------------
 
--- | Top-level expression parser (exposed for testing against the token
--- stream is not needed; 'parse' is the public entry point).
+{- | Top-level expression parser (exposed for testing against the token
+stream is not needed; 'parse' is the public entry point).
+-}
 parseExpr :: P Expr
 parseExpr = do
   c <- parseOr
@@ -571,6 +649,7 @@ parseExpr = do
       pure (ECond c thenE elseE)
     _ -> pure c
 
+
 parseOr :: P Expr
 parseOr = do
   l <- parseAnd
@@ -581,6 +660,7 @@ parseOr = do
       case t of
         TkOr -> do _ <- advance; r <- parseAnd; goOr (EOr l r)
         _ -> pure l
+
 
 parseAnd :: P Expr
 parseAnd = do
@@ -593,6 +673,7 @@ parseAnd = do
         TkAnd -> do _ <- advance; r <- parseRel; goAnd (EAnd l r)
         _ -> pure l
 
+
 parseRel :: P Expr
 parseRel = do
   l <- parseAdd
@@ -603,6 +684,7 @@ parseRel = do
       case relOp t of
         Just op -> do _ <- advance; r <- parseAdd; goRel (ERel op l r)
         Nothing -> pure l
+
 
 relOp :: Tok -> Maybe RelOp
 relOp = \case
@@ -615,6 +697,7 @@ relOp = \case
   TkIn -> Just In
   _ -> Nothing
 
+
 parseAdd :: P Expr
 parseAdd = do
   l <- parseMul
@@ -626,6 +709,7 @@ parseAdd = do
         TkPlus -> do _ <- advance; r <- parseMul; goAdd (EArith Add l r)
         TkMinus -> do _ <- advance; r <- parseMul; goAdd (EArith Sub l r)
         _ -> pure l
+
 
 parseMul :: P Expr
 parseMul = do
@@ -640,6 +724,7 @@ parseMul = do
         TkPercent -> do _ <- advance; r <- parseUnary; goMul (EArith Mod l r)
         _ -> pure l
 
+
 parseUnary :: P Expr
 parseUnary = do
   t <- peek
@@ -653,9 +738,11 @@ parseUnary = do
       parseNegated n
     _ -> parseMember
 
--- | After consuming a run of @n@ unary minus signs, parse the operand,
--- folding a directly-following integer literal into a signed literal so that
--- the minimum 64-bit integer can be represented.
+
+{- | After consuming a run of @n@ unary minus signs, parse the operand,
+folding a directly-following integer literal into a signed literal so that
+the minimum 64-bit integer can be represented.
+-}
 parseNegated :: Int -> P Expr
 parseNegated n = do
   t <- peek
@@ -669,6 +756,7 @@ parseNegated n = do
       m <- parseMember
       pure (applyN n ENeg m)
 
+
 countRun :: Tok -> P Int
 countRun tk = go 0
   where
@@ -676,9 +764,11 @@ countRun tk = go 0
       t <- peek
       if t == tk then advance >> go (acc + 1) else pure acc
 
+
 applyN :: Int -> (a -> a) -> a -> a
 applyN 0 _ x = x
 applyN k f x = applyN (k - 1) f (f x)
+
 
 intLiteral :: Integer -> P Expr
 intLiteral n
@@ -688,15 +778,18 @@ intLiteral n
     intMin = toInteger (minBound :: Int64)
     intMax = toInteger (maxBound :: Int64)
 
+
 uintLiteral :: Integer -> P Expr
 uintLiteral n
   | n < 0 || n > toInteger (maxBound :: Word64) = parseError "unsigned integer literal out of range"
   | otherwise = pure (ELit (LUInt (fromInteger n)))
 
+
 parseMember :: P Expr
 parseMember = do
   p <- parsePrimary
   parseMemberSuffix p
+
 
 parseMemberSuffix :: Expr -> P Expr
 parseMemberSuffix e = do
@@ -721,6 +814,7 @@ parseMemberSuffix e = do
           fields <- parseFieldInits
           parseMemberSuffix (EStruct root segs fields)
     _ -> pure e
+
 
 parsePrimary :: P Expr
 parsePrimary = do
@@ -769,6 +863,7 @@ parsePrimary = do
             _ -> pure (EIdent False n)
     _ -> parseError ("unexpected token: " ++ show t)
 
+
 parseCallArgs :: P [Expr]
 parseCallArgs = do
   expectTok TkLParen
@@ -779,6 +874,7 @@ parseCallArgs = do
       args <- parseExprList
       expectTok TkRParen
       pure args
+
 
 parseExprList :: P [Expr]
 parseExprList = do
@@ -791,8 +887,10 @@ parseExprList = do
         TkComma -> do _ <- advance; e <- parseExpr; go (e : acc)
         _ -> pure (reverse acc)
 
--- | Expression list permitting a single optional trailing comma before the
--- given closing token (used by list and map literals).
+
+{- | Expression list permitting a single optional trailing comma before the
+given closing token (used by list and map literals).
+-}
 parseExprListTrailing :: Tok -> P [Expr]
 parseExprListTrailing closeTok = do
   t <- peek
@@ -810,6 +908,7 @@ parseExprListTrailing closeTok = do
           t2 <- peek
           if t2 == closeTok then pure (reverse acc) else do e <- parseExpr; go (e : acc)
         _ -> pure (reverse acc)
+
 
 parseMapInitsTrailing :: P [(Expr, Expr)]
 parseMapInitsTrailing = do
@@ -833,6 +932,7 @@ parseMapInitsTrailing = do
       expectTok TkColon
       v <- parseExpr
       pure (k, v)
+
 
 parseFieldInits :: P [(Text, Expr)]
 parseFieldInits = do

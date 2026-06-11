@@ -35,9 +35,9 @@ medium :: Vector Person
 medium =
   V.fromList
     [ Person
-      (T.pack ("user-" <> show i))
-      (20 + i `mod` 50)
-      (T.pack ("user" <> show i <> "@example.com"))
+        (T.pack ("user-" <> show i))
+        (20 + i `mod` 50)
+        (T.pack ("user" <> show i <> "@example.com"))
     | i <- [1 .. 100 :: Int]
     ]
 

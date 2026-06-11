@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Kafka.Producer
 Description : Transitional @hw-kafka-client@ producer facade.
 
@@ -30,52 +30,56 @@ mkMessage k v = 'ProducerRecord'
   }
 @
 -}
-module Kafka.Producer
-  ( KafkaProducer
-  , module X
-  , runProducer
-  , newProducer
-  , produceMessage
-  , produceMessage'
-  , flushProducer
-  , closeProducer
-  , RdKafkaRespErrT (..)
-  ) where
+module Kafka.Producer (
+  KafkaProducer,
+  module X,
+  runProducer,
+  newProducer,
+  produceMessage,
+  produceMessage',
+  flushProducer,
+  closeProducer,
+  RdKafkaRespErrT (..),
+) where
 
 import Control.Exception (bracket)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Int (Int32)
+import Data.Map qualified as M
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.Encoding.Error qualified as TEE
+import Kafka.Client.Producer qualified as WF
+import Kafka.Compression.Types qualified as WFC
 import Kafka.Consumer.Types (Offset (..))
-import Kafka.Internal.Callbacks
-  ( Callback
-  , deliveryCallbacks
-  , errorCallbacks
-  )
-import Kafka.Internal.Compat
-  ( Kafka (..)
-  , RdKafkaRespErrT (..)
-  , kafkaConf
-  , textDecimal
-  , topicConf
-  )
+import Kafka.Internal.Callbacks (
+  Callback,
+  deliveryCallbacks,
+  errorCallbacks,
+ )
+import Kafka.Internal.Compat (
+  Kafka (..),
+  RdKafkaRespErrT (..),
+  kafkaConf,
+  textDecimal,
+  topicConf,
+ )
 import Kafka.Producer.ProducerProperties as X
-import Kafka.Producer.Types as X hiding (KafkaProducer)
 import Kafka.Producer.Types (KafkaProducer (..))
+import Kafka.Producer.Types as X hiding (KafkaProducer)
 import Kafka.Types as X
-import qualified Data.ByteString as BS
-import qualified Data.Map as M
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Encoding.Error as TEE
-import qualified Kafka.Client.Producer as WF
-import qualified Kafka.Compression.Types as WFC
+
 
 {-# DEPRECATED runProducer "Use 'newProducer'/'closeProducer' instead" #-}
--- | Run a Kafka producer with bracketed acquisition and release.
---
--- Deprecated upstream in favour of calling 'newProducer' and
--- 'closeProducer' directly.
+
+
+{- | Run a Kafka producer with bracketed acquisition and release.
+
+Deprecated upstream in favour of calling 'newProducer' and
+'closeProducer' directly.
+-}
 runProducer
   :: ProducerProperties
   -> (KafkaProducer -> IO (Either KafkaError a))
@@ -89,9 +93,11 @@ runProducer props f =
     runResult (Left err) = pure (Left err)
     runResult (Right prod) = f prod
 
--- | Create a new Kafka producer.
---
--- A newly created producer must be closed with 'closeProducer'.
+
+{- | Create a new Kafka producer.
+
+A newly created producer must be closed with 'closeProducer'.
+-}
 newProducer :: MonadIO m => ProducerProperties -> m (Either KafkaError KafkaProducer)
 newProducer props = liftIO $ do
   kc <- kafkaConf (ppKafkaProps props)
@@ -105,17 +111,21 @@ newProducer props = liftIO $ do
       mapM_ (\callback -> callback kafkaErr err) (errorCallbacks (ppCallbacks props))
       pure (Left kafkaErr)
     Right producer ->
-      pure $ Right KafkaProducer
-        { kpKafkaPtr = KafkaProducerHandle producer
-        , kpKafkaConf = kc
-        , kpTopicConf = tc
-        }
+      pure $
+        Right
+          KafkaProducer
+            { kpKafkaPtr = KafkaProducerHandle producer
+            , kpKafkaConf = kc
+            , kpTopicConf = tc
+            }
 
--- | Send a single message.
---
--- Like @hw-kafka-client@, this returns only immediate/pre-flight
--- errors. The native wireform implementation waits for the
--- acknowledgement through 'Kafka.Client.Producer.sendRecord'.
+
+{- | Send a single message.
+
+Like @hw-kafka-client@, this returns only immediate/pre-flight
+errors. The native wireform implementation waits for the
+acknowledgement through 'Kafka.Client.Producer.sendRecord'.
+-}
 produceMessage
   :: MonadIO m
   => KafkaProducer
@@ -126,17 +136,19 @@ produceMessage producer record =
     Left (ImmediateError err) -> pure (Just err)
     Right () -> pure Nothing
 
--- | Send a single message with a delivery callback.
---
--- The callback receives a compatibility 'DeliveryReport' after the
--- native send completes or fails.
+
+{- | Send a single message with a delivery callback.
+
+The callback receives a compatibility 'DeliveryReport' after the
+native send completes or fails.
+-}
 produceMessage'
   :: MonadIO m
   => KafkaProducer
   -> ProducerRecord
   -> (DeliveryReport -> IO ())
   -> m (Either ImmediateError ())
-produceMessage' KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} record callback =
+produceMessage' KafkaProducer {kpKafkaPtr = KafkaProducerHandle producer} record callback =
   liftIO $ do
     result <- WF.sendRecord producer (toWireformRecord record)
     case result of
@@ -152,33 +164,39 @@ produceMessage' _ record callback = liftIO $ do
   callback (DeliveryFailure record err)
   pure (Left (ImmediateError err))
 
+
 -- | Drain the producer's outbound queue.
 flushProducer :: MonadIO m => KafkaProducer -> m ()
-flushProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
+flushProducer KafkaProducer {kpKafkaPtr = KafkaProducerHandle producer} =
   liftIO $ do
     _ <- WF.flushProducer producer
     pure ()
 flushProducer _ = pure ()
 
+
 -- | Close the producer after flushing pending messages.
 closeProducer :: MonadIO m => KafkaProducer -> m ()
-closeProducer KafkaProducer{kpKafkaPtr = KafkaProducerHandle producer} =
+closeProducer KafkaProducer {kpKafkaPtr = KafkaProducerHandle producer} =
   WF.closeProducer producer
 closeProducer _ = pure ()
 
+
 producerConfig :: ProducerProperties -> WF.ProducerConfig
-producerConfig ProducerProperties{..} =
+producerConfig ProducerProperties {..} =
   WF.defaultProducerConfig
     { WF.producerClientId = M.findWithDefault "hw-kafka-client" "client.id" ppKafkaProps
     , WF.producerCompression =
         maybe WFC.defaultCodec compressionFromText (M.lookup "compression.codec" ppKafkaProps)
     , WF.producerDeliveryTimeoutMs =
-        maybe (WF.producerDeliveryTimeoutMs WF.defaultProducerConfig) id
+        maybe
+          (WF.producerDeliveryTimeoutMs WF.defaultProducerConfig)
+          id
           (textDecimal =<< (M.lookup "message.timeout.ms" ppTopicProps <|> M.lookup "message.timeout.ms" ppKafkaProps))
     , WF.producerIdempotent = False
     , WF.producerDelivery = WF.AtLeastOnce
     , WF.producerOnAcknowledgement = dispatchProducerCallbacks ppCallbacks
     }
+
 
 bootstrapServers :: M.Map T.Text T.Text -> [T.Text]
 bootstrapServers props =
@@ -186,14 +204,16 @@ bootstrapServers props =
     Nothing -> []
     Just brokers -> filter (not . T.null) (T.splitOn "," brokers)
 
+
 compressionFromText :: T.Text -> WFC.CompressionCodec
 compressionFromText raw =
   case WFC.parseCompressionCodec raw of
     Just codec -> codec
     Nothing -> WFC.defaultCodec
 
+
 toWireformRecord :: ProducerRecord -> WF.ProducerRecord
-toWireformRecord ProducerRecord{..} =
+toWireformRecord ProducerRecord {..} =
   WF.ProducerRecord
     { WF.topic = unTopicName prTopic
     , WF.key = prKey
@@ -203,16 +223,19 @@ toWireformRecord ProducerRecord{..} =
     , WF.timestamp = Nothing
     }
 
+
 partitionToWireform :: ProducePartition -> Maybe Int32
 partitionToWireform UnassignedPartition = Nothing
 partitionToWireform (SpecifiedPartition p) = Just (fromIntegral p)
+
 
 convertHeader :: (ByteString, ByteString) -> (T.Text, ByteString)
 convertHeader (name, value) =
   (TE.decodeUtf8With TEE.lenientDecode name, value)
 
+
 fromWireformRecord :: WF.ProducerRecord -> ProducerRecord
-fromWireformRecord WF.ProducerRecord{..} =
+fromWireformRecord WF.ProducerRecord {..} =
   ProducerRecord
     { prTopic = TopicName topic
     , prPartition = maybe UnassignedPartition (SpecifiedPartition . fromIntegral) partition
@@ -220,6 +243,7 @@ fromWireformRecord WF.ProducerRecord{..} =
     , prValue = Just value
     , prHeaders = headersFromList (map (\(name, headerValue) -> (TE.encodeUtf8 name, headerValue)) headers)
     }
+
 
 dispatchProducerCallbacks
   :: [Callback]
@@ -236,6 +260,7 @@ dispatchProducerCallbacks callbacks record outcome =
     Right metadata -> do
       let report = DeliverySuccess (fromWireformRecord record) (Offset (WF.offset metadata))
       mapM_ (\callback -> callback report) (deliveryCallbacks callbacks)
+
 
 (<|>) :: Maybe a -> Maybe a -> Maybe a
 Just x <|> _ = Just x

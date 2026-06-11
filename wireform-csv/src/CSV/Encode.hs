@@ -55,8 +55,8 @@ buildRows cfg rows =
         acc
           <> buildRow cfg row
           <> ( if i < V.length rows - 1
-                then B.byteString (TE.encodeUtf8 (csvNewline cfg))
-                else mempty
+                 then B.byteString (TE.encodeUtf8 (csvNewline cfg))
+                 else mempty
              )
     )
     mempty
@@ -70,8 +70,8 @@ buildRow cfg fields =
         acc
           <> encodeField cfg field
           <> ( if i < V.length fields - 1
-                then B.word8 (fromIntegral (ord (csvDelimiter cfg)))
-                else mempty
+                 then B.word8 (fromIntegral (ord (csvDelimiter cfg)))
+                 else mempty
              )
     )
     mempty

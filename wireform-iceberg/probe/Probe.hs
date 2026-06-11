@@ -268,17 +268,17 @@ mkPositionDeleteEntry path nrows nbytes =
           , IT.dataFileEqualityIds = V.empty
           }
   in IT.ManifestEntry
-      { IT.meStatus = IT.Added
-      , IT.meSnapshotId = Just 1234567892
-      , IT.meSequenceNumber = Just 3
-      , IT.meFileSequenceNumber = Just 3
-      , IT.meFilePath = path
-      , IT.meFileFormat = IT.ParquetFormat
-      , IT.mePartition = V.empty
-      , IT.meRecordCount = nrows
-      , IT.meFileSizeBytes = nbytes
-      , IT.meDataFile = Just df
-      }
+       { IT.meStatus = IT.Added
+       , IT.meSnapshotId = Just 1234567892
+       , IT.meSequenceNumber = Just 3
+       , IT.meFileSequenceNumber = Just 3
+       , IT.meFilePath = path
+       , IT.meFileFormat = IT.ParquetFormat
+       , IT.mePartition = V.empty
+       , IT.meRecordCount = nrows
+       , IT.meFileSizeBytes = nbytes
+       , IT.meDataFile = Just df
+       }
 
 
 mkEqualityDeleteEntry :: Text -> Int64 -> Int64 -> IT.ManifestEntry
@@ -296,17 +296,17 @@ mkEqualityDeleteEntry path nrows nbytes =
             IT.dataFileEqualityIds = V.fromList [1]
           }
   in IT.ManifestEntry
-      { IT.meStatus = IT.Added
-      , IT.meSnapshotId = Just 1234567892
-      , IT.meSequenceNumber = Just 3
-      , IT.meFileSequenceNumber = Just 3
-      , IT.meFilePath = path
-      , IT.meFileFormat = IT.ParquetFormat
-      , IT.mePartition = V.empty
-      , IT.meRecordCount = nrows
-      , IT.meFileSizeBytes = nbytes
-      , IT.meDataFile = Just df
-      }
+       { IT.meStatus = IT.Added
+       , IT.meSnapshotId = Just 1234567892
+       , IT.meSequenceNumber = Just 3
+       , IT.meFileSequenceNumber = Just 3
+       , IT.meFilePath = path
+       , IT.meFileFormat = IT.ParquetFormat
+       , IT.mePartition = V.empty
+       , IT.meRecordCount = nrows
+       , IT.meFileSizeBytes = nbytes
+       , IT.meDataFile = Just df
+       }
 
 
 -- ============================================================

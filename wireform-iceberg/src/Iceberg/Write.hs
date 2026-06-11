@@ -547,10 +547,10 @@ buildManifestSummary spec _schema entries =
                   (Nothing, Just b) -> Just b
                   _ -> Nothing
             in acc
-                { fsContainsNull = fsContainsNull acc || hasNull
-                , fsLowerBound = lo'
-                , fsUpperBound = hi'
-                }
+                 { fsContainsNull = fsContainsNull acc || hasNull
+                 , fsLowerBound = lo'
+                 , fsUpperBound = hi'
+                 }
       _ -> acc
 
     emptySummary =

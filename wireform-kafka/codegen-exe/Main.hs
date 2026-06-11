@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Main
 Description : Kafka protocol code generator executable
 Copyright   : (c) 2025
@@ -19,11 +19,11 @@ Where:
 -}
 module Main (main) where
 
-import Control.Exception (catch, SomeException)
+import Control.Exception (SomeException, catch)
 import Control.Monad (forM_, when)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Kafka.Protocol.Codegen.Generator
 import Kafka.Protocol.Codegen.Parser
 import Kafka.Protocol.Codegen.Types
@@ -32,8 +32,9 @@ import Prettyprinter.Render.Text
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory, removeFile)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import System.FilePath ((</>), takeExtension)
+import System.FilePath (takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
+
 
 main :: IO ()
 main = do
@@ -47,15 +48,16 @@ main = do
       hPutStrLn stderr "  kafka-codegen kafka/clients/src/main/resources/common/message src/Kafka/Protocol/Generated"
       exitFailure
 
+
 runCodegen :: FilePath -> FilePath -> IO ()
 runCodegen protocolDir outputDir = do
   putStrLn $ "Reading protocol definitions from: " ++ protocolDir
   putStrLn $ "Generating code to: " ++ outputDir
   putStrLn ""
-  
+
   -- Parse all protocol files
   (schemas, errors) <- parseProtocolDirectory protocolDir
-  
+
   -- Report parsing errors
   when (not $ null errors) $ do
     putStrLn "=== Parsing Errors ==="
@@ -63,25 +65,25 @@ runCodegen protocolDir outputDir = do
       putStrLn $ "Error in " ++ file ++ ":"
       putStrLn $ "  " ++ err
       putStrLn ""
-  
+
   -- Generate code for each schema
   putStrLn $ "Successfully parsed " ++ show (length schemas) ++ " protocol definitions"
   putStrLn ""
-  
+
   -- Create output directory and clean old generated files
   createDirectoryIfMissing True outputDir
   cleanGeneratedFiles outputDir
-  
+
   forM_ schemas $ \schema -> do
     let moduleName = toHaskellModuleName (schemaName schema)
         fileName = T.unpack (schemaName schema) ++ ".hs"
         filePath = outputDir </> fileName
         code = generateMessageModule schema
         rendered = renderStrict (layoutPretty defaultLayoutOptions code)
-    
+
     putStrLn $ "Generating " ++ fileName
     T.writeFile filePath rendered
-  
+
   -- Generate message inventory JSON next to the generated modules so
   -- the codegen has no side effects outside of `outputDir`.
   putStrLn ""
@@ -90,15 +92,17 @@ runCodegen protocolDir outputDir = do
       inventoryPath = outputDir </> "message-inventory.json"
   T.writeFile inventoryPath inventoryJson
   putStrLn $ "Generated " ++ inventoryPath ++ " with " ++ show (length schemas) ++ " message types"
-  
+
   putStrLn ""
   putStrLn $ "Code generation complete! Generated " ++ show (length schemas) ++ " modules."
   putStrLn ""
   putStrLn "Note: The generated code contains TODOs for full implementation."
   putStrLn "      Serialization instances need version-aware logic."
 
--- | Clean old generated Haskell files from the output directory.
--- Only removes .hs files to avoid accidentally deleting other content.
+
+{- | Clean old generated Haskell files from the output directory.
+Only removes .hs files to avoid accidentally deleting other content.
+-}
 cleanGeneratedFiles :: FilePath -> IO ()
 cleanGeneratedFiles outputDir = do
   exists <- doesDirectoryExist outputDir
@@ -108,9 +112,9 @@ cleanGeneratedFiles outputDir = do
     let hsFiles = filter (\f -> takeExtension f == ".hs") entries
     forM_ hsFiles $ \file -> do
       let fullPath = outputDir </> file
-      removeFile fullPath `catch` \(e :: SomeException) -> 
+      removeFile fullPath `catch` \(e :: SomeException) ->
         hPutStrLn stderr $ "Warning: Could not remove " ++ file ++ ": " ++ show e
-    when (not $ null hsFiles) $ 
-      putStrLn $ "Removed " ++ show (length hsFiles) ++ " old generated files."
+    when (not $ null hsFiles) $
+      putStrLn $
+        "Removed " ++ show (length hsFiles) ++ " old generated files."
     putStrLn ""
-

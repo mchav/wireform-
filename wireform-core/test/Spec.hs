@@ -1,10 +1,11 @@
 module Main where
 
 import Test.Syd
-import qualified Wireform.Ring.Test as Ring
-import qualified Wireform.Parser.Test as Parser
-import qualified Wireform.Transport.SendTest as Send
-import qualified Wireform.Base64.Test as Base64
+import Wireform.Base64.Test qualified as Base64
+import Wireform.Parser.Test qualified as Parser
+import Wireform.Ring.Test qualified as Ring
+import Wireform.Transport.SendTest qualified as Send
+
 
 main :: IO ()
 main = sydTest $ do

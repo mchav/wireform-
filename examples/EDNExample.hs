@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
 import Data.Text (Text)
-import qualified Data.Text as T
-import EDN.Class (ToEDN, FromEDN, encodeEDN, decodeEDN)
+import Data.Text qualified as T
+import EDN.Class (FromEDN, ToEDN, decodeEDN, encodeEDN)
+import GHC.Generics (Generic)
+
 
 data Config = Config
-  { host  :: !Text
-  , port  :: !Int
+  { host :: !Text
+  , port :: !Int
   , debug :: !Bool
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToEDN, FromEDN)
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToEDN, FromEDN)
+
 
 main :: IO ()
 main = do
@@ -25,6 +29,6 @@ main = do
 
   case decodeEDN text of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Config)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeEDN (encodeEDN cfg) == Right cfg)

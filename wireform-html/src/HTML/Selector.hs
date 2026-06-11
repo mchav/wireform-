@@ -122,7 +122,8 @@ data SubSel
   = SelId !Text
   | SelClass !Text
   | SelAttrExists !Text
-  | SelAttrExact !Text !Text !Bool     -- ^ name, value, case-insensitive flag
+  | -- | name, value, case-insensitive flag
+    SelAttrExact !Text !Text !Bool
   | SelAttrPrefix !Text !Text !Bool
   | SelAttrSuffix !Text !Text !Bool
   | SelAttrContains !Text !Text !Bool
@@ -142,7 +143,8 @@ data SubSel
   | SelNthLastChild !Int !Int
   | SelNthOfType !Int !Int
   | SelNthLastOfType !Int !Int
-  | SelNthChildOf !Int !Int !Selector    -- ^ @:nth-child(An+B of S)@
+  | -- | @:nth-child(An+B of S)@
+    SelNthChildOf !Int !Int !Selector
   | SelNthLastChildOf !Int !Int !Selector
   | SelEmpty
   | SelRoot
@@ -162,7 +164,8 @@ data SubSel
   | SelPlaceholderShown
   | SelIndeterminate
   | SelLink
-  | SelLang ![Text]                      -- ^ One or more BCP 47 tags
+  | -- | One or more BCP 47 tags
+    SelLang ![Text]
   | SelNeverMatch
   deriving (Show, Eq)
 
@@ -222,13 +225,15 @@ isRewriterCompatible (Selector cs) = all complexOk cs
     subOkForRewriter _ = False
 
 
--- | Whether a compound selector can be matched using only tag name and
--- attributes — no tree context or structural pseudo-classes needed.
--- Logical pseudo-classes (:not, :is, :where) are flat when their inner
--- selectors are also flat.
+{- | Whether a compound selector can be matched using only tag name and
+attributes — no tree context or structural pseudo-classes needed.
+Logical pseudo-classes (:not, :is, :where) are flat when their inner
+selectors are also flat.
+-}
 isFlatCompound :: CompoundSelector -> Bool
 isFlatCompound (CompoundSelector _ subs) = all isFlatSub subs
 {-# INLINE isFlatCompound #-}
+
 
 isFlatSub :: SubSel -> Bool
 isFlatSub (SelId _) = True
@@ -254,17 +259,20 @@ isFlatSub SelDefined = True
 isFlatSub SelNeverMatch = True
 isFlatSub _ = False
 
+
 isFlatComplex :: ComplexSelector -> Bool
 isFlatComplex (ComplexSelector c []) = isFlatCompound c
 isFlatComplex _ = False
 
 
--- | Extract the concrete tag name from a compound selector, if present.
--- Returns 'Nothing' for universal or absent type selectors.
+{- | Extract the concrete tag name from a compound selector, if present.
+Returns 'Nothing' for universal or absent type selectors.
+-}
 compoundType :: CompoundSelector -> Maybe Text
 compoundType (CompoundSelector (Just (TypeTag t)) _) = Just t
 compoundType _ = Nothing
 {-# INLINE compoundType #-}
+
 
 -- | Extract the first class name from a compound selector's sub-selectors.
 compoundClass :: CompoundSelector -> Maybe Text
@@ -275,8 +283,10 @@ compoundClass (CompoundSelector _ subs) = go subs
     go (_ : rest) = go rest
 {-# INLINE compoundClass #-}
 
--- | Return sub-selectors with the first SelClass removed (the one used for
--- index lookup). Returns Nothing if no SelClass was present.
+
+{- | Return sub-selectors with the first SelClass removed (the one used for
+index lookup). Returns Nothing if no SelClass was present.
+-}
 compoundSubsWithoutClass :: CompoundSelector -> Maybe [SubSel]
 compoundSubsWithoutClass (CompoundSelector _ subs) = go [] subs
   where
@@ -285,8 +295,10 @@ compoundSubsWithoutClass (CompoundSelector _ subs) = go [] subs
     go acc (s : rest) = go (s : acc) rest
 {-# INLINE compoundSubsWithoutClass #-}
 
--- | True when the compound selector can be fully decided using only
--- the tag name and class attribute value (no id, no arbitrary attrs).
+
+{- | True when the compound selector can be fully decided using only
+the tag name and class attribute value (no id, no arbitrary attrs).
+-}
 isClassOnlyCompound :: CompoundSelector -> Bool
 isClassOnlyCompound (CompoundSelector _ subs) = all isClassSub subs
   where
@@ -294,9 +306,11 @@ isClassOnlyCompound (CompoundSelector _ subs) = all isClassSub subs
     isClassSub _ = False
 {-# INLINE isClassOnlyCompound #-}
 
--- | Byte-level class word match using Addr# (for scanClassAndSkip results).
--- Checks if the needle Text word appears whitespace-delimited in the raw
--- bytes at addr# starting at offset for len bytes.
+
+{- | Byte-level class word match using Addr# (for scanClassAndSkip results).
+Checks if the needle Text word appears whitespace-delimited in the raw
+bytes at addr# starting at offset for len bytes.
+-}
 hasClassWord :: Text -> Addr# -> Int -> Int -> Bool
 hasClassWord (Text (ByteArray needleBA#) nOff nLen) addr# !off !len
   | nLen == 0 = False
@@ -322,7 +336,7 @@ hasClassWord (Text (ByteArray needleBA#) nOff nLen) addr# !off !len
     bytesMatch !_ !_ 0 = True
     bytesMatch !bo !ao !n =
       W8# (indexWord8Array# needleBA# (toInt# bo)) == W8# (indexWord8OffAddr# addr# (toInt# ao))
-      && bytesMatch (bo + 1) (ao + 1) (n - 1)
+        && bytesMatch (bo + 1) (ao + 1) (n - 1)
     toInt# :: Int -> Int#
     toInt# (I# i) = i
 {-# INLINE hasClassWord #-}
@@ -372,32 +386,43 @@ matchSub attrs = \case
     | T.null v -> False
     | otherwise -> withAttr n attrs False (attrInf ci v)
   SelAttrWord n v ci -> withAttr n attrs False (hasWordCI ci v)
-  SelAttrHyphen n v ci -> withAttr n attrs False (\av ->
-    attrEq ci v av || attrPfx ci (v <> "-") av)
+  SelAttrHyphen n v ci ->
+    withAttr
+      n
+      attrs
+      False
+      ( \av ->
+          attrEq ci v av || attrPfx ci (v <> "-") av
+      )
   -- Pseudo-classes return True in flat mode (rewriter rejects them at build time;
   -- DOM matching uses matchSubDOM instead)
   _ -> True
 {-# INLINE matchSub #-}
+
 
 attrEq :: Bool -> Text -> Text -> Bool
 attrEq False a b = a == b
 attrEq True a b = T.toCaseFold a == T.toCaseFold b
 {-# INLINE attrEq #-}
 
+
 attrPfx :: Bool -> Text -> Text -> Bool
 attrPfx False p t = T.isPrefixOf p t
 attrPfx True p t = T.isPrefixOf (T.toCaseFold p) (T.toCaseFold t)
 {-# INLINE attrPfx #-}
+
 
 attrSfx :: Bool -> Text -> Text -> Bool
 attrSfx False s t = T.isSuffixOf s t
 attrSfx True s t = T.isSuffixOf (T.toCaseFold s) (T.toCaseFold t)
 {-# INLINE attrSfx #-}
 
+
 attrInf :: Bool -> Text -> Text -> Bool
 attrInf False s t = T.isInfixOf s t
 attrInf True s t = T.isInfixOf (T.toCaseFold s) (T.toCaseFold t)
 {-# INLINE attrInf #-}
+
 
 hasWordCI :: Bool -> Text -> Text -> Bool
 hasWordCI False w t = hasWord w t
@@ -449,8 +474,9 @@ attrExists name attrs = go 0
 {-# INLINE attrExists #-}
 
 
--- | Check if a word appears in a space-separated list.
--- Uses byte-level comparison to avoid allocating intermediate Text slices.
+{- | Check if a word appears in a space-separated list.
+Uses byte-level comparison to avoid allocating intermediate Text slices.
+-}
 hasWord :: Text -> Text -> Bool
 hasWord (Text (ByteArray needleBA#) nOff nLen) (Text (ByteArray hayBA#) hOff hLen)
   | nLen == 0 = False
@@ -470,9 +496,11 @@ hasWord (Text (ByteArray needleBA#) nOff nLen) (Text (ByteArray hayBA#) hOff hLe
       | otherwise = findSpace (i + 1)
 {-# INLINE hasWord #-}
 
+
 toInt# :: Int -> Int#
 toInt# (I# i) = i
 {-# INLINE toInt# #-}
+
 
 bytesEqual :: ByteArray# -> Int -> ByteArray# -> Int -> Int -> Bool
 bytesEqual a# !aOff b# !bOff !n =
@@ -574,11 +602,11 @@ parseCombinator p =
   let !p' = skipWS p
       !hadWS = pOff p' > pOff p
   in case peek p' of
-      Just '>' -> Just (Child, skipWS (advance p'))
-      Just '+' -> Just (AdjacentSibling, skipWS (advance p'))
-      Just '~' -> Just (GeneralSibling, skipWS (advance p'))
-      Just c | hadWS && isCompoundStart c -> Just (Descendant, p')
-      _ -> Nothing
+       Just '>' -> Just (Child, skipWS (advance p'))
+       Just '+' -> Just (AdjacentSibling, skipWS (advance p'))
+       Just '~' -> Just (GeneralSibling, skipWS (advance p'))
+       Just c | hadWS && isCompoundStart c -> Just (Descendant, p')
+       _ -> Nothing
 
 
 isCompoundStart :: Char -> Bool
@@ -593,7 +621,7 @@ parseCompoundSelector p = do
     Just '*' ->
       case peek (advance p') of
         Just '|' -> do
-          -- *|E or *|* — skip namespace prefix, parse type selector
+          -- \*|E or *|* — skip namespace prefix, parse type selector
           let !p2 = advance (advance p')
           case peek p2 of
             Just '*' -> do
@@ -610,7 +638,7 @@ parseCompoundSelector p = do
           (subs, p3) <- parseSubSelectors (advance p')
           Right (CompoundSelector (Just TypeUniversal) subs, p3)
     Just '|' -> do
-      -- |E — no-namespace prefix; in HTML all elements are in no namespace
+      -- \|E — no-namespace prefix; in HTML all elements are in no namespace
       let !p2 = advance p'
       case peek p2 of
         Just '*' -> do
@@ -719,33 +747,59 @@ parseAttrOp ctor name p = do
     _ -> err p "expected = after operator"
 
 
--- | Parse optional case-sensitivity flag. When absent, HTML enumerated
--- attributes default to case-insensitive per the HTML spec.
+{- | Parse optional case-sensitivity flag. When absent, HTML enumerated
+attributes default to case-insensitive per the HTML spec.
+-}
 parseCIFlag :: Text -> P -> Either SelectorError (Bool, P)
 parseCIFlag attrName p0 =
   let !p = skipWS p0
   in case peek p of
-    Just 'i' -> Right (True, advance p)
-    Just 'I' -> Right (True, advance p)
-    Just 's' -> Right (False, advance p)
-    Just 'S' -> Right (False, advance p)
-    _ -> Right (htmlCaseInsensitiveAttr attrName, p)
+       Just 'i' -> Right (True, advance p)
+       Just 'I' -> Right (True, advance p)
+       Just 's' -> Right (False, advance p)
+       Just 'S' -> Right (False, advance p)
+       _ -> Right (htmlCaseInsensitiveAttr attrName, p)
 
--- | HTML attributes whose values are always compared case-insensitively
--- in selectors, per the HTML and Selectors Level 4 specs.
+
+{- | HTML attributes whose values are always compared case-insensitively
+in selectors, per the HTML and Selectors Level 4 specs.
+-}
 htmlCaseInsensitiveAttr :: Text -> Bool
 htmlCaseInsensitiveAttr n =
-  n == "type" || n == "dir" || n == "lang" || n == "rel"
-  || n == "target" || n == "method" || n == "enctype"
-  || n == "accept-charset" || n == "http-equiv"
-  || n == "shape" || n == "scope" || n == "align" || n == "valign"
-  || n == "frame" || n == "rules" || n == "scrolling"
-  || n == "clear" || n == "media" || n == "step"
-  || n == "wrap" || n == "kind" || n == "loading"
-  || n == "decoding" || n == "crossorigin" || n == "referrerpolicy"
-  || n == "formmethod" || n == "formenctype" || n == "formtarget"
-  || n == "autocomplete" || n == "inputmode" || n == "translate"
-  || n == "draggable" || n == "spellcheck" || n == "contenteditable"
+  n == "type"
+    || n == "dir"
+    || n == "lang"
+    || n == "rel"
+    || n == "target"
+    || n == "method"
+    || n == "enctype"
+    || n == "accept-charset"
+    || n == "http-equiv"
+    || n == "shape"
+    || n == "scope"
+    || n == "align"
+    || n == "valign"
+    || n == "frame"
+    || n == "rules"
+    || n == "scrolling"
+    || n == "clear"
+    || n == "media"
+    || n == "step"
+    || n == "wrap"
+    || n == "kind"
+    || n == "loading"
+    || n == "decoding"
+    || n == "crossorigin"
+    || n == "referrerpolicy"
+    || n == "formmethod"
+    || n == "formenctype"
+    || n == "formtarget"
+    || n == "autocomplete"
+    || n == "inputmode"
+    || n == "translate"
+    || n == "draggable"
+    || n == "spellcheck"
+    || n == "contenteditable"
 
 
 readAttrValue :: P -> Either SelectorError (Text, P)
@@ -824,8 +878,9 @@ parsePseudo p =
         other -> Left (UnsupportedSelector other)
 
 
--- | Parse forgiving selector list for :is() / :where().
--- Invalid branches are silently dropped per Selectors Level 4.
+{- | Parse forgiving selector list for :is() / :where().
+Invalid branches are silently dropped per Selectors Level 4.
+-}
 parseFunctionalSelector :: (Selector -> SubSel) -> P -> Either SelectorError (SubSel, P)
 parseFunctionalSelector ctor p1 = do
   p2 <- expectChar '(' p1
@@ -833,8 +888,10 @@ parseFunctionalSelector ctor p1 = do
   p4 <- expectChar ')' (skipWS p3)
   Right (ctor (Selector inner), p4)
 
--- | Parse a forgiving selector list: each branch that fails to parse is
--- silently dropped rather than causing the whole selector to fail.
+
+{- | Parse a forgiving selector list: each branch that fails to parse is
+silently dropped rather than causing the whole selector to fail.
+-}
 parseForgivingSelectorList :: P -> Either SelectorError ([ComplexSelector], P)
 parseForgivingSelectorList p = go p []
   where
@@ -843,8 +900,8 @@ parseForgivingSelectorList p = go p []
         Right (cs, p'') ->
           let !p''' = skipWS p''
           in case peek p''' of
-            Just ',' -> go (advance p''') (cs : acc)
-            _ -> Right (reverse (cs : acc), p''')
+               Just ',' -> go (advance p''') (cs : acc)
+               _ -> Right (reverse (cs : acc), p''')
         Left _ -> skipToNextBranch p' acc
     skipToNextBranch !p' !acc =
       case peek p' of
@@ -861,10 +918,13 @@ parseNthPseudo ctor p1 = do
   p4 <- expectChar ')' (skipWS p3)
   Right (ctor a b, p4)
 
+
 -- | Parse :nth-child / :nth-last-child with optional "of S" clause.
-parseNthPseudoOf :: (Int -> Int -> SubSel)
-                 -> (Int -> Int -> Selector -> SubSel)
-                 -> P -> Either SelectorError (SubSel, P)
+parseNthPseudoOf
+  :: (Int -> Int -> SubSel)
+  -> (Int -> Int -> Selector -> SubSel)
+  -> P
+  -> Either SelectorError (SubSel, P)
 parseNthPseudoOf plainCtor ofCtor p1 = do
   p2 <- expectChar '(' p1
   (a, b, p3) <- parseNthExpr (skipWS p2)
@@ -879,6 +939,7 @@ parseNthPseudoOf plainCtor ofCtor p1 = do
       p4 <- expectChar ')' p3'
       Right (plainCtor a b, p4)
 
+
 -- | Parse :has() with a relative selector list.
 parseHasSelector :: P -> Either SelectorError (SubSel, P)
 parseHasSelector p1 = do
@@ -886,6 +947,7 @@ parseHasSelector p1 = do
   (rels, p3) <- parseRelativeSelectorList (skipWS p2)
   p4 <- expectChar ')' (skipWS p3)
   Right (SelHas rels, p4)
+
 
 -- | Parse comma-separated relative selectors (each may start with a combinator).
 parseRelativeSelectorList :: P -> Either SelectorError ([(Combinator, ComplexSelector)], P)
@@ -898,23 +960,25 @@ parseRelativeSelectorList p = go p []
         Just ',' -> go (advance p''') (rel : acc)
         _ -> Right (reverse (rel : acc), p''')
 
+
 -- | Parse one relative selector: optional leading combinator + complex selector.
 parseRelativeSelector :: P -> Either SelectorError ((Combinator, ComplexSelector), P)
 parseRelativeSelector p =
   let !p' = skipWS p
   in case peek p' of
-    Just '>' -> do
-      (cs, p'') <- parseComplexSelector (skipWS (advance p'))
-      Right ((Child, cs), p'')
-    Just '+' -> do
-      (cs, p'') <- parseComplexSelector (skipWS (advance p'))
-      Right ((AdjacentSibling, cs), p'')
-    Just '~' -> do
-      (cs, p'') <- parseComplexSelector (skipWS (advance p'))
-      Right ((GeneralSibling, cs), p'')
-    _ -> do
-      (cs, p'') <- parseComplexSelector p'
-      Right ((Descendant, cs), p'')
+       Just '>' -> do
+         (cs, p'') <- parseComplexSelector (skipWS (advance p'))
+         Right ((Child, cs), p'')
+       Just '+' -> do
+         (cs, p'') <- parseComplexSelector (skipWS (advance p'))
+         Right ((AdjacentSibling, cs), p'')
+       Just '~' -> do
+         (cs, p'') <- parseComplexSelector (skipWS (advance p'))
+         Right ((GeneralSibling, cs), p'')
+       _ -> do
+         (cs, p'') <- parseComplexSelector p'
+         Right ((Descendant, cs), p'')
+
 
 -- | Parse :lang() with one or more comma-separated language tags.
 parseLangPseudo :: P -> Either SelectorError (SubSel, P)
@@ -932,6 +996,7 @@ parseLangPseudo p1 = do
         Just ',' -> parseLangTags (advance p'') (t : acc)
         _ -> Right (reverse (t : acc), p'')
 
+
 -- | Parse :dir(ltr) or :dir(rtl).
 parseDirPseudo :: P -> Either SelectorError (SubSel, P)
 parseDirPseudo p1 = do
@@ -940,14 +1005,17 @@ parseDirPseudo p1 = do
   p4 <- expectChar ')' (skipWS p3)
   Right (SelDir (T.toLower dir'), p4)
 
--- | Check if the next characters match a keyword (case-insensitive),
--- followed by whitespace or a non-ident character.
+
+{- | Check if the next characters match a keyword (case-insensitive),
+followed by whitespace or a non-ident character.
+-}
 peekWord :: P -> Text -> Bool
 peekWord (P t _) kw =
   let !n = T.length kw
       !prefix = T.take n t
   in T.toCaseFold prefix == T.toCaseFold kw
-     && (T.length t <= n || let c = T.index t n in not (isAlphaNum c || c == '_' || c == '-'))
+       && (T.length t <= n || let c = T.index t n in not (isAlphaNum c || c == '_' || c == '-'))
+
 
 -- | Advance parser by n characters.
 skipN :: Int -> P -> P
@@ -962,54 +1030,54 @@ parseNthExpr :: P -> Either SelectorError (Int, Int, P)
 parseNthExpr p =
   let !p' = skipWS p
   in case peek p' of
-      Nothing -> err p' "expected nth expression"
-      Just c
-        | c == 'o' || c == 'O' -> do
-            (w, p1) <- readIdent p'
-            if T.toLower w == "odd"
-              then Right (2, 1, p1)
-              else err p' ("unexpected '" <> w <> "' in :nth-child")
-        | c == 'e' || c == 'E' -> do
-            (w, p1) <- readIdent p'
-            if T.toLower w == "even"
-              then Right (2, 0, p1)
-              else err p' ("unexpected '" <> w <> "' in :nth-child")
-        | c == 'n' || c == 'N' -> do
-            let !p1 = advance p'
-            parseNthB 1 p1
-        | c == '-' -> do
-            let !p1 = advance p'
-            case peek p1 of
-              Just cn | cn == 'n' || cn == 'N' -> parseNthB (-1) (advance p1)
-              _ -> do
-                (num, p2) <- readInt p1
-                Right (0, negate num, p2)
-        | c == '+' -> do
-            let !p1 = advance p'
-            case peek p1 of
-              Just cn | cn == 'n' || cn == 'N' -> parseNthB 1 (advance p1)
-              _ -> do
-                (num, p2) <- readInt p1
-                Right (0, num, p2)
-        | isDigit c -> do
-            (num, p1) <- readInt p'
-            case peek p1 of
-              Just cn | cn == 'n' || cn == 'N' -> parseNthB num (advance p1)
-              _ -> Right (0, num, p1)
-        | otherwise -> err p' "expected nth expression"
+       Nothing -> err p' "expected nth expression"
+       Just c
+         | c == 'o' || c == 'O' -> do
+             (w, p1) <- readIdent p'
+             if T.toLower w == "odd"
+               then Right (2, 1, p1)
+               else err p' ("unexpected '" <> w <> "' in :nth-child")
+         | c == 'e' || c == 'E' -> do
+             (w, p1) <- readIdent p'
+             if T.toLower w == "even"
+               then Right (2, 0, p1)
+               else err p' ("unexpected '" <> w <> "' in :nth-child")
+         | c == 'n' || c == 'N' -> do
+             let !p1 = advance p'
+             parseNthB 1 p1
+         | c == '-' -> do
+             let !p1 = advance p'
+             case peek p1 of
+               Just cn | cn == 'n' || cn == 'N' -> parseNthB (-1) (advance p1)
+               _ -> do
+                 (num, p2) <- readInt p1
+                 Right (0, negate num, p2)
+         | c == '+' -> do
+             let !p1 = advance p'
+             case peek p1 of
+               Just cn | cn == 'n' || cn == 'N' -> parseNthB 1 (advance p1)
+               _ -> do
+                 (num, p2) <- readInt p1
+                 Right (0, num, p2)
+         | isDigit c -> do
+             (num, p1) <- readInt p'
+             case peek p1 of
+               Just cn | cn == 'n' || cn == 'N' -> parseNthB num (advance p1)
+               _ -> Right (0, num, p1)
+         | otherwise -> err p' "expected nth expression"
 
 
 parseNthB :: Int -> P -> Either SelectorError (Int, Int, P)
 parseNthB a p =
   let !p' = skipWS p
   in case peek p' of
-      Just '+' -> do
-        (b, p1) <- readInt (skipWS (advance p'))
-        Right (a, b, p1)
-      Just '-' -> do
-        (b, p1) <- readInt (skipWS (advance p'))
-        Right (a, negate b, p1)
-      _ -> Right (a, 0, p')
+       Just '+' -> do
+         (b, p1) <- readInt (skipWS (advance p'))
+         Right (a, b, p1)
+       Just '-' -> do
+         (b, p1) <- readInt (skipWS (advance p'))
+         Right (a, negate b, p1)
+       _ -> Right (a, 0, p')
 
 
 readInt :: P -> Either SelectorError (Int, P)
@@ -1017,8 +1085,8 @@ readInt p@(P t n) =
   let digits = T.takeWhile isDigit t
       !dlen = T.length digits
   in if dlen == 0
-      then err p "expected integer"
-      else Right (textToInt digits, P (T.drop dlen t) (n + dlen))
+       then err p "expected integer"
+       else Right (textToInt digits, P (T.drop dlen t) (n + dlen))
 
 
 textToInt :: Text -> Int
@@ -1044,12 +1112,13 @@ readIdent p@(P t _) =
   let !ident = T.takeWhile isIdentChar t
       !len = T.length ident
   in case T.uncons (T.drop len t) of
-      Just ('\\', _) -> readIdentEsc p
-      _ | len == 0 ->
-            case T.uncons t of
-              Just ('\\', _) -> readIdentEsc p
-              _ -> err p "expected identifier"
-        | otherwise -> Right (ident, advanceN len p)
+       Just ('\\', _) -> readIdentEsc p
+       _
+         | len == 0 ->
+             case T.uncons t of
+               Just ('\\', _) -> readIdentEsc p
+               _ -> err p "expected identifier"
+         | otherwise -> Right (ident, advanceN len p)
   where
     advanceN !k (P tt nn) = P (T.drop k tt) (nn + k)
     {-# INLINE advanceN #-}
@@ -1062,10 +1131,12 @@ readIdentEsc p0 = go p0 []
       Just '\\' -> do
         (c, p') <- readEscape (advance p)
         go p' (c : acc)
-      Just c | isIdentChar c ->
-        let (chunk, p') = spanIdent p
-        in go p' (chunk : acc)
-      _ | null acc -> err p0 "expected identifier"
+      Just c
+        | isIdentChar c ->
+            let (chunk, p') = spanIdent p
+            in go p' (chunk : acc)
+      _
+        | null acc -> err p0 "expected identifier"
         | otherwise -> Right (T.concat (reverse acc), p)
     spanIdent (P t nn) =
       let chunk = T.takeWhile isIdentChar t
@@ -1078,8 +1149,8 @@ readLangTag p@(P t n) =
   let tag = T.takeWhile (\c -> isAlphaNum c || c == '-' || c == '_') t
       !len = T.length tag
   in if len == 0
-      then err p "expected language tag"
-      else Right (tag, P (T.drop len t) (n + len))
+       then err p "expected language tag"
+       else Right (tag, P (T.drop len t) (n + len))
 
 
 readEscape :: P -> Either SelectorError (Text, P)
@@ -1092,7 +1163,7 @@ readEscape p@(P t n) = case T.uncons t of
             !cp = T.foldl' (\acc h -> acc * 16 + hexVal h) 0 hex
             !p1 = P (T.drop hlen t) (n + hlen)
             !p2 = case peek p1 of
-              Just ' '  -> advance p1
+              Just ' ' -> advance p1
               Just '\t' -> advance p1
               Just '\n' -> advance p1
               Just '\r' -> advance p1

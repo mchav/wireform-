@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-{-|
+{- |
 Module      : Kafka.Client.StatsEmitter
 Description : @statistics.interval.ms@ scheduled snapshot driver
 
@@ -24,65 +24,73 @@ Producer + consumer wiring is left to the caller — invoke
 client, save the returned handle, and call 'stopStatsEmitter'
 on the way out.
 -}
-module Kafka.Client.StatsEmitter
-  ( StatsEmitterConfig (..)
-  , defaultStatsEmitterConfig
-  , StatsEmitter
-  , startStatsEmitter
-  , stopStatsEmitter
-  , triggerSnapshotNow
-  ) where
+module Kafka.Client.StatsEmitter (
+  StatsEmitterConfig (..),
+  defaultStatsEmitterConfig,
+  StatsEmitter,
+  startStatsEmitter,
+  stopStatsEmitter,
+  triggerSnapshotNow,
+) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
-import qualified Data.ByteString.Lazy as LBS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
+import Kafka.Telemetry.Metrics qualified as M
+import Kafka.Telemetry.StatsJson qualified as Stats
+import Kafka.Time qualified as KafkaTime
 
-import qualified Kafka.Telemetry.Metrics as M
-import qualified Kafka.Telemetry.StatsJson as Stats
-import qualified Kafka.Time as KafkaTime
 
 data StatsEmitterConfig = StatsEmitterConfig
   { secIntervalMs :: !Int
-    -- ^ @statistics.interval.ms@. 0 disables emission.
-  , secName       :: !Text
-  , secClientId   :: !Text
+  -- ^ @statistics.interval.ms@. 0 disables emission.
+  , secName :: !Text
+  , secClientId :: !Text
   , secClientType :: !Stats.StatsClientType
-  , secSink       :: !(LBS.ByteString -> IO ())
-    -- ^ Where to send the rendered JSON. Default
-    --   ('defaultStatsEmitterConfig') is a no-op so the emitter
-    --   doesn't accidentally spam stderr.
+  , secSink :: !(LBS.ByteString -> IO ())
+  {- ^ Where to send the rendered JSON. Default
+  ('defaultStatsEmitterConfig') is a no-op so the emitter
+  doesn't accidentally spam stderr.
+  -}
   }
+
 
 defaultStatsEmitterConfig
-  :: Text                         -- ^ name
-  -> Text                         -- ^ client id
+  :: Text
+  -- ^ name
+  -> Text
+  -- ^ client id
   -> Stats.StatsClientType
   -> StatsEmitterConfig
-defaultStatsEmitterConfig nm cid tp = StatsEmitterConfig
-  { secIntervalMs = 0
-  , secName       = nm
-  , secClientId   = cid
-  , secClientType = tp
-  , secSink       = \_ -> pure ()
-  }
+defaultStatsEmitterConfig nm cid tp =
+  StatsEmitterConfig
+    { secIntervalMs = 0
+    , secName = nm
+    , secClientId = cid
+    , secClientType = tp
+    , secSink = \_ -> pure ()
+    }
+
 
 data StatsEmitter = StatsEmitter
-  { seThread   :: !ThreadId
-  , seRunning  :: !(TVar Bool)
-  , seConfig   :: !StatsEmitterConfig
+  { seThread :: !ThreadId
+  , seRunning :: !(TVar Bool)
+  , seConfig :: !StatsEmitterConfig
   , seRegistry :: !M.MetricsRegistry
   }
 
--- | Start a background stats-emitter thread. The thread sleeps
--- for @secIntervalMs@ between snapshots; if the interval is 0
--- it runs once and then idles (the snapshot can still be
--- triggered manually via 'triggerSnapshotNow').
+
+{- | Start a background stats-emitter thread. The thread sleeps
+for @secIntervalMs@ between snapshots; if the interval is 0
+it runs once and then idles (the snapshot can still be
+triggered manually via 'triggerSnapshotNow').
+-}
 startStatsEmitter
   :: StatsEmitterConfig
   -> M.MetricsRegistry
@@ -90,12 +98,13 @@ startStatsEmitter
 startStatsEmitter cfg reg = do
   running <- newTVarIO True
   tid <- forkIO (loop running)
-  pure StatsEmitter
-    { seThread   = tid
-    , seRunning  = running
-    , seConfig   = cfg
-    , seRegistry = reg
-    }
+  pure
+    StatsEmitter
+      { seThread = tid
+      , seRunning = running
+      , seConfig = cfg
+      , seRegistry = reg
+      }
   where
     loop running = do
       keepGoing <- readTVarIO running
@@ -113,28 +122,33 @@ startStatsEmitter cfg reg = do
               threadDelay (iv * 1000)
               loop running
 
+
 emitOnce :: StatsEmitterConfig -> M.MetricsRegistry -> IO ()
-emitOnce StatsEmitterConfig{..} reg = do
+emitOnce StatsEmitterConfig {..} reg = do
   snap <- M.snapshotMetrics reg
   nowMicro <- fromIntegral <$> KafkaTime.currentTimeMicros :: IO Int
-  let !st = (Stats.defaultSnapshot secName secClientId secClientType)
-        { Stats.ssTimestampUs = fromIntegral nowMicro
-        , Stats.ssMsgCount    = lookupCounter snap "kafka.producer.record.send.total"
-        , Stats.ssMsgSize     = lookupCounter snap "kafka.producer.record.size.bytes"
-        , Stats.ssTxCount     = lookupCounter snap "kafka.producer.request.total"
-        , Stats.ssRxCount     = lookupCounter snap "kafka.consumer.fetch.request.total"
-        }
+  let !st =
+        (Stats.defaultSnapshot secName secClientId secClientType)
+          { Stats.ssTimestampUs = fromIntegral nowMicro
+          , Stats.ssMsgCount = lookupCounter snap "kafka.producer.record.send.total"
+          , Stats.ssMsgSize = lookupCounter snap "kafka.producer.record.size.bytes"
+          , Stats.ssTxCount = lookupCounter snap "kafka.producer.request.total"
+          , Stats.ssRxCount = lookupCounter snap "kafka.consumer.fetch.request.total"
+          }
   secSink (Stats.renderStats st)
+
 
 -- | Force an immediate snapshot.
 triggerSnapshotNow :: StatsEmitter -> IO ()
 triggerSnapshotNow se = emitOnce (seConfig se) (seRegistry se)
+
 
 -- | Stop the background thread. Idempotent.
 stopStatsEmitter :: StatsEmitter -> IO ()
 stopStatsEmitter se = do
   atomically (writeTVar (seRunning se) False)
   killThread (seThread se)
+
 
 lookupCounter :: M.MetricSnapshot -> Text -> Int64
 lookupCounter s name =
@@ -143,4 +157,5 @@ lookupCounter s name =
   where
     sumWithName n =
       Map.foldlWithKey'
-        (\acc (k, _) v -> if k == n then acc + v else acc) 0
+        (\acc (k, _) v -> if k == n then acc + v else acc)
+        0

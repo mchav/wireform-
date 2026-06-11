@@ -1,26 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | End-to-end validation tests: standard rules, custom CEL, and message-level
--- CEL, mirroring the protovalidate @User@ example.
+{- | End-to-end validation tests: standard rules, custom CEL, and message-level
+CEL, mirroring the protovalidate @User@ example.
+-}
 module Test.Protovalidate.Validation (tests) where
 
+import CEL (Value (..), celMapFromList)
 import Data.List (sort)
 import Data.Text (Text)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
+import Protovalidate
 import Test.Syd
 
-import CEL (Value (..), celMapFromList)
-import Protovalidate
 
 -- Build a message value from named fields.
 msg :: [(Text, Value)] -> Value
 msg fs = VMap (celMapFromList [(VString k, v) | (k, v) <- fs])
 
+
 mustCompile :: Text -> Text -> Text -> Constraint
 mustCompile cid m src = either (error . show) id (mkConstraint cid m src)
 
+
 ids :: [Violation] -> [Text]
 ids = sort . map violationConstraintId
+
 
 userRules :: MessageRules
 userRules =
@@ -37,77 +41,79 @@ userRules =
         "!has(this.first_name) || has(this.last_name)"
     ]
 
+
 tests :: Spec
 tests =
   describe
-    "validation" $ sequence_
-    [ it "valid user has no violations" $
-        validate
-          ( msg
-              [ ("id", VString "12345678-1234-1234-1234-123456789abc")
-              , ("age", VUInt 30)
-              , ("email", VString "alice@example.com")
-              , ("first_name", VString "Alice")
-              , ("last_name", VString "Smith")
-              ]
-          )
-          userRules
-          `shouldBe` []
-    , it "invalid user reports each failing rule" $
-        ids
-          ( validate
-              ( msg
-                  [ ("id", VString "not-a-uuid")
-                  , ("age", VUInt 200)
-                  , ("email", VString "not-an-email")
-                  , ("first_name", VString "Alice")
-                  ]
-              )
-              userRules
-          )
-          `shouldBe` sort ["string.uuid", "uint32.lte", "string.email", "first_name_requires_last_name"]
-    , it "string length rules" $
-        ids (validate (msg [("name", VString "ab")]) lenRules)
-          `shouldBe` ["string.min_len"]
-    , it "numeric comparison rules" $
-        ids (validate (msg [("n", VInt 5)]) numRules)
-          `shouldBe` sort ["int64.gt", "int64.lte"]
-    , it "in / not_in" $
-        ids (validate (msg [("color", VString "purple")]) setRules)
-          `shouldBe` ["string.in"]
-    , it "repeated unique + min_items" $
-        ids (validate (msg [("tags", VList (V.fromList [VString "a", VString "a"]))]) repeatedRules)
-          `shouldBe` sort ["repeated.min_items", "repeated.unique"]
-    , it "required field absent" $
-        ids (validate (msg []) requiredRules)
-          `shouldBe` ["required"]
-    , it "required field present" $
-        validate (msg [("token", VString "abc")]) requiredRules `shouldBe` []
-    , it "ignore_empty skips empty value" $
-        validate (msg [("name", VString "")]) ignoreEmptyRules `shouldBe` []
-    , it "nested message validation reports nested path" $
-        map violationFieldPath (validate (msg [("profile", msg [("email", VString "bad")])]) nestedRules)
-          `shouldBe` ["profile.email"]
-    , it "field-level custom CEL" $
-        ids (validate (msg [("n", VInt 7)]) customRules)
-          `shouldBe` ["n.even"]
-    , it "ip / hostname formats" $
-        validate (msg [("host", VString "192.168.0.1"), ("name", VString "example.com")]) hostRules
-          `shouldBe` []
-    , it "bytes prefix rule" $
-        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesPrefixRules) `shouldBe` ["bytes.prefix"]
-    , it "bytes ip rule (4 or 16 bytes)" $ do
-        validate (msg [("b", VBytes "\x7f\x00\x00\x01")]) bytesIpRules `shouldBe` []
-        ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesIpRules) `shouldBe` ["bytes.ip"]
-    , it "double finite rule" $ do
-        validate (msg [("d", VDouble 1.5)]) finiteRules `shouldBe` []
-        ids (validate (msg [("d", VDouble (1 / 0))]) finiteRules) `shouldBe` ["double.finite"]
-    , it "string len_bytes rule" $
-        ids (validate (msg [("s", VString "ab")]) lenBytesRules) `shouldBe` ["string.len_bytes"]
-    , it "string tuuid rule" $ do
-        validate (msg [("s", VString "0123456789abcdef0123456789abcdef")]) tuuidRules `shouldBe` []
-        ids (validate (msg [("s", VString "nope")]) tuuidRules) `shouldBe` ["string.tuuid"]
-    ]
+    "validation"
+    $ sequence_
+      [ it "valid user has no violations" $
+          validate
+            ( msg
+                [ ("id", VString "12345678-1234-1234-1234-123456789abc")
+                , ("age", VUInt 30)
+                , ("email", VString "alice@example.com")
+                , ("first_name", VString "Alice")
+                , ("last_name", VString "Smith")
+                ]
+            )
+            userRules
+            `shouldBe` []
+      , it "invalid user reports each failing rule" $
+          ids
+            ( validate
+                ( msg
+                    [ ("id", VString "not-a-uuid")
+                    , ("age", VUInt 200)
+                    , ("email", VString "not-an-email")
+                    , ("first_name", VString "Alice")
+                    ]
+                )
+                userRules
+            )
+            `shouldBe` sort ["string.uuid", "uint32.lte", "string.email", "first_name_requires_last_name"]
+      , it "string length rules" $
+          ids (validate (msg [("name", VString "ab")]) lenRules)
+            `shouldBe` ["string.min_len"]
+      , it "numeric comparison rules" $
+          ids (validate (msg [("n", VInt 5)]) numRules)
+            `shouldBe` sort ["int64.gt", "int64.lte"]
+      , it "in / not_in" $
+          ids (validate (msg [("color", VString "purple")]) setRules)
+            `shouldBe` ["string.in"]
+      , it "repeated unique + min_items" $
+          ids (validate (msg [("tags", VList (V.fromList [VString "a", VString "a"]))]) repeatedRules)
+            `shouldBe` sort ["repeated.min_items", "repeated.unique"]
+      , it "required field absent" $
+          ids (validate (msg []) requiredRules)
+            `shouldBe` ["required"]
+      , it "required field present" $
+          validate (msg [("token", VString "abc")]) requiredRules `shouldBe` []
+      , it "ignore_empty skips empty value" $
+          validate (msg [("name", VString "")]) ignoreEmptyRules `shouldBe` []
+      , it "nested message validation reports nested path" $
+          map violationFieldPath (validate (msg [("profile", msg [("email", VString "bad")])]) nestedRules)
+            `shouldBe` ["profile.email"]
+      , it "field-level custom CEL" $
+          ids (validate (msg [("n", VInt 7)]) customRules)
+            `shouldBe` ["n.even"]
+      , it "ip / hostname formats" $
+          validate (msg [("host", VString "192.168.0.1"), ("name", VString "example.com")]) hostRules
+            `shouldBe` []
+      , it "bytes prefix rule" $
+          ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesPrefixRules) `shouldBe` ["bytes.prefix"]
+      , it "bytes ip rule (4 or 16 bytes)" $ do
+          validate (msg [("b", VBytes "\x7f\x00\x00\x01")]) bytesIpRules `shouldBe` []
+          ids (validate (msg [("b", VBytes "\x01\x02\x03")]) bytesIpRules) `shouldBe` ["bytes.ip"]
+      , it "double finite rule" $ do
+          validate (msg [("d", VDouble 1.5)]) finiteRules `shouldBe` []
+          ids (validate (msg [("d", VDouble (1 / 0))]) finiteRules) `shouldBe` ["double.finite"]
+      , it "string len_bytes rule" $
+          ids (validate (msg [("s", VString "ab")]) lenBytesRules) `shouldBe` ["string.len_bytes"]
+      , it "string tuuid rule" $ do
+          validate (msg [("s", VString "0123456789abcdef0123456789abcdef")]) tuuidRules `shouldBe` []
+          ids (validate (msg [("s", VString "nope")]) tuuidRules) `shouldBe` ["string.tuuid"]
+      ]
   where
     lenRules = messageRules [("name", fieldRules KString [minLen 3, maxLen 10])] []
     numRules = messageRules [("n", fieldRules KInt64 [gtV (VInt 10), lteV (VInt 3)])] []

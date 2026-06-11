@@ -46,53 +46,53 @@ instance KnownHeader Date where
 shortDayOfWeek :: ParserT st err DayOfWeek
 shortDayOfWeek =
   $( switch
-      [|
-        case _ of
-          "Mon" -> pure Monday
-          "Tue" -> pure Tuesday
-          "Wed" -> pure Wednesday
-          "Thu" -> pure Thursday
-          "Fri" -> pure Friday
-          "Sat" -> pure Saturday
-          "Sun" -> pure Sunday
-        |]
+       [|
+         case _ of
+           "Mon" -> pure Monday
+           "Tue" -> pure Tuesday
+           "Wed" -> pure Wednesday
+           "Thu" -> pure Thursday
+           "Fri" -> pure Friday
+           "Sat" -> pure Saturday
+           "Sun" -> pure Sunday
+         |]
    )
 
 
 longDayOfWeek :: ParserT st err DayOfWeek
 longDayOfWeek =
   $( switch
-      [|
-        case _ of
-          "Sunday" -> pure Sunday
-          "Monday" -> pure Monday
-          "Tuesday" -> pure Tuesday
-          "Wednesday" -> pure Wednesday
-          "Thursday" -> pure Thursday
-          "Friday" -> pure Friday
-          "Saturday" -> pure Saturday
-        |]
+       [|
+         case _ of
+           "Sunday" -> pure Sunday
+           "Monday" -> pure Monday
+           "Tuesday" -> pure Tuesday
+           "Wednesday" -> pure Wednesday
+           "Thursday" -> pure Thursday
+           "Friday" -> pure Friday
+           "Saturday" -> pure Saturday
+         |]
    )
 
 
 shortMonth :: ParserT st err MonthOfYear
 shortMonth =
   $( switch
-      [|
-        case _ of
-          "Jan" -> pure January
-          "Feb" -> pure February
-          "Mar" -> pure March
-          "Apr" -> pure April
-          "May" -> pure May
-          "Jun" -> pure June
-          "Jul" -> pure July
-          "Aug" -> pure August
-          "Sep" -> pure September
-          "Oct" -> pure October
-          "Nov" -> pure November
-          "Dec" -> pure December
-        |]
+       [|
+         case _ of
+           "Jan" -> pure January
+           "Feb" -> pure February
+           "Mar" -> pure March
+           "Apr" -> pure April
+           "May" -> pure May
+           "Jun" -> pure June
+           "Jul" -> pure July
+           "Aug" -> pure August
+           "Sep" -> pure September
+           "Oct" -> pure October
+           "Nov" -> pure November
+           "Dec" -> pure December
+         |]
    )
 
 
@@ -159,19 +159,19 @@ renderDate (UTCTime day time) =
   let (year, month, date) = toGregorian day
       (TimeOfDay hour minute second) = timeToTimeOfDay time
   in dayOfWeekStr day
-      <> ", "
-      <> M.intDecPadded 2 date
-      <> " "
-      <> monthOfYearStr month
-      <> " "
-      <> M.intDecPadded 4 (fromIntegral year)
-      <> " "
-      <> M.intDecPadded 2 hour
-      <> ":"
-      <> M.intDecPadded 2 minute
-      <> ":"
-      <> M.intDecPadded 2 (round second)
-      <> " GMT"
+       <> ", "
+       <> M.intDecPadded 2 date
+       <> " "
+       <> monthOfYearStr month
+       <> " "
+       <> M.intDecPadded 4 (fromIntegral year)
+       <> " "
+       <> M.intDecPadded 2 hour
+       <> ":"
+       <> M.intDecPadded 2 minute
+       <> ":"
+       <> M.intDecPadded 2 (round second)
+       <> " GMT"
   where
     dayOfWeekStr day = case dayOfWeek day of
       Monday -> "Mon"

@@ -1,7 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Wireform.Network.Transport.Receive.Test (spec) where
 
@@ -9,27 +9,27 @@ import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (finally, fromException)
 import Control.Monad (replicateM_)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.IORef
 import Data.Word
 import Network.Socket hiding (close, recv)
-import qualified Network.Socket as S
-import Network.Socket.ByteString (sendAll, recv)
+import Network.Socket qualified as S
+import Network.Socket.ByteString (recv, sendAll)
 import System.Timeout (timeout)
 import Test.Syd
-
+import Wireform.Network.Transport.Receive
 import Wireform.Parser
-import Wireform.Parser.Internal (Pure, Stream)
 import Wireform.Parser.Driver
 import Wireform.Parser.Error
-import Wireform.Network.Transport.Receive
+import Wireform.Parser.Internal (Pure, Stream)
 import Wireform.Transport.Config
+
 
 type P = Parser Stream String
 
+
 spec :: Spec
 spec = describe "RecvTransport" $ do
-
   describe "withReceiveBufTransport (chunked feeder)" $ do
     it "parses a message delivered in one chunk" $ do
       recvFn <- chunkedReceiveFn ["hello"]
@@ -37,7 +37,7 @@ spec = describe "RecvTransport" $ do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
-          Left e   -> expectationFailure ("parse failed: " <> show e)
+          Left e -> expectationFailure ("parse failed: " <> show e)
 
     it "stitches a message split across two chunks" $ do
       recvFn <- chunkedReceiveFn ["he", "llo"]
@@ -45,7 +45,7 @@ spec = describe "RecvTransport" $ do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
-          Left e   -> expectationFailure ("parse failed: " <> show e)
+          Left e -> expectationFailure ("parse failed: " <> show e)
 
     it "loops over multiple length-prefixed messages, stops voluntarily" $ do
       recvFn <- chunkedReceiveFn ["\x05hello\x05world"]
@@ -60,7 +60,7 @@ spec = describe "RecvTransport" $ do
           Right () -> do
             msgs <- reverse <$> readIORef ref
             msgs `shouldBe` ["hello", "world"]
-          Left e   -> expectationFailure ("loop error: " <> show e)
+          Left e -> expectationFailure ("loop error: " <> show e)
 
     it "surfaces clean EOF when chunks are exhausted" $ do
       recvFn <- chunkedReceiveFn ["abc"]
@@ -68,9 +68,8 @@ spec = describe "RecvTransport" $ do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
         r <- runParserLoop t p $ \_msg -> pure Continue
         case r of
-          Right () -> pure ()  -- clean EOF after consuming the 'a' header + 'bc'
-          Left _ -> pure ()    -- unexpected EOF is also acceptable here
-
+          Right () -> pure () -- clean EOF after consuming the 'a' header + 'bc'
+          Left _ -> pure () -- unexpected EOF is also acceptable here
   describe "reads larger than ringSize do not deadlock" $ do
     it "takeBs drains a payload larger than the ring into a fresh allocation" $ do
       -- 'ringSizeHint = 1' is rounded up to the platform's minimum
@@ -80,10 +79,10 @@ spec = describe "RecvTransport" $ do
       -- 'takeBs' should walk the bytes through the ring chunk by
       -- chunk, checkpointing to free space, and return the full
       -- 65536-byte 'ByteString' instead of deadlocking.
-      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
-          total   = 65536
+      let cfg = defaultTransportConfig {ringSizeHint = 1}
+          total = 65536
           chunkSz = 1024
-          chunks  =
+          chunks =
             [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
             | i <- [0 .. (total `div` chunkSz) - 1]
             ]
@@ -104,10 +103,10 @@ spec = describe "RecvTransport" $ do
             "expected drained ByteString, got: " <> show e
 
     it "takeBsCopy drains a payload larger than the ring into a fresh allocation" $ do
-      let cfg     = defaultTransportConfig { ringSizeHint = 1 }
-          total   = 100_000
-          chunkSz = 997  -- odd size, exercises the chunk-boundary math
-          chunks  =
+      let cfg = defaultTransportConfig {ringSizeHint = 1}
+          total = 100_000
+          chunkSz = 997 -- odd size, exercises the chunk-boundary math
+          chunks =
             [ BS.replicate chunkSz (fromIntegral (i `mod` 251))
             | i <- [0 .. (total `div` chunkSz)]
             ]
@@ -134,7 +133,7 @@ spec = describe "RecvTransport" $ do
       -- parser never advances tail, the producer fills the ring,
       -- and the next ensureN# suspension surfaces as a transport
       -- error rather than spinning forever.
-      let cfg = defaultTransportConfig { ringSizeHint = 1 }
+      let cfg = defaultTransportConfig {ringSizeHint = 1}
           chunks = replicate 20000 (BS.singleton 0x42)
       recvFn <- chunkedReceiveFn chunks
       mRes <- timeout 5_000_000 $
@@ -146,7 +145,7 @@ spec = describe "RecvTransport" $ do
             "deadlocked: consuming > ringSize without checkpoint should not block forever"
         Just (Left (ParseTransportError exc)) ->
           case fromException exc :: Maybe ReceiveRingExhausted of
-            Just _  -> pure ()
+            Just _ -> pure ()
             Nothing ->
               expectationFailure $
                 "expected ReceiveRingExhausted inside ParseTransportError, got: " <> show exc
@@ -162,7 +161,7 @@ spec = describe "RecvTransport" $ do
         r <- runParser t (takeBs 5 :: P ByteString)
         case r of
           Right bs -> bs `shouldBe` "hello"
-          Left e   -> expectationFailure ("parse failed: " <> show e)
+          Left e -> expectationFailure ("parse failed: " <> show e)
 
   it "parses a message with monadic chain (anyWord8 >>= takeBs)" $ do
     withConnectedPair \(writer, reader) -> do
@@ -173,7 +172,7 @@ spec = describe "RecvTransport" $ do
         r <- runParser t p
         case r of
           Right bs -> bs `shouldBe` "hello"
-          Left e   -> expectationFailure ("parse failed: " <> show e)
+          Left e -> expectationFailure ("parse failed: " <> show e)
 
   it "parses two messages in a loop (Stop after first)" $ do
     withConnectedPair \(writer, reader) -> do
@@ -186,7 +185,7 @@ spec = describe "RecvTransport" $ do
           pure Stop
         case r of
           Right () -> pure ()
-          Left e   -> expectationFailure ("loop error: " <> show e)
+          Left e -> expectationFailure ("loop error: " <> show e)
 
   -- BUG: this test hangs because the second recv after consuming all
   -- data + FIN blocks in the GHC IO manager's threadWaitRead on
@@ -214,13 +213,13 @@ spec = describe "RecvTransport" $ do
         msgs <- reverse <$> readIORef ref
         case r of
           Right () -> msgs `shouldBe` ["foobar"]
-          Left e   -> expectationFailure ("expected clean exit: " <> show e)
+          Left e -> expectationFailure ("expected clean exit: " <> show e)
 
   -- BUG: same underlying issue as above — recv blocks after data is
   -- consumed because the IO manager doesn't wake on CLOSE_WAIT.
   xit "detects unexpected EOF mid-message" $ do
     withConnectedPair \(writer, reader) -> do
-      sendAll writer "\x0Ahello"  -- says 10 bytes, only sends 5
+      sendAll writer "\x0Ahello" -- says 10 bytes, only sends 5
       shutdown writer ShutdownSend
       withReceiveTransport defaultTransportConfig reader \t -> do
         let p = anyWord8 >>= \len -> takeBs (fromIntegral len) :: P ByteString
@@ -238,11 +237,12 @@ spec = describe "RecvTransport" $ do
         r1 <- runParser t (takeBs 4 :: P ByteString)
         case r1 of
           Right bs -> bs `shouldBe` "data"
-          Left e   -> expectationFailure ("first parse: " <> show e)
+          Left e -> expectationFailure ("first parse: " <> show e)
         r2 <- runParser t (anyWord8 :: P Word8)
         case r2 of
           Left _ -> pure ()
           Right _ -> expectationFailure "expected EOF"
+
 
 connectedPair :: IO (Socket, Socket)
 connectedPair = do
@@ -260,6 +260,7 @@ connectedPair = do
   server <- takeMVar accepted
   S.close listener
   pure (server, client)
+
 
 withConnectedPair :: ((Socket, Socket) -> IO a) -> IO a
 withConnectedPair action = do

@@ -1,3 +1,7 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {- | TLS-with-ALPN negotiation glue for "Network.HTTP.Client" \/
 "Network.HTTP.Server".
 
@@ -23,135 +27,167 @@ raised.
 * HTTP\/3 guard — 'dispatch' rejects a peer that negotiates @h3@
   over TLS (HTTP\/3 requires QUIC, not TLS\/TCP).
 -}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-module Network.HTTP.TLS
-  ( -- * Client
-    TlsClient (..)
-  , withTlsClient
-  , withTlsClientOnSocket
-    -- * Server
-  , runTlsServer
-    -- * Errors
-  , TlsHandshakeError (..)
-  ) where
+module Network.HTTP.TLS (
+  -- * Client
+  TlsClient (..),
+  withTlsClient,
+  withTlsClientOnSocket,
+
+  -- * Server
+  runTlsServer,
+
+  -- * Errors
+  TlsHandshakeError (..),
+) where
 
 import Control.Concurrent (forkIO)
-import Control.Exception
-  (Exception, SomeException, bracket, catch, throwIO)
+import Control.Exception (
+  Exception,
+  SomeException,
+  bracket,
+  catch,
+  throwIO,
+ )
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS8
-import qualified Network.Socket as NS
-
-import Wireform.Network.TLS.OpenSSL
-  ( SslCtx
-  , SslConn
-  , TlsProtoVersion (..)
-  , freeConn
-  , freeCtx
-  , getAlpn
-  , newClient
-  , newClientVerified
-  , setClientHostnameVerify
-  , newServer
-  , setAlpnClient
-  , setAlpnServer
-  )
-import Wireform.Network.TLS.Config
-  ( TlsClientConfig (..)
-  , TlsServerConfig (..)
-  , buildClientCtx
-  , buildServerCtx
-  , defaultTlsClientConfig
-  , defaultTlsServerConfig
-  )
-
-import qualified Network.HTTP1.Connection as H1C
-import qualified Network.HTTP1.Client as H1
-import qualified Network.HTTP2.Client as H2
-import qualified Network.HTTP2.Server as H2
-import qualified Network.HTTP2.TLS as H2TLS
-
+import Data.ByteString.Char8 qualified as BS8
+import Network.HTTP.Types.Version qualified as U
 import Network.HTTP.VersionRange
-import qualified Network.HTTP.Types.Version as U
+import Network.HTTP1.Client qualified as H1
+import Network.HTTP1.Connection qualified as H1C
+import Network.HTTP2.Client qualified as H2
+import Network.HTTP2.Server qualified as H2
+import Network.HTTP2.TLS qualified as H2TLS
+import Network.Socket qualified as NS
+import Wireform.Network.TLS.Config (
+  TlsClientConfig (..),
+  TlsServerConfig (..),
+  buildClientCtx,
+  buildServerCtx,
+  defaultTlsClientConfig,
+  defaultTlsServerConfig,
+ )
+import Wireform.Network.TLS.OpenSSL (
+  SslConn,
+  SslCtx,
+  TlsProtoVersion (..),
+  freeConn,
+  freeCtx,
+  getAlpn,
+  newClient,
+  newClientVerified,
+  newServer,
+  setAlpnClient,
+  setAlpnServer,
+  setClientHostnameVerify,
+ )
 
--- | Errors raised by the TLS adapter that aren't already
--- 'Wireform.Network.TLS.OpenSSL.OpenSslError' or
--- 'Network.HTTP2.TLS.ALPNFailed'.
+
+{- | Errors raised by the TLS adapter that aren't already
+'Wireform.Network.TLS.OpenSSL.OpenSslError' or
+'Network.HTTP2.TLS.ALPNFailed'.
+-}
 data TlsHandshakeError
-  = TlsNoAlpnOverlap !(Maybe ByteString) !VersionRange
-    -- ^ The peer didn't pick anything from our ALPN list (the
-    -- peer-selected protocol, if any, is in the first field).
+  = {- | The peer didn't pick anything from our ALPN list (the
+    peer-selected protocol, if any, is in the first field).
+    -}
+    TlsNoAlpnOverlap !(Maybe ByteString) !VersionRange
   | TlsCertNotFound !FilePath
-  | TlsHostnameMismatch !String !String
-    -- ^ Raised when the certificate's CN / SAN does not match the
-    -- expected server name.  First field is the expected name,
-    -- second is what the certificate presented.
-  | TlsNoAddress !String
-    -- ^ DNS / address-resolution returned an empty set for the
-    --   target host.
+  | {- | Raised when the certificate's CN / SAN does not match the
+    expected server name.  First field is the expected name,
+    second is what the certificate presented.
+    -}
+    TlsHostnameMismatch !String !String
+  | {- | DNS / address-resolution returned an empty set for the
+    target host.
+    -}
+    TlsNoAddress !String
   deriving stock (Show)
 
+
 instance Exception TlsHandshakeError
+
 
 -- | A live TLS-protected client connection.
 data TlsClient
   = TlsClientHttp2 !H2.ClientHandle
   | TlsClientHttp1 !H1.ClientConnection
 
+
 ------------------------------------------------------------------------
 -- Client
 ------------------------------------------------------------------------
 
--- | Connect to @host:port@ over TLS, advertise the supplied
--- 'VersionRange' via ALPN, and run @action@ with the
--- per-protocol connection handle.
---
--- The @mClientCert@ argument enables mutual TLS (mTLS): pass
--- @Just (certChainPEM, privateKeyPEM)@ to present a client
--- certificate during the handshake.
---
--- The @minVersion@ argument sets the minimum TLS protocol version
--- (e.g. 'Tls13' to refuse TLS 1.2).
+{- | Connect to @host:port@ over TLS, advertise the supplied
+'VersionRange' via ALPN, and run @action@ with the
+per-protocol connection handle.
+
+The @mClientCert@ argument enables mutual TLS (mTLS): pass
+@Just (certChainPEM, privateKeyPEM)@ to present a client
+certificate during the handshake.
+
+The @minVersion@ argument sets the minimum TLS protocol version
+(e.g. 'Tls13' to refuse TLS 1.2).
+-}
 withTlsClient
-  :: String           -- ^ host
-  -> String           -- ^ port
-  -> String           -- ^ TLS server name (SNI \/ X.509)
-  -> Bool             -- ^ validate cert
-  -> Maybe (FilePath, FilePath)  -- ^ mTLS client cert (certChain, privateKey) if any
-  -> TlsProtoVersion  -- ^ minimum TLS version
+  :: String
+  -- ^ host
+  -> String
+  -- ^ port
+  -> String
+  -- ^ TLS server name (SNI \/ X.509)
+  -> Bool
+  -- ^ validate cert
+  -> Maybe (FilePath, FilePath)
+  -- ^ mTLS client cert (certChain, privateKey) if any
+  -> TlsProtoVersion
+  -- ^ minimum TLS version
   -> VersionRange
   -> (TlsClient -> IO a)
   -> IO a
 withTlsClient host port serverName validateCert mClientCert minVer range action = do
-  let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
+  let hints = NS.defaultHints {NS.addrSocketType = NS.Stream}
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
     [] -> throwIO (TlsNoAddress (host <> ":" <> port))
-    (addr:_) -> bracket
+    (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close
       $ \sock -> do
         NS.connect sock (NS.addrAddress addr)
         NS.setSocketOption sock NS.NoDelay 1
-        withTlsClientOnSocket sock host port serverName validateCert
-          mClientCert minVer range action
+        withTlsClientOnSocket
+          sock
+          host
+          port
+          serverName
+          validateCert
+          mClientCert
+          minVer
+          range
+          action
 
--- | Variant of 'withTlsClient' that takes an already-connected
--- socket, leaving DNS \/ TCP dial to the caller. The socket is
--- /not/ closed by this function — the caller owns its lifetime.
--- The proxy code path uses this: it dials the proxy itself, runs
--- the @CONNECT@ exchange, and then layers TLS on the resulting
--- tunnel.
+
+{- | Variant of 'withTlsClient' that takes an already-connected
+socket, leaving DNS \/ TCP dial to the caller. The socket is
+/not/ closed by this function — the caller owns its lifetime.
+The proxy code path uses this: it dials the proxy itself, runs
+the @CONNECT@ exchange, and then layers TLS on the resulting
+tunnel.
+-}
 withTlsClientOnSocket
   :: NS.Socket
-  -> String           -- ^ host (used only to populate HTTP\/2 client config)
-  -> String           -- ^ port (same)
-  -> String           -- ^ TLS server name (SNI \/ X.509)
-  -> Bool             -- ^ validate cert
-  -> Maybe (FilePath, FilePath)  -- ^ mTLS client cert
-  -> TlsProtoVersion  -- ^ minimum TLS version
+  -> String
+  -- ^ host (used only to populate HTTP\/2 client config)
+  -> String
+  -- ^ port (same)
+  -> String
+  -- ^ TLS server name (SNI \/ X.509)
+  -> Bool
+  -- ^ validate cert
+  -> Maybe (FilePath, FilePath)
+  -- ^ mTLS client cert
+  -> TlsProtoVersion
+  -- ^ minimum TLS version
   -> VersionRange
   -> (TlsClient -> IO a)
   -> IO a
@@ -159,18 +195,23 @@ withTlsClientOnSocket sock host port serverName validateCert mClientCert minVer 
   let alpnList = versionAlpnProtocols range
   bracket (buildCtxClient validateCert alpnList mClientCert minVer) freeCtx $ \ctx -> do
     let serverNameBs = BS8.pack serverName
-        verifyHost   = if validateCert then Just serverNameBs else Nothing
+        verifyHost = if validateCert then Just serverNameBs else Nothing
     -- Hostname verification must be pinned /before/ the handshake;
     -- newClientVerified does that internally before driving
     -- SSL_connect (the post-connect setClientHostnameVerify path
     -- is too late to take effect).
     conn <- newClientVerified ctx sock (Just serverNameBs) verifyHost
-    neg  <- getAlpn conn
+    neg <- getAlpn conn
     dispatch host port range conn neg sock action
 
+
 dispatch
-  :: String -> String -> VersionRange
-  -> SslConn -> Maybe ByteString -> NS.Socket
+  :: String
+  -> String
+  -> VersionRange
+  -> SslConn
+  -> Maybe ByteString
+  -> NS.Socket
   -> (TlsClient -> IO a)
   -> IO a
 dispatch host port range conn neg sock action =
@@ -189,12 +230,17 @@ dispatch host port range conn neg sock action =
           throwIO (TlsNoAlpnOverlap (Just "h3") range)
       | v == U.HTTP2 -> do
           transport <- H2TLS.tlsTransport conn
-          let h2cfg = H2.defaultClientConfig
-                { H2.clientHost = host
-                , H2.clientPort = port
-                }
-          r <- H2.withConnectionOnTransport h2cfg transport (Just sock)
-                 (action . TlsClientHttp2)
+          let h2cfg =
+                H2.defaultClientConfig
+                  { H2.clientHost = host
+                  , H2.clientPort = port
+                  }
+          r <-
+            H2.withConnectionOnTransport
+              h2cfg
+              transport
+              (Just sock)
+              (action . TlsClientHttp2)
           freeConn conn
           pure r
       | otherwise ->
@@ -203,6 +249,7 @@ dispatch host port range conn neg sock action =
             H1C.closeConnection
             (\c -> action (TlsClientHttp1 (H1.ClientConnection c)))
 
+
 buildCtxClient
   :: Bool
   -> [ByteString]
@@ -210,56 +257,66 @@ buildCtxClient
   -> TlsProtoVersion
   -> IO SslCtx
 buildCtxClient validateCert alpnList mClientCert minVer = do
-  let cfg = defaultTlsClientConfig
-        { tlsClientVerifyPeer   = validateCert
-        , tlsClientAlpn         = alpnList
-        , tlsClientCertificate  = mClientCert
-        , tlsClientMinVersion   = minVer
-        }
+  let cfg =
+        defaultTlsClientConfig
+          { tlsClientVerifyPeer = validateCert
+          , tlsClientAlpn = alpnList
+          , tlsClientCertificate = mClientCert
+          , tlsClientMinVersion = minVer
+          }
   ctx <- buildClientCtx cfg
   case alpnList of
     [] -> pure ()
-    _  -> setAlpnClient ctx alpnList
+    _ -> setAlpnClient ctx alpnList
   pure ctx
+
 
 ------------------------------------------------------------------------
 -- Server
 ------------------------------------------------------------------------
 
--- | Bind a TLS-protected listener.  ALPN advertises the protocols in
--- the supplied 'VersionRange'; the server picks the
--- highest-preference protocol the client also supports.
--- Connections that don't negotiate an in-range protocol are dropped.
+{- | Bind a TLS-protected listener.  ALPN advertises the protocols in
+the supplied 'VersionRange'; the server picks the
+highest-preference protocol the client also supports.
+Connections that don't negotiate an in-range protocol are dropped.
+-}
 runTlsServer
-  :: String          -- ^ host
-  -> String          -- ^ port
-  -> FilePath        -- ^ certificate chain (PEM)
-  -> FilePath        -- ^ private key (PEM)
+  :: String
+  -- ^ host
+  -> String
+  -- ^ port
+  -> FilePath
+  -- ^ certificate chain (PEM)
+  -> FilePath
+  -- ^ private key (PEM)
   -> VersionRange
   -> (U.Version -> SslConn -> IO ())
-     -- ^ HTTP\/1.x dispatch (called on ALPN @http\/1.0@ or @http\/1.1@).
+  -- ^ HTTP\/1.x dispatch (called on ALPN @http\/1.0@ or @http\/1.1@).
   -> (U.Version -> H2.ServerConfig)
-     -- ^ HTTP\/2 'ServerConfig' factory (called on ALPN @h2@); the
-     -- resulting server runs on the live TLS connection.
+  {- ^ HTTP\/2 'ServerConfig' factory (called on ALPN @h2@); the
+  resulting server runs on the live TLS connection.
+  -}
   -> IO ()
 runTlsServer host port certPath keyPath range http1Handler http2CfgFor = do
-  let cfg = (defaultTlsServerConfig certPath keyPath)
-        { tlsServerAlpn = versionAlpnProtocols range
-        }
+  let cfg =
+        (defaultTlsServerConfig certPath keyPath)
+          { tlsServerAlpn = versionAlpnProtocols range
+          }
   ctx <- buildServerCtx cfg
-  let _ = http1Handler  -- ensure no -Wunused-matches
-  -- ^ ALPN selector picks the first server-advertised protocol the
+  let _ = http1Handler -- ensure no -Wunused-matches
+  -- \^ ALPN selector picks the first server-advertised protocol the
   -- client also offered; setAlpnServer takes the cfg's tlsServerAlpn
   -- which buildServerCtx already wired into the SSL_CTX.
   setAlpnServer ctx (tlsServerAlpn cfg)
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
     [] -> throwIO (TlsNoAddress (host <> ":" <> port))
-    (addr:_) -> bracket (NS.openSocket addr) NS.close $ \listenSock -> do
+    (addr : _) -> bracket (NS.openSocket addr) NS.close $ \listenSock -> do
       NS.setSocketOption listenSock NS.ReuseAddr 1
       NS.setSocketOption listenSock NS.NoDelay 1
       NS.bind listenSock (NS.addrAddress addr)
@@ -270,8 +327,10 @@ runTlsServer host port certPath keyPath range http1Handler http2CfgFor = do
     acceptLoop listenSock ctx = do
       (clientSock, _) <- NS.accept listenSock
       NS.setSocketOption clientSock NS.NoDelay 1
-      _ <- forkIO $ handleConn ctx clientSock
-        `catch` (\(_ :: SomeException) -> NS.close clientSock)
+      _ <-
+        forkIO $
+          handleConn ctx clientSock
+            `catch` (\(_ :: SomeException) -> NS.close clientSock)
       acceptLoop listenSock ctx
 
     handleConn ctx sock = do

@@ -136,17 +136,17 @@ newSbbfBytes nb ws
       let !blocks = nb `quot` blockBytes
           !words_ = blocks * 4
       in Sbbf
-          { sbbfBytes = nb
-          , sbbfBlocks = blocks
-          , sbbfData = VU.replicate words_ 0
-          }
+           { sbbfBytes = nb
+           , sbbfBlocks = blocks
+           , sbbfData = VU.replicate words_ 0
+           }
   | otherwise =
       let !blocks = nb `quot` blockBytes
       in Sbbf
-          { sbbfBytes = nb
-          , sbbfBlocks = blocks
-          , sbbfData = ws
-          }
+           { sbbfBytes = nb
+           , sbbfBlocks = blocks
+           , sbbfData = ws
+           }
 
 
 {- | Build a filter from an already-serialised bitset (without the
@@ -257,9 +257,9 @@ checkBlock ws !blockIdx !x =
             !packed = mLo .|. (mHi `unsafeShiftL` 32)
         in (cur .&. packed) == packed
   in laneOk 0 1
-      && laneOk 2 3
-      && laneOk 4 5
-      && laneOk 6 7
+       && laneOk 2 3
+       && laneOk 4 5
+       && laneOk 6 7
 
 
 -- ============================================================
@@ -450,7 +450,7 @@ parseBitset :: ByteString -> VU.Vector Word64
 parseBitset bs =
   let !n = BS.length bs `quot` 8
   in VU.generate n $ \i ->
-      readLE64 bs (i * 8)
+       readLE64 bs (i * 8)
 
 
 {-# INLINE readLE64 #-}
@@ -458,13 +458,13 @@ readLE64 :: ByteString -> Int -> Word64
 readLE64 bs !off =
   let rd i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word64
   in rd 0
-      .|. (rd 1 `unsafeShiftL` 8)
-      .|. (rd 2 `unsafeShiftL` 16)
-      .|. (rd 3 `unsafeShiftL` 24)
-      .|. (rd 4 `unsafeShiftL` 32)
-      .|. (rd 5 `unsafeShiftL` 40)
-      .|. (rd 6 `unsafeShiftL` 48)
-      .|. (rd 7 `unsafeShiftL` 56)
+       .|. (rd 1 `unsafeShiftL` 8)
+       .|. (rd 2 `unsafeShiftL` 16)
+       .|. (rd 3 `unsafeShiftL` 24)
+       .|. (rd 4 `unsafeShiftL` 32)
+       .|. (rd 5 `unsafeShiftL` 40)
+       .|. (rd 6 `unsafeShiftL` 48)
+       .|. (rd 7 `unsafeShiftL` 56)
 
 
 -- ============================================================

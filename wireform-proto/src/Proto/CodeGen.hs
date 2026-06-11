@@ -106,10 +106,10 @@ haddockDoc Nothing = []
 haddockDoc (Just doc) =
   let ls = T.lines doc
   in case ls of
-      [] -> []
-      (first_ : rest) ->
-        [txt "-- | " <> pretty first_]
-          <> fmap (\l -> txt "-- " <> pretty l) rest
+       [] -> []
+       (first_ : rest) ->
+         [txt "-- | " <> pretty first_]
+           <> fmap (\l -> txt "-- " <> pretty l) rest
 
 
 -- | Emit a Haddock post-item doc comment (@-- ^@) from a proto doc comment.
@@ -118,10 +118,10 @@ haddockFieldDoc Nothing = []
 haddockFieldDoc (Just doc) =
   let ls = T.lines doc
   in case ls of
-      [] -> []
-      (first_ : rest) ->
-        [indent 2 (txt "-- ^ " <> pretty first_)]
-          <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
+       [] -> []
+       (first_ : rest) ->
+         [indent 2 (txt "-- ^ " <> pretty first_)]
+           <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
 
 
 wireVarint, wire64Bit, wireLengthDelimited, wire32Bit :: Int
@@ -149,16 +149,18 @@ tagLit fnText wt =
 field name and the enclosing message name.
 -}
 data FieldNaming
-  = -- | Prefix each field with the lowercased message name.
-    -- @message Person { string name = 1; }@ becomes
-    -- @personName :: !Text@. This is the default; it avoids
-    -- name clashes without @DuplicateRecordFields@.
+  = {- | Prefix each field with the lowercased message name.
+    @message Person { string name = 1; }@ becomes
+    @personName :: !Text@. This is the default; it avoids
+    name clashes without @DuplicateRecordFields@.
+    -}
     PrefixedFields
-  | -- | Use the proto field name directly (snake_case to camelCase).
-    -- @message Person { string name = 1; }@ becomes
-    -- @name :: !Text@.  Requires @DuplicateRecordFields@ if two
-    -- messages share a field name. Works well with
-    -- @OverloadedRecordDot@ and GHC's @HasField@ class.
+  | {- | Use the proto field name directly (snake_case to camelCase).
+    @message Person { string name = 1; }@ becomes
+    @name :: !Text@.  Requires @DuplicateRecordFields@ if two
+    messages share a field name. Works well with
+    @OverloadedRecordDot@ and GHC's @HasField@ class.
+    -}
     UnprefixedFields
   deriving stock (Show, Eq)
 
@@ -414,12 +416,12 @@ registryForEnum modName pkg scope ed =
       fqName = if T.null pkg then T.intercalate "." scope' else pkg <> "." <> T.intercalate "." scope'
       hsName = T.intercalate "'" (fmap hsTypeName scope')
   in Map.singleton
-      fqName
-      TypeInfo
-        { tiModule = modName
-        , tiHsName = hsName
-        , tiKind = TKEnum
-        }
+       fqName
+       TypeInfo
+         { tiModule = modName
+         , tiHsName = hsName
+         , tiKind = TKEnum
+         }
 
 
 {- | Compute the Haskell module name for a proto file.
@@ -436,8 +438,8 @@ moduleNameForProto opts filePath pf =
   let fo = extractFileOptions (protoOptions pf)
       baseName = fileBaseName filePath
   in case foCsharpNamespace fo of
-      Just ns -> genModulePrefix opts <> "." <> ns <> "." <> baseName
-      Nothing -> genModulePrefix opts <> "." <> moduleFromPath filePath
+       Just ns -> genModulePrefix opts <> "." <> ns <> "." <> baseName
+       Nothing -> genModulePrefix opts <> "." <> moduleFromPath filePath
   where
     fileBaseName fp =
       let t = T.pack fp
@@ -507,17 +509,17 @@ generateModule opts reg filePath pf =
       fileHookOutput = onFileCodeGen (genHooks opts) fileHookCtx
       fileHookDocs = fmap pretty fileHookOutput
   in vsep $
-      [ genModuleHeader opts filePath pf
-      , mempty
-      , genImports importedModules
-      , mempty
-      , genFileDescriptorBinding filePath pf
-      , mempty
-      , vsep body
-      ]
-        <> case fileHookDocs of
-          [] -> []
-          ds -> [mempty, vsep ds]
+       [ genModuleHeader opts filePath pf
+       , mempty
+       , genImports importedModules
+       , mempty
+       , genFileDescriptorBinding filePath pf
+       , mempty
+       , vsep body
+       ]
+         <> case fileHookDocs of
+           [] -> []
+           ds -> [mempty, vsep ds]
 
 
 -- | Generate a complete Haskell module as rendered 'Text' from a proto file.
@@ -586,11 +588,11 @@ computeImports :: GenCtx -> Set Text -> Set Text
 computeImports ctx refs =
   let thisMod = gcThisMod ctx
   in Set.fromList
-      [ tiModule ti
-      | ref <- Set.toList refs
-      , Just ti <- [resolveType ctx ref]
-      , tiModule ti /= thisMod
-      ]
+       [ tiModule ti
+       | ref <- Set.toList refs
+       , Just ti <- [resolveType ctx ref]
+       , tiModule ti /= thisMod
+       ]
 
 
 -- Resolve a proto type name to TypeInfo. Tries FQ lookup first, then
@@ -609,13 +611,13 @@ resolveTypeWithScope ctx scope name =
         ]
           <> fmap (\s -> pkg <> "." <> T.intercalate "." s <> "." <> name) (filter (not . null) (tails' scope))
   in case firstJust (`Map.lookup` reg) candidates of
-      Just ti -> Just ti
-      Nothing ->
-        let suffix = "." <> name
-            matches = fmap snd (filter (\(k, _) -> T.isSuffixOf suffix k || k == name) (Map.toList reg))
-        in case matches of
-            (ti : _) -> Just ti
-            [] -> Nothing
+       Just ti -> Just ti
+       Nothing ->
+         let suffix = "." <> name
+             matches = fmap snd (filter (\(k, _) -> T.isSuffixOf suffix k || k == name) (Map.toList reg))
+         in case matches of
+              (ti : _) -> Just ti
+              [] -> Nothing
   where
     tails' [] = []
     tails' xs = xs : tails' (init xs)
@@ -645,25 +647,25 @@ genModuleHeader opts filePath pf =
           ]
         PrefixedFields -> []
   in vsep $
-      [ txt "{-# LANGUAGE StrictData #-}"
-      , txt "{-# LANGUAGE DeriveGeneric #-}"
-      , txt "{-# LANGUAGE DeriveAnyClass #-}"
-      , txt "{-# LANGUAGE DerivingStrategies #-}"
-      , txt "{-# LANGUAGE OverloadedStrings #-}"
-      , txt "{-# LANGUAGE OverloadedRecordDot #-}"
-      , txt "{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-unused-top-binds #-}"
-      ]
-        <> dupRecordExts
-        <> [ txt "-- | Auto-generated protobuf types" <> pretty pkgDoc <> txt "."
-           , txt "--"
-           , txt "-- __THIS FILE IS AUTO-GENERATED BY wireform. DO NOT EDIT.__"
-           , txt "--"
-           , txt "-- Any manual changes will be overwritten the next time code"
-           , txt "-- generation is run.  To modify the types or instances, edit the"
-           , txt "-- @.proto@ source file and re-run the code generator."
-           ]
-        <> deprLine
-        <> [txt "module " <> pretty modName <> txt " where"]
+       [ txt "{-# LANGUAGE StrictData #-}"
+       , txt "{-# LANGUAGE DeriveGeneric #-}"
+       , txt "{-# LANGUAGE DeriveAnyClass #-}"
+       , txt "{-# LANGUAGE DerivingStrategies #-}"
+       , txt "{-# LANGUAGE OverloadedStrings #-}"
+       , txt "{-# LANGUAGE OverloadedRecordDot #-}"
+       , txt "{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-unused-top-binds #-}"
+       ]
+         <> dupRecordExts
+         <> [ txt "-- | Auto-generated protobuf types" <> pretty pkgDoc <> txt "."
+            , txt "--"
+            , txt "-- __THIS FILE IS AUTO-GENERATED BY wireform. DO NOT EDIT.__"
+            , txt "--"
+            , txt "-- Any manual changes will be overwritten the next time code"
+            , txt "-- generation is run.  To modify the types or instances, edit the"
+            , txt "-- @.proto@ source file and re-run the code generator."
+            ]
+         <> deprLine
+         <> [txt "module " <> pretty modName <> txt " where"]
 
 
 genImports :: Set Text -> Doc ann
@@ -750,11 +752,11 @@ genFileDescriptorBinding filePath pf =
   let fdpBytes = serializeFileDescriptor filePath pf
       escapedLit = byteStringToHsLiteral fdpBytes
   in vsep
-      [ txt "-- | Serialized FileDescriptorProto for this .proto file."
-      , txt "-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@."
-      , txt "fileDescriptorProtoBytes :: ByteString"
-      , txt "fileDescriptorProtoBytes = " <> pretty ("\"" :: Text) <> pretty escapedLit <> pretty ("\"" :: Text)
-      ]
+       [ txt "-- | Serialized FileDescriptorProto for this .proto file."
+       , txt "-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@."
+       , txt "fileDescriptorProtoBytes :: ByteString"
+       , txt "fileDescriptorProtoBytes = " <> pretty ("\"" :: Text) <> pretty escapedLit <> pretty ("\"" :: Text)
+       ]
 
 
 -- | Render a 'ByteString' as a Haskell string literal body using @\\xHH@ escapes.
@@ -804,35 +806,35 @@ genMessage ctx scope msg =
   in [ mempty
      , genMessageDataDecl ctx scope' msg
      ]
-      <> nestedDefs
-      <> [ mempty
-         , genDefaultInstance ctx scope' msg
-         , mempty
-         , genEncodeInstance ctx scope' msg
-         , mempty
-         , genSizeInstance ctx scope' msg
-         , mempty
-         , genDecodeInstance ctx scope' msg
-         , mempty
-         , genProtoMessageInstance ctx scope' msg
-         , mempty
-         , genIsMessageInstance scope'
-         , mempty
-         , genToJSONInstance ctx scope' msg
-         , mempty
-         , genFromJSONInstance ctx scope' msg
-         , mempty
-         , genHashableInstance ctx scope' msg
-         , mempty
-         , genHasExtensionsInstance scope' msg
-         , mempty
-         , genSemigroupInstance ctx scope' msg
-         , mempty
-         , genMonoidInstance scope'
-         ]
-      <> case hookDocs of
-        [] -> []
-        ds -> [mempty, vsep ds]
+       <> nestedDefs
+       <> [ mempty
+          , genDefaultInstance ctx scope' msg
+          , mempty
+          , genEncodeInstance ctx scope' msg
+          , mempty
+          , genSizeInstance ctx scope' msg
+          , mempty
+          , genDecodeInstance ctx scope' msg
+          , mempty
+          , genProtoMessageInstance ctx scope' msg
+          , mempty
+          , genIsMessageInstance scope'
+          , mempty
+          , genToJSONInstance ctx scope' msg
+          , mempty
+          , genFromJSONInstance ctx scope' msg
+          , mempty
+          , genHashableInstance ctx scope' msg
+          , mempty
+          , genHasExtensionsInstance scope' msg
+          , mempty
+          , genSemigroupInstance ctx scope' msg
+          , mempty
+          , genMonoidInstance scope'
+          ]
+       <> case hookDocs of
+         [] -> []
+         ds -> [mempty, vsep ds]
 
 
 genNestedElement :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
@@ -855,12 +857,12 @@ genMessageDataDecl ctx scope msg =
       unknownFieldDecl = pretty (unknownFieldAccessor scope) <+> txt "::" <+> txt "![UnknownField]"
       allFields = userFields <> [unknownFieldDecl]
   in vsep $
-      haddockDoc (msgDoc msg)
-        <> [ txt "data " <> pretty tyN <> txt " = " <> pretty tyN
-           , indent 2 (braceBlock allFields)
-           , indent 2 (txt "deriving stock (Show, Eq, Generic)")
-           , indent 2 (txt "deriving anyclass NFData")
-           ]
+       haddockDoc (msgDoc msg)
+         <> [ txt "data " <> pretty tyN <> txt " = " <> pretty tyN
+            , indent 2 (braceBlock allFields)
+            , indent 2 (txt "deriving stock (Show, Eq, Generic)")
+            , indent 2 (txt "deriving anyclass NFData")
+            ]
 
 
 unknownFieldAccessor :: [Text] -> Text
@@ -887,16 +889,16 @@ genFieldDecl ctx scope fd =
           <+> txt "::"
           <+> hsFieldType ctx scope (fieldType fd) (fieldLabel fd)
   in case fieldDoc fd of
-      Nothing -> fieldLine
-      Just doc ->
-        let ls = T.lines doc
-        in case ls of
-            [] -> fieldLine
-            (first_ : rest) ->
-              vsep $
-                [fieldLine]
-                  <> [indent 2 (txt "-- ^ " <> pretty first_)]
-                  <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
+       Nothing -> fieldLine
+       Just doc ->
+         let ls = T.lines doc
+         in case ls of
+              [] -> fieldLine
+              (first_ : rest) ->
+                vsep $
+                  [fieldLine]
+                    <> [indent 2 (txt "-- ^ " <> pretty first_)]
+                    <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
 
 
 genMapFieldDecl :: GenCtx -> [Text] -> MapField -> Doc ann
@@ -909,16 +911,16 @@ genMapFieldDecl ctx scope mf =
           <+> hsFieldTypeInner ctx scope (mapValueType mf)
           <> txt ")"
   in case mapDoc mf of
-      Nothing -> fieldLine
-      Just doc ->
-        let ls = T.lines doc
-        in case ls of
-            [] -> fieldLine
-            (first_ : rest) ->
-              vsep $
-                [fieldLine]
-                  <> [indent 2 (txt "-- ^ " <> pretty first_)]
-                  <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
+       Nothing -> fieldLine
+       Just doc ->
+         let ls = T.lines doc
+         in case ls of
+              [] -> fieldLine
+              (first_ : rest) ->
+                vsep $
+                  [fieldLine]
+                    <> [indent 2 (txt "-- ^ " <> pretty first_)]
+                    <> fmap (\l -> indent 2 (txt "-- " <> pretty l)) rest
 
 
 genOneofFieldRef :: GenCtx -> [Text] -> OneofDef -> Doc ann
@@ -934,12 +936,12 @@ genOneofDecl :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofDecl ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep $
-      haddockDoc (oneofDoc od)
-        <> [ txt "data " <> pretty tyN
-           , indent 2 (vsep (concatMap (\(pfx, f) -> (pfx <+> genOneofCon ctx scope f) : haddockFieldDoc (oneofFieldDoc f)) (zip seps (oneofFields od))))
-           , indent 2 (txt "deriving stock (Show, Eq, Generic)")
-           , indent 2 (txt "deriving anyclass NFData")
-           ]
+       haddockDoc (oneofDoc od)
+         <> [ txt "data " <> pretty tyN
+            , indent 2 (vsep (concatMap (\(pfx, f) -> (pfx <+> genOneofCon ctx scope f) : haddockFieldDoc (oneofFieldDoc f)) (zip seps (oneofFields od))))
+            , indent 2 (txt "deriving stock (Show, Eq, Generic)")
+            , indent 2 (txt "deriving anyclass NFData")
+            ]
   where
     seps = txt "=" : repeat (txt "|")
     genOneofCon cx s f =
@@ -951,18 +953,18 @@ genOneofToJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofToJSONInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
-      [ instanceHead "Aeson.ToJSON" tyN
-      , indent 2 (txt "toJSON _ = Aeson.Null")
-      ]
+       [ instanceHead "Aeson.ToJSON" tyN
+       , indent 2 (txt "toJSON _ = Aeson.Null")
+       ]
 
 
 genOneofFromJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofFromJSONInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
-      [ instanceHead "Aeson.FromJSON" tyN
-      , indent 2 (pretty ("parseJSON _ = fail \"Cannot parse oneof from JSON\"" :: Text))
-      ]
+       [ instanceHead "Aeson.FromJSON" tyN
+       , indent 2 (pretty ("parseJSON _ = fail \"Cannot parse oneof from JSON\"" :: Text))
+       ]
 
 
 -- ---------------------------------------------------------------------------
@@ -973,10 +975,10 @@ genDefaultInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genDefaultInstance ctx scope msg =
   let tyN = scopedTypeName scope
   in vsep
-      [ txt "default" <> pretty tyN <+> txt "::" <+> pretty tyN
-      , txt "default" <> pretty tyN <+> txt "=" <+> pretty tyN
-      , indent 2 (genDefaultFields ctx scope (msgElements msg))
-      ]
+       [ txt "default" <> pretty tyN <+> txt "::" <+> pretty tyN
+       , txt "default" <> pretty tyN <+> txt "=" <+> pretty tyN
+       , indent 2 (genDefaultFields ctx scope (msgElements msg))
+       ]
 
 
 genDefaultFields :: GenCtx -> [Text] -> [MessageElement] -> Doc ann
@@ -1023,19 +1025,19 @@ genEncodeInstance ctx scope msg =
       fields = extractAllFields ctx scope (msgElements msg)
       unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
-      [ instanceHead "MessageEncode" tyN
-      , indent 2 $
-          vsep
-            [ txt "buildMessage msg ="
-            , indent 2 $ case fields of
-                [] -> txt "encodeUnknownFields " <> pretty unknownAcc
-                _ ->
-                  vsep
-                    ( zipWith (genFieldBuild ctx) [0 ..] fields
-                        <> [txt "<> encodeUnknownFields " <> pretty unknownAcc]
-                    )
-            ]
-      ]
+       [ instanceHead "MessageEncode" tyN
+       , indent 2 $
+           vsep
+             [ txt "buildMessage msg ="
+             , indent 2 $ case fields of
+                 [] -> txt "encodeUnknownFields " <> pretty unknownAcc
+                 _ ->
+                   vsep
+                     ( zipWith (genFieldBuild ctx) [0 ..] fields
+                         <> [txt "<> encodeUnknownFields " <> pretty unknownAcc]
+                     )
+             ]
+       ]
 
 
 genFieldBuild :: GenCtx -> Int -> FieldInfoFull -> Doc ann
@@ -1044,10 +1046,10 @@ genFieldBuild ctx idx fi =
       accessor = "msg." <> fifAccessor fi
       fn = T.pack (show (fifFieldNum fi))
   in op <> case fifKind fi of
-      FKScalar lbl ft -> genBuildExprScalar fn accessor lbl ft
-      FKNamed lbl name tk -> genBuildExprNamed ctx fn accessor lbl name tk
-      FKMap keyT valT -> genBuildExprMap ctx fn accessor keyT valT
-      FKOneof scope ood -> genBuildExprOneof ctx scope fn accessor ood
+       FKScalar lbl ft -> genBuildExprScalar fn accessor lbl ft
+       FKNamed lbl name tk -> genBuildExprNamed ctx fn accessor lbl name tk
+       FKMap keyT valT -> genBuildExprMap ctx fn accessor keyT valT
+       FKOneof scope ood -> genBuildExprOneof ctx scope fn accessor ood
 
 
 genBuildExprScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
@@ -1140,15 +1142,15 @@ genOneofArmEncode ctx scope ooName f =
   let conName = oneofConName scope ooName (oneofFieldName f)
       fn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
   in txt "Just ("
-      <> pretty conName
-      <+> txt "v) -> "
-      <> case oneofFieldType f of
-        FTScalar st -> genSingleScalarBuild fn "v" st
-        FTNamed n -> case resolveType ctx n of
-          Just ti
-            | tiKind ti == TKEnum ->
-                txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))"
-          _ -> txt "(let sz = messageSize v in archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v))"
+       <> pretty conName
+       <+> txt "v) -> "
+       <> case oneofFieldType f of
+         FTScalar st -> genSingleScalarBuild fn "v" st
+         FTNamed n -> case resolveType ctx n of
+           Just ti
+             | tiKind ti == TKEnum ->
+                 txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))"
+           _ -> txt "(let sz = messageSize v in archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v))"
 
 
 genSingleScalarBuild :: Text -> Text -> ScalarType -> Doc ann
@@ -1215,19 +1217,19 @@ genSizeInstance ctx scope msg =
       fields = extractAllFields ctx scope (msgElements msg)
       unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
-      [ instanceHead "MessageSize" tyN
-      , indent 2 $
-          vsep
-            [ txt "messageSize msg ="
-            , indent 2 $ case fields of
-                [] -> txt "unknownFieldsSize " <> pretty unknownAcc
-                _ ->
-                  vsep
-                    ( zipWith (genFieldSizeExpr ctx) [0 ..] fields
-                        <> [txt "+ unknownFieldsSize " <> pretty unknownAcc]
-                    )
-            ]
-      ]
+       [ instanceHead "MessageSize" tyN
+       , indent 2 $
+           vsep
+             [ txt "messageSize msg ="
+             , indent 2 $ case fields of
+                 [] -> txt "unknownFieldsSize " <> pretty unknownAcc
+                 _ ->
+                   vsep
+                     ( zipWith (genFieldSizeExpr ctx) [0 ..] fields
+                         <> [txt "+ unknownFieldsSize " <> pretty unknownAcc]
+                     )
+             ]
+       ]
 
 
 genFieldSizeExpr :: GenCtx -> Int -> FieldInfoFull -> Doc ann
@@ -1236,10 +1238,10 @@ genFieldSizeExpr ctx idx fi =
       accessor = "msg." <> fifAccessor fi
       fn = T.pack (show (fifFieldNum fi))
   in op <> case fifKind fi of
-      FKScalar lbl ft -> genSizeScalar fn accessor lbl ft
-      FKNamed lbl name tk -> genSizeNamed ctx fn accessor lbl name tk
-      FKMap keyT valT -> genSizeMap ctx fn accessor keyT valT
-      FKOneof scope ood -> genSizeOneof ctx scope fn accessor ood
+       FKScalar lbl ft -> genSizeScalar fn accessor lbl ft
+       FKNamed lbl name tk -> genSizeNamed ctx fn accessor lbl name tk
+       FKMap keyT valT -> genSizeMap ctx fn accessor keyT valT
+       FKOneof scope ood -> genSizeOneof ctx scope fn accessor ood
 
 
 genSizeScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
@@ -1319,14 +1321,14 @@ genSizeMap ctx fn accessor keyT valT =
   let keySizeExpr = mapKeySizeExpr keyT
       valSizeExpr = mapValSizeExpr ctx valT
   in txt "(Map.foldlWithKey' (\\acc k v -> let entrySz = "
-      <> keySizeExpr
-      <> txt " + "
-      <> valSizeExpr
-      <> txt " in acc + tagSize "
-      <> pretty fn
-      <> txt " + varintSize (fromIntegral entrySz) + entrySz) 0 "
-      <> pretty accessor
-      <> txt ")"
+       <> keySizeExpr
+       <> txt " + "
+       <> valSizeExpr
+       <> txt " in acc + tagSize "
+       <> pretty fn
+       <> txt " + varintSize (fromIntegral entrySz) + entrySz) 0 "
+       <> pretty accessor
+       <> txt ")"
 
 
 mapKeySizeExpr :: ScalarType -> Doc ann
@@ -1374,13 +1376,13 @@ genSizeOneof ctx scope _fn accessor ood =
               let conName = oneofConName scope (oneofName ood) (oneofFieldName f)
                   ffn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
               in txt "; Just ("
-                  <> pretty conName
-                  <+> txt "v) -> "
-                  <> case oneofFieldType f of
-                    FTScalar st -> genSingleSizeScalar ffn "v" st
-                    FTNamed n -> case resolveType ctx n of
-                      Just ti | tiKind ti == TKEnum -> txt "archVarintSize (fromIntegral (fromEnum v))"
-                      _ -> txt "archSubmessageSize (messageSize v)"
+                   <> pretty conName
+                   <+> txt "v) -> "
+                   <> case oneofFieldType f of
+                     FTScalar st -> genSingleSizeScalar ffn "v" st
+                     FTNamed n -> case resolveType ctx n of
+                       Just ti | tiKind ti == TKEnum -> txt "archVarintSize (fromIntegral (fromEnum v))"
+                       _ -> txt "archSubmessageSize (messageSize v)"
           )
           (oneofFields ood)
       )
@@ -1400,53 +1402,53 @@ genDecodeInstance ctx scope msg =
       allAccsWithUnknown = allAccs <> [unknownAcc]
       unknownFieldName = unknownFieldAccessor scope
   in vsep
-      [ instanceHead "MessageDecode" tyN
-      , indent 2 $
-          vsep
-            [ txt "{-# INLINE messageDecoder #-}"
-            , txt "messageDecoder = "
-                <> txt "loop"
-                <+> hsep (fmap (pretty . fieldDefaultText ctx) fields)
-                <+> txt "[]"
-            , indent 2 $ txt "where"
-            , indent 4 $
-                vsep
-                  [ txt "loop " <> hsep (fmap pretty allAccsWithUnknown) <+> txt "= withTagM"
-                  , -- withTagM (Proto.Internal.Wire.Decode) is the CPS form of
-                    -- 'getTagOrU': the EOI continuation produces the
-                    -- final message, the tag continuation takes the
-                    -- field number and wire type as raw 'Int' values
-                    -- (no 'Tag' record allocation, no 'UMaybe' wrapper).
-                    -- This avoids one boxing step per field on every
-                    -- generated decoder. The previous shape
-                    -- (@mTag <- getTagOrU; case mTag of ...@) is still
-                    -- correct but pays for an unboxed-sum case-split
-                    -- per field that this form fuses through the
-                    -- continuation.
-                    indent 2 $
-                      vsep
-                        [ txt "(pure ("
-                            <> pretty tyN
-                            <+> braces
-                              ( hsep
-                                  ( punctuate
-                                      comma
-                                      ( fmap
-                                          ( \fi ->
-                                              pretty (fifAccessor fi) <+> txt "=" <+> txt "acc_" <> pretty (T.pack (show (fifIndex fi)))
-                                          )
-                                          fields
-                                          <> [pretty unknownFieldName <+> txt "= reverse " <> pretty unknownAcc]
-                                      )
-                                  )
-                              )
-                            <> txt "))"
-                        , txt "(\\fn wt -> case fn of"
-                        , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown]) <> txt ")"
-                        ]
-                  ]
-            ]
-      ]
+       [ instanceHead "MessageDecode" tyN
+       , indent 2 $
+           vsep
+             [ txt "{-# INLINE messageDecoder #-}"
+             , txt "messageDecoder = "
+                 <> txt "loop"
+                 <+> hsep (fmap (pretty . fieldDefaultText ctx) fields)
+                 <+> txt "[]"
+             , indent 2 $ txt "where"
+             , indent 4 $
+                 vsep
+                   [ txt "loop " <> hsep (fmap pretty allAccsWithUnknown) <+> txt "= withTagM"
+                   , -- withTagM (Proto.Internal.Wire.Decode) is the CPS form of
+                     -- 'getTagOrU': the EOI continuation produces the
+                     -- final message, the tag continuation takes the
+                     -- field number and wire type as raw 'Int' values
+                     -- (no 'Tag' record allocation, no 'UMaybe' wrapper).
+                     -- This avoids one boxing step per field on every
+                     -- generated decoder. The previous shape
+                     -- (@mTag <- getTagOrU; case mTag of ...@) is still
+                     -- correct but pays for an unboxed-sum case-split
+                     -- per field that this form fuses through the
+                     -- continuation.
+                     indent 2 $
+                       vsep
+                         [ txt "(pure ("
+                             <> pretty tyN
+                             <+> braces
+                               ( hsep
+                                   ( punctuate
+                                       comma
+                                       ( fmap
+                                           ( \fi ->
+                                               pretty (fifAccessor fi) <+> txt "=" <+> txt "acc_" <> pretty (T.pack (show (fifIndex fi)))
+                                           )
+                                           fields
+                                           <> [pretty unknownFieldName <+> txt "= reverse " <> pretty unknownAcc]
+                                       )
+                                   )
+                               )
+                             <> txt "))"
+                         , txt "(\\fn wt -> case fn of"
+                         , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown]) <> txt ")"
+                         ]
+                   ]
+             ]
+       ]
 
 
 genFieldDecodeCase :: GenCtx -> [Text] -> FieldInfoFull -> [Doc ann]
@@ -1465,97 +1467,97 @@ genScalarDecodeCase allAccs fi lbl st =
       accName = "acc_" <> T.pack (show idx)
       singletonFn = if isUnboxableScalar st then "VU.singleton" else "V.singleton"
   in case lbl of
-      Just Repeated ->
-        -- proto3 says a 'repeated <packable scalar>' field can appear
-        -- on the wire either as a sequence of unpacked entries (one
-        -- tag per value, wire-type 0/1/5 depending on the scalar)
-        -- or as a single packed length-delimited blob (wire-type
-        -- 2). Readers must accept both. Branching on 'wt' covers
-        -- both shapes -- but only for packable scalars. Strings
-        -- and bytes are NEVER packable (each element is
-        -- self-delimiting on the wire), so their tag already
-        -- carries wire-type 2 for every element; treating wire-type
-        -- 2 as "packed mode" there would mis-decode every repeated
-        -- string field (and previously did, until 'isPackable'
-        -- below started gating the dispatch).
-        let appendOne =
-              replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
-            appendMany =
-              replaceAt idx ("(" <> accName <> " <> vs)") allAccs
-            packedDecoderE = scalarPackedDecoderExpr st
-            unpackedDecoderE = scalarDecoderExpr st
-            isPackable = case st of
-              SString -> False
-              SBytes -> False
-              _ -> True
-        in if isPackable
-            then
-              pretty fn
-                <+> txt "-> case wt of"
-                <> line
-                <> indent
-                  2
-                  ( vsep
-                      -- 'wt' is an 'Int' under 'withTagM'; literal 2 is
-                      -- 'WireLengthDelimited' per the proto wire-format
-                      -- spec (the wire-type encoding @len = 2@).
-                      [ txt "2 -> do"
-                      , indent
-                          2
-                          ( vsep
-                              [ txt "vs <- " <> pretty packedDecoderE
-                              , txt "loop " <> hsep (fmap pretty appendMany)
-                              ]
-                          )
-                      , txt "_ -> do"
-                      , indent
-                          2
-                          ( vsep
-                              [ txt "v <- " <> pretty unpackedDecoderE
-                              , txt "loop " <> hsep (fmap pretty appendOne)
-                              ]
-                          )
-                      ]
-                  )
-            else
-              pretty fn
-                <+> txt "-> do"
-                <> line
-                <> indent
-                  2
-                  ( vsep
-                      [ txt "v <- " <> pretty unpackedDecoderE
-                      , txt "loop " <> hsep (fmap pretty appendOne)
-                      ]
-                  )
-      Just Optional ->
-        -- proto3 'optional <scalar>' fields synthesise a oneof-style
-        -- presence bit; the field's record slot is 'Maybe T' (see
-        -- 'fieldDefaultText'), so the decoded value has to be
-        -- wrapped with 'Just' here.
-        let newAccs = replaceAt idx "(Just v)" allAccs
-        in pretty fn
-            <+> txt "-> do"
-            <> line
-            <> indent
-              2
-              ( vsep
-                  [ txt "v <- " <> pretty (scalarDecoderExpr st)
-                  , txt "loop " <> hsep (fmap pretty newAccs)
-                  ]
-              )
-      _ ->
-        let newAccs = replaceAt idx "v" allAccs
-        in pretty fn
-            <+> txt "-> do"
-            <> line
-            <> indent
-              2
-              ( vsep
-                  [ txt "v <- " <> pretty (scalarDecoderExpr st)
-                  , txt "loop " <> hsep (fmap pretty newAccs)
-                  ]
-              )
+       Just Repeated ->
+         -- proto3 says a 'repeated <packable scalar>' field can appear
+         -- on the wire either as a sequence of unpacked entries (one
+         -- tag per value, wire-type 0/1/5 depending on the scalar)
+         -- or as a single packed length-delimited blob (wire-type
+         -- 2). Readers must accept both. Branching on 'wt' covers
+         -- both shapes -- but only for packable scalars. Strings
+         -- and bytes are NEVER packable (each element is
+         -- self-delimiting on the wire), so their tag already
+         -- carries wire-type 2 for every element; treating wire-type
+         -- 2 as "packed mode" there would mis-decode every repeated
+         -- string field (and previously did, until 'isPackable'
+         -- below started gating the dispatch).
+         let appendOne =
+               replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
+             appendMany =
+               replaceAt idx ("(" <> accName <> " <> vs)") allAccs
+             packedDecoderE = scalarPackedDecoderExpr st
+             unpackedDecoderE = scalarDecoderExpr st
+             isPackable = case st of
+               SString -> False
+               SBytes -> False
+               _ -> True
+         in if isPackable
+              then
+                pretty fn
+                  <+> txt "-> case wt of"
+                  <> line
+                  <> indent
+                    2
+                    ( vsep
+                        -- 'wt' is an 'Int' under 'withTagM'; literal 2 is
+                        -- 'WireLengthDelimited' per the proto wire-format
+                        -- spec (the wire-type encoding @len = 2@).
+                        [ txt "2 -> do"
+                        , indent
+                            2
+                            ( vsep
+                                [ txt "vs <- " <> pretty packedDecoderE
+                                , txt "loop " <> hsep (fmap pretty appendMany)
+                                ]
+                            )
+                        , txt "_ -> do"
+                        , indent
+                            2
+                            ( vsep
+                                [ txt "v <- " <> pretty unpackedDecoderE
+                                , txt "loop " <> hsep (fmap pretty appendOne)
+                                ]
+                            )
+                        ]
+                    )
+              else
+                pretty fn
+                  <+> txt "-> do"
+                  <> line
+                  <> indent
+                    2
+                    ( vsep
+                        [ txt "v <- " <> pretty unpackedDecoderE
+                        , txt "loop " <> hsep (fmap pretty appendOne)
+                        ]
+                    )
+       Just Optional ->
+         -- proto3 'optional <scalar>' fields synthesise a oneof-style
+         -- presence bit; the field's record slot is 'Maybe T' (see
+         -- 'fieldDefaultText'), so the decoded value has to be
+         -- wrapped with 'Just' here.
+         let newAccs = replaceAt idx "(Just v)" allAccs
+         in pretty fn
+              <+> txt "-> do"
+              <> line
+              <> indent
+                2
+                ( vsep
+                    [ txt "v <- " <> pretty (scalarDecoderExpr st)
+                    , txt "loop " <> hsep (fmap pretty newAccs)
+                    ]
+                )
+       _ ->
+         let newAccs = replaceAt idx "v" allAccs
+         in pretty fn
+              <+> txt "-> do"
+              <> line
+              <> indent
+                2
+                ( vsep
+                    [ txt "v <- " <> pretty (scalarDecoderExpr st)
+                    , txt "loop " <> hsep (fmap pretty newAccs)
+                    ]
+                )
 
 
 {- | Decoder expression for a 'repeated <scalar>' encoded as a
@@ -1600,15 +1602,15 @@ genNamedDecodeCase _ctx allAccs fi lbl _name tk =
         TKEnum -> "decodeFieldEnum"
         TKMessage -> "decodeFieldMessage"
   in pretty fn
-      <+> txt "-> do"
-      <> line
-      <> indent
-        2
-        ( vsep
-            [ txt "v <- " <> pretty decoderExpr
-            , txt "loop " <> hsep (fmap pretty newAccs)
-            ]
-        )
+       <+> txt "-> do"
+       <> line
+       <> indent
+         2
+         ( vsep
+             [ txt "v <- " <> pretty decoderExpr
+             , txt "loop " <> hsep (fmap pretty newAccs)
+             ]
+         )
 
 
 genMapDecodeCase :: GenCtx -> [Text] -> FieldInfoFull -> ScalarType -> FieldType -> Doc ann
@@ -1622,26 +1624,26 @@ genMapDecodeCase ctx allAccs fi keyT valT =
       keyDefault = scalarDefaultLit keyT
       valDefault = mapValDefaultLit ctx valT
   in pretty fn
-      <+> txt "-> do"
-      <> line
-      <> indent
-        2
-        ( vsep
-            [ txt "bs' <- getLengthDelimited"
-            , txt "let decodeEntry = runDecoder (decodeMapEntry"
-                <+> pretty keyDecoder
-                <+> pretty valDecoder
-                <+> pretty keyDefault
-                <+> pretty valDefault
-                <> txt ") bs'"
-            , txt "case decodeEntry of"
-            , indent 2 $
-                vsep
-                  [ txt "Left _ -> loop " <> hsep (fmap pretty allAccs)
-                  , txt "Right (mk', mv') -> loop " <> hsep (fmap pretty newAccs)
-                  ]
-            ]
-        )
+       <+> txt "-> do"
+       <> line
+       <> indent
+         2
+         ( vsep
+             [ txt "bs' <- getLengthDelimited"
+             , txt "let decodeEntry = runDecoder (decodeMapEntry"
+                 <+> pretty keyDecoder
+                 <+> pretty valDecoder
+                 <+> pretty keyDefault
+                 <+> pretty valDefault
+                 <> txt ") bs'"
+             , txt "case decodeEntry of"
+             , indent 2 $
+                 vsep
+                   [ txt "Left _ -> loop " <> hsep (fmap pretty allAccs)
+                   , txt "Right (mk', mv') -> loop " <> hsep (fmap pretty newAccs)
+                   ]
+             ]
+         )
 
 
 genOneofDecodeCase :: GenCtx -> [Text] -> Text -> [Text] -> FieldInfoFull -> OneofField -> [Doc ann]
@@ -1656,15 +1658,15 @@ genOneofDecodeCase ctx scope ooName allAccs fi oof =
           Just ti | tiKind ti == TKEnum -> "decodeFieldEnum"
           _ -> "decodeFieldMessage"
   in [ pretty fn
-        <+> txt "-> do"
-        <> line
-        <> indent
-          2
-          ( vsep
-              [ txt "v <- " <> pretty decoderExpr
-              , txt "loop " <> hsep (fmap pretty newAccs)
-              ]
-          )
+         <+> txt "-> do"
+         <> line
+         <> indent
+           2
+           ( vsep
+               [ txt "v <- " <> pretty decoderExpr
+               , txt "loop " <> hsep (fmap pretty newAccs)
+               ]
+           )
      ]
 
 
@@ -1674,17 +1676,17 @@ genDefaultDecodeCase _scope allAccsWithUnknown =
       fieldAccs = init allAccsWithUnknown
       newAccs = fieldAccs <> ["(uf : " <> unknownAcc <> ")"]
   in txt "_ -> do"
-      <> line
-      <> indent
-        2
-        ( vsep
-            -- 'wt' comes through as an 'Int' (withTagM's continuation
-            -- takes raw Ints), so 'toEnum' it back into a 'WireType'
-            -- before handing it to 'captureUnknownField'.
-            [ txt "uf <- captureUnknownField fn (toEnum wt)"
-            , txt "loop " <> hsep (fmap pretty newAccs)
-            ]
-        )
+       <> line
+       <> indent
+         2
+         ( vsep
+             -- 'wt' comes through as an 'Int' (withTagM's continuation
+             -- takes raw Ints), so 'toEnum' it back into a 'WireType'
+             -- before handing it to 'captureUnknownField'.
+             [ txt "uf <- captureUnknownField fn (toEnum wt)"
+             , txt "loop " <> hsep (fmap pretty newAccs)
+             ]
+         )
 
 
 fieldDefaultText :: GenCtx -> FieldInfoFull -> Text
@@ -1779,17 +1781,17 @@ genProtoMessageInstance ctx scope msg =
       fields = extractMessageFieldsForSchema scope (msgElements msg)
       defN = "default" <> tyN
   in vsep
-      [ instanceHead "ProtoMessage" tyN
-      , indent 2 $ pretty ("protoMessageName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
-      , indent 2 $ pretty ("protoPackageName _ = \"" :: Text) <> pretty pkg <> pretty ("\"" :: Text)
-      , indent 2 $ txt "protoDefaultValue = " <> pretty defN
-      , indent 2 $ txt "protoFileDescriptorBytes _ = fileDescriptorProtoBytes"
-      , indent 2 $
-          vsep
-            [ txt "protoFieldDescriptors _ = Map.fromList"
-            , indent 2 $ genFieldDescriptorList ctx scope fields
-            ]
-      ]
+       [ instanceHead "ProtoMessage" tyN
+       , indent 2 $ pretty ("protoMessageName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
+       , indent 2 $ pretty ("protoPackageName _ = \"" :: Text) <> pretty pkg <> pretty ("\"" :: Text)
+       , indent 2 $ txt "protoDefaultValue = " <> pretty defN
+       , indent 2 $ txt "protoFileDescriptorBytes _ = fileDescriptorProtoBytes"
+       , indent 2 $
+           vsep
+             [ txt "protoFieldDescriptors _ = Map.fromList"
+             , indent 2 $ genFieldDescriptorList ctx scope fields
+             ]
+       ]
 
 
 data SchemaField = SchemaField
@@ -1815,33 +1817,33 @@ genFieldDescriptorList :: GenCtx -> [Text] -> [SchemaField] -> Doc ann
 genFieldDescriptorList ctx scope fields =
   let entries = fmap (genFieldDescriptorEntry ctx scope) fields
   in case entries of
-      [] -> txt "[]"
-      (e : es) ->
-        vsep [txt "[ " <> e]
-          <> vsep (fmap (\x -> txt ", " <> x) es)
-          <> line
-          <> txt "]"
+       [] -> txt "[]"
+       (e : es) ->
+         vsep [txt "[ " <> e]
+           <> vsep (fmap (\x -> txt ", " <> x) es)
+           <> line
+           <> txt "]"
 
 
 genFieldDescriptorEntry :: GenCtx -> [Text] -> SchemaField -> Doc ann
 genFieldDescriptorEntry ctx scope sf =
   let accN = ctxFieldName ctx scope (sfName sf)
   in txt "("
-      <> pretty (T.pack (show (sfNum sf)))
-      <> txt ", SomeField FieldDescriptor"
-      <> line
-      <> indent
-        4
-        ( vsep
-            [ pretty ("{ fdName = \"" :: Text) <> pretty (sfName sf) <> pretty ("\"" :: Text)
-            , txt ", fdNumber = " <> pretty (T.pack (show (sfNum sf)))
-            , txt ", fdTypeDesc = " <> genFieldTypeDesc (sfType sf)
-            , txt ", fdLabel = " <> genLabelLit (sfLabel sf)
-            , txt ", fdGet = " <> pretty accN
-            , txt ", fdSet = \\v m -> m { " <> pretty accN <> txt " = v }"
-            , txt "})"
-            ]
-        )
+       <> pretty (T.pack (show (sfNum sf)))
+       <> txt ", SomeField FieldDescriptor"
+       <> line
+       <> indent
+         4
+         ( vsep
+             [ pretty ("{ fdName = \"" :: Text) <> pretty (sfName sf) <> pretty ("\"" :: Text)
+             , txt ", fdNumber = " <> pretty (T.pack (show (sfNum sf)))
+             , txt ", fdTypeDesc = " <> genFieldTypeDesc (sfType sf)
+             , txt ", fdLabel = " <> genLabelLit (sfLabel sf)
+             , txt ", fdGet = " <> pretty accN
+             , txt ", fdSet = \\v m -> m { " <> pretty accN <> txt " = v }"
+             , txt "})"
+             ]
+         )
 
 
 genFieldTypeDesc :: FieldType -> Doc ann
@@ -1893,35 +1895,35 @@ genToJSONInstance ctx scope msg =
           then txt "instance Given PJExt.ExtensionRegistry => Aeson.ToJSON " <> pretty tyN <> txt " where"
           else instanceHead "Aeson.ToJSON" tyN
   in case Map.lookup fqn overrides of
-      Just jo ->
-        vsep
-          [ headDoc
-          , pretty (joToJSON jo)
-          ]
-      Nothing ->
-        let fields = extractAllFieldsJSON ctx scope (msgElements msg)
-        in vsep
-            [ headDoc
-            , indent 2 $
-                vsep
-                  [ txt "toJSON msg = jsonObject"
-                  , indent 4 $ case fields of
-                      [] ->
-                        if hasExts
-                          then txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <> txt ")"
-                          else txt "[]"
-                      (f0 : fs) ->
-                        vsep $
-                          ( if hasExts
-                              then [txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <+> txt "++"]
-                              else []
-                          )
-                            <> [ txt "[ " <> genToJSONField ctx f0
-                               , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) fs)
-                               , txt "]" <> if hasExts then txt ")" else emptyDoc
-                               ]
-                  ]
-            ]
+       Just jo ->
+         vsep
+           [ headDoc
+           , pretty (joToJSON jo)
+           ]
+       Nothing ->
+         let fields = extractAllFieldsJSON ctx scope (msgElements msg)
+         in vsep
+              [ headDoc
+              , indent 2 $
+                  vsep
+                    [ txt "toJSON msg = jsonObject"
+                    , indent 4 $ case fields of
+                        [] ->
+                          if hasExts
+                            then txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <> txt ")"
+                            else txt "[]"
+                        (f0 : fs) ->
+                          vsep $
+                            ( if hasExts
+                                then [txt "(PJExt.extensionEntriesForJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" msg." :: Text) <> txt (unknownFieldAccessor scope) <+> txt "++"]
+                                else []
+                            )
+                              <> [ txt "[ " <> genToJSONField ctx f0
+                                 , vsep (fmap (\f -> txt ", " <> genToJSONField ctx f) fs)
+                                 , txt "]" <> if hasExts then txt ")" else emptyDoc
+                                 ]
+                    ]
+              ]
 
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
@@ -1950,55 +1952,55 @@ genFromJSONInstance ctx scope msg =
           then txt "instance Given PJExt.ExtensionRegistry => Aeson.FromJSON " <> pretty tyN <> txt " where"
           else instanceHead "Aeson.FromJSON" tyN
   in case Map.lookup fqn overrides of
-      Just jo ->
-        vsep
-          [ headDoc
-          , pretty (joFromJSON jo)
-          ]
-      Nothing ->
-        let fields = extractAllFieldsJSON ctx scope (msgElements msg)
-            extsAssign = if hasExts then txt "exts" else txt "[]"
-            extsBind =
-              if hasExts
-                then [txt "exts <- either fail pure (PJExt.parseExtensionsFromJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" obj)" :: Text)]
-                else []
-        in case fields of
-            [] ->
-              vsep
-                [ headDoc
-                , indent 2 $
-                    if hasExts
-                      then
-                        txt "parseJSON = Aeson.withObject "
-                          <> pretty ("\"" :: Text)
-                          <> pretty tyN
-                          <> pretty ("\" $ \\obj -> do" :: Text)
-                          <> line
-                          <> indent 4 (vsep (extsBind <> [txt "pure default" <> pretty tyN, indent 2 (braceBlock [txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign])]))
-                      else txt "parseJSON _ = pure default" <> pretty tyN
-                ]
-            (f0 : frest) ->
-              vsep
-                [ headDoc
-                , indent 2 $
-                    vsep
-                      [ txt "parseJSON = Aeson.withObject " <> pretty ("\"" :: Text) <> pretty tyN <> pretty ("\" $ \\obj -> do" :: Text)
-                      , indent 2 $
-                          vsep
-                            ( fmap genFromJSONFieldBind (f0 : frest)
-                                <> extsBind
-                                <> [ txt "pure default" <> pretty tyN
-                                   , indent 2 $
-                                      vsep
-                                        ( txt "{ " <> genFromJSONFieldAssign tyN f0
-                                            : fmap (\jfi -> txt ", " <> genFromJSONFieldAssign tyN jfi) frest
-                                              <> [txt ", " <> txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign]
-                                              <> [txt "}"]
-                                        )
-                                   ]
-                            )
-                      ]
-                ]
+       Just jo ->
+         vsep
+           [ headDoc
+           , pretty (joFromJSON jo)
+           ]
+       Nothing ->
+         let fields = extractAllFieldsJSON ctx scope (msgElements msg)
+             extsAssign = if hasExts then txt "exts" else txt "[]"
+             extsBind =
+               if hasExts
+                 then [txt "exts <- either fail pure (PJExt.parseExtensionsFromJson (given :: PJExt.ExtensionRegistry) " <> pretty ("\"" :: Text) <> pretty fqn <> pretty ("\" obj)" :: Text)]
+                 else []
+         in case fields of
+              [] ->
+                vsep
+                  [ headDoc
+                  , indent 2 $
+                      if hasExts
+                        then
+                          txt "parseJSON = Aeson.withObject "
+                            <> pretty ("\"" :: Text)
+                            <> pretty tyN
+                            <> pretty ("\" $ \\obj -> do" :: Text)
+                            <> line
+                            <> indent 4 (vsep (extsBind <> [txt "pure default" <> pretty tyN, indent 2 (braceBlock [txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign])]))
+                        else txt "parseJSON _ = pure default" <> pretty tyN
+                  ]
+              (f0 : frest) ->
+                vsep
+                  [ headDoc
+                  , indent 2 $
+                      vsep
+                        [ txt "parseJSON = Aeson.withObject " <> pretty ("\"" :: Text) <> pretty tyN <> pretty ("\" $ \\obj -> do" :: Text)
+                        , indent 2 $
+                            vsep
+                              ( fmap genFromJSONFieldBind (f0 : frest)
+                                  <> extsBind
+                                  <> [ txt "pure default" <> pretty tyN
+                                     , indent 2 $
+                                         vsep
+                                           ( txt "{ " <> genFromJSONFieldAssign tyN f0
+                                               : fmap (\jfi -> txt ", " <> genFromJSONFieldAssign tyN jfi) frest
+                                                 <> [txt ", " <> txt (unknownFieldAccessor scope) <+> txt "=" <+> extsAssign]
+                                                 <> [txt "}"]
+                                           )
+                                     ]
+                              )
+                        ]
+                  ]
 
 
 genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
@@ -2035,11 +2037,11 @@ genHashableInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
   in vsep
-      [ instanceHead "Hashable" tyN
-      , indent 2 $ case fields of
-          [] -> txt "hashWithSalt salt _ = salt"
-          _ -> txt "hashWithSalt salt msg = " <> genHashExpr fields
-      ]
+       [ instanceHead "Hashable" tyN
+       , indent 2 $ case fields of
+           [] -> txt "hashWithSalt salt _ = salt"
+           _ -> txt "hashWithSalt salt msg = " <> genHashExpr fields
+       ]
 
 
 {- | Emit the per-message 'Proto.Extension.HasExtensions' instance so
@@ -2055,13 +2057,13 @@ genHasExtensionsInstance scope _msg =
   let tyN = scopedTypeName scope
       acc = unknownFieldAccessor scope
   in vsep
-      [ txt "instance Proto.Extension.HasExtensions " <> pretty tyN <> txt " where"
-      , indent 2 $ txt "messageUnknownFields = " <> pretty acc
-      , indent 2 $
-          txt "setMessageUnknownFields !ufs msg = msg { "
-            <> pretty acc
-            <> txt " = ufs }"
-      ]
+       [ txt "instance Proto.Extension.HasExtensions " <> pretty tyN <> txt " where"
+       , indent 2 $ txt "messageUnknownFields = " <> pretty acc
+       , indent 2 $
+           txt "setMessageUnknownFields !ufs msg = msg { "
+             <> pretty acc
+             <> txt " = ufs }"
+       ]
 
 
 {- | Generate a 'Semigroup' instance encoding protobuf merge semantics:
@@ -2089,30 +2091,30 @@ genSemigroupInstance ctx scope msg =
                 <> txt " else "
                 <> ba
         in pretty acc <> txt " = " <> case fifKind fi of
-            FKMap _ _ -> aa <> txt " <> " <> ba
-            FKOneof _ _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
-            FKScalar (Just Repeated) _ -> aa <> txt " <> " <> ba
-            FKNamed (Just Repeated) _ _ -> aa <> txt " <> " <> ba
-            FKNamed (Just Optional) _ _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
-            FKNamed (Just Required) _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
-            FKNamed (Just Required) _ TKEnum -> lastNonDefault "(toEnum 0)"
-            FKNamed Nothing _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
-            FKNamed Nothing _ TKEnum -> lastNonDefault "(toEnum 0)"
-            FKScalar (Just Optional) _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
-            FKScalar (Just Required) ft -> lastNonDefault (scalarDefaultText ft)
-            FKScalar Nothing ft -> lastNonDefault (scalarDefaultText ft)
+             FKMap _ _ -> aa <> txt " <> " <> ba
+             FKOneof _ _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+             FKScalar (Just Repeated) _ -> aa <> txt " <> " <> ba
+             FKNamed (Just Repeated) _ _ -> aa <> txt " <> " <> ba
+             FKNamed (Just Optional) _ _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+             FKNamed (Just Required) _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+             FKNamed (Just Required) _ TKEnum -> lastNonDefault "(toEnum 0)"
+             FKNamed Nothing _ TKMessage -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+             FKNamed Nothing _ TKEnum -> lastNonDefault "(toEnum 0)"
+             FKScalar (Just Optional) _ -> txt "case " <> ba <> txt " of { Nothing -> " <> aa <> txt "; x -> x }"
+             FKScalar (Just Required) ft -> lastNonDefault (scalarDefaultText ft)
+             FKScalar Nothing ft -> lastNonDefault (scalarDefaultText ft)
   in vsep
-      [ txt "instance Semigroup " <> pretty tyN <> txt " where"
-      , indent 2 $
-          vsep
-            [ txt "a <> b = " <> pretty conN
-            , indent 2 $
-                braceBlock
-                  ( fmap mergeField fields
-                      <> [pretty unknownAcc <> txt " = a." <> pretty unknownAcc <> txt " <> b." <> pretty unknownAcc]
-                  )
-            ]
-      ]
+       [ txt "instance Semigroup " <> pretty tyN <> txt " where"
+       , indent 2 $
+           vsep
+             [ txt "a <> b = " <> pretty conN
+             , indent 2 $
+                 braceBlock
+                   ( fmap mergeField fields
+                       <> [pretty unknownAcc <> txt " = a." <> pretty unknownAcc <> txt " <> b." <> pretty unknownAcc]
+                   )
+             ]
+       ]
 
 
 {- | Generate a 'Monoid' instance whose identity is the proto3 default
@@ -2125,9 +2127,9 @@ genMonoidInstance scope =
   let tyN = scopedTypeName scope
       defN = "default" <> tyN
   in vsep
-      [ txt "instance Monoid " <> pretty tyN <> txt " where"
-      , indent 2 $ txt "mempty = " <> pretty defN
-      ]
+       [ txt "instance Monoid " <> pretty tyN <> txt " where"
+       , indent 2 $ txt "mempty = " <> pretty defN
+       ]
 
 
 genHashExpr :: [FieldInfoFull] -> Doc ann
@@ -2141,17 +2143,17 @@ genFieldHashApp :: Doc ann -> FieldInfoFull -> Doc ann
 genFieldHashApp acc fi =
   let fld = txt "msg." <> pretty (fifAccessor fi)
   in case fifKind fi of
-      FKScalar (Just Repeated) st
-        | isUnboxableScalar st ->
-            txt "VU.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
-      FKScalar (Just Repeated) _ ->
-        txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
-      FKNamed (Just Repeated) _ _ ->
-        txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
-      FKMap _ _ ->
-        txt "Map.foldlWithKey' (\\s k v -> s `hashWithSalt` k `hashWithSalt` v) (" <> acc <> txt ") " <> fld
-      _ ->
-        txt "hashWithSalt (" <> acc <> txt ") " <> fld
+       FKScalar (Just Repeated) st
+         | isUnboxableScalar st ->
+             txt "VU.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+       FKScalar (Just Repeated) _ ->
+         txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+       FKNamed (Just Repeated) _ _ ->
+         txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+       FKMap _ _ ->
+         txt "Map.foldlWithKey' (\\s k v -> s `hashWithSalt` k `hashWithSalt` v) (" <> acc <> txt ") " <> fld
+       _ ->
+         txt "hashWithSalt (" <> acc <> txt ") " <> fld
 
 
 genOneofHashableInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
@@ -2159,9 +2161,9 @@ genOneofHashableInstance _ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
       arms = zipWith (genOneofHashArm scope (oneofName od)) [0 :: Int ..] (oneofFields od)
   in vsep
-      [ instanceHead "Hashable" tyN
-      , indent 2 $ vsep arms
-      ]
+       [ instanceHead "Hashable" tyN
+       , indent 2 $ vsep arms
+       ]
 
 
 genOneofHashArm :: [Text] -> Text -> Int -> OneofField -> Doc ann
@@ -2175,17 +2177,17 @@ genEnumHashableInstance :: [Text] -> EnumDef -> Doc ann
 genEnumHashableInstance scope _ed =
   let tyN = scopedTypeName scope
   in vsep
-      [ instanceHead "Hashable" tyN
-      , indent 2 (txt "hashWithSalt salt x = hashWithSalt salt (toProtoEnum" <> pretty tyN <+> txt "x)")
-      ]
+       [ instanceHead "Hashable" tyN
+       , indent 2 (txt "hashWithSalt salt x = hashWithSalt salt (toProtoEnum" <> pretty tyN <+> txt "x)")
+       ]
 
 
 fqProtoName :: Maybe Text -> [Text] -> Text
 fqProtoName pkg scope =
   let msgName = T.intercalate "." scope
   in case pkg of
-      Just p -> p <> "." <> msgName
-      Nothing -> msgName
+       Just p -> p <> "." <> msgName
+       Nothing -> msgName
 
 
 -- ---------------------------------------------------------------------------
@@ -2324,9 +2326,9 @@ genServiceTopLevel ctx scope svc =
       hookOutput = onServiceCodeGen (genHooks (gcOpts ctx)) hookCtx
       hookDocs = fmap pretty hookOutput
   in Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
-      <> case hookDocs of
-        [] -> []
-        ds -> [mempty, vsep ds]
+       <> case hookDocs of
+         [] -> []
+         ds -> [mempty, vsep ds]
 
 
 -- ---------------------------------------------------------------------------
@@ -2373,45 +2375,45 @@ genOneExtension _ctx _scope ownerHsType ownerPrefix fd =
           _ -> False
       payload = extensionPayloadCore (fieldType fd)
   in case payload of
-      Nothing ->
-        [ mempty
-        , txt "-- WARNING: extension '"
-            <> pretty (fieldName fd)
-            <> txt "' uses an unsupported shape and was skipped."
-        ]
-      Just (haskellType, extTag) ->
-        if repeated
-          then
-            [ mempty
-            , txt fieldNameHs
-                <> txt " :: Proto.Extension.RepeatedExtension "
-                <> pretty ownerHsType
-                <> txt " "
-                <> haskellType
-            , txt fieldNameHs <> txt " = Proto.Extension.RepeatedExtension"
-            , indent 2 $ txt "{ Proto.Extension.reNumber   = " <> pretty (tshow num)
-            , indent 2 $
-                txt ", Proto.Extension.reType     = Proto.Extension."
-                  <> pretty extTag
-            , indent 2 $
-                txt ", Proto.Extension.reIsPacked = "
-                  <> (if packed then txt "True" else txt "False")
-            , indent 2 $ txt "}"
-            ]
-          else
-            [ mempty
-            , txt fieldNameHs
-                <> txt " :: Proto.Extension.Extension "
-                <> pretty ownerHsType
-                <> txt " "
-                <> haskellType
-            , txt fieldNameHs <> txt " = Proto.Extension.Extension"
-            , indent 2 $ txt "{ Proto.Extension.extNumber = " <> pretty (tshow num)
-            , indent 2 $
-                txt ", Proto.Extension.extType   = Proto.Extension."
-                  <> pretty extTag
-            , indent 2 $ txt "}"
-            ]
+       Nothing ->
+         [ mempty
+         , txt "-- WARNING: extension '"
+             <> pretty (fieldName fd)
+             <> txt "' uses an unsupported shape and was skipped."
+         ]
+       Just (haskellType, extTag) ->
+         if repeated
+           then
+             [ mempty
+             , txt fieldNameHs
+                 <> txt " :: Proto.Extension.RepeatedExtension "
+                 <> pretty ownerHsType
+                 <> txt " "
+                 <> haskellType
+             , txt fieldNameHs <> txt " = Proto.Extension.RepeatedExtension"
+             , indent 2 $ txt "{ Proto.Extension.reNumber   = " <> pretty (tshow num)
+             , indent 2 $
+                 txt ", Proto.Extension.reType     = Proto.Extension."
+                   <> pretty extTag
+             , indent 2 $
+                 txt ", Proto.Extension.reIsPacked = "
+                   <> (if packed then txt "True" else txt "False")
+             , indent 2 $ txt "}"
+             ]
+           else
+             [ mempty
+             , txt fieldNameHs
+                 <> txt " :: Proto.Extension.Extension "
+                 <> pretty ownerHsType
+                 <> txt " "
+                 <> haskellType
+             , txt fieldNameHs <> txt " = Proto.Extension.Extension"
+             , indent 2 $ txt "{ Proto.Extension.extNumber = " <> pretty (tshow num)
+             , indent 2 $
+                 txt ", Proto.Extension.extType   = Proto.Extension."
+                   <> pretty extTag
+             , indent 2 $ txt "}"
+             ]
 
 
 {- | Project a proto 'FieldType' onto @(Haskell type,
@@ -2463,11 +2465,11 @@ qualifyExtendedType ctx pkg name =
         Just ti -> Just ti
         Nothing -> go cs
   in case go candidates of
-      Just ti
-        | tiModule ti /= gcThisMod ctx ->
-            moduleAlias (tiModule ti) <> "." <> tiHsName ti
-        | otherwise -> tiHsName ti
-      Nothing -> hsTypeName (lastDot name)
+       Just ti
+         | tiModule ti /= gcThisMod ctx ->
+             moduleAlias (tiModule ti) <> "." <> tiHsName ti
+         | otherwise -> tiHsName ti
+       Nothing -> hsTypeName (lastDot name)
 
 
 lastDot :: Text -> Text
@@ -2508,9 +2510,9 @@ genEnum ctx scope ed =
      , mempty
      , genEnumHashableInstance scope' ed
      ]
-      <> case hookDocs of
-        [] -> []
-        ds -> [mempty, vsep ds]
+       <> case hookDocs of
+         [] -> []
+         ds -> [mempty, vsep ds]
 
 
 genEnumDataDecl :: [Text] -> EnumDef -> Doc ann
@@ -2538,13 +2540,13 @@ genEnumDataDecl scope ed =
           )
           aliasVals
   in vsep $
-      haddockDoc (enumDoc ed)
-        <> [ txt "data " <> pretty tyN
-           , indent 2 (vsep (concatMap (\(pfx, v) -> (pfx <+> pretty (scopedEnumCon scope (evName v))) : haddockFieldDoc (evDoc v)) (zip seps primaryVals)))
-           , indent 2 deriveLine
-           , indent 2 (txt "deriving anyclass NFData")
-           ]
-        <> aliasSyns
+       haddockDoc (enumDoc ed)
+         <> [ txt "data " <> pretty tyN
+            , indent 2 (vsep (concatMap (\(pfx, v) -> (pfx <+> pretty (scopedEnumCon scope (evName v))) : haddockFieldDoc (evDoc v)) (zip seps primaryVals)))
+            , indent 2 deriveLine
+            , indent 2 (txt "deriving anyclass NFData")
+            ]
+         <> aliasSyns
   where
     seps = txt "=" : repeat (txt "|")
 
@@ -2560,9 +2562,9 @@ genEnumToProto scope ed =
           <+> txt "= "
           <> pretty (T.pack (show (evNumber ev)))
   in vsep
-      [ txt "toProtoEnum" <> pretty tyN <+> txt "::" <+> pretty tyN <+> txt "-> Int"
-      , vsep (fmap genCase primaryVals)
-      ]
+       [ txt "toProtoEnum" <> pretty tyN <+> txt "::" <+> pretty tyN <+> txt "-> Int"
+       , vsep (fmap genCase primaryVals)
+       ]
 
 
 genEnumFromProto :: [Text] -> EnumDef -> Doc ann
@@ -2576,10 +2578,10 @@ genEnumFromProto scope ed =
           <+> txt "= Just "
           <> pretty (scopedEnumCon scope (evName ev))
   in vsep
-      [ txt "fromProtoEnum" <> pretty tyN <+> txt "::" <+> txt "Int -> Maybe " <> pretty tyN
-      , vsep (fmap genCase primaryVals)
-      , txt "fromProtoEnum" <> pretty tyN <+> txt "_ = Nothing"
-      ]
+       [ txt "fromProtoEnum" <> pretty tyN <+> txt "::" <+> txt "Int -> Maybe " <> pretty tyN
+       , vsep (fmap genCase primaryVals)
+       , txt "fromProtoEnum" <> pretty tyN <+> txt "_ = Nothing"
+       ]
 
 
 enumHasAliases :: EnumDef -> Bool
@@ -2617,13 +2619,13 @@ genEnumEncodeInstance :: [Text] -> EnumDef -> Doc ann
 genEnumEncodeInstance scope _ed =
   let tyN = scopedTypeName scope
   in vsep
-      [ instanceHead "MessageEncode" tyN
-      , indent 2 (txt "buildMessage _ = mempty")
-      , instanceHead "MessageSize" tyN
-      , indent 2 (txt "messageSize _ = 0")
-      , instanceHead "MessageDecode" tyN
-      , indent 2 (txt "messageDecoder = pure (toEnum 0)")
-      ]
+       [ instanceHead "MessageEncode" tyN
+       , indent 2 (txt "buildMessage _ = mempty")
+       , instanceHead "MessageSize" tyN
+       , indent 2 (txt "messageSize _ = 0")
+       , instanceHead "MessageDecode" tyN
+       , indent 2 (txt "messageDecoder = pure (toEnum 0)")
+       ]
 
 
 genEnumToJSONInstance :: [Text] -> EnumDef -> Doc ann
@@ -2637,9 +2639,9 @@ genEnumToJSONInstance scope ed =
           <> pretty (evName ev)
           <> pretty ("\"" :: Text)
   in vsep
-      [ instanceHead "Aeson.ToJSON" tyN
-      , indent 2 (vsep (fmap genCase primaryVals))
-      ]
+       [ instanceHead "Aeson.ToJSON" tyN
+       , indent 2 (vsep (fmap genCase primaryVals))
+       ]
 
 
 genEnumFromJSONInstance :: [Text] -> EnumDef -> Doc ann
@@ -2656,15 +2658,15 @@ genEnumFromJSONInstance scope ed =
               <> pretty (" (round n) of { Just v -> pure v; Nothing -> fail \"Invalid enum\" }" :: Text)
           else txt "  Aeson.Number n -> pure (toEnum (round n))"
   in vsep
-      [ instanceHead "Aeson.FromJSON" tyN
-      , indent 2 $
-          vsep
-            [ txt "parseJSON = \\case"
-            , vsep (fmap genCase (enumValues ed))
-            , fallbackNumCase
-            , txt "  _ -> fail " <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
-            ]
-      ]
+       [ instanceHead "Aeson.FromJSON" tyN
+       , indent 2 $
+           vsep
+             [ txt "parseJSON = \\case"
+             , vsep (fmap genCase (enumValues ed))
+             , fallbackNumCase
+             , txt "  _ -> fail " <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
+             ]
+       ]
 
 
 -- ---------------------------------------------------------------------------
@@ -2825,8 +2827,8 @@ snakeToCamel :: Text -> Text
 snakeToCamel t =
   let parts = T.splitOn "_" t
   in case parts of
-      [] -> t
-      (p : ps) -> T.concat (lowerFirst p : fmap titleCase ps)
+       [] -> t
+       (p : ps) -> T.concat (lowerFirst p : fmap titleCase ps)
 
 
 {- | Proto3 JSON name conversion per the canonical spec

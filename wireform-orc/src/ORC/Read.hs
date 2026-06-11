@@ -93,11 +93,12 @@ data ORCFile = ORCFile
   , ofFooter :: !ORCFooter
   , ofCompression :: !CompressionKind
   , ofCompressionBlockSize :: !Int
-  -- ^ Maximum uncompressed length of any one chunk
-  -- (ORC PostScript field 4). Decompressors that need to
-  -- size their output buffer (LZ4, LZO) use this. Defaults
-  -- to 'defaultORCCompressionBlockSize' (256 KiB) for files
-  -- whose PostScript omits the field.
+  {- ^ Maximum uncompressed length of any one chunk
+  (ORC PostScript field 4). Decompressors that need to
+  size their output buffer (LZ4, LZO) use this. Defaults
+  to 'defaultORCCompressionBlockSize' (256 KiB) for files
+  whose PostScript omits the field.
+  -}
   }
   deriving stock (Show, Eq)
 
@@ -488,8 +489,8 @@ readVarUnsigned bs = go 0 0
               !chunk = fromIntegral (b .&. 0x7F) :: Integer
               !acc' = acc .|. (chunk `shiftL` shift)
           in if b .&. 0x80 == 0
-              then Right (acc', off + 1)
-              else go (shift + 7) acc' (off + 1)
+               then Right (acc', off + 1)
+               else go (shift + 7) acc' (off + 1)
 
 
 {- | Decode a DICTIONARY_V2-encoded string column.
@@ -744,15 +745,15 @@ readDoubleLE bs !off =
       !b6 = fromIntegral (BS.index bs (off + 6)) :: Word64
       !b7 = fromIntegral (BS.index bs (off + 7)) :: Word64
   in castWord64ToDouble
-      ( b0
-          .|. (b1 `shiftL` 8)
-          .|. (b2 `shiftL` 16)
-          .|. (b3 `shiftL` 24)
-          .|. (b4 `shiftL` 32)
-          .|. (b5 `shiftL` 40)
-          .|. (b6 `shiftL` 48)
-          .|. (b7 `shiftL` 56)
-      )
+       ( b0
+           .|. (b1 `shiftL` 8)
+           .|. (b2 `shiftL` 16)
+           .|. (b3 `shiftL` 24)
+           .|. (b4 `shiftL` 32)
+           .|. (b5 `shiftL` 40)
+           .|. (b6 `shiftL` 48)
+           .|. (b7 `shiftL` 56)
+       )
 
 
 ------------------------------------------------------------------------

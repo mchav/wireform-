@@ -102,31 +102,35 @@ import Wireform.Derive.Modifier (MapKeyScalar (..))
 
 -- | How the field is wrapped on the Haskell side.
 data ProtoFieldKind
-  = -- | Singular scalar / submessage / enum field. Encode with the
-    -- proto3 default-skip rule (scalars only; submessages and enums
-    -- always encode at least the tag, but a missing tag decodes to
-    -- the zero value).
+  = {- | Singular scalar / submessage / enum field. Encode with the
+    proto3 default-skip rule (scalars only; submessages and enums
+    always encode at least the tag, but a missing tag decodes to
+    the zero value).
+    -}
     FKBare
   | -- | @Maybe a@-wrapped singular field. Encode only when 'Just'.
     FKMaybe
-  | -- | A repeated field carried by a container chosen by the
-    -- 'RepeatedAdapter'. The element type lives in @pfInnerTy@ and
-    -- the wire encoding in @pfType@. 'RepeatedMode' selects packed
-    -- vs. unpacked on the encoder side; the decoder always accepts
-    -- both when the element is a packable scalar (per the proto3
-    -- spec, a parser must accept both encodings regardless of how
-    -- the writer chose).
+  | {- | A repeated field carried by a container chosen by the
+    'RepeatedAdapter'. The element type lives in @pfInnerTy@ and
+    the wire encoding in @pfType@. 'RepeatedMode' selects packed
+    vs. unpacked on the encoder side; the decoder always accepts
+    both when the element is a packable scalar (per the proto3
+    spec, a parser must accept both encodings regardless of how
+    the writer chose).
+    -}
     FKRepeated !RepeatedAdapter !RepeatedMode
-  | -- | A proto3 @map<K, V>@ field carried by a strict
-    -- 'Data.Map.Strict.Map'. The key's wire encoding is the
-    -- supplied 'MapKeyScalar'; the value's wire encoding is in
-    -- @pfType@ and the value's Haskell type is @pfInnerTy@.
+  | {- | A proto3 @map<K, V>@ field carried by a strict
+    'Data.Map.Strict.Map'. The key's wire encoding is the
+    supplied 'MapKeyScalar'; the value's wire encoding is in
+    @pfType@ and the value's Haskell type is @pfInnerTy@.
+    -}
     FKMap !MapKeyScalar
-  | -- | A proto @oneof@ carried as a Haskell @Maybe SumType@. Each
-    -- variant's tag, constructor, and payload type lives inline.
-    -- @pfTag@ is unused for oneofs; @pfType@ / @pfInnerTy@ describe
-    -- the carrier @Maybe SumType@ but are ignored by the body
-    -- builders.
+  | {- | A proto @oneof@ carried as a Haskell @Maybe SumType@. Each
+    variant's tag, constructor, and payload type lives inline.
+    @pfTag@ is unused for oneofs; @pfType@ / @pfInnerTy@ describe
+    the carrier @Maybe SumType@ but are ignored by the body
+    builders.
+    -}
     FKOneof ![OneofVariant]
 
 
@@ -170,11 +174,13 @@ data OneofVariant = OneofVariant
   , ovType :: !ProtoFieldType
   -- ^ Wire encoding for the arm's payload.
   , ovStringAdapter :: StringAdapter
-  -- ^ String adapter for this variant when
-  -- @ovType = PFScalar SString@.
+  {- ^ String adapter for this variant when
+  @ovType = PFScalar SString@.
+  -}
   , ovBytesAdapter :: BytesAdapter
-  -- ^ Bytes adapter for this variant when
-  -- @ovType = PFScalar SBytes@.
+  {- ^ Bytes adapter for this variant when
+  @ovType = PFScalar SBytes@.
+  -}
   }
 
 
@@ -199,11 +205,13 @@ oneofVariant con tg innerTy ty =
 data ProtoFieldType
   = -- | Recognised scalar.
     PFScalar !Scalar
-  | -- | Submessage with existing 'PE.MessageEncode' \/
-    -- 'PD.MessageDecode' \/ 'PE.MessageSize' instances.
+  | {- | Submessage with existing 'PE.MessageEncode' \/
+    'PD.MessageDecode' \/ 'PE.MessageSize' instances.
+    -}
     PFSubmessage
-  | -- | A Haskell @Enum@ (any datatype with derived @Enum@).
-    -- Encoded as a varint via 'fromEnum' / 'toEnum'.
+  | {- | A Haskell @Enum@ (any datatype with derived @Enum@).
+    Encoded as a varint via 'fromEnum' / 'toEnum'.
+    -}
     PFEnum
   deriving stock (Eq, Show)
 
@@ -258,19 +266,23 @@ data ProtoField = ProtoField
   , pfTag :: !Int
   , pfKind :: !ProtoFieldKind
   , pfType :: !ProtoFieldType
-  -- ^ Wire encoding for the field's element/value (singular,
-  -- repeated, map-value). Ignored for 'FKOneof' (each variant
-  -- carries its own).
+  {- ^ Wire encoding for the field's element/value (singular,
+  repeated, map-value). Ignored for 'FKOneof' (each variant
+  carries its own).
+  -}
   , pfInnerTy :: !Type
-  -- ^ Type of the unwrapped value (no 'Maybe', no container).
-  -- For maps, this is the value type. For oneofs this is the
-  -- carrier @Maybe SumType@ — body builders ignore it.
+  {- ^ Type of the unwrapped value (no 'Maybe', no container).
+  For maps, this is the value type. For oneofs this is the
+  carrier @Maybe SumType@ — body builders ignore it.
+  -}
   , pfStringAdapter :: StringAdapter
-  -- ^ Adapter for proto @string@ fields. Only consulted when
-  -- @pfType = PFScalar SString@.
+  {- ^ Adapter for proto @string@ fields. Only consulted when
+  @pfType = PFScalar SString@.
+  -}
   , pfBytesAdapter :: BytesAdapter
-  -- ^ Adapter for proto @bytes@ fields. Only consulted when
-  -- @pfType = PFScalar SBytes@.
+  {- ^ Adapter for proto @bytes@ fields. Only consulted when
+  @pfType = PFScalar SBytes@.
+  -}
   }
 
 
@@ -307,9 +319,10 @@ tags.
 -}
 newtype MessageMeta = MessageMeta
   { mmUnknownFieldsSel :: Maybe Name
-  -- ^ Selector for an @[Decode.UnknownField]@ field on the
-  -- record. When set, the codecs round-trip unknown tags through
-  -- this slot.
+  {- ^ Selector for an @[Decode.UnknownField]@ field on the
+  record. When set, the codecs round-trip unknown tags through
+  this slot.
+  -}
   }
   deriving stock (Show)
 
@@ -565,17 +578,17 @@ mkSemigroupInstanceWith meta ty conName fs = do
             getA = AppE (VarE sel) (VarE aName)
             getB = AppE (VarE sel) (VarE bName)
         in case pfKind pf of
-            FKRepeated _ _ -> [|$(pure getA) <> $(pure getB)|]
-            FKMap _ -> [|$(pure getA) <> $(pure getB)|]
-            FKOneof _ -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
-            FKMaybe -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
-            _ -> case pfType pf of
-              PFSubmessage -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
-              PFEnum -> [|if $(pure getB) == toEnum 0 then $(pure getA) else $(pure getB)|]
-              PFScalar SBool -> [|if not $(pure getB) then $(pure getA) else $(pure getB)|]
-              PFScalar SString -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
-              PFScalar SBytes -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
-              PFScalar _ -> [|if $(pure getB) == 0 then $(pure getA) else $(pure getB)|]
+             FKRepeated _ _ -> [|$(pure getA) <> $(pure getB)|]
+             FKMap _ -> [|$(pure getA) <> $(pure getB)|]
+             FKOneof _ -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
+             FKMaybe -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
+             _ -> case pfType pf of
+               PFSubmessage -> [|case $(pure getB) of Nothing -> $(pure getA); b' -> b'|]
+               PFEnum -> [|if $(pure getB) == toEnum 0 then $(pure getA) else $(pure getB)|]
+               PFScalar SBool -> [|if not $(pure getB) then $(pure getA) else $(pure getB)|]
+               PFScalar SString -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
+               PFScalar SBytes -> [|if $(pure getB) == mempty then $(pure getA) else $(pure getB)|]
+               PFScalar _ -> [|if $(pure getB) == 0 then $(pure getA) else $(pure getB)|]
   fieldExps <-
     mapM
       ( \pf -> do
@@ -919,9 +932,9 @@ oneofSizeArm v ov =
           , pfBytesAdapter = ovBytesAdapter ov
           }
   in [|
-      PWE.tagSize $(litE (integerL (fromIntegral (ovTag ov))))
-        + $(sizeSingleE pseudo v)
-      |]
+       PWE.tagSize $(litE (integerL (fromIntegral (ovTag ov))))
+         + $(sizeSingleE pseudo v)
+       |]
 
 
 pfTagByte :: ProtoField -> Int
@@ -1060,34 +1073,34 @@ encodeSingleArchE pf tagInt v =
   let tagWord = litE (integerL (fromIntegral tagInt))
       var = varE v
   in case pfType pf of
-      PFScalar SInt32 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Int32))|]
-      PFScalar SInt64 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Int64))|]
-      PFScalar SUInt32 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Word32))|]
-      PFScalar SUInt64 -> [|PA.archVarint $tagWord ($var :: Word64)|]
-      PFScalar SSInt32 -> [|PA.archSVarint32 $tagWord ($var :: Int32)|]
-      PFScalar SSInt64 -> [|PA.archSVarint64 $tagWord ($var :: Int64)|]
-      PFScalar SFixed32 -> [|PA.archFixed32 $tagWord ($var :: Word32)|]
-      PFScalar SFixed64 -> [|PA.archFixed64 $tagWord ($var :: Word64)|]
-      PFScalar SSFixed32 -> [|PA.archFixed32 $tagWord (fromIntegral ($var :: Int32))|]
-      PFScalar SSFixed64 -> [|PA.archFixed64 $tagWord (fromIntegral ($var :: Int64))|]
-      PFScalar SBool -> [|PA.archBool $tagWord ($var :: Bool)|]
-      PFScalar SFloat -> [|PA.archFloat $tagWord ($var :: Float)|]
-      PFScalar SDouble -> [|PA.archDouble $tagWord ($var :: Double)|]
-      PFScalar SString -> stringEncodeE (pfStringAdapter pf) tagInt v
-      PFScalar SBytes -> bytesEncodeE (pfBytesAdapter pf) tagInt v
-      PFSubmessage ->
-        [|
-          let !sz = PE.messageSize $var
-          in PA.archSubmessage $tagWord sz (PE.buildMessage $var)
-          |]
-      PFEnum ->
-        -- 'encodeFieldEnum' takes the proto field number (it computes
-        -- its own varint tag); we recover @fieldNumber = tagByte / 8@.
-        [|
-          PE.encodeFieldEnum
-            $(litE (integerL (fromIntegral (tagInt `quot` 8))))
-            $var
-          |]
+       PFScalar SInt32 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Int32))|]
+       PFScalar SInt64 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Int64))|]
+       PFScalar SUInt32 -> [|PA.archVarint $tagWord (fromIntegral ($var :: Word32))|]
+       PFScalar SUInt64 -> [|PA.archVarint $tagWord ($var :: Word64)|]
+       PFScalar SSInt32 -> [|PA.archSVarint32 $tagWord ($var :: Int32)|]
+       PFScalar SSInt64 -> [|PA.archSVarint64 $tagWord ($var :: Int64)|]
+       PFScalar SFixed32 -> [|PA.archFixed32 $tagWord ($var :: Word32)|]
+       PFScalar SFixed64 -> [|PA.archFixed64 $tagWord ($var :: Word64)|]
+       PFScalar SSFixed32 -> [|PA.archFixed32 $tagWord (fromIntegral ($var :: Int32))|]
+       PFScalar SSFixed64 -> [|PA.archFixed64 $tagWord (fromIntegral ($var :: Int64))|]
+       PFScalar SBool -> [|PA.archBool $tagWord ($var :: Bool)|]
+       PFScalar SFloat -> [|PA.archFloat $tagWord ($var :: Float)|]
+       PFScalar SDouble -> [|PA.archDouble $tagWord ($var :: Double)|]
+       PFScalar SString -> stringEncodeE (pfStringAdapter pf) tagInt v
+       PFScalar SBytes -> bytesEncodeE (pfBytesAdapter pf) tagInt v
+       PFSubmessage ->
+         [|
+           let !sz = PE.messageSize $var
+           in PA.archSubmessage $tagWord sz (PE.buildMessage $var)
+           |]
+       PFEnum ->
+         -- 'encodeFieldEnum' takes the proto field number (it computes
+         -- its own varint tag); we recover @fieldNumber = tagByte / 8@.
+         [|
+           PE.encodeFieldEnum
+             $(litE (integerL (fromIntegral (tagInt `quot` 8))))
+             $var
+           |]
 
 
 {- | Slow path: field number > 15, so the wire tag is two or more
@@ -1099,23 +1112,23 @@ encodeSingleSlowE pf v =
   let var = varE v
       fieldN = litE (integerL (fromIntegral (pfTag pf)))
   in case pfType pf of
-      PFScalar SInt32 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Int32))|]
-      PFScalar SInt64 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Int64))|]
-      PFScalar SUInt32 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Word32))|]
-      PFScalar SUInt64 -> [|PE.encodeFieldVarint $fieldN ($var :: Word64)|]
-      PFScalar SSInt32 -> [|PE.encodeFieldSVarint32 $fieldN ($var :: Int32)|]
-      PFScalar SSInt64 -> [|PE.encodeFieldSVarint64 $fieldN ($var :: Int64)|]
-      PFScalar SFixed32 -> [|PE.encodeFieldFixed32 $fieldN ($var :: Word32)|]
-      PFScalar SFixed64 -> [|PE.encodeFieldFixed64 $fieldN ($var :: Word64)|]
-      PFScalar SSFixed32 -> [|PE.encodeFieldFixed32 $fieldN (fromIntegral ($var :: Int32))|]
-      PFScalar SSFixed64 -> [|PE.encodeFieldFixed64 $fieldN (fromIntegral ($var :: Int64))|]
-      PFScalar SBool -> [|PE.encodeFieldBool $fieldN ($var :: Bool)|]
-      PFScalar SFloat -> [|PE.encodeFieldFloat $fieldN ($var :: Float)|]
-      PFScalar SDouble -> [|PE.encodeFieldDouble $fieldN ($var :: Double)|]
-      PFScalar SString -> [|$(stringEncode (pfStringAdapter pf)) $fieldN $var|]
-      PFScalar SBytes -> [|$(bytesEncode (pfBytesAdapter pf)) $fieldN $var|]
-      PFSubmessage -> [|PE.encodeFieldMessageSized $fieldN $var|]
-      PFEnum -> [|PE.encodeFieldEnum $fieldN $var|]
+       PFScalar SInt32 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Int32))|]
+       PFScalar SInt64 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Int64))|]
+       PFScalar SUInt32 -> [|PE.encodeFieldVarint $fieldN (fromIntegral ($var :: Word32))|]
+       PFScalar SUInt64 -> [|PE.encodeFieldVarint $fieldN ($var :: Word64)|]
+       PFScalar SSInt32 -> [|PE.encodeFieldSVarint32 $fieldN ($var :: Int32)|]
+       PFScalar SSInt64 -> [|PE.encodeFieldSVarint64 $fieldN ($var :: Int64)|]
+       PFScalar SFixed32 -> [|PE.encodeFieldFixed32 $fieldN ($var :: Word32)|]
+       PFScalar SFixed64 -> [|PE.encodeFieldFixed64 $fieldN ($var :: Word64)|]
+       PFScalar SSFixed32 -> [|PE.encodeFieldFixed32 $fieldN (fromIntegral ($var :: Int32))|]
+       PFScalar SSFixed64 -> [|PE.encodeFieldFixed64 $fieldN (fromIntegral ($var :: Int64))|]
+       PFScalar SBool -> [|PE.encodeFieldBool $fieldN ($var :: Bool)|]
+       PFScalar SFloat -> [|PE.encodeFieldFloat $fieldN ($var :: Float)|]
+       PFScalar SDouble -> [|PE.encodeFieldDouble $fieldN ($var :: Double)|]
+       PFScalar SString -> [|$(stringEncode (pfStringAdapter pf)) $fieldN $var|]
+       PFScalar SBytes -> [|$(bytesEncode (pfBytesAdapter pf)) $fieldN $var|]
+       PFSubmessage -> [|PE.encodeFieldMessageSized $fieldN $var|]
+       PFEnum -> [|PE.encodeFieldEnum $fieldN $var|]
 
 
 {- | Adapter-based string encoder. Splices the adapter's encode
@@ -1182,8 +1195,8 @@ encodePackedScalarE pf sc getter = do
       else
         let !payloadSize = ($(pure sizeE)) :: Int
         in PWE.putTag $(litE (IntegerL tagN)) PWire.WireLengthDelimited
-            <> PWE.putVarint (fromIntegral payloadSize)
-            <> $(pure bytesE)
+             <> PWE.putVarint (fromIntegral payloadSize)
+             <> $(pure bytesE)
     |]
   where
     rep = case pfKind pf of
@@ -1218,8 +1231,8 @@ sizePackedScalarE pf sc getter = do
       else
         let !payloadSize = ($(pure foldedE)) :: Int
         in PWE.tagSize $(litE (IntegerL tagN))
-            + PWE.varintSize (fromIntegral payloadSize)
-            + payloadSize
+             + PWE.varintSize (fromIntegral payloadSize)
+             + payloadSize
     |]
   where
     rep = case pfKind pf of
@@ -1234,21 +1247,21 @@ packedElemSizeE :: Scalar -> Name -> Q Exp
 packedElemSizeE sc v =
   let var = varE v
   in case sc of
-      SInt32 -> [|PWE.varintSize (fromIntegral ($var :: Int32))|]
-      SInt64 -> [|PWE.varintSize (fromIntegral ($var :: Int64))|]
-      SUInt32 -> [|PWE.varintSize (fromIntegral ($var :: Word32))|]
-      SUInt64 -> [|PWE.varintSize ($var :: Word64)|]
-      SSInt32 -> [|PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32)))|]
-      SSInt64 -> [|PWE.varintSize (PWE.zigZag64 ($var :: Int64))|]
-      SFixed32 -> [|4 :: Int|]
-      SFixed64 -> [|8 :: Int|]
-      SSFixed32 -> [|4 :: Int|]
-      SSFixed64 -> [|8 :: Int|]
-      SBool -> [|1 :: Int|]
-      SFloat -> [|4 :: Int|]
-      SDouble -> [|8 :: Int|]
-      SString -> error "Proto.Internal.Derive: SString is not packable"
-      SBytes -> error "Proto.Internal.Derive: SBytes is not packable"
+       SInt32 -> [|PWE.varintSize (fromIntegral ($var :: Int32))|]
+       SInt64 -> [|PWE.varintSize (fromIntegral ($var :: Int64))|]
+       SUInt32 -> [|PWE.varintSize (fromIntegral ($var :: Word32))|]
+       SUInt64 -> [|PWE.varintSize ($var :: Word64)|]
+       SSInt32 -> [|PWE.varintSize (fromIntegral (PWE.zigZag32 ($var :: Int32)))|]
+       SSInt64 -> [|PWE.varintSize (PWE.zigZag64 ($var :: Int64))|]
+       SFixed32 -> [|4 :: Int|]
+       SFixed64 -> [|8 :: Int|]
+       SSFixed32 -> [|4 :: Int|]
+       SSFixed64 -> [|8 :: Int|]
+       SBool -> [|1 :: Int|]
+       SFloat -> [|4 :: Int|]
+       SDouble -> [|8 :: Int|]
+       SString -> error "Proto.Internal.Derive: SString is not packable"
+       SBytes -> error "Proto.Internal.Derive: SBytes is not packable"
 
 
 {- | Per-element on-wire bytes for a packed scalar (just the
@@ -1258,21 +1271,21 @@ packedElemBytesE :: Scalar -> Name -> Q Exp
 packedElemBytesE sc v =
   let var = varE v
   in case sc of
-      SInt32 -> [|PWE.putVarint (fromIntegral ($var :: Int32))|]
-      SInt64 -> [|PWE.putVarint (fromIntegral ($var :: Int64))|]
-      SUInt32 -> [|PWE.putVarint (fromIntegral ($var :: Word32))|]
-      SUInt64 -> [|PWE.putVarint ($var :: Word64)|]
-      SSInt32 -> [|PWE.putSVarint32 ($var :: Int32)|]
-      SSInt64 -> [|PWE.putSVarint64 ($var :: Int64)|]
-      SFixed32 -> [|PWE.putFixed32 ($var :: Word32)|]
-      SFixed64 -> [|PWE.putFixed64 ($var :: Word64)|]
-      SSFixed32 -> [|PWE.putFixed32 (fromIntegral ($var :: Int32))|]
-      SSFixed64 -> [|PWE.putFixed64 (fromIntegral ($var :: Int64))|]
-      SBool -> [|PWE.putVarint (if ($var :: Bool) then 1 else 0)|]
-      SFloat -> [|PWE.putFloat ($var :: Float)|]
-      SDouble -> [|PWE.putDouble ($var :: Double)|]
-      SString -> error "Proto.Internal.Derive: SString is not packable"
-      SBytes -> error "Proto.Internal.Derive: SBytes is not packable"
+       SInt32 -> [|PWE.putVarint (fromIntegral ($var :: Int32))|]
+       SInt64 -> [|PWE.putVarint (fromIntegral ($var :: Int64))|]
+       SUInt32 -> [|PWE.putVarint (fromIntegral ($var :: Word32))|]
+       SUInt64 -> [|PWE.putVarint ($var :: Word64)|]
+       SSInt32 -> [|PWE.putSVarint32 ($var :: Int32)|]
+       SSInt64 -> [|PWE.putSVarint64 ($var :: Int64)|]
+       SFixed32 -> [|PWE.putFixed32 ($var :: Word32)|]
+       SFixed64 -> [|PWE.putFixed64 ($var :: Word64)|]
+       SSFixed32 -> [|PWE.putFixed32 (fromIntegral ($var :: Int32))|]
+       SSFixed64 -> [|PWE.putFixed64 (fromIntegral ($var :: Int64))|]
+       SBool -> [|PWE.putVarint (if ($var :: Bool) then 1 else 0)|]
+       SFloat -> [|PWE.putFloat ($var :: Float)|]
+       SDouble -> [|PWE.putDouble ($var :: Double)|]
+       SString -> error "Proto.Internal.Derive: SString is not packable"
+       SBytes -> error "Proto.Internal.Derive: SBytes is not packable"
 
 
 -- | Emptiness predicate for a repeated container.
@@ -1339,8 +1352,8 @@ encodePackedEnumE pf getter = do
       else
         let !payloadSize = ($(pure sizeE)) :: Int
         in PWE.putTag $(litE (IntegerL tagN)) PWire.WireLengthDelimited
-            <> PWE.putVarint (fromIntegral payloadSize)
-            <> $(pure bytesE)
+             <> PWE.putVarint (fromIntegral payloadSize)
+             <> $(pure bytesE)
     |]
   where
     rep = case pfKind pf of
@@ -1382,8 +1395,8 @@ sizePackedEnumE pf getter = do
       else
         let !payloadSize = ($(pure foldedE)) :: Int
         in PWE.tagSize $(litE (IntegerL tagN))
-            + PWE.varintSize (fromIntegral payloadSize)
-            + payloadSize
+             + PWE.varintSize (fromIntegral payloadSize)
+             + payloadSize
     |]
   where
     rep = case pfKind pf of
@@ -1626,8 +1639,9 @@ decodeLoopBody
   -- ^ Loop function name.
   -> [(ProtoField, Name)]
   -> Maybe Name
-  -- ^ Unknown-fields accumulator name (when
-  --   'mmUnknownFieldsSel' is set).
+  {- ^ Unknown-fields accumulator name (when
+  'mmUnknownFieldsSel' is set).
+  -}
   -> Q Exp
 decodeLoopBody meta conName loopName pairs ufAccM = do
   fnVar <- newName "fn"

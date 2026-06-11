@@ -6,37 +6,45 @@ module Streams.InteractiveQueriesSpec (tests) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Text as T
+import Data.ByteString.Char8 qualified as BSC
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
+import Kafka.Streams.State.Store (
+  KeyValueIterator (..),
+  kvIteratorToList,
+ )
 import Test.Syd
 
-import Kafka.Streams.Imperative
-import Kafka.Streams.State.Store
-  ( KeyValueIterator (..)
-  , kvIteratorToList
-  )
 
 tests :: Spec
-tests = describe "InteractiveQueries" $ sequence_
-  [ iq_get_and_count
-  , iq_concurrent_read_during_writes
-  , iq_range_iterator
-  ]
+tests =
+  describe "InteractiveQueries" $
+    sequence_
+      [ iq_get_and_count
+      , iq_concurrent_read_during_writes
+      , iq_range_iterator
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
+
 
 iq_get_and_count :: Spec
 iq_get_and_count =
   it "queryEngineStore returns the same data as the in-task accessor" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "iq-store"))
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "iq-store"))
     topo <- buildTopology b
     driver <- newDriver topo "iq-app"
 
@@ -54,13 +62,17 @@ iq_get_and_count =
         ro.roKvCount >>= (`shouldBe` 2)
     closeDriver driver
 
+
 iq_concurrent_read_during_writes :: Spec
 iq_concurrent_read_during_writes =
   it "queryEngineStore is safe under concurrent reads + writes" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "iq-conc-store"))
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "iq-conc-store"))
     topo <- buildTopology b
     driver <- newDriver topo "iq-c-app"
 
@@ -72,7 +84,7 @@ iq_concurrent_read_during_writes =
     -- after every read, signals on the MVar. The main thread feeds
     -- updates and asserts that no read panics.
     finished <- newEmptyMVar
-    started  <- newEmptyMVar
+    started <- newEmptyMVar
     _ <- forkIO $ do
       putMVar started ()
       loop 1000 (readNonNothing ro)
@@ -80,11 +92,15 @@ iq_concurrent_read_during_writes =
     takeMVar started
     -- Drive 1000 updates while the reader is hot.
     mapM_
-      (\i ->
-        pipeInput driver (topicName "in") (Just (bytes "k"))
-          (bytes (T.pack ("v" <> show i)))
-          (t (fromIntegral i))
-          0)
+      ( \i ->
+          pipeInput
+            driver
+            (topicName "in")
+            (Just (bytes "k"))
+            (bytes (T.pack ("v" <> show i)))
+            (t (fromIntegral i))
+            0
+      )
       [1 .. 1000 :: Int]
     takeMVar finished
     -- Final state should be the last value we wrote.
@@ -99,20 +115,30 @@ iq_concurrent_read_during_writes =
       _ <- ro.roKvGet "k"
       pure ()
 
+
 iq_range_iterator :: Spec
 iq_range_iterator =
   it "queryEngineStore: range iterator returns expected keys" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "iq-range-store"))
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "iq-range-store"))
     topo <- buildTopology b
     driver <- newDriver topo "iq-r-app"
 
     mapM_
-      (\k ->
-        pipeInput driver (topicName "in") (Just (bytes (T.pack k)))
-          (bytes (T.pack ("v-" <> k))) (t 0) 0)
+      ( \k ->
+          pipeInput
+            driver
+            (topicName "in")
+            (Just (bytes (T.pack k)))
+            (bytes (T.pack ("v-" <> k)))
+            (t 0)
+            0
+      )
       ["a", "b", "c", "d", "e"]
 
     Just ro <- queryEngineStore @Text @Text (driverEngine driver) (ktableStore kt)

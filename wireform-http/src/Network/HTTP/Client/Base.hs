@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | The base transport: a 'Transport' built on top of the
 low-level "Network.HTTP.Connection" single-connection API.
 
@@ -18,143 +21,158 @@ means streaming through 'Transport's @sendRaw :: IO RawResponse@
 shape would require connection-lifetime threading we don't have
 yet.
 -}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Client.Base
-  ( baseTransport
-  , baseTransportVia
-  , BaseTransportError (..)
-  ) where
+module Network.HTTP.Client.Base (
+  baseTransport,
+  baseTransportVia,
+  BaseTransportError (..),
+) where
 
 import Control.Exception (Exception, throwIO)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Maybe (fromMaybe)
+import Network.HTTP.Client.BodyStream
+import Network.HTTP.Client.Protocol
+import Network.HTTP.Client.Proxy (ProxyConfig)
+import Network.HTTP.Client.Proxy qualified as Pxy
+import Network.HTTP.Client.Request qualified as WReq
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI qualified as WURI
+import Network.HTTP.Connection qualified as Conn
+import Network.HTTP.Message qualified as Msg
+import Network.HTTP.Types.Body qualified as LB
+import Network.HTTP.Types.Version qualified as LV
+import Network.HTTP.VersionRange qualified as VR
 
-import qualified Network.HTTP.Connection    as Conn
-import qualified Network.HTTP.Message       as Msg
-import qualified Network.HTTP.Types.Body    as LB
-import qualified Network.HTTP.Types.Version as LV
-import qualified Network.HTTP.VersionRange  as VR
-
-import           Network.HTTP.Client.BodyStream
-import qualified Network.HTTP.Client.Proxy     as Pxy
-import           Network.HTTP.Client.Proxy     (ProxyConfig)
-import qualified Network.HTTP.Client.Request   as WReq
-import           Network.HTTP.Client.Protocol
-import           Network.HTTP.Client.Response
-import           Network.HTTP.Client.Transport
-import qualified Network.HTTP.Client.URI       as WURI
 
 data BaseTransportError
-  = BaseTransportInvalidURI !String
-    -- ^ Could not parse the resolved URI.
-  | BaseTransportLowLevel   !Conn.ConnectionError
+  = -- | Could not parse the resolved URI.
+    BaseTransportInvalidURI !String
+  | BaseTransportLowLevel !Conn.ConnectionError
   deriving stock (Show)
+
 
 instance Exception BaseTransportError
 
--- | The default base transport. Each call opens a connection, ships
--- the request, drains the response, and closes the connection. Use
--- TLS if the URI scheme is @https@. No proxy is consulted; for
--- proxy-aware routing use 'baseTransportVia'.
+
+{- | The default base transport. Each call opens a connection, ships
+the request, drains the response, and closes the connection. Use
+TLS if the URI scheme is @https@. No proxy is consulted; for
+proxy-aware routing use 'baseTransportVia'.
+-}
 baseTransport :: VR.VersionRange -> Transport IO
 baseTransport versionRange = baseTransportVia versionRange Pxy.noProxyConfig
 
--- | Proxy-aware variant of 'baseTransport'. The supplied
--- 'ProxyConfig' picks a per-request proxy:
---
--- * HTTPS targets through an HTTPS proxy go via @CONNECT@ +
---   in-tunnel TLS handshake.
--- * HTTP targets through an HTTP proxy dial the proxy directly;
---   the absolute-form request line is the responsibility of the
---   'Network.HTTP.Client.Proxy.withProxy' middleware.
+
+{- | Proxy-aware variant of 'baseTransport'. The supplied
+'ProxyConfig' picks a per-request proxy:
+
+* HTTPS targets through an HTTPS proxy go via @CONNECT@ +
+  in-tunnel TLS handshake.
+* HTTP targets through an HTTP proxy dial the proxy directly;
+  the absolute-form request line is the responsibility of the
+  'Network.HTTP.Client.Proxy.withProxy' middleware.
+-}
 baseTransportVia :: VR.VersionRange -> ProxyConfig -> Transport IO
 baseTransportVia versionRange pcfg = Transport $ \req -> do
   uri_ <- case WURI.renderRequestURI (WReq.requestURI req) of
-    Right u  -> pure u
+    Right u -> pure u
     Left err -> throwIO (BaseTransportInvalidURI err)
   let scheme = WURI.uriScheme uri_
       lowScheme = case scheme of
         WURI.SchemeHttps -> Msg.SchemeHttps
-        WURI.SchemeHttp  -> Msg.SchemeHttp
-      host   = BS8.unpack (WURI.uriHost uri_)
-      port   = show (WURI.uriPort uri_)
-      tls    = case scheme of
+        WURI.SchemeHttp -> Msg.SchemeHttp
+      host = BS8.unpack (WURI.uriHost uri_)
+      port = show (WURI.uriPort uri_)
+      tls = case scheme of
         WURI.SchemeHttps -> Just (Conn.defaultTlsConnectionConfig host)
-        WURI.SchemeHttp  -> Nothing
-      connCfg = Conn.ConnectionConfig
-        { Conn.connectionHost         = host
-        , Conn.connectionPort         = port
-        , Conn.connectionVersionRange = versionRange
-        , Conn.connectionTls          = tls
-        }
+        WURI.SchemeHttp -> Nothing
+      connCfg =
+        Conn.ConnectionConfig
+          { Conn.connectionHost = host
+          , Conn.connectionPort = port
+          , Conn.connectionVersionRange = versionRange
+          , Conn.connectionTls = tls
+          }
       mProxy
         | Pxy.shouldBypass pcfg (WURI.uriHost uri_) = Nothing
         | otherwise = case scheme of
-            WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+            WURI.SchemeHttp -> Pxy.proxyForHttp pcfg
             WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
       target = WURI.uriPathAndQuery uri_
-      authority = Just (WURI.uriHost uri_ <> case BS8.readInt (BS8.pack port) of
-                          Just (p, _)
-                            | scheme == WURI.SchemeHttp  && p == 80  -> ""
-                            | scheme == WURI.SchemeHttps && p == 443 -> ""
-                          _ -> ":" <> BS8.pack port)
+      authority =
+        Just
+          ( WURI.uriHost uri_ <> case BS8.readInt (BS8.pack port) of
+              Just (p, _)
+                | scheme == WURI.SchemeHttp && p == 80 -> ""
+                | scheme == WURI.SchemeHttps && p == 443 -> ""
+              _ -> ":" <> BS8.pack port
+          )
 
   lowBody <- toLowLevelBody (WReq.body req)
-  let lowReq = Msg.Request
-        { Msg.requestMethod    = WReq.method req
-        , Msg.requestTarget    = target
-        , Msg.requestAuthority = authority
-        , Msg.requestScheme    = lowScheme
-        , Msg.requestHeaders   = WReq.headers req
-        , Msg.requestBody      = lowBody
-        , Msg.requestVersion   = VR.preferredVersion versionRange
-        , Msg.requestTrailers  = pure []
-        }
+  let lowReq =
+        Msg.Request
+          { Msg.requestMethod = WReq.method req
+          , Msg.requestTarget = target
+          , Msg.requestAuthority = authority
+          , Msg.requestScheme = lowScheme
+          , Msg.requestHeaders = WReq.headers req
+          , Msg.requestBody = lowBody
+          , Msg.requestVersion = VR.preferredVersion versionRange
+          , Msg.requestTrailers = pure []
+          }
 
   Conn.withConnectionVia connCfg mProxy Nothing $ \conn -> do
     resp <- Conn.sendOn conn lowReq
     materialised <- lowLevelBodyBytes (Msg.responseBody resp)
     newPopper <- popperFromStrict materialised
-    pure RawResponse
-      { statusCode   = Msg.responseStatus resp
-      , headers      = Msg.responseHeaders resp
-      , bodyPopper   = newPopper
-      , protocolInfo = lowToProtocol resp
-      }
+    pure
+      RawResponse
+        { statusCode = Msg.responseStatus resp
+        , headers = Msg.responseHeaders resp
+        , bodyPopper = newPopper
+        , protocolInfo = lowToProtocol resp
+        }
+
 
 lowToProtocol :: Msg.Response -> ProtocolInfo WReq.Request RawResponse
 lowToProtocol resp = case Msg.responseVersion resp of
-  LV.HTTP2 -> HTTP2 Http2Info
-    { h2StreamId     = Msg.responseH2StreamId resp
-    , h2PushPromises = pure []
-    , h2CancelStream = Msg.responseCancel resp
-    }
-  _        -> HTTP1_1
+  LV.HTTP2 ->
+    HTTP2
+      Http2Info
+        { h2StreamId = Msg.responseH2StreamId resp
+        , h2PushPromises = pure []
+        , h2CancelStream = Msg.responseCancel resp
+        }
+  _ -> HTTP1_1
 
--- | Bridge from the high-level 'BodyStream' (which signals EOF with
--- an empty 'ByteString') to the low-level 'LB.Body' (which signals
--- EOF with 'Nothing'). Bodies of unknown size become 'LB.BodyStream';
--- known-size ones get folded down to 'LB.BodyBytes' so the low-level
--- encoder can set @Content-Length@ without sniffing.
+
+{- | Bridge from the high-level 'BodyStream' (which signals EOF with
+an empty 'ByteString') to the low-level 'LB.Body' (which signals
+EOF with 'Nothing'). Bodies of unknown size become 'LB.BodyStream';
+known-size ones get folded down to 'LB.BodyBytes' so the low-level
+encoder can set @Content-Length@ without sniffing.
+-}
 toLowLevelBody :: BodyStream -> IO LB.Body
 toLowLevelBody bs = case knownSize bs of
-  Just 0  -> pure LB.BodyEmpty
-  Just _  -> LB.BodyBytes <$> bodyStreamBytes bs
+  Just 0 -> pure LB.BodyEmpty
+  Just _ -> LB.BodyBytes <$> bodyStreamBytes bs
   Nothing -> pure $ LB.BodyStream $ do
     chunk <- pull bs
     if BS.null chunk then pure Nothing else pure (Just chunk)
 
--- | Materialise a low-level 'LB.Body' into a strict 'ByteString'.
---
--- Streaming bodies are adapted to the wireform 'Popper' shape
--- (empty 'ByteString' signalling EOF instead of 'Nothing') and then
--- folded with 'popperBytes', which uses a builder for O(1)
--- per-chunk appends.
+
+{- | Materialise a low-level 'LB.Body' into a strict 'ByteString'.
+
+Streaming bodies are adapted to the wireform 'Popper' shape
+(empty 'ByteString' signalling EOF instead of 'Nothing') and then
+folded with 'popperBytes', which uses a builder for O(1)
+per-chunk appends.
+-}
 lowLevelBodyBytes :: LB.Body -> IO ByteString
 lowLevelBodyBytes = \case
-  LB.BodyEmpty    -> pure BS.empty
+  LB.BodyEmpty -> pure BS.empty
   LB.BodyBytes bs -> pure bs
   LB.BodyStream p -> popperBytes (fromMaybe BS.empty <$> p)

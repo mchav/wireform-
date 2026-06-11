@@ -1,48 +1,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Cooperative rebalance + asymmetric subscription + commit-during-rebalance
--- + sendOffsetsToTxn + leader-epoch validation. Mirrors librdkafka
--- 0113 / 0118 / 0120 / 0105 / 0139.
+{- | Cooperative rebalance + asymmetric subscription + commit-during-rebalance
++ sendOffsetsToTxn + leader-epoch validation. Mirrors librdkafka
+0113 / 0118 / 0120 / 0105 / 0139.
+-}
 module Client.MockBrokerCoopSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
-import qualified Data.List as L
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.List qualified as L
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
-import Test.Syd
-
+import Data.Text qualified as T
 import Kafka.Client.Mock.Cluster
 import Kafka.Client.Mock.Consumer
 import Kafka.Client.Mock.Fault
 import Kafka.Client.Mock.Producer
+import Test.Syd
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 ts :: Integer -> Int64
 ts = fromIntegral
 
+
 tests :: Spec
-tests = describe "MockBrokerCoop" $ sequence_
-  [ -- Cooperative rebalance
-    cooperative_initial_assignment_added
-  , cooperative_member_join_revokes_overflow
-  , cooperative_member_leave_adds_back
-    -- Asymmetric subscription
-  , asymmetric_subscription_per_member_topics
-    -- Commit-during-rebalance race
-  , commit_during_rebalance_keeps_offset
-    -- Leader epoch / KIP-320
-  , leader_epoch_starts_at_zero
-  , bumpLeaderEpoch_advances_per_partition
-  , validateOffsetEpoch_accepts_match_rejects_stale
-    -- sendOffsetsToTxn
-  , send_offsets_to_txn_visible_only_after_commit
-  , send_offsets_to_txn_discarded_on_abort
-  ]
+tests =
+  describe "MockBrokerCoop" $
+    sequence_
+      [ -- Cooperative rebalance
+        cooperative_initial_assignment_added
+      , cooperative_member_join_revokes_overflow
+      , cooperative_member_leave_adds_back
+      , -- Asymmetric subscription
+        asymmetric_subscription_per_member_topics
+      , -- Commit-during-rebalance race
+        commit_during_rebalance_keeps_offset
+      , -- Leader epoch / KIP-320
+        leader_epoch_starts_at_zero
+      , bumpLeaderEpoch_advances_per_partition
+      , validateOffsetEpoch_accepts_match_rejects_stale
+      , -- sendOffsetsToTxn
+        send_offsets_to_txn_visible_only_after_commit
+      , send_offsets_to_txn_discarded_on_abort
+      ]
+
 
 ----------------------------------------------------------------------
 -- Cooperative rebalance
@@ -57,8 +63,9 @@ cooperative_initial_assignment_added =
     joinGroup c g (MemberId "m1") ["t"]
     rd <- cooperativeRebalance c g (MemberId "m1") []
     rdRevoked rd `shouldBe` []
-    L.sort (rdAdded rd)   `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
-    L.sort (rdAfter rd)   `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
+    L.sort (rdAdded rd) `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
+    L.sort (rdAfter rd) `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
+
 
 cooperative_member_join_revokes_overflow :: Spec
 cooperative_member_join_revokes_overflow =
@@ -76,9 +83,10 @@ cooperative_member_join_revokes_overflow =
     rdA <- cooperativeRebalance c g (MemberId "a") beforeA
     -- 'a' should keep partitions 0 and 2; partitions 1 and 3 are
     -- revoked (taken by 'b').
-    L.sort (rdAfter rdA)   `shouldBe` [("t", 0), ("t", 2)]
+    L.sort (rdAfter rdA) `shouldBe` [("t", 0), ("t", 2)]
     L.sort (rdRevoked rdA) `shouldBe` [("t", 1), ("t", 3)]
-    rdAdded rdA            `shouldBe` []
+    rdAdded rdA `shouldBe` []
+
 
 cooperative_member_leave_adds_back :: Spec
 cooperative_member_leave_adds_back =
@@ -93,9 +101,10 @@ cooperative_member_leave_adds_back =
     leaveGroup c g (MemberId "b")
     rdA <- cooperativeRebalance c g (MemberId "a") (rdAfter rdABefore)
     -- 'a' picks up the freed partitions; nothing is revoked.
-    rdRevoked rdA          `shouldBe` []
-    L.sort (rdAdded rdA)   `shouldBe` [("t", 1), ("t", 3)]
-    L.sort (rdAfter rdA)   `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
+    rdRevoked rdA `shouldBe` []
+    L.sort (rdAdded rdA) `shouldBe` [("t", 1), ("t", 3)]
+    L.sort (rdAfter rdA) `shouldBe` [("t", p) | p <- [0, 1, 2, 3]]
+
 
 ----------------------------------------------------------------------
 -- Asymmetric subscription
@@ -106,7 +115,7 @@ asymmetric_subscription_per_member_topics =
   it "members that subscribe to different topic sets get disjoint assignments" $ do
     c <- newMockCluster 1
     createTopic c "alpha" 2
-    createTopic c "beta"  2
+    createTopic c "beta" 2
     let g = GroupId "async"
     joinGroup c g (MemberId "ma") ["alpha"]
     joinGroup c g (MemberId "mb") ["beta"]
@@ -124,7 +133,8 @@ asymmetric_subscription_per_member_topics =
     -- We assert weaker: each member's assignment is a subset of
     -- its declared subscription.
     (if (all (\(t, _) -> t == "alpha") aA) then pure () else expectationFailure ("ma got non-alpha: " <> show aA))
-    (if (all (\(t, _) -> t == "beta")  aB) then pure () else expectationFailure ("mb got non-beta: "  <> show aB))
+    (if (all (\(t, _) -> t == "beta") aB) then pure () else expectationFailure ("mb got non-beta: " <> show aB))
+
 
 ----------------------------------------------------------------------
 -- Commit-during-rebalance
@@ -148,6 +158,7 @@ commit_during_rebalance_keeps_offset =
     Map.lookup ("t", 0) m `shouldBe` Just 5
     Map.lookup ("t", 1) m `shouldBe` Just 9
 
+
 ----------------------------------------------------------------------
 -- Leader epoch (KIP-320)
 ----------------------------------------------------------------------
@@ -160,6 +171,7 @@ leader_epoch_starts_at_zero =
     eps <- mapM (\p -> currentLeaderEpoch c "t" p) [0, 1, 2]
     eps `shouldBe` [Just 0, Just 0, Just 0]
 
+
 bumpLeaderEpoch_advances_per_partition :: Spec
 bumpLeaderEpoch_advances_per_partition =
   it "bumpLeaderEpoch only advances the targeted partition" $ do
@@ -171,6 +183,7 @@ bumpLeaderEpoch_advances_per_partition =
     e1 <- currentLeaderEpoch c "t" 1
     e0 `shouldBe` Just 0
     e1 `shouldBe` Just 1
+
 
 validateOffsetEpoch_accepts_match_rejects_stale :: Spec
 validateOffsetEpoch_accepts_match_rejects_stale =
@@ -190,6 +203,7 @@ validateOffsetEpoch_accepts_match_rejects_stale =
     rNothing <- validateOffsetEpoch c "t" 0 Nothing
     rNothing `shouldBe` Right ()
 
+
 ----------------------------------------------------------------------
 -- sendOffsetsToTxn
 ----------------------------------------------------------------------
@@ -200,11 +214,14 @@ send_offsets_to_txn_visible_only_after_commit =
     c <- newMockCluster 1
     createTopic c "in" 1
     let tx = TxnId "tx-eos"
-        g  = GroupId "consumer-group"
+        g = GroupId "consumer-group"
     fp <- noFaults
-    p  <- newMockProducer c fp (Just tx)
+    p <- newMockProducer c fp (Just tx)
     Right () <- beginTxnMP p
-    sendOffsetsToTxn c tx g
+    sendOffsetsToTxn
+      c
+      tx
+      g
       [(("in", 0), OffsetAndMetadata 12 Nothing Nothing)]
     -- Pre-commit: pending visible, group store empty.
     pending <- pendingTxnOffsets c tx
@@ -218,17 +235,21 @@ send_offsets_to_txn_visible_only_after_commit =
     m1 <- groupOffsetsFor c g
     Map.lookup ("in", 0) m1 `shouldBe` Just 12
 
+
 send_offsets_to_txn_discarded_on_abort :: Spec
 send_offsets_to_txn_discarded_on_abort =
   it "sendOffsetsToTxn: pending discarded on abortTxn" $ do
     c <- newMockCluster 1
     createTopic c "in" 1
     let tx = TxnId "tx-rollback"
-        g  = GroupId "g"
+        g = GroupId "g"
     fp <- noFaults
-    p  <- newMockProducer c fp (Just tx)
+    p <- newMockProducer c fp (Just tx)
     Right () <- beginTxnMP p
-    sendOffsetsToTxn c tx g
+    sendOffsetsToTxn
+      c
+      tx
+      g
       [(("in", 0), OffsetAndMetadata 7 Nothing Nothing)]
     Right () <- abortTxnMP p
     pending <- pendingTxnOffsets c tx

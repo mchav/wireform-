@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Client.AdminTimeouts
 Description : KIP-540 / KIP-918 / KIP-919 — AdminClient timeouts + KRaft routing
 
@@ -22,22 +22,25 @@ the global config + per-call override, and decides which broker
 endpoint (random metadata broker vs. KRaft controller) the
 operation should target.
 -}
-module Kafka.Client.AdminTimeouts
-  ( -- * Per-operation timeout
-    AdminCallTimeout (..)
-  , effectiveDeadlineMs
-    -- * Routing
-  , AdminRouting (..)
-  , routeOperation
-  , AdminOperationKind (..)
-  ) where
+module Kafka.Client.AdminTimeouts (
+  -- * Per-operation timeout
+  AdminCallTimeout (..),
+  effectiveDeadlineMs,
+
+  -- * Routing
+  AdminRouting (..),
+  routeOperation,
+  AdminOperationKind (..),
+) where
 
 import Data.Int (Int64)
 import GHC.Generics (Generic)
 
--- | A per-call timeout request. The JVM client lets users
--- supply @TimeoutOption@ on every operation; the value here
--- mirrors that.
+
+{- | A per-call timeout request. The JVM client lets users
+supply @TimeoutOption@ on every operation; the value here
+mirrors that.
+-}
 data AdminCallTimeout
   = -- | Use the AdminClient default (@default.api.timeout.ms@).
     AdminUseDefault
@@ -47,54 +50,74 @@ data AdminCallTimeout
     AdminNoDeadline
   deriving stock (Eq, Show, Generic)
 
--- | Compute the wall-clock-ms deadline for a single AdminClient
--- call. Returns 'Nothing' for unbounded calls.
+
+{- | Compute the wall-clock-ms deadline for a single AdminClient
+call. Returns 'Nothing' for unbounded calls.
+-}
 effectiveDeadlineMs
-  :: Int64                -- ^ now (ms)
-  -> Int                  -- ^ default.api.timeout.ms
+  :: Int64
+  -- ^ now (ms)
+  -> Int
+  -- ^ default.api.timeout.ms
   -> AdminCallTimeout
   -> Maybe Int64
 effectiveDeadlineMs now defaultMs = \case
-  AdminUseDefault   -> Just (now + fromIntegral defaultMs)
-  AdminTimeoutMs n  -> Just (now + fromIntegral n)
-  AdminNoDeadline   -> Nothing
+  AdminUseDefault -> Just (now + fromIntegral defaultMs)
+  AdminTimeoutMs n -> Just (now + fromIntegral n)
+  AdminNoDeadline -> Nothing
 
--- | Where should an operation go? Mirrors the JVM client's
--- @AdminClient.RoutingTarget@ enum (KIP-918).
+
+{- | Where should an operation go? Mirrors the JVM client's
+@AdminClient.RoutingTarget@ enum (KIP-918).
+-}
 data AdminRouting
-  = -- | Any cluster broker with metadata (the default for read
-    --   operations).
+  = {- | Any cluster broker with metadata (the default for read
+    operations).
+    -}
     RouteAnyBroker
-  | -- | The cluster controller broker (still on a regular broker
-    --   port; needed for ACL / topic create when the broker hasn't
-    --   migrated to KRaft yet).
+  | {- | The cluster controller broker (still on a regular broker
+    port; needed for ACL / topic create when the broker hasn't
+    migrated to KRaft yet).
+    -}
     RouteControllerBroker
-  | -- | The KRaft controller quorum
-    --   (@controller.quorum.bootstrap.servers@). Used by
-    --   broker-registration / quorum-management RPCs after
-    --   KRaft cutover.
+  | {- | The KRaft controller quorum
+    (@controller.quorum.bootstrap.servers@). Used by
+    broker-registration / quorum-management RPCs after
+    KRaft cutover.
+    -}
     RouteKRaftQuorum
   deriving stock (Eq, Show, Generic)
 
+
 -- | The class of an Admin operation, for routing purposes.
 data AdminOperationKind
-  = AdminMetadataRead         -- ^ DescribeTopics, ListGroups, …
-  | AdminTopicMutation        -- ^ CreateTopics, DeleteTopics, …
-  | AdminConfigMutation       -- ^ AlterConfigs, IncrementalAlterConfigs
-  | AdminAclMutation          -- ^ Create/DeleteAcls
-  | AdminBrokerLifecycle      -- ^ BrokerHeartbeat, BrokerRegistration,
-                              --   UnregisterBroker
-  | AdminQuorumManagement     -- ^ AddRaftVoter, RemoveRaftVoter,
-                              --   UpdateRaftVoter, DescribeQuorum
+  = -- | DescribeTopics, ListGroups, …
+    AdminMetadataRead
+  | -- | CreateTopics, DeleteTopics, …
+    AdminTopicMutation
+  | -- | AlterConfigs, IncrementalAlterConfigs
+    AdminConfigMutation
+  | -- | Create/DeleteAcls
+    AdminAclMutation
+  | {- | BrokerHeartbeat, BrokerRegistration,
+    UnregisterBroker
+    -}
+    AdminBrokerLifecycle
+  | {- | AddRaftVoter, RemoveRaftVoter,
+    UpdateRaftVoter, DescribeQuorum
+    -}
+    AdminQuorumManagement
   deriving stock (Eq, Show, Generic)
 
--- | Pick the routing target for a given operation. Mirrors the
--- JVM client's @AdminClient.routeRequest@ heuristic.
+
+{- | Pick the routing target for a given operation. Mirrors the
+JVM client's @AdminClient.routeRequest@ heuristic.
+-}
 routeOperation :: AdminOperationKind -> AdminRouting
 routeOperation = \case
-  AdminMetadataRead     -> RouteAnyBroker
-  AdminTopicMutation    -> RouteControllerBroker
-  AdminConfigMutation   -> RouteControllerBroker
-  AdminAclMutation      -> RouteControllerBroker
-  AdminBrokerLifecycle  -> RouteKRaftQuorum
+  AdminMetadataRead -> RouteAnyBroker
+  AdminTopicMutation -> RouteControllerBroker
+  AdminConfigMutation -> RouteControllerBroker
+  AdminAclMutation -> RouteControllerBroker
+  AdminBrokerLifecycle -> RouteKRaftQuorum
   AdminQuorumManagement -> RouteKRaftQuorum

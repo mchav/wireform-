@@ -188,52 +188,63 @@ Construct via 'translatedField' for the common defaults.
 -}
 data TranslatedField = TranslatedField
   { tfSelector :: !Name
-  -- ^ Record selector to be used for this field. Must match the
-  -- accompanying record constructor that the caller emits.
+  {- ^ Record selector to be used for this field. Must match the
+  accompanying record constructor that the caller emits.
+  -}
   , tfInnerType :: !Type
-  -- ^ For singular fields: the value type (with 'Maybe' stripped).
-  -- For repeated fields: the element type.
-  -- For map fields: the value type.
-  -- For oneof fields: ignored (each variant carries its own).
+  {- ^ For singular fields: the value type (with 'Maybe' stripped).
+  For repeated fields: the element type.
+  For map fields: the value type.
+  For oneof fields: ignored (each variant carries its own).
+  -}
   , tfOptional :: !Bool
-  -- ^ True iff the Haskell field is wrapped in 'Maybe' (and is
-  -- not a oneof or repeated/map; those have their own kinds).
+  {- ^ True iff the Haskell field is wrapped in 'Maybe' (and is
+  not a oneof or repeated/map; those have their own kinds).
+  -}
   , tfRepeated :: !(Maybe RepeatedAdapter)
-  -- ^ When @Just@, this field is a @repeated@ backed by the
-  -- given container adapter.
+  {- ^ When @Just@, this field is a @repeated@ backed by the
+  given container adapter.
+  -}
   , tfPacked :: !(Maybe Bool)
-  -- ^ Override for the packed-encoding choice on this repeated
-  -- field. @Nothing@ (the default) lets the bridge decide:
-  -- packable scalars (everything except @string@ \/ @bytes@ \/
-  -- submessage \/ enum) get 'I.ModePacked'; non-packable
-  -- elements stay unpacked. @Just True@ forces packed (only
-  -- legal for packable scalars). @Just False@ forces the
-  -- one-record-per-element \"expanded\" shape — useful for
-  -- proto2 fields without @[packed = true]@ or for
-  -- byte-compat with very old wire data.
+  {- ^ Override for the packed-encoding choice on this repeated
+  field. @Nothing@ (the default) lets the bridge decide:
+  packable scalars (everything except @string@ \/ @bytes@ \/
+  submessage \/ enum) get 'I.ModePacked'; non-packable
+  elements stay unpacked. @Just True@ forces packed (only
+  legal for packable scalars). @Just False@ forces the
+  one-record-per-element \"expanded\" shape — useful for
+  proto2 fields without @[packed = true]@ or for
+  byte-compat with very old wire data.
+  -}
   , tfMapKey :: !(Maybe MapKeyScalar)
-  -- ^ When @Just@, this field is a proto3 @map<K, V>@. The key
-  -- wire encoding is supplied here; the value's wire encoding
-  -- is inferred from 'tfInnerType' \/ 'tfModifiers' as usual.
+  {- ^ When @Just@, this field is a proto3 @map<K, V>@. The key
+  wire encoding is supplied here; the value's wire encoding
+  is inferred from 'tfInnerType' \/ 'tfModifiers' as usual.
+  -}
   , tfIsEnum :: !Bool
-  -- ^ True iff the inner type is encoded as a varint via
-  -- 'fromEnum' \/ 'toEnum'. Bridges should set this for all
-  -- proto enum types.
+  {- ^ True iff the inner type is encoded as a varint via
+  'fromEnum' \/ 'toEnum'. Bridges should set this for all
+  proto enum types.
+  -}
   , tfOneofVariants :: ![TranslatedOneofVariant]
-  -- ^ Non-empty iff this field is a proto @oneof@. Each variant
-  -- pairs a sum-type constructor with its tag and payload type.
+  {- ^ Non-empty iff this field is a proto @oneof@. Each variant
+  pairs a sum-type constructor with its tag and payload type.
+  -}
   , tfStringAdapter :: !StringAdapter
-  -- ^ Adapter for proto @string@ fields. Defaults to
-  -- 'strictTextAdapter'. Only consulted when the field is a
-  -- string-typed scalar.
+  {- ^ Adapter for proto @string@ fields. Defaults to
+  'strictTextAdapter'. Only consulted when the field is a
+  string-typed scalar.
+  -}
   , tfBytesAdapter :: !BytesAdapter
-  -- ^ Adapter for proto @bytes@ fields. Defaults to
-  -- 'strictBytesAdapter'. Only consulted when the field is a
-  -- bytes-typed scalar.
+  {- ^ Adapter for proto @bytes@ fields. Defaults to
+  'strictBytesAdapter'. Only consulted when the field is a
+  bytes-typed scalar.
+  -}
   , tfModifiers :: ![Modifier]
-  -- ^ Additional modifiers (tag for non-oneof fields, wire
-  -- override, custom payloads, etc.). The proto backend is
-  -- consulted via 'foldModifiers'.
+  {- ^ Additional modifiers (tag for non-oneof fields, wire
+  override, custom payloads, etc.). The proto backend is
+  consulted via 'foldModifiers'.
+  -}
   }
 
 
@@ -277,17 +288,19 @@ data TranslatedMessage = TranslatedMessage
   { tmType :: !Type
   -- ^ Fully applied type, e.g. @ConT ''Person@.
   , tmConstructor :: !Name
-  -- ^ Record constructor; for single-constructor records this is
-  -- usually the type name.
+  {- ^ Record constructor; for single-constructor records this is
+  usually the type name.
+  -}
   , tmProtoName :: !Text
   -- ^ Logical proto name returned by 'PM.messageTypeName'.
   , tmFields :: ![TranslatedField]
   , tmUnknownFieldsSel :: !(Maybe Name)
-  -- ^ Optional selector for an @[Decode.UnknownField]@ field on
-  -- the record. When set, the synthesised codecs preserve
-  -- unknown tags through that slot. 'Nothing' means unknown
-  -- fields are silently dropped (the original
-  -- 'Proto.TH.Derive.deriveProto' behaviour).
+  {- ^ Optional selector for an @[Decode.UnknownField]@ field on
+  the record. When set, the synthesised codecs preserve
+  unknown tags through that slot. 'Nothing' means unknown
+  fields are silently dropped (the original
+  'Proto.TH.Derive.deriveProto' behaviour).
+  -}
   }
 
 
@@ -403,10 +416,10 @@ translatedFieldToProtoField tf = do
                   (Just "ByteString", _) -> I.PFScalar I.SBytes
                   _ -> I.PFSubmessage
             in I.oneofVariant
-                (tovConstructor tov)
-                vt
-                (tovInnerType tov)
-                vpft
+                 (tovConstructor tov)
+                 vt
+                 (tovInnerType tov)
+                 vpft
 
 
 -- ---------------------------------------------------------------------------
@@ -490,16 +503,19 @@ inspecting the type tree.
 data DetectedShape
   = -- | Outer container; carries the element type.
     ShapeRepeated RepeatedAdapter !Type
-  | -- | Outer @Map.Map K V@ where @K@ is a permitted proto map
-    -- key scalar; carries the value type.
+  | {- | Outer @Map.Map K V@ where @K@ is a permitted proto map
+    key scalar; carries the value type.
+    -}
     ShapeMap !MapKeyScalar !Type
-  | -- | A Haskell sum type (or @Maybe@-wrapped sum) every
-    -- constructor of which has exactly one argument and a
-    -- @tag N@ annotation. The variant list is built once at
-    -- detect time so 'analyseField' doesn't need to re-reify.
+  | {- | A Haskell sum type (or @Maybe@-wrapped sum) every
+    constructor of which has exactly one argument and a
+    @tag N@ annotation. The variant list is built once at
+    detect time so 'analyseField' doesn't need to re-reify.
+    -}
     ShapeOneof !Type ![I.OneofVariant]
-  | -- | Anything else: an @FKBare@ singular field, or @FKMaybe@
-    -- if the outer constructor was @Maybe@.
+  | {- | Anything else: an @FKBare@ singular field, or @FKMaybe@
+    if the outer constructor was @Maybe@.
+    -}
     ShapeSingular !I.ProtoFieldKind !Type
 
 
@@ -523,8 +539,8 @@ detectShape selName fieldTy mMapKey = case detectRepeated fieldTy of
     Nothing ->
       let (kind, innerTy) = unwrapMaybe fieldTy
       in detectOneof selName innerTy >>= \case
-          Just variants -> pure (ShapeOneof fieldTy variants)
-          Nothing -> pure (ShapeSingular kind innerTy)
+           Just variants -> pure (ShapeOneof fieldTy variants)
+           Nothing -> pure (ShapeSingular kind innerTy)
 
 
 -- | Strip a single outer 'Maybe' constructor.

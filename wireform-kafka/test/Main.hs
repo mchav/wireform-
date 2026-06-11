@@ -66,20 +66,20 @@ import Client.ShareConsumerHelpersSpec qualified
 import Client.ShareConsumerSpec qualified
 import Client.StatsJsonSpec qualified
 import Client.SubscribeSpec qualified
-import Client.TelemetryPushSpec qualified
 import Client.TelemetryPushRuntimeSpec qualified
+import Client.TelemetryPushSpec qualified
 import Client.TopicIdSpec qualified
 import Client.TransactionCoordinatorSpec qualified
 import Client.TransactionHelpersSpec qualified
 import Client.TransactionSpec qualified
 import Codegen.WireGeneratorSpec qualified
+import Compression.RingSpec qualified
 import Network.AuthSpec qualified
 import Network.BootstrapSpec qualified
-import Network.FrameParserSpec qualified
-import qualified Compression.RingSpec
 import Network.ConnectionHelpersSpec qualified
 import Network.ConnectionLivenessSpec qualified
 import Network.ConnectionRetrySpec qualified
+import Network.FrameParserSpec qualified
 import Network.OAuthOidcSpec qualified
 import Network.ReauthDriverSpec qualified
 import Network.SaslReauthSpec qualified
@@ -117,49 +117,53 @@ main = do
 tests :: Spec -> Spec -> Spec
 tests knownGoodTests comprehensiveTests =
   describe
-    "kafka-native" $ sequence_
-    [ protocolTests
-    , generatedTests knownGoodTests comprehensiveTests
-    , versionTests
-    , compressionTests
-    , clientTests
-    , networkTests
-    , serdeTests
-    ]
+    "kafka-native"
+    $ sequence_
+      [ protocolTests
+      , generatedTests knownGoodTests comprehensiveTests
+      , versionTests
+      , compressionTests
+      , clientTests
+      , networkTests
+      , serdeTests
+      ]
 
 
 serdeTests :: Spec
 serdeTests =
   describe
-    "Serde" $ sequence_
-    [ Serde.ProtoBufSpec.tests
-    ]
+    "Serde"
+    $ sequence_
+      [ Serde.ProtoBufSpec.tests
+      ]
 
 
 protocolTests :: Spec
 protocolTests =
   describe
-    "Protocol" $ sequence_
-    [ Protocol.CRC32CSpec.spec
-    , Protocol.PrimitivesSpec.tests
-    , Protocol.RoundTripSpec.tests
-    , Protocol.RecordBatchSpec.tests
-    , Protocol.RecordBatchAttributesSpec.tests
-    , Protocol.WireSpec.tests
-    , Protocol.RecordBatchWireSpec.tests
-    , Protocol.SliceVectorSpec.tests
-    , Protocol.VersionNegotiationSpec.tests
-    ]
+    "Protocol"
+    $ sequence_
+      [ Protocol.CRC32CSpec.spec
+      , Protocol.PrimitivesSpec.tests
+      , Protocol.RoundTripSpec.tests
+      , Protocol.RecordBatchSpec.tests
+      , Protocol.RecordBatchAttributesSpec.tests
+      , Protocol.WireSpec.tests
+      , Protocol.RecordBatchWireSpec.tests
+      , Protocol.SliceVectorSpec.tests
+      , Protocol.VersionNegotiationSpec.tests
+      ]
 
 
 generatedTests :: Spec -> Spec -> Spec
 generatedTests knownGoodTests comprehensiveTests =
   describe
-    "Generated Messages" $ sequence_
-    [ Protocol.Generated.SimpleRoundTripSpec.tests
-    , knownGoodTests
-    , comprehensiveTests
-    ]
+    "Generated Messages"
+    $ sequence_
+      [ Protocol.Generated.SimpleRoundTripSpec.tests
+      , knownGoodTests
+      , comprehensiveTests
+      ]
 
 
 versionTests :: Spec
@@ -169,91 +173,94 @@ versionTests = Protocol.VersionHandlingSpec.tests
 compressionTests :: Spec
 compressionTests =
   describe
-    "Compression" $ sequence_
-    [ Protocol.CompressionSpec.compressionTests
-    , Protocol.StreamingSinkSpec.tests
-    ]
+    "Compression"
+    $ sequence_
+      [ Protocol.CompressionSpec.compressionTests
+      , Protocol.StreamingSinkSpec.tests
+      ]
 
 
 clientTests :: Spec
 clientTests =
   describe
-    "Client" $ sequence_
-    [ Protocol.ApiVersionsSpec.tests
-    , Client.BatchAccumulatorSpec.tests
-    , Client.ConsumerConfigSpec.consumerConfigSpec
-    , Client.MetadataSpec.tests
-    , Client.PartitionerSpec.partitionerSpec
-    , Client.ProducerTimeoutSpec.tests
-    , Client.ProducerConsumerLifecycleSpec.lifecycleSpec
-    , Client.TransactionSpec.transactionSpec
-    , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
-    , Client.ProducerTransactionWiringSpec.tests
-    , Client.InterceptorSpec.tests
-    , Client.MetadataLeaderUpdateSpec.tests
-    , Client.MetricsRegistrySpec.tests
-    , Client.Murmur2Spec.tests
-    , Client.StatsJsonSpec.tests
-    , Client.ConsumerGroupV2Spec.tests
-    , Client.ShareConsumerSpec.tests
-    , Client.TelemetryPushSpec.tests
-    , Client.TelemetryPushRuntimeSpec.tests
-    , Client.RecordMetadataSpec.tests
-    , Client.FilterSpec.tests
-    , Client.FutureSpec.tests
-    , Client.TopicIdSpec.tests
-    , Client.RebalanceListenerSpec.tests
-    , Client.AdminTimeoutsSpec.tests
-    , Client.RetryClassifierSpec.tests
-    , Client.BatchSplittingSpec.tests
-    , Client.ResponseFrameSpec.tests
-    , Client.ConsumerSnapshotsSpec.tests
-    , Client.MetadataCacheControlSpec.tests
-    , Client.RackAwareSpec.tests
-    , Client.TransactionHelpersSpec.tests
-    , Network.ConnectionHelpersSpec.tests
-    , Client.AdminClientConfigSpec.tests
-    , Client.SerdeContextSpec.tests
-    , Client.ShareConsumerHelpersSpec.tests
-    , Client.MockShareConsumerSpec.tests
-    , Client.AdminClientSpec.tests
-    , Client.GroupSpec.groupSpec
-    , Client.MockBrokerSpec.tests
-    , Client.MockBrokerFailureModesSpec.tests
-    , Client.MockBrokerAdvancedSpec.tests
-    , Client.MockBrokerExtSpec.tests
-    , Client.MockBrokerIdempotentSpec.tests
-    , Client.MockBrokerAdminSpec.tests
-    , Client.MockBrokerCoopSpec.tests
-    , Client.MockBrokerNetSpec.tests
-    , Client.MockBrokerStoreSpec.tests
-    , Client.MockBrokerProtoSpec.tests
-    , Client.ConfigParitySpec.tests
-    , Client.ConfigValidationSpec.tests
-    , Client.EnvSpec.tests
-    , Client.HeartbeatRejoinSpec.tests
-    , Codegen.WireGeneratorSpec.tests
-    , Protocol.WireCodecParitySpec.tests
-    , Client.ProducerRetrySpec.tests
-    , Client.PipelineSpec.tests
-    , Client.SubscribeSpec.tests
-    , Network.ConnectionLivenessSpec.tests
-    ]
+    "Client"
+    $ sequence_
+      [ Protocol.ApiVersionsSpec.tests
+      , Client.BatchAccumulatorSpec.tests
+      , Client.ConsumerConfigSpec.consumerConfigSpec
+      , Client.MetadataSpec.tests
+      , Client.PartitionerSpec.partitionerSpec
+      , Client.ProducerTimeoutSpec.tests
+      , Client.ProducerConsumerLifecycleSpec.lifecycleSpec
+      , Client.TransactionSpec.transactionSpec
+      , Client.TransactionCoordinatorSpec.transactionCoordinatorSpec
+      , Client.ProducerTransactionWiringSpec.tests
+      , Client.InterceptorSpec.tests
+      , Client.MetadataLeaderUpdateSpec.tests
+      , Client.MetricsRegistrySpec.tests
+      , Client.Murmur2Spec.tests
+      , Client.StatsJsonSpec.tests
+      , Client.ConsumerGroupV2Spec.tests
+      , Client.ShareConsumerSpec.tests
+      , Client.TelemetryPushSpec.tests
+      , Client.TelemetryPushRuntimeSpec.tests
+      , Client.RecordMetadataSpec.tests
+      , Client.FilterSpec.tests
+      , Client.FutureSpec.tests
+      , Client.TopicIdSpec.tests
+      , Client.RebalanceListenerSpec.tests
+      , Client.AdminTimeoutsSpec.tests
+      , Client.RetryClassifierSpec.tests
+      , Client.BatchSplittingSpec.tests
+      , Client.ResponseFrameSpec.tests
+      , Client.ConsumerSnapshotsSpec.tests
+      , Client.MetadataCacheControlSpec.tests
+      , Client.RackAwareSpec.tests
+      , Client.TransactionHelpersSpec.tests
+      , Network.ConnectionHelpersSpec.tests
+      , Client.AdminClientConfigSpec.tests
+      , Client.SerdeContextSpec.tests
+      , Client.ShareConsumerHelpersSpec.tests
+      , Client.MockShareConsumerSpec.tests
+      , Client.AdminClientSpec.tests
+      , Client.GroupSpec.groupSpec
+      , Client.MockBrokerSpec.tests
+      , Client.MockBrokerFailureModesSpec.tests
+      , Client.MockBrokerAdvancedSpec.tests
+      , Client.MockBrokerExtSpec.tests
+      , Client.MockBrokerIdempotentSpec.tests
+      , Client.MockBrokerAdminSpec.tests
+      , Client.MockBrokerCoopSpec.tests
+      , Client.MockBrokerNetSpec.tests
+      , Client.MockBrokerStoreSpec.tests
+      , Client.MockBrokerProtoSpec.tests
+      , Client.ConfigParitySpec.tests
+      , Client.ConfigValidationSpec.tests
+      , Client.EnvSpec.tests
+      , Client.HeartbeatRejoinSpec.tests
+      , Codegen.WireGeneratorSpec.tests
+      , Protocol.WireCodecParitySpec.tests
+      , Client.ProducerRetrySpec.tests
+      , Client.PipelineSpec.tests
+      , Client.SubscribeSpec.tests
+      , Network.ConnectionLivenessSpec.tests
+      ]
 
 
 networkTests :: Spec
 networkTests =
   describe
-    "Network" $ sequence_
-    [ Network.ConnectionRetrySpec.tests
-    , Network.AuthSpec.authSpec
-    , Network.TlsHandshakeSpec.tests
-    , Network.TransportSpec.tests
-    , Network.TlsOffloadSpec.tests
-    , Network.SaslReauthSpec.tests
-    , Network.OAuthOidcSpec.tests
-    , Network.BootstrapSpec.tests
-    , Network.FrameParserSpec.tests
-    , Compression.RingSpec.ringCompressionTests
-    , Network.ReauthDriverSpec.tests
-    ]
+    "Network"
+    $ sequence_
+      [ Network.ConnectionRetrySpec.tests
+      , Network.AuthSpec.authSpec
+      , Network.TlsHandshakeSpec.tests
+      , Network.TransportSpec.tests
+      , Network.TlsOffloadSpec.tests
+      , Network.SaslReauthSpec.tests
+      , Network.OAuthOidcSpec.tests
+      , Network.BootstrapSpec.tests
+      , Network.FrameParserSpec.tests
+      , Compression.RingSpec.ringCompressionTests
+      , Network.ReauthDriverSpec.tests
+      ]

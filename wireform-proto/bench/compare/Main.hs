@@ -241,9 +241,9 @@ nestedPL =
           & F.name .~ ("inner" :: Text)
           & F.active .~ True
   in (defMessage :: PL.WithNested)
-      & F.id .~ (99 :: Int64)
-      & F.inner .~ inner
-      & F.label .~ ("outer label" :: Text)
+       & F.id .~ (99 :: Int64)
+       & F.inner .~ inner
+       & F.label .~ ("outer label" :: Text)
 
 
 repeatedPL :: PL.WithRepeated
@@ -255,9 +255,9 @@ repeatedPL =
           & F.name .~ (("item" <> T.pack (show i)) :: Text)
           & F.active .~ (even i :: Bool)
   in (defMessage :: PL.WithRepeated)
-      & F.vec'values .~ VU.fromList ([1 .. 50] :: [Int32])
-      & F.vec'tags .~ V.fromList (fmap (\i -> ("tag_" <> T.pack (show i)) :: Text) [1 .. 20 :: Int])
-      & F.vec'items .~ V.fromList (fmap mkItem [1 .. 10])
+       & F.vec'values .~ VU.fromList ([1 .. 50] :: [Int32])
+       & F.vec'tags .~ V.fromList (fmap (\i -> ("tag_" <> T.pack (show i)) :: Text) [1 .. 20 :: Int])
+       & F.vec'items .~ V.fromList (fmap mkItem [1 .. 10])
 
 
 -- Pre-encoded bytes

@@ -1,46 +1,51 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BlockArguments #-}
 
--- | End-to-end TLS-on-magic-ring round-trip: a real TLS handshake
--- between two threads in the same process, then encrypted bytes
--- flowing client → server with the server decrypting straight into
--- the magic ring via 'tlsReceiveFn', then a wireform parser reading
--- plaintext off the ring.  Proves the direct-OpenSSL path:
---
---   1. Negotiates a real TLS 1.2+ session (self-signed cert,
---      'newClientCtx False' on the client to skip verify).
---   2. Successfully encrypts + decrypts.
---   3. Plumbs cleanly through 'withTlsReceiveTransport' so the
---      magic-ring parser surface sees plaintext with no intermediate
---      ByteString allocation.
+{- | End-to-end TLS-on-magic-ring round-trip: a real TLS handshake
+between two threads in the same process, then encrypted bytes
+flowing client → server with the server decrypting straight into
+the magic ring via 'tlsReceiveFn', then a wireform parser reading
+plaintext off the ring.  Proves the direct-OpenSSL path:
+
+  1. Negotiates a real TLS 1.2+ session (self-signed cert,
+     'newClientCtx False' on the client to skip verify).
+  2. Successfully encrypts + decrypts.
+  3. Plumbs cleanly through 'withTlsReceiveTransport' so the
+     magic-ring parser surface sees plaintext with no intermediate
+     ByteString allocation.
+-}
 module Wireform.Network.TLS.OpenSSL.Test (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Word
-import Network.Socket
-  (Socket, SocketType (Stream), AddrInfo (..), AddrInfoFlag (..))
-import qualified Network.Socket as NS
+import Network.Socket (
+  AddrInfo (..),
+  AddrInfoFlag (..),
+  Socket,
+  SocketType (Stream),
+ )
+import Network.Socket qualified as NS
 import Network.Socket.ByteString (sendAll)
 import System.Directory (doesFileExist)
 import Test.Syd
-
 import Wireform.Network.TLS.OpenSSL
 import Wireform.Parser
-import Wireform.Parser.Internal (Stream)
 import Wireform.Parser.Driver (runParser)
+import Wireform.Parser.Internal (Stream)
 import Wireform.Transport.Config (defaultTransportConfig)
+
 
 type P = Parser Stream String
 
+
 spec :: Spec
 spec = describe "Wireform.Network.TLS.OpenSSL" $ do
-
   let certPath = "test/data/localhost.crt"
-      keyPath  = "test/data/localhost.key"
+      keyPath = "test/data/localhost.key"
 
   beforeAll_ (skipIfNoCert certPath keyPath) $ do
     it "round-trips encrypted bytes (client send → server recv on ring)" $
@@ -50,7 +55,7 @@ spec = describe "Wireform.Network.TLS.OpenSSL" $ do
           r <- runParser t (anyWord8 >>= \n -> takeBs (fromIntegral n) :: P BS.ByteString)
           case r of
             Right bs -> bs `shouldBe` "hello"
-            Left e   -> expectationFailure ("parse failed: " <> show e)
+            Left e -> expectationFailure ("parse failed: " <> show e)
 
     it "stitches a payload split across two TLS records" $
       withTlsPair certPath keyPath $ \(clientConn, serverConn) -> do
@@ -60,19 +65,21 @@ spec = describe "Wireform.Network.TLS.OpenSSL" $ do
           r <- runParser t (anyWord8 >>= \n -> takeBs (fromIntegral n) :: P BS.ByteString)
           case r of
             Right bs -> bs `shouldBe` "hello world"
-            Left e   -> expectationFailure ("parse failed: " <> show e)
+            Left e -> expectationFailure ("parse failed: " <> show e)
+
 
 ------------------------------------------------------------------------
 -- Test harness
 ------------------------------------------------------------------------
 
--- | Skip the suite if the cert / key fixtures aren't checked into
--- the source tree (the CI runner regenerates them; a local clone
--- without that step shouldn't fail the suite).
+{- | Skip the suite if the cert / key fixtures aren't checked into
+the source tree (the CI runner regenerates them; a local clone
+without that step shouldn't fail the suite).
+-}
 skipIfNoCert :: FilePath -> FilePath -> IO ()
 skipIfNoCert cert key = do
   hasCert <- doesFileExist cert
-  hasKey  <- doesFileExist key
+  hasKey <- doesFileExist key
   -- sydtest has no in-body "pending" (unlike hspec's pendingWith), so a
   -- missing fixture surfaces as a failure rather than a skip. The CI
   -- runner and the repo both ship these fixtures, so this branch only
@@ -80,6 +87,7 @@ skipIfNoCert cert key = do
   if hasCert && hasKey
     then pure ()
     else expectationFailure ("missing TLS fixtures: " <> cert <> " / " <> key)
+
 
 withTlsPair
   :: FilePath
@@ -108,9 +116,11 @@ withTlsPair certPath keyPath action = do
         NS.close clientSock
         NS.close serverSock
 
--- | TCP loopback pair.  We use real TCP rather than AF_UNIX because
--- OpenSSL's TLS layer plays nicer over a stream socket that
--- threadWaitRead recognises.
+
+{- | TCP loopback pair.  We use real TCP rather than AF_UNIX because
+OpenSSL's TLS layer plays nicer over a stream socket that
+threadWaitRead recognises.
+-}
 connectedPair :: IO (Socket, Socket)
 connectedPair = do
   listener <- NS.socket NS.AF_INET Stream NS.defaultProtocol

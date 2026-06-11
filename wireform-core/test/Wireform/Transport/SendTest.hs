@@ -5,41 +5,50 @@ module Wireform.Transport.SendTest (spec) where
 
 import Control.Exception (catch)
 import Data.Bits ((.&.))
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.IORef
-import Data.Word (Word8, Word64)
-import Foreign.Ptr (plusPtr, castPtr)
+import Data.Word (Word64, Word8)
+import Foreign.Ptr (castPtr, plusPtr)
 import System.IO.Unsafe (unsafePerformIO)
-import Test.Syd
 import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Monadic (monadicIO, run, assert)
-
-import Wireform.Builder
-  ( Builder, word8, word32BE, word64BE
-  , byteString, byteStringCopy, byteStringInsert
-  , toStrictByteString
-  )
-import Wireform.Ring.Internal (withMagicRing, ringBase, ringSize, ringMask)
+import Test.QuickCheck.Monadic (assert, monadicIO, run)
+import Test.Syd
+import Wireform.Builder (
+  Builder,
+  byteString,
+  byteStringCopy,
+  byteStringInsert,
+  toStrictByteString,
+  word32BE,
+  word64BE,
+  word8,
+ )
+import Wireform.Ring.Internal (ringBase, ringMask, ringSize, withMagicRing)
 import Wireform.Transport.Send
+
 
 ------------------------------------------------------------------------
 -- Helpers: generate non-trivial byte patterns
 ------------------------------------------------------------------------
 
 patternBytes :: Int -> BS.ByteString
-patternBytes n = BS.pack (fmap (\i -> fromIntegral (i `mod` 251) :: Word8) [0..n-1])
+patternBytes n = BS.pack (fmap (\i -> fromIntegral (i `mod` 251) :: Word8) [0 .. n - 1])
+
 
 patternBuilder :: Int -> Builder
 patternBuilder n = byteString (patternBytes n)
 
+
 mixedBuilder :: Int -> Builder
 mixedBuilder n =
-  let header  = word32BE 0xDEADBEEF <> word64BE (fromIntegral n)
+  let header = word32BE 0xDEADBEEF <> word64BE (fromIntegral n)
       payload = byteString (patternBytes (max 0 (n - 12)))
   in header <> payload
 
+
 mixedBuilderBS :: Int -> BS.ByteString
 mixedBuilderBS n = toStrictByteString (mixedBuilder n)
+
 
 ------------------------------------------------------------------------
 -- Tests
@@ -47,12 +56,10 @@ mixedBuilderBS n = toStrictByteString (mixedBuilder n)
 
 spec :: Spec
 spec = describe "SendTransport" $ do
-
   -- ----------------------------------------------------------------
   -- sendBuilderDirect: basic correctness
   -- ----------------------------------------------------------------
   describe "sendBuilderDirect" $ do
-
     it "sends empty builder" $ do
       (bytes, pubs) <- withTestTransport 4096 $ \t ->
         sendBuilderDirect t mempty
@@ -127,11 +134,11 @@ spec = describe "SendTransport" $ do
       readChunks bytes `shouldBe` mixedBuilderBS 500
 
     it "sends many small builders concatenated" $ do
-      let builders = fmap (\i -> word8 (fromIntegral (i :: Int))) [0..255]
+      let builders = fmap (\i -> word8 (fromIntegral (i :: Int))) [0 .. 255]
           b = mconcat builders
       (bytes, _) <- withTestTransport 4096 $ \t ->
         sendBuilderDirect t b
-      readChunks bytes `shouldBe` BS.pack [0..255]
+      readChunks bytes `shouldBe` BS.pack [0 .. 255]
 
     it "sends builder with explicit byteStringInsert" $ do
       let payload = patternBytes 20000
@@ -143,7 +150,6 @@ spec = describe "SendTransport" $ do
   -- sendBuilderDirect vs sendBuilderViaByteString equivalence
   -- ----------------------------------------------------------------
   describe "sendBuilderDirect vs sendBuilderViaByteString" $ do
-
     it "identical output for small payload" $ do
       let b = mixedBuilder 200
       (directBytes, _) <- withTestTransport 65536 $ \t ->
@@ -180,7 +186,6 @@ spec = describe "SendTransport" $ do
   -- sendByteString
   -- ----------------------------------------------------------------
   describe "sendByteString" $ do
-
     it "sends empty BS (no-op)" $ do
       (bytes, pubs) <- withTestTransport 4096 $ \t ->
         sendByteString t BS.empty
@@ -209,24 +214,24 @@ spec = describe "SendTransport" $ do
   -- sendByteString: reservation too large
   -- ----------------------------------------------------------------
   describe "sendByteString limits" $ do
-
     it "throws SendReservationTooLarge for BS > ringSize" $ do
       let payload = patternBytes 5000
       threw <- withMagicRing 4096 $ \ring -> do
         headRef' <- newIORef (0 :: Word64)
         tailRef' <- newIORef (0 :: Word64)
-        let t' = SendTransport
-              { sendRingBase = ringBase ring
-              , sendRingSize = ringSize ring
-              , sendRingMask = ringMask ring
-              , sendLoadTail = readIORef tailRef'
-              , sendLoadHead = readIORef headRef'
-              , sendPublishHead = \h -> writeIORef headRef' h >> writeIORef tailRef' h
-              , sendWaitSpace = \_ -> SendSpaceAvailable <$> readIORef tailRef'
-              , sendFlush = pure ()
-              , sendShutdownWrite = pure ()
-              , sendClose = pure ()
-              }
+        let t' =
+              SendTransport
+                { sendRingBase = ringBase ring
+                , sendRingSize = ringSize ring
+                , sendRingMask = ringMask ring
+                , sendLoadTail = readIORef tailRef'
+                , sendLoadHead = readIORef headRef'
+                , sendPublishHead = \h -> writeIORef headRef' h >> writeIORef tailRef' h
+                , sendWaitSpace = \_ -> SendSpaceAvailable <$> readIORef tailRef'
+                , sendFlush = pure ()
+                , sendShutdownWrite = pure ()
+                , sendClose = pure ()
+                }
         (sendByteString t' payload >> pure False)
           `catch` (\(SendReservationTooLarge _ _) -> pure True)
       threw `shouldBe` True
@@ -235,7 +240,6 @@ spec = describe "SendTransport" $ do
   -- withSendCork: batching
   -- ----------------------------------------------------------------
   describe "withSendCork" $ do
-
     it "empty cork: zero publishes, zero bytes" $ do
       (bytes, pubs) <- withTestTransport 4096 $ \t ->
         withSendCork t $ \_ -> pure ()
@@ -273,7 +277,7 @@ spec = describe "SendTransport" $ do
 
     it "batches builder + bytestring into one publish" $ do
       let header = word8 0x01 <> word32BE 0x12345678
-          body   = patternBytes 50
+          body = patternBytes 50
       (bytes, pubs) <- withTestTransport 65536 $ \t ->
         withSendCork t $ \corked -> do
           sendBuilderDirect corked header
@@ -288,8 +292,8 @@ spec = describe "SendTransport" $ do
         withSendCork t $ \corked -> do
           sendBuilderDirect corked (mixedBuilder 200)
           sendBuilderDirect corked (mixedBuilder 300)
-      readChunks bytes `shouldBe`
-        BS.append (mixedBuilderBS 200) (mixedBuilderBS 300)
+      readChunks bytes
+        `shouldBe` BS.append (mixedBuilderBS 200) (mixedBuilderBS 300)
       readIORef pubs `shouldReturn` 1
 
     it "corked payload exactly ring size" $ do
@@ -303,7 +307,6 @@ spec = describe "SendTransport" $ do
   -- withSendCork: backpressure
   -- ----------------------------------------------------------------
   describe "withSendCork backpressure" $ do
-
     it "builder payload 2x ring" $ do
       let n = 8192
       (bytes, pubs) <- withTestTransport 4096 $ \t ->
@@ -339,34 +342,41 @@ spec = describe "SendTransport" $ do
           numChunks = 30 :: Int
       (bytes, _) <- withTestTransport 4096 $ \t ->
         withSendCork t $ \corked ->
-          mapM_ (\_ -> sendByteString corked chunk) [1..numChunks]
+          mapM_ (\_ -> sendByteString corked chunk) [1 .. numChunks]
       readChunks bytes `shouldBe` BS.concat (replicate numChunks chunk)
 
     it "many small builders exceeding ring" $ do
       let numBuilders = 200 :: Int
       (bytes, _) <- withTestTransport 4096 $ \t ->
         withSendCork t $ \corked ->
-          mapM_ (\i -> sendBuilderDirect corked
-            (word32BE (fromIntegral i))) [0..numBuilders - 1]
-      let expected = toStrictByteString $
-            mconcat (fmap (\i -> word32BE (fromIntegral i)) [0..numBuilders - 1 :: Int])
+          mapM_
+            ( \i ->
+                sendBuilderDirect
+                  corked
+                  (word32BE (fromIntegral i))
+            )
+            [0 .. numBuilders - 1]
+      let expected =
+            toStrictByteString $
+              mconcat (fmap (\i -> word32BE (fromIntegral i)) [0 .. numBuilders - 1 :: Int])
       readChunks bytes `shouldBe` expected
 
     it "interleaved builder + BS exceeding ring" $ do
       let n = 20 :: Int
       (bytes, _) <- withTestTransport 4096 $ \t ->
         withSendCork t $ \corked ->
-          mapM_ (\i -> do
-            sendBuilderDirect corked (word32BE (fromIntegral i))
-            sendByteString corked (patternBytes 200)
-          ) [0..n - 1]
+          mapM_
+            ( \i -> do
+                sendBuilderDirect corked (word32BE (fromIntegral i))
+                sendByteString corked (patternBytes 200)
+            )
+            [0 .. n - 1]
       BS.length (readChunks bytes) `shouldBe` n * (4 + 200)
 
   -- ----------------------------------------------------------------
   -- Sequential cork + uncork operations
   -- ----------------------------------------------------------------
   describe "sequential cork/uncork" $ do
-
     it "cork then uncorked send" $ do
       (bytes, _) <- withTestTransport 65536 $ \t -> do
         withSendCork t $ \corked ->
@@ -390,23 +400,22 @@ spec = describe "SendTransport" $ do
         withSendCork t $ \c -> sendBuilderDirect c (patternBuilder 100)
         withSendCork t $ \c -> sendBuilderDirect c (patternBuilder 500)
         withSendCork t $ \c -> sendBuilderDirect c (patternBuilder 1000)
-      readChunks bytes `shouldBe`
-        BS.concat [patternBytes 100, patternBytes 500, patternBytes 1000]
+      readChunks bytes
+        `shouldBe` BS.concat [patternBytes 100, patternBytes 500, patternBytes 1000]
       readIORef pubs `shouldReturn` 3
 
     it "cork then many uncorked sends" $ do
       (bytes, _) <- withTestTransport 65536 $ \t -> do
         withSendCork t $ \c ->
           sendByteString c (patternBytes 50)
-        mapM_ (\i -> sendByteString t (BS.singleton (fromIntegral i))) [0..9 :: Int]
-      readChunks bytes `shouldBe`
-        BS.append (patternBytes 50) (BS.pack [0..9])
+        mapM_ (\i -> sendByteString t (BS.singleton (fromIntegral i))) [0 .. 9 :: Int]
+      readChunks bytes
+        `shouldBe` BS.append (patternBytes 50) (BS.pack [0 .. 9])
 
   -- ----------------------------------------------------------------
   -- Property-based: arbitrary payload sizes
   -- ----------------------------------------------------------------
   describe "property-based" $ do
-
     it "sendBuilderDirect produces correct output for arbitrary sizes" $
       property $ \(Positive (n :: Int)) -> monadicIO $ do
         let sz = min n 100000
@@ -438,7 +447,7 @@ spec = describe "SendTransport" $ do
             chunk = patternBytes 100
         (bytes, _) <- run $ withTestTransport 4096 $ \t ->
           withSendCork t $ \corked ->
-            mapM_ (\_ -> sendByteString corked chunk) [1..numSends]
+            mapM_ (\_ -> sendByteString corked chunk) [1 .. numSends]
         assert (readChunks bytes == BS.concat (replicate numSends chunk))
 
 
@@ -453,8 +462,8 @@ withTestTransport
 withTestTransport requestedRingSz action =
   withMagicRing requestedRingSz $ \ring -> do
     let !base = ringBase ring
-        !sz   = ringSize ring
-        !msk  = ringMask ring
+        !sz = ringSize ring
+        !msk = ringMask ring
     chunksRef <- newIORef ([] :: [BS.ByteString])
     publishCount <- newIORef (0 :: Int)
     headRef <- newIORef (0 :: Word64)
@@ -468,9 +477,9 @@ withTestTransport requestedRingSz action =
             drainLoop !cur
               | cur >= hd = pure ()
               | otherwise = do
-                  let !off  = fromIntegral cur .&. msk
+                  let !off = fromIntegral cur .&. msk
                       !want = min (fromIntegral (hd - cur)) (sz - off)
-                      !ptr  = base `plusPtr` off
+                      !ptr = base `plusPtr` off
                   bs <- BS.packCStringLen (castPtr ptr, want)
                   modifyIORef' chunksRef (bs :)
                   let !newTail = cur + fromIntegral want
@@ -490,20 +499,22 @@ withTestTransport requestedRingSz action =
               pure (SendSpaceAvailable tl)
             else pure SendPeerClosed
 
-    let transport = SendTransport
-          { sendRingBase     = base
-          , sendRingSize     = sz
-          , sendRingMask     = msk
-          , sendLoadTail     = readIORef tailRef
-          , sendLoadHead     = readIORef headRef
-          , sendPublishHead  = publish
-          , sendWaitSpace    = waitSpace
-          , sendFlush        = readIORef headRef >>= drainTo
-          , sendShutdownWrite = pure ()
-          , sendClose        = writeIORef stateRef False
-          }
+    let transport =
+          SendTransport
+            { sendRingBase = base
+            , sendRingSize = sz
+            , sendRingMask = msk
+            , sendLoadTail = readIORef tailRef
+            , sendLoadHead = readIORef headRef
+            , sendPublishHead = publish
+            , sendWaitSpace = waitSpace
+            , sendFlush = readIORef headRef >>= drainTo
+            , sendShutdownWrite = pure ()
+            , sendClose = writeIORef stateRef False
+            }
     _ <- action transport
     pure (chunksRef, publishCount)
+
 
 readChunks :: IORef [BS.ByteString] -> BS.ByteString
 readChunks ref = unsafePerformIO $ do

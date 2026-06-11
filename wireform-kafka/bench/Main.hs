@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Main
 Description : Benchmark suite entry point
 Copyright   : (c) 2025
@@ -17,24 +17,24 @@ Usage:
 -}
 module Main (main) where
 
-import Criterion.Main (defaultMainWith, defaultConfig)
-import Criterion.Types
-  ( Config(..)
-  , Verbosity(..)
-  , measureAccessors
-  , measureKeys
-  )
+import Benchmarks.CRC32C qualified as CRC32C
+import Benchmarks.ClientOps qualified as ClientOps
+import Benchmarks.HotPath qualified as HotPath
+import Benchmarks.HwKafkaComparison qualified as HwKafkaComparison
+import Benchmarks.Serialization qualified as Serialization
+import Benchmarks.StatsAndStamping qualified as StatsAndStamping
+import Criterion.Main (defaultConfig, defaultMainWith)
+import Criterion.Types (
+  Config (..),
+  Verbosity (..),
+  measureAccessors,
+  measureKeys,
+ )
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory)
 import System.FilePath ((</>))
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Format (formatTime, defaultTimeLocale)
 
-import qualified Benchmarks.CRC32C as CRC32C
-import qualified Benchmarks.Serialization as Serialization
-import qualified Benchmarks.ClientOps as ClientOps
-import qualified Benchmarks.StatsAndStamping as StatsAndStamping
-import qualified Benchmarks.HotPath as HotPath
-import qualified Benchmarks.HwKafkaComparison as HwKafkaComparison
 
 -- -----------------------------------------------------------------------------
 -- Main Entry Point
@@ -45,28 +45,27 @@ main = do
   -- Ensure benchmark results directory exists
   resultsDir <- getResultsDir
   createDirectoryIfMissing True resultsDir
-  
+
   -- Get timestamp for file naming
   timestamp <- getCurrentTime
   let timeStr = formatTime defaultTimeLocale "%Y%m%d-%H%M%S" timestamp
-  
+
   -- Configure criterion with JSON and HTML output
-  let config = defaultConfig
-        { -- Output JSON results for historical tracking
-          jsonFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".json")
-          
-          -- Can also generate CSV for easier analysis
-        , csvFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".csv")
-          
-          -- Enable verbose output to see progress
-        , verbosity = Normal
-          
-          -- Configure reporting
-        , reportFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".html")
-        }
-  
+  let config =
+        defaultConfig
+          { -- Output JSON results for historical tracking
+            jsonFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".json")
+          , -- Can also generate CSV for easier analysis
+            csvFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".csv")
+          , -- Enable verbose output to see progress
+            verbosity = Normal
+          , -- Configure reporting
+            reportFile = Just $ resultsDir </> ("benchmark-" ++ timeStr ++ ".html")
+          }
+
   -- Run all benchmarks
-  defaultMainWith config
+  defaultMainWith
+    config
     [ CRC32C.benchmarks
     , Serialization.benchmarks
     , ClientOps.benchmarks
@@ -75,12 +74,14 @@ main = do
     , HwKafkaComparison.benchmarks
     ]
 
+
 -- -----------------------------------------------------------------------------
 -- Utilities
 -- -----------------------------------------------------------------------------
 
--- | Get the path to the benchmark results directory.
--- Uses "benchmark/results" relative to the current working directory.
+{- | Get the path to the benchmark results directory.
+Uses "benchmark/results" relative to the current working directory.
+-}
 getResultsDir :: IO FilePath
 getResultsDir = do
   cwd <- getCurrentDirectory
@@ -125,19 +126,19 @@ Example command lines:
 
   # Quick benchmark for development
   cabal bench --benchmark-options="--quick"
-  
+
   # Only run CRC32C benchmarks
   cabal bench --benchmark-options="--pattern CRC32C"
-  
+
   # Generate HTML report to specific location
   cabal bench --benchmark-options="--output my-report.html"
-  
+
   # Run with more samples for publication
   cabal bench --benchmark-options="--resamples 10000"
-  
+
   # List all benchmarks
   cabal bench --benchmark-options="--list"
-  
+
   # Combine options
   cabal bench --benchmark-options="--quick --pattern CRC32C/Small"
 
@@ -149,14 +150,14 @@ To compare benchmark results over time:
 2. Use criterion's comparison tools:
    - criterion-cmp tool (if available)
    - Manual comparison of JSON files
-   
+
 3. Build custom analysis tools:
    - Parse JSON outputs
    - Track specific metrics over time
    - Generate trend graphs
-   
+
 4. Consider using bench-show or similar tools for visualization
-   
+
 5. For CI integration:
    - Compare against baseline
    - Fail if performance regresses beyond threshold
@@ -166,12 +167,11 @@ Example analysis workflow:
 
   # Run benchmarks
   cabal bench
-  
+
   # Compare with previous run
   jq '.results[].mean.estPoint' benchmark/results/benchmark-20250103-100000.json
   jq '.results[].mean.estPoint' benchmark/results/benchmark-20250103-110000.json
-  
+
   # Or use criterion's built-in comparison if you have baseline
   cabal bench --benchmark-options="--baseline baseline.csv"
 -}
-

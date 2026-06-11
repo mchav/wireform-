@@ -92,8 +92,8 @@ renderCredentials = \case
       R.shortText key
         <> M.char7 '='
         <> ( case val of
-              CredentialParamToken tok -> R.shortText tok
-              CredentialParamString str -> R.rfc8941String str
+               CredentialParamToken tok -> R.shortText tok
+               CredentialParamString str -> R.rfc8941String str
            )
 
 

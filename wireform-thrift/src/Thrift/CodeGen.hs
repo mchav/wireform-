@@ -1,48 +1,52 @@
 {-# LANGUAGE TemplateHaskell #-}
--- | Thrift code generation — generates Haskell data types and
--- ToThrift\/FromThrift instances from Thrift schemas.
---
--- == Text generation
---
--- 'generateThriftTypes' takes a 'ThriftSchema' and produces Haskell source
--- as 'Text'.  The output includes @data@ declarations for structs, enums,
--- and service method descriptors.
---
--- == Template Haskell
---
--- 'deriveThrift' generates declarations at compile time from a 'ThriftSchema'.
-module Thrift.CodeGen
-  ( generateThriftTypes
-  , generateThriftTypesWithRegistry
-  , deriveThrift
-  ) where
+
+{- | Thrift code generation — generates Haskell data types and
+ToThrift\/FromThrift instances from Thrift schemas.
+
+== Text generation
+
+'generateThriftTypes' takes a 'ThriftSchema' and produces Haskell source
+as 'Text'.  The output includes @data@ declarations for structs, enums,
+and service method descriptors.
+
+== Template Haskell
+
+'deriveThrift' generates declarations at compile time from a 'ThriftSchema'.
+-}
+module Thrift.CodeGen (
+  generateThriftTypes,
+  generateThriftTypesWithRegistry,
+  deriveThrift,
+) where
 
 import Data.ByteString (ByteString)
 import Data.Char (toLower, toUpper)
-import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.Text qualified as T
+import Data.Vector qualified as V
 import Language.Haskell.TH
-
-import Thrift.Schema
 import Thrift.Registry
+import Thrift.Schema
 
 
 -- ---------------------------------------------------------------------------
 -- Text-based code generation
 -- ---------------------------------------------------------------------------
 
--- | Generate Haskell source code (as 'Text') for all types in a 'ThriftSchema'.
--- Uses 'defaultThriftRegistry'.
+{- | Generate Haskell source code (as 'Text') for all types in a 'ThriftSchema'.
+Uses 'defaultThriftRegistry'.
+-}
 generateThriftTypes :: ThriftSchema -> Text
 generateThriftTypes = generateThriftTypesWithRegistry defaultThriftRegistry
 
--- | Generate Haskell source code using a custom 'ThriftRegistry'.
--- When a field has an annotation matching a handler, the type transformation
--- is applied and extra code is emitted.
+
+{- | Generate Haskell source code using a custom 'ThriftRegistry'.
+When a field has an annotation matching a handler, the type transformation
+is applied and extra code is emitted.
+-}
 generateThriftTypesWithRegistry :: ThriftRegistry -> ThriftSchema -> Text
 generateThriftTypesWithRegistry reg schema =
   let typedefDecls = map genThriftTypedef (tsTypedefs schema)
@@ -52,6 +56,7 @@ generateThriftTypesWithRegistry reg schema =
       serviceDecls = map genThriftService (tsServices schema)
   in T.intercalate "\n\n" (typedefDecls <> constDecls <> enumDecls <> structDecls <> serviceDecls)
 
+
 -- ---------------------------------------------------------------------------
 -- Typedef generation (text)
 -- ---------------------------------------------------------------------------
@@ -59,6 +64,7 @@ generateThriftTypesWithRegistry reg schema =
 genThriftTypedef :: ThriftTypedef -> Text
 genThriftTypedef td =
   "type " <> ttName td <> " = " <> thriftInnerHsType (ttType td)
+
 
 -- ---------------------------------------------------------------------------
 -- Const generation (text)
@@ -71,6 +77,7 @@ genThriftConst tc =
       hsVal = constValueToHs (tcType tc) (tcValue tc)
   in name <> " :: " <> hsType <> "\n" <> name <> " = " <> hsVal
 
+
 constValueToHs :: ThriftType -> ThriftConstValue -> Text
 constValueToHs _ (TCVInt n) = T.pack (show n)
 constValueToHs _ (TCVDouble d) = T.pack (show d)
@@ -82,6 +89,7 @@ constValueToHs _ (TCVList vs) =
   "[" <> T.intercalate ", " (map (constValueToHs TString) vs) <> "]"
 constValueToHs _ (TCVMap _) = "mempty"
 
+
 -- ---------------------------------------------------------------------------
 -- Enum generation (text)
 -- ---------------------------------------------------------------------------
@@ -91,42 +99,54 @@ genThriftEnum te =
   let name = teName te
       vals = teValues te
   in T.unlines $
-    case vals of
-      [] ->
-        [ "data " <> name
-        , "  deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)"
-        , "  deriving anyclass NFData"
-        ]
-      ((sym, _):rest) ->
-        [ "data " <> name ]
-        <> [ "  = " <> thriftEnumConName name sym ]
-        <> map (\(s, _) -> "  | " <> thriftEnumConName name s) rest
-        <> [ "  deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)"
+       case vals of
+         [] ->
+           [ "data " <> name
+           , "  deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)"
            , "  deriving anyclass NFData"
            ]
-    <> genThriftEnumToThrift name vals
-    <> genThriftEnumFromThrift name vals
+         ((sym, _) : rest) ->
+           ["data " <> name]
+             <> ["  = " <> thriftEnumConName name sym]
+             <> map (\(s, _) -> "  | " <> thriftEnumConName name s) rest
+             <> [ "  deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)"
+                , "  deriving anyclass NFData"
+                ]
+         <> genThriftEnumToThrift name vals
+         <> genThriftEnumFromThrift name vals
+
 
 thriftEnumConName :: Text -> Text -> Text
 thriftEnumConName enumName valName =
   enumName <> upperFirst (snakeToCamel (T.toLower valName))
 
+
 genThriftEnumToThrift :: Text -> [(Text, Int32)] -> [Text]
 genThriftEnumToThrift name vals =
   [ ""
   , "instance ToThrift " <> name <> " where"
-  ] <> zipWith (\i (sym, _) ->
-      "  toThrift " <> thriftEnumConName name sym <> " = Thrift.Value.I32 " <> T.pack (show i)
-    ) [0 :: Int ..] vals
+  ]
+    <> zipWith
+      ( \i (sym, _) ->
+          "  toThrift " <> thriftEnumConName name sym <> " = Thrift.Value.I32 " <> T.pack (show i)
+      )
+      [0 :: Int ..]
+      vals
+
 
 genThriftEnumFromThrift :: Text -> [(Text, Int32)] -> [Text]
 genThriftEnumFromThrift name vals =
   [ ""
   , "instance FromThrift " <> name <> " where"
-  ] <> zipWith (\i (sym, _) ->
-      "  fromThrift (Thrift.Value.I32 " <> T.pack (show i) <> ") = Right " <> thriftEnumConName name sym
-    ) [0 :: Int ..] vals
-  <> [ "  fromThrift _ = Left \"FromThrift " <> name <> ": expected I32 enum value\"" ]
+  ]
+    <> zipWith
+      ( \i (sym, _) ->
+          "  fromThrift (Thrift.Value.I32 " <> T.pack (show i) <> ") = Right " <> thriftEnumConName name sym
+      )
+      [0 :: Int ..]
+      vals
+    <> ["  fromThrift _ = Left \"FromThrift " <> name <> ": expected I32 enum value\""]
+
 
 -- ---------------------------------------------------------------------------
 -- Struct generation (text)
@@ -137,45 +157,58 @@ genThriftStructWithRegistry reg ts =
   let name = tsName ts
       fields = tsFields ts
       structAnns = V.toList (tsAnnotations ts)
-      extraStructCode = concatMap (\(k, v) ->
-        case Map.lookup k (trStructAnnotations reg) of
-          Just handler -> sahExtraCode handler k v
-          Nothing -> []
-        ) structAnns
-      extraDerivs = concatMap (\(k, v) ->
-        case Map.lookup k (trStructAnnotations reg) of
-          Just handler -> sahExtraDerivations handler v
-          Nothing -> []
-        ) structAnns
-      fieldExtraCode = concatMap (\fld ->
-        concatMap (\(k, v) ->
-          case Map.lookup k (trFieldAnnotations reg) of
-            Just handler -> fahExtraCode handler (tfFieldName fld) v
-            Nothing -> []
-          ) (V.toList (tfAnnotations fld))
-        ) fields
+      extraStructCode =
+        concatMap
+          ( \(k, v) ->
+              case Map.lookup k (trStructAnnotations reg) of
+                Just handler -> sahExtraCode handler k v
+                Nothing -> []
+          )
+          structAnns
+      extraDerivs =
+        concatMap
+          ( \(k, v) ->
+              case Map.lookup k (trStructAnnotations reg) of
+                Just handler -> sahExtraDerivations handler v
+                Nothing -> []
+          )
+          structAnns
+      fieldExtraCode =
+        concatMap
+          ( \fld ->
+              concatMap
+                ( \(k, v) ->
+                    case Map.lookup k (trFieldAnnotations reg) of
+                      Just handler -> fahExtraCode handler (tfFieldName fld) v
+                      Nothing -> []
+                )
+                (V.toList (tfAnnotations fld))
+          )
+          fields
   in T.unlines $
-    genStructDataDeclWithRegistry reg name fields
-    <> (if null extraDerivs then [] else map ("  deriving " <>) extraDerivs)
-    <> genStructToThrift name fields
-    <> genStructFromThrift name fields
-    <> extraStructCode
-    <> fieldExtraCode
+       genStructDataDeclWithRegistry reg name fields
+         <> (if null extraDerivs then [] else map ("  deriving " <>) extraDerivs)
+         <> genStructToThrift name fields
+         <> genStructFromThrift name fields
+         <> extraStructCode
+         <> fieldExtraCode
+
 
 genStructDataDeclWithRegistry :: ThriftRegistry -> Text -> [ThriftField] -> [Text]
 genStructDataDeclWithRegistry reg name fields =
-  [ "data " <> name <> " = " <> name ]
-  <> case fields of
-    [] ->
-      [ "  deriving stock (Show, Eq, Generic)"
-      , "  deriving anyclass NFData"
-      ]
-    (f:fs) ->
-      [ "  { " <> genThriftFieldDeclWithRegistry reg name f ]
-      <> map (\fld -> "  , " <> genThriftFieldDeclWithRegistry reg name fld) fs
-      <> [ "  } deriving stock (Show, Eq, Generic)"
-         , "    deriving anyclass NFData"
-         ]
+  ["data " <> name <> " = " <> name]
+    <> case fields of
+      [] ->
+        [ "  deriving stock (Show, Eq, Generic)"
+        , "  deriving anyclass NFData"
+        ]
+      (f : fs) ->
+        ["  { " <> genThriftFieldDeclWithRegistry reg name f]
+          <> map (\fld -> "  , " <> genThriftFieldDeclWithRegistry reg name fld) fs
+          <> [ "  } deriving stock (Show, Eq, Generic)"
+             , "    deriving anyclass NFData"
+             ]
+
 
 genThriftFieldDeclWithRegistry :: ThriftRegistry -> Text -> ThriftField -> Text
 genThriftFieldDeclWithRegistry reg recName fld =
@@ -184,23 +217,30 @@ genThriftFieldDeclWithRegistry reg recName fld =
       hsType = applyFieldAnnotationTransforms reg fld baseType
   in accessor <> " :: " <> hsType
 
+
 applyFieldAnnotationTransforms :: ThriftRegistry -> ThriftField -> Text -> Text
 applyFieldAnnotationTransforms reg fld ty =
-  foldl (\acc (k, _v) ->
-    case Map.lookup k (trFieldAnnotations reg) of
-      Just handler -> fahTransformType handler acc
-      Nothing -> acc
-    ) ty (V.toList (tfAnnotations fld))
+  foldl
+    ( \acc (k, _v) ->
+        case Map.lookup k (trFieldAnnotations reg) of
+          Just handler -> fahTransformType handler acc
+          Nothing -> acc
+    )
+    ty
+    (V.toList (tfAnnotations fld))
+
 
 thriftFieldAccessorName :: Text -> Text -> Text
 thriftFieldAccessorName recName fieldName =
   lowerFirst recName <> upperFirst (snakeToCamel fieldName)
+
 
 thriftFieldHsType :: ThriftType -> Requiredness -> Text
 thriftFieldHsType ty req = case req of
   Optional -> "!(Maybe " <> thriftInnerHsType ty <> ")"
   Required -> thriftStrictHsType ty
   Default -> thriftStrictHsType ty
+
 
 thriftStrictHsType :: ThriftType -> Text
 thriftStrictHsType = \case
@@ -220,6 +260,7 @@ thriftStrictHsType = \case
   TSet elemTy -> "!(Vector " <> thriftInnerHsType elemTy <> ")"
   TMap keyTy valTy -> "!(Map " <> thriftInnerHsType keyTy <> " " <> thriftInnerHsType valTy <> ")"
 
+
 thriftInnerHsType :: ThriftType -> Text
 thriftInnerHsType = \case
   TBool -> "Bool"
@@ -238,6 +279,7 @@ thriftInnerHsType = \case
   TSet elemTy -> "(Vector " <> thriftInnerHsType elemTy <> ")"
   TMap keyTy valTy -> "(Map " <> thriftInnerHsType keyTy <> " " <> thriftInnerHsType valTy <> ")"
 
+
 -- ---------------------------------------------------------------------------
 -- Struct ToThrift instance (text)
 -- ---------------------------------------------------------------------------
@@ -247,22 +289,25 @@ genStructToThrift name fields =
   [ ""
   , "instance ToThrift " <> name <> " where"
   , "  toThrift msg = Thrift.Value.Struct $ V.fromList"
-  ] <> case fields of
-    [] -> [ "    []" ]
-    _  ->
-      [ "    [ " <> toThriftFieldExpr name (head fields) ]
-      <> map (\f -> "    , " <> toThriftFieldExpr name f) (tail fields)
-      <> [ "    ]" ]
+  ]
+    <> case fields of
+      [] -> ["    []"]
+      _ ->
+        ["    [ " <> toThriftFieldExpr name (head fields)]
+          <> map (\f -> "    , " <> toThriftFieldExpr name f) (tail fields)
+          <> ["    ]"]
+
 
 toThriftFieldExpr :: Text -> ThriftField -> Text
 toThriftFieldExpr recName fld =
   let accessor = "msg." <> thriftFieldAccessorName recName (tfFieldName fld)
       fid = T.pack (show (tfFieldId fld))
   in case tfRequiredness fld of
-    Optional ->
-      "maybe (0, Thrift.Value.Bool False) (\\v -> (" <> fid <> ", " <> toThriftConvert (tfFieldType fld) "v" <> ")) " <> accessor
-    _ ->
-      "(" <> fid <> ", " <> toThriftConvert (tfFieldType fld) accessor <> ")"
+       Optional ->
+         "maybe (0, Thrift.Value.Bool False) (\\v -> (" <> fid <> ", " <> toThriftConvert (tfFieldType fld) "v" <> ")) " <> accessor
+       _ ->
+         "(" <> fid <> ", " <> toThriftConvert (tfFieldType fld) accessor <> ")"
+
 
 toThriftConvert :: ThriftType -> Text -> Text
 toThriftConvert ty accessor = case ty of
@@ -282,6 +327,7 @@ toThriftConvert ty accessor = case ty of
   TSet _ -> "toThrift " <> accessor
   TMap _ _ -> "toThrift " <> accessor
 
+
 -- ---------------------------------------------------------------------------
 -- Struct FromThrift instance (text)
 -- ---------------------------------------------------------------------------
@@ -292,26 +338,34 @@ genStructFromThrift name fields =
   , "instance FromThrift " <> name <> " where"
   , "  fromThrift (Thrift.Value.Struct fieldVec) = do"
   , "    let fieldMap = Map.fromList (V.toList fieldVec)"
-  ] <> map (fromThriftFieldBind name) fields
-  <> [ "    pure " <> name
-     , "      { " <> T.intercalate "\n      , "
-        (map (\fld ->
-          let accessor = thriftFieldAccessorName name (tfFieldName fld)
-          in accessor <> " = " <> accessor <> "'"
-        ) fields)
-     , "      }"
-     , "  fromThrift _ = Left \"FromThrift " <> name <> ": expected Struct\""
-     ]
+  ]
+    <> map (fromThriftFieldBind name) fields
+    <> [ "    pure " <> name
+       , "      { "
+           <> T.intercalate
+             "\n      , "
+             ( map
+                 ( \fld ->
+                     let accessor = thriftFieldAccessorName name (tfFieldName fld)
+                     in accessor <> " = " <> accessor <> "'"
+                 )
+                 fields
+             )
+       , "      }"
+       , "  fromThrift _ = Left \"FromThrift " <> name <> ": expected Struct\""
+       ]
+
 
 fromThriftFieldBind :: Text -> ThriftField -> Text
 fromThriftFieldBind recName fld =
   let accessor = thriftFieldAccessorName recName (tfFieldName fld)
       fid = T.pack (show (tfFieldId fld))
   in case tfRequiredness fld of
-    Optional ->
-      "    let " <> accessor <> "' = case Map.lookup " <> fid <> " fieldMap of { Just v -> case fromThrift v of { Right x -> Just x; _ -> Nothing }; Nothing -> Nothing }"
-    _ ->
-      "    " <> accessor <> "' <- case Map.lookup " <> fid <> " fieldMap of { Just v -> fromThrift v; Nothing -> Left \"missing field " <> tfFieldName fld <> "\" }"
+       Optional ->
+         "    let " <> accessor <> "' = case Map.lookup " <> fid <> " fieldMap of { Just v -> case fromThrift v of { Right x -> Just x; _ -> Nothing }; Nothing -> Nothing }"
+       _ ->
+         "    " <> accessor <> "' <- case Map.lookup " <> fid <> " fieldMap of { Just v -> fromThrift v; Nothing -> Left \"missing field " <> tfFieldName fld <> "\" }"
+
 
 -- ---------------------------------------------------------------------------
 -- Service generation (text) — type-level method descriptors
@@ -322,27 +376,32 @@ genThriftService svc =
   let name = tsvName svc
       methods = tsvMethods svc
   in T.unlines $
-    [ "-- | Service @" <> name <> "@ method descriptors."
-    , "data " <> name <> "Method"
-    ]
-    <> case methods of
-      [] ->
-        [ "  deriving stock (Show, Eq, Ord, Enum, Bounded)" ]
-      (m:ms) ->
-        [ "  = " <> name <> upperFirst (snakeToCamel (tmName m)) <> "Method" ]
-        <> map (\method ->
-            "  | " <> name <> upperFirst (snakeToCamel (tmName method)) <> "Method"
-          ) ms
-        <> [ "  deriving stock (Show, Eq, Ord, Enum, Bounded)" ]
-    <> [ ""
-       , name <> "ServiceName :: Text"
-       , name <> "ServiceName = \"" <> name <> "\""
-       , ""
-       , name <> "MethodName :: " <> name <> "Method -> Text"
+       [ "-- | Service @" <> name <> "@ method descriptors."
+       , "data " <> name <> "Method"
        ]
-    <> map (\method ->
-        name <> "MethodName " <> name <> upperFirst (snakeToCamel (tmName method)) <> "Method = \"" <> tmName method <> "\""
-      ) methods
+         <> case methods of
+           [] ->
+             ["  deriving stock (Show, Eq, Ord, Enum, Bounded)"]
+           (m : ms) ->
+             ["  = " <> name <> upperFirst (snakeToCamel (tmName m)) <> "Method"]
+               <> map
+                 ( \method ->
+                     "  | " <> name <> upperFirst (snakeToCamel (tmName method)) <> "Method"
+                 )
+                 ms
+               <> ["  deriving stock (Show, Eq, Ord, Enum, Bounded)"]
+         <> [ ""
+            , name <> "ServiceName :: Text"
+            , name <> "ServiceName = \"" <> name <> "\""
+            , ""
+            , name <> "MethodName :: " <> name <> "Method -> Text"
+            ]
+         <> map
+           ( \method ->
+               name <> "MethodName " <> name <> upperFirst (snakeToCamel (tmName method)) <> "Method = \"" <> tmName method <> "\""
+           )
+           methods
+
 
 -- ---------------------------------------------------------------------------
 -- Template Haskell
@@ -355,6 +414,7 @@ deriveThrift schema = do
   structDecs <- concat <$> mapM deriveThriftStructTH (tsStructs schema)
   pure (enumDecs <> structDecs)
 
+
 -- ---------------------------------------------------------------------------
 -- TH: Enum
 -- ---------------------------------------------------------------------------
@@ -365,11 +425,19 @@ deriveThriftEnumTH te = do
       tyName = mkName (T.unpack name)
       vals = teValues te
       cons = map (\(sym, _) -> NormalC (mkName (T.unpack (thriftEnumConName name sym))) []) vals
-      dataDec = DataD [] tyName [] Nothing cons
-        [ DerivClause (Just StockStrategy)
-            [ConT ''Show, ConT ''Eq, ConT ''Ord, ConT ''Enum, ConT ''Bounded]
-        ]
+      dataDec =
+        DataD
+          []
+          tyName
+          []
+          Nothing
+          cons
+          [ DerivClause
+              (Just StockStrategy)
+              [ConT ''Show, ConT ''Eq, ConT ''Ord, ConT ''Enum, ConT ''Bounded]
+          ]
   pure [dataDec]
+
 
 -- ---------------------------------------------------------------------------
 -- TH: Struct
@@ -382,10 +450,16 @@ deriveThriftStructTH ts = do
       conName = mkName (T.unpack name)
       fields = tsFields ts
   fieldDecs <- mapM (mkThriftRecordField name) fields
-  let dataDec = DataD [] tyName [] Nothing
-        [RecC conName fieldDecs]
-        [ DerivClause (Just StockStrategy) [ConT ''Show, ConT ''Eq] ]
+  let dataDec =
+        DataD
+          []
+          tyName
+          []
+          Nothing
+          [RecC conName fieldDecs]
+          [DerivClause (Just StockStrategy) [ConT ''Show, ConT ''Eq]]
   pure [dataDec]
+
 
 mkThriftRecordField :: Text -> ThriftField -> Q VarBangType
 mkThriftRecordField recName fld = do
@@ -395,6 +469,7 @@ mkThriftRecordField recName fld = do
   let bang = Bang NoSourceUnpackedness SourceStrict
   pure (accName, bang, hsTy)
 
+
 thriftFieldToTHType :: ThriftType -> Requiredness -> Q Type
 thriftFieldToTHType ty req = case req of
   Optional -> do
@@ -402,17 +477,18 @@ thriftFieldToTHType ty req = case req of
     pure (AppT (ConT ''Maybe) inner)
   _ -> thriftTypeToTH ty
 
+
 thriftTypeToTH :: ThriftType -> Q Type
 thriftTypeToTH = \case
-  TBool -> [t| Bool |]
-  TByte -> [t| Int8 |]
-  TI16 -> [t| Int16 |]
-  TI32 -> [t| Int32 |]
-  TI64 -> [t| Int64 |]
-  TDouble -> [t| Double |]
-  TString -> [t| Text |]
-  TBinary -> [t| ByteString |]
-  TUUID -> [t| ByteString |]
+  TBool -> [t|Bool|]
+  TByte -> [t|Int8|]
+  TI16 -> [t|Int16|]
+  TI32 -> [t|Int32|]
+  TI64 -> [t|Int64|]
+  TDouble -> [t|Double|]
+  TString -> [t|Text|]
+  TBinary -> [t|ByteString|]
+  TUUID -> [t|ByteString|]
   TStruct n -> pure (ConT (mkName (T.unpack n)))
   TEnum n -> pure (ConT (mkName (T.unpack n)))
   TTypedef n -> pure (ConT (mkName (T.unpack n)))
@@ -427,6 +503,7 @@ thriftTypeToTH = \case
     v <- thriftTypeToTH valTy
     pure (AppT (AppT (ConT ''Map) k) v)
 
+
 -- ---------------------------------------------------------------------------
 -- Name helpers
 -- ---------------------------------------------------------------------------
@@ -436,17 +513,20 @@ lowerFirst s = case T.uncons s of
   Just (c, rest) -> T.cons (toLower c) rest
   Nothing -> s
 
+
 upperFirst :: Text -> Text
 upperFirst s = case T.uncons s of
   Just (c, rest) -> T.cons (toUpper c) rest
   Nothing -> s
 
+
 snakeToCamel :: Text -> Text
 snakeToCamel t =
   let parts = T.splitOn "_" t
   in case parts of
-    [] -> t
-    (p:ps) -> T.concat (lowerFirst p : map titleCase ps)
+       [] -> t
+       (p : ps) -> T.concat (lowerFirst p : map titleCase ps)
+
 
 titleCase :: Text -> Text
 titleCase s = case T.uncons s of

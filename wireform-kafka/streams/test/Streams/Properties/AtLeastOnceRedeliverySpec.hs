@@ -1,76 +1,77 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |
--- Module      : Streams.Properties.AtLeastOnceRedeliverySpec
--- Description : At-least-once delivery + induced-redelivery
---               property tests
---
--- At-least-once delivery is the contract Kafka Streams falls back
--- to when EOS is off: every record processed by a topology
--- /may/ be re-fed if the consumer rewinds, but no record is ever
--- dropped before commit. We stress this property-style by
--- injecting explicit consumer rewinds while records are in flight
--- and asserting the multiset invariants downstream.
---
--- Properties:
---
---   1. /No fabrication/: every output value appears in the input.
---   2. /No drops/: every input value appears at least once in
---      the output (the multiset of outputs is a /superset/ of
---      the multiset of inputs).
---   3. /Idempotent over rewind/: re-running the same workload
---      with no rewind produces an output that is a permutation
---      of the input (no duplicates, no losses).
---
--- The test uses 'MockStreamsDriver' in 'AtLeastOnceMode' and
--- induces redelivery via 'seekMC', which is exactly how the
--- broker-backed runtime would replay records after an
--- uncommitted-rebalance.
+{- |
+Module      : Streams.Properties.AtLeastOnceRedeliverySpec
+Description : At-least-once delivery + induced-redelivery
+              property tests
+
+At-least-once delivery is the contract Kafka Streams falls back
+to when EOS is off: every record processed by a topology
+/may/ be re-fed if the consumer rewinds, but no record is ever
+dropped before commit. We stress this property-style by
+injecting explicit consumer rewinds while records are in flight
+and asserting the multiset invariants downstream.
+
+Properties:
+
+  1. /No fabrication/: every output value appears in the input.
+  2. /No drops/: every input value appears at least once in
+     the output (the multiset of outputs is a /superset/ of
+     the multiset of inputs).
+  3. /Idempotent over rewind/: re-running the same workload
+     with no rewind produces an output that is a permutation
+     of the input (no duplicates, no losses).
+
+The test uses 'MockStreamsDriver' in 'AtLeastOnceMode' and
+induces redelivery via 'seekMC', which is exactly how the
+broker-backed runtime would replay records after an
+uncommitted-rebalance.
+-}
 module Streams.Properties.AtLeastOnceRedeliverySpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Map.Strict as Map
+import Data.ByteString.Char8 qualified as BSC
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Hedgehog as H
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Data.Text qualified as T
+import Hedgehog qualified as H
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Kafka.Streams.Imperative (
+  Timestamp (..),
+  TopologyValid,
+  buildTopology,
+  consumed,
+  newStreamsBuilder,
+  produced,
+  streamFromTopic,
+  textSerde,
+  toTopic,
+  topicName,
+  validateTopology,
+ )
+import Kafka.Streams.Mock.Cluster (
+  dumpPartition,
+  newMockCluster,
+  srValue,
+ )
+import Kafka.Streams.Mock.Consumer (
+  seekMC,
+ )
+import Kafka.Streams.Mock.Fault (noFaults)
+import Kafka.Streams.Mock.StreamsDriver (
+  closeMockDriver,
+  driverConsumer,
+  externalSend,
+  newMockStreamsDriver,
+  runUntilQuiet,
+  tickDriver,
+ )
 import Test.Syd
 import Test.Syd.Hedgehog ()
 
-import Kafka.Streams.Imperative
-  ( Timestamp (..)
-  , TopologyValid
-  , buildTopology
-  , consumed
-  , newStreamsBuilder
-  , produced
-  , streamFromTopic
-  , textSerde
-  , toTopic
-  , topicName
-  , validateTopology
-  )
-import Kafka.Streams.Mock.Cluster
-  ( dumpPartition
-  , newMockCluster
-  , srValue
-  )
-import Kafka.Streams.Mock.Consumer
-  ( seekMC
-  )
-import Kafka.Streams.Mock.Fault (noFaults)
-import Kafka.Streams.Mock.StreamsDriver
-  ( closeMockDriver
-  , driverConsumer
-  , externalSend
-  , newMockStreamsDriver
-  , runUntilQuiet
-  , tickDriver
-  )
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -79,8 +80,10 @@ import Kafka.Streams.Mock.StreamsDriver
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
+
 
 passthroughValid :: IO TopologyValid
 passthroughValid = do
@@ -90,7 +93,8 @@ passthroughValid = do
   topo <- buildTopology b
   case validateTopology topo of
     Left err -> error (show err)
-    Right v  -> pure v
+    Right v -> pure v
+
 
 ----------------------------------------------------------------------
 -- Generators
@@ -102,6 +106,7 @@ genValue =
   -- (any duplicate output really is a redelivery, not a coincidence).
   Gen.element ["v0", "v1", "v2", "v3", "v4"]
 
+
 ----------------------------------------------------------------------
 -- Property 1: no fabrication + no drops under no-rewind workload
 ----------------------------------------------------------------------
@@ -111,12 +116,20 @@ prop_no_rewind_is_exact = H.property $ do
   inputs <- H.forAll (Gen.list (Range.linear 1 30) genValue)
   out <- H.evalIO $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
-    topo    <- passthroughValid
-    d       <- newMockStreamsDriver cluster fp topo "alo-noseek" 1
-    mapM_ (\v -> externalSend d (topicName "in") 0 Nothing
-                                  (bytes v) (Timestamp 0))
-          inputs
+    fp <- noFaults
+    topo <- passthroughValid
+    d <- newMockStreamsDriver cluster fp topo "alo-noseek" 1
+    mapM_
+      ( \v ->
+          externalSend
+            d
+            (topicName "in")
+            0
+            Nothing
+            (bytes v)
+            (Timestamp 0)
+      )
+      inputs
     runUntilQuiet d
     rs <- dumpPartition cluster (topicName "out") 0
     closeMockDriver d
@@ -127,28 +140,40 @@ prop_no_rewind_is_exact = H.property $ do
   -- immediately.
   out H.=== inputs
 
+
 ----------------------------------------------------------------------
 -- Property 2: at-least-once under induced redelivery
 ----------------------------------------------------------------------
 
 prop_redelivery_is_superset :: H.Property
 prop_redelivery_is_superset = H.property $ do
-  inputs <- H.forAll
-              (Gen.list (Range.linear 4 30) genValue)
+  inputs <-
+    H.forAll
+      (Gen.list (Range.linear 4 30) genValue)
   -- A rewind point in the middle of the workload.
-  rewindAfter <- H.forAll
-                  (Gen.int (Range.linear 1 (length inputs - 1)))
-  rewindTo    <- H.forAll
-                  (Gen.int64 (Range.linear 0 (fromIntegral rewindAfter - 1)))
+  rewindAfter <-
+    H.forAll
+      (Gen.int (Range.linear 1 (length inputs - 1)))
+  rewindTo <-
+    H.forAll
+      (Gen.int64 (Range.linear 0 (fromIntegral rewindAfter - 1)))
   outputs <- H.evalIO $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
-    topo    <- passthroughValid
-    d       <- newMockStreamsDriver cluster fp topo "alo-seek" 1
+    fp <- noFaults
+    topo <- passthroughValid
+    d <- newMockStreamsDriver cluster fp topo "alo-seek" 1
     let (pre, post) = splitAt rewindAfter inputs
-    mapM_ (\v -> externalSend d (topicName "in") 0 Nothing
-                                  (bytes v) (Timestamp 0))
-          pre
+    mapM_
+      ( \v ->
+          externalSend
+            d
+            (topicName "in")
+            0
+            Nothing
+            (bytes v)
+            (Timestamp 0)
+      )
+      pre
     -- Tick once to consume the pre-rewind records and emit them.
     _ <- tickDriver d
     -- Seek backwards: the consumer will re-read records starting
@@ -156,14 +181,22 @@ prop_redelivery_is_superset = H.property $ do
     -- the pre-rewind outputs.
     seekMC (driverConsumer d) (topicName "in") 0 rewindTo
     -- Push the remaining inputs.
-    mapM_ (\v -> externalSend d (topicName "in") 0 Nothing
-                                  (bytes v) (Timestamp 0))
-          post
+    mapM_
+      ( \v ->
+          externalSend
+            d
+            (topicName "in")
+            0
+            Nothing
+            (bytes v)
+            (Timestamp 0)
+      )
+      post
     runUntilQuiet d
     rs <- dumpPartition cluster (topicName "out") 0
     closeMockDriver d
     pure (map (unbytes . srValue) rs)
-  let inMS  = counts inputs
+  let inMS = counts inputs
       outMS = counts outputs
   H.annotate ("inputs:  " <> show inputs)
   H.annotate ("outputs: " <> show outputs)
@@ -176,6 +209,7 @@ prop_redelivery_is_superset = H.property $ do
   -- appears in the input alphabet.
   H.assert (Set.fromList outputs `Set.isSubsetOf` Set.fromList inputs)
 
+
 ----------------------------------------------------------------------
 -- Property 3: every redelivery cycle is bounded
 ----------------------------------------------------------------------
@@ -186,26 +220,45 @@ prop_redelivery_count_is_bounded = H.property $ do
   -- assert each value's output-count is at most input-count + 1.
   -- A single backwards seek can only redeliver each pre-rewind
   -- record once (the post-rewind catch-up).
-  inputs <- H.forAll
-              (Gen.list (Range.linear 4 20) genValue)
-  rewindAfter <- H.forAll
-                  (Gen.int (Range.linear 1 (length inputs - 1)))
-  rewindTo    <- H.forAll
-                  (Gen.int64 (Range.linear 0 (fromIntegral rewindAfter - 1)))
+  inputs <-
+    H.forAll
+      (Gen.list (Range.linear 4 20) genValue)
+  rewindAfter <-
+    H.forAll
+      (Gen.int (Range.linear 1 (length inputs - 1)))
+  rewindTo <-
+    H.forAll
+      (Gen.int64 (Range.linear 0 (fromIntegral rewindAfter - 1)))
   outputs <- H.evalIO $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
-    topo    <- passthroughValid
-    d       <- newMockStreamsDriver cluster fp topo "alo-bounded" 1
+    fp <- noFaults
+    topo <- passthroughValid
+    d <- newMockStreamsDriver cluster fp topo "alo-bounded" 1
     let (pre, post) = splitAt rewindAfter inputs
-    mapM_ (\v -> externalSend d (topicName "in") 0 Nothing
-                                  (bytes v) (Timestamp 0))
-          pre
+    mapM_
+      ( \v ->
+          externalSend
+            d
+            (topicName "in")
+            0
+            Nothing
+            (bytes v)
+            (Timestamp 0)
+      )
+      pre
     _ <- tickDriver d
     seekMC (driverConsumer d) (topicName "in") 0 rewindTo
-    mapM_ (\v -> externalSend d (topicName "in") 0 Nothing
-                                  (bytes v) (Timestamp 0))
-          post
+    mapM_
+      ( \v ->
+          externalSend
+            d
+            (topicName "in")
+            0
+            Nothing
+            (bytes v)
+            (Timestamp 0)
+      )
+      post
     runUntilQuiet d
     rs <- dumpPartition cluster (topicName "out") 0
     closeMockDriver d
@@ -214,17 +267,21 @@ prop_redelivery_count_is_bounded = H.property $ do
   -- (rewindAfter - rewindTo). Each potentially-redelivered
   -- pre-rewind record contributes at most one extra output on
   -- top of what was originally fed.
-  let inMS  = counts inputs
+  let inMS = counts inputs
       outMS = counts outputs
       slack = rewindAfter - fromIntegral rewindTo
   H.annotate ("inputs:  " <> show inputs)
   H.annotate ("outputs: " <> show outputs)
   H.annotate ("slack:   " <> show slack)
   let bounded =
-        all (\v -> Map.findWithDefault 0 v outMS
-                     <= Map.findWithDefault 0 v inMS + slack)
-            (Map.keys outMS)
+        all
+          ( \v ->
+              Map.findWithDefault 0 v outMS
+                <= Map.findWithDefault 0 v inMS + slack
+          )
+          (Map.keys outMS)
   H.assert bounded
+
 
 ----------------------------------------------------------------------
 -- Multiset helpers
@@ -232,6 +289,7 @@ prop_redelivery_count_is_bounded = H.property $ do
 
 counts :: Ord a => [a] -> Map a Int
 counts = Map.fromListWith (+) . map (\x -> (x, 1))
+
 
 multisetSubsetOf :: Ord a => Map a Int -> Map a Int -> Bool
 multisetSubsetOf a b =
@@ -243,11 +301,13 @@ multisetSubsetOf a b =
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "AtLeastOnce redelivery" $ sequence_
-  [ it "no rewind: output multiset equals input multiset" $
-      H.withTests 80 prop_no_rewind_is_exact
-  , it "induced redelivery: output multiset is superset of input" $
-      H.withTests 80 prop_redelivery_is_superset
-  , it "redelivery count is bounded by rewind distance" $
-      H.withTests 60 prop_redelivery_count_is_bounded
-  ]
+tests =
+  describe "AtLeastOnce redelivery" $
+    sequence_
+      [ it "no rewind: output multiset equals input multiset" $
+          H.withTests 80 prop_no_rewind_is_exact
+      , it "induced redelivery: output multiset is superset of input" $
+          H.withTests 80 prop_redelivery_is_superset
+      , it "redelivery count is bounded by rewind distance" $
+          H.withTests 60 prop_redelivery_count_is_bounded
+      ]

@@ -386,8 +386,8 @@ buildCommentMap src = go 1 [] (T.lines src)
           -- This is a definition (or other non-comment) line.
           let rest' = go (lineNum + 1) [] rest
           in case acc of
-              [] -> rest'
-              _ -> IntMap.insert lineNum (T.intercalate "\n" (fmap snd acc)) rest'
+               [] -> rest'
+               _ -> IntMap.insert lineNum (T.intercalate "\n" (fmap snd acc)) rest'
 
     isCommentLine t =
       let stripped = T.stripStart t
@@ -398,8 +398,8 @@ buildCommentMap src = go 1 [] (T.lines src)
     stripComment t =
       let afterSlashes = T.drop 2 (T.stripStart t)
       in case T.uncons afterSlashes of
-          Just (' ', rest) -> rest
-          _ -> afterSlashes
+           Just (' ', rest) -> rest
+           _ -> afterSlashes
 
 
 -- | Look up the doc comment for a definition at the given 1-based line number.
@@ -433,8 +433,8 @@ buildAllComments src = go 1 (T.unpack src)
       let (content, after) = span (/= '\n') rest
           lc = LocComment ln (LineComment (T.pack content))
       in lc : case after of
-          ('\n' : after') -> go (ln + 1) after'
-          _ -> []
+           ('\n' : after') -> go (ln + 1) after'
+           _ -> []
     go !ln ('/' : '*' : rest) =
       let (content, after, endLn) = scanBlock ln rest
           lc = LocComment ln (BlockComment (T.pack content))

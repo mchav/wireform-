@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The @.proto@ source used by "Test.Protovalidate.TH". It lives in its own
--- module so it can be referenced from a Template Haskell splice (a top-level
--- binding cannot be spliced in the module that defines it).
+{- | The @.proto@ source used by "Test.Protovalidate.TH". It lives in its own
+module so it can be referenced from a Template Haskell splice (a top-level
+binding cannot be spliced in the module that defines it).
+-}
 module Test.Protovalidate.UserProto (userProto, eventProto) where
 
 import Data.Text (Text)
+
 
 userProto :: Text
 userProto =
@@ -22,8 +24,10 @@ userProto =
   \  };\n\
   \}\n"
 
--- | A proto exercising message-literal time bounds (@timestamp@/@duration@) and
--- enum @defined_only@ through the compile-time path.
+
+{- | A proto exercising message-literal time bounds (@timestamp@/@duration@) and
+enum @defined_only@ through the compile-time path.
+-}
 eventProto :: Text
 eventProto =
   "syntax = \"proto3\";\n\

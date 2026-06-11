@@ -4,300 +4,355 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |
--- Module      : Kafka.Streams.Watermark
--- Description : Cross-source watermark coordinator (Riffle §2)
---
--- The Phase 1 'Kafka.Streams.Time.StreamTime' is /per task/: each
--- engine independently tracks the maximum timestamp it has seen
--- on its assigned partitions. That works for single-source
--- topologies but is insufficient when:
---
---   1. The topology joins two streams whose source partitions are
---      consumed by different engines / workers. Downstream
---      windowing must wait for the laggard.
---   2. A partition goes idle (no new records). Its per-task
---      'StreamTime' stops advancing, so a join with another
---      partition that's still active stalls forever.
---   3. Several sources should be /aligned/ — their watermarks
---      must not diverge by more than a configurable bound, or
---      the faster source backpressures.
---
--- This module defines:
---
---   * 'WatermarkStrategy' — how a source extracts a watermark
---     from its records (bounded out-of-orderness, monotonic
---     ascending, or fully custom).
---   * 'WatermarkCoordinator' — a thread-safe registry. Sources
---     report their watermark, idleness, and the coordinator
---     publishes the /effective/ watermark = min of all live
---     sources (or skipping idle ones once 'idleTimeout' has
---     elapsed).
---   * 'AlignmentGroup' — sources sharing the same alignment
---     bound; the coordinator exposes whether a source should
---     pause emitting because it has out-paced a slow peer.
---
--- The module is /pure/ in the sense that it depends only on
--- 'STM' + 'IORef' + the existing 'Timestamp' type, so the runtime
--- can host one coordinator per topology subtopology without
--- pulling in additional dependencies.
---
--- The integration into 'Engine' / 'WorkerPool' happens at the
--- source-processor boundary: every record's timestamp is reported
--- to the coordinator after extraction, and downstream operators
--- that care about cross-source progress (joins, suppress) read
--- 'currentEffectiveWatermark' instead of 'engineStreamTime'.
--- That wiring is deferred to a follow-up PR; the contract is in
--- place here.
-module Kafka.Streams.Watermark
-  ( -- * Strategy
-    WatermarkStrategy (..)
-  , WatermarkGenerator (..)
-  , IdlenessConfig (..)
-  , AlignmentGroupId (..)
-    -- ** Smart constructors
-  , defaultWatermarkStrategy
-  , monotonicAscending
-  , boundedOutOfOrderness
-  , noWatermark
-  , withIdleness
-  , withAlignment
-  , runGenerator
-  , runStrategy
-    -- * Coordinator
-  , WatermarkCoordinator
-  , SourceId (..)
-  , newWatermarkCoordinator
-  , registerSource
-  , unregisterSource
-  , reportRecord
-  , markIdle
-  , markActive
-  , currentEffectiveWatermark
-  , perSourceWatermarks
-    -- * Alignment groups
-  , AlignmentGroup (..)
-  , declareAlignmentGroup
-  , alignmentBacklog
-  , shouldPauseSource
-    -- * Idleness
-  , IdleTimeout (..)
-  , advanceWallClock
-  ) where
+{- |
+Module      : Kafka.Streams.Watermark
+Description : Cross-source watermark coordinator (Riffle §2)
+
+The Phase 1 'Kafka.Streams.Time.StreamTime' is /per task/: each
+engine independently tracks the maximum timestamp it has seen
+on its assigned partitions. That works for single-source
+topologies but is insufficient when:
+
+  1. The topology joins two streams whose source partitions are
+     consumed by different engines / workers. Downstream
+     windowing must wait for the laggard.
+  2. A partition goes idle (no new records). Its per-task
+     'StreamTime' stops advancing, so a join with another
+     partition that's still active stalls forever.
+  3. Several sources should be /aligned/ — their watermarks
+     must not diverge by more than a configurable bound, or
+     the faster source backpressures.
+
+This module defines:
+
+  * 'WatermarkStrategy' — how a source extracts a watermark
+    from its records (bounded out-of-orderness, monotonic
+    ascending, or fully custom).
+  * 'WatermarkCoordinator' — a thread-safe registry. Sources
+    report their watermark, idleness, and the coordinator
+    publishes the /effective/ watermark = min of all live
+    sources (or skipping idle ones once 'idleTimeout' has
+    elapsed).
+  * 'AlignmentGroup' — sources sharing the same alignment
+    bound; the coordinator exposes whether a source should
+    pause emitting because it has out-paced a slow peer.
+
+The module is /pure/ in the sense that it depends only on
+'STM' + 'IORef' + the existing 'Timestamp' type, so the runtime
+can host one coordinator per topology subtopology without
+pulling in additional dependencies.
+
+The integration into 'Engine' / 'WorkerPool' happens at the
+source-processor boundary: every record's timestamp is reported
+to the coordinator after extraction, and downstream operators
+that care about cross-source progress (joins, suppress) read
+'currentEffectiveWatermark' instead of 'engineStreamTime'.
+That wiring is deferred to a follow-up PR; the contract is in
+place here.
+-}
+module Kafka.Streams.Watermark (
+  -- * Strategy
+  WatermarkStrategy (..),
+  WatermarkGenerator (..),
+  IdlenessConfig (..),
+  AlignmentGroupId (..),
+
+  -- ** Smart constructors
+  defaultWatermarkStrategy,
+  monotonicAscending,
+  boundedOutOfOrderness,
+  noWatermark,
+  withIdleness,
+  withAlignment,
+  runGenerator,
+  runStrategy,
+
+  -- * Coordinator
+  WatermarkCoordinator,
+  SourceId (..),
+  newWatermarkCoordinator,
+  registerSource,
+  unregisterSource,
+  reportRecord,
+  markIdle,
+  markActive,
+  currentEffectiveWatermark,
+  perSourceWatermarks,
+
+  -- * Alignment groups
+  AlignmentGroup (..),
+  declareAlignmentGroup,
+  alignmentBacklog,
+  shouldPauseSource,
+
+  -- * Idleness
+  IdleTimeout (..),
+  advanceWallClock,
+) where
 
 import Control.Concurrent.STM
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Kafka.Streams.Time (
+  Duration,
+  Timestamp (..),
+  addDuration,
+  durationMillis,
+  minTimestamp,
+  noTimestamp,
+ )
 
-import Kafka.Streams.Time
-  ( Duration
-  , Timestamp (..)
-  , addDuration
-  , durationMillis
-  , minTimestamp
-  , noTimestamp
-  )
 
 ----------------------------------------------------------------------
 -- Strategies
 ----------------------------------------------------------------------
 
--- | A watermark /strategy/ combines a generator (how the
--- watermark is derived from record timestamps), an idleness
--- policy, and optional alignment-group membership. The Riffle
--- runtime registers one of these per source via
--- 'Kafka.Streams.Topology.Free.withWatermarkStrategy'.
+{- | A watermark /strategy/ combines a generator (how the
+watermark is derived from record timestamps), an idleness
+policy, and optional alignment-group membership. The Riffle
+runtime registers one of these per source via
+'Kafka.Streams.Topology.Free.withWatermarkStrategy'.
+-}
 data WatermarkStrategy = WatermarkStrategy
-  { wsName      :: !Text
+  { wsName :: !Text
   , wsGenerator :: !WatermarkGenerator
-  , wsIdleness  :: !IdlenessConfig
+  , wsIdleness :: !IdlenessConfig
   , wsAlignment :: !(Maybe AlignmentGroupId)
-  } deriving stock (Generic)
-
--- | How the watermark advances per record. Mirrors Flink's
--- 'WatermarkGenerator' interface.
-data WatermarkGenerator
-  = MonotonicTimestamps
-    -- ^ Watermark equals the maximum record timestamp seen.
-    -- Use when the source is in-order (e.g. CDC with a single
-    -- writer).
-  | BoundedOutOfOrderness !Duration
-    -- ^ Watermark equals @max(prev, recordTs - lag)@. The
-    -- standard general-purpose generator for sources with
-    -- bounded out-of-orderness.
-  | NoWatermarkGen
-    -- ^ Never emit a real watermark. The coordinator returns
-    -- 'noTimestamp' for this source. Use for sources that
-    -- don't carry meaningful event-time.
-  | CustomGenerator !Text !(Timestamp -> Timestamp -> Timestamp)
-    -- ^ Caller-supplied @(prevWatermark, recordTs) ->
-    -- newWatermark@. The label is for diagnostics.
+  }
   deriving stock (Generic)
 
--- | Per-source idleness handling: once a source has been silent
--- for @IdleAfter d@ wall-clock, the coordinator excludes it
--- from the min-watermark computation so downstream windows can
--- close.
+
+{- | How the watermark advances per record. Mirrors Flink's
+'WatermarkGenerator' interface.
+-}
+data WatermarkGenerator
+  = {- | Watermark equals the maximum record timestamp seen.
+    Use when the source is in-order (e.g. CDC with a single
+    writer).
+    -}
+    MonotonicTimestamps
+  | {- | Watermark equals @max(prev, recordTs - lag)@. The
+    standard general-purpose generator for sources with
+    bounded out-of-orderness.
+    -}
+    BoundedOutOfOrderness !Duration
+  | {- | Never emit a real watermark. The coordinator returns
+    'noTimestamp' for this source. Use for sources that
+    don't carry meaningful event-time.
+    -}
+    NoWatermarkGen
+  | {- | Caller-supplied @(prevWatermark, recordTs) ->
+    newWatermark@. The label is for diagnostics.
+    -}
+    CustomGenerator !Text !(Timestamp -> Timestamp -> Timestamp)
+  deriving stock (Generic)
+
+
+{- | Per-source idleness handling: once a source has been silent
+for @IdleAfter d@ wall-clock, the coordinator excludes it
+from the min-watermark computation so downstream windows can
+close.
+-}
 data IdlenessConfig
   = NeverIdle
   | IdleAfter !Duration
   deriving stock (Eq, Show, Generic)
 
--- | Identifier of an alignment group (a set of sources whose
--- watermarks are bounded to stay within a configured spread).
--- Multiple sources can share the same group; the coordinator
--- backpressures any that out-pace the group's slowest member
--- by more than 'agBound'.
+
+{- | Identifier of an alignment group (a set of sources whose
+watermarks are bounded to stay within a configured spread).
+Multiple sources can share the same group; the coordinator
+backpressures any that out-pace the group's slowest member
+by more than 'agBound'.
+-}
 newtype AlignmentGroupId = AlignmentGroupId
   { unAlignmentGroupId :: Text
   }
   deriving stock (Eq, Ord, Show, Generic)
 
--- | Build a strategy with the given generator, 'NeverIdle', and
--- no alignment. The starting point most users want; further
--- 'withIdleness' \/ 'withAlignment' refines.
-defaultWatermarkStrategy :: Text -> WatermarkGenerator -> WatermarkStrategy
-defaultWatermarkStrategy nm gen = WatermarkStrategy
-  { wsName      = nm
-  , wsGenerator = gen
-  , wsIdleness  = NeverIdle
-  , wsAlignment = Nothing
-  }
 
--- | Pure /monotonic ascending/ strategy. Equivalent to
--- @defaultWatermarkStrategy \"monotonic-ascending\" MonotonicTimestamps@.
+{- | Build a strategy with the given generator, 'NeverIdle', and
+no alignment. The starting point most users want; further
+'withIdleness' \/ 'withAlignment' refines.
+-}
+defaultWatermarkStrategy :: Text -> WatermarkGenerator -> WatermarkStrategy
+defaultWatermarkStrategy nm gen =
+  WatermarkStrategy
+    { wsName = nm
+    , wsGenerator = gen
+    , wsIdleness = NeverIdle
+    , wsAlignment = Nothing
+    }
+
+
+{- | Pure /monotonic ascending/ strategy. Equivalent to
+@defaultWatermarkStrategy \"monotonic-ascending\" MonotonicTimestamps@.
+-}
 monotonicAscending :: WatermarkStrategy
 monotonicAscending =
   defaultWatermarkStrategy "monotonic-ascending" MonotonicTimestamps
 
+
 -- | Pure /bounded out-of-orderness/ strategy.
 boundedOutOfOrderness :: Duration -> WatermarkStrategy
 boundedOutOfOrderness lag =
-  defaultWatermarkStrategy "bounded-out-of-orderness"
+  defaultWatermarkStrategy
+    "bounded-out-of-orderness"
     (BoundedOutOfOrderness lag)
+
 
 -- | Pure /no watermark/ strategy.
 noWatermark :: WatermarkStrategy
 noWatermark =
   defaultWatermarkStrategy "no-watermark" NoWatermarkGen
 
+
 -- | Attach an idleness policy.
 withIdleness :: IdlenessConfig -> WatermarkStrategy -> WatermarkStrategy
-withIdleness i s = s { wsIdleness = i }
+withIdleness i s = s {wsIdleness = i}
+
 
 -- | Attach the strategy to an alignment group.
 withAlignment :: AlignmentGroupId -> WatermarkStrategy -> WatermarkStrategy
-withAlignment a s = s { wsAlignment = Just a }
+withAlignment a s = s {wsAlignment = Just a}
 
--- | Run a 'WatermarkGenerator' against the previous watermark
--- and the new record timestamp.
+
+{- | Run a 'WatermarkGenerator' against the previous watermark
+and the new record timestamp.
+-}
 runGenerator
   :: WatermarkGenerator
-  -> Timestamp                   -- ^ previous watermark
-  -> Timestamp                   -- ^ record timestamp
+  -> Timestamp
+  -- ^ previous watermark
+  -> Timestamp
+  -- ^ record timestamp
   -> Timestamp
 runGenerator gen !prev !t = case gen of
-  MonotonicTimestamps      -> if t > prev then t else prev
+  MonotonicTimestamps -> if t > prev then t else prev
   BoundedOutOfOrderness lag ->
     let Timestamp ms = t
-        !lagMs       = durationMillis lag
-        !cand        = Timestamp (ms - lagMs)
+        !lagMs = durationMillis lag
+        !cand = Timestamp (ms - lagMs)
     in if cand > prev then cand else prev
-  NoWatermarkGen           -> noTimestamp
-  CustomGenerator _ f      -> f prev t
+  NoWatermarkGen -> noTimestamp
+  CustomGenerator _ f -> f prev t
 
--- | Apply a full strategy. Convenience wrapper around
--- 'runGenerator' for callers that already hold a
--- 'WatermarkStrategy' (e.g. the coordinator's hot path).
+
+{- | Apply a full strategy. Convenience wrapper around
+'runGenerator' for callers that already hold a
+'WatermarkStrategy' (e.g. the coordinator's hot path).
+-}
 runStrategy :: WatermarkStrategy -> Timestamp -> Timestamp -> Timestamp
 runStrategy = runGenerator . wsGenerator
+
 
 ----------------------------------------------------------------------
 -- Per-source state
 ----------------------------------------------------------------------
 
--- | Globally-unique identifier for a watermark source. Typically
--- the source-node name + partition number.
-newtype SourceId = SourceId { unSourceId :: Text }
+{- | Globally-unique identifier for a watermark source. Typically
+the source-node name + partition number.
+-}
+newtype SourceId = SourceId {unSourceId :: Text}
   deriving stock (Eq, Ord, Show, Generic)
+
 
 data SourceState = SourceState
   { sstWatermark :: !Timestamp
-  , sstStrategy  :: !WatermarkStrategy
+  , sstStrategy :: !WatermarkStrategy
   , sstIdleSince :: !(Maybe Timestamp)
-    -- ^ 'Just t' once the source has been marked idle since
-    -- wall-clock @t@.
-  , sstGroup     :: !(Maybe Text)
-    -- ^ Alignment group membership.
+  {- ^ 'Just t' once the source has been marked idle since
+  wall-clock @t@.
+  -}
+  , sstGroup :: !(Maybe Text)
+  -- ^ Alignment group membership.
   }
+
 
 ----------------------------------------------------------------------
 -- Coordinator
 ----------------------------------------------------------------------
 
--- | Configurable idle-timeout. Once a source has been silent for
--- this long (in wall-clock), the coordinator removes it from the
--- effective-watermark min.
+{- | Configurable idle-timeout. Once a source has been silent for
+this long (in wall-clock), the coordinator removes it from the
+effective-watermark min.
+-}
 newtype IdleTimeout = IdleTimeout Duration
   deriving stock (Eq, Show)
 
--- | Thread-safe registry of every active watermark source for one
--- subtopology.
+
+{- | Thread-safe registry of every active watermark source for one
+subtopology.
+-}
 data WatermarkCoordinator = WatermarkCoordinator
-  { wcSources    :: !(TVar (Map SourceId SourceState))
-  , wcIdleAfter  :: !IdleTimeout
-  , wcWallClock  :: !(TVar Timestamp)
-    -- ^ Wall-clock time as observed by the runtime. The runtime
-    -- updates this via 'advanceWallClock'; the coordinator uses
-    -- it to drive idle-timeout decisions.
-  , wcGroups     :: !(TVar (Map Text AlignmentBound))
-    -- ^ Alignment-group configuration.
+  { wcSources :: !(TVar (Map SourceId SourceState))
+  , wcIdleAfter :: !IdleTimeout
+  , wcWallClock :: !(TVar Timestamp)
+  {- ^ Wall-clock time as observed by the runtime. The runtime
+  updates this via 'advanceWallClock'; the coordinator uses
+  it to drive idle-timeout decisions.
+  -}
+  , wcGroups :: !(TVar (Map Text AlignmentBound))
+  -- ^ Alignment-group configuration.
   }
 
-newtype AlignmentBound = AlignmentBound { unAlignmentBound :: Duration }
+
+newtype AlignmentBound = AlignmentBound {unAlignmentBound :: Duration}
   deriving stock (Eq, Show)
 
--- | Construct an empty coordinator. The 'IdleTimeout' is global
--- to this coordinator.
+
+{- | Construct an empty coordinator. The 'IdleTimeout' is global
+to this coordinator.
+-}
 newWatermarkCoordinator :: IdleTimeout -> IO WatermarkCoordinator
 newWatermarkCoordinator idle = do
   src <- newTVarIO Map.empty
-  wc  <- newTVarIO minTimestamp
-  gs  <- newTVarIO Map.empty
-  pure WatermarkCoordinator
-    { wcSources    = src
-    , wcIdleAfter  = idle
-    , wcWallClock  = wc
-    , wcGroups     = gs
-    }
+  wc <- newTVarIO minTimestamp
+  gs <- newTVarIO Map.empty
+  pure
+    WatermarkCoordinator
+      { wcSources = src
+      , wcIdleAfter = idle
+      , wcWallClock = wc
+      , wcGroups = gs
+      }
 
--- | Register a source. Idempotent: re-registering a source name
--- resets its state (useful on rebalance).
+
+{- | Register a source. Idempotent: re-registering a source name
+resets its state (useful on rebalance).
+-}
 registerSource
   :: WatermarkCoordinator
   -> SourceId
   -> WatermarkStrategy
-  -> Maybe Text                   -- ^ Optional alignment group
+  -> Maybe Text
+  -- ^ Optional alignment group
   -> IO ()
 registerSource coord sid strat grp =
-  atomically $ modifyTVar' (wcSources coord) $
-    Map.insert sid SourceState
-      { sstWatermark = minTimestamp
-      , sstStrategy  = strat
-      , sstIdleSince = Nothing
-      , sstGroup     = grp
-      }
+  atomically $
+    modifyTVar' (wcSources coord) $
+      Map.insert
+        sid
+        SourceState
+          { sstWatermark = minTimestamp
+          , sstStrategy = strat
+          , sstIdleSince = Nothing
+          , sstGroup = grp
+          }
+
 
 unregisterSource :: WatermarkCoordinator -> SourceId -> IO ()
 unregisterSource coord sid =
   atomically $ modifyTVar' (wcSources coord) (Map.delete sid)
 
--- | Report a record's timestamp for a source. The source's
--- watermark is updated via its strategy. The return value is the
--- /new/ per-source watermark.
+
+{- | Report a record's timestamp for a source. The source's
+watermark is updated via its strategy. The return value is the
+/new/ per-source watermark.
+-}
 reportRecord
   :: WatermarkCoordinator
   -> SourceId
@@ -307,87 +362,109 @@ reportRecord coord sid recordTs = atomically $ do
   m <- readTVar (wcSources coord)
   case Map.lookup sid m of
     Nothing -> pure minTimestamp
-    Just s  -> do
+    Just s -> do
       let !new = runStrategy (sstStrategy s) (sstWatermark s) recordTs
-          !s'  = s { sstWatermark = new
-                   , sstIdleSince = Nothing
-                   }
+          !s' =
+            s
+              { sstWatermark = new
+              , sstIdleSince = Nothing
+              }
       writeTVar (wcSources coord) (Map.insert sid s' m)
       pure new
 
--- | Explicitly mark a source idle as of the current wall-clock
--- timestamp. Idempotent.
+
+{- | Explicitly mark a source idle as of the current wall-clock
+timestamp. Idempotent.
+-}
 markIdle :: WatermarkCoordinator -> SourceId -> IO ()
 markIdle coord sid = atomically $ do
   wc <- readTVar (wcWallClock coord)
-  modifyTVar' (wcSources coord) $ Map.adjust
-    (\s -> case sstIdleSince s of
-       Just _  -> s
-       Nothing -> s { sstIdleSince = Just wc })
-    sid
+  modifyTVar' (wcSources coord) $
+    Map.adjust
+      ( \s -> case sstIdleSince s of
+          Just _ -> s
+          Nothing -> s {sstIdleSince = Just wc}
+      )
+      sid
 
--- | Mark a source active again (clears the idle flag without
--- waiting for the next record).
+
+{- | Mark a source active again (clears the idle flag without
+waiting for the next record).
+-}
 markActive :: WatermarkCoordinator -> SourceId -> IO ()
-markActive coord sid = atomically $ modifyTVar' (wcSources coord) $
-  Map.adjust (\s -> s { sstIdleSince = Nothing }) sid
+markActive coord sid =
+  atomically $
+    modifyTVar' (wcSources coord) $
+      Map.adjust (\s -> s {sstIdleSince = Nothing}) sid
 
--- | Advance the coordinator's wall-clock. The runtime should
--- call this on each commit-cycle / poll iteration so idle
--- detection has up-to-date timing.
+
+{- | Advance the coordinator's wall-clock. The runtime should
+call this on each commit-cycle / poll iteration so idle
+detection has up-to-date timing.
+-}
 advanceWallClock :: WatermarkCoordinator -> Timestamp -> IO ()
 advanceWallClock coord t = atomically $ writeTVar (wcWallClock coord) t
 
--- | The /effective/ watermark = min of live, non-idle sources.
--- A source counts as live iff it has been registered AND either
--- it is not marked idle or its idle period is shorter than
--- 'wcIdleAfter'.
---
--- If all sources are idle (or none are registered), returns
--- 'minTimestamp'.
+
+{- | The /effective/ watermark = min of live, non-idle sources.
+A source counts as live iff it has been registered AND either
+it is not marked idle or its idle period is shorter than
+'wcIdleAfter'.
+
+If all sources are idle (or none are registered), returns
+'minTimestamp'.
+-}
 currentEffectiveWatermark :: WatermarkCoordinator -> IO Timestamp
 currentEffectiveWatermark coord = atomically $ do
-  m  <- readTVar (wcSources coord)
+  m <- readTVar (wcSources coord)
   wc <- readTVar (wcWallClock coord)
   let IdleTimeout idle = wcIdleAfter coord
       isLive s = case sstIdleSince s of
-        Nothing  -> True
-        Just t0  -> wc < addDuration t0 idle
-      lives = [ sstWatermark s | s <- Map.elems m, isLive s ]
+        Nothing -> True
+        Just t0 -> wc < addDuration t0 idle
+      lives = [sstWatermark s | s <- Map.elems m, isLive s]
   pure $ case lives of
     [] -> minTimestamp
     xs -> minimum xs
 
--- | Snapshot of every source's current watermark, idle flag, and
--- alignment group. Useful for diagnostics and for the alignment
--- query path.
+
+{- | Snapshot of every source's current watermark, idle flag, and
+alignment group. Useful for diagnostics and for the alignment
+query path.
+-}
 perSourceWatermarks
   :: WatermarkCoordinator
   -> IO [(SourceId, Timestamp, Bool, Maybe Text)]
 perSourceWatermarks coord = atomically $ do
-  m  <- readTVar (wcSources coord)
+  m <- readTVar (wcSources coord)
   wc <- readTVar (wcWallClock coord)
   let IdleTimeout idle = wcIdleAfter coord
       isIdle s = case sstIdleSince s of
-        Nothing  -> False
-        Just t0  -> wc >= addDuration t0 idle
-  pure [ (sid, sstWatermark s, isIdle s, sstGroup s)
-       | (sid, s) <- Map.toAscList m ]
+        Nothing -> False
+        Just t0 -> wc >= addDuration t0 idle
+  pure
+    [ (sid, sstWatermark s, isIdle s, sstGroup s)
+    | (sid, s) <- Map.toAscList m
+    ]
+
 
 ----------------------------------------------------------------------
 -- Alignment groups
 ----------------------------------------------------------------------
 
--- | An alignment group bounds the spread between the fastest and
--- the slowest source within it. Used by Flink's
--- @WatermarkAlignmentSupplier@: if you join a slow stream with a
--- fast one, you don't want the fast one to race ahead and buffer
--- state for thousands of milliseconds waiting for the slow one
--- to catch up.
+{- | An alignment group bounds the spread between the fastest and
+the slowest source within it. Used by Flink's
+@WatermarkAlignmentSupplier@: if you join a slow stream with a
+fast one, you don't want the fast one to race ahead and buffer
+state for thousands of milliseconds waiting for the slow one
+to catch up.
+-}
 data AlignmentGroup = AlignmentGroup
-  { agName  :: !Text
+  { agName :: !Text
   , agBound :: !Duration
-  } deriving stock (Eq, Show, Generic)
+  }
+  deriving stock (Eq, Show, Generic)
+
 
 -- | Register / update an alignment group's bound.
 declareAlignmentGroup
@@ -395,13 +472,17 @@ declareAlignmentGroup
   -> AlignmentGroup
   -> IO ()
 declareAlignmentGroup coord (AlignmentGroup name bound) =
-  atomically $ modifyTVar' (wcGroups coord)
-    (Map.insert name (AlignmentBound bound))
+  atomically $
+    modifyTVar'
+      (wcGroups coord)
+      (Map.insert name (AlignmentBound bound))
 
--- | Current backlog of one source relative to its alignment
--- group's slowest member, in milliseconds. Returns 0 when the
--- source has no group, when the group has only one member, or
--- when the source is the slowest in its group.
+
+{- | Current backlog of one source relative to its alignment
+group's slowest member, in milliseconds. Returns 0 when the
+source has no group, when the group has only one member, or
+when the source is the slowest in its group.
+-}
 alignmentBacklog
   :: WatermarkCoordinator
   -> SourceId
@@ -410,45 +491,49 @@ alignmentBacklog coord sid = atomically $ do
   m <- readTVar (wcSources coord)
   case Map.lookup sid m of
     Nothing -> pure 0
-    Just s  -> case sstGroup s of
-      Nothing  -> pure 0
+    Just s -> case sstGroup s of
+      Nothing -> pure 0
       Just grp ->
-        let peers = [ p
-                    | p <- Map.elems m
-                    , sstGroup p == Just grp
-                    ]
+        let peers =
+              [ p
+              | p <- Map.elems m
+              , sstGroup p == Just grp
+              ]
             slowest = case peers of
               [] -> sstWatermark s
-              _  -> minimum (sstWatermark <$> peers)
-            Timestamp me     = sstWatermark s
-            Timestamp slow   = slowest
+              _ -> minimum (sstWatermark <$> peers)
+            Timestamp me = sstWatermark s
+            Timestamp slow = slowest
         in pure (me - slow)
 
--- | The coordinator's recommendation: should this source pause
--- emitting new records because it has out-paced its alignment
--- group beyond the configured bound? The caller is expected to
--- honour this advice by deferring 'feedSource' / 'pollMC' on the
--- corresponding partition. If the source has no group, returns
--- 'False'.
+
+{- | The coordinator's recommendation: should this source pause
+emitting new records because it has out-paced its alignment
+group beyond the configured bound? The caller is expected to
+honour this advice by deferring 'feedSource' / 'pollMC' on the
+corresponding partition. If the source has no group, returns
+'False'.
+-}
 shouldPauseSource :: WatermarkCoordinator -> SourceId -> IO Bool
 shouldPauseSource coord sid = atomically $ do
-  m  <- readTVar (wcSources coord)
+  m <- readTVar (wcSources coord)
   gs <- readTVar (wcGroups coord)
   case Map.lookup sid m of
     Nothing -> pure False
-    Just s  -> case sstGroup s of
-      Nothing  -> pure False
+    Just s -> case sstGroup s of
+      Nothing -> pure False
       Just grp -> case Map.lookup grp gs of
         Nothing -> pure False
         Just (AlignmentBound bound) -> do
-          let peers = [ sstWatermark p
-                      | p <- Map.elems m
-                      , sstGroup p == Just grp
-                      ]
+          let peers =
+                [ sstWatermark p
+                | p <- Map.elems m
+                , sstGroup p == Just grp
+                ]
               slowest = case peers of
                 [] -> sstWatermark s
-                _  -> minimum peers
-              Timestamp me   = sstWatermark s
+                _ -> minimum peers
+              Timestamp me = sstWatermark s
               Timestamp slow = slowest
               spread = me - slow
           pure (spread > durationMillis bound)

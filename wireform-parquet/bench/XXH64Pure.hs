@@ -1,14 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
--- | Pure-Haskell XXH64 reference implementation, used /only/ by the
--- criterion benchmark suite to measure the speedup of the C/SIMDe
--- kernel in "Wireform.Hash". Not a public API.
+
+{- | Pure-Haskell XXH64 reference implementation, used /only/ by the
+criterion benchmark suite to measure the speedup of the C/SIMDe
+kernel in "Wireform.Hash". Not a public API.
+-}
 module XXH64Pure (xxh64_pure, xxh64Seed_pure) where
 
 import Data.Bits (rotateL, shiftR, unsafeShiftL, xor, (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Word (Word32, Word64)
+
 
 prime1, prime2, prime3, prime4, prime5 :: Word64
 prime1 = 0x9E3779B185EBCA87
@@ -17,8 +20,10 @@ prime3 = 0x165667B19E3779F9
 prime4 = 0x85EBCA77C2B2AE63
 prime5 = 0x27D4EB2F165667C5
 
+
 xxh64_pure :: ByteString -> Word64
 xxh64_pure = xxh64Seed_pure 0
+
 
 xxh64Seed_pure :: Word64 -> ByteString -> Word64
 xxh64Seed_pure seed bs =
@@ -28,6 +33,7 @@ xxh64Seed_pure seed bs =
       !h0 = if len >= 32 then bulkPhase seed bs nStripes else seed + prime5
       !h1 = h0 + fromIntegral len
   in finalize h1 tailOff bs len
+
 
 bulkPhase :: Word64 -> ByteString -> Int -> Word64
 bulkPhase seed bs nStripes =
@@ -42,20 +48,25 @@ bulkPhase seed bs nStripes =
                 !w2 = readLE64 bs (off + 8)
                 !w3 = readLE64 bs (off + 16)
                 !w4 = readLE64 bs (off + 24)
-            in go (i + 1) (off + 32)
-                  (round_ a1 w1) (round_ a2 w2)
-                  (round_ a3 w3) (round_ a4 w4)
+            in go
+                 (i + 1)
+                 (off + 32)
+                 (round_ a1 w1)
+                 (round_ a2 w2)
+                 (round_ a3 w3)
+                 (round_ a4 w4)
       (!fv1, !fv2, !fv3, !fv4) = go 0 0 v1_0 v2_0 v3_0 v4_0
       !merged =
-          rotateL fv1 1
-        + rotateL fv2 7
-        + rotateL fv3 12
-        + rotateL fv4 18
+        rotateL fv1 1
+          + rotateL fv2 7
+          + rotateL fv3 12
+          + rotateL fv4 18
       !m1 = mergeAccumulator merged fv1
       !m2 = mergeAccumulator m1 fv2
       !m3 = mergeAccumulator m2 fv3
       !m4 = mergeAccumulator m3 fv4
   in m4
+
 
 finalize :: Word64 -> Int -> ByteString -> Int -> Word64
 finalize !h0 !startOff bs !len = avalanche (go h0 startOff)
@@ -76,6 +87,7 @@ finalize !h0 !startOff bs !len = avalanche (go h0 startOff)
           in go h' (off + 1)
       | otherwise = h
 
+
 avalanche :: Word64 -> Word64
 avalanche !h0 =
   let !h1 = h0 `xor` (h0 `shiftR` 33)
@@ -85,30 +97,34 @@ avalanche !h0 =
       !h5 = h4 `xor` (h4 `shiftR` 32)
   in h5
 
+
 round_ :: Word64 -> Word64 -> Word64
 round_ !acc !w = rotateL (acc + w * prime2) 31 * prime1
+
 
 mergeAccumulator :: Word64 -> Word64 -> Word64
 mergeAccumulator !merged !v =
   let !v' = round_ 0 v
   in (merged `xor` v') * prime1 + prime4
 
+
 readLE64 :: ByteString -> Int -> Word64
 readLE64 bs !off =
   let rd i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word64
   in rd 0
-   .|. (rd 1 `unsafeShiftL` 8)
-   .|. (rd 2 `unsafeShiftL` 16)
-   .|. (rd 3 `unsafeShiftL` 24)
-   .|. (rd 4 `unsafeShiftL` 32)
-   .|. (rd 5 `unsafeShiftL` 40)
-   .|. (rd 6 `unsafeShiftL` 48)
-   .|. (rd 7 `unsafeShiftL` 56)
+       .|. (rd 1 `unsafeShiftL` 8)
+       .|. (rd 2 `unsafeShiftL` 16)
+       .|. (rd 3 `unsafeShiftL` 24)
+       .|. (rd 4 `unsafeShiftL` 32)
+       .|. (rd 5 `unsafeShiftL` 40)
+       .|. (rd 6 `unsafeShiftL` 48)
+       .|. (rd 7 `unsafeShiftL` 56)
+
 
 readLE32 :: ByteString -> Int -> Word32
 readLE32 bs !off =
   let rd i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word32
   in rd 0
-   .|. (rd 1 `unsafeShiftL` 8)
-   .|. (rd 2 `unsafeShiftL` 16)
-   .|. (rd 3 `unsafeShiftL` 24)
+       .|. (rd 1 `unsafeShiftL` 8)
+       .|. (rd 2 `unsafeShiftL` 16)
+       .|. (rd 3 `unsafeShiftL` 24)

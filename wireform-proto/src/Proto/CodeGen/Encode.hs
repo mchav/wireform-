@@ -39,15 +39,15 @@ genEncodeInstance :: MessageDef -> Doc ann
 genEncodeInstance msg =
   let fields = extractFields (msgElements msg)
   in vsep
-      [ txt "instance MessageEncode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
-      , indent 2 $
-          vsep
-            [ txt "buildMessage msg ="
-            , indent 2 $ case fields of
-                [] -> txt "mempty"
-                _ -> vsep (fmap (uncurry genFieldBuild) (zip [0 ..] fields))
-            ]
-      ]
+       [ txt "instance MessageEncode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
+       , indent 2 $
+           vsep
+             [ txt "buildMessage msg ="
+             , indent 2 $ case fields of
+                 [] -> txt "mempty"
+                 _ -> vsep (fmap (uncurry genFieldBuild) (zip [0 ..] fields))
+             ]
+       ]
   where
     genFieldBuild :: Int -> FieldInfo -> Doc ann
     genFieldBuild idx fi =
@@ -116,15 +116,15 @@ genSizeInstance :: MessageDef -> Doc ann
 genSizeInstance msg =
   let fields = extractFields (msgElements msg)
   in vsep
-      [ txt "instance MessageSize" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
-      , indent 2 $
-          vsep
-            [ txt "messageSize msg ="
-            , indent 2 $ case fields of
-                [] -> txt "0"
-                _ -> vsep (fmap (uncurry genFieldSize) (zip [0 ..] fields))
-            ]
-      ]
+       [ txt "instance MessageSize" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
+       , indent 2 $
+           vsep
+             [ txt "messageSize msg ="
+             , indent 2 $ case fields of
+                 [] -> txt "0"
+                 _ -> vsep (fmap (uncurry genFieldSize) (zip [0 ..] fields))
+             ]
+       ]
   where
     genFieldSize :: Int -> FieldInfo -> Doc ann
     genFieldSize idx fi =

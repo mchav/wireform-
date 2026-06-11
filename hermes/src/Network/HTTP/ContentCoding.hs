@@ -45,21 +45,21 @@ data ContentCoding
 contentCodingParser :: ParserT st e ContentCoding
 contentCodingParser =
   $( switch
-      [|
-        case _ of
-          "aes128gcm" -> pure AES128GCM
-          "br" -> pure Brotli
-          "compress" -> pure Compress
-          "deflate" -> pure Deflate
-          "exi" -> pure EfficientXMLInterchange
-          "gzip" -> pure GZip
-          "identity" -> pure Identity
-          "pack200-gzip" -> pure Pack200GZip
-          "x-compress" -> pure Compress
-          "x-gzip" -> pure GZip
-          "zstd" -> pure ZStd
-          _ -> Custom <$> rfc9110Token
-        |]
+       [|
+         case _ of
+           "aes128gcm" -> pure AES128GCM
+           "br" -> pure Brotli
+           "compress" -> pure Compress
+           "deflate" -> pure Deflate
+           "exi" -> pure EfficientXMLInterchange
+           "gzip" -> pure GZip
+           "identity" -> pure Identity
+           "pack200-gzip" -> pure Pack200GZip
+           "x-compress" -> pure Compress
+           "x-gzip" -> pure GZip
+           "zstd" -> pure ZStd
+           _ -> Custom <$> rfc9110Token
+         |]
    )
 
 

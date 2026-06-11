@@ -1,32 +1,34 @@
 {-# LANGUAGE BangPatterns #-}
--- | High-level Thrift decoding for Binary and Compact protocols.
---
--- Reads a wire-format 'ByteString' and produces a 'Thrift.Value.Value' tree.
--- Uses pre-allocated mutable vectors instead of list accumulation + reverse.
---
--- @
--- import Thrift.Decode (decodeBinary, decodeCompact)
---
--- case decodeBinary bytes of
---   Right val -> print val
---   Left err  -> putStrLn err
--- @
-module Thrift.Decode
-  ( decodeBinary
-  , decodeCompact
-  , decodeCompactFrom
-  ) where
+
+{- | High-level Thrift decoding for Binary and Compact protocols.
+
+Reads a wire-format 'ByteString' and produces a 'Thrift.Value.Value' tree.
+Uses pre-allocated mutable vectors instead of list accumulation + reverse.
+
+@
+import Thrift.Decode (decodeBinary, decodeCompact)
+
+case decodeBinary bytes of
+  Right val -> print val
+  Left err  -> putStrLn err
+@
+-}
+module Thrift.Decode (
+  decodeBinary,
+  decodeCompact,
+  decodeCompactFrom,
+) where
 
 import Control.Monad.ST (ST, runST)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int (Int16)
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
-
-import qualified Thrift.Value as TV
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
+import Thrift.Value qualified as TV
 import Thrift.Wire
 import Wireform.FFI (decodeTextFast)
+
 
 --------------------------------------------------------------------------------
 -- Binary Protocol
@@ -34,8 +36,9 @@ import Wireform.FFI (decodeTextFast)
 
 decodeBinary :: ByteString -> Either String TV.Value
 decodeBinary bs = case decodeBinStruct bs 0 of
-  Nothing       -> Left "decodeBinary: failed to decode struct"
+  Nothing -> Left "decodeBinary: failed to decode struct"
   Just (v, _off) -> Right v
+
 
 decodeBinStruct :: ByteString -> Int -> Maybe (TV.Value, Int)
 decodeBinStruct bs off = go off []
@@ -48,67 +51,62 @@ decodeBinStruct bs off = go off []
         Just (v, o'') -> go o'' ((fid, v) : acc)
 {-# INLINE decodeBinStruct #-}
 
+
 decodeBinValue :: ThriftType -> ByteString -> Int -> Maybe (TV.Value, Int)
 decodeBinValue !tt !bs !off = case tt of
   TT_BOOL -> case tBinDecodeBool bs off of
     Just (b, o) -> Just (TV.Bool b, o)
     Nothing -> Nothing
-
   TT_BYTE -> case tBinDecodeI8 bs off of
     Just (v, o) -> Just (TV.Byte v, o)
     Nothing -> Nothing
-
   TT_I16 -> case tBinDecodeI16 bs off of
     Just (v, o) -> Just (TV.I16 v, o)
     Nothing -> Nothing
-
   TT_I32 -> case tBinDecodeI32 bs off of
     Just (v, o) -> Just (TV.I32 v, o)
     Nothing -> Nothing
-
   TT_I64 -> case tBinDecodeI64 bs off of
     Just (v, o) -> Just (TV.I64 v, o)
     Nothing -> Nothing
-
   TT_DOUBLE -> case tBinDecodeDouble bs off of
     Just (d, o) -> Just (TV.Double d, o)
     Nothing -> Nothing
-
   TT_STRING -> case tBinDecodeString bs off of
     Just (b, o) -> case decodeTextFast b of
       Right t -> Just (TV.String t, o)
-      Left _  -> Just (TV.Binary b, o)
+      Left _ -> Just (TV.Binary b, o)
     Nothing -> Nothing
-
   TT_STRUCT -> decodeBinStruct bs off
-
   TT_MAP -> case tBinDecodeMapBegin bs off of
     Nothing -> Nothing
     Just (kt, vt, sz, o) ->
       let !count = fromIntegral sz
       in decodeBinMapEntries kt vt count bs o
-
   TT_LIST -> case tBinDecodeListBegin bs off of
     Nothing -> Nothing
     Just (et, sz, o) ->
       let !count = fromIntegral sz
       in decodeBinListEntries et count bs o
-
   TT_SET -> case tBinDecodeSetBegin bs off of
     Nothing -> Nothing
     Just (et, sz, o) ->
       let !count = fromIntegral sz
       in decodeBinSetEntries et count bs o
-
   TT_UUID
     | off + 16 > BS.length bs -> Nothing
     | otherwise -> Just (TV.UUID (BS.take 16 (BS.drop off bs)), off + 16)
-
   TT_STOP -> Nothing
 {-# INLINE decodeBinValue #-}
 
-decodeBinMapEntries :: ThriftType -> ThriftType -> Int -> ByteString -> Int
-                    -> Maybe (TV.Value, Int)
+
+decodeBinMapEntries
+  :: ThriftType
+  -> ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeBinMapEntries kt vt !count bs !off
   | count <= 0 = Just (TV.Map kt vt V.empty, off)
   | otherwise = runST $ do
@@ -129,8 +127,13 @@ decodeBinMapEntries kt vt !count bs !off
               go mv (i + 1) o2
 {-# INLINE decodeBinMapEntries #-}
 
-decodeBinListEntries :: ThriftType -> Int -> ByteString -> Int
-                     -> Maybe (TV.Value, Int)
+
+decodeBinListEntries
+  :: ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeBinListEntries et !count bs !off
   | count <= 0 = Just (TV.List et V.empty, off)
   | otherwise = runST $ do
@@ -149,8 +152,13 @@ decodeBinListEntries et !count bs !off
             go mv (i + 1) o'
 {-# INLINE decodeBinListEntries #-}
 
-decodeBinSetEntries :: ThriftType -> Int -> ByteString -> Int
-                    -> Maybe (TV.Value, Int)
+
+decodeBinSetEntries
+  :: ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeBinSetEntries et !count bs !off
   | count <= 0 = Just (TV.Set et V.empty, off)
   | otherwise = runST $ do
@@ -169,21 +177,25 @@ decodeBinSetEntries et !count bs !off
             go mv (i + 1) o'
 {-# INLINE decodeBinSetEntries #-}
 
+
 --------------------------------------------------------------------------------
 -- Compact Protocol
 --------------------------------------------------------------------------------
 
 decodeCompact :: ByteString -> Either String TV.Value
 decodeCompact bs = case decodeCompStruct bs 0 of
-  Nothing        -> Left "decodeCompact: failed to decode struct"
+  Nothing -> Left "decodeCompact: failed to decode struct"
   Just (v, _off) -> Right v
 
--- | Decode one Thrift Compact struct starting at an offset; return the value
--- and the next byte offset after the struct.
+
+{- | Decode one Thrift Compact struct starting at an offset; return the value
+and the next byte offset after the struct.
+-}
 decodeCompactFrom :: ByteString -> Int -> Either String (TV.Value, Int)
 decodeCompactFrom bs off = case decodeCompStruct bs off of
   Nothing -> Left "decodeCompactFrom: failed to decode struct"
   Just (v, o) -> Right (v, o)
+
 
 decodeCompStruct :: ByteString -> Int -> Maybe (TV.Value, Int)
 decodeCompStruct bs off = go off 0 []
@@ -199,69 +211,64 @@ decodeCompStruct bs off = go off 0 []
           Just (v, o'') -> go o'' fid ((fid, v) : acc)
 {-# INLINE decodeCompStruct #-}
 
+
 decodeCompValue :: ThriftType -> ByteString -> Int -> Maybe (TV.Value, Int)
 decodeCompValue !tt !bs !off = case tt of
   TT_BOOL -> case tCompDecodeBool bs off of
     Just (b, o) -> Just (TV.Bool b, o)
     Nothing -> Nothing
-
   TT_BYTE -> case tCompDecodeI8 bs off of
     Just (v, o) -> Just (TV.Byte v, o)
     Nothing -> Nothing
-
   TT_I16 -> case tCompDecodeI16 bs off of
     Just (v, o) -> Just (TV.I16 v, o)
     Nothing -> Nothing
-
   TT_I32 -> case tCompDecodeI32 bs off of
     Just (v, o) -> Just (TV.I32 v, o)
     Nothing -> Nothing
-
   TT_I64 -> case tCompDecodeI64 bs off of
     Just (v, o) -> Just (TV.I64 v, o)
     Nothing -> Nothing
-
   TT_DOUBLE -> case tCompDecodeDouble bs off of
     Just (d, o) -> Just (TV.Double d, o)
     Nothing -> Nothing
-
   TT_STRING -> case tCompDecodeString bs off of
     Just (b, o) -> case decodeTextFast b of
       Right t -> Just (TV.String t, o)
-      Left _  -> Just (TV.Binary b, o)
+      Left _ -> Just (TV.Binary b, o)
     Nothing -> Nothing
-
   TT_STRUCT -> decodeCompStruct bs off
-
   TT_MAP -> case tCompDecodeMapBegin bs off of
     Nothing -> Nothing
     Just (kt, vt, sz, o)
-      | sz == 0   -> Just (TV.Map kt vt V.empty, o)
+      | sz == 0 -> Just (TV.Map kt vt V.empty, o)
       | otherwise ->
           let !count = fromIntegral sz
           in decodeCompMapEntries kt vt count bs o
-
   TT_LIST -> case tCompDecodeListBegin bs off of
     Nothing -> Nothing
     Just (et, sz, o) ->
       let !count = fromIntegral sz
       in decodeCompListEntries et count bs o
-
   TT_SET -> case tCompDecodeSetBegin bs off of
     Nothing -> Nothing
     Just (et, sz, o) ->
       let !count = fromIntegral sz
       in decodeCompSetEntries et count bs o
-
   TT_UUID
     | off + 16 > BS.length bs -> Nothing
     | otherwise -> Just (TV.UUID (BS.take 16 (BS.drop off bs)), off + 16)
-
   TT_STOP -> Nothing
 {-# INLINE decodeCompValue #-}
 
-decodeCompMapEntries :: ThriftType -> ThriftType -> Int -> ByteString -> Int
-                     -> Maybe (TV.Value, Int)
+
+decodeCompMapEntries
+  :: ThriftType
+  -> ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeCompMapEntries kt vt !count bs !off
   | count <= 0 = Just (TV.Map kt vt V.empty, off)
   | otherwise = runST $ do
@@ -282,8 +289,13 @@ decodeCompMapEntries kt vt !count bs !off
               go mv (i + 1) o2
 {-# INLINE decodeCompMapEntries #-}
 
-decodeCompListEntries :: ThriftType -> Int -> ByteString -> Int
-                      -> Maybe (TV.Value, Int)
+
+decodeCompListEntries
+  :: ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeCompListEntries et !count bs !off
   | count <= 0 = Just (TV.List et V.empty, off)
   | otherwise = runST $ do
@@ -302,8 +314,13 @@ decodeCompListEntries et !count bs !off
             go mv (i + 1) o'
 {-# INLINE decodeCompListEntries #-}
 
-decodeCompSetEntries :: ThriftType -> Int -> ByteString -> Int
-                     -> Maybe (TV.Value, Int)
+
+decodeCompSetEntries
+  :: ThriftType
+  -> Int
+  -> ByteString
+  -> Int
+  -> Maybe (TV.Value, Int)
 decodeCompSetEntries et !count bs !off
   | count <= 0 = Just (TV.Set et V.empty, off)
   | otherwise = runST $ do

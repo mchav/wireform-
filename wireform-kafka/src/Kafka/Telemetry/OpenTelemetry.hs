@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-{-|
+{- |
 Module      : Kafka.Telemetry.OpenTelemetry
 Description : OpenTelemetry instrumentation for the Kafka client.
 Copyright   : (c) 2025
@@ -75,272 +75,332 @@ processors (i.e. no SDK has been initialised), every span created
 through this module is a no-op — it costs roughly one allocation
 and zero exports. Safe to call unconditionally.
 -}
-module Kafka.Telemetry.OpenTelemetry
-  ( -- * Tracer
-    kafkaTracer
-  , kafkaInstrumentationLibrary
+module Kafka.Telemetry.OpenTelemetry (
+  -- * Tracer
+  kafkaTracer,
+  kafkaInstrumentationLibrary,
 
-    -- * Bracketed spans
-  , inProducerSpan
-  , inConsumerSpan
-  , inTransactionSpan
+  -- * Bracketed spans
+  inProducerSpan,
+  inConsumerSpan,
+  inTransactionSpan,
 
-    -- * SpanArguments builders
-    --
-    -- | Lower-level entry points for callers that want to assemble
-    -- their own 'OTel.inSpan'' wrapper. Each value is a
-    -- 'SpanArguments' pre-populated with the OTel messaging
-    -- semantic-convention attributes.
-  , producerSpanArguments
-  , consumerSpanArguments
-  , transactionSpanArguments
+  -- * SpanArguments builders
 
-    -- * Context propagation over Kafka record headers
-  , injectIntoProducerHeaders
-  , extractFromConsumerHeaders
-  , tracingProducerInterceptor
+  --
 
-    -- * Configuration
-  , TelemetryConfig (..)
-  , defaultTelemetryConfig
-  ) where
+  {- | Lower-level entry points for callers that want to assemble
+  their own 'OTel.inSpan'' wrapper. Each value is a
+  'SpanArguments' pre-populated with the OTel messaging
+  semantic-convention attributes.
+  -}
+  producerSpanArguments,
+  consumerSpanArguments,
+  transactionSpanArguments,
 
-import           Data.ByteString          (ByteString)
-import qualified Data.HashMap.Strict      as HashMap
-import           Data.Int                 (Int32, Int64)
-import           Data.Text                (Text)
-import qualified Data.Text                as T
-import qualified Data.Text.Encoding       as TE
-import           GHC.Stack                (HasCallStack)
+  -- * Context propagation over Kafka record headers
+  injectIntoProducerHeaders,
+  extractFromConsumerHeaders,
+  tracingProducerInterceptor,
 
-import qualified OpenTelemetry.Context             as OCtx
-import qualified OpenTelemetry.Context.ThreadLocal as OCtxTL
-import qualified OpenTelemetry.Propagator          as OProp
-import qualified OpenTelemetry.Attributes           as OAttr
-import qualified OpenTelemetry.Trace.Core          as OTel
-import           OpenTelemetry.Trace.Core
-  ( Span
-  , SpanArguments (..)
-  , SpanKind (..)
-  , Tracer
-  , TracerProvider
-  , defaultSpanArguments
-  , tracerOptions
-  )
+  -- * Configuration
+  TelemetryConfig (..),
+  defaultTelemetryConfig,
+) where
+
+import Data.ByteString (ByteString)
+import Data.HashMap.Strict qualified as HashMap
+import Data.Int (Int32, Int64)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import GHC.Stack (HasCallStack)
+import OpenTelemetry.Attributes qualified as OAttr
+import OpenTelemetry.Context qualified as OCtx
+import OpenTelemetry.Context.ThreadLocal qualified as OCtxTL
+import OpenTelemetry.Propagator qualified as OProp
+import OpenTelemetry.Trace.Core (
+  Span,
+  SpanArguments (..),
+  SpanKind (..),
+  Tracer,
+  TracerProvider,
+  defaultSpanArguments,
+  tracerOptions,
+ )
+import OpenTelemetry.Trace.Core qualified as OTel
+
 
 ----------------------------------------------------------------------
 -- Configuration
 ----------------------------------------------------------------------
 
--- | Side-channel configuration for telemetry emission. Not consulted
--- by the @inXSpan@ helpers below — they always go through the
--- 'TracerProvider''s configured processors — but exposed so callers
--- can thread their own flags (e.g. @telemetryIncludePayload@) into
--- interceptors that read it.
+{- | Side-channel configuration for telemetry emission. Not consulted
+by the @inXSpan@ helpers below — they always go through the
+'TracerProvider''s configured processors — but exposed so callers
+can thread their own flags (e.g. @telemetryIncludePayload@) into
+interceptors that read it.
+-}
 data TelemetryConfig = TelemetryConfig
-  { telemetryEnabled        :: !Bool
-    -- ^ Whether telemetry should be emitted at all. Defaults to 'True'.
-  , telemetryServiceName    :: !Text
-    -- ^ Service name reported on spans / metrics. Defaults to
-    --   @\"wireform-kafka\"@.
+  { telemetryEnabled :: !Bool
+  -- ^ Whether telemetry should be emitted at all. Defaults to 'True'.
+  , telemetryServiceName :: !Text
+  {- ^ Service name reported on spans / metrics. Defaults to
+  @\"wireform-kafka\"@.
+  -}
   , telemetryIncludePayload :: !Bool
-    -- ^ Whether to copy the record payload into the span as an
-    --   attribute. Defaults to 'False' (privacy-by-default).
+  {- ^ Whether to copy the record payload into the span as an
+  attribute. Defaults to 'False' (privacy-by-default).
+  -}
   }
 
+
 defaultTelemetryConfig :: TelemetryConfig
-defaultTelemetryConfig = TelemetryConfig
-  { telemetryEnabled        = True
-  , telemetryServiceName    = "wireform-kafka"
-  , telemetryIncludePayload = False
-  }
+defaultTelemetryConfig =
+  TelemetryConfig
+    { telemetryEnabled = True
+    , telemetryServiceName = "wireform-kafka"
+    , telemetryIncludePayload = False
+    }
+
 
 ----------------------------------------------------------------------
 -- Tracer
 ----------------------------------------------------------------------
 
--- | The 'OTel.InstrumentationLibrary' record used for the
--- @wireform-kafka@ tracer. Exposed so callers can match against it
--- in custom processor filters / samplers.
+{- | The 'OTel.InstrumentationLibrary' record used for the
+@wireform-kafka@ tracer. Exposed so callers can match against it
+in custom processor filters / samplers.
+-}
 kafkaInstrumentationLibrary :: OTel.InstrumentationLibrary
-kafkaInstrumentationLibrary = OTel.InstrumentationLibrary
-  { OTel.libraryName       = "wireform-kafka"
-  , OTel.libraryVersion    = "0.1.0.0"
-  , OTel.librarySchemaUrl  = ""
-  , OTel.libraryAttributes = OAttr.emptyAttributes
-  }
+kafkaInstrumentationLibrary =
+  OTel.InstrumentationLibrary
+    { OTel.libraryName = "wireform-kafka"
+    , OTel.libraryVersion = "0.1.0.0"
+    , OTel.librarySchemaUrl = ""
+    , OTel.libraryAttributes = OAttr.emptyAttributes
+    }
 
--- | Make a 'Tracer' for the @wireform-kafka@ instrumentation library
--- from the supplied 'TracerProvider'. Pass the result to
--- 'inProducerSpan', 'inConsumerSpan', and friends.
---
--- If the supplied 'TracerProvider' has no registered span
--- processors every span this tracer creates is a no-op, so this
--- call is safe to make unconditionally at service-start time even
--- when no SDK is initialised.
+
+{- | Make a 'Tracer' for the @wireform-kafka@ instrumentation library
+from the supplied 'TracerProvider'. Pass the result to
+'inProducerSpan', 'inConsumerSpan', and friends.
+
+If the supplied 'TracerProvider' has no registered span
+processors every span this tracer creates is a no-op, so this
+call is safe to make unconditionally at service-start time even
+when no SDK is initialised.
+-}
 kafkaTracer :: TracerProvider -> Tracer
 kafkaTracer tp = OTel.makeTracer tp kafkaInstrumentationLibrary tracerOptions
+
 
 ----------------------------------------------------------------------
 -- SpanArguments builders
 ----------------------------------------------------------------------
 
--- | 'SpanArguments' pre-populated with the OTel messaging
--- semantic-convention attributes for a producer @publish@ span.
+{- | 'SpanArguments' pre-populated with the OTel messaging
+semantic-convention attributes for a producer @publish@ span.
+-}
 producerSpanArguments :: Text -> Int32 -> SpanArguments
-producerSpanArguments topic partition = defaultSpanArguments
-  { kind       = Producer
-  , attributes = HashMap.fromList
-      [ ("messaging.system",           OTel.toAttribute @Text "kafka")
-      , ("messaging.destination.name", OTel.toAttribute topic)
-      , ("messaging.operation",        OTel.toAttribute @Text "publish")
-      , ("messaging.kafka.partition",  OTel.toAttribute (fromIntegral partition :: Int64))
-      ]
-  }
+producerSpanArguments topic partition =
+  defaultSpanArguments
+    { kind = Producer
+    , attributes =
+        HashMap.fromList
+          [ ("messaging.system", OTel.toAttribute @Text "kafka")
+          , ("messaging.destination.name", OTel.toAttribute topic)
+          , ("messaging.operation", OTel.toAttribute @Text "publish")
+          , ("messaging.kafka.partition", OTel.toAttribute (fromIntegral partition :: Int64))
+          ]
+    }
+
 
 -- | 'SpanArguments' for a consumer @process@ span.
 consumerSpanArguments :: Text -> Int32 -> Int64 -> Text -> SpanArguments
-consumerSpanArguments topic partition offset groupId = defaultSpanArguments
-  { kind       = Consumer
-  , attributes = HashMap.fromList
-      [ ("messaging.system",               OTel.toAttribute @Text "kafka")
-      , ("messaging.destination.name",     OTel.toAttribute topic)
-      , ("messaging.operation",            OTel.toAttribute @Text "process")
-      , ("messaging.kafka.partition",      OTel.toAttribute (fromIntegral partition :: Int64))
-      , ("messaging.kafka.message.offset", OTel.toAttribute offset)
-      , ("messaging.kafka.consumer.group", OTel.toAttribute groupId)
-      ]
-  }
+consumerSpanArguments topic partition offset groupId =
+  defaultSpanArguments
+    { kind = Consumer
+    , attributes =
+        HashMap.fromList
+          [ ("messaging.system", OTel.toAttribute @Text "kafka")
+          , ("messaging.destination.name", OTel.toAttribute topic)
+          , ("messaging.operation", OTel.toAttribute @Text "process")
+          , ("messaging.kafka.partition", OTel.toAttribute (fromIntegral partition :: Int64))
+          , ("messaging.kafka.message.offset", OTel.toAttribute offset)
+          , ("messaging.kafka.consumer.group", OTel.toAttribute groupId)
+          ]
+    }
 
--- | 'SpanArguments' for a transactional operation. @operation@ is
--- typically one of @\"init\"@, @\"begin\"@, @\"commit\"@, @\"abort\"@,
--- @\"send_offsets\"@.
+
+{- | 'SpanArguments' for a transactional operation. @operation@ is
+typically one of @\"init\"@, @\"begin\"@, @\"commit\"@, @\"abort\"@,
+@\"send_offsets\"@.
+-}
 transactionSpanArguments :: Text -> Text -> SpanArguments
-transactionSpanArguments operation txnId = defaultSpanArguments
-  { kind       = Client
-  , attributes = HashMap.fromList
-      [ ("messaging.system",               OTel.toAttribute @Text "kafka")
-      , ("messaging.operation",            OTel.toAttribute operation)
-      , ("messaging.kafka.transaction.id", OTel.toAttribute txnId)
-      ]
-  }
+transactionSpanArguments operation txnId =
+  defaultSpanArguments
+    { kind = Client
+    , attributes =
+        HashMap.fromList
+          [ ("messaging.system", OTel.toAttribute @Text "kafka")
+          , ("messaging.operation", OTel.toAttribute operation)
+          , ("messaging.kafka.transaction.id", OTel.toAttribute txnId)
+          ]
+    }
+
 
 ----------------------------------------------------------------------
 -- inSpan wrappers
 ----------------------------------------------------------------------
 
--- | Wrap an 'IO' action in a producer @publish@ span. The span ends
--- when the action returns (or throws). The body receives the live
--- 'Span' so it can call 'OTel.addAttribute' / 'OTel.addEvent' /
--- 'OTel.recordException' as needed.
+{- | Wrap an 'IO' action in a producer @publish@ span. The span ends
+when the action returns (or throws). The body receives the live
+'Span' so it can call 'OTel.addAttribute' / 'OTel.addEvent' /
+'OTel.recordException' as needed.
+-}
 inProducerSpan
   :: HasCallStack
   => Tracer
-  -> Text       -- ^ topic
-  -> Int32      -- ^ partition
+  -> Text
+  -- ^ topic
+  -> Int32
+  -- ^ partition
   -> (Span -> IO a)
   -> IO a
 inProducerSpan tr topic partition body =
-  OTel.inSpan' tr ("kafka.publish " <> topic)
-    (producerSpanArguments topic partition) body
+  OTel.inSpan'
+    tr
+    ("kafka.publish " <> topic)
+    (producerSpanArguments topic partition)
+    body
 
--- | Wrap an 'IO' action in a consumer @process@ span. The span is
--- a child of the current thread-local 'OCtx.Context'; for a record
--- that carries a parent trace, call 'extractFromConsumerHeaders'
--- and 'OCtxTL.attachContext' before this so the parent shows up
--- correctly.
+
+{- | Wrap an 'IO' action in a consumer @process@ span. The span is
+a child of the current thread-local 'OCtx.Context'; for a record
+that carries a parent trace, call 'extractFromConsumerHeaders'
+and 'OCtxTL.attachContext' before this so the parent shows up
+correctly.
+-}
 inConsumerSpan
   :: HasCallStack
   => Tracer
-  -> Text       -- ^ topic
-  -> Int32      -- ^ partition
-  -> Int64      -- ^ offset
-  -> Text       -- ^ consumer group id
+  -> Text
+  -- ^ topic
+  -> Int32
+  -- ^ partition
+  -> Int64
+  -- ^ offset
+  -> Text
+  -- ^ consumer group id
   -> (Span -> IO a)
   -> IO a
 inConsumerSpan tr topic partition offset groupId body =
-  OTel.inSpan' tr ("kafka.process " <> topic)
-    (consumerSpanArguments topic partition offset groupId) body
+  OTel.inSpan'
+    tr
+    ("kafka.process " <> topic)
+    (consumerSpanArguments topic partition offset groupId)
+    body
 
--- | Wrap an 'IO' action in a transactional-operation span. Use the
--- @operation@ argument to distinguish init / begin / commit / abort
--- / send-offsets.
+
+{- | Wrap an 'IO' action in a transactional-operation span. Use the
+@operation@ argument to distinguish init / begin / commit / abort
+/ send-offsets.
+-}
 inTransactionSpan
   :: HasCallStack
   => Tracer
-  -> Text       -- ^ operation, e.g. @\"commit\"@
-  -> Text       -- ^ transactional id
+  -> Text
+  -- ^ operation, e.g. @\"commit\"@
+  -> Text
+  -- ^ transactional id
   -> (Span -> IO a)
   -> IO a
 inTransactionSpan tr operation txnId body =
-  OTel.inSpan' tr ("kafka.txn." <> operation)
-    (transactionSpanArguments operation txnId) body
+  OTel.inSpan'
+    tr
+    ("kafka.txn." <> operation)
+    (transactionSpanArguments operation txnId)
+    body
+
 
 ----------------------------------------------------------------------
 -- Header propagation
 ----------------------------------------------------------------------
 
--- | Inject the supplied 'Span''s context into a Kafka producer's
--- header list. Delegates to whichever propagator the
--- 'TracerProvider' was configured with — the SDK defaults to W3C
--- Trace Context.
---
--- Existing trace-context headers in the input list are overwritten;
--- unrelated headers pass through unchanged.
+{- | Inject the supplied 'Span''s context into a Kafka producer's
+header list. Delegates to whichever propagator the
+'TracerProvider' was configured with — the SDK defaults to W3C
+Trace Context.
+
+Existing trace-context headers in the input list are overwritten;
+unrelated headers pass through unchanged.
+-}
 injectIntoProducerHeaders
   :: Tracer
   -> Span
   -> [(Text, ByteString)]
   -> IO [(Text, ByteString)]
 injectIntoProducerHeaders tr sp headers = do
-  let tp   = OTel.getTracerTracerProvider tr
+  let tp = OTel.getTracerTracerProvider tr
       prop = OTel.getTracerProviderPropagators tp
-      ctx  = OCtx.insertSpan sp OCtx.empty
+      ctx = OCtx.insertSpan sp OCtx.empty
   -- Inject the trace fields into a fresh carrier, then merge them back
   -- over the original headers. This overwrites any existing trace
   -- fields and leaves unrelated (possibly binary) headers untouched —
   -- safer than round-tripping every header through 'Text'.
   tm <- OProp.inject prop ctx OProp.emptyTextMap
   let injected = fromTextMap tm
-      fields   = map T.toLower (OProp.propagatorFields prop)
+      fields = map T.toLower (OProp.propagatorFields prop)
       keep (k, _) = T.toLower k `notElem` fields
   pure (filter keep headers <> injected)
 
--- | Extract a parent 'OCtx.Context' from a Kafka consumer record's
--- headers. The starting context is the current thread-local one so
--- baggage and any running parent span are preserved when the record
--- carries no @traceparent@.
---
--- Attach the result with 'OCtxTL.attachContext' before calling
--- 'inConsumerSpan' to make the work performed under the record a
--- child of the upstream producer span.
+
+{- | Extract a parent 'OCtx.Context' from a Kafka consumer record's
+headers. The starting context is the current thread-local one so
+baggage and any running parent span are preserved when the record
+carries no @traceparent@.
+
+Attach the result with 'OCtxTL.attachContext' before calling
+'inConsumerSpan' to make the work performed under the record a
+child of the upstream producer span.
+-}
 extractFromConsumerHeaders
   :: Tracer
   -> [(Text, ByteString)]
   -> IO OCtx.Context
 extractFromConsumerHeaders tr headers = do
-  let tp   = OTel.getTracerTracerProvider tr
+  let tp = OTel.getTracerTracerProvider tr
       prop = OTel.getTracerProviderPropagators tp
   ctx0 <- OCtxTL.getContext
   OProp.extract prop (toTextMap headers) ctx0
 
--- | Build a pre-send producer interceptor that opens a
--- @kafka.enqueue@ span, stamps the record's headers with the
--- resulting trace context, and ends the span before returning. The
--- span represents the /enqueue/ event only — to instrument the
--- broker round-trip too, wrap your
--- 'Kafka.Client.Producer.sendMessage' call in 'inProducerSpan'
--- yourself.
+
+{- | Build a pre-send producer interceptor that opens a
+@kafka.enqueue@ span, stamps the record's headers with the
+resulting trace context, and ends the span before returning. The
+span represents the /enqueue/ event only — to instrument the
+broker round-trip too, wrap your
+'Kafka.Client.Producer.sendMessage' call in 'inProducerSpan'
+yourself.
+-}
 tracingProducerInterceptor
   :: Tracer
-  -> Text                  -- ^ topic
-  -> Int32                 -- ^ partition
-  -> [(Text, ByteString)]  -- ^ existing headers
+  -> Text
+  -- ^ topic
+  -> Int32
+  -- ^ partition
+  -> [(Text, ByteString)]
+  -- ^ existing headers
   -> IO [(Text, ByteString)]
 tracingProducerInterceptor tr topic partition headers =
-  OTel.inSpan' tr ("kafka.enqueue " <> topic)
-    (producerSpanArguments topic partition) $ \sp ->
+  OTel.inSpan'
+    tr
+    ("kafka.enqueue " <> topic)
+    (producerSpanArguments topic partition)
+    $ \sp ->
       injectIntoProducerHeaders tr sp headers
+
 
 ----------------------------------------------------------------------
 -- Internal: Kafka header <-> OTel TextMap conversion
@@ -354,6 +414,7 @@ tracingProducerInterceptor tr topic partition headers =
 toTextMap :: [(Text, ByteString)] -> OProp.TextMap
 toTextMap =
   OProp.textMapFromList . map (\(k, v) -> (k, TE.decodeUtf8Lenient v))
+
 
 fromTextMap :: OProp.TextMap -> [(Text, ByteString)]
 fromTextMap =

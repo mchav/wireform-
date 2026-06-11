@@ -197,51 +197,51 @@ getVarint :: Decoder Word64
 getVarint = Decoder $ \bs off ->
   let len = bsLen bs
   in if isTrue# (off >=# len)
-      then (# | UnexpectedEnd #)
-      else
-        let !b0 = fromIntegral (BSU.unsafeIndex bs (I# off)) :: Word64
-        in if b0 < 0x80
-            then (# (# b0, off +# 1# #) | #)
-            else
-              let off1 = off +# 1#
-              in if isTrue# (off1 >=# len)
-                  then (# | UnexpectedEnd #)
-                  else
-                    let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
-                    in if b1 < 0x80
-                        then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
-                        else
-                          let off2 = off +# 2#
-                          in if isTrue# (off2 >=# len)
-                              then (# | UnexpectedEnd #)
-                              else
-                                let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
-                                in if b2 < 0x80
-                                    then
-                                      (#
-                                        (#
-                                          (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7) .|. (b2 `shiftL` 14)
-                                          , off +# 3#
-                                        #) |
-                                      #)
-                                    else
-                                      let off3 = off +# 3#
-                                      in if isTrue# (off3 >=# len)
-                                          then (# | UnexpectedEnd #)
+       then (# | UnexpectedEnd #)
+       else
+         let !b0 = fromIntegral (BSU.unsafeIndex bs (I# off)) :: Word64
+         in if b0 < 0x80
+              then (# (# b0, off +# 1# #) | #)
+              else
+                let off1 = off +# 1#
+                in if isTrue# (off1 >=# len)
+                     then (# | UnexpectedEnd #)
+                     else
+                       let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
+                       in if b1 < 0x80
+                            then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
+                            else
+                              let off2 = off +# 2#
+                              in if isTrue# (off2 >=# len)
+                                   then (# | UnexpectedEnd #)
+                                   else
+                                     let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
+                                     in if b2 < 0x80
+                                          then
+                                            (#
+                                              (#
+                                                (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7) .|. (b2 `shiftL` 14)
+                                                , off +# 3#
+                                              #) |
+                                            #)
                                           else
-                                            let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
-                                            in if b3 < 0x80
-                                                then
-                                                  (#
-                                                    (#
-                                                      (b0 .&. 0x7F)
-                                                        .|. ((b1 .&. 0x7F) `shiftL` 7)
-                                                        .|. ((b2 .&. 0x7F) `shiftL` 14)
-                                                        .|. (b3 `shiftL` 21)
-                                                      , off +# 4#
-                                                    #) |
-                                                  #)
-                                                else getVarintSlow bs off
+                                            let off3 = off +# 3#
+                                            in if isTrue# (off3 >=# len)
+                                                 then (# | UnexpectedEnd #)
+                                                 else
+                                                   let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
+                                                   in if b3 < 0x80
+                                                        then
+                                                          (#
+                                                            (#
+                                                              (b0 .&. 0x7F)
+                                                                .|. ((b1 .&. 0x7F) `shiftL` 7)
+                                                                .|. ((b2 .&. 0x7F) `shiftL` 14)
+                                                                .|. (b3 `shiftL` 21)
+                                                              , off +# 4#
+                                                            #) |
+                                                          #)
+                                                        else getVarintSlow bs off
 {-# INLINE getVarint #-}
 
 
@@ -257,8 +257,8 @@ getVarintSlow bs = go 0 0
           let !b = BSU.unsafeIndex bs (I# pos)
               !val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-              then (# (# val, pos +# 1# #) | #)
-              else go val (shift + 7) (pos +# 1#)
+               then (# (# val, pos +# 1# #) | #)
+               else go val (shift + 7) (pos +# 1#)
 {-# INLINE getVarintSlow #-}
 
 
@@ -354,13 +354,13 @@ getLengthDelimited = Decoder $ \bs off ->
     (# (# lenW, off' #) | #) ->
       let !len = fromIntegral lenW :: Int
       in if len < 0
-          then (# | NegativeLength #)
-          else
-            if I# off' + len > BS.length bs
-              then (# | UnexpectedEnd #)
-              else
-                let !i = I# off'
-                in (# (# BSU.unsafeTake len (BSU.unsafeDrop i bs), case i + len of I# r -> r #) | #)
+           then (# | NegativeLength #)
+           else
+             if I# off' + len > BS.length bs
+               then (# | UnexpectedEnd #)
+               else
+                 let !i = I# off'
+                 in (# (# BSU.unsafeTake len (BSU.unsafeDrop i bs), case i + len of I# r -> r #) | #)
     (# | e #) -> (# | e #)
 {-# INLINE getLengthDelimited #-}
 
@@ -421,8 +421,8 @@ skipField = \case
       (# (# lenW, off' #) | #) ->
         let !len = fromIntegral lenW :: Int
         in if I# off' + len > BS.length bs
-            then (# | UnexpectedEnd #)
-            else (# (# (), case I# off' + len of I# r -> r #) | #)
+             then (# | UnexpectedEnd #)
+             else (# (# (), case I# off' + len of I# r -> r #) | #)
       (# | e #) -> (# | e #)
   WireStartGroup -> skipGroup
   WireEndGroup -> pure ()
@@ -533,8 +533,8 @@ decodeTagParts w =
   let fn = fromIntegral (w `shiftR` 3) :: Int
       wt = fromIntegral (w .&. 0x07) :: Int
   in case fn of
-      I# fn# -> case wt of
-        I# wt# -> (# fn#, wt# #)
+       I# fn# -> case wt of
+         I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
 
 
@@ -575,8 +575,8 @@ skipWireType wt = case wt of
       (# (# lenW, off' #) | #) ->
         let !len = fromIntegral lenW :: Int
         in if I# off' + len > BS.length bs
-            then (# | UnexpectedEnd #)
-            else (# (# (), case I# off' + len of I# r -> r #) | #)
+             then (# | UnexpectedEnd #)
+             else (# (# (), case I# off' + len of I# r -> r #) | #)
       (# | e #) -> (# | e #)
   5 -> skip 4
   _ -> Decoder $ \_ _ -> (# | InvalidWireType wt #)

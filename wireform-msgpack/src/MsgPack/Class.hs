@@ -813,8 +813,8 @@ instance (Selector s, FromMsgPack a) => GFromMsgPackFields (M1 S s (K1 i a)) whe
   gFromMsgPackFields lkup =
     let name = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup name of
-        Nothing -> Left $ "GFromMsgPack: missing field " ++ T.unpack name
-        Just v -> M1 . K1 <$> fromMsgPack v
+         Nothing -> Left $ "GFromMsgPack: missing field " ++ T.unpack name
+         Just v -> M1 . K1 <$> fromMsgPack v
 
 
 -- ---------------------------------------------------------------------------

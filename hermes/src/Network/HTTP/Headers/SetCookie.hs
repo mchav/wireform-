@@ -124,12 +124,12 @@ setCookieParser = do
       $(char '=')
       policy <-
         $( switch
-            [|
-              case _ of
-                "Strict" -> pure SameSiteStrict
-                "Lax" -> pure SameSiteLax
-                "None" -> pure SameSiteNone
-              |]
+             [|
+               case _ of
+                 "Strict" -> pure SameSiteStrict
+                 "Lax" -> pure SameSiteLax
+                 "None" -> pure SameSiteNone
+               |]
          )
       pure $ \sc -> sc {setCookieSameSite = Just policy}
 

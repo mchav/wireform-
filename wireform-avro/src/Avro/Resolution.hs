@@ -1,27 +1,29 @@
--- | Avro schema resolution (reader/writer compatibility).
---
--- When a reader uses a different schema than the writer, Avro defines
--- rules for resolving differences. This module implements those rules
--- per the Avro specification.
-module Avro.Resolution
-  ( ResolvedSchema(..)
-  , FieldResolution(..)
-  , resolveSchema
-  , resolveValue
-  ) where
+{- | Avro schema resolution (reader/writer compatibility).
 
+When a reader uses a different schema than the writer, Avro defines
+rules for resolving differences. This module implements those rules
+per the Avro specification.
+-}
+module Avro.Resolution (
+  ResolvedSchema (..),
+  FieldResolution (..),
+  resolveSchema,
+  resolveValue,
+) where
+
+import Avro.Schema (AvroField (..), AvroSchema (..), AvroType (..))
+import Avro.Value qualified as AV
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
+import Data.Text qualified as T
+import Data.Vector qualified as V
 
-import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
-import qualified Avro.Value as AV
 
 -- | Describes how to convert a writer field to a reader field.
 data FieldResolution
   = FieldFromWriter !Int !ResolvedSchema
   | FieldDefault !AV.Value
   deriving stock (Show, Eq)
+
 
 -- | A plan for transforming writer-schema values into reader-schema values.
 data ResolvedSchema
@@ -39,44 +41,49 @@ data ResolvedSchema
   | ResolvedUnion !(V.Vector ResolvedSchema)
   deriving stock (Show, Eq)
 
--- | Check compatibility between a writer and reader schema and produce a
--- resolution plan. Returns 'Left' with an error message if incompatible.
+
+{- | Check compatibility between a writer and reader schema and produce a
+resolution plan. Returns 'Left' with an error message if incompatible.
+-}
 resolveSchema :: AvroType -> AvroType -> Either String ResolvedSchema
 resolveSchema writerTy readerTy
   | writerTy == readerTy = Right ResolvedSame
   | otherwise = resolve writerTy readerTy
 
+
 resolve :: AvroType -> AvroType -> Either String ResolvedSchema
 resolve (AvroPrimitive w) (AvroPrimitive r) = resolvePrim w r
-resolve (AvroUnion{avroUnionBranches = wBranches}) readerTy =
+resolve (AvroUnion {avroUnionBranches = wBranches}) readerTy =
   resolveWriterUnion wBranches readerTy
-resolve writerTy (AvroUnion{avroUnionBranches = rBranches}) =
+resolve writerTy (AvroUnion {avroUnionBranches = rBranches}) =
   resolveReaderUnion writerTy rBranches
-resolve w@AvroRecord{} r@AvroRecord{} = resolveRecords w r
-resolve w@AvroEnum{} r@AvroEnum{} = resolveEnums w r
+resolve w@AvroRecord {} r@AvroRecord {} = resolveRecords w r
+resolve w@AvroEnum {} r@AvroEnum {} = resolveEnums w r
 resolve (AvroArray wItems) (AvroArray rItems) =
   ResolvedArray <$> resolveSchema wItems rItems
 resolve (AvroMap wVals) (AvroMap rVals) =
   ResolvedMap <$> resolveSchema wVals rVals
-resolve w@AvroFixed{} r@AvroFixed{} = resolveFixed w r
-resolve (AvroLogical{avroLogicalBase = wBase}) r = resolveSchema wBase r
-resolve w (AvroLogical{avroLogicalBase = rBase}) = resolveSchema w rBase
+resolve w@AvroFixed {} r@AvroFixed {} = resolveFixed w r
+resolve (AvroLogical {avroLogicalBase = wBase}) r = resolveSchema wBase r
+resolve w (AvroLogical {avroLogicalBase = rBase}) = resolveSchema w rBase
 resolve w r = Left $ "incompatible types: writer " ++ showType w ++ " vs reader " ++ showType r
+
 
 -- ============================================================
 -- Primitive resolution
 -- ============================================================
 
 resolvePrim :: AvroSchema -> AvroSchema -> Either String ResolvedSchema
-resolvePrim AvroInt  AvroLong   = Right ResolvedPromoteIntToLong
-resolvePrim AvroInt  AvroFloat  = Right ResolvedPromoteIntToFloat
-resolvePrim AvroInt  AvroDouble = Right ResolvedPromoteIntToDouble
-resolvePrim AvroLong AvroFloat  = Right ResolvedPromoteLongToFloat
+resolvePrim AvroInt AvroLong = Right ResolvedPromoteIntToLong
+resolvePrim AvroInt AvroFloat = Right ResolvedPromoteIntToFloat
+resolvePrim AvroInt AvroDouble = Right ResolvedPromoteIntToDouble
+resolvePrim AvroLong AvroFloat = Right ResolvedPromoteLongToFloat
 resolvePrim AvroLong AvroDouble = Right ResolvedPromoteLongToDouble
 resolvePrim AvroFloat AvroDouble = Right ResolvedPromoteFloatToDouble
 resolvePrim w r
-  | w == r    = Right ResolvedSame
+  | w == r = Right ResolvedSame
   | otherwise = Left $ "incompatible primitives: " ++ show w ++ " vs " ++ show r
+
 
 -- ============================================================
 -- Record resolution
@@ -89,6 +96,7 @@ resolveRecords w r = do
   fieldResolutions <- V.mapM (resolveOneField wFields) rFields
   Right (ResolvedRecord fieldResolutions)
 
+
 resolveOneField :: V.Vector AvroField -> AvroField -> Either String FieldResolution
 resolveOneField wFields rField =
   case findFieldWithAliases wFields rField of
@@ -99,8 +107,12 @@ resolveOneField wFields rField =
     Nothing ->
       case avroFieldDefault rField of
         Just dflt -> Right (FieldDefault (defaultToValue (avroFieldType rField) dflt))
-        Nothing   -> Left $ "reader field '" ++ T.unpack (avroFieldName rField)
-                           ++ "' not in writer and has no default"
+        Nothing ->
+          Left $
+            "reader field '"
+              ++ T.unpack (avroFieldName rField)
+              ++ "' not in writer and has no default"
+
 
 findFieldWithAliases :: V.Vector AvroField -> AvroField -> Maybe Int
 findFieldWithAliases wFields rField =
@@ -113,16 +125,18 @@ findFieldWithAliases wFields rField =
           let rName = avroFieldName rField
           in V.findIndex (\f -> rName `V.elem` avroFieldAliases f) wFields
 
+
 defaultToValue :: AvroType -> AvroSchema -> AV.Value
-defaultToValue _ AvroNull   = AV.Null
-defaultToValue _ AvroBool   = AV.Bool False
-defaultToValue _ AvroInt    = AV.Int 0
-defaultToValue _ AvroLong   = AV.Long 0
-defaultToValue _ AvroFloat  = AV.Float 0
+defaultToValue _ AvroNull = AV.Null
+defaultToValue _ AvroBool = AV.Bool False
+defaultToValue _ AvroInt = AV.Int 0
+defaultToValue _ AvroLong = AV.Long 0
+defaultToValue _ AvroFloat = AV.Float 0
 defaultToValue _ AvroDouble = AV.Double 0
-defaultToValue _ AvroBytes  = AV.Bytes ""
+defaultToValue _ AvroBytes = AV.Bytes ""
 defaultToValue _ AvroString = AV.String ""
-defaultToValue _ _          = AV.Null
+defaultToValue _ _ = AV.Null
+
 
 -- ============================================================
 -- Enum resolution
@@ -133,13 +147,22 @@ resolveEnums w r = do
   let wSyms = avroEnumSymbols w
       rSyms = avroEnumSymbols r
       rName = avroEnumName r
-  mapping <- V.mapM (\sym ->
-    case V.findIndex (== sym) rSyms of
-      Just ri -> Right ri
-      Nothing -> Left $ "writer enum symbol '" ++ T.unpack sym
-                       ++ "' not in reader enum '" ++ T.unpack rName ++ "'"
-    ) wSyms
+  mapping <-
+    V.mapM
+      ( \sym ->
+          case V.findIndex (== sym) rSyms of
+            Just ri -> Right ri
+            Nothing ->
+              Left $
+                "writer enum symbol '"
+                  ++ T.unpack sym
+                  ++ "' not in reader enum '"
+                  ++ T.unpack rName
+                  ++ "'"
+      )
+      wSyms
   Right (ResolvedEnum rName mapping)
+
 
 -- ============================================================
 -- Fixed resolution
@@ -149,11 +172,20 @@ resolveFixed :: AvroType -> AvroType -> Either String ResolvedSchema
 resolveFixed w r
   | avroFixedName w == avroFixedName r && avroFixedSize w == avroFixedSize r = Right ResolvedSame
   | avroFixedName w /= avroFixedName r =
-      Left $ "fixed name mismatch: " ++ T.unpack (avroFixedName w)
-           ++ " vs " ++ T.unpack (avroFixedName r)
+      Left $
+        "fixed name mismatch: "
+          ++ T.unpack (avroFixedName w)
+          ++ " vs "
+          ++ T.unpack (avroFixedName r)
   | otherwise =
-      Left $ "fixed size mismatch for " ++ T.unpack (avroFixedName w)
-           ++ ": " ++ show (avroFixedSize w) ++ " vs " ++ show (avroFixedSize r)
+      Left $
+        "fixed size mismatch for "
+          ++ T.unpack (avroFixedName w)
+          ++ ": "
+          ++ show (avroFixedSize w)
+          ++ " vs "
+          ++ show (avroFixedSize r)
+
 
 -- ============================================================
 -- Union resolution
@@ -164,26 +196,33 @@ resolveWriterUnion wBranches readerTy = do
   resolutions <- V.mapM (\wb -> resolveSchema wb readerTy) wBranches
   Right (ResolvedUnion resolutions)
 
+
 resolveReaderUnion :: AvroType -> V.Vector AvroType -> Either String ResolvedSchema
 resolveReaderUnion writerTy rBranches =
   case findFirstMatch writerTy rBranches 0 of
-    Just _  -> Right ResolvedSame
-    Nothing -> Left $ "writer type " ++ showType writerTy
-                    ++ " does not match any reader union branch"
+    Just _ -> Right ResolvedSame
+    Nothing ->
+      Left $
+        "writer type "
+          ++ showType writerTy
+          ++ " does not match any reader union branch"
+
 
 findFirstMatch :: AvroType -> V.Vector AvroType -> Int -> Maybe Int
 findFirstMatch wt branches idx
   | idx >= V.length branches = Nothing
   | otherwise = case resolveSchema wt (branches V.! idx) of
-      Right _  -> Just idx
-      Left _   -> findFirstMatch wt branches (idx + 1)
+      Right _ -> Just idx
+      Left _ -> findFirstMatch wt branches (idx + 1)
+
 
 -- ============================================================
 -- Value resolution
 -- ============================================================
 
--- | Transform a writer-schema value into a reader-schema value using
--- a previously computed 'ResolvedSchema'.
+{- | Transform a writer-schema value into a reader-schema value using
+a previously computed 'ResolvedSchema'.
+-}
 resolveValue :: ResolvedSchema -> AV.Value -> Either String AV.Value
 resolveValue ResolvedSame v = Right v
 resolveValue ResolvedPromoteIntToLong (AV.Int n) = Right (AV.Long (fromIntegral n))
@@ -196,35 +235,37 @@ resolveValue (ResolvedRecord fieldRes) (AV.Record wFields) =
   AV.Record <$> V.mapM (resolveField wFields) fieldRes
 resolveValue (ResolvedEnum name mapping) (AV.Enum wIdx) =
   if wIdx < V.length mapping
-  then Right (AV.Enum (mapping V.! wIdx))
-  else Left $ "enum '" ++ T.unpack name ++ "': writer index out of range"
+    then Right (AV.Enum (mapping V.! wIdx))
+    else Left $ "enum '" ++ T.unpack name ++ "': writer index out of range"
 resolveValue (ResolvedArray res) (AV.Array items) =
   AV.Array <$> V.mapM (resolveValue res) items
 resolveValue (ResolvedMap res) (AV.Map entries) =
   AV.Map <$> V.mapM (\(k, v) -> (k,) <$> resolveValue res v) entries
 resolveValue (ResolvedUnion resolutions) (AV.Union wIdx val) = do
   if wIdx < V.length resolutions
-  then resolveValue (resolutions V.! wIdx) val
-  else Left "union: writer branch index out of range"
+    then resolveValue (resolutions V.! wIdx) val
+    else Left "union: writer branch index out of range"
 resolveValue _ _ = Left "resolution/value mismatch"
+
 
 resolveField :: V.Vector AV.Value -> FieldResolution -> Either String AV.Value
 resolveField wFields (FieldFromWriter idx res) =
   if idx < V.length wFields
-  then resolveValue res (wFields V.! idx)
-  else Left "field index out of range in writer record"
+    then resolveValue res (wFields V.! idx)
+    else Left "field index out of range in writer record"
 resolveField _ (FieldDefault val) = Right val
+
 
 -- ============================================================
 -- Helpers
 -- ============================================================
 
 showType :: AvroType -> String
-showType (AvroPrimitive s)                = show s
-showType AvroRecord{avroRecordName = n}   = "record<" ++ T.unpack n ++ ">"
-showType AvroEnum{avroEnumName = n}       = "enum<" ++ T.unpack n ++ ">"
-showType AvroArray{}                      = "array"
-showType AvroMap{}                        = "map"
-showType AvroUnion{}                      = "union"
-showType AvroFixed{avroFixedName = n}     = "fixed<" ++ T.unpack n ++ ">"
-showType AvroLogical{}                    = "logical"
+showType (AvroPrimitive s) = show s
+showType AvroRecord {avroRecordName = n} = "record<" ++ T.unpack n ++ ">"
+showType AvroEnum {avroEnumName = n} = "enum<" ++ T.unpack n ++ ">"
+showType AvroArray {} = "array"
+showType AvroMap {} = "map"
+showType AvroUnion {} = "union"
+showType AvroFixed {avroFixedName = n} = "fixed<" ++ T.unpack n ++ ">"
+showType AvroLogical {} = "logical"

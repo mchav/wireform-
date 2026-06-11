@@ -1,20 +1,23 @@
-module Network.HTTP.Path 
-  ( Path
-  ) where
+module Network.HTTP.Path (
+  Path,
+) where
 
 import Data.Text (Text)
-import GHC.IsList
 import qualified Data.Vector as V
 import qualified Data.Vector.Fusion.Bundle as F
+import GHC.IsList
+
 
 data Path = Path
   { pathPieces :: {-# UNPACK #-} !(F.Bundle V.Vector Text)
   }
 
+
 instance IsList Path where
   type Item Path = Text
   toList (Path ps) = F.toList ps
   fromList ps = Path $ F.fromList ps
+
 
 -- length :: Path -> Int
 -- length = F.length . pathPieces
@@ -78,15 +81,20 @@ instance IsList Path where
 -- unfoldrN
 -- unfoldrExactn
 -- iterateN
--- eq 
+-- eq
 
 --   Percent-encoding for URLs.
 --
 -- This will substitute every byte with its percent-encoded equivalent unless:
 --
+
 -- * The byte is alphanumeric. (i.e. one of @/[A-Za-z0-9]/@)
+
+
 --
+
 -- * The byte is one of the 'Word8' listed in the first argument.
+
 -- urlEncodeBuilder' :: [Word8] -> B.ByteString -> B.Builder
 -- urlEncodeBuilder' extraUnreserved =
 --     mconcat . map encodeChar . B.unpack

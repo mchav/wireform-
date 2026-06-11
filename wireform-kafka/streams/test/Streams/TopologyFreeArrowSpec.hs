@@ -3,53 +3,57 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |
--- Module      : Streams.TopologyFreeArrowSpec
--- Description : Demonstrate the reusable 'FreeArrow' framework
---
--- The "Kafka.Streams.Topology.Free.Arrow" module is the
--- domain-agnostic framework that "Kafka.Streams.Topology.Free"
--- /could/ be re-expressed on top of. This test exercises the
--- framework with a tiny non-Kafka DSL — a "calculator"
--- language whose primitives are arithmetic operations — to
--- demonstrate that:
---
---   1. The framework is genuinely reusable: a different
---      primitive type works without changing the framework
---      code.
---   2. The generic interpreter, introspection, and
---      simplification pass all work as advertised.
---   3. The 'Category' \/ 'Arrow' \/ 'ArrowChoice' \/
---      'Applicative' \/ 'Monad' \/ 'Semigroup' \/ 'Monoid'
---      instances are usable without forcing a Kafka domain.
+{- |
+Module      : Streams.TopologyFreeArrowSpec
+Description : Demonstrate the reusable 'FreeArrow' framework
+
+The "Kafka.Streams.Topology.Free.Arrow" module is the
+domain-agnostic framework that "Kafka.Streams.Topology.Free"
+/could/ be re-expressed on top of. This test exercises the
+framework with a tiny non-Kafka DSL — a "calculator"
+language whose primitives are arithmetic operations — to
+demonstrate that:
+
+  1. The framework is genuinely reusable: a different
+     primitive type works without changing the framework
+     code.
+  2. The generic interpreter, introspection, and
+     simplification pass all work as advertised.
+  3. The 'Category' \/ 'Arrow' \/ 'ArrowChoice' \/
+     'Applicative' \/ 'Monad' \/ 'Semigroup' \/ 'Monoid'
+     instances are usable without forcing a Kafka domain.
+-}
 module Streams.TopologyFreeArrowSpec (tests) where
 
-import qualified Control.Arrow as A
 import Control.Arrow ((&&&), (***), (>>>), (|||))
-import qualified Control.Category as Cat
+import Control.Arrow qualified as A
+import Control.Category qualified as Cat
 import Data.Functor.Identity (Identity (..))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Text as T
+import Data.List.NonEmpty qualified as NE
+import Data.Text qualified as T
+import Kafka.Streams.Topology.Free.Arrow
 import Test.Syd
 
-import Kafka.Streams.Topology.Free.Arrow
 
 ----------------------------------------------------------------------
 -- A tiny example DSL: a calculator over Doubles
 ----------------------------------------------------------------------
 
--- | Primitive operations for the calculator DSL. Every primitive
--- is a directed arrow @Prim i o@ from input type @i@ to output
--- type @o@. The framework's 'FreeArrow' composes these into
--- larger programs.
+{- | Primitive operations for the calculator DSL. Every primitive
+is a directed arrow @Prim i o@ from input type @i@ to output
+type @o@. The framework's 'FreeArrow' composes these into
+larger programs.
+-}
 data CalcPrim i o where
-  Add    :: CalcPrim (Double, Double) Double
-  Sub    :: CalcPrim (Double, Double) Double
-  Mul    :: CalcPrim (Double, Double) Double
+  Add :: CalcPrim (Double, Double) Double
+  Sub :: CalcPrim (Double, Double) Double
+  Mul :: CalcPrim (Double, Double) Double
   Negate :: CalcPrim Double Double
+
 
 -- | The DSL itself: free arrow over the primitives.
 type Calc = FreeArrow CalcPrim
+
 
 -- Smart constructors.
 addC, subC, mulC :: Calc (Double, Double) Double
@@ -57,43 +61,51 @@ addC = lift Add
 subC = lift Sub
 mulC = lift Mul
 
+
 negateC :: Calc Double Double
 negateC = lift Negate
 
--- | Pure interpreter: each primitive becomes its Haskell
--- counterpart, threaded through 'Identity'.
+
+{- | Pure interpreter: each primitive becomes its Haskell
+counterpart, threaded through 'Identity'.
+-}
 runCalc :: Calc i o -> i -> o
 runCalc t i = runIdentity (interpret runPrim t i)
   where
     runPrim :: forall a b. CalcPrim a b -> a -> Identity b
-    runPrim Add    (x, y) = Identity (x + y)
-    runPrim Sub    (x, y) = Identity (x - y)
-    runPrim Mul    (x, y) = Identity (x * y)
-    runPrim Negate x      = Identity (negate x)
+    runPrim Add (x, y) = Identity (x + y)
+    runPrim Sub (x, y) = Identity (x - y)
+    runPrim Mul (x, y) = Identity (x * y)
+    runPrim Negate x = Identity (negate x)
+
 
 -- | Inspection: emit one token per primitive.
 labelCalc :: forall a b. CalcPrim a b -> T.Text
-labelCalc Add    = "Add"
-labelCalc Sub    = "Sub"
-labelCalc Mul    = "Mul"
+labelCalc Add = "Add"
+labelCalc Sub = "Sub"
+labelCalc Mul = "Mul"
 labelCalc Negate = "Negate"
+
 
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "Topology.Free.Arrow (framework)" $ sequence_
-  [ test_category_composition
-  , test_arrow_combinators
-  , test_arrow_choice_combinators
-  , test_lineage_combinators
-  , test_applicative_monad
-  , test_semigroup_monoid
-  , test_inspect_emits_tokens
-  , test_simplify_collapses_identity_and_pure_chains
-  , test_pretty_print_renders_tokens
-  ]
+tests =
+  describe "Topology.Free.Arrow (framework)" $
+    sequence_
+      [ test_category_composition
+      , test_arrow_combinators
+      , test_arrow_choice_combinators
+      , test_lineage_combinators
+      , test_applicative_monad
+      , test_semigroup_monoid
+      , test_inspect_emits_tokens
+      , test_simplify_collapses_identity_and_pure_chains
+      , test_pretty_print_renders_tokens
+      ]
+
 
 ----------------------------------------------------------------------
 -- 1. Category composition
@@ -103,14 +115,15 @@ test_category_composition :: Spec
 test_category_composition =
   it "Category: Id, Compose work for the calculator DSL" $ do
     let prog :: Calc Double Double
-        prog = negateC >>> negateC      -- double-negate => identity
+        prog = negateC >>> negateC -- double-negate => identity
 
     -- (-3) -> negate -> 3 -> negate -> -3
     runCalc prog (-3) `shouldBe` (-3)
-    runCalc prog 7    `shouldBe` 7
+    runCalc prog 7 `shouldBe` 7
     -- Composition with 'Id' on either side is identity.
     runCalc (Cat.id Cat.. prog) 5 `shouldBe` runCalc prog 5
     runCalc (prog Cat.. Cat.id) 5 `shouldBe` runCalc prog 5
+
 
 ----------------------------------------------------------------------
 -- 2. Arrow combinators
@@ -131,6 +144,7 @@ test_arrow_combinators =
 
     runCalc addFirst ((1, 2), 99) `shouldBe` (3, 99)
 
+
 ----------------------------------------------------------------------
 -- 3. ArrowChoice combinators
 ----------------------------------------------------------------------
@@ -139,10 +153,10 @@ test_arrow_choice_combinators :: Spec
 test_arrow_choice_combinators =
   it "ArrowChoice: left / right / +++ / ||| work" $ do
     let prog :: Calc (Either (Double, Double) (Double, Double)) Double
-        prog = addC ||| subC   -- Left -> add, Right -> sub
-
-    runCalc prog (Left  (3, 4)) `shouldBe` 7
+        prog = addC ||| subC -- Left -> add, Right -> sub
+    runCalc prog (Left (3, 4)) `shouldBe` 7
     runCalc prog (Right (10, 7)) `shouldBe` 3
+
 
 ----------------------------------------------------------------------
 -- 4. Lineage combinators
@@ -159,11 +173,14 @@ test_lineage_combinators =
 
     -- forkN: x -> NonEmpty [x+1, x*2, -x]
     let three :: Calc Double (NE.NonEmpty Double)
-        three = forkN (NE.fromList
-          [ arrPlusOne
-          , arrTimesTwo
-          , negateC
-          ])
+        three =
+          forkN
+            ( NE.fromList
+                [ arrPlusOne
+                , arrTimesTwo
+                , negateC
+                ]
+            )
 
     NE.toList (runCalc three 10) `shouldBe` [11, 20, -10]
   where
@@ -172,6 +189,7 @@ test_lineage_combinators =
 
     arrTimesTwo :: Calc Double Double
     arrTimesTwo = A.arr (* 2)
+
 
 ----------------------------------------------------------------------
 -- 5. Applicative + Monad
@@ -192,6 +210,7 @@ test_applicative_monad =
           pure (x * 2)
     runCalc prog2 5 `shouldBe` 10
 
+
 ----------------------------------------------------------------------
 -- 6. Semigroup / Monoid
 ----------------------------------------------------------------------
@@ -209,6 +228,7 @@ test_semigroup_monoid =
     let memptyProg :: Calc Double [Double]
         memptyProg = mempty
     runCalc memptyProg 99 `shouldBe` []
+
 
 ----------------------------------------------------------------------
 -- 7. Inspection
@@ -228,6 +248,7 @@ test_inspect_emits_tokens =
     ("Arr" `elem` toks) `shouldBe` True
     ("Add" `elem` toks) `shouldBe` True
     ("Parallel<" `elem` toks) `shouldBe` True
+
 
 ----------------------------------------------------------------------
 -- 8. Framework-level optimisation
@@ -249,14 +270,23 @@ test_simplify_collapses_identity_and_pure_chains =
             >>> Cat.id
 
         before = countNodesFA redundant
-        after  = countNodesFA (simplifyFA redundant)
+        after = countNodesFA (simplifyFA redundant)
 
     -- Behaviour preserved.
     runCalc redundant 5 `shouldBe` runCalc (simplifyFA redundant) 5
-    runCalc redundant 5 `shouldBe` 24  -- ((5+1)+(5+1)) * 2 = 24
+    runCalc redundant 5 `shouldBe` 24 -- ((5+1)+(5+1)) * 2 = 24
     -- And the optimised version has strictly fewer nodes.
-    (if (after < before) then pure () else expectationFailure ("expected node-count reduction; before="
-        <> show before <> " after=" <> show after))
+    ( if (after < before)
+        then pure ()
+        else
+          expectationFailure
+            ( "expected node-count reduction; before="
+                <> show before
+                <> " after="
+                <> show after
+            )
+      )
+
 
 ----------------------------------------------------------------------
 -- 9. prettyPrint

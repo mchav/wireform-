@@ -156,8 +156,9 @@ import Wireform.FFI (countPackedVarints)
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
 class MessageDecode a where
-  -- | Decode a message from a ByteString, starting from default field values.
-  -- The decoder should consume all bytes of the submessage.
+  {- | Decode a message from a ByteString, starting from default field values.
+  The decoder should consume all bytes of the submessage.
+  -}
   messageDecoder :: Decoder a
 
 
@@ -242,18 +243,18 @@ decodeFieldMessage = Decoder $ \bs off ->
     (# (# lenW, off' #) | #) ->
       let !len = fromIntegral lenW :: Int
       in if len < 0
-          then (# | NegativeLength #)
-          else
-            if I# off' + len > BS.length bs
-              then (# | UnexpectedEnd #)
-              else
-                let !subBs = BSU.unsafeTake len (BSU.unsafeDrop (I# off') bs)
-                in case runDecoder# messageDecoder subBs 0# of
-                    (# (# a, subOff #) | #)
-                      | I# subOff == len ->
-                          (# (# a, case I# off' + len of I# r -> r #) | #)
-                      | otherwise -> (# | SubMessageError ExtraBytes #)
-                    (# | e #) -> (# | SubMessageError e #)
+           then (# | NegativeLength #)
+           else
+             if I# off' + len > BS.length bs
+               then (# | UnexpectedEnd #)
+               else
+                 let !subBs = BSU.unsafeTake len (BSU.unsafeDrop (I# off') bs)
+                 in case runDecoder# messageDecoder subBs 0# of
+                      (# (# a, subOff #) | #)
+                        | I# subOff == len ->
+                            (# (# a, case I# off' + len of I# r -> r #) | #)
+                        | otherwise -> (# | SubMessageError ExtraBytes #)
+                      (# | e #) -> (# | SubMessageError e #)
     (# | e #) -> (# | e #)
 {-# INLINE decodeFieldMessage #-}
 
@@ -333,45 +334,45 @@ decodeAllVarints bs
       let !len = BS.length bs
           !n = countPackedVarints bs
       in if n == len
-          -- Strategy 1: all single-byte
-          then Right $! VU.generate n (fromIntegral . BSU.unsafeIndex bs)
-          else Right $! runST $ do
-            mv <- MVU.unsafeNew n
-            if n >= len `quot` 2
-              -- Strategy 2: mostly small varints, inline 1-2 byte fast path
-              then do
-                let go !idx !off
-                      | off >= len = pure ()
-                      | otherwise =
-                          let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
-                          in if b0 < 0x80
-                              then do
-                                MVU.unsafeWrite mv idx b0
-                                go (idx + 1) (off + 1)
-                              else
-                                Control.Monad.when (off + 1 < len) $
-                                  let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
-                                  in if b1 < 0x80
-                                      then do
-                                        MVU.unsafeWrite mv idx ((b0 .&. 0x7F) .|. (b1 `shiftL` 7))
-                                        go (idx + 1) (off + 2)
-                                      else case runDecoder' getVarint bs off of
-                                        DecodeOK v off' -> do
-                                          MVU.unsafeWrite mv idx v
-                                          go (idx + 1) off'
-                                        DecodeFail _ -> pure ()
-                go 0 0
-              -- Strategy 3: many large varints, full decoder
-              else do
-                let go !idx !off
-                      | off >= len = pure ()
-                      | otherwise = case runDecoder' getVarint bs off of
-                          DecodeOK v off' -> do
-                            MVU.unsafeWrite mv idx v
-                            go (idx + 1) off'
-                          DecodeFail _ -> pure ()
-                go 0 0
-            VU.unsafeFreeze mv
+           -- Strategy 1: all single-byte
+           then Right $! VU.generate n (fromIntegral . BSU.unsafeIndex bs)
+           else Right $! runST $ do
+             mv <- MVU.unsafeNew n
+             if n >= len `quot` 2
+               -- Strategy 2: mostly small varints, inline 1-2 byte fast path
+               then do
+                 let go !idx !off
+                       | off >= len = pure ()
+                       | otherwise =
+                           let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
+                           in if b0 < 0x80
+                                then do
+                                  MVU.unsafeWrite mv idx b0
+                                  go (idx + 1) (off + 1)
+                                else
+                                  Control.Monad.when (off + 1 < len) $
+                                    let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
+                                    in if b1 < 0x80
+                                         then do
+                                           MVU.unsafeWrite mv idx ((b0 .&. 0x7F) .|. (b1 `shiftL` 7))
+                                           go (idx + 1) (off + 2)
+                                         else case runDecoder' getVarint bs off of
+                                           DecodeOK v off' -> do
+                                             MVU.unsafeWrite mv idx v
+                                             go (idx + 1) off'
+                                           DecodeFail _ -> pure ()
+                 go 0 0
+               -- Strategy 3: many large varints, full decoder
+               else do
+                 let go !idx !off
+                       | off >= len = pure ()
+                       | otherwise = case runDecoder' getVarint bs off of
+                           DecodeOK v off' -> do
+                             MVU.unsafeWrite mv idx v
+                             go (idx + 1) off'
+                           DecodeFail _ -> pure ()
+                 go 0 0
+             VU.unsafeFreeze mv
 
 
 -- | Decode packed fixed32 values.
@@ -485,17 +486,17 @@ decodeAllSVarint32 bs
   | otherwise =
       let !n = countPackedVarints bs
       in Right $! runST $ do
-          mv <- MVU.unsafeNew n
-          let len = BS.length bs
-              go !idx !off
-                | off >= len = pure ()
-                | otherwise = case runDecoder' getSVarint32 bs off of
-                    DecodeOK v off' -> do
-                      MVU.unsafeWrite mv idx v
-                      go (idx + 1) off'
-                    DecodeFail _ -> pure ()
-          go 0 0
-          VU.unsafeFreeze mv
+           mv <- MVU.unsafeNew n
+           let len = BS.length bs
+               go !idx !off
+                 | off >= len = pure ()
+                 | otherwise = case runDecoder' getSVarint32 bs off of
+                     DecodeOK v off' -> do
+                       MVU.unsafeWrite mv idx v
+                       go (idx + 1) off'
+                     DecodeFail _ -> pure ()
+           go 0 0
+           VU.unsafeFreeze mv
 
 
 -- | Decode packed sint64 values.
@@ -514,17 +515,17 @@ decodeAllSVarint64 bs
   | otherwise =
       let !n = countPackedVarints bs
       in Right $! runST $ do
-          mv <- MVU.unsafeNew n
-          let len = BS.length bs
-              go !idx !off
-                | off >= len = pure ()
-                | otherwise = case runDecoder' getSVarint64 bs off of
-                    DecodeOK v off' -> do
-                      MVU.unsafeWrite mv idx v
-                      go (idx + 1) off'
-                    DecodeFail _ -> pure ()
-          go 0 0
-          VU.unsafeFreeze mv
+           mv <- MVU.unsafeNew n
+           let len = BS.length bs
+               go !idx !off
+                 | off >= len = pure ()
+                 | otherwise = case runDecoder' getSVarint64 bs off of
+                     DecodeOK v off' -> do
+                       MVU.unsafeWrite mv idx v
+                       go (idx + 1) off'
+                     DecodeFail _ -> pure ()
+           go 0 0
+           VU.unsafeFreeze mv
 
 
 {- | A lazily-decoded submessage. The raw bytes are captured during the

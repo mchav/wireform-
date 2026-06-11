@@ -32,113 +32,114 @@ import Test.Syd
 tests :: Spec
 tests =
   describe
-    "Proto.TH.Derive byte-exact golden vectors" $ sequence_
-    [ it "empty RegItem encodes to 0 bytes" $ do
-        let p = defaultRegItem
-        PE.encodeMessage p `shouldBe` BS.empty
-    , it "RegItem { regi_name = \"widget\", regi_count = 99 }" $ do
-        let p =
-              defaultRegItem
-                { regItemRegiName = T.pack "widget"
-                , regItemRegiCount = 99
-                }
-        PE.encodeMessage p
-          `shouldBe` bytes
-            [ 0x0A
-            , 0x06 -- field 1 (string), len 6
-            , 0x77
-            , 0x69
-            , 0x64 -- "wid"
-            , 0x67
-            , 0x65
-            , 0x74 -- "get"
-            , 0x10
-            , 0x63 -- field 2 (varint int32), 99
-            ]
-    , it "RegItem { regi_count = 1 } skips empty name" $ do
-        let p = defaultRegItem {regItemRegiCount = 1}
-        PE.encodeMessage p
-          `shouldBe` bytes
-            [0x10, 0x01]
-    , it "empty RegInventory encodes to 0 bytes" $ do
-        let p = defaultRegInventory
-        PE.encodeMessage p `shouldBe` BS.empty
-    , it "RegInventory { name = \"warehouse-7\" }" $ do
-        let p = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
-        PE.encodeMessage p
-          `shouldBe` bytes
-            [ 0x0A
-            , 0x0B
-            , 0x77
-            , 0x61
-            , 0x72
-            , 0x65
-            , 0x68
-            , 0x6F
-            , 0x75
-            , 0x73
-            , 0x65
-            , 0x2D
-            , 0x37
-            ]
-    , it "RegInventory { name = \"depot\", items = 3 entries }" $ do
-        let p =
-              defaultRegInventory
-                { regInventoryReginvName = T.pack "depot"
-                , regInventoryReginvItems =
-                    V.fromList
-                      [ defaultRegItem {regItemRegiName = T.pack "alpha", regItemRegiCount = 1}
-                      , defaultRegItem {regItemRegiName = T.pack "beta", regItemRegiCount = 2}
-                      , defaultRegItem {regItemRegiName = T.pack "gamma", regItemRegiCount = 3}
-                      ]
-                }
-        PE.encodeMessage p
-          `shouldBe` bytes
-            -- field 1 (name): tag, len, "depot"
-            [ 0x0A
-            , 0x05
-            , 0x64
-            , 0x65
-            , 0x70
-            , 0x6F
-            , 0x74
-            , -- field 2 (item): tag, len, payload  -- "alpha" + 1
-              0x12
-            , 0x09
-            , 0x0A
-            , 0x05
-            , 0x61
-            , 0x6C
-            , 0x70
-            , 0x68
-            , 0x61
-            , 0x10
-            , 0x01
-            , -- field 2 (item): tag, len, payload  -- "beta" + 2
-              0x12
-            , 0x08
-            , 0x0A
-            , 0x04
-            , 0x62
-            , 0x65
-            , 0x74
-            , 0x61
-            , 0x10
-            , 0x02
-            , -- field 2 (item): tag, len, payload  -- "gamma" + 3
-              0x12
-            , 0x09
-            , 0x0A
-            , 0x05
-            , 0x67
-            , 0x61
-            , 0x6D
-            , 0x6D
-            , 0x61
-            , 0x10
-            , 0x03
-            ]
-    ]
+    "Proto.TH.Derive byte-exact golden vectors"
+    $ sequence_
+      [ it "empty RegItem encodes to 0 bytes" $ do
+          let p = defaultRegItem
+          PE.encodeMessage p `shouldBe` BS.empty
+      , it "RegItem { regi_name = \"widget\", regi_count = 99 }" $ do
+          let p =
+                defaultRegItem
+                  { regItemRegiName = T.pack "widget"
+                  , regItemRegiCount = 99
+                  }
+          PE.encodeMessage p
+            `shouldBe` bytes
+              [ 0x0A
+              , 0x06 -- field 1 (string), len 6
+              , 0x77
+              , 0x69
+              , 0x64 -- "wid"
+              , 0x67
+              , 0x65
+              , 0x74 -- "get"
+              , 0x10
+              , 0x63 -- field 2 (varint int32), 99
+              ]
+      , it "RegItem { regi_count = 1 } skips empty name" $ do
+          let p = defaultRegItem {regItemRegiCount = 1}
+          PE.encodeMessage p
+            `shouldBe` bytes
+              [0x10, 0x01]
+      , it "empty RegInventory encodes to 0 bytes" $ do
+          let p = defaultRegInventory
+          PE.encodeMessage p `shouldBe` BS.empty
+      , it "RegInventory { name = \"warehouse-7\" }" $ do
+          let p = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
+          PE.encodeMessage p
+            `shouldBe` bytes
+              [ 0x0A
+              , 0x0B
+              , 0x77
+              , 0x61
+              , 0x72
+              , 0x65
+              , 0x68
+              , 0x6F
+              , 0x75
+              , 0x73
+              , 0x65
+              , 0x2D
+              , 0x37
+              ]
+      , it "RegInventory { name = \"depot\", items = 3 entries }" $ do
+          let p =
+                defaultRegInventory
+                  { regInventoryReginvName = T.pack "depot"
+                  , regInventoryReginvItems =
+                      V.fromList
+                        [ defaultRegItem {regItemRegiName = T.pack "alpha", regItemRegiCount = 1}
+                        , defaultRegItem {regItemRegiName = T.pack "beta", regItemRegiCount = 2}
+                        , defaultRegItem {regItemRegiName = T.pack "gamma", regItemRegiCount = 3}
+                        ]
+                  }
+          PE.encodeMessage p
+            `shouldBe` bytes
+              -- field 1 (name): tag, len, "depot"
+              [ 0x0A
+              , 0x05
+              , 0x64
+              , 0x65
+              , 0x70
+              , 0x6F
+              , 0x74
+              , -- field 2 (item): tag, len, payload  -- "alpha" + 1
+                0x12
+              , 0x09
+              , 0x0A
+              , 0x05
+              , 0x61
+              , 0x6C
+              , 0x70
+              , 0x68
+              , 0x61
+              , 0x10
+              , 0x01
+              , -- field 2 (item): tag, len, payload  -- "beta" + 2
+                0x12
+              , 0x08
+              , 0x0A
+              , 0x04
+              , 0x62
+              , 0x65
+              , 0x74
+              , 0x61
+              , 0x10
+              , 0x02
+              , -- field 2 (item): tag, len, payload  -- "gamma" + 3
+                0x12
+              , 0x09
+              , 0x0A
+              , 0x05
+              , 0x67
+              , 0x61
+              , 0x6D
+              , 0x6D
+              , 0x61
+              , 0x10
+              , 0x03
+              ]
+      ]
 
 
 bytes :: [Word8] -> BS.ByteString

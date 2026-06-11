@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Main
 Description : librdkafka-conformance test suite entry point
 
@@ -15,42 +15,45 @@ the two implementations side by side.
 -}
 module Main (main) where
 
+import Conformance.T0000.Unittests qualified
+import Conformance.T0004.Conf qualified
+import Conformance.T0006.Symbols qualified
+import Conformance.T0009.MockCluster qualified
+import Conformance.T0017.Compression qualified
+import Conformance.T0031.GetOffsetsMock qualified
+import Conformance.T0043.NoConnection qualified
+import Conformance.T0072.Headers qualified
+import Conformance.T0080.AdminUt qualified
+import Conformance.T0086.PurgeLocal qualified
+import Conformance.T0095.AllBrokersDown qualified
+import Conformance.T0103.TransactionsLocal qualified
+import Conformance.T0142.Reauthentication qualified
+import Conformance.T0144.IdempotenceMock qualified
+import Conformance.T0145.PauseResumeMock qualified
 import Test.Syd
 
-import qualified Conformance.T0000.Unittests
-import qualified Conformance.T0004.Conf
-import qualified Conformance.T0006.Symbols
-import qualified Conformance.T0009.MockCluster
-import qualified Conformance.T0017.Compression
-import qualified Conformance.T0031.GetOffsetsMock
-import qualified Conformance.T0043.NoConnection
-import qualified Conformance.T0072.Headers
-import qualified Conformance.T0080.AdminUt
-import qualified Conformance.T0086.PurgeLocal
-import qualified Conformance.T0095.AllBrokersDown
-import qualified Conformance.T0103.TransactionsLocal
-import qualified Conformance.T0142.Reauthentication
-import qualified Conformance.T0144.IdempotenceMock
-import qualified Conformance.T0145.PauseResumeMock
 
 main :: IO ()
-main = sydTest $ describe "librdkafka conformance" $ sequence_
-  -- Tests are grouped by the librdkafka test file they correspond to.
-  -- Test number prefix matches librdkafka's NNNN- convention so the
-  -- two suites can be diffed by `ls`.
-  [ Conformance.T0000.Unittests.tests
-  , Conformance.T0004.Conf.tests
-  , Conformance.T0006.Symbols.tests
-  , Conformance.T0009.MockCluster.tests
-  , Conformance.T0017.Compression.tests
-  , Conformance.T0031.GetOffsetsMock.tests
-  , Conformance.T0043.NoConnection.tests
-  , Conformance.T0072.Headers.tests
-  , Conformance.T0080.AdminUt.tests
-  , Conformance.T0086.PurgeLocal.tests
-  , Conformance.T0095.AllBrokersDown.tests
-  , Conformance.T0103.TransactionsLocal.tests
-  , Conformance.T0142.Reauthentication.tests
-  , Conformance.T0144.IdempotenceMock.tests
-  , Conformance.T0145.PauseResumeMock.tests
-  ]
+main =
+  sydTest $
+    describe "librdkafka conformance" $
+      sequence_
+        -- Tests are grouped by the librdkafka test file they correspond to.
+        -- Test number prefix matches librdkafka's NNNN- convention so the
+        -- two suites can be diffed by `ls`.
+        [ Conformance.T0000.Unittests.tests
+        , Conformance.T0004.Conf.tests
+        , Conformance.T0006.Symbols.tests
+        , Conformance.T0009.MockCluster.tests
+        , Conformance.T0017.Compression.tests
+        , Conformance.T0031.GetOffsetsMock.tests
+        , Conformance.T0043.NoConnection.tests
+        , Conformance.T0072.Headers.tests
+        , Conformance.T0080.AdminUt.tests
+        , Conformance.T0086.PurgeLocal.tests
+        , Conformance.T0095.AllBrokersDown.tests
+        , Conformance.T0103.TransactionsLocal.tests
+        , Conformance.T0142.Reauthentication.tests
+        , Conformance.T0144.IdempotenceMock.tests
+        , Conformance.T0145.PauseResumeMock.tests
+        ]

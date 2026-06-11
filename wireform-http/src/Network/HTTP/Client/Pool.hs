@@ -1,3 +1,12 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
 {- | Connection pool for the base transport.
 
 A 'ConnectionPool' is a per-target ((scheme, host, port)) cache of
@@ -45,64 +54,59 @@ requires validation (or vice versa).  Currently TLS connections are
 not pooled ('reuseOK' returns 'False' for HTTPS), but the key
 ensures the safety invariant holds if TLS pooling is ever enabled.
 -}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Client.Pool
-  ( -- * Configuration
-    PoolConfig (..)
-  , defaultPoolConfig
-    -- * The pool
-  , ConnectionPool
-  , newPool
-  , closePool
-  , withPool
-    -- * Transport
-  , pooledTransport
-  ) where
+module Network.HTTP.Client.Pool (
+  -- * Configuration
+  PoolConfig (..),
+  defaultPoolConfig,
+
+  -- * The pool
+  ConnectionPool,
+  newPool,
+  closePool,
+  withPool,
+
+  -- * Transport
+  pooledTransport,
+) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, bracket, mask, throwIO, try)
 import Control.Monad (forever, void, when)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
-import Data.Hashable (Hashable (..))
-import qualified Data.HashMap.Strict as HM
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
+import Data.CaseInsensitive qualified as CI
 import Data.HashMap.Strict (HashMap)
-import qualified Data.List as List
+import Data.HashMap.Strict qualified as HM
+import Data.Hashable (Hashable (..))
+import Data.List qualified as List
 import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
+import Data.Void (Void)
 import GHC.Generics (Generic)
+import Network.HTTP.Client.BodyStream (
+  BodyStream,
+  bodyStreamBytes,
+  popperFromStrict,
+ )
+import Network.HTTP.Client.Protocol
+import Network.HTTP.Client.Proxy (Proxy, ProxyConfig)
+import Network.HTTP.Client.Proxy qualified as Pxy
+import Network.HTTP.Client.Request qualified as WReq
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI qualified as WURI
+import Network.HTTP.Connection qualified as Conn
+import Network.HTTP.Message qualified as Msg
+import Network.HTTP.Types.Body qualified as LB
+import Network.HTTP.Types.Header qualified as H
+import Network.HTTP.Types.Method qualified as M
+import Network.HTTP.Types.Version qualified as LV
+import Network.HTTP.VersionRange qualified as VR
 import System.IO.Error (isDoesNotExistError, isEOFError)
 
-import qualified Data.CaseInsensitive as CI
-import qualified Network.HTTP.Connection    as Conn
-import qualified Network.HTTP.Message       as Msg
-import qualified Network.HTTP.Types.Body    as LB
-import qualified Network.HTTP.Types.Header  as H
-import qualified Network.HTTP.Types.Method  as M
-import qualified Network.HTTP.Types.Version as LV
-import qualified Network.HTTP.VersionRange  as VR
-
-import           Network.HTTP.Client.BodyStream
-                  (BodyStream, bodyStreamBytes, popperFromStrict)
-import           Network.HTTP.Client.Protocol
-import qualified Network.HTTP.Client.Request   as WReq
-import           Network.HTTP.Client.Response
-import           Network.HTTP.Client.Transport
-import qualified Network.HTTP.Client.URI       as WURI
-import qualified Network.HTTP.Client.Proxy     as Pxy
-import           Network.HTTP.Client.Proxy     (Proxy, ProxyConfig)
-
-import qualified Data.Text as T
-import Data.Void (Void)
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -110,105 +114,123 @@ import Data.Void (Void)
 
 data PoolConfig = PoolConfig
   { maxConnectionsPerHost :: !Int
-    -- ^ Cap on simultaneously open connections per
-    --   @(scheme, host, port, proxy)@. Requests that exceed the
-    --   cap block until a slot frees up.
-  , maxIdleSeconds        :: !Double
-    -- ^ Idle connections older than this are closed by the reaper.
+  {- ^ Cap on simultaneously open connections per
+  @(scheme, host, port, proxy)@. Requests that exceed the
+  cap block until a slot frees up.
+  -}
+  , maxIdleSeconds :: !Double
+  -- ^ Idle connections older than this are closed by the reaper.
   , maxConnectionAgeSeconds :: !(Maybe Double)
-    -- ^ Hard cap on a single connection's lifetime, counted from
-    --   the moment it was first opened.  Once a connection is
-    --   this old it's closed by the reaper at the next sweep
-    --   regardless of recent activity.  Defaults to 'Nothing'
-    --   (unlimited).
-    --
-    --   Use this to recycle connections through load-balancer
-    --   topology changes (where stale sticky-routing keeps a
-    --   long-lived conn pinned to a victim host) and to bound
-    --   the blast radius of a slowly-degrading TLS session.
+  {- ^ Hard cap on a single connection's lifetime, counted from
+  the moment it was first opened.  Once a connection is
+  this old it's closed by the reaper at the next sweep
+  regardless of recent activity.  Defaults to 'Nothing'
+  (unlimited).
+
+  Use this to recycle connections through load-balancer
+  topology changes (where stale sticky-routing keeps a
+  long-lived conn pinned to a victim host) and to bound
+  the blast radius of a slowly-degrading TLS session.
+  -}
   , reaperIntervalSeconds :: !Double
-    -- ^ Reaper sweep cadence.
-  , versionRange          :: !VR.VersionRange
-    -- ^ Negotiated version range for newly opened connections.
-  , proxyConfig           :: !ProxyConfig
-    -- ^ Proxy selection. Defaults to 'Pxy.noProxyConfig'; when set
-    --   the pool routes each request through the configured proxy
-    --   (CONNECT-tunnelled for HTTPS, request-line-rewritten for
-    --   HTTP). The 'Target' key includes the resolved proxy so
-    --   different proxies do not share idle connections.
+  -- ^ Reaper sweep cadence.
+  , versionRange :: !VR.VersionRange
+  -- ^ Negotiated version range for newly opened connections.
+  , proxyConfig :: !ProxyConfig
+  {- ^ Proxy selection. Defaults to 'Pxy.noProxyConfig'; when set
+  the pool routes each request through the configured proxy
+  (CONNECT-tunnelled for HTTPS, request-line-rewritten for
+  HTTP). The 'Target' key includes the resolved proxy so
+  different proxies do not share idle connections.
+  -}
   }
 
+
 defaultPoolConfig :: PoolConfig
-defaultPoolConfig = PoolConfig
-  { maxConnectionsPerHost   = 8
-  , maxIdleSeconds          = 60
-  , maxConnectionAgeSeconds = Nothing
-  , reaperIntervalSeconds   = 5
-  , versionRange            = VR.preferHttp1
-  , proxyConfig             = Pxy.noProxyConfig
-  }
+defaultPoolConfig =
+  PoolConfig
+    { maxConnectionsPerHost = 8
+    , maxIdleSeconds = 60
+    , maxConnectionAgeSeconds = Nothing
+    , reaperIntervalSeconds = 5
+    , versionRange = VR.preferHttp1
+    , proxyConfig = Pxy.noProxyConfig
+    }
+
 
 -- ---------------------------------------------------------------------------
 -- Internal state
 -- ---------------------------------------------------------------------------
 
--- | TLS settings that are part of the pool key.  Two connections to
--- the same host that differ in SNI or cert-validation policy must
--- not share a pool slot.
+{- | TLS settings that are part of the pool key.  Two connections to
+the same host that differ in SNI or cert-validation policy must
+not share a pool slot.
+-}
 data TlsTargetKey = TlsTargetKey
   { tlsKeyServerName :: !String
-    -- ^ The SNI / X.509 hostname used for the TLS handshake.
-  , tlsKeyValidate   :: !Bool
-    -- ^ Whether certificate chain + hostname was verified.
+  -- ^ The SNI / X.509 hostname used for the TLS handshake.
+  , tlsKeyValidate :: !Bool
+  -- ^ Whether certificate chain + hostname was verified.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
+
 data Target = Target
   { tgtScheme :: !TargetScheme
-  , tgtHost   :: !ByteString
-  , tgtPort   :: !Int
-  , tgtProxy  :: !(Maybe (ByteString, Int))
-    -- ^ Resolved proxy authority for this request, if any. Part of
-    --   the hash key so different proxies maintain distinct pools.
-  , tgtTls    :: !(Maybe TlsTargetKey)
-    -- ^ TLS key for HTTPS targets (§5.3 audit fix).  Ensures that
-    --   connections with different SNI or cert-validation settings
-    --   are never mixed in the same pool slot.
+  , tgtHost :: !ByteString
+  , tgtPort :: !Int
+  , tgtProxy :: !(Maybe (ByteString, Int))
+  {- ^ Resolved proxy authority for this request, if any. Part of
+  the hash key so different proxies maintain distinct pools.
+  -}
+  , tgtTls :: !(Maybe TlsTargetKey)
+  {- ^ TLS key for HTTPS targets (§5.3 audit fix).  Ensures that
+  connections with different SNI or cert-validation settings
+  are never mixed in the same pool slot.
+  -}
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
+
 
 data TargetScheme = TargetHttp | TargetHttps
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
--- | One cached connection plus its last-used timestamp and the
--- creation time so the reaper can enforce 'maxConnectionAgeSeconds'.
+
+{- | One cached connection plus its last-used timestamp and the
+creation time so the reaper can enforce 'maxConnectionAgeSeconds'.
+-}
 data Slot = Slot
-  { slotConn     :: !Conn.Connection
+  { slotConn :: !Conn.Connection
   , slotLastUsed :: !UTCTime
-  , slotCreated  :: !UTCTime
+  , slotCreated :: !UTCTime
   }
 
+
 data PerTarget = PerTarget
-  { ptIdle  :: ![Slot]     -- available connections (LIFO so warmest first)
-  , ptInUse :: !Int        -- count of checked-out connections
+  { ptIdle :: ![Slot] -- available connections (LIFO so warmest first)
+  , ptInUse :: !Int -- count of checked-out connections
   }
+
 
 emptyPerTarget :: PerTarget
 emptyPerTarget = PerTarget [] 0
 
+
 data PoolState = PoolState
   { psPerTarget :: !(HashMap Target PerTarget)
-  , psShutdown  :: !Bool
+  , psShutdown :: !Bool
   }
 
+
 data ConnectionPool = ConnectionPool
-  { poolState   :: !(TVar PoolState)
-  , poolConfig  :: !PoolConfig
-  , poolReaper  :: !ThreadId
+  { poolState :: !(TVar PoolState)
+  , poolConfig :: !PoolConfig
+  , poolReaper :: !ThreadId
   }
+
 
 -- ---------------------------------------------------------------------------
 -- Lifecycle
@@ -216,28 +238,34 @@ data ConnectionPool = ConnectionPool
 
 newPool :: PoolConfig -> IO ConnectionPool
 newPool cfg = do
-  stateVar <- newTVarIO PoolState
-    { psPerTarget = HM.empty
-    , psShutdown  = False
-    }
+  stateVar <-
+    newTVarIO
+      PoolState
+        { psPerTarget = HM.empty
+        , psShutdown = False
+        }
   rtid <- forkIO (reaperLoop cfg stateVar)
-  pure ConnectionPool
-    { poolState  = stateVar
-    , poolConfig = cfg
-    , poolReaper = rtid
-    }
+  pure
+    ConnectionPool
+      { poolState = stateVar
+      , poolConfig = cfg
+      , poolReaper = rtid
+      }
+
 
 closePool :: ConnectionPool -> IO ()
 closePool pool = do
   killThread (poolReaper pool)
   victims <- atomically $ do
     s <- readTVar (poolState pool)
-    writeTVar (poolState pool) s { psShutdown = True, psPerTarget = HM.empty }
+    writeTVar (poolState pool) s {psShutdown = True, psPerTarget = HM.empty}
     pure (concatMap (map slotConn . ptIdle) (HM.elems (psPerTarget s)))
   mapM_ (\c -> try @SomeException (Conn.closeConnection c)) victims
 
+
 withPool :: PoolConfig -> (ConnectionPool -> IO a) -> IO a
 withPool cfg = bracket (newPool cfg) closePool
+
 
 -- ---------------------------------------------------------------------------
 -- Reaper
@@ -253,35 +281,40 @@ reaperLoop cfg stateVar = forever $ do
     if psShutdown s
       then pure []
       else do
-        let limit    = realToFrac (maxIdleSeconds cfg) :: NominalDiffTime
-            ageLimit = realToFrac <$> maxConnectionAgeSeconds cfg
-                       :: Maybe NominalDiffTime
+        let limit = realToFrac (maxIdleSeconds cfg) :: NominalDiffTime
+            ageLimit =
+              realToFrac <$> maxConnectionAgeSeconds cfg
+                :: Maybe NominalDiffTime
             sweep pt =
               let stillLive sl =
                     diffUTCTime now (slotLastUsed sl) < limit
                       && case ageLimit of
-                           Nothing  -> True
-                           Just al  -> diffUTCTime now (slotCreated sl) < al
+                        Nothing -> True
+                        Just al -> diffUTCTime now (slotCreated sl) < al
                   (live, dead) = List.partition stillLive (ptIdle pt)
-              in (pt { ptIdle = live }, dead)
+              in (pt {ptIdle = live}, dead)
             (newMap, allDead) = HM.foldrWithKey step (HM.empty, []) (psPerTarget s)
             step k pt (acc, deadAcc) =
               let (pt', dead) = sweep pt
-                  acc' = if null (ptIdle pt') && ptInUse pt' == 0
-                            then acc
-                            else HM.insert k pt' acc
+                  acc' =
+                    if null (ptIdle pt') && ptInUse pt' == 0
+                      then acc
+                      else HM.insert k pt' acc
               in (acc', dead <> deadAcc)
-        writeTVar stateVar s { psPerTarget = newMap }
+        writeTVar stateVar s {psPerTarget = newMap}
         pure allDead
   mapM_ (\sl -> try @SomeException (Conn.closeConnection (slotConn sl))) victims
+
 
 -- ---------------------------------------------------------------------------
 -- Acquire / release
 -- ---------------------------------------------------------------------------
 
--- | Try to grab an idle connection. If none is available and we're
--- below the per-host cap, return 'NeedNew'; otherwise 'STM.retry'.
+{- | Try to grab an idle connection. If none is available and we're
+below the per-host cap, return 'NeedNew'; otherwise 'STM.retry'.
+-}
 data Acquire = ReuseIdle !Slot | NeedNew
+
 
 acquireSTM :: ConnectionPool -> Target -> STM Acquire
 acquireSTM pool target = do
@@ -290,46 +323,55 @@ acquireSTM pool target = do
   let pt = fromMaybe emptyPerTarget (HM.lookup target (psPerTarget s))
   case ptIdle pt of
     (slot : rest) -> do
-      let pt' = pt { ptIdle = rest, ptInUse = ptInUse pt + 1 }
-      writeTVar (poolState pool)
-        s { psPerTarget = HM.insert target pt' (psPerTarget s) }
+      let pt' = pt {ptIdle = rest, ptInUse = ptInUse pt + 1}
+      writeTVar
+        (poolState pool)
+        s {psPerTarget = HM.insert target pt' (psPerTarget s)}
       pure (ReuseIdle slot)
     [] ->
       if ptInUse pt < maxConnectionsPerHost (poolConfig pool)
         then do
-          let pt' = pt { ptInUse = ptInUse pt + 1 }
-          writeTVar (poolState pool)
-            s { psPerTarget = HM.insert target pt' (psPerTarget s) }
+          let pt' = pt {ptInUse = ptInUse pt + 1}
+          writeTVar
+            (poolState pool)
+            s {psPerTarget = HM.insert target pt' (psPerTarget s)}
           pure NeedNew
         else retry
+
 
 releaseIdle :: ConnectionPool -> Target -> Slot -> IO ()
 releaseIdle pool target slot = atomically $ do
   s <- readTVar (poolState pool)
   let pt = fromMaybe emptyPerTarget (HM.lookup target (psPerTarget s))
-      pt' = pt
-        { ptIdle  = slot : ptIdle pt
-        , ptInUse = max 0 (ptInUse pt - 1)
-        }
-  writeTVar (poolState pool)
-    s { psPerTarget = HM.insert target pt' (psPerTarget s) }
+      pt' =
+        pt
+          { ptIdle = slot : ptIdle pt
+          , ptInUse = max 0 (ptInUse pt - 1)
+          }
+  writeTVar
+    (poolState pool)
+    s {psPerTarget = HM.insert target pt' (psPerTarget s)}
+
 
 releaseDead :: ConnectionPool -> Target -> IO ()
 releaseDead pool target = atomically $ do
   s <- readTVar (poolState pool)
   let pt = fromMaybe emptyPerTarget (HM.lookup target (psPerTarget s))
-      pt' = pt { ptInUse = max 0 (ptInUse pt - 1) }
-  writeTVar (poolState pool)
-    s { psPerTarget = HM.insert target pt' (psPerTarget s) }
+      pt' = pt {ptInUse = max 0 (ptInUse pt - 1)}
+  writeTVar
+    (poolState pool)
+    s {psPerTarget = HM.insert target pt' (psPerTarget s)}
+
 
 -- ---------------------------------------------------------------------------
 -- Transport
 -- ---------------------------------------------------------------------------
 
--- | The pool's 'Transport'. Each request gets a connection from the
--- per-target slot, runs to completion, and the connection is
--- returned to the idle list (or closed, on failure or
--- TLS\/HTTP\/2 where reuse isn't supported yet).
+{- | The pool's 'Transport'. Each request gets a connection from the
+per-target slot, runs to completion, and the connection is
+returned to the idle list (or closed, on failure or
+TLS\/HTTP\/2 where reuse isn't supported yet).
+-}
 pooledTransport :: ConnectionPool -> Transport IO
 pooledTransport pool = Transport $ \req -> do
   (target, mProxy) <- targetForRequest (proxyConfig (poolConfig pool)) req
@@ -338,23 +380,27 @@ pooledTransport pool = Transport $ \req -> do
     then runWithSlot pool target cfg mProxy req
     else runOneShot cfg mProxy req
 
--- | True iff a connection for this config can be opened \/ closed
--- out of bracket scope (HTTP\/1.x plaintext only, today).
+
+{- | True iff a connection for this config can be opened \/ closed
+out of bracket scope (HTTP\/1.x plaintext only, today).
+-}
 reuseOK :: Conn.ConnectionConfig -> Bool
 reuseOK cfg = case Conn.connectionTls cfg of
-  Just _  -> False
+  Just _ -> False
   Nothing -> case VR.preferredVersion (Conn.connectionVersionRange cfg) of
     LV.HTTP2 -> False
-    _        -> True
+    _ -> True
 
--- | Reusable path: grab a slot from the pool, send, return.
---
--- Idle connection health check (§5.3 audit fix): if the send fails
--- with a connection-level 'IOError' (EPIPE \/ ECONNRESET — the
--- server closed the keep-alive while it was idle), the pool closes
--- the stale slot and retries exactly once with a fresh connection.
--- Application-level errors (parse failures, 4xx\/5xx) propagate
--- without retry.
+
+{- | Reusable path: grab a slot from the pool, send, return.
+
+Idle connection health check (§5.3 audit fix): if the send fails
+with a connection-level 'IOError' (EPIPE \/ ECONNRESET — the
+server closed the keep-alive while it was idle), the pool closes
+the stale slot and retries exactly once with a fresh connection.
+Application-level errors (parse failures, 4xx\/5xx) propagate
+without retry.
+-}
 runWithSlot
   :: ConnectionPool
   -> Target
@@ -366,10 +412,10 @@ runWithSlot pool target cfg mProxy req = mask $ \restore -> do
   acquired <- atomically (acquireSTM pool target)
   (conn, created, wasIdle) <- case acquired of
     ReuseIdle slot -> pure (slotConn slot, slotCreated slot, True)
-    NeedNew        -> do
+    NeedNew -> do
       result <- restore (Conn.openConnectionVia cfg mProxy)
       case result of
-        Right c  -> do
+        Right c -> do
           t <- getCurrentTime
           pure (c, t, False)
         Left err -> do
@@ -400,26 +446,32 @@ runWithSlot pool target cfg mProxy req = mask $ \restore -> do
           releaseDead pool target
           throwIO e
 
--- | Heuristic: is this exception a connection-level transport error
--- that would also affect a fresh connection opened from the pool's
--- idle list?  Covers the common "server closed keep-alive socket"
--- patterns (EPIPE, ECONNRESET, unexpected EOF).
+
+{- | Heuristic: is this exception a connection-level transport error
+that would also affect a fresh connection opened from the pool's
+idle list?  Covers the common "server closed keep-alive socket"
+patterns (EPIPE, ECONNRESET, unexpected EOF).
+-}
 isConnectionError :: SomeException -> Bool
 isConnectionError e =
   case show e of
-    s -> isEOFError (userError s)
-      || isDoesNotExistError (userError s)
-      || any (`List.isPrefixOf` s)
-           [ "Network.Socket"
-           , "recvBuf"
-           , "sendBuf"
-           , "Broken pipe"
-           , "Connection reset"
-           , "Connection refused"
-           ]
+    s ->
+      isEOFError (userError s)
+        || isDoesNotExistError (userError s)
+        || any
+          (`List.isPrefixOf` s)
+          [ "Network.Socket"
+          , "recvBuf"
+          , "sendBuf"
+          , "Broken pipe"
+          , "Connection reset"
+          , "Connection refused"
+          ]
 
--- | One-shot path for connections we can't reuse yet (TLS, HTTP\/2):
--- bracket a fresh 'Conn.withConnection' for each request.
+
+{- | One-shot path for connections we can't reuse yet (TLS, HTTP\/2):
+bracket a fresh 'Conn.withConnection' for each request.
+-}
 runOneShot
   :: Conn.ConnectionConfig
   -> Maybe Proxy
@@ -429,32 +481,37 @@ runOneShot cfg mProxy req =
   Conn.withConnectionVia cfg mProxy Nothing $ \conn ->
     sendAndMaterialise conn req
 
--- | Convert a 'Msg.ResponsePushPromise' to the protocol-level
--- 'PushPromise'.  The promised request is synthesised from the push
--- promise's pseudo-headers; 'pushFulfil' delegates to the
--- 'Msg.rppFulfil' action which blocks until the server sends the
--- pushed response and returns it fully materialised.
-toPushPromise :: Msg.ResponsePushPromise -> PushPromise WReq.Request RawResponse
-toPushPromise pp = PushPromise
-  { pushPromisedRequest = pushedRequestFromPseudoHeaders (Msg.rppHeaders pp)
-  , pushFulfil          = Msg.rppFulfil pp
-  }
 
--- | Build a 'WReq.Request Void' for a push-promised resource from the
--- PUSH_PROMISE pseudo-headers.  Push promises carry no request body;
--- 'body' is a bottom value that MUST NOT be forced.
+{- | Convert a 'Msg.ResponsePushPromise' to the protocol-level
+'PushPromise'.  The promised request is synthesised from the push
+promise's pseudo-headers; 'pushFulfil' delegates to the
+'Msg.rppFulfil' action which blocks until the server sends the
+pushed response and returns it fully materialised.
+-}
+toPushPromise :: Msg.ResponsePushPromise -> PushPromise WReq.Request RawResponse
+toPushPromise pp =
+  PushPromise
+    { pushPromisedRequest = pushedRequestFromPseudoHeaders (Msg.rppHeaders pp)
+    , pushFulfil = Msg.rppFulfil pp
+    }
+
+
+{- | Build a 'WReq.Request Void' for a push-promised resource from the
+PUSH_PROMISE pseudo-headers.  Push promises carry no request body;
+'body' is a bottom value that MUST NOT be forced.
+-}
 pushedRequestFromPseudoHeaders :: H.Headers -> WReq.Request Void
 pushedRequestFromPseudoHeaders hdrs =
   let lookupPs name = lookup (CI.mk (BS8.pack name)) hdrs
-      meth     = maybe M.mGet M.methodFromBytes (lookupPs ":method")
+      meth = maybe M.mGet M.methodFromBytes (lookupPs ":method")
       pathText = maybe "/" BS8.unpack (lookupPs ":path")
       restHdrs = filter (not . isPseudo) hdrs
   in WReq.Request
-       { WReq.method         = meth
-       , WReq.requestURI     = WURI.staticURI (T.pack pathText)
-       , WReq.headers        = restHdrs
-       , WReq.body           = error "push promise: body is Void (uninhabited)"
-       , WReq.protocolHints  = defaultHints
+       { WReq.method = meth
+       , WReq.requestURI = WURI.staticURI (T.pack pathText)
+       , WReq.headers = restHdrs
+       , WReq.body = error "push promise: body is Void (uninhabited)"
+       , WReq.protocolHints = defaultHints
        , WReq.spanAttributes = []
        }
   where
@@ -462,106 +519,122 @@ pushedRequestFromPseudoHeaders hdrs =
       let bs = CI.original n
       in not (BS.null bs) && BS.head bs == 0x3A
 
+
 sendAndMaterialise
   :: Conn.Connection
   -> WReq.Request BodyStream
   -> IO RawResponse
 sendAndMaterialise conn req = do
   lowReq <- toLowLevelRequest req
-  resp   <- Conn.sendOn conn lowReq
+  resp <- Conn.sendOn conn lowReq
   drained <- materialise (Msg.responseBody resp)
-  popper  <- popperFromStrict drained
+  popper <- popperFromStrict drained
   let pushPromisesIO = fmap toPushPromise <$> Msg.responsePushPromises resp
-  pure RawResponse
-    { statusCode    = Msg.responseStatus resp
-    , headers       = Msg.responseHeaders resp
-    , bodyPopper    = popper
-    , protocolInfo  = case Msg.responseVersion resp of
-        LV.HTTP2 -> HTTP2 Http2Info
-          { h2StreamId     = Msg.responseH2StreamId resp
-          , h2PushPromises = pushPromisesIO
-          , h2CancelStream = Msg.responseCancel resp
-          }
-        _        -> HTTP1_1
-    }
+  pure
+    RawResponse
+      { statusCode = Msg.responseStatus resp
+      , headers = Msg.responseHeaders resp
+      , bodyPopper = popper
+      , protocolInfo = case Msg.responseVersion resp of
+          LV.HTTP2 ->
+            HTTP2
+              Http2Info
+                { h2StreamId = Msg.responseH2StreamId resp
+                , h2PushPromises = pushPromisesIO
+                , h2CancelStream = Msg.responseCancel resp
+                }
+          _ -> HTTP1_1
+      }
   where
     materialise = \case
-      LB.BodyEmpty    -> pure BS.empty
-      LB.BodyBytes b  -> pure b
+      LB.BodyEmpty -> pure BS.empty
+      LB.BodyBytes b -> pure b
       LB.BodyStream p -> drainMaybe p
     drainMaybe p = go []
       where
-        go acc = p >>= \case
-          Nothing -> pure $! BS.concat (reverse acc)
-          Just b
-            | BS.null b -> go acc
-            | otherwise -> go (b : acc)
+        go acc =
+          p >>= \case
+            Nothing -> pure $! BS.concat (reverse acc)
+            Just b
+              | BS.null b -> go acc
+              | otherwise -> go (b : acc)
 
--- | Check if the server indicated the connection should not be reused.
--- Looks for the @close@ token in the @Connection@ header value
--- (case-insensitive, comma-separated per RFC 9110 §7.6.1).
+
+{- | Check if the server indicated the connection should not be reused.
+Looks for the @close@ token in the @Connection@ header value
+(case-insensitive, comma-separated per RFC 9110 §7.6.1).
+-}
 responseWantsClose :: RawResponse -> Bool
 responseWantsClose raw =
   case H.lookupHeader H.hConnection (headers raw) of
     Nothing -> False
-    Just v  -> any isClose (BS8.split ',' v)
+    Just v -> any isClose (BS8.split ',' v)
   where
     isClose tok =
       let trimmed = BS.dropWhile isOWS (BS.reverse (BS.dropWhile isOWS (BS.reverse tok)))
       in CI.mk trimmed == CI.mk "close"
     isOWS w = w == 0x20 || w == 0x09
 
+
 toLowLevelRequest :: WReq.Request BodyStream -> IO Msg.Request
 toLowLevelRequest req = do
   uri_ <- case WURI.renderRequestURI (WReq.requestURI req) of
-    Right u  -> pure u
+    Right u -> pure u
     Left err -> throwIO (PoolInvalidURI err)
   bodyBytes <- bodyStreamBytes (WReq.body req)
   let lowScheme = case WURI.uriScheme uri_ of
         WURI.SchemeHttps -> Msg.SchemeHttps
-        WURI.SchemeHttp  -> Msg.SchemeHttp
+        WURI.SchemeHttp -> Msg.SchemeHttp
       hostBs = WURI.uriHost uri_
       target = WURI.uriPathAndQuery uri_
       authority =
-        Just (hostBs <> case (WURI.uriScheme uri_, WURI.uriPort uri_) of
-                          (WURI.SchemeHttp,  80)  -> ""
-                          (WURI.SchemeHttps, 443) -> ""
-                          (_,                p)   -> ":" <> BS8.pack (show p))
-  pure Msg.Request
-    { Msg.requestMethod    = WReq.method req
-    , Msg.requestTarget    = target
-    , Msg.requestAuthority = authority
-    , Msg.requestScheme    = lowScheme
-    , Msg.requestHeaders   = WReq.headers req
-    , Msg.requestBody      = if BS.null bodyBytes
-                                then LB.BodyEmpty
-                                else LB.BodyBytes bodyBytes
-    , Msg.requestVersion   = VR.preferredVersion VR.preferHttp1
-    , Msg.requestTrailers  = pure []
-    }
+        Just
+          ( hostBs <> case (WURI.uriScheme uri_, WURI.uriPort uri_) of
+              (WURI.SchemeHttp, 80) -> ""
+              (WURI.SchemeHttps, 443) -> ""
+              (_, p) -> ":" <> BS8.pack (show p)
+          )
+  pure
+    Msg.Request
+      { Msg.requestMethod = WReq.method req
+      , Msg.requestTarget = target
+      , Msg.requestAuthority = authority
+      , Msg.requestScheme = lowScheme
+      , Msg.requestHeaders = WReq.headers req
+      , Msg.requestBody =
+          if BS.null bodyBytes
+            then LB.BodyEmpty
+            else LB.BodyBytes bodyBytes
+      , Msg.requestVersion = VR.preferredVersion VR.preferHttp1
+      , Msg.requestTrailers = pure []
+      }
+
 
 connectionConfigFor :: ConnectionPool -> Target -> Conn.ConnectionConfig
 connectionConfigFor pool tgt =
   let host = BS8.unpack (tgtHost tgt)
-      tls  = case tgtScheme tgt of
+      tls = case tgtScheme tgt of
         TargetHttps ->
-          let tlsKey = fromMaybe
-                TlsTargetKey
-                  { tlsKeyServerName = host
-                  , tlsKeyValidate   = True
-                  }
-                (tgtTls tgt)
+          let tlsKey =
+                fromMaybe
+                  TlsTargetKey
+                    { tlsKeyServerName = host
+                    , tlsKeyValidate = True
+                    }
+                  (tgtTls tgt)
               baseCfg = Conn.defaultTlsConnectionConfig (tlsKeyServerName tlsKey)
-          in Just baseCfg
-            { Conn.tlsValidateCert = tlsKeyValidate tlsKey
-            }
-        TargetHttp  -> Nothing
+          in Just
+               baseCfg
+                 { Conn.tlsValidateCert = tlsKeyValidate tlsKey
+                 }
+        TargetHttp -> Nothing
   in Conn.ConnectionConfig
-       { Conn.connectionHost         = host
-       , Conn.connectionPort         = show (tgtPort tgt)
+       { Conn.connectionHost = host
+       , Conn.connectionPort = show (tgtPort tgt)
        , Conn.connectionVersionRange = versionRange (poolConfig pool)
-       , Conn.connectionTls          = tls
+       , Conn.connectionTls = tls
        }
+
 
 targetForRequest
   :: ProxyConfig
@@ -569,30 +642,37 @@ targetForRequest
   -> IO (Target, Maybe Proxy)
 targetForRequest pcfg req = case WURI.renderRequestURI (WReq.requestURI req) of
   Left err -> throwIO (PoolInvalidURI err)
-  Right u  ->
+  Right u ->
     let scheme = case WURI.uriScheme u of
           WURI.SchemeHttps -> TargetHttps
-          WURI.SchemeHttp  -> TargetHttp
+          WURI.SchemeHttp -> TargetHttp
         host = WURI.uriHost u
         port = WURI.uriPort u
         mProxy
           | Pxy.shouldBypass pcfg host = Nothing
           | otherwise = case WURI.uriScheme u of
-              WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+              WURI.SchemeHttp -> Pxy.proxyForHttp pcfg
               WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
         proxyKey = fmap (\p -> (Pxy.proxyHost p, Pxy.proxyPort p)) mProxy
         tlsKey = case WURI.uriScheme u of
-          WURI.SchemeHttps -> Just TlsTargetKey
-            { tlsKeyServerName = BS8.unpack host
-            , tlsKeyValidate   = True
-            }
-          WURI.SchemeHttp  -> Nothing
-    in pure (Target { tgtScheme = scheme
-                    , tgtHost   = host
-                    , tgtPort   = port
-                    , tgtProxy  = proxyKey
-                    , tgtTls    = tlsKey
-                    }, mProxy)
+          WURI.SchemeHttps ->
+            Just
+              TlsTargetKey
+                { tlsKeyServerName = BS8.unpack host
+                , tlsKeyValidate = True
+                }
+          WURI.SchemeHttp -> Nothing
+    in pure
+         ( Target
+             { tgtScheme = scheme
+             , tgtHost = host
+             , tgtPort = port
+             , tgtProxy = proxyKey
+             , tgtTls = tlsKey
+             }
+         , mProxy
+         )
+
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -602,5 +682,6 @@ data PoolError
   = PoolInvalidURI !String
   | PoolClosed
   deriving stock (Show)
+
 
 instance Exception PoolError

@@ -4,12 +4,13 @@
 module Test.FlatBuffers.Derive.Instances () where
 
 import FlatBuffers.Derive
-
 import Test.FlatBuffers.Derive.Types
+
 
 deriveFlatBuffers ''Position
 deriveFlatBuffers ''Tag
 deriveFlatBuffers ''Color
+
 
 deriveView ''Position
 deriveView ''Tag

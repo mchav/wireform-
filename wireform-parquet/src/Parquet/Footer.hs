@@ -74,13 +74,13 @@ writeRawFooter :: ByteString -> ByteString -> ByteString
 writeRawFooter magic encoded =
   let !metaLen = BS.length encoded
   in BL.toStrict $
-      B.toLazyByteString $
-        B.byteString encoded
-          <> B.word8 (fromIntegral (metaLen .&. 0xFF))
-          <> B.word8 (fromIntegral ((metaLen `shiftR` 8) .&. 0xFF))
-          <> B.word8 (fromIntegral ((metaLen `shiftR` 16) .&. 0xFF))
-          <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
-          <> B.byteString magic
+       B.toLazyByteString $
+         B.byteString encoded
+           <> B.word8 (fromIntegral (metaLen .&. 0xFF))
+           <> B.word8 (fromIntegral ((metaLen `shiftR` 8) .&. 0xFF))
+           <> B.word8 (fromIntegral ((metaLen `shiftR` 16) .&. 0xFF))
+           <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
+           <> B.byteString magic
 
 
 {- | The bytes the footer trailer points at, plus which magic ended
@@ -93,8 +93,9 @@ data FooterTrailer = FooterTrailer
   { ftMagic :: !ByteString
   -- ^ Either 'parquetMagic' or 'parquetEncryptedMagic'.
   , ftBytes :: !ByteString
-  -- ^ Footer bytes (raw thrift for plaintext, GCM module for
-  --   encrypted).
+  {- ^ Footer bytes (raw thrift for plaintext, GCM module for
+  encrypted).
+  -}
   }
   deriving (Show, Eq)
 
@@ -110,19 +111,19 @@ readFooterTrailer bs
       let !totalLen = BS.length bs
           !magic = BSU.unsafeTake 4 (BSU.unsafeDrop (totalLen - 4) bs)
       in if magic /= parquetMagic && magic /= parquetEncryptedMagic
-          then Left "Parquet.Footer: invalid magic (expected PAR1 or PARE)"
-          else
-            let !metaLenOff = totalLen - 8
-                !metaLen = fromIntegral (readLE32 bs metaLenOff) :: Int
-            in if metaLen < 0 || metaLen > totalLen - 8
-                then Left "Parquet.Footer: invalid metadata length"
-                else
-                  let !metaStart = totalLen - 8 - metaLen
-                      !metaBytes =
-                        BSU.unsafeTake
-                          metaLen
-                          (BSU.unsafeDrop metaStart bs)
-                  in Right (FooterTrailer magic metaBytes)
+           then Left "Parquet.Footer: invalid magic (expected PAR1 or PARE)"
+           else
+             let !metaLenOff = totalLen - 8
+                 !metaLen = fromIntegral (readLE32 bs metaLenOff) :: Int
+             in if metaLen < 0 || metaLen > totalLen - 8
+                  then Left "Parquet.Footer: invalid metadata length"
+                  else
+                    let !metaStart = totalLen - 8 - metaLen
+                        !metaBytes =
+                          BSU.unsafeTake
+                            metaLen
+                            (BSU.unsafeDrop metaStart bs)
+                    in Right (FooterTrailer magic metaBytes)
 
 
 {- | Parse the plaintext-thrift bytes of a footer (i.e. what
@@ -305,8 +306,8 @@ decodeLogicalType fs = case V.toList fs of
       let mScale = lookup 1 (V.toList sb) >>= asI32
           mPrec = lookup 2 (V.toList sb) >>= asI32
       in case (mScale, mPrec) of
-          (Just s, Just p) -> Just (LTDecimal p s)
-          _ -> Nothing
+           (Just s, Just p) -> Just (LTDecimal p s)
+           _ -> Nothing
     decodeTimeOrTimestamp
       :: (Bool -> LtTimeUnit -> LogicalType)
       -> V.Vector (Int16, TV.Value)

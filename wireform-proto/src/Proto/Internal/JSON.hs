@@ -48,8 +48,9 @@ module Proto.Internal.JSON (
 
   -- * Representation-aware string field helpers
 
-  -- | These handle all 'StringRep' variants (strict text, lazy text,
-  -- short bytestring, String).
+  {- | These handle all 'StringRep' variants (strict text, lazy text,
+  short bytestring, String).
+  -}
   lazyTextFieldToJSON,
   parseLazyTextFieldMaybe,
   shortTextFieldToJSON,
@@ -156,13 +157,14 @@ protoWord64ToJSON :: Word64 -> Aeson.Value
 protoWord64ToJSON n = Aeson.String (word64ToText n)
 
 
--- | Parse an 'Int64' from a JSON string or number (proto3 canonical).
---
--- Proto3 spec, "JSON Mapping": int64 / uint64 are encoded as
--- decimal strings on output, but accepted as either string or
--- number on input. The conformance suite verifies range +
--- integrality, so we route both shapes through 'boundedFromSci'
--- which rejects fractional and out-of-range values.
+{- | Parse an 'Int64' from a JSON string or number (proto3 canonical).
+
+Proto3 spec, "JSON Mapping": int64 / uint64 are encoded as
+decimal strings on output, but accepted as either string or
+number on input. The conformance suite verifies range +
+integrality, so we route both shapes through 'boundedFromSci'
+which rejects fractional and out-of-range values.
+-}
 protoInt64FromJSON :: Aeson.Value -> Aeson.Parser Int64
 protoInt64FromJSON (Aeson.String s) = sciFromText s >>= boundedFromSci "int64"
 protoInt64FromJSON (Aeson.Number n) = boundedFromSci "int64" n
@@ -255,21 +257,22 @@ protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 -- when input length is already a multiple of 4 internally;
 -- for \"-_\"-style 2-char inputs we manually pad first so the
 -- @decode@ entrypoint accepts them.
+
 -- | Parse a strict 'ByteString' from a base64 or base64url JSON string.
 protoBytesFromJSON :: Aeson.Value -> Aeson.Parser ByteString
 protoBytesFromJSON (Aeson.String s) =
   let bs = TE.encodeUtf8 s
   in case Base64.decode bs of
-      Right out -> pure out
-      -- Standard base64 failed; if the input is plausibly
-      -- base64url (no '+' or '/'), retry via the lenient
-      -- URL decoder which tolerates unpadded inputs and
-      -- the non-canonical trailing pad bits the conformance
-      -- BytesFieldBase64Url test sends ("-_").
-      Left err
-        | looksLikeBase64Url bs ->
-            pure (Base64URL.decodeLenient bs)
-        | otherwise -> fail ("Invalid base64 bytes: " <> err)
+       Right out -> pure out
+       -- Standard base64 failed; if the input is plausibly
+       -- base64url (no '+' or '/'), retry via the lenient
+       -- URL decoder which tolerates unpadded inputs and
+       -- the non-canonical trailing pad bits the conformance
+       -- BytesFieldBase64Url test sends ("-_").
+       Left err
+         | looksLikeBase64Url bs ->
+             pure (Base64URL.decodeLenient bs)
+         | otherwise -> fail ("Invalid base64 bytes: " <> err)
 protoBytesFromJSON _ = fail "Expected base64 string for bytes"
 
 

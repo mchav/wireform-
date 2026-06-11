@@ -2,46 +2,49 @@
 
 module Client.MockShareConsumerSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Kafka.Client.Mock.Cluster (
+  GroupId (..),
+  MockCluster,
+  createTopic,
+  newMockCluster,
+  tickClock,
+ )
+import Kafka.Client.Mock.Fault (noFaults)
+import Kafka.Client.Mock.Producer (
+  MockProduceResult (..),
+  newMockProducer,
+  sendMock,
+ )
+import Kafka.Client.Mock.ShareConsumer
+import Kafka.Client.ShareConsumer (
+  Acknowledgement (..),
+  AcknowledgementType (..),
+  ShareConsumerConfig (..),
+  ShareRecord (..),
+  acknowledgeShareRecord,
+  commitAcknowledgements,
+  createShareConsumerWithRunner,
+  defaultShareConsumerConfig,
+  pollShareRecords,
+ )
 import Test.Syd
 
-import Kafka.Client.Mock.Cluster
-  ( GroupId (..)
-  , MockCluster
-  , createTopic
-  , newMockCluster
-  , tickClock
-  )
-import Kafka.Client.Mock.Fault (noFaults)
-import Kafka.Client.Mock.Producer
-  ( MockProduceResult (..)
-  , newMockProducer
-  , sendMock
-  )
-import Kafka.Client.Mock.ShareConsumer
-import Kafka.Client.ShareConsumer
-  ( Acknowledgement (..)
-  , AcknowledgementType (..)
-  , ShareConsumerConfig (..)
-  , ShareRecord (..)
-  , acknowledgeShareRecord
-  , commitAcknowledgements
-  , createShareConsumerWithRunner
-  , defaultShareConsumerConfig
-  , pollShareRecords
-  )
 
 tests :: Spec
-tests = describe "MockShareConsumer" $ sequence_
-  [ it "AckAccept removes a delivered record from future polls" accept_removes
-  , it "AckRelease redelivers a record with an incremented delivery count" release_redelivers
-  , it "AckReject completes a record without redelivery" reject_completes
-  , it "expired locks redeliver until max delivery count" lock_expiry_respects_max_delivery
-  , it "public ShareConsumer runner delegates poll and commit" public_runner_delegates
-  ]
+tests =
+  describe "MockShareConsumer" $
+    sequence_
+      [ it "AckAccept removes a delivered record from future polls" accept_removes
+      , it "AckRelease redelivers a record with an incremented delivery count" release_redelivers
+      , it "AckReject completes a record without redelivery" reject_completes
+      , it "expired locks redeliver until max delivery count" lock_expiry_respects_max_delivery
+      , it "public ShareConsumer runner delegates poll and commit" public_runner_delegates
+      ]
+
 
 accept_removes :: IO ()
 accept_removes = do
@@ -52,6 +55,7 @@ accept_removes = do
   committed `shouldBe` [ackFor AckAccept rec]
   again <- pollShareMC consumer 10
   again `shouldBe` []
+
 
 release_redelivers :: IO ()
 release_redelivers = do
@@ -64,6 +68,7 @@ release_redelivers = do
   srBaseOffset rec2 `shouldBe` srBaseOffset rec1
   srDeliveryCount rec2 `shouldBe` 2
 
+
 reject_completes :: IO ()
 reject_completes = do
   (_cluster, consumer) <- seededConsumer "reject"
@@ -72,6 +77,7 @@ reject_completes = do
   _ <- commitAcknowledgementsMC consumer
   again <- pollShareMC consumer 10
   again `shouldBe` []
+
 
 lock_expiry_respects_max_delivery :: IO ()
 lock_expiry_respects_max_delivery = do
@@ -85,6 +91,7 @@ lock_expiry_respects_max_delivery = do
   exhausted <- pollShareMC consumer 10
   exhausted `shouldBe` []
 
+
 public_runner_delegates :: IO ()
 public_runner_delegates = do
   (_cluster, mockConsumer) <- seededConsumer "runner"
@@ -97,6 +104,7 @@ public_runner_delegates = do
   again <- pollShareRecords public 10
   again `shouldBe` []
 
+
 seededConsumer :: Text -> IO (MockCluster, MockShareConsumer)
 seededConsumer suffix = do
   cluster <- newMockCluster 1
@@ -105,29 +113,35 @@ seededConsumer suffix = do
   producer <- newMockProducer cluster faults Nothing
   sent <- sendMock producer "share-topic" 0 Nothing (bytes ("value-" <> suffix)) (ts 0)
   sent `shouldBe` MPSent 0 0
-  consumer <- newMockShareConsumer
-    cluster
-    (GroupId ("share-group-" <> suffix))
-    (defaultShareConsumerConfig ("share-group-" <> suffix) ["share-topic"])
-      { scLockTimeoutMs = 10
-      , scMaxDeliveryCount = 2
-      }
+  consumer <-
+    newMockShareConsumer
+      cluster
+      (GroupId ("share-group-" <> suffix))
+      (defaultShareConsumerConfig ("share-group-" <> suffix) ["share-topic"])
+        { scLockTimeoutMs = 10
+        , scMaxDeliveryCount = 2
+        }
   pure (cluster, consumer)
 
+
 ackFor :: AcknowledgementType -> ShareRecord -> Acknowledgement
-ackFor ackType rec = Acknowledgement
-  { ackTopic = srTopic rec
-  , ackPartition = srPartition rec
-  , ackBaseOffset = srBaseOffset rec
-  , ackLastOffset = srLastOffset rec
-  , ackType = ackType
-  }
+ackFor ackType rec =
+  Acknowledgement
+    { ackTopic = srTopic rec
+    , ackPartition = srPartition rec
+    , ackBaseOffset = srBaseOffset rec
+    , ackLastOffset = srLastOffset rec
+    , ackType = ackType
+    }
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 ts :: Integer -> Int64
 ts = fromIntegral
+
 
 expectOne :: [a] -> IO a
 expectOne xs = case xs of

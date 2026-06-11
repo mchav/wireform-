@@ -30,8 +30,8 @@ bodyNode :: Node
 bodyNode =
   let root = documentElement simpleDoc
   in case childNodes root of
-      [_head, body] -> body
-      _ -> error "expected <head> and <body>"
+       [_head, body] -> body
+       _ -> error "expected <head> and <body>"
 
 
 mainDiv :: Node
@@ -50,9 +50,10 @@ builderToBS = BL.toStrict . BB.toLazyByteString
 
 main :: IO ()
 main =
-  sydTest $
-    describe
-      "HTML.DOM" $ sequence_
+  sydTest
+    $ describe
+      "HTML.DOM"
+    $ sequence_
       [ describe "Parsing" $ sequence_ parsingTests
       , describe "Document access" $ sequence_ docAccessTests
       , describe "Navigation" $ sequence_ navigationTests

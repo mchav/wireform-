@@ -19,6 +19,7 @@ import Data.Vector qualified as V
 import Proto.Internal.JSON.Extension (ExtensionRegistry, emptyExtensionRegistry)
 import Proto.TH (loadProto)
 
+
 -- TH-generated JSON instances carry a 'Given ExtensionRegistry' constraint
 -- for proto2 extensions; this test target has none, so satisfy it with
 -- the empty registry.

@@ -161,9 +161,10 @@ data NestedRow
     NRStruct !(V.Vector NestedRow)
   | -- | a map, as a vector of (key, value) pairs
     NRMapEntries !(V.Vector (NestedRow, NestedRow))
-  | -- | Pre-encoded Variant @(metadataBytes, valueBytes)@, matching
-    --   the two binary leaves an 'NSVariant' schema emits. Use
-    --   'encodeVariant' from "Iceberg.Variant" to obtain the bytes.
+  | {- | Pre-encoded Variant @(metadataBytes, valueBytes)@, matching
+    the two binary leaves an 'NSVariant' schema emits. Use
+    'encodeVariant' from "Iceberg.Variant" to obtain the bytes.
+    -}
     NRVariantBytes !ByteString !ByteString
   deriving (Show, Eq)
 
@@ -225,7 +226,7 @@ flattenSchema rootName ns = V.fromList (go (V.singleton rootName) 0 0 ns)
       NSMap k v ->
         let !pkv = V.snoc path "key_value"
         in go (V.snoc pkv "key") (d + 1) (r + 1) k
-            ++ go (V.snoc pkv "value") (d + 1) (r + 1) v
+             ++ go (V.snoc pkv "value") (d + 1) (r + 1) v
       NSStruct children ->
         concatMap
           (\(name, child) -> go (V.snoc path name) d r child)
@@ -417,8 +418,8 @@ descendThrough schema !cursor !accs row !d !r !absRep = case (schema, row) of
                   !rEvent = if i == 0 then r else thisAbsRep
               in descendThrough inner cursor accs' kid (d + 1) rEvent thisAbsRep
         in case foldM stepKid (accs, cursor) [0 .. nKids - 1] of
-            Right (accs', _) -> Right (accs', cursor + leafCount inner)
-            Left e -> Left e
+             Right (accs', _) -> Right (accs', cursor + leafCount inner)
+             Left e -> Left e
   (NSList _, _) -> Left "Parquet.Nested: row shape doesn't match NSList"
   (NSMap k v, NRMapEntries pairs)
     | V.null pairs ->
@@ -438,12 +439,12 @@ descendThrough schema !cursor !accs row !d !r !absRep = case (schema, row) of
               let (kRow, vRow) = V.unsafeIndex pairs i
                   !rEvent = if i == 0 then r else thisAbsRep
               in do
-                  (a1, c1) <- descendThrough k cursor accs' kRow (d + 1) rEvent thisAbsRep
-                  (a2, c2) <- descendThrough v c1 a1 vRow (d + 1) rEvent thisAbsRep
-                  Right (a2, c2)
+                   (a1, c1) <- descendThrough k cursor accs' kRow (d + 1) rEvent thisAbsRep
+                   (a2, c2) <- descendThrough v c1 a1 vRow (d + 1) rEvent thisAbsRep
+                   Right (a2, c2)
         in case foldM stepPair (accs, cursor) [0 .. nPairs - 1] of
-            Right (accs', _) -> Right (accs', cursor + leafCount k + leafCount v)
-            Left e -> Left e
+             Right (accs', _) -> Right (accs', cursor + leafCount k + leafCount v)
+             Left e -> Left e
   (NSMap _ _, _) -> Left "Parquet.Nested: row shape doesn't match NSMap"
   (NSVariant, NRVariantBytes metaBs valBs) ->
     -- Push two binary leaves: the metadata and value byte-strings.
@@ -470,8 +471,8 @@ descendThrough schema !cursor !accs row !d !r !absRep = case (schema, row) of
                   val = V.unsafeIndex values i
               in descendThrough child cur accs' val d r absRep
         in case foldM stepField (accs, cursor) [0 .. nFs - 1] of
-            Right (accs', cur') -> Right (accs', cur')
-            Left e -> Left e
+             Right (accs', cur') -> Right (accs', cur')
+             Left e -> Left e
   (NSStruct _, _) -> Left "Parquet.Nested: row shape doesn't match NSStruct"
 
 
@@ -609,12 +610,12 @@ optListOptPrim outerName lt mkLeaf rows =
           )
       !nrows = V.map mkRow rows
   in case shred schema nrows of
-      Right ls
-        | V.length ls == 1 ->
-            let leaf = V.unsafeIndex ls 0
-            in leaf {nlPath = V.fromList [outerName, "list", "element"]}
-      Right _ -> error "Parquet.Nested: shred produced wrong leaf count"
-      Left e -> error ("Parquet.Nested: shred failed: " ++ e)
+       Right ls
+         | V.length ls == 1 ->
+             let leaf = V.unsafeIndex ls 0
+             in leaf {nlPath = V.fromList [outerName, "list", "element"]}
+       Right _ -> error "Parquet.Nested: shred produced wrong leaf count"
+       Left e -> error ("Parquet.Nested: shred failed: " ++ e)
 
 
 -- ============================================================
@@ -864,9 +865,9 @@ emitColumn outerName outerSchema = goTop outerName outerSchema
                 , seFieldId = Nothing
                 }
         in groupHead
-            : kvGroup
-            : goNamed "key" (Just Required) k
-            ++ goNamed "value" (Just Required) v
+             : kvGroup
+             : goNamed "key" (Just Required) k
+             ++ goNamed "value" (Just Required) v
       NSStruct fields ->
         let !groupHead =
               SchemaElement
@@ -879,9 +880,9 @@ emitColumn outerName outerSchema = goTop outerName outerSchema
                 , seFieldId = Nothing
                 }
         in groupHead
-            : concatMap
-              (\(fname, fch) -> goNamed fname (Just Required) fch)
-              (V.toList fields)
+             : concatMap
+               (\(fname, fch) -> goNamed fname (Just Required) fch)
+               (V.toList fields)
       NSVariant ->
         -- The Iceberg V3 / Spark Variant unshredded shape is:
         --   <rep> group <name> {
@@ -1075,8 +1076,8 @@ buildNestedFile columns rowsPerColumn
           let colName = V.unsafeIndex path 0
               rest = V.tail path
           in case V.find (\(n, _) -> n == colName) columns' of
-              Just (_, sch) -> walkSchema sch rest
-              Nothing -> Nothing
+               Just (_, sch) -> walkSchema sch rest
+               Nothing -> Nothing
 
     walkSchema (NSPrimitive lt) p
       | V.null p = Just lt
@@ -1093,9 +1094,9 @@ buildNestedFile columns rowsPerColumn
           let next = V.unsafeIndex p 1
               rest = V.drop 2 p
           in case next of
-              "key" -> walkSchema k rest
-              "value" -> walkSchema v rest
-              _ -> Nothing
+               "key" -> walkSchema k rest
+               "value" -> walkSchema v rest
+               _ -> Nothing
       | otherwise = Nothing
     walkSchema (NSStruct fields) p
       | V.null p = Nothing
@@ -1103,12 +1104,12 @@ buildNestedFile columns rowsPerColumn
           let h = V.unsafeIndex p 0
               t = V.tail p
           in case V.find (\(n, _) -> n == h) fields of
-              Just (_, child) -> walkSchema child t
-              Nothing -> Nothing
+               Just (_, child) -> walkSchema child t
+               Nothing -> Nothing
     walkSchema NSVariant p
       | V.length p == 1
           && ( V.unsafeIndex p 0 == "metadata"
-                || V.unsafeIndex p 0 == "value"
+                 || V.unsafeIndex p 0 == "value"
              ) =
           Just LtBinary
       | otherwise = Nothing

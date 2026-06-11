@@ -490,5 +490,5 @@ stripIncludeDirs dirs fp =
   let t = T.pack fp
       attempts = fmap (\d -> T.stripPrefix (T.pack (d <> "/")) t) dirs
   in case Data.Maybe.catMaybes attempts of
-      (r : _) -> T.unpack r
-      [] -> fp
+       (r : _) -> T.unpack r
+       [] -> fp

@@ -195,8 +195,8 @@ bAnyByte !c (TI.Text (TA.ByteArray ba#) off len) =
             let !w = indexWord64Unaligned ba# i
                 !xored = w `Bits.xor` pat
             in if hasZeroByte xored
-                then True
-                else goWord (i + 8)
+                 then True
+                 else goWord (i + 8)
       goByte !i
         | i >= endB = False
         | TA.unsafeIndex (TA.ByteArray ba#) i == c = True
@@ -237,15 +237,15 @@ bFindAnyOf3 !a !b !c (TI.Text (TA.ByteArray ba#) off len) =
                     Bits..|. zeroByteMask (w `Bits.xor` pb)
                     Bits..|. zeroByteMask (w `Bits.xor` pc)
             in if m == 0
-                then goWord (i + 8)
-                else i + wordCtzInBytes m - off
+                 then goWord (i + 8)
+                 else i + wordCtzInBytes m - off
       goByte !i
         | i >= endB = -1
         | otherwise =
             let !x = TA.unsafeIndex (TA.ByteArray ba#) i
             in if x == a || x == b || x == c
-                then i - off
-                else goByte (i + 1)
+                 then i - off
+                 else goByte (i + 1)
   in goWord off
 {-# INLINE bFindAnyOf3 #-}
 
@@ -264,15 +264,15 @@ bFindAnyOf2 !a !b (TI.Text (TA.ByteArray ba#) off len) =
                   zeroByteMask (w `Bits.xor` pa)
                     Bits..|. zeroByteMask (w `Bits.xor` pb)
             in if m == 0
-                then goWord (i + 8)
-                else i + wordCtzInBytes m - off
+                 then goWord (i + 8)
+                 else i + wordCtzInBytes m - off
       goByte !i
         | i >= endB = -1
         | otherwise =
             let !x = TA.unsafeIndex (TA.ByteArray ba#) i
             in if x == a || x == b
-                then i - off
-                else goByte (i + 1)
+                 then i - off
+                 else goByte (i + 1)
   in goWord off
 {-# INLINE bFindAnyOf2 #-}
 
@@ -353,13 +353,15 @@ data PLine = PLine
   , lineIndent :: {-# UNPACK #-} !Int
   , lineKind :: !LineKind
   , lineBody :: !Text
-  -- ^ content after stripping indent
-  --   AND trailing whitespace (the form
-  --   most parser paths want)
+  {- ^ content after stripping indent
+  AND trailing whitespace (the form
+  most parser paths want)
+  -}
   , lineRawBody :: !Text
-  -- ^ content after stripping indent
-  --   only — trailing whitespace kept,
-  --   for block-scalar collection
+  {- ^ content after stripping indent
+  only — trailing whitespace kept,
+  for block-scalar collection
+  -}
   }
   deriving (Show)
 
@@ -412,11 +414,11 @@ preprocess (TI.Text arr@(TA.ByteArray ba#) off blen) =
           let !w = indexWord64Unaligned ba# i
               !m = zeroByteMask (w `Bits.xor` 0x0A0A0A0A0A0A0A0A)
           in if m == 0
-              then scanNewline (i + 8)
-              else
-                let !off' = wordCtzInBytes m
-                    !cand = i + off'
-                in if cand < endByte then cand else endByte
+               then scanNewline (i + 8)
+               else
+                 let !off' = wordCtzInBytes m
+                     !cand = i + off'
+                 in if cand < endByte then cand else endByte
 
     scanNewlineByte :: Int -> Int
     scanNewlineByte !i
@@ -439,24 +441,24 @@ preprocess (TI.Text arr@(TA.ByteArray ba#) off blen) =
           !leadSp = countLeadingSpaces lineStart endNoCR
           !contentStart = lineStart + leadSp
       in if contentStart >= endNoCR
-          then
-            let !restLen = endNoCR - contentStart
-                !lineRawB =
-                  if restLen == 0
-                    then T.empty
-                    else TI.text arr contentStart restLen
-            in PLine lno leadSp LBlank T.empty lineRawB
-          else
-            let !rawEnd = stripTrailingWS endNoCR contentStart
-                !rawLen = endNoCR - contentStart
-                !bodyLen = rawEnd - contentStart
-                !lineRawB = TI.text arr contentStart rawLen
-                !lineB
-                  | bodyLen == 0 = T.empty
-                  | bodyLen == rawLen = lineRawB
-                  | otherwise = TI.text arr contentStart bodyLen
-                !kind = classify lineB
-            in PLine lno leadSp kind lineB lineRawB
+           then
+             let !restLen = endNoCR - contentStart
+                 !lineRawB =
+                   if restLen == 0
+                     then T.empty
+                     else TI.text arr contentStart restLen
+             in PLine lno leadSp LBlank T.empty lineRawB
+           else
+             let !rawEnd = stripTrailingWS endNoCR contentStart
+                 !rawLen = endNoCR - contentStart
+                 !bodyLen = rawEnd - contentStart
+                 !lineRawB = TI.text arr contentStart rawLen
+                 !lineB
+                   | bodyLen == 0 = T.empty
+                   | bodyLen == rawLen = lineRawB
+                   | otherwise = TI.text arr contentStart bodyLen
+                 !kind = classify lineB
+             in PLine lno leadSp kind lineB lineRawB
 
     countLeadingSpaces :: Int -> Int -> Int
     countLeadingSpaces !s !e = go s
@@ -477,8 +479,8 @@ preprocess (TI.Text arr@(TA.ByteArray ba#) off blen) =
       | otherwise =
           let !c = TA.unsafeIndex arr (e - 1)
           in if c == 32 || c == 9
-              then stripTrailingWS (e - 1) low
-              else e
+               then stripTrailingWS (e - 1) low
+               else e
 
 
 -- Top-level CAFs so 'classify' doesn't repack literals on every line.
@@ -568,17 +570,19 @@ data PS = PS
   , psAnchors :: !(Map Text Value)
   -- ^ Anchor environment, reset between documents.
   , psAnchorSizes :: !(Map Text Int)
-  -- ^ Per-anchor /logical/ value-tree size, with all nested
-  -- aliases recursively expanded. Computed once at
-  -- 'recordAnchor' time using a memoised walk seeded from
-  -- this very map (legal YAML aliases are forward-only, so
-  -- every sub-anchor's size is already known); used both to
-  -- short-circuit the alias-DAG size-of size walk to O(N)
-  -- and to refuse anchors whose expansion alone would
-  -- exceed 'maxParseNodes'.
+  {- ^ Per-anchor /logical/ value-tree size, with all nested
+  aliases recursively expanded. Computed once at
+  'recordAnchor' time using a memoised walk seeded from
+  this very map (legal YAML aliases are forward-only, so
+  every sub-anchor's size is already known); used both to
+  short-circuit the alias-DAG size-of size walk to O(N)
+  and to refuse anchors whose expansion alone would
+  exceed 'maxParseNodes'.
+  -}
   , psShortcuts :: !(Map Text Text)
-  -- ^ %TAG shorthand prefixes ('!handle!' → expansion).
-  -- Reset between documents.
+  {- ^ %TAG shorthand prefixes ('!handle!' → expansion).
+  Reset between documents.
+  -}
   , psFlags :: {-# UNPACK #-} !Int
   }
 
@@ -840,10 +844,10 @@ withDepth (P action) = P $ \s ->
   let !d0 = psDepth s
       !d = d0 + 1
   in if d >= maxParserDepth -- guard before the 10-bit depth slot wraps
-      then Err "YAML: maximum nesting depth exceeded"
-      else case action (setDepth d s) of
-        Err e -> Err e
-        Ok x s' -> Ok x (setDepth d0 s')
+       then Err "YAML: maximum nesting depth exceeded"
+       else case action (setDepth d s) of
+         Err e -> Err e
+         Ok x s' -> Ok x (setDepth d0 s')
 {-# INLINE withDepth #-}
 
 
@@ -1121,12 +1125,12 @@ parseDocument = do
           let (_anchor, afterAnchor) = takeAnchorName restA
               afterStripped = T.stripStart afterAnchor
           in case findKeyValueSplit afterStripped of
-              Just _ ->
-                failP $
-                  "anchor immediately followed by mapping on '---' line (line "
-                    ++ show (lineNo l)
-                    ++ ")"
-              Nothing -> pure ()
+               Just _ ->
+                 failP $
+                   "anchor immediately followed by mapping on '---' line (line "
+                     ++ show (lineNo l)
+                     ++ ")"
+               Nothing -> pure ()
         _ -> pure ()
       pure $
         if T.null tail_
@@ -1288,10 +1292,10 @@ parseQuotedScalarLine q l =
             Just (_, c) -> c == q
             _ -> False
   in if fast
-      then doQuoted
-      else case findKeyValueSplit body of
-        Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
-        Nothing -> doQuoted
+       then doQuoted
+       else case findKeyValueSplit body of
+         Just (k, vRest) -> parseBlockMap (lineIndent l) k vRest
+         Nothing -> doQuoted
   where
     doQuoted = do
       dropLine
@@ -1314,8 +1318,8 @@ preserveTrailingEscape stripped raw = case T.unsnoc stripped of
         -- Reach into raw at the position right after the trailing '\'.
         let idx = T.length stripped
         in if idx < T.length raw
-            then stripped <> T.singleton (T.index raw idx)
-            else stripped
+             then stripped <> T.singleton (T.index raw idx)
+             else stripped
   _ -> stripped
   where
     endsEvenBackslashes t =
@@ -1391,8 +1395,8 @@ consumeQuotedAt q !openInd = go0 False
                               | otherwise = T.replicate blanks tNL
                         in (buf <> joinSep <> body', True)
               in joined `seq` case parser 0 buf' of
-                  Just (v, p) -> finish True v (bDrop p buf')
-                  Nothing -> readMore True buf' 0
+                   Just (v, p) -> finish True v (bDrop p buf')
+                   Nothing -> readMore True buf' 0
 
     -- A run of trailing backslashes counts as "even" when it
     -- pairs up to "\\\\…", which means no escape at end.
@@ -1411,29 +1415,29 @@ consumeQuotedAt q !openInd = go0 False
               | otherwise -> trimmed
             _ -> T.stripEnd (stripInlineComment trimmed)
       in if T.null stripped
-          then pure v
-          else case T.uncons stripped of
-            Just (c, _)
-              | c == ':' && multi ->
-                  failP "multi-line quoted scalar used as implicit key"
-              -- A ':' trailing after the close quote means
-              -- the scalar is acting as a key. That's only
-              -- valid when this consumeQuoted call wasn't
-              -- already inside a value position (openInd > 0
-              -- means we're inside a parent block context's
-              -- value). Otherwise treat the ':' as malformed
-              -- (e.g. ZL4Z's "a: 'b': c").
-              | c == ':' && openInd > 0 ->
-                  failP $ "nested mapping after quoted scalar value"
-              | c == ',' -> pushBack stripped
-              | c == ':' -> pushBack stripped
-              | c == ']' -> pushBack stripped
-              | c == '}' -> pushBack stripped
-              | otherwise ->
-                  failP $
-                    "trailing content after quoted scalar: "
-                      ++ show stripped
-            Nothing -> pure v
+           then pure v
+           else case T.uncons stripped of
+             Just (c, _)
+               | c == ':' && multi ->
+                   failP "multi-line quoted scalar used as implicit key"
+               -- A ':' trailing after the close quote means
+               -- the scalar is acting as a key. That's only
+               -- valid when this consumeQuoted call wasn't
+               -- already inside a value position (openInd > 0
+               -- means we're inside a parent block context's
+               -- value). Otherwise treat the ':' as malformed
+               -- (e.g. ZL4Z's "a: 'b': c").
+               | c == ':' && openInd > 0 ->
+                   failP $ "nested mapping after quoted scalar value"
+               | c == ',' -> pushBack stripped
+               | c == ':' -> pushBack stripped
+               | c == ']' -> pushBack stripped
+               | c == '}' -> pushBack stripped
+               | otherwise ->
+                   failP $
+                     "trailing content after quoted scalar: "
+                       ++ show stripped
+             Nothing -> pure v
       where
         pushBack s = do
           pushLine (PLine 0 0 LContent s s)
@@ -1645,11 +1649,11 @@ isJustAnchorScalar t = case T.uncons t of
     let (_name, after) = takeAnchorName rest
         body = T.stripStart after
     in not (T.null body)
-        && case findKeyValueSplit body of
-          Just _ -> False
-          Nothing ->
-            not (isSeqItem body)
-              && not (isExplicitKey body)
+         && case findKeyValueSplit body of
+           Just _ -> False
+           Nothing ->
+             not (isSeqItem body)
+               && not (isExplicitKey body)
   _ -> False
 
 
@@ -1705,8 +1709,8 @@ takeAnchorName t = goT 0
       | otherwise =
           let !b = bAt t i
           in if isAnchorByte b
-              then goT (i + 1)
-              else (bTake i t, bDrop i t)
+               then goT (i + 1)
+               else (bTake i t, bDrop i t)
 
 
 isAnchorByte :: Word8 -> Bool
@@ -1927,62 +1931,62 @@ consumeFlowAt !openInd = go
     go buf0 =
       let buf = stripFlowComment buf0
       in case scanFlow buf of
-          ScanComplete v rest -> do
-            v' <- recordAndResolveFlow v
-            let !s = T.stripStart rest
-            case T.uncons s of
-              Nothing -> pure v'
-              -- Trailing block-context indicators ('- ', ': ', '? ',
-              -- bare '-' / ':' / '?') immediately after a flow node
-              -- close are malformed (P2EQ /
-              -- invalid-block-mapping-key-on-same-line-as-previous-key).
-              Just (c, _)
-                -- Trailing block indicators or bare text on the same
-                -- line after a flow node close are malformed. Only a
-                -- ':' / ',' / ']' / '}' terminator (the surrounding
-                -- flow context's own punctuation) is acceptable here.
-                | c == ',' || c == ':' || c == ']' || c == '}' -> do
-                    pushLine (PLine 0 0 LContent s s)
-                    pure v'
-                | otherwise ->
-                    failP $ "trailing content after flow node: " ++ show s
-          ScanIncomplete -> do
-            ls <- getLines
-            case ls of
-              [] -> failP "YAML: unterminated flow node"
-              (l' : _)
-                | lineKind l' == LDocStart || lineKind l' == LDocEnd ->
-                    failP $
-                      "document marker inside flow node (line "
-                        ++ show (lineNo l')
-                        ++ ")"
-              (l' : _)
-                | openInd > 0
-                , lineKind l' == LContent
-                , lineIndent l' < openInd ->
-                    failP $
-                      "wrong-indented flow continuation (line "
-                        ++ show (lineNo l')
-                        ++ ")"
-              (l' : _)
-                | openInd > 0
-                , lineKind l' == LContent
-                , lineIndent l' == 0
-                , case T.uncons (lineBody l') of
-                    Just ('\t', _) -> True
-                    _ -> False ->
-                    failP $
-                      "tab as indentation in flow continuation (line "
-                        ++ show (lineNo l')
-                        ++ ")"
-              (l' : rs) -> do
-                setLines rs
-                modifyS (setFlowSpanned True)
-                -- Join with a sentinel character (\\1) instead of a
-                -- plain space so downstream parsers can detect that
-                -- a structural element spanned a newline (used for
-                -- the implicit-key-followed-by-newline check).
-                go (buf <> tSOH <> lineBody l')
+           ScanComplete v rest -> do
+             v' <- recordAndResolveFlow v
+             let !s = T.stripStart rest
+             case T.uncons s of
+               Nothing -> pure v'
+               -- Trailing block-context indicators ('- ', ': ', '? ',
+               -- bare '-' / ':' / '?') immediately after a flow node
+               -- close are malformed (P2EQ /
+               -- invalid-block-mapping-key-on-same-line-as-previous-key).
+               Just (c, _)
+                 -- Trailing block indicators or bare text on the same
+                 -- line after a flow node close are malformed. Only a
+                 -- ':' / ',' / ']' / '}' terminator (the surrounding
+                 -- flow context's own punctuation) is acceptable here.
+                 | c == ',' || c == ':' || c == ']' || c == '}' -> do
+                     pushLine (PLine 0 0 LContent s s)
+                     pure v'
+                 | otherwise ->
+                     failP $ "trailing content after flow node: " ++ show s
+           ScanIncomplete -> do
+             ls <- getLines
+             case ls of
+               [] -> failP "YAML: unterminated flow node"
+               (l' : _)
+                 | lineKind l' == LDocStart || lineKind l' == LDocEnd ->
+                     failP $
+                       "document marker inside flow node (line "
+                         ++ show (lineNo l')
+                         ++ ")"
+               (l' : _)
+                 | openInd > 0
+                 , lineKind l' == LContent
+                 , lineIndent l' < openInd ->
+                     failP $
+                       "wrong-indented flow continuation (line "
+                         ++ show (lineNo l')
+                         ++ ")"
+               (l' : _)
+                 | openInd > 0
+                 , lineKind l' == LContent
+                 , lineIndent l' == 0
+                 , case T.uncons (lineBody l') of
+                     Just ('\t', _) -> True
+                     _ -> False ->
+                     failP $
+                       "tab as indentation in flow continuation (line "
+                         ++ show (lineNo l')
+                         ++ ")"
+               (l' : rs) -> do
+                 setLines rs
+                 modifyS (setFlowSpanned True)
+                 -- Join with a sentinel character (\\1) instead of a
+                 -- plain space so downstream parsers can detect that
+                 -- a structural element spanned a newline (used for
+                 -- the implicit-key-followed-by-newline check).
+                 go (buf <> tSOH <> lineBody l')
 
 
 data ScanResult
@@ -2001,16 +2005,16 @@ parseFlowValue !p0 t =
   let !len = bLen t
       p = skipFlowWS p0 t
   in if p >= len
-      then Nothing
-      else case bAt t p of
-        91 -> parseFlowSeq (p + 1) t -- '['
-        123 -> parseFlowMap (p + 1) t -- '{'
-        34 -> parseDQ p t -- '"'
-        39 -> parseSQ p t -- '\''
-        33 -> parseFlowTagged p t -- '!'
-        38 -> parseFlowAnchored p t -- '&'
-        42 -> parseFlowAlias p t -- '*'
-        _ -> parseFlowPlain p t
+       then Nothing
+       else case bAt t p of
+         91 -> parseFlowSeq (p + 1) t -- '['
+         123 -> parseFlowMap (p + 1) t -- '{'
+         34 -> parseDQ p t -- '"'
+         39 -> parseSQ p t -- '\''
+         33 -> parseFlowTagged p t -- '!'
+         38 -> parseFlowAnchored p t -- '&'
+         42 -> parseFlowAlias p t -- '*'
+         _ -> parseFlowPlain p t
 
 
 {- | Tagged node in flow context. Reads the tag token (everything
@@ -2026,29 +2030,29 @@ parseFlowTagged !p t =
         | otherwise =
             let !c = bAt t i
             in if c == w8Space
-                || c == w8Tab
-                || c == w8SOH
-                || c == w8Comma
-                || c == w8RBrack
-                || c == w8RBrace
-                then i
-                else goT (i + 1)
+                 || c == w8Tab
+                 || c == w8SOH
+                 || c == w8Comma
+                 || c == w8RBrack
+                 || c == w8RBrace
+                 then i
+                 else goT (i + 1)
       !p1 = goT p
       tagText = bSlice t p p1
       tag = expandTag tagText
       p2 = skipFlowWS p1 t
   in if p2 >= len
-      then Just (YTagged tag YNull, p2)
-      else case bAt t p2 of
-        44 -> Just (YTagged tag YNull, p1) -- ','
-        93 -> Just (YTagged tag YNull, p1) -- ']'
-        125 -> Just (YTagged tag YNull, p1) -- '}'
-        58
-          | colonIsSeparator (p2 + 1) t -> -- ':'
-              Just (YTagged tag YNull, p1)
-        _ -> case parseFlowValue p2 t of
-          Just (v, p3) -> Just (YTagged tag v, p3)
-          Nothing -> Just (YTagged tag YNull, p2)
+       then Just (YTagged tag YNull, p2)
+       else case bAt t p2 of
+         44 -> Just (YTagged tag YNull, p1) -- ','
+         93 -> Just (YTagged tag YNull, p1) -- ']'
+         125 -> Just (YTagged tag YNull, p1) -- '}'
+         58
+           | colonIsSeparator (p2 + 1) t -> -- ':'
+               Just (YTagged tag YNull, p1)
+         _ -> case parseFlowValue p2 t of
+           Just (v, p3) -> Just (YTagged tag v, p3)
+           Nothing -> Just (YTagged tag YNull, p2)
 
 
 {- | Anchor in flow context: read the anchor name and parse the
@@ -2064,28 +2068,28 @@ parseFlowAnchored !p t =
         | otherwise =
             let !c = bAt t i
             in if c == w8Space
-                || c == w8Tab
-                || c == w8SOH
-                || c == w8Comma
-                || c == w8RBrack
-                || c == w8RBrace
-                then i
-                else goN (i + 1)
+                 || c == w8Tab
+                 || c == w8SOH
+                 || c == w8Comma
+                 || c == w8RBrack
+                 || c == w8RBrace
+                 then i
+                 else goN (i + 1)
       !endName = goN (p + 1)
       name = bSlice t (p + 1) endName
       p2 = skipFlowWS endName t
   in if p2 >= len
-      then Just (YAnchored (Anchor name) YNull, p2)
-      else case bAt t p2 of
-        44 -> Just (YAnchored (Anchor name) YNull, endName)
-        93 -> Just (YAnchored (Anchor name) YNull, endName)
-        125 -> Just (YAnchored (Anchor name) YNull, endName)
-        58
-          | colonIsSeparator (p2 + 1) t ->
-              Just (YAnchored (Anchor name) YNull, endName)
-        _ -> case parseFlowValue p2 t of
-          Just (v, p3) -> Just (YAnchored (Anchor name) v, p3)
-          Nothing -> Just (YAnchored (Anchor name) YNull, p2)
+       then Just (YAnchored (Anchor name) YNull, p2)
+       else case bAt t p2 of
+         44 -> Just (YAnchored (Anchor name) YNull, endName)
+         93 -> Just (YAnchored (Anchor name) YNull, endName)
+         125 -> Just (YAnchored (Anchor name) YNull, endName)
+         58
+           | colonIsSeparator (p2 + 1) t ->
+               Just (YAnchored (Anchor name) YNull, endName)
+         _ -> case parseFlowValue p2 t of
+           Just (v, p3) -> Just (YAnchored (Anchor name) v, p3)
+           Nothing -> Just (YAnchored (Anchor name) YNull, p2)
 
 
 {- | Alias in flow context: emit a 'YAnchored'-tagged placeholder
@@ -2100,13 +2104,13 @@ parseFlowAlias !p t =
         | otherwise =
             let !c = bAt t i
             in if c == w8Space
-                || c == w8Tab
-                || c == w8SOH
-                || c == w8Comma
-                || c == w8RBrack
-                || c == w8RBrace
-                then i
-                else goN (i + 1)
+                 || c == w8Tab
+                 || c == w8SOH
+                 || c == w8Comma
+                 || c == w8RBrack
+                 || c == w8RBrace
+                 then i
+                 else goN (i + 1)
       !p1 = goN (p + 1)
       name = bSlice t (p + 1) p1
   in Just (YString (tAliasSentinel <> name), p1)
@@ -2127,18 +2131,18 @@ parseFlowSeq !p0 t =
               -- looking for the next separator.
               let p2 = skipFlowWSAndCB p1 t
               in if p2 >= len
-                  then Nothing
-                  else case bAt t p2 of
-                    44 ->
-                      -- ','
-                      let p3 = p2 + 1
-                      in if p3 < len && bAt t p3 == w8Hash
-                          then Nothing
-                          else goV (skipFlowWS p3 t) (v : acc)
-                    93 ->
-                      -- ']'
-                      Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
-                    _ -> Nothing
+                   then Nothing
+                   else case bAt t p2 of
+                     44 ->
+                       -- ','
+                       let p3 = p2 + 1
+                       in if p3 < len && bAt t p3 == w8Hash
+                            then Nothing
+                            else goV (skipFlowWS p3 t) (v : acc)
+                     93 ->
+                       -- ']'
+                       Just (YSeq (V.fromList (reverse (v : acc))), p2 + 1)
+                     _ -> Nothing
   in goV (skipFlowWS p0 t) []
 
 
@@ -2178,57 +2182,57 @@ parseFlowEntry' !explicit !p0 t =
   let !len = bLen t
       p = skipFlowWS p0 t
   in if p >= len
-      then Nothing
-      else
-        if bAt t p == w8Quest
-          && p + 1 < len
-          && ( bAt t (p + 1) == w8Space
-                || bAt t (p + 1) == w8Tab
-                || bAt t (p + 1) == w8SOH
-             )
-          then parseFlowEntry' True (skipFlowWS (p + 1) t) t
-          else
-            if bAt t p == w8Colon && colonIsSeparator (p + 1) t
-              then
-                let p1 = skipFlowWS (p + 1) t
-                in if p1 >= len
-                    then Nothing
-                    else case bAt t p1 of
-                      44 -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                      93 -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                      _ -> case parseFlowValue p1 t of
-                        Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
-                        Just (v, p2) ->
-                          Just (YMap (V.singleton (YNull, v)), p2)
-              else
-                let !flowOpener = case bAt t p of
-                      34 -> True -- '"'
-                      39 -> True -- '\''
-                      91 -> True -- '['
-                      123 -> True -- '{'
-                      _ -> False
-                in case parseFlowValue p t of
-                    Nothing -> Nothing
-                    Just (k, p1) ->
-                      let p2 = skipFlowWS p1 t
-                      in if p2 < len
-                          && bAt t p2 == w8Colon
-                          && ( flowOpener
-                                || colonIsSeparator (p2 + 1) t
-                             )
-                          then
-                            -- For flow /sequences/, an implicit
-                            -- key->value pair appearing inline
-                            -- must have key and ':' on the same
-                            -- line (spec §7.4.1).
-                            let span_ = bSlice t p p2
-                            in if not explicit
-                                && bAnyByte w8SOH span_
-                                then Nothing
-                                else case parseFlowValue (skipFlowWS (p2 + 1) t) t of
-                                  Nothing -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
-                                  Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
-                          else Just (k, p1)
+       then Nothing
+       else
+         if bAt t p == w8Quest
+           && p + 1 < len
+           && ( bAt t (p + 1) == w8Space
+                  || bAt t (p + 1) == w8Tab
+                  || bAt t (p + 1) == w8SOH
+              )
+           then parseFlowEntry' True (skipFlowWS (p + 1) t) t
+           else
+             if bAt t p == w8Colon && colonIsSeparator (p + 1) t
+               then
+                 let p1 = skipFlowWS (p + 1) t
+                 in if p1 >= len
+                      then Nothing
+                      else case bAt t p1 of
+                        44 -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                        93 -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                        _ -> case parseFlowValue p1 t of
+                          Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
+                          Just (v, p2) ->
+                            Just (YMap (V.singleton (YNull, v)), p2)
+               else
+                 let !flowOpener = case bAt t p of
+                       34 -> True -- '"'
+                       39 -> True -- '\''
+                       91 -> True -- '['
+                       123 -> True -- '{'
+                       _ -> False
+                 in case parseFlowValue p t of
+                      Nothing -> Nothing
+                      Just (k, p1) ->
+                        let p2 = skipFlowWS p1 t
+                        in if p2 < len
+                             && bAt t p2 == w8Colon
+                             && ( flowOpener
+                                    || colonIsSeparator (p2 + 1) t
+                                )
+                             then
+                               -- For flow /sequences/, an implicit
+                               -- key->value pair appearing inline
+                               -- must have key and ':' on the same
+                               -- line (spec §7.4.1).
+                               let span_ = bSlice t p p2
+                               in if not explicit
+                                    && bAnyByte w8SOH span_
+                                    then Nothing
+                                    else case parseFlowValue (skipFlowWS (p2 + 1) t) t of
+                                      Nothing -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
+                                      Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
+                             else Just (k, p1)
 
 
 {- | Whether a colon at position @p@ acts as a key/value separator
@@ -2258,36 +2262,36 @@ parseFlowMap !p0 t =
                     Just (k', q) -> (k', q)
                     Nothing -> (YNull, p)
             in if p1 == p0' && bAt t p1 /= w8Colon
-                then Nothing
-                else
-                  let p2 = skipFlowWS p1 t
-                      skipColon =
-                        if p2 < len && bAt t p2 == w8Colon
-                          then Just (skipFlowWS (p2 + 1) t)
-                          else Nothing
-                  in case skipColon of
-                      Just p2'
-                        | p2' < len
-                        , let c = bAt t p2'
-                        , c == w8Comma || c == w8RBrace ->
-                            finish p2' k YNull acc
-                        | otherwise -> case parseFlowValue p2' t of
-                            Nothing -> finish p2' k YNull acc
-                            Just (v, p3) -> finish p3 k v acc
-                      Nothing -> finish p2 k YNull acc
+                 then Nothing
+                 else
+                   let p2 = skipFlowWS p1 t
+                       skipColon =
+                         if p2 < len && bAt t p2 == w8Colon
+                           then Just (skipFlowWS (p2 + 1) t)
+                           else Nothing
+                   in case skipColon of
+                        Just p2'
+                          | p2' < len
+                          , let c = bAt t p2'
+                          , c == w8Comma || c == w8RBrace ->
+                              finish p2' k YNull acc
+                          | otherwise -> case parseFlowValue p2' t of
+                              Nothing -> finish p2' k YNull acc
+                              Just (v, p3) -> finish p3 k v acc
+                        Nothing -> finish p2 k YNull acc
 
       finish !p k v acc =
         let p' = skipFlowWS p t
         in if p' >= len
-            then Nothing
-            else case bAt t p' of
-              44 -> goV (skipFlowWS (p' + 1) t) ((k, v) : acc) -- ','
-              125 ->
-                Just -- '}'
-                  ( YMap (V.fromList (reverse ((k, v) : acc)))
-                  , p' + 1
-                  )
-              _ -> Nothing
+             then Nothing
+             else case bAt t p' of
+               44 -> goV (skipFlowWS (p' + 1) t) ((k, v) : acc) -- ','
+               125 ->
+                 Just -- '}'
+                   ( YMap (V.fromList (reverse ((k, v) : acc)))
+                   , p' + 1
+                   )
+               _ -> Nothing
   in goV (skipFlowWS p0 t) []
 
 
@@ -2302,17 +2306,17 @@ parseDQ !p0 t =
       !rest = bSlice t startSlice len
       !idx = bFindAnyOf3 w8DQuote w8Backslash w8SOH rest
   in if idx < 0
-      then Nothing -- no terminator at all
-      else
-        let !absIdx = startSlice + idx
-            !c = bAt t absIdx
-        in if c == w8DQuote
-            then
-              Just
-                ( YString (bSlice t startSlice absIdx)
-                , absIdx + 1
-                )
-            else slow startSlice []
+       then Nothing -- no terminator at all
+       else
+         let !absIdx = startSlice + idx
+             !c = bAt t absIdx
+         in if c == w8DQuote
+              then
+                Just
+                  ( YString (bSlice t startSlice absIdx)
+                  , absIdx + 1
+                  )
+              else slow startSlice []
   where
     !len2 = bLen t
     slow !i acc
@@ -2345,20 +2349,20 @@ parseSQ !p0 t =
       -- single-quoted escape and forces the slow path.
       !idx = bFindAnyOf2 w8SQuote w8SOH rest
   in if idx < 0
-      then Nothing
-      else
-        let !absIdx = startSlice + idx
-            !c = bAt t absIdx
-        in if c == w8SQuote
-            then
-              if absIdx + 1 < len && bAt t (absIdx + 1) == w8SQuote
-                then slow startSlice [] -- '\\'\\'' escape
-                else
-                  Just
-                    ( YString (bSlice t startSlice absIdx)
-                    , absIdx + 1
-                    )
-            else slow startSlice []
+       then Nothing
+       else
+         let !absIdx = startSlice + idx
+             !c = bAt t absIdx
+         in if c == w8SQuote
+              then
+                if absIdx + 1 < len && bAt t (absIdx + 1) == w8SQuote
+                  then slow startSlice [] -- '\\'\\'' escape
+                  else
+                    Just
+                      ( YString (bSlice t startSlice absIdx)
+                      , absIdx + 1
+                      )
+              else slow startSlice []
   where
     !len2 = bLen t
     slow !i acc
@@ -2401,9 +2405,9 @@ parseFlowPlain !p t =
         | otherwise =
             let !c = bAt t i
             in if isFlowStopByte c
-                || (c == w8Colon && colonStopByte i)
-                then (i, sawSOH)
-                else scan (i + 1) (sawSOH || c == w8SOH)
+                 || (c == w8Colon && colonStopByte i)
+                 then (i, sawSOH)
+                 else scan (i + 1) (sawSOH || c == w8SOH)
       colonStopByte !i =
         let i1 = i + 1
         in i1 >= len || flowColonFollower (bAt t i1)
@@ -2414,11 +2418,11 @@ parseFlowPlain !p t =
         | otherwise = raw
       stripped = T.stripEnd folded
   in if T.null stripped
-      then Nothing
-      else
-        if stripped == tDashStr
-          then Nothing
-          else Just (resolvePlain stripped, p')
+       then Nothing
+       else
+         if stripped == tDashStr
+           then Nothing
+           else Just (resolvePlain stripped, p')
 
 
 -- ---------------------------------------------------------------------------
@@ -2709,44 +2713,44 @@ parseBlockMap !ind firstKey firstRest = do
           | otherwise ->
               let body = lineBody l
               in case T.uncons body of
-                  Nothing -> pure acc
-                  Just (h, _)
-                    | h == '\t' ->
-                        failP $
-                          "tab character used as indentation (line "
-                            ++ show (lineNo l)
-                            ++ ")"
-                    | h == '-'
-                    , isSeqItem body ->
-                        pure acc
-                    | h == '?'
-                    , isExplicitKey body -> do
-                        k <- readExplicitPart "?"
-                        v <- readExplicitValue
-                        collect ((k, v) : acc)
-                    | h == '*'
-                    , Just (aliasName, vRest) <- findAliasKeySplit body -> do
-                        dropLine
-                        k <- resolveAnchor aliasName
-                        v <- parseImplicitMapValue ind vRest
-                        collect ((k, v) : acc)
-                    | otherwise -> case findKeyValueSplit body of
-                        Just (k, vRest) -> do
-                          dropLine
-                          let (anchors, k') = stripKeyProperties k
-                          case T.uncons k' of
-                            Just ('*', _)
-                              | not (null anchors) ->
-                                  failP $
-                                    "anchor immediately followed by alias key (line "
-                                      ++ show (lineNo l)
-                                      ++ ")"
-                            _ -> pure ()
-                          v <- parseImplicitMapValue ind vRest
-                          let kv = YString k'
-                          mapM_ (\an -> recordAnchor an kv) anchors
-                          collect ((kv, v) : acc)
-                        Nothing -> pure acc
+                   Nothing -> pure acc
+                   Just (h, _)
+                     | h == '\t' ->
+                         failP $
+                           "tab character used as indentation (line "
+                             ++ show (lineNo l)
+                             ++ ")"
+                     | h == '-'
+                     , isSeqItem body ->
+                         pure acc
+                     | h == '?'
+                     , isExplicitKey body -> do
+                         k <- readExplicitPart "?"
+                         v <- readExplicitValue
+                         collect ((k, v) : acc)
+                     | h == '*'
+                     , Just (aliasName, vRest) <- findAliasKeySplit body -> do
+                         dropLine
+                         k <- resolveAnchor aliasName
+                         v <- parseImplicitMapValue ind vRest
+                         collect ((k, v) : acc)
+                     | otherwise -> case findKeyValueSplit body of
+                         Just (k, vRest) -> do
+                           dropLine
+                           let (anchors, k') = stripKeyProperties k
+                           case T.uncons k' of
+                             Just ('*', _)
+                               | not (null anchors) ->
+                                   failP $
+                                     "anchor immediately followed by alias key (line "
+                                       ++ show (lineNo l)
+                                       ++ ")"
+                             _ -> pure ()
+                           v <- parseImplicitMapValue ind vRest
+                           let kv = YString k'
+                           mapM_ (\an -> recordAnchor an kv) anchors
+                           collect ((kv, v) : acc)
+                         Nothing -> pure acc
 
     readExplicitPart marker = do
       Just l <- popLine
@@ -2866,10 +2870,10 @@ findAliasKeySplit t = case T.uncons t of
     let (name, after) = takeAnchorName rest
         afterTrim = T.stripStart after
     in case T.uncons afterTrim of
-        Just (':', tail_)
-          | T.null tail_ || T.head tail_ == ' ' || T.head tail_ == '\t' ->
-              Just (name, T.drop 1 afterTrim)
-        _ -> Nothing
+         Just (':', tail_)
+           | T.null tail_ || T.head tail_ == ' ' || T.head tail_ == '\t' ->
+               Just (name, T.drop 1 afterTrim)
+         _ -> Nothing
   _ -> Nothing
 
 
@@ -3152,12 +3156,12 @@ parsePlainScalarAt !parentInd !inMapValue !baseIndArg firstBody = do
               --     a mapping value) also folds into the plain
               --     scalar (AB8U).
               && ( lineIndent l >= baseInd
-                    || ( lineIndent l > parentInd
-                          && not (isExplicitKey (lineBody l))
-                          && ( not (isSeqItem (lineBody l))
-                                || (parentInd == 0 && not inMapValue)
-                             )
-                       )
+                     || ( lineIndent l > parentInd
+                            && not (isExplicitKey (lineBody l))
+                            && ( not (isSeqItem (lineBody l))
+                                   || (parentInd == 0 && not inMapValue)
+                               )
+                        )
                  )
               && not
                 ( isSeqItem (lineBody l)
@@ -3270,14 +3274,14 @@ parseBlockScalar k = do
       let leadingBlanks = takeWhile (\(_, b) -> T.null b) body
           afterBlanks = dropWhile (\(_, b) -> T.null b) body
       in case afterBlanks of
-          ((firstC, _) : _)
-            | firstC >= 0
-            , any (\(i, _) -> i > firstC) leadingBlanks ->
-                failP $
-                  "block scalar baseline below earlier blank-line indent (line "
-                    ++ show (lineNo l)
-                    ++ ")"
-          _ -> pure ()
+           ((firstC, _) : _)
+             | firstC >= 0
+             , any (\(i, _) -> i > firstC) leadingBlanks ->
+                 failP $
+                   "block scalar baseline below earlier blank-line indent (line "
+                     ++ show (lineNo l)
+                     ++ ")"
+           _ -> pure ()
     _ -> pure ()
   let bodyAdj = case nonEmptyContent body of
         True -> body
@@ -3384,36 +3388,36 @@ collectScalarLines !parent !mExplicit = collect mExplicit []
                     Just b -> ind >= b
                     Nothing -> ind > parent
               in if not inside
-                  then pure (reverse acc)
-                  else
-                    if lineKind l == LComment
-                      then case mBase of
-                        -- Once a base indent is set, any
-                        -- comment at deeper indent is content;
-                        -- a comment at /base/ indent is
-                        -- content too in the special "compact
-                        -- top-level" mode (parent = -1) where
-                        -- everything goes into the scalar.
-                        Just b | ind > b -> do
-                          _ <- consumeOne
-                          collect mBase ((ind, lineBody l) : acc)
-                        Just b | ind == b && parent < 0 -> do
-                          _ <- consumeOne
-                          collect mBase ((ind, lineBody l) : acc)
-                        Just _ -> pure (reverse acc)
-                        Nothing -> do
-                          _ <- consumeOne
-                          collect
-                            (Just ind)
-                            ((ind, lineRawBody l) : acc)
-                      else do
-                        _ <- consumeOne
-                        let mBase' = case mBase of
-                              Just _ -> mBase
-                              Nothing -> Just ind
-                        collect
-                          mBase'
-                          ((ind, lineRawBody l) : acc)
+                   then pure (reverse acc)
+                   else
+                     if lineKind l == LComment
+                       then case mBase of
+                         -- Once a base indent is set, any
+                         -- comment at deeper indent is content;
+                         -- a comment at /base/ indent is
+                         -- content too in the special "compact
+                         -- top-level" mode (parent = -1) where
+                         -- everything goes into the scalar.
+                         Just b | ind > b -> do
+                           _ <- consumeOne
+                           collect mBase ((ind, lineBody l) : acc)
+                         Just b | ind == b && parent < 0 -> do
+                           _ <- consumeOne
+                           collect mBase ((ind, lineBody l) : acc)
+                         Just _ -> pure (reverse acc)
+                         Nothing -> do
+                           _ <- consumeOne
+                           collect
+                             (Just ind)
+                             ((ind, lineRawBody l) : acc)
+                       else do
+                         _ <- consumeOne
+                         let mBase' = case mBase of
+                               Just _ -> mBase
+                               Nothing -> Just ind
+                         collect
+                           mBase'
+                           ((ind, lineRawBody l) : acc)
 
     consumeOne = do
       ls <- getLines
@@ -3543,8 +3547,8 @@ chompText Keep = id
 chompText Clip = \t ->
   let stripped = T.dropWhileEnd (== '\n') t
   in if T.null stripped
-      then T.empty -- "no content" → no trailing newline
-      else stripped <> tNL
+       then T.empty -- "no content" → no trailing newline
+       else stripped <> tNL
 
 
 -- ---------------------------------------------------------------------------
@@ -3736,46 +3740,46 @@ findKeyValueSplit (TI.Text arr off blen)
               !c = toEnum (fromIntegral w) :: Char
               wi = fromIntegral w :: Int
           in case s of
-              1 -> case c of
-                '"' -> goByte (i + 1) d b 0 wi
-                '\\'
-                  | i + 1 < endByte ->
-                      goByte (i + 2) d b 1 wi
-                _ -> goByte (i + 1) d b 1 wi
-              2 -> case c of
-                '\'' -> goByte (i + 1) d b 0 wi
-                _ -> goByte (i + 1) d b 2 wi
-              _ -> case c of
-                '"' | ts -> goByte (i + 1) d b 1 wi
-                '\'' | ts -> goByte (i + 1) d b 2 wi
-                '['
-                  | ts || d > 0 || b > 0 ->
-                      goByte (i + 1) (d + 1) b s wi
-                ']'
-                  | d > 0 ->
-                      goByte (i + 1) (d - 1) b s wi
-                '{'
-                  | ts || d > 0 || b > 0 ->
-                      goByte (i + 1) d (b + 1) s wi
-                '}'
-                  | b > 0 ->
-                      goByte (i + 1) d (b - 1) s wi
-                '#' | ts && d == 0 && b == 0 -> Nothing
-                ':'
-                  | d == 0
-                  , b == 0 ->
-                      if i + 1 >= endByte
-                        then Just (sliceKey i, T.empty)
-                        else
-                          let n = TA.unsafeIndex arr (i + 1)
-                          in if n == 32 || n == 9
-                              then
-                                Just
-                                  ( sliceKey i
-                                  , sliceTail (i + 1)
-                                  )
-                              else goByte (i + 1) d b s wi
-                _ -> goByte (i + 1) d b s wi
+               1 -> case c of
+                 '"' -> goByte (i + 1) d b 0 wi
+                 '\\'
+                   | i + 1 < endByte ->
+                       goByte (i + 2) d b 1 wi
+                 _ -> goByte (i + 1) d b 1 wi
+               2 -> case c of
+                 '\'' -> goByte (i + 1) d b 0 wi
+                 _ -> goByte (i + 1) d b 2 wi
+               _ -> case c of
+                 '"' | ts -> goByte (i + 1) d b 1 wi
+                 '\'' | ts -> goByte (i + 1) d b 2 wi
+                 '['
+                   | ts || d > 0 || b > 0 ->
+                       goByte (i + 1) (d + 1) b s wi
+                 ']'
+                   | d > 0 ->
+                       goByte (i + 1) (d - 1) b s wi
+                 '{'
+                   | ts || d > 0 || b > 0 ->
+                       goByte (i + 1) d (b + 1) s wi
+                 '}'
+                   | b > 0 ->
+                       goByte (i + 1) d (b - 1) s wi
+                 '#' | ts && d == 0 && b == 0 -> Nothing
+                 ':'
+                   | d == 0
+                   , b == 0 ->
+                       if i + 1 >= endByte
+                         then Just (sliceKey i, T.empty)
+                         else
+                           let n = TA.unsafeIndex arr (i + 1)
+                           in if n == 32 || n == 9
+                                then
+                                  Just
+                                    ( sliceKey i
+                                    , sliceTail (i + 1)
+                                    )
+                                else goByte (i + 1) d b s wi
+                 _ -> goByte (i + 1) d b s wi
       where
         ts = p == 32 || p == 9
 
@@ -3834,21 +3838,21 @@ stripInlineComment t
                 Outer ->
                   let !c = bAt t i
                   in case c of
-                      34 -> go (i + 1) InDQ -- '"'
-                      39 -> go (i + 1) InSQ -- '\''
-                      35 ->
-                        -- '#'
-                        if i > 0
-                          && let !p = bAt t (i - 1)
-                             in p == w8Space || p == w8Tab
-                          then bSlice t 0 (i - 1) -- drop space + #
-                          else
-                            if i > 0 && bAt t (i - 1) == w8SOH
-                              then -- '\\1#' → '\\2' sentinel +
-                              -- skip up to next '\\1'
-                                spliceAt (i - 1)
-                              else go (i + 1) Outer
-                      _ -> go (i + 1) Outer
+                       34 -> go (i + 1) InDQ -- '"'
+                       39 -> go (i + 1) InSQ -- '\''
+                       35 ->
+                         -- '#'
+                         if i > 0
+                           && let !p = bAt t (i - 1)
+                              in p == w8Space || p == w8Tab
+                           then bSlice t 0 (i - 1) -- drop space + #
+                           else
+                             if i > 0 && bAt t (i - 1) == w8SOH
+                               then -- '\\1#' → '\\2' sentinel +
+                               -- skip up to next '\\1'
+                                 spliceAt (i - 1)
+                               else go (i + 1) Outer
+                       _ -> go (i + 1) Outer
                 InDQ -> case bAt t i of
                   92
                     | i + 1 < len -> -- '\\' escape
@@ -3858,11 +3862,11 @@ stripInlineComment t
                 InSQ ->
                   let !c = bAt t i
                   in if c == w8SQuote
-                      then
-                        if i + 1 < len && bAt t (i + 1) == w8SQuote
-                          then go (i + 2) InSQ
-                          else go (i + 1) Outer
-                      else go (i + 1) InSQ
+                       then
+                         if i + 1 < len && bAt t (i + 1) == w8SQuote
+                           then go (i + 2) InSQ
+                           else go (i + 1) Outer
+                       else go (i + 1) InSQ
           spliceAt !brk =
             -- Replace the '\\1#...' run with '\\2' up to the
             -- next '\\1' (or end of buffer). The slow-path
@@ -3913,9 +3917,9 @@ decodeDQEscape t !i = case T.index t i of
       | otherwise =
           let chunk = T.take n (T.drop j tx)
           in if T.all isHexDigit chunk
-              then
-                Just
-                  ( chr (T.foldl' (\acc c -> acc * 16 + digitToInt c) 0 chunk)
-                  , j + n
-                  )
-              else Nothing
+               then
+                 Just
+                   ( chr (T.foldl' (\acc c -> acc * 16 + digitToInt c) 0 chunk)
+                   , j + n
+                   )
+               else Nothing

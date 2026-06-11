@@ -1,47 +1,48 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |
--- Module      : Kafka.Streams.Examples.FraudDetection
--- Description : Session windows — bursty-activity fraud detection
---
--- Mirror of the canonical "session window" demo: count user
--- activity per session (gap-based clustering of events) and flag
--- sessions with above-threshold counts.
---
--- Java (paraphrased):
---
--- @
--- KStream<String, String> activity = builder.stream("user-activity");
--- activity.groupByKey()
---         .windowedBy(SessionWindows.with(Duration.ofMinutes(5)))
---         .count()
---         .toStream()
---         .filter((k, v) -> v != null && v >= 10)
---         .to("suspicious-sessions");
--- @
---
--- Haskell (free-arrow). The session-windowed handle isn't a
--- 'KStream' yet — we pin one on 'swthNode' inside 'F.liftIO_' so
--- the rest of the pipeline composes through the regular Free
--- combinators.
-module Kafka.Streams.Examples.FraudDetection
-  ( runDemo
-  , fraudTopology
-  , buildFraudTopology
-  ) where
+{- |
+Module      : Kafka.Streams.Examples.FraudDetection
+Description : Session windows — bursty-activity fraud detection
+
+Mirror of the canonical "session window" demo: count user
+activity per session (gap-based clustering of events) and flag
+sessions with above-threshold counts.
+
+Java (paraphrased):
+
+@
+KStream<String, String> activity = builder.stream("user-activity");
+activity.groupByKey()
+        .windowedBy(SessionWindows.with(Duration.ofMinutes(5)))
+        .count()
+        .toStream()
+        .filter((k, v) -> v != null && v >= 10)
+        .to("suspicious-sessions");
+@
+
+Haskell (free-arrow). The session-windowed handle isn't a
+'KStream' yet — we pin one on 'swthNode' inside 'F.liftIO_' so
+the rest of the pipeline composes through the regular Free
+combinators.
+-}
+module Kafka.Streams.Examples.FraudDetection (
+  runDemo,
+  fraudTopology,
+  buildFraudTopology,
+) where
 
 import Control.Category ((>>>))
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Void (Void)
-
 import Kafka.Streams
-import qualified Kafka.Streams.Topology as Topo
-import qualified Kafka.Streams.Materialized as Mat
-import qualified Kafka.Streams.Topology.Free as F
+import Kafka.Streams.Materialized qualified as Mat
+import Kafka.Streams.Topology qualified as Topo
+import Kafka.Streams.Topology.Free qualified as F
+
 
 fraudTopology :: F.Topology Void ()
 fraudTopology =
@@ -55,12 +56,14 @@ fraudTopology =
   where
     countMat :: Materialized Text Int64
     countMat =
-      Mat.withValueSerde int64Serde
-        $ Mat.withKeySerde textSerde
-        $ Mat.materializedAs (storeName "session-counts")
+      Mat.withValueSerde int64Serde $
+        Mat.withKeySerde textSerde $
+          Mat.materializedAs (storeName "session-counts")
+
 
 buildFraudTopology :: IO Topo.Topology
 buildFraudTopology = F.buildTopologyFrom fraudTopology
+
 
 runDemo :: IO ()
 runDemo = do
@@ -69,7 +72,9 @@ runDemo = do
   driver <- newDriver topo "fraud-app"
 
   let act u tsMs =
-        pipeInput driver (topicName "user-activity")
+        pipeInput
+          driver
+          (topicName "user-activity")
           (Just (BSC.pack (T.unpack u)))
           (BSC.pack "click")
           (Timestamp tsMs)
@@ -97,6 +102,6 @@ runDemo = do
             Just b -> BSC.unpack b
             Nothing -> "<no-key>"
           v = case deserialize int64Serde (crValue cr) :: Either Text Int64 of
-            Right n  -> show n
+            Right n -> show n
             Left err -> "?(" <> T.unpack err <> ")"
       in putStrLn ("  " <> k <> " : " <> v <> " events")

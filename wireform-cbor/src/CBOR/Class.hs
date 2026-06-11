@@ -97,11 +97,12 @@ class ToCBOR a where
   toCBOR = gToCBOR . from
 
 
-  -- | Direct-to-bytes encoding. The default delegates to 'toCBOR' for
-  -- backwards compatibility, but instances that want to skip the
-  -- intermediate 'CV.Value' allocation should override this. A
-  -- 'Generic'-driven default is available via 'genericToEncoding'
-  -- (see 'GToCBOREncoding').
+  {- | Direct-to-bytes encoding. The default delegates to 'toCBOR' for
+  backwards compatibility, but instances that want to skip the
+  intermediate 'CV.Value' allocation should override this. A
+  'Generic'-driven default is available via 'genericToEncoding'
+  (see 'GToCBOREncoding').
+  -}
   toEncoding :: a -> Encoding
   toEncoding = valueToEncoding . toCBOR
 
@@ -832,8 +833,8 @@ instance (Selector s, FromCBOR a) => GFromCBORFields (M1 S s (K1 i a)) where
   gFromCBORFields lkup =
     let name = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup name of
-        Nothing -> Left $ "GFromCBOR: missing field " ++ T.unpack name
-        Just v -> M1 . K1 <$> fromCBOR v
+         Nothing -> Left $ "GFromCBOR: missing field " ++ T.unpack name
+         Just v -> M1 . K1 <$> fromCBOR v
 
 
 -- ---------------------------------------------------------------------------

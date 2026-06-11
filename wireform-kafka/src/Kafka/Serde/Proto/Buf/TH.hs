@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskellQuotes #-}
 
-{-|
+{- |
 Module      : Kafka.Serde.Proto.Buf.TH
 Description : Compile-time auto-population of the Buf @commit@ metadata.
 Copyright   : (c) 2025
@@ -49,75 +49,84 @@ Both @buf.lock@ schema versions are understood: v2 (@name:@ +
 @commit:@). The module name to look up is the full
 @<remote>/<owner>/<repository>@, e.g. @buf.build/acme/payments@.
 -}
-module Kafka.Serde.Proto.Buf.TH
-  ( -- * Splices
-    bufProtoSerdeFromLock
-  , bufProtoKeySerdeFromLock
-  , bufCommitFromLock
-  , bufCommitFromEnv
-    -- * Pure @buf.lock@ lookup
-  , lookupBufLockCommit
-  ) where
+module Kafka.Serde.Proto.Buf.TH (
+  -- * Splices
+  bufProtoSerdeFromLock,
+  bufProtoKeySerdeFromLock,
+  bufCommitFromLock,
+  bufCommitFromEnv,
 
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import qualified Data.Text.IO               as TIO
+  -- * Pure @buf.lock@ lookup
+  lookupBufLockCommit,
+) where
 
-import           Language.Haskell.TH        (Exp (..), Lit (..), Q)
-import           Language.Haskell.TH.Syntax (addDependentFile, runIO)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Kafka.Serde.Proto.Buf (bufProtoKeySerde, bufProtoSerde)
+import Language.Haskell.TH (Exp (..), Lit (..), Q)
+import Language.Haskell.TH.Syntax (addDependentFile, runIO)
+import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 
-import           System.Directory           (doesFileExist)
-import           System.Environment         (lookupEnv)
 
-import           Kafka.Serde.Proto.Buf      (bufProtoKeySerde, bufProtoSerde)
+{- | Build a complete header-carrying serde by reading the BSR commit
+for @moduleName@ from a @buf.lock@ at compile time. Expands to
+@'Kafka.Serde.Proto.Buf.bufProtoSerde' commit Nothing@ (the @module@
+header is left off — it is optional and only meaningful on
+multi-module topics; use 'bufCommitFromLock' with an explicit
+'Kafka.Serde.Proto.Buf.bufProtoSerde' call if you need it).
 
--- | Build a complete header-carrying serde by reading the BSR commit
--- for @moduleName@ from a @buf.lock@ at compile time. Expands to
--- @'Kafka.Serde.Proto.Buf.bufProtoSerde' commit Nothing@ (the @module@
--- header is left off — it is optional and only meaningful on
--- multi-module topics; use 'bufCommitFromLock' with an explicit
--- 'Kafka.Serde.Proto.Buf.bufProtoSerde' call if you need it).
---
--- The result is polymorphic in the message type, so annotate the call
--- site (usually via the surrounding 'Kafka.Topic.Topic').
+The result is polymorphic in the message type, so annotate the call
+site (usually via the surrounding 'Kafka.Topic.Topic').
+-}
 bufProtoSerdeFromLock
-  :: FilePath -- ^ Path to @buf.lock@ (relative to the package root).
-  -> String   -- ^ Full Buf module name, e.g. @"buf.build/acme/payments"@.
+  :: FilePath
+  -- ^ Path to @buf.lock@ (relative to the package root).
+  -> String
+  -- ^ Full Buf module name, e.g. @"buf.build/acme/payments"@.
   -> Q Exp
 bufProtoSerdeFromLock lockPath moduleName = do
   commitE <- bufCommitFromLock lockPath moduleName
   pure (AppE (AppE (VarE 'bufProtoSerde) commitE) (ConE 'Nothing))
 
--- | Key-side counterpart of 'bufProtoSerdeFromLock': splices a complete
--- 'Kafka.Serde.Proto.Buf.bufProtoKeySerde' (stamping the
--- @buf.registry.key.schema.*@ headers) with the commit read from
--- @buf.lock@ at compile time. Use it as a 'Kafka.Topic.Topic' key serde
--- when the key is itself a typed Protobuf message.
+
+{- | Key-side counterpart of 'bufProtoSerdeFromLock': splices a complete
+'Kafka.Serde.Proto.Buf.bufProtoKeySerde' (stamping the
+@buf.registry.key.schema.*@ headers) with the commit read from
+@buf.lock@ at compile time. Use it as a 'Kafka.Topic.Topic' key serde
+when the key is itself a typed Protobuf message.
+-}
 bufProtoKeySerdeFromLock :: FilePath -> String -> Q Exp
 bufProtoKeySerdeFromLock lockPath moduleName = do
   commitE <- bufCommitFromLock lockPath moduleName
   pure (AppE (AppE (VarE 'bufProtoKeySerde) commitE) (ConE 'Nothing))
 
--- | Splice the BSR commit (as 'Text') pinned for @moduleName@ in a
--- @buf.lock@, read at compile time. Fails compilation with a clear
--- message if the file is missing or the module is not pinned.
+
+{- | Splice the BSR commit (as 'Text') pinned for @moduleName@ in a
+@buf.lock@, read at compile time. Fails compilation with a clear
+message if the file is missing or the module is not pinned.
+-}
 bufCommitFromLock :: FilePath -> String -> Q Exp
 bufCommitFromLock lockPath moduleName = do
   addDependentFile lockPath
   exists <- runIO (doesFileExist lockPath)
   if not exists
-    then fail $
-      "Kafka.Serde.Proto.Buf.TH.bufCommitFromLock: buf.lock not found at "
-        <> lockPath
+    then
+      fail $
+        "Kafka.Serde.Proto.Buf.TH.bufCommitFromLock: buf.lock not found at "
+          <> lockPath
     else do
       contents <- runIO (TIO.readFile lockPath)
       case lookupBufLockCommit (T.pack moduleName) contents of
         Left err -> fail ("Kafka.Serde.Proto.Buf.TH.bufCommitFromLock: " <> err)
-        Right c  -> pure (textLitE c)
+        Right c -> pure (textLitE c)
 
--- | Splice the BSR commit (as 'Text') from an environment variable read
--- at compile time — handy when CI sets it (e.g. from @buf push@ output).
--- Fails compilation if the variable is unset.
+
+{- | Splice the BSR commit (as 'Text') from an environment variable read
+at compile time — handy when CI sets it (e.g. from @buf push@ output).
+Fails compilation if the variable is unset.
+-}
 bufCommitFromEnv :: String -> Q Exp
 bufCommitFromEnv var = do
   m <- runIO (lookupEnv var)
@@ -129,18 +138,24 @@ bufCommitFromEnv var = do
           <> " is not set at compile time"
     Just v -> pure (textLitE (T.pack v))
 
--- | @T.pack \"\<commit\>\"@ as an 'Exp'. Built by hand (rather than via a
--- typed quote) so the module only needs @TemplateHaskellQuotes@.
+
+{- | @T.pack \"\<commit\>\"@ as an 'Exp'. Built by hand (rather than via a
+typed quote) so the module only needs @TemplateHaskellQuotes@.
+-}
 textLitE :: Text -> Exp
 textLitE t = AppE (VarE 'T.pack) (LitE (StringL (T.unpack t)))
 
--- | Find the BSR commit pinned for a module in @buf.lock@ contents.
--- Pure so it can be unit-tested without the TH machinery. Understands
--- the v2 (@name:@) and v1 (@remote:@\/@owner:@\/@repository:@) shapes.
--- Returns the first matching @commit:@ or a @Left@ describing the miss.
+
+{- | Find the BSR commit pinned for a module in @buf.lock@ contents.
+Pure so it can be unit-tested without the TH machinery. Understands
+the v2 (@name:@) and v1 (@remote:@\/@owner:@\/@repository:@) shapes.
+Returns the first matching @commit:@ or a @Left@ describing the miss.
+-}
 lookupBufLockCommit
-  :: Text -- ^ Full module name, e.g. @"buf.build/acme/payments"@.
-  -> Text -- ^ Raw @buf.lock@ contents.
+  :: Text
+  -- ^ Full module name, e.g. @"buf.build/acme/payments"@.
+  -> Text
+  -- ^ Raw @buf.lock@ contents.
   -> Either String Text
 lookupBufLockCommit target contents = go (T.lines contents) []
   where
@@ -149,13 +164,14 @@ lookupBufLockCommit target contents = go (T.lines contents) []
         Just c -> Right c
         Nothing ->
           Left $
-            "commit for buf module '" <> T.unpack target
+            "commit for buf module '"
+              <> T.unpack target
               <> "' not found in buf.lock"
     go (l : ls) block =
       case T.stripPrefix "- " (T.strip l) of
         Just firstItem ->
           case checkBlock block of
-            Just c  -> Right c
+            Just c -> Right c
             Nothing -> go ls (consKV firstItem [])
         Nothing -> go ls (consKV (T.strip l) block)
 
@@ -170,12 +186,14 @@ lookupBufLockCommit target contents = go (T.lines contents) []
         then lookup "commit" kvs
         else Nothing
 
+
 parseKV :: Text -> Maybe (Text, Text)
 parseKV t =
   let (k, rest) = T.breakOn ":" t
-   in if T.null rest
-        then Nothing
-        else Just (T.strip k, dequote (T.strip (T.drop 1 rest)))
+  in if T.null rest
+       then Nothing
+       else Just (T.strip k, dequote (T.strip (T.drop 1 rest)))
+
 
 -- | Strip a single pair of surrounding quotes, if present.
 dequote :: Text -> Text
@@ -184,15 +202,17 @@ dequote t = case T.uncons t of
     | q == '"' || q == '\'' ->
         case T.unsnoc body of
           Just (inner, q') | q' == q -> inner
-          _                          -> t
+          _ -> t
   _ -> t
 
--- | The module name a dep block identifies: the v2 @name@, or the v1
--- @remote/owner/repository@ triple joined with @\/@.
+
+{- | The module name a dep block identifies: the v2 @name@, or the v1
+@remote/owner/repository@ triple joined with @\/@.
+-}
 blockName :: [(Text, Text)] -> Maybe Text
 blockName kvs = case lookup "name" kvs of
   Just n -> Just n
   Nothing ->
     case (lookup "remote" kvs, lookup "owner" kvs, lookup "repository" kvs) of
       (Just r, Just o, Just rp) -> Just (r <> "/" <> o <> "/" <> rp)
-      _                         -> Nothing
+      _ -> Nothing

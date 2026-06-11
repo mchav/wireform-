@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Streams.Processor.Assignment
 Description : User-pluggable task assignor (KIP-924)
 
@@ -35,131 +35,152 @@ own closed assignor. Wiring 'TaskAssignor' into
 is follow-up work; the value types are in tree so the wiring is
 mechanical when it lands.
 -}
-module Kafka.Streams.Processor.Assignment
-  ( -- * Input metadata
-    ApplicationState (..)
-  , KafkaStreamsState (..)
-  , ProcessId (..)
-  , TaskInfo (..)
-  , TaskTopicPartition (..)
-    -- * Output
-  , TaskAssignment (..)
-  , KafkaStreamsAssignment (..)
-  , AssignmentError (..)
-    -- * The assignor
-  , TaskAssignor (..)
-  , defaultTaskAssignor
-    -- * Tunables (KIP-924 'AssignmentConfigs')
-  , AssignmentConfigs (..)
-  , defaultAssignmentConfigs
-    -- * Rack-aware sub-tunables
-  , RackAwareAssignmentConfigs (..)
-  , defaultRackAwareAssignmentConfigs
-  ) where
+module Kafka.Streams.Processor.Assignment (
+  -- * Input metadata
+  ApplicationState (..),
+  KafkaStreamsState (..),
+  ProcessId (..),
+  TaskInfo (..),
+  TaskTopicPartition (..),
+
+  -- * Output
+  TaskAssignment (..),
+  KafkaStreamsAssignment (..),
+  AssignmentError (..),
+
+  -- * The assignor
+  TaskAssignor (..),
+  defaultTaskAssignor,
+
+  -- * Tunables (KIP-924 'AssignmentConfigs')
+  AssignmentConfigs (..),
+  defaultAssignmentConfigs,
+
+  -- * Rack-aware sub-tunables
+  RackAwareAssignmentConfigs (..),
+  defaultRackAwareAssignmentConfigs,
+) where
 
 import Data.Hashable (Hashable)
 import Data.Int (Int32)
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
+import Data.Map.Strict qualified as Map
 import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.UUID (UUID)
 import GHC.Generics (Generic)
-
 import Kafka.Streams.Processor (TaskId)
+
 
 ----------------------------------------------------------------------
 -- Identity types
 ----------------------------------------------------------------------
 
--- | Stable Kafka-streams-client identifier. Mirrors
--- @org.apache.kafka.streams.processor.assignment.ProcessId@.
-newtype ProcessId = ProcessId { unProcessId :: UUID }
+{- | Stable Kafka-streams-client identifier. Mirrors
+@org.apache.kafka.streams.processor.assignment.ProcessId@.
+-}
+newtype ProcessId = ProcessId {unProcessId :: UUID}
   deriving stock (Eq, Ord, Show, Generic)
-  deriving anyclass Hashable
+  deriving anyclass (Hashable)
+
 
 ----------------------------------------------------------------------
 -- Per-task metadata
 ----------------------------------------------------------------------
 
--- | A topic-partition a task subscribes to. Mirrors
--- @TaskTopicPartition@.
+{- | A topic-partition a task subscribes to. Mirrors
+@TaskTopicPartition@.
+-}
 data TaskTopicPartition = TaskTopicPartition
-  { ttpTopic     :: !Text
+  { ttpTopic :: !Text
   , ttpPartition :: !Int32
   , ttpIsChangelog :: !Bool
-    -- ^ 'True' for changelog source topics; 'False' for
-    -- ordinary source topics.
+  {- ^ 'True' for changelog source topics; 'False' for
+  ordinary source topics.
+  -}
   }
   deriving stock (Eq, Ord, Show, Generic)
-  deriving anyclass Hashable
+  deriving anyclass (Hashable)
 
--- | Per-task metadata. Mirrors
--- @org.apache.kafka.streams.processor.assignment.TaskInfo@.
+
+{- | Per-task metadata. Mirrors
+@org.apache.kafka.streams.processor.assignment.TaskInfo@.
+-}
 data TaskInfo = TaskInfo
-  { tiTaskId          :: !TaskId
+  { tiTaskId :: !TaskId
   , tiTopicPartitions :: !(Set TaskTopicPartition)
-  , tiIsStateful      :: !Bool
-  , tiStores          :: !(Set Text)
+  , tiIsStateful :: !Bool
+  , tiStores :: !(Set Text)
   }
   deriving stock (Eq, Show, Generic)
+
 
 ----------------------------------------------------------------------
 -- Per-client metadata
 ----------------------------------------------------------------------
 
--- | A read-only metadata view of a single Kafka-streams client
--- participating in this rebalance. Mirrors
--- @KafkaStreamsState@.
+{- | A read-only metadata view of a single Kafka-streams client
+participating in this rebalance. Mirrors
+@KafkaStreamsState@.
+-}
 data KafkaStreamsState = KafkaStreamsState
-  { kssProcessId         :: !ProcessId
+  { kssProcessId :: !ProcessId
   , kssNumProcessingThreads :: !Int
-  , kssClientTags        :: !(Map Text Text)
-  , kssPreviousActiveTasks  :: !(Set TaskId)
+  , kssClientTags :: !(Map Text Text)
+  , kssPreviousActiveTasks :: !(Set TaskId)
   , kssPreviousStandbyTasks :: !(Set TaskId)
-  , kssRackId            :: !(Maybe Text)
+  , kssRackId :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
+
 
 ----------------------------------------------------------------------
 -- Application-wide input
 ----------------------------------------------------------------------
 
--- | Read-only metadata for the rebalance the assignor is being
--- asked to make a decision against. Mirrors
--- @ApplicationState@.
+{- | Read-only metadata for the rebalance the assignor is being
+asked to make a decision against. Mirrors
+@ApplicationState@.
+-}
 data ApplicationState = ApplicationState
-  { asAllTasks       :: !(Map TaskId TaskInfo)
+  { asAllTasks :: !(Map TaskId TaskInfo)
   , asKafkaStreamsStates :: !(Map ProcessId KafkaStreamsState)
-  , asAssignmentConfigs  :: !AssignmentConfigs
+  , asAssignmentConfigs :: !AssignmentConfigs
   }
   deriving stock (Eq, Show, Generic)
+
 
 ----------------------------------------------------------------------
 -- Assignor output
 ----------------------------------------------------------------------
 
--- | What gets dealt to a single 'KafkaStreamsState'. Mirrors
--- @KafkaStreamsAssignment@.
+{- | What gets dealt to a single 'KafkaStreamsState'. Mirrors
+@KafkaStreamsAssignment@.
+-}
 data KafkaStreamsAssignment = KafkaStreamsAssignment
-  { ksaActiveTasks   :: !(Set TaskId)
-  , ksaStandbyTasks  :: !(Set TaskId)
+  { ksaActiveTasks :: !(Set TaskId)
+  , ksaStandbyTasks :: !(Set TaskId)
   , ksaFollowupRebalanceDeadlineMs :: !(Maybe Int)
-    -- ^ If 'Just', the assignor wants the broker to schedule
-    -- another rebalance no later than this many ms from now.
+  {- ^ If 'Just', the assignor wants the broker to schedule
+  another rebalance no later than this many ms from now.
+  -}
   }
   deriving stock (Eq, Show, Generic)
 
--- | The final assignment a 'TaskAssignor' returns. Mirrors the
--- nested @TaskAssignor.TaskAssignment@ wrapper class.
+
+{- | The final assignment a 'TaskAssignor' returns. Mirrors the
+nested @TaskAssignor.TaskAssignment@ wrapper class.
+-}
 data TaskAssignment = TaskAssignment
   { taAssignments :: !(Map ProcessId KafkaStreamsAssignment)
   }
   deriving stock (Eq, Show, Generic)
 
--- | Error codes the runtime can flag against a returned
--- 'TaskAssignment'. Mirrors @TaskAssignor.AssignmentError@.
+
+{- | Error codes the runtime can flag against a returned
+'TaskAssignment'. Mirrors @TaskAssignor.AssignmentError@.
+-}
 data AssignmentError
   = AssignmentErrorNone
   | ActiveTaskAssignedMultipleTimes
@@ -169,90 +190,109 @@ data AssignmentError
   | UnknownTaskId
   deriving stock (Eq, Show, Generic)
 
+
 ----------------------------------------------------------------------
 -- The plug point
 ----------------------------------------------------------------------
 
--- | A user-supplied task assignor. Mirrors
--- @org.apache.kafka.streams.processor.assignment.TaskAssignor@:
---
---   * 'taAssign'             — produce a 'TaskAssignment' from
---     the 'ApplicationState'. May throw / signal a
---     'TaskAssignmentException' to keep the previous
---     assignment and schedule an immediate followup rebalance.
---   * 'taOnAssignmentComputed' — fires after the runtime has
---     validated the 'TaskAssignment'. Receives the validation
---     error (or 'AssignmentErrorNone'). Useful for logging /
---     metrics; not allowed to alter the assignment.
---   * 'taConfigure'          — passed the streams configuration
---     'Map' so a single 'TaskAssignor' instance can be re-used
---     across applications with different tunables.
+{- | A user-supplied task assignor. Mirrors
+@org.apache.kafka.streams.processor.assignment.TaskAssignor@:
+
+  * 'taAssign'             — produce a 'TaskAssignment' from
+    the 'ApplicationState'. May throw / signal a
+    'TaskAssignmentException' to keep the previous
+    assignment and schedule an immediate followup rebalance.
+  * 'taOnAssignmentComputed' — fires after the runtime has
+    validated the 'TaskAssignment'. Receives the validation
+    error (or 'AssignmentErrorNone'). Useful for logging /
+    metrics; not allowed to alter the assignment.
+  * 'taConfigure'          — passed the streams configuration
+    'Map' so a single 'TaskAssignor' instance can be re-used
+    across applications with different tunables.
+-}
 data TaskAssignor = TaskAssignor
-  { taAssign                :: ApplicationState -> IO TaskAssignment
-  , taOnAssignmentComputed  :: TaskAssignment -> AssignmentError -> IO ()
-  , taConfigure             :: Map Text Text -> IO ()
+  { taAssign :: ApplicationState -> IO TaskAssignment
+  , taOnAssignmentComputed :: TaskAssignment -> AssignmentError -> IO ()
+  , taConfigure :: Map Text Text -> IO ()
   }
 
--- | The default assignor: hands every task to the first
--- registered client. Useful as a starting point for tests; not
--- a sensible production policy.
+
+{- | The default assignor: hands every task to the first
+registered client. Useful as a starting point for tests; not
+a sensible production policy.
+-}
 defaultTaskAssignor :: TaskAssignor
-defaultTaskAssignor = TaskAssignor
-  { taAssign = \app -> do
-      let !pids = Map.keys (asKafkaStreamsStates app)
-          !tids = Map.keysSet (asAllTasks app)
-      case pids of
-        []      -> pure (TaskAssignment Map.empty)
-        (p : _) -> pure (TaskAssignment (Map.singleton p
-          KafkaStreamsAssignment
-            { ksaActiveTasks  = tids
-            , ksaStandbyTasks = Set.empty
-            , ksaFollowupRebalanceDeadlineMs = Nothing
-            }))
-  , taOnAssignmentComputed = \_ _ -> pure ()
-  , taConfigure            = \_ -> pure ()
-  }
+defaultTaskAssignor =
+  TaskAssignor
+    { taAssign = \app -> do
+        let !pids = Map.keys (asKafkaStreamsStates app)
+            !tids = Map.keysSet (asAllTasks app)
+        case pids of
+          [] -> pure (TaskAssignment Map.empty)
+          (p : _) ->
+            pure
+              ( TaskAssignment
+                  ( Map.singleton
+                      p
+                      KafkaStreamsAssignment
+                        { ksaActiveTasks = tids
+                        , ksaStandbyTasks = Set.empty
+                        , ksaFollowupRebalanceDeadlineMs = Nothing
+                        }
+                  )
+              )
+    , taOnAssignmentComputed = \_ _ -> pure ()
+    , taConfigure = \_ -> pure ()
+    }
+
 
 ----------------------------------------------------------------------
 -- Tunables (KIP-924 AssignmentConfigs)
 ----------------------------------------------------------------------
 
--- | Tunables for the high-level assignor. Mirrors
--- @AssignmentConfigs@.
+{- | Tunables for the high-level assignor. Mirrors
+@AssignmentConfigs@.
+-}
 data AssignmentConfigs = AssignmentConfigs
-  { acNumStandbyReplicas      :: !Int
-  , acAcceptableRecoveryLag   :: !Int
-  , acMaxWarmupReplicas       :: !Int
+  { acNumStandbyReplicas :: !Int
+  , acAcceptableRecoveryLag :: !Int
+  , acMaxWarmupReplicas :: !Int
   , acProbingRebalanceIntervalMs :: !Int
-  , acRackAware               :: !RackAwareAssignmentConfigs
+  , acRackAware :: !RackAwareAssignmentConfigs
   }
   deriving stock (Eq, Show, Generic)
+
 
 defaultAssignmentConfigs :: AssignmentConfigs
-defaultAssignmentConfigs = AssignmentConfigs
-  { acNumStandbyReplicas         = 0
-  , acAcceptableRecoveryLag      = 10_000
-  , acMaxWarmupReplicas          = 2
-  , acProbingRebalanceIntervalMs = 10 * 60 * 1000  -- 10 min
-  , acRackAware                  = defaultRackAwareAssignmentConfigs
-  }
+defaultAssignmentConfigs =
+  AssignmentConfigs
+    { acNumStandbyReplicas = 0
+    , acAcceptableRecoveryLag = 10_000
+    , acMaxWarmupReplicas = 2
+    , acProbingRebalanceIntervalMs = 10 * 60 * 1000 -- 10 min
+    , acRackAware = defaultRackAwareAssignmentConfigs
+    }
 
--- | Mirrors @RackAwareAssignmentConfigs@. The cost knobs are
--- used by the assignor's optimiser to weight rack locality
--- against load balance.
+
+{- | Mirrors @RackAwareAssignmentConfigs@. The cost knobs are
+used by the assignor's optimiser to weight rack locality
+against load balance.
+-}
 data RackAwareAssignmentConfigs = RackAwareAssignmentConfigs
-  { raStrategy             :: !Text
-    -- ^ One of @\"none\"@, @\"min_traffic\"@, @\"balance_subtopology\"@.
-  , raTrafficCost          :: !Int
-  , raNonOverlapCost       :: !Int
-  , raAssignmentTags       :: ![Text]
+  { raStrategy :: !Text
+  -- ^ One of @\"none\"@, @\"min_traffic\"@, @\"balance_subtopology\"@.
+  , raTrafficCost :: !Int
+  , raNonOverlapCost :: !Int
+  , raAssignmentTags :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
+
 defaultRackAwareAssignmentConfigs :: RackAwareAssignmentConfigs
-defaultRackAwareAssignmentConfigs = RackAwareAssignmentConfigs
-  { raStrategy       = "none"
-  , raTrafficCost    = 1
-  , raNonOverlapCost = 10
-  , raAssignmentTags = []
-  }
+defaultRackAwareAssignmentConfigs =
+  RackAwareAssignmentConfigs
+    { raStrategy = "none"
+    , raTrafficCost = 1
+    , raNonOverlapCost = 10
+    , raAssignmentTags = []
+    }

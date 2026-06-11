@@ -1,9 +1,13 @@
 module Main (main) where
 
+import Test.CapnProto.Derive qualified
 import Test.Syd
-import qualified Test.CapnProto.Derive
+
 
 main :: IO ()
-main = sydTest $ describe "wireform-capnproto-derive" $ sequence_
-  [ Test.CapnProto.Derive.tests
-  ]
+main =
+  sydTest $
+    describe "wireform-capnproto-derive" $
+      sequence_
+        [ Test.CapnProto.Derive.tests
+        ]

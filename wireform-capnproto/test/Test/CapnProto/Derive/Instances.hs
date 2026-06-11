@@ -4,8 +4,8 @@
 module Test.CapnProto.Derive.Instances () where
 
 import CapnProto.Derive
-
 import Test.CapnProto.Derive.Types
+
 
 deriveCapnProto ''Position
 deriveCapnProto ''Blob

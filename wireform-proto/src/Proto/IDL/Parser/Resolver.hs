@@ -36,11 +36,13 @@ import System.FilePath (takeDirectory, (</>))
 -- | Configuration for proto file resolution.
 data ResolveConfig = ResolveConfig
   { rcIncludeDirs :: ![FilePath]
-  -- ^ Directories to search for imported .proto files, in order.
-  -- The directory containing the importing file is always searched first.
+  {- ^ Directories to search for imported .proto files, in order.
+  The directory containing the importing file is always searched first.
+  -}
   , rcBundledDir :: !(Maybe FilePath)
-  -- ^ Path to bundled well-known proto files (google/protobuf/*.proto).
-  -- If Nothing, uses the built-in bundled protos from the package.
+  {- ^ Path to bundled well-known proto files (google/protobuf/*.proto).
+  If Nothing, uses the built-in bundled protos from the package.
+  -}
   }
   deriving stock (Show, Eq)
 

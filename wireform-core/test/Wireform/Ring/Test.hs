@@ -1,24 +1,23 @@
 module Wireform.Ring.Test (spec) where
 
-import Control.Exception (catch, SomeException, evaluate)
+import Control.Exception (SomeException, catch, evaluate)
 import Control.Monad (forM_, when)
-import qualified Data.Bits
-import qualified Data.ByteString as BS
+import Data.Bits qualified
+import Data.ByteString qualified as BS
 import Data.IORef
 import Data.Word (Word8)
-import Foreign.Ptr (Ptr, plusPtr, nullPtr, minusPtr)
-import Foreign.Storable (poke, peek)
 import Foreign.Marshal.Array (pokeArray)
-import Test.Syd
+import Foreign.Ptr (Ptr, minusPtr, nullPtr, plusPtr)
+import Foreign.Storable (peek, poke)
 import Test.QuickCheck
-
+import Test.Syd
 import Wireform.Ring
-import Wireform.Ring.Internal (newMagicRing, destroyMagicRing)
-import Wireform.Transport.Capabilities (detectCapabilities, capPageSize, capCoreCount)
+import Wireform.Ring.Internal (destroyMagicRing, newMagicRing)
+import Wireform.Transport.Capabilities (capCoreCount, capPageSize, detectCapabilities)
+
 
 spec :: Spec
 spec = describe "MagicRing" $ do
-
   describe "basic operations" $ do
     it "creates and destroys a ring" $ do
       withMagicRing 4096 $ \ring -> do
@@ -49,10 +48,10 @@ spec = describe "MagicRing" $ do
       withMagicRing 4096 $ \ring -> do
         let n = ringSize ring
             base = ringBase ring
-        forM_ [0..19] $ \i ->
+        forM_ [0 .. 19] $ \i ->
           poke (base `plusPtr` (n - 10 + i)) (fromIntegral (i + 1) :: Word8)
-        bytes <- mapM (\i -> peek (base `plusPtr` (n - 10 + i)) :: IO Word8) [0..19]
-        bytes `shouldBe` [1..20]
+        bytes <- mapM (\i -> peek (base `plusPtr` (n - 10 + i)) :: IO Word8) [0 .. 19]
+        bytes `shouldBe` [1 .. 20]
 
     it "write in first mapping, read from second" $ do
       withMagicRing 4096 $ \ring -> do
@@ -103,28 +102,28 @@ spec = describe "MagicRing" $ do
 
   describe "resource management" $ do
     it "sequential allocation: no FD/VA leaks (1000 rings)" $ do
-      forM_ [1..1000 :: Int] $ \_ ->
+      forM_ [1 .. 1000 :: Int] $ \_ ->
         withMagicRing 4096 $ \ring ->
           ringSize ring `shouldSatisfy` (>= 4096)
 
     it "absurd size throws MagicRingUnavailable" $ do
       let absurdSize = 1024 * 1024 * 1024 * 1024 * 1024
-      result <- (newMagicRing absurdSize >> pure False) `catch`
-        (\(MagicRingUnavailable _) -> pure True)
+      result <-
+        (newMagicRing absurdSize >> pure False)
+          `catch` (\(MagicRingUnavailable _) -> pure True)
       result `shouldBe` True
 
     it "destroy is idempotent" $ do
       ring <- newMagicRing 4096
       destroyMagicRing ring
-      destroyMagicRing ring  -- should not crash
-
+      destroyMagicRing ring -- should not crash
   describe "stress tests" $ do
     it "ring used as circular buffer (100k writes)" $ do
       withMagicRing 4096 $ \ring -> do
         let n = ringSize ring
             base = ringBase ring
             mask = ringMask ring
-        forM_ [0..99999 :: Int] $ \i -> do
+        forM_ [0 .. 99999 :: Int] $ \i -> do
           let off = i Data.Bits..&. mask
           poke (base `plusPtr` off) (fromIntegral (i `mod` 251) :: Word8)
           v <- peek (base `plusPtr` off) :: IO Word8
@@ -145,7 +144,7 @@ spec = describe "MagicRing" $ do
       withMagicRing 4096 $ \ring -> do
         let n = ringSize ring
             base = ringBase ring
-        forM_ [0..9999 :: Int] $ \i -> do
+        forM_ [0 .. 9999 :: Int] $ \i -> do
           let off = (n - 4 + (i `mod` 8))
           poke (base `plusPtr` off) (fromIntegral i :: Word8)
           v <- peek (base `plusPtr` off) :: IO Word8
@@ -160,23 +159,23 @@ spec = describe "MagicRing" $ do
     it "copyRingSlice produces a ByteString with the slice's bytes" $
       withMagicRing 4096 $ \ring -> do
         let base = ringBase ring
-        forM_ [0..31 :: Int] $ \i ->
+        forM_ [0 .. 31 :: Int] $ \i ->
           poke (base `plusPtr` i) (fromIntegral (i + 1) :: Word8)
         copied <- copyRingSlice (ringSlice ring 0 32)
-        BS.unpack copied `shouldBe` map fromIntegral [1..32 :: Int]
+        BS.unpack copied `shouldBe` map fromIntegral [1 .. 32 :: Int]
 
     it "copyRingSlice handles slices that cross the ring boundary" $
       withMagicRing 4096 $ \ring -> do
-        let n    = ringSize ring
+        let n = ringSize ring
             base = ringBase ring
         -- Lay down a marker pattern that wraps across the boundary by
         -- writing through the second mapping (offsets n-8 .. n+7).
-        forM_ [0..15 :: Int] $ \i ->
+        forM_ [0 .. 15 :: Int] $ \i ->
           poke (base `plusPtr` (n - 8 + i)) (fromIntegral (i + 1) :: Word8)
         -- Slice starting at (n-8), length 16 — reads contiguously
         -- through the double mapping.
         copied <- copyRingSlice (ringSliceAtPos ring (fromIntegral (n - 8)) 16)
-        BS.unpack copied `shouldBe` map fromIntegral [1..16 :: Int]
+        BS.unpack copied `shouldBe` map fromIntegral [1 .. 16 :: Int]
 
     it "copyRingSlice on an empty slice returns mempty" $
       withMagicRing 4096 $ \ring -> do
@@ -189,7 +188,7 @@ spec = describe "MagicRing" $ do
       -- RingSlice s cannot escape but a fresh ByteString can.
       bs <- withMagicRing 4096 $ \ring -> do
         let base = ringBase ring
-        forM_ [0..7 :: Int] $ \i ->
+        forM_ [0 .. 7 :: Int] $ \i ->
           poke (base `plusPtr` i) (fromIntegral (0xA0 + i) :: Word8)
         copyRingSlice (ringSlice ring 0 8)
       BS.unpack bs `shouldBe` [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7]
@@ -207,9 +206,9 @@ spec = describe "MagicRing" $ do
     it "peekRingSliceByte reads at the given offset" $
       withMagicRing 4096 $ \ring -> do
         let base = ringBase ring
-        forM_ [0..15 :: Int] $ \i ->
+        forM_ [0 .. 15 :: Int] $ \i ->
           poke (base `plusPtr` (100 + i)) (fromIntegral (i * 3) :: Word8)
         let s = ringSlice ring 100 16
-        forM_ [0..15 :: Int] $ \i -> do
+        forM_ [0 .. 15 :: Int] $ \i -> do
           v <- peekRingSliceByte s i
           v `shouldBe` fromIntegral (i * 3)

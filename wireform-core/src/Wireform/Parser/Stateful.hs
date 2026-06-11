@@ -172,7 +172,7 @@ modify' f = ParserS \_tag _env _r mv _eob s rw ->
     (# rw', val #) ->
       let !val' = f val
       in case writeMutVar# mv val' rw' of
-          rw'' -> (# rw'', OK# () s #)
+           rw'' -> (# rw'', OK# () s #)
 {-# INLINE modify' #-}
 
 
@@ -228,9 +228,9 @@ runParserS p r s0 b = unsafeDupablePerformIO $ do
                   (# rw', Fail# #) -> (# rw', StepFail 0 #)
                   (# rw', Err# e #) -> (# rw', StepErr 0 e #)
             in case prompt# tag body rw2 of
-                (# rw3, step #) -> case readMutVar# mv rw3 of
-                  (# rw4, finalState #) ->
-                    (# rw4, classifyStep step finalState #)
+                 (# rw3, step #) -> case readMutVar# mv rw3 of
+                   (# rw4, finalState #) ->
+                     (# rw4, classifyStep step finalState #)
   where
     classifyStep (StepDone _ a) s = Right (a, s)
     classifyStep (StepFail pos) _ = Left (ParseFail pos)

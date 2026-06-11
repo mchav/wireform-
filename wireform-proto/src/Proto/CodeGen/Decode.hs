@@ -38,9 +38,9 @@ genDecodeInstance msg =
   let fields = extractFields (msgElements msg)
       allAccs = fmap fieldAccum fields
   in case fields of
-      [] -> genDecodeInstanceSimple msg fields allAccs
-      [_] -> genDecodeInstanceSimple msg fields allAccs
-      _ -> genDecodeInstanceScheduled msg fields allAccs
+       [] -> genDecodeInstanceSimple msg fields allAccs
+       [_] -> genDecodeInstanceSimple msg fields allAccs
+       _ -> genDecodeInstanceScheduled msg fields allAccs
 
 
 -- | Simple flat dispatch (for 0-1 fields).
@@ -87,22 +87,22 @@ genDecodeInstanceScheduled :: MessageDef -> [FieldInfo] -> [Text] -> Doc ann
 genDecodeInstanceScheduled msg fields allAccs =
   let nFields = length fields
   in vsep
-      [ txt "instance MessageDecode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
-      , indent 2 $
-          vsep
-            [ txt "messageDecoder ="
-                <+> txt "loop_dispatch"
-                <+> hsep (fmap (pretty . fieldDefault) fields)
-            , indent 2 $ txt "where"
-            , indent 4 $
-                vsep $
-                  -- The full dispatch loop (fallback)
-                  [genDispatchLoop msg fields allAccs nFields]
-                    <>
-                    -- Per-field entry points with next-field prediction
-                    fmap (genAfterLoop msg fields allAccs nFields) [0 .. nFields - 1]
-            ]
-      ]
+       [ txt "instance MessageDecode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
+       , indent 2 $
+           vsep
+             [ txt "messageDecoder ="
+                 <+> txt "loop_dispatch"
+                 <+> hsep (fmap (pretty . fieldDefault) fields)
+             , indent 2 $ txt "where"
+             , indent 4 $
+                 vsep $
+                   -- The full dispatch loop (fallback)
+                   [genDispatchLoop msg fields allAccs nFields]
+                     <>
+                     -- Per-field entry points with next-field prediction
+                     fmap (genAfterLoop msg fields allAccs nFields) [0 .. nFields - 1]
+             ]
+       ]
 
 
 -- | Generate the full dispatch loop (fallback for mispredictions).
@@ -136,29 +136,29 @@ genAfterLoop msg fields allAccs nFields currentIdx =
       nextFn = T.pack (show (fiFieldNum nextField))
       afterName = afterLoopName nextIdx nFields
   in vsep
-      [ txt (afterLoopNameForCurrent currentIdx) <+> hsep (fmap (pretty . fieldAccum) fields) <+> txt "= do"
-      , indent 2 $
-          vsep
-            [ txt "mTag <- getTagOrU"
-            , txt "case mTag of"
-            , indent 2 $
-                vsep
-                  [ txt "UNothing -> pure" <+> genRecordCon msg fields
-                  , txt "UJust (Tag fn wt)"
-                  , indent 2 $
-                      vsep
-                        [ txt "| fn ==" <+> pretty nextFn <+> txt "-> do"
-                        , indent 4 $ genFieldDecodeScheduled allAccs nextField afterName nFields
-                        , txt "| otherwise -> case fn of"
-                        , indent 4 $
-                            vsep
-                              ( fmap (genFieldCaseScheduled allAccs nFields) fields
-                                  <> [genDefaultCase allAccs "loop_dispatch"]
-                              )
-                        ]
-                  ]
-            ]
-      ]
+       [ txt (afterLoopNameForCurrent currentIdx) <+> hsep (fmap (pretty . fieldAccum) fields) <+> txt "= do"
+       , indent 2 $
+           vsep
+             [ txt "mTag <- getTagOrU"
+             , txt "case mTag of"
+             , indent 2 $
+                 vsep
+                   [ txt "UNothing -> pure" <+> genRecordCon msg fields
+                   , txt "UJust (Tag fn wt)"
+                   , indent 2 $
+                       vsep
+                         [ txt "| fn ==" <+> pretty nextFn <+> txt "-> do"
+                         , indent 4 $ genFieldDecodeScheduled allAccs nextField afterName nFields
+                         , txt "| otherwise -> case fn of"
+                         , indent 4 $
+                             vsep
+                               ( fmap (genFieldCaseScheduled allAccs nFields) fields
+                                   <> [genDefaultCase allAccs "loop_dispatch"]
+                               )
+                         ]
+                   ]
+             ]
+       ]
 
 
 afterLoopNameForCurrent :: Int -> Text
@@ -173,9 +173,9 @@ genFieldCaseSimple :: [Text] -> Text -> FieldInfo -> Doc ann
 genFieldCaseSimple allAccs loopName fi =
   let fn = T.pack (show (fiFieldNum fi))
   in pretty fn
-      <+> txt "-> do"
-      <> line
-      <> indent 2 (genFieldDecodeSimple allAccs fi loopName)
+       <+> txt "-> do"
+       <> line
+       <> indent 2 (genFieldDecodeSimple allAccs fi loopName)
 
 
 genFieldDecodeSimple :: [Text] -> FieldInfo -> Text -> Doc ann
@@ -185,9 +185,9 @@ genFieldDecodeSimple allAccs fi loopName =
         Just Repeated -> replaceAt idx ("(" <> fieldAccum fi <> " <> V.singleton v)") allAccs
         _ -> replaceAt idx "v" allAccs
   in vsep
-      [ txt "v <- " <> pretty (decoderExpr (fiType fi))
-      , pretty loopName <+> hsep (fmap pretty newAccs)
-      ]
+       [ txt "v <- " <> pretty (decoderExpr (fiType fi))
+       , pretty loopName <+> hsep (fmap pretty newAccs)
+       ]
 
 
 genFieldCaseScheduled :: [Text] -> Int -> FieldInfo -> Doc ann
@@ -195,9 +195,9 @@ genFieldCaseScheduled allAccs nFields fi =
   let fn = T.pack (show (fiFieldNum fi))
       after = afterLoopName (fiIndex fi) nFields
   in pretty fn
-      <+> txt "-> do"
-      <> line
-      <> indent 2 (genFieldDecodeScheduled allAccs fi after nFields)
+       <+> txt "-> do"
+       <> line
+       <> indent 2 (genFieldDecodeScheduled allAccs fi after nFields)
 
 
 genFieldDecodeScheduled :: [Text] -> FieldInfo -> Text -> Int -> Doc ann
@@ -207,9 +207,9 @@ genFieldDecodeScheduled allAccs fi loopName _nFields =
         Just Repeated -> replaceAt idx ("(" <> fieldAccum fi <> " <> V.singleton v)") allAccs
         _ -> replaceAt idx "v" allAccs
   in vsep
-      [ txt "v <- " <> pretty (decoderExpr (fiType fi))
-      , pretty loopName <+> hsep (fmap pretty newAccs)
-      ]
+       [ txt "v <- " <> pretty (decoderExpr (fiType fi))
+       , pretty loopName <+> hsep (fmap pretty newAccs)
+       ]
 
 
 genDefaultCase :: [Text] -> Text -> Doc ann

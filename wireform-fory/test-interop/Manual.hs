@@ -36,15 +36,15 @@ genValue depth =
     ]
       ++ [ ( 2
            , VV.ListVal . V.fromList
-              <$> Gen.list (Range.linear 0 4) (genValue (depth - 1))
+               <$> Gen.list (Range.linear 0 4) (genValue (depth - 1))
            )
          | depth > 0
          ]
       ++ [ ( 1
            , VV.MapVal . V.fromList
-              <$> Gen.list
-                (Range.linear 0 3)
-                ((,) <$> genHashableKey <*> genValue (depth - 1))
+               <$> Gen.list
+                 (Range.linear 0 3)
+                 ((,) <$> genHashableKey <*> genValue (depth - 1))
            )
          | depth > 0
          ]

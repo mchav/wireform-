@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import BSON.Class (FromBSON, ToBSON, decodeBSON, encodeBSON)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import BSON.Class (ToBSON, FromBSON, encodeBSON, decodeBSON)
+import GHC.Generics (Generic)
+
 
 data User = User
   { username :: !Text
-  , score    :: !Int
-  , active   :: !Bool
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToBSON, FromBSON)
+  , score :: !Int
+  , active :: !Bool
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToBSON, FromBSON)
+
 
 main :: IO ()
 main = do
@@ -25,6 +29,6 @@ main = do
 
   case decodeBSON bytes of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: User)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeBSON (encodeBSON user) == Right user)

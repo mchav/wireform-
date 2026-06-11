@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Kafka.Internal.Compat
 Description : Internal compatibility shims for the hw-kafka facade.
 
@@ -7,43 +7,45 @@ opaque handle wrappers and pure Haskell replacements for the small
 librdkafka-shaped pieces that leak through the public @hw-kafka-client@
 surface.
 -}
-module Kafka.Internal.Compat
-  ( Kafka (..)
-  , KafkaConf (..)
-  , TopicConf (..)
-  , HasKafka (..)
-  , HasKafkaConf (..)
-  , HasTopicConf (..)
-  , RdKafkaRespErrT (..)
-  , kafkaConf
-  , topicConf
-  , kafkaError
-  , errorToKafkaError
-  , maybeError
-  , textDecimal
-  , decimalText
-  ) where
+module Kafka.Internal.Compat (
+  Kafka (..),
+  KafkaConf (..),
+  TopicConf (..),
+  HasKafka (..),
+  HasKafkaConf (..),
+  HasTopicConf (..),
+  RdKafkaRespErrT (..),
+  kafkaConf,
+  topicConf,
+  kafkaError,
+  errorToKafkaError,
+  maybeError,
+  textDecimal,
+  decimalText,
+) where
 
 import Control.Exception (Exception)
 import Data.ByteString (ByteString)
-import Data.Int (Int64)
 import Data.IORef (IORef, newIORef)
+import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Builder (toLazyText)
 import Data.Text.Lazy.Builder.Int (decimal)
+import Data.Text.Read qualified as TR
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
-import qualified Data.Text as T
-import qualified Data.Text.Read as TR
-import qualified Kafka.Client.Consumer as WFConsumer
-import qualified Kafka.Client.Producer as WFProducer
+import Kafka.Client.Consumer qualified as WFConsumer
+import Kafka.Client.Producer qualified as WFProducer
 
--- | Pure Haskell mirror of librdkafka's @rd_kafka_resp_err_t@ enum.
---
--- The constructors are retained because @hw-kafka-client@ re-exported
--- them. The native wireform client does not call into librdkafka.
+
+{- | Pure Haskell mirror of librdkafka's @rd_kafka_resp_err_t@ enum.
+
+The constructors are retained because @hw-kafka-client@ re-exported
+them. The native wireform client does not call into librdkafka.
+-}
 data RdKafkaRespErrT
   = RdKafkaRespErrBegin
   | RdKafkaRespErrBadMsg
@@ -210,10 +212,12 @@ data RdKafkaRespErrT
   | RdKafkaRespErrEndAll
   deriving (Eq, Show, Enum, Bounded, Typeable, Generic)
 
+
 -- | Opaque compatibility handle for native wireform Kafka clients.
 data Kafka
   = KafkaProducerHandle !WFProducer.Producer
   | KafkaConsumerHandle !WFConsumer.Consumer
+
 
 -- | Compatibility copy of Kafka-level properties plus consumer buffer.
 data KafkaConf = KafkaConf
@@ -221,52 +225,66 @@ data KafkaConf = KafkaConf
   , kcfgBufferedRecords :: !(IORef [WFConsumer.ConsumerRecord])
   }
 
+
 -- | Compatibility copy of topic-level properties.
 newtype TopicConf = TopicConf
   { topicConfProps :: Map Text Text
   }
 
+
 -- | Values that contain a compatibility Kafka handle.
 class HasKafka a where
   getKafka :: a -> Kafka
+
 
 -- | Values that contain compatibility Kafka properties.
 class HasKafkaConf a where
   getKafkaConf :: a -> KafkaConf
 
+
 -- | Values that contain compatibility topic properties.
 class HasTopicConf a where
   getTopicConf :: a -> TopicConf
 
+
 kafkaConf :: Map Text Text -> IO KafkaConf
 kafkaConf props = do
   buffered <- newIORef []
-  pure KafkaConf
-    { kcfgKafkaProps = props
-    , kcfgBufferedRecords = buffered
-    }
+  pure
+    KafkaConf
+      { kcfgKafkaProps = props
+      , kcfgBufferedRecords = buffered
+      }
+
 
 topicConf :: Map Text Text -> TopicConf
 topicConf = TopicConf
 
+
 kafkaError :: Text -> err
 kafkaError = error . T.unpack
+
 
 errorToKafkaError :: Text -> KafkaErrorLike
 errorToKafkaError = KafkaErrorLike
 
+
 maybeError :: Either String a -> Maybe KafkaErrorLike
 maybeError = either (Just . KafkaErrorLike . T.pack) (const Nothing)
+
 
 textDecimal :: Integral a => Text -> Maybe a
 textDecimal t = case TR.signed TR.decimal t of
   Right (n, rest) | T.null rest -> Just n
   _ -> Nothing
 
+
 decimalText :: Integral a => a -> Text
 decimalText = toStrict . toLazyText . decimal
 
+
 newtype KafkaErrorLike = KafkaErrorLike Text
   deriving stock (Eq, Show, Typeable, Generic)
+
 
 instance Exception KafkaErrorLike

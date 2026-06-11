@@ -4,34 +4,42 @@
 -- | KTable-focused DSL tests.
 module Streams.DSLSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Text as T
+import Data.ByteString.Char8 qualified as BSC
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "DSL (KTable)" $ sequence_
-  [ table_from_topic_basic
-  , table_filter_with_tombstone
-  , table_mapvalues_updates_store
-  , table_tombstone_via_null_value
-  ]
+tests =
+  describe "DSL (KTable)" $
+    sequence_
+      [ table_from_topic_basic
+      , table_filter_with_tombstone
+      , table_mapvalues_updates_store
+      , table_tombstone_via_null_value
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
+
 
 table_from_topic_basic :: Spec
 table_from_topic_basic =
   it "tableFromTopic materialises latest-per-key into store" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "ktab"))
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "ktab"))
     topo <- buildTopology b
     driver <- newDriver topo "ktab-app"
 
@@ -48,22 +56,27 @@ table_from_topic_basic =
       Nothing -> error "store missing"
     closeDriver driver
 
+
 table_filter_with_tombstone :: Spec
 table_filter_with_tombstone =
   it "filterTable drops non-matching values" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "src-store"))
-    kt2 <- filterTable
-              (\r -> T.length (recordValue r) >= 3)
-              (materializedAs (storeName "filt-store"))
-              kt
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "src-store"))
+    kt2 <-
+      filterTable
+        (\r -> T.length (recordValue r) >= 3)
+        (materializedAs (storeName "filt-store"))
+        kt
     topo <- buildTopology b
     driver <- newDriver topo "ktab-app"
 
-    pipeInput driver (topicName "in") (Just (bytes "a")) (bytes "ab")    (t 0) 0
-    pipeInput driver (topicName "in") (Just (bytes "b")) (bytes "abcd")  (t 0) 0
+    pipeInput driver (topicName "in") (Just (bytes "a")) (bytes "ab") (t 0) 0
+    pipeInput driver (topicName "in") (Just (bytes "b")) (bytes "abcd") (t 0) 0
     pipeInput driver (topicName "in") (Just (bytes "c")) (bytes "abcde") (t 0) 0
 
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt2)
@@ -75,16 +88,22 @@ table_filter_with_tombstone =
       Nothing -> error "filtered store missing"
     closeDriver driver
 
+
 table_mapvalues_updates_store :: Spec
 table_mapvalues_updates_store =
   it "mapValuesTable derives a new store" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "src"))
-    kt2 <- mapValuesTable T.toUpper
-              (materializedAs (storeName "upper"))
-              kt
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "src"))
+    kt2 <-
+      mapValuesTable
+        T.toUpper
+        (materializedAs (storeName "upper"))
+        kt
     topo <- buildTopology b
     driver <- newDriver topo "ktab-app"
 
@@ -99,23 +118,28 @@ table_mapvalues_updates_store =
       Nothing -> error "mapped store missing"
     closeDriver driver
 
+
 table_tombstone_via_null_value :: Spec
 table_tombstone_via_null_value =
   it "filterTable produces tombstones when value drops out of filter" $ do
     b <- newStreamsBuilder
-    kt <- tableFromTopic b (topicName "in")
-            (consumed textSerde textSerde)
-            (materializedAs (storeName "src2"))
-    kt2 <- filterTable
-              (\r -> T.length (recordValue r) >= 3)
-              (materializedAs (storeName "filt2"))
-              kt
+    kt <-
+      tableFromTopic
+        b
+        (topicName "in")
+        (consumed textSerde textSerde)
+        (materializedAs (storeName "src2"))
+    kt2 <-
+      filterTable
+        (\r -> T.length (recordValue r) >= 3)
+        (materializedAs (storeName "filt2"))
+        kt
     topo <- buildTopology b
     driver <- newDriver topo "ktab-app"
 
     -- "abcd" passes the filter (len>=3). Then "ab" fails — should tombstone.
     pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "abcd") (t 0) 0
-    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "ab")   (t 1) 0
+    pipeInput driver (topicName "in") (Just (bytes "k")) (bytes "ab") (t 1) 0
 
     mStore <- getKeyValueStore @Text @Text driver (ktableStore kt2)
     case mStore of

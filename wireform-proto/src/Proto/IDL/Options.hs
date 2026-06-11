@@ -268,16 +268,16 @@ extractLanguagePackages :: ProtoFile -> LanguagePackages
 extractLanguagePackages pf =
   let fo = extractFileOptions (protoOptions pf)
   in LanguagePackages
-      { lpProtoPackage = protoPackage pf
-      , lpJavaPackage = foJavaPackage fo
-      , lpGoPackage = foGoPackage fo
-      , lpCsharpNamespace = foCsharpNamespace fo
-      , lpPhpNamespace = foPhpNamespace fo
-      , lpRubyPackage = foRubyPackage fo
-      , lpSwiftPrefix = foSwiftPrefix fo
-      , lpObjcPrefix = foObjcClassPrefix fo
-      , lpHaskellModule = deriveHaskellModule (protoPackage pf)
-      }
+       { lpProtoPackage = protoPackage pf
+       , lpJavaPackage = foJavaPackage fo
+       , lpGoPackage = foGoPackage fo
+       , lpCsharpNamespace = foCsharpNamespace fo
+       , lpPhpNamespace = foPhpNamespace fo
+       , lpRubyPackage = foRubyPackage fo
+       , lpSwiftPrefix = foSwiftPrefix fo
+       , lpObjcPrefix = foObjcClassPrefix fo
+       , lpHaskellModule = deriveHaskellModule (protoPackage pf)
+       }
 
 
 deriveHaskellModule :: Maybe Text -> Text

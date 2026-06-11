@@ -478,12 +478,12 @@ rebuildCrumbs idx = go
     go !i =
       let !pidx = fromIntegral (indexPrimArray (eiParent idx) i) :: Int
       in if pidx < 0
-          then []
-          else case indexSmallArray (eiNodes idx) pidx of
-            HTMLElement ptag pattrs pchildren ->
-              let !ri = fromIntegral (indexPrimArray (eiRawChild idx) i) :: Int
-              in Crumb ptag pattrs pchildren ri : go pidx
-            _ -> []
+           then []
+           else case indexSmallArray (eiNodes idx) pidx of
+             HTMLElement ptag pattrs pchildren ->
+               let !ri = fromIntegral (indexPrimArray (eiRawChild idx) i) :: Int
+               in Crumb ptag pattrs pchildren ri : go pidx
+             _ -> []
 {-# INLINE rebuildCrumbs #-}
 
 
@@ -533,10 +533,10 @@ querySelectorAllSel sel@(Sel.Selector complexSels) (Node raw crumbs) =
           let !child = indexSmallArray pchildren i
               !nextRest = forEachChild ptag pattrs pchildren pcrumbs (i + 1) n rest
           in case child of
-              HTMLElement {} ->
-                let !crumbs' = Crumb ptag pattrs pchildren i : pcrumbs
-                in dispatchChild child crumbs' nextRest
-              _ -> nextRest
+               HTMLElement {} ->
+                 let !crumbs' = Crumb ptag pattrs pchildren i : pcrumbs
+                 in dispatchChild child crumbs' nextRest
+               _ -> nextRest
     dispatchChild childRaw childCrumbs rest = case complexSels of
       [cs] -> dispatchSingle cs childRaw childCrumbs rest
       _
@@ -549,8 +549,8 @@ querySelectorAllSel sel@(Sel.Selector complexSels) (Node raw crumbs) =
     dispatchSingle cs r c rest =
       let !(subject, ctx) = decomposeComplex cs
       in if Sel.isFlatCompound subject && canFastCtx ctx
-          then collectFastCtx subject ctx r c rest
-          else collectGeneral sel r c rest
+           then collectFastCtx subject ctx r c rest
+           else collectGeneral sel r c rest
     canFastCtx = all pairOk
       where
         pairOk (Sel.AdjacentSibling, _) = False
@@ -574,8 +574,8 @@ querySelectorAllDoc sel@(Sel.Selector complexSels) (Document _ idx) =
     dispatchIdx cs =
       let !(subject, ctx) = decomposeComplex cs
       in case ctx of
-          [] -> scanCompoundIdx subject idx
-          _ -> scanComplexIdx subject ctx idx
+           [] -> scanCompoundIdx subject idx
+           _ -> scanComplexIdx subject ctx idx
 
 
 -- Intersect two sorted PrimArray Int32s.
@@ -590,11 +590,11 @@ intersectSorted a b = runST $ do
             let !va = indexPrimArray a ia
                 !vb = indexPrimArray b ib
             in case compare va vb of
-                LT -> go (ia + 1) ib k
-                GT -> go ia (ib + 1) k
-                EQ -> do
-                  writePrimArray out k va
-                  go (ia + 1) (ib + 1) (k + 1)
+                 LT -> go (ia + 1) ib k
+                 GT -> go ia (ib + 1) k
+                 EQ -> do
+                   writePrimArray out k va
+                   go (ia + 1) (ib + 1) (k + 1)
   !k <- go 0 0 0
   shrinkMutablePrimArray out k
   unsafeFreezePrimArray out
@@ -613,19 +613,19 @@ resolveCandidates compound idx =
   let mTag = Sel.compoundType compound >>= \t -> HM.lookup t (eiByTag idx)
       mCls = Sel.compoundClass compound >>= \c -> HM.lookup c (eiByClass idx)
   in case (mTag, mCls) of
-      (Just tagArr, Just clsArr) ->
-        let !inter = intersectSorted tagArr clsArr
-        in case Sel.compoundSubsWithoutClass compound of
-            Just [] -> Just (PreMatched inter)
-            Just rest -> Just (NeedFilter inter (Sel.CompoundSelector Nothing rest))
-            Nothing -> Just (NeedFilter inter compound)
-      (Just tagArr, Nothing) ->
-        case stripType compound of
-          Sel.CompoundSelector _ [] -> Just (PreMatched tagArr)
-          rest -> Just (NeedFilter tagArr rest)
-      (Nothing, Just clsArr) ->
-        Just (NeedFilter clsArr (stripClass compound))
-      (Nothing, Nothing) -> Nothing
+       (Just tagArr, Just clsArr) ->
+         let !inter = intersectSorted tagArr clsArr
+         in case Sel.compoundSubsWithoutClass compound of
+              Just [] -> Just (PreMatched inter)
+              Just rest -> Just (NeedFilter inter (Sel.CompoundSelector Nothing rest))
+              Nothing -> Just (NeedFilter inter compound)
+       (Just tagArr, Nothing) ->
+         case stripType compound of
+           Sel.CompoundSelector _ [] -> Just (PreMatched tagArr)
+           rest -> Just (NeedFilter tagArr rest)
+       (Nothing, Just clsArr) ->
+         Just (NeedFilter clsArr (stripClass compound))
+       (Nothing, Nothing) -> Nothing
   where
     stripType (Sel.CompoundSelector _ subs) = Sel.CompoundSelector Nothing subs
     stripClass c = case Sel.compoundSubsWithoutClass c of
@@ -667,10 +667,10 @@ filterCandidatesRev compound idx arr !j acc
   | otherwise =
       let !i = fromIntegral (indexPrimArray arr j) :: Int
       in if matchesCompoundIdx idx i compound
-          then
-            let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
-            in filterCandidatesRev compound idx arr (j - 1) (node : acc)
-          else filterCandidatesRev compound idx arr (j - 1) acc
+           then
+             let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
+             in filterCandidatesRev compound idx arr (j - 1) (node : acc)
+           else filterCandidatesRev compound idx arr (j - 1) acc
 
 
 scanAllFwd :: Sel.CompoundSelector -> ElementIndex -> Int -> Int -> [Node]
@@ -695,8 +695,8 @@ materializeCandidates (NeedFilter arr compound) idx = runST $ do
         | otherwise =
             let !i = fromIntegral (indexPrimArray arr j) :: Int
             in if matchesCompoundIdx idx i compound
-                then writePrimArray out k (indexPrimArray arr j) >> go (j + 1) (k + 1)
-                else go (j + 1) k
+                 then writePrimArray out k (indexPrimArray arr j) >> go (j + 1) (k + 1)
+                 else go (j + 1) k
   !k <- go 0 0
   shrinkMutablePrimArray out k
   unsafeFreezePrimArray out
@@ -745,24 +745,24 @@ mergeDescendantNodes subjectCS contextArr idx =
                 (!ci', !stk') = pushCtx ci stk s
                 !stk'' = popExpired stk' s
             in case stk'' of
-                [] -> goFwd (si + 1) ci' stk'' acc
-                _ ->
-                  let !sI = fromIntegral s :: Int
-                      keep = case mCompound of
-                        Nothing -> True
-                        Just c -> matchesCompoundIdx idx sI c
-                  in if keep
-                      then
-                        let !node = Node (indexSmallArray nodes sI) (rebuildCrumbs idx sI)
-                        in goFwd (si + 1) ci' stk'' (node : acc)
-                      else goFwd (si + 1) ci' stk'' acc
+                 [] -> goFwd (si + 1) ci' stk'' acc
+                 _ ->
+                   let !sI = fromIntegral s :: Int
+                       keep = case mCompound of
+                         Nothing -> True
+                         Just c -> matchesCompoundIdx idx sI c
+                   in if keep
+                        then
+                          let !node = Node (indexSmallArray nodes sI) (rebuildCrumbs idx sI)
+                          in goFwd (si + 1) ci' stk'' (node : acc)
+                        else goFwd (si + 1) ci' stk'' acc
       pushCtx !ci !stk !s
         | ci >= nCtx = (ci, stk)
         | otherwise =
             let !c = indexPrimArray contextArr ci
             in if c < s
-                then pushCtx (ci + 1) (CtxEntry c (indexPrimArray subEnd (fromIntegral c)) : stk) s
-                else (ci, stk)
+                 then pushCtx (ci + 1) (CtxEntry c (indexPrimArray subEnd (fromIntegral c)) : stk) s
+                 else (ci, stk)
       popExpired [] _ = []
       popExpired stk@(CtxEntry _ end : rest) !s
         | end <= s = popExpired rest s
@@ -783,10 +783,10 @@ filterContextRev ctx idx arr !j acc
   | otherwise =
       let !i = fromIntegral (indexPrimArray arr j) :: Int
       in if matchContextIdx idx i ctx
-          then
-            let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
-            in filterContextRev ctx idx arr (j - 1) (node : acc)
-          else filterContextRev ctx idx arr (j - 1) acc
+           then
+             let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
+             in filterContextRev ctx idx arr (j - 1) (node : acc)
+           else filterContextRev ctx idx arr (j - 1) acc
 
 
 filterComplexRev
@@ -802,10 +802,10 @@ filterComplexRev subject ctx idx arr !j acc
   | otherwise =
       let !i = fromIntegral (indexPrimArray arr j) :: Int
       in if matchesCompoundIdx idx i subject && matchContextIdx idx i ctx
-          then
-            let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
-            in filterComplexRev subject ctx idx arr (j - 1) (node : acc)
-          else filterComplexRev subject ctx idx arr (j - 1) acc
+           then
+             let !node = Node (indexSmallArray (eiNodes idx) i) (rebuildCrumbs idx i)
+             in filterComplexRev subject ctx idx arr (j - 1) (node : acc)
+           else filterComplexRev subject ctx idx arr (j - 1) acc
 
 
 scanAllComplexFwd
@@ -852,18 +852,18 @@ collectFlat compound = go
       let !n = sizeofSmallArray children
           kidRest = goKids tag attrs children crumbs 0 n rest
       in if matchCompoundFlat compound tag attrs
-          then Node raw crumbs : kidRest
-          else kidRest
+           then Node raw crumbs : kidRest
+           else kidRest
     go _ _ rest = rest
     goKids !tag !attrs !children !crumbs !i !n rest
       | i >= n = rest
       | otherwise =
           let !child = indexSmallArray children i
           in case child of
-              HTMLElement {} ->
-                let !crumbs' = Crumb tag attrs children i : crumbs
-                in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
-              _ -> goKids tag attrs children crumbs (i + 1) n rest
+               HTMLElement {} ->
+                 let !crumbs' = Crumb tag attrs children i : crumbs
+                 in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
+               _ -> goKids tag attrs children crumbs (i + 1) n rest
 
 
 -- Flat traversal for multiple flat compound selectors (comma-separated).
@@ -874,18 +874,18 @@ collectFlatMulti compounds = go
       let !n = sizeofSmallArray children
           kidRest = goKids tag attrs children crumbs 0 n rest
       in if anyMatch tag attrs compounds
-          then Node raw crumbs : kidRest
-          else kidRest
+           then Node raw crumbs : kidRest
+           else kidRest
     go _ _ rest = rest
     goKids !tag !attrs !children !crumbs !i !n rest
       | i >= n = rest
       | otherwise =
           let !child = indexSmallArray children i
           in case child of
-              HTMLElement {} ->
-                let !crumbs' = Crumb tag attrs children i : crumbs
-                in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
-              _ -> goKids tag attrs children crumbs (i + 1) n rest
+               HTMLElement {} ->
+                 let !crumbs' = Crumb tag attrs children i : crumbs
+                 in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
+               _ -> goKids tag attrs children crumbs (i + 1) n rest
     anyMatch !_ !_ [] = False
     anyMatch tag attrs (c : cs) = matchCompoundFlat c tag attrs || anyMatch tag attrs cs
 
@@ -907,18 +907,18 @@ collectFastCtx subject ctx = go
       let !n = sizeofSmallArray children
           kidRest = goKids tag attrs children crumbs 0 n rest
       in if matchCompoundFlat subject tag attrs && matchCtxCrumbs ctx crumbs
-          then Node raw crumbs : kidRest
-          else kidRest
+           then Node raw crumbs : kidRest
+           else kidRest
     go _ _ rest = rest
     goKids !tag !attrs !children !crumbs !i !n rest
       | i >= n = rest
       | otherwise =
           let !child = indexSmallArray children i
           in case child of
-              HTMLElement {} ->
-                let !crumbs' = Crumb tag attrs children i : crumbs
-                in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
-              _ -> goKids tag attrs children crumbs (i + 1) n rest
+               HTMLElement {} ->
+                 let !crumbs' = Crumb tag attrs children i : crumbs
+                 in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
+               _ -> goKids tag attrs children crumbs (i + 1) n rest
 
 
 matchCtxCrumbs :: [(Sel.Combinator, Sel.CompoundSelector)] -> [Crumb] -> Bool
@@ -948,18 +948,18 @@ collectGeneral sel = go
           !n = sizeofSmallArray children
           kidRest = goKids tag attrs children crumbs 0 n rest
       in if matchesSelector sel node
-          then node : kidRest
-          else kidRest
+           then node : kidRest
+           else kidRest
     go _ _ rest = rest
     goKids !tag !attrs !children !crumbs !i !n rest
       | i >= n = rest
       | otherwise =
           let !child = indexSmallArray children i
           in case child of
-              HTMLElement {} ->
-                let !crumbs' = Crumb tag attrs children i : crumbs
-                in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
-              _ -> goKids tag attrs children crumbs (i + 1) n rest
+               HTMLElement {} ->
+                 let !crumbs' = Crumb tag attrs children i : crumbs
+                 in go child crumbs' (goKids tag attrs children crumbs (i + 1) n rest)
+               _ -> goKids tag attrs children crumbs (i + 1) n rest
 
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b

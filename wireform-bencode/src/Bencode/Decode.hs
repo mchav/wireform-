@@ -1,20 +1,21 @@
 {-# LANGUAGE BangPatterns #-}
--- | Bencode binary decoding using peekByteOff-based offset parsing.
-module Bencode.Decode
-  ( decode
-  ) where
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
-import Data.Word (Word8)
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
+-- | Bencode binary decoding using peekByteOff-based offset parsing.
+module Bencode.Decode (
+  decode,
+) where
+
+import Bencode.Value qualified as B
 import Control.Monad.ST (ST, runST)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
 import Data.List (sortBy)
 import Data.Ord (comparing)
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
+import Data.Word (Word8)
 
-import qualified Bencode.Value as B
 
 decode :: ByteString -> Either String B.Value
 decode !bs
@@ -26,23 +27,28 @@ decode !bs
           then Right val
           else Left "Bencode.Decode: trailing data"
 
+
 type Parser a = ByteString -> Int -> Either String (a, Int)
+
 
 rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
 
+
 parseValue :: Parser B.Value
 parseValue bs off
   | off >= BS.length bs = Left "Bencode.Decode: unexpected end of input"
   | otherwise =
-    let !b = rdByte bs off
-    in case b of
-      0x69 -> parseInteger bs (off + 1)  -- 'i'
-      0x6C -> parseList bs (off + 1)     -- 'l'
-      0x64 -> parseDict bs (off + 1)     -- 'd'
-      _ | b >= 0x30 && b <= 0x39 -> parseString bs off
-        | otherwise -> Left $ "Bencode.Decode: unexpected byte " ++ show b
+      let !b = rdByte bs off
+      in case b of
+           0x69 -> parseInteger bs (off + 1) -- 'i'
+           0x6C -> parseList bs (off + 1) -- 'l'
+           0x64 -> parseDict bs (off + 1) -- 'd'
+           _
+             | b >= 0x30 && b <= 0x39 -> parseString bs off
+             | otherwise -> Left $ "Bencode.Decode: unexpected byte " ++ show b
+
 
 parseString :: Parser B.Value
 parseString bs off = do
@@ -52,18 +58,20 @@ parseString bs off = do
     then Left "Bencode.Decode: string length exceeds input"
     else Right (B.BString (BSU.unsafeTake len (BSU.unsafeDrop off1 bs)), off2)
 
+
 parseLength :: ByteString -> Int -> Either String (Int, Int)
 parseLength bs off = go off 0
   where
     !bsLen = BS.length bs
     go !i !acc
       | i >= bsLen = Left "Bencode.Decode: unterminated string length"
-      | rdByte bs i == 0x3A = Right (acc, i + 1)  -- ':'
+      | rdByte bs i == 0x3A = Right (acc, i + 1) -- ':'
       | otherwise =
           let !b = rdByte bs i
           in if b >= 0x30 && b <= 0x39
                then go (i + 1) (acc * 10 + fromIntegral (b - 0x30))
                else Left "Bencode.Decode: non-digit in string length"
+
 
 parseInteger :: Parser B.Value
 parseInteger bs off = go off []
@@ -71,13 +79,15 @@ parseInteger bs off = go off []
     !bsLen = BS.length bs
     go !i !acc
       | i >= bsLen = Left "Bencode.Decode: unterminated integer"
-      | rdByte bs i == 0x65 =  -- 'e'
+      | rdByte bs i == 0x65 -- 'e'
+        =
           case reads (reverse acc) :: [(Integer, String)] of
             [(n, "")] -> Right (B.BInteger n, i + 1)
             _ -> Left "Bencode.Decode: invalid integer"
       | otherwise =
           let !c = toEnum (fromIntegral (rdByte bs i)) :: Char
           in go (i + 1) (c : acc)
+
 
 parseList :: Parser B.Value
 parseList bs off0 = runST $ do
@@ -87,7 +97,8 @@ parseList bs off0 = runST $ do
     go :: MV.MVector s B.Value -> Int -> Int -> Int -> ST s (Either String (B.Value, Int))
     go !mv !i !cap !off
       | off >= BS.length bs = pure $! Left "Bencode.Decode: unterminated list"
-      | rdByte bs off == 0x65 = do  -- 'e'
+      | rdByte bs off == 0x65 = do
+          -- 'e'
           vec <- V.unsafeFreeze (MV.take i mv)
           pure $! Right (B.BList vec, off + 1)
       | otherwise = case parseValue bs off of
@@ -98,6 +109,7 @@ parseList bs off0 = runST $ do
             MV.unsafeWrite mv' i v
             go mv' (i + 1) cap' off'
 
+
 parseDict :: Parser B.Value
 parseDict bs off0 = runST $ do
   mv <- MV.new 8
@@ -106,7 +118,8 @@ parseDict bs off0 = runST $ do
     go :: MV.MVector s (ByteString, B.Value) -> Int -> Int -> Int -> ST s (Either String (B.Value, Int))
     go !mv !i !cap !off
       | off >= BS.length bs = pure $! Left "Bencode.Decode: unterminated dict"
-      | rdByte bs off == 0x65 = do  -- 'e'
+      | rdByte bs off == 0x65 = do
+          -- 'e'
           vec <- V.unsafeFreeze (MV.take i mv)
           let !sorted = V.fromList (sortBy (comparing fst) (V.toList vec))
           pure $! Right (B.BDict sorted, off + 1)

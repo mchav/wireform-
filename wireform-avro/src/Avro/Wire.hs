@@ -138,53 +138,53 @@ getUVarint :: ByteString -> Int# -> (# (# Word64, Int# #) | () #)
 getUVarint bs off =
   let len = bsLen bs
   in if isTrue# (off >=# len)
-      then (# | () #)
-      else
-        let !b0 = fromIntegral (BSU.unsafeIndex bs (I# off)) :: Word64
-        in if b0 < 0x80
-            then (# (# b0, off +# 1# #) | #)
-            else
-              let off1 = off +# 1#
-              in if isTrue# (off1 >=# len)
-                  then (# | () #)
-                  else
-                    let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
-                    in if b1 < 0x80
-                        then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
-                        else
-                          let off2 = off +# 2#
-                          in if isTrue# (off2 >=# len)
-                              then (# | () #)
-                              else
-                                let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
-                                in if b2 < 0x80
-                                    then
-                                      (#
-                                        (#
-                                          (b0 .&. 0x7F)
-                                            .|. ((b1 .&. 0x7F) `shiftL` 7)
-                                            .|. (b2 `shiftL` 14)
-                                          , off +# 3#
-                                        #) |
-                                      #)
-                                    else
-                                      let off3 = off +# 3#
-                                      in if isTrue# (off3 >=# len)
-                                          then (# | () #)
+       then (# | () #)
+       else
+         let !b0 = fromIntegral (BSU.unsafeIndex bs (I# off)) :: Word64
+         in if b0 < 0x80
+              then (# (# b0, off +# 1# #) | #)
+              else
+                let off1 = off +# 1#
+                in if isTrue# (off1 >=# len)
+                     then (# | () #)
+                     else
+                       let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
+                       in if b1 < 0x80
+                            then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
+                            else
+                              let off2 = off +# 2#
+                              in if isTrue# (off2 >=# len)
+                                   then (# | () #)
+                                   else
+                                     let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
+                                     in if b2 < 0x80
+                                          then
+                                            (#
+                                              (#
+                                                (b0 .&. 0x7F)
+                                                  .|. ((b1 .&. 0x7F) `shiftL` 7)
+                                                  .|. (b2 `shiftL` 14)
+                                                , off +# 3#
+                                              #) |
+                                            #)
                                           else
-                                            let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
-                                            in if b3 < 0x80
-                                                then
-                                                  (#
-                                                    (#
-                                                      (b0 .&. 0x7F)
-                                                        .|. ((b1 .&. 0x7F) `shiftL` 7)
-                                                        .|. ((b2 .&. 0x7F) `shiftL` 14)
-                                                        .|. (b3 `shiftL` 21)
-                                                      , off +# 4#
-                                                    #) |
-                                                  #)
-                                                else getUVarintSlow bs off
+                                            let off3 = off +# 3#
+                                            in if isTrue# (off3 >=# len)
+                                                 then (# | () #)
+                                                 else
+                                                   let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
+                                                   in if b3 < 0x80
+                                                        then
+                                                          (#
+                                                            (#
+                                                              (b0 .&. 0x7F)
+                                                                .|. ((b1 .&. 0x7F) `shiftL` 7)
+                                                                .|. ((b2 .&. 0x7F) `shiftL` 14)
+                                                                .|. (b3 `shiftL` 21)
+                                                              , off +# 4#
+                                                            #) |
+                                                          #)
+                                                        else getUVarintSlow bs off
 {-# INLINE getUVarint #-}
 
 
@@ -200,8 +200,8 @@ getUVarintSlow bs = go 0 0
           let !b = BSU.unsafeIndex bs (I# pos)
               !val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-              then (# (# val, pos +# 1# #) | #)
-              else go val (shift + 7) (pos +# 1#)
+               then (# (# val, pos +# 1# #) | #)
+               else go val (shift + 7) (pos +# 1#)
 {-# INLINE getUVarintSlow #-}
 
 
@@ -303,9 +303,9 @@ avroDecodeBool !bs !off
   | otherwise =
       let !b = BSU.unsafeIndex bs off
       in case b of
-          0x00 -> AvroDecodeOK False (off + 1)
-          0x01 -> AvroDecodeOK True (off + 1)
-          _ -> AvroDecodeFail ("avroDecodeBool: invalid byte " ++ show b)
+           0x00 -> AvroDecodeOK False (off + 1)
+           0x01 -> AvroDecodeOK True (off + 1)
+           _ -> AvroDecodeFail ("avroDecodeBool: invalid byte " ++ show b)
 {-# INLINE avroDecodeBool #-}
 
 
@@ -354,11 +354,11 @@ avroDecodeBytes !bs !off =
     AvroDecodeOK !lenI64 !off' ->
       let !len = fromIntegral lenI64 :: Int
       in if len < 0
-          then AvroDecodeFail "avroDecodeBytes: negative length"
-          else
-            if off' + len > BS.length bs
-              then AvroDecodeFail "avroDecodeBytes: unexpected end of input"
-              else AvroDecodeOK (BSU.unsafeTake len (BSU.unsafeDrop off' bs)) (off' + len)
+           then AvroDecodeFail "avroDecodeBytes: negative length"
+           else
+             if off' + len > BS.length bs
+               then AvroDecodeFail "avroDecodeBytes: unexpected end of input"
+               else AvroDecodeOK (BSU.unsafeTake len (BSU.unsafeDrop off' bs)) (off' + len)
     AvroDecodeFail e -> AvroDecodeFail e
 {-# INLINE avroDecodeBytes #-}
 

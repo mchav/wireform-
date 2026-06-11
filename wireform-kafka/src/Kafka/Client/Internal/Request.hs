@@ -40,12 +40,12 @@ import Data.Int (Int16, Int32)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
 import Foreign.Ptr (plusPtr)
 import GHC.IO (unsafePerformIO)
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader as RH
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire as W
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec as WC
 import Kafka.Network.Connection.Internal (Connection, connectionGet, connectionPut)
 import Wireform.Builder qualified as WB
+import "wireform-kafka-protocol" Kafka.Protocol.Generated.RequestHeader qualified as RH
+import "wireform-kafka-protocol" Kafka.Protocol.Primitives qualified as P
+import "wireform-kafka-protocol" Kafka.Protocol.Wire qualified as W
+import "wireform-kafka-protocol" Kafka.Protocol.Wire.Codec qualified as WC
 
 
 {- | Frame a request with its length prefix and header.
@@ -432,8 +432,8 @@ parseResponseFrame apiKey apiVersion bs = do
                   !tail0 = BS.tail bs0
                   !v = acc + (fromIntegral (b .&. 0x7F) `shiftL` shift)
               in if b .&. 0x80 == 0
-                  then Right (v, tail0)
-                  else go (shift + 7) v tail0
+                   then Right (v, tail0)
+                   else go (shift + 7) v tail0
 
 
 -- | Send a raw framed request to the connection.

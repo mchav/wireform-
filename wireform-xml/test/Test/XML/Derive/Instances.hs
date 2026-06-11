@@ -3,9 +3,9 @@
 
 module Test.XML.Derive.Instances () where
 
+import Test.XML.Derive.Types
 import XML.Derive
 
-import Test.XML.Derive.Types
 
 deriveXML ''User
 deriveXML ''Status

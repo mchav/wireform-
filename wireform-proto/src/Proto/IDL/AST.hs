@@ -341,12 +341,14 @@ data MessageElement' p
     MEMapField !(MapField' p)
   | -- | A reserved declaration.
     MEReserved !ReservedDef
-  | -- | An extensions range declaration, with any trailing options
-    -- (e.g. @extensions 4 to 8 [verification = UNVERIFIED];@ or an
-    -- editions @[declaration = {…}]@ list).
+  | {- | An extensions range declaration, with any trailing options
+    (e.g. @extensions 4 to 8 [verification = UNVERIFIED];@ or an
+    editions @[declaration = {…}]@ list).
+    -}
     MEExtensions ![ExtensionRange] ![OptionDef' p]
-  | -- | A nested @extend@ block (proto2) declaring extension fields on
-    -- another type, with the extended type name and the additional fields.
+  | {- | A nested @extend@ block (proto2) declaring extension fields on
+    another type, with the extended type name and the additional fields.
+    -}
     MEExtend !Text ![FieldDef' p]
   | -- | A message-level option.
     MEOption !(OptionDef' p)

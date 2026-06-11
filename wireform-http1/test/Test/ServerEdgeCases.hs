@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 {- | Additional integration tests for the HTTP/1.x server and client
 covering edge cases: large bodies, concurrent connections, error
 responses, HEAD method, empty bodies, binary payloads.
@@ -8,30 +9,32 @@ module Test.ServerEdgeCases (tests) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef
-import qualified Network.Socket as NS
-
-import Test.Syd
-
 import Network.HTTP1.Client
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
 import Network.HTTP1.Version
+import Network.Socket qualified as NS
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Server edge cases" $ sequence_
-  [ largeBodyTest
-  , binaryBodyTest
-  , errorStatusTest
-  , emptyBodyResponseTest
-  , manySequentialRequestsTest
-  , streamingRequestEchoTest
-  , concurrentConnectionsTest
-  , responseHeaderPreservationTest
-  ]
+tests =
+  describe "Server edge cases" $
+    sequence_
+      [ largeBodyTest
+      , binaryBodyTest
+      , errorStatusTest
+      , emptyBodyResponseTest
+      , manySequentialRequestsTest
+      , streamingRequestEchoTest
+      , concurrentConnectionsTest
+      , responseHeaderPreservationTest
+      ]
+
 
 ------------------------------------------------------------------------
 
@@ -49,10 +52,11 @@ largeBodyTest = it "8 KiB POST body round-trips" $
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
+
 binaryBodyTest :: Spec
 binaryBodyTest = it "all 256 byte values survive round-trip" $
   withServer echo $ \port -> do
-    let payload = BS.pack [0..255]
+    let payload = BS.pack [0 .. 255]
         req = mkReq POST "/binary" port (BodyBytes payload) []
     Right r <- sendRequest (clientCfg port) req
     body <- bodyOf r
@@ -61,6 +65,7 @@ binaryBodyTest = it "all 256 byte values survive round-trip" $
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
+
 
 errorStatusTest :: Spec
 errorStatusTest = it "server returns 404, 500" $
@@ -77,7 +82,8 @@ errorStatusTest = it "server returns 404, 500" $
     handler req = case requestTarget req of
       "/404" -> pure $ Response NotFound HTTP_1_1 [] (BodyBytes "not found") (pure [])
       "/500" -> pure $ Response InternalServerError HTTP_1_1 [] (BodyBytes "error") (pure [])
-      _      -> pure $ resp200 "ok"
+      _ -> pure $ resp200 "ok"
+
 
 emptyBodyResponseTest :: Spec
 emptyBodyResponseTest = it "204 No Content has empty body" $
@@ -87,18 +93,23 @@ emptyBodyResponseTest = it "204 No Content has empty body" $
     body <- bodyOf r
     body `shouldBe` ""
 
+
 manySequentialRequestsTest :: Spec
 manySequentialRequestsTest =
   it "10 sequential requests on one keep-alive connection" $
     withServer (\_ -> pure (resp200 "ok")) $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
-        results <- mapM (\i -> do
-          Right r <- sendRequestOn conn (mkReq GET (BS8.pack ("/" <> show i)) port BodyEmpty [])
-          body <- bodyOf r
-          pure (responseStatus r, body)
-          ) [1 :: Int .. 10]
+        results <-
+          mapM
+            ( \i -> do
+                Right r <- sendRequestOn conn (mkReq GET (BS8.pack ("/" <> show i)) port BodyEmpty [])
+                body <- bodyOf r
+                pure (responseStatus r, body)
+            )
+            [1 :: Int .. 10]
         let statuses = map fst results
         all (== OK) statuses `shouldBe` True
+
 
 streamingRequestEchoTest :: Spec
 streamingRequestEchoTest = it "streaming chunked request body echo" $
@@ -108,8 +119,8 @@ streamingRequestEchoTest = it "streaming chunked request body echo" $
     let producer = do
           xs <- readIORef ref
           case xs of
-            []    -> pure Nothing
-            (h:t) -> writeIORef ref t >> pure (Just h)
+            [] -> pure Nothing
+            (h : t) -> writeIORef ref t >> pure (Just h)
         req = mkReq POST "/stream" port (BodyStream producer) []
     Right r <- sendRequest (clientCfg port) req
     body <- bodyOf r
@@ -118,6 +129,7 @@ streamingRequestEchoTest = it "streaming chunked request body echo" $
     echo req = do
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
+
 
 concurrentConnectionsTest :: Spec
 concurrentConnectionsTest = it "3 concurrent connections" $
@@ -135,6 +147,7 @@ concurrentConnectionsTest = it "3 concurrent connections" $
     length bodies `shouldBe` 3
     all (== "concurrent-ok") bodies `shouldBe` True
 
+
 responseHeaderPreservationTest :: Spec
 responseHeaderPreservationTest = it "custom response headers preserved" $
   withServer handler $ \port -> do
@@ -146,13 +159,18 @@ responseHeaderPreservationTest = it "custom response headers preserved" $
     _ <- bodyOf r
     pure ()
   where
-    handler _ = pure $ Response OK HTTP_1_1
-      [ ("X-Custom", "test-value")
-      , ("X-Another", "another-value")
-      , ("Content-Type", "text/plain")
-      ]
-      (BodyBytes "ok")
-      (pure [])
+    handler _ =
+      pure $
+        Response
+          OK
+          HTTP_1_1
+          [ ("X-Custom", "test-value")
+          , ("X-Another", "another-value")
+          , ("Content-Type", "text/plain")
+          ]
+          (BodyBytes "ok")
+          (pure [])
+
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -161,10 +179,11 @@ responseHeaderPreservationTest = it "custom response headers preserved" $
 withServer :: Handler -> (String -> IO ()) -> IO ()
 withServer handler action = do
   readyMV <- newEmptyMVar
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
     [] -> expectationFailure "no addr"
@@ -179,16 +198,18 @@ withServer handler action = do
         let portInt = case boundAddr of
               NS.SockAddrInet p _ -> fromIntegral p :: Int
               _ -> 0
-            cfg = defaultServerConfig
-              { serverHost = "127.0.0.1"
-              , serverPort = show portInt
-              , serverHandler = handler
-              }
+            cfg =
+              defaultServerConfig
+                { serverHost = "127.0.0.1"
+                , serverPort = show portInt
+                , serverHandler = handler
+                }
         tid <- forkIO $ do
           putMVar readyMV ()
           acceptForever cfg listenSock
         takeMVar readyMV
         action (show portInt) `finally` killThread tid
+
 
 acceptForever :: ServerConfig -> NS.Socket -> IO ()
 acceptForever cfg listenSock = loop
@@ -198,24 +219,30 @@ acceptForever cfg listenSock = loop
       _ <- forkIO (runServerOnSocket cfg s)
       loop
 
+
 clientCfg :: String -> ClientConfig
-clientCfg p = defaultClientConfig { clientHost = "127.0.0.1", clientPort = p }
+clientCfg p = defaultClientConfig {clientHost = "127.0.0.1", clientPort = p}
+
 
 mkReq :: Method -> BS.ByteString -> String -> Body -> Headers -> Request
-mkReq m t port body extras = Request
-  { requestMethod   = m
-  , requestTarget   = t
-  , requestVersion  = HTTP_1_1
-  , requestHeaders  = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
-  , requestBody     = body
-  , requestTrailers = pure []
-  }
+mkReq m t port body extras =
+  Request
+    { requestMethod = m
+    , requestTarget = t
+    , requestVersion = HTTP_1_1
+    , requestHeaders = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
+    , requestBody = body
+    , requestTrailers = pure []
+    }
+
 
 resp200 :: BS.ByteString -> Response
 resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b) (pure [])
 
+
 bodyOf :: Response -> IO BS.ByteString
 bodyOf = drainAll . responseBody
+
 
 drainAll :: Body -> IO BS.ByteString
 drainAll BodyEmpty = pure ""

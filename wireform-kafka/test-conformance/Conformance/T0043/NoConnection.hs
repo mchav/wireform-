@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Conformance.T0043.NoConnection
 Description : librdkafka @tests\/0043-no_connection.c@
 
@@ -17,34 +17,39 @@ diff-able.
 -}
 module Conformance.T0043.NoConnection (tests) where
 
+import Kafka.Network.Connection qualified as Conn
 import Test.Syd
 
-import qualified Kafka.Network.Connection as Conn
 
 tests :: Spec
-tests = describe "0043-no_connection" $ sequence_
-  [ it "connect to invalid host gives up after max retries" $ do
-      let cfg = Conn.defaultConnectionConfig
-            { Conn.connMaxRetries = 1
-            , Conn.connRetryDelay = 10
-            , Conn.connBackoffMaxMs = 50
-            , Conn.connTimeout = 1
-            }
-          addr = Conn.BrokerAddress
-            "wireform-kafka-conformance-no-such-host.invalid" 9999
-      r <- Conn.connect addr cfg
-      case r of
-        Left _ -> pure ()
-        Right _ -> expectationFailure "expected connection failure, got success"
-
-  , it "exponential backoff respects the max delay cap" $ do
-      let cfg = Conn.defaultConnectionConfig
-            { Conn.connRetryDelay      = 10
-            , Conn.connBackoffMaxMs    = 50
-            , Conn.connBackoffMultiplier = 2.0
-            , Conn.connMaxRetries      = 5
-            }
-      -- attempt 0: ~10 ms, attempt 5: 10 * 2^5 = 320 ms, capped to 50 ms.
-      d <- Conn.calculateBackoffDelay 5 cfg
-      (if (d <= 50 * 1000 * 2) then pure () else expectationFailure ("attempt-5 delay (" <> show d <> " us) is at most 50 ms * 1.2 jitter"))
-  ]
+tests =
+  describe "0043-no_connection" $
+    sequence_
+      [ it "connect to invalid host gives up after max retries" $ do
+          let cfg =
+                Conn.defaultConnectionConfig
+                  { Conn.connMaxRetries = 1
+                  , Conn.connRetryDelay = 10
+                  , Conn.connBackoffMaxMs = 50
+                  , Conn.connTimeout = 1
+                  }
+              addr =
+                Conn.BrokerAddress
+                  "wireform-kafka-conformance-no-such-host.invalid"
+                  9999
+          r <- Conn.connect addr cfg
+          case r of
+            Left _ -> pure ()
+            Right _ -> expectationFailure "expected connection failure, got success"
+      , it "exponential backoff respects the max delay cap" $ do
+          let cfg =
+                Conn.defaultConnectionConfig
+                  { Conn.connRetryDelay = 10
+                  , Conn.connBackoffMaxMs = 50
+                  , Conn.connBackoffMultiplier = 2.0
+                  , Conn.connMaxRetries = 5
+                  }
+          -- attempt 0: ~10 ms, attempt 5: 10 * 2^5 = 320 ms, capped to 50 ms.
+          d <- Conn.calculateBackoffDelay 5 cfg
+          (if (d <= 50 * 1000 * 2) then pure () else expectationFailure ("attempt-5 delay (" <> show d <> " us) is at most 50 ms * 1.2 jitter"))
+      ]

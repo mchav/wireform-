@@ -142,8 +142,8 @@ containsPosition pos (DeletionVector m) =
   let !hi = fromIntegral (pos `shiftR` 32) :: Int
       !lo = fromIntegral (pos .&. 0xFFFFFFFF) :: Int
   in case IntMap.lookup hi m of
-      Just set -> IntSet.member lo set
-      Nothing -> False
+       Just set -> IntSet.member lo set
+       Nothing -> False
 {-# INLINE containsPosition #-}
 
 
@@ -159,7 +159,7 @@ encodeRoaring32 set =
       keys =
         mconcat
           [ BB.word16LE (fromIntegral key)
-            <> BB.word16LE (fromIntegral (length lows - 1))
+              <> BB.word16LE (fromIntegral (length lows - 1))
           | (key, lows) <- grouped
           ]
       -- Offsets (4 bytes each); we recompute them here.
@@ -284,14 +284,14 @@ toPuffinBlob snapId seqNum referencedFieldId dv =
       lenBytes = BL.toStrict (BB.toLazyByteString (BB.word32LE (fromIntegral (BS.length bitmap))))
       crcBytes = BL.toStrict (BB.toLazyByteString (BB.word32LE (crc32c bitmap)))
   in PuffinBlob
-      { pbType = "deletion-vector-v1"
-      , pbFields = V.singleton referencedFieldId
-      , pbSnapshotId = snapId
-      , pbSequenceNumber = seqNum
-      , pbProperties = Map.empty
-      , pbCompressionCodec = Nothing
-      , pbData = lenBytes <> bitmap <> crcBytes
-      }
+       { pbType = "deletion-vector-v1"
+       , pbFields = V.singleton referencedFieldId
+       , pbSnapshotId = snapId
+       , pbSequenceNumber = seqNum
+       , pbProperties = Map.empty
+       , pbCompressionCodec = Nothing
+       , pbData = lenBytes <> bitmap <> crcBytes
+       }
 
 
 fromPuffinBlob :: PuffinBlob -> Either String DeletionVector

@@ -14,7 +14,7 @@ import Data.Primitive.ByteArray (
   newByteArray,
   unsafeFreezeByteArray,
   writeByteArray,
-  )
+ )
 import Data.Primitive.SmallArray (
   SmallArray,
   copySmallArray,
@@ -35,7 +35,6 @@ import HTML.Rewriter.Mutations (
   TextChunkRef,
  )
 import HTML.Rewriter.StackFrame (StackFrame (..))
-import HTML.TagId (TagId (..), tagIdFromText)
 import HTML.Selector (
   Combinator (..),
   ComplexSelector (..),
@@ -50,7 +49,9 @@ import HTML.Selector (
   matchCompound,
   matchType,
  )
+import HTML.TagId (TagId (..), tagIdFromText)
 import HTML.Value (HTMLAttribute (..))
+
 
 data HandlerEntry
   = HElement !Selector !(ElementRef -> IO ())
@@ -124,8 +125,9 @@ onEndTag sel handler = RewriterBuilder $ \c ->
 -- Rewriter (compiled configuration)
 -- ---------------------------------------------------------------------------
 
--- | Pre-decomposed selector: subject + ancestor context chain.
--- Computed once at build time to avoid per-match allocation.
+{- | Pre-decomposed selector: subject + ancestor context chain.
+Computed once at build time to avoid per-match allocation.
+-}
 data DecomposedSel = DecomposedSel
   { dsSubject :: !CompoundSelector
   , dsContext :: ![(Combinator, CompoundSelector)]
@@ -155,9 +157,10 @@ data Rewriter = Rewriter
 
 
 isNoopRewriter :: Rewriter -> Bool
-isNoopRewriter rw = sizeofSmallArray (rwHandlers rw) == 0
-                 && sizeofSmallArray (rwComment rw) == 0
-                 && sizeofSmallArray (rwDoctype rw) == 0
+isNoopRewriter rw =
+  sizeofSmallArray (rwHandlers rw) == 0
+    && sizeofSmallArray (rwComment rw) == 0
+    && sizeofSmallArray (rwDoctype rw) == 0
 {-# INLINE isNoopRewriter #-}
 
 
@@ -169,6 +172,8 @@ hasTextHandlers = rwHasText
 hasElementHandlers :: Rewriter -> Bool
 hasElementHandlers = rwHasElement
 {-# INLINE hasElementHandlers #-}
+
+
 {- | Check if a complex selector matches at the current position.
 The parser stores selectors left-to-right: "div > span" becomes
 @ComplexSelector div [(Child, span)]@. CSS matching is right-to-left:
@@ -210,6 +215,8 @@ matchContext ((Descendant, comp) : rest) frames =
       (matchCompound comp t a && matchContext rest frames') || scanAncestors frames'
 matchContext ((AdjacentSibling, _) : _) _ = False
 matchContext ((GeneralSibling, _) : _) _ = False
+
+
 -- | Single-pass: run all matching element handlers, return True if any matched.
 runElementHandlers :: Rewriter -> [StackFrame] -> Text -> SmallArray HTMLAttribute -> ElementRef -> IO Bool
 runElementHandlers rw stack tag attrs er = go False 0
@@ -244,16 +251,18 @@ runEndTagHandlers rw stack name etr = go False 0
 {-# INLINE runEndTagHandlers #-}
 
 
--- | O(1) check: does any text handler have an ancestor match at the current stack?
--- Uses the cached sfTextMatch flag computed when each frame was pushed.
+{- | O(1) check: does any text handler have an ancestor match at the current stack?
+Uses the cached sfTextMatch flag computed when each frame was pushed.
+-}
 anyTextAncestorMatches :: [StackFrame] -> Bool
 anyTextAncestorMatches [] = False
 anyTextAncestorMatches (sf : _) = sfTextMatch sf
 {-# INLINE anyTextAncestorMatches #-}
 
 
--- | Single-pass: run all matching text handlers, return True if any matched.
--- Walks the ancestor stack to determine which text handlers apply.
+{- | Single-pass: run all matching text handlers, return True if any matched.
+Walks the ancestor stack to determine which text handlers apply.
+-}
 runTextHandlers :: Rewriter -> [StackFrame] -> TextChunkRef -> IO Bool
 runTextHandlers rw stack tr = go False 0
   where
@@ -273,9 +282,11 @@ runTextHandlers rw stack tr = go False 0
       matchAnyDecomposed sels frames tag attrs || anyAncestorMatches sels frames
 {-# INLINE runTextHandlers #-}
 
--- | Fire all text handlers unconditionally. Used when
--- rwNeedsContextStack=False and the depth-indexed text mask already
--- confirmed that a matching ancestor exists.
+
+{- | Fire all text handlers unconditionally. Used when
+rwNeedsContextStack=False and the depth-indexed text mask already
+confirmed that a matching ancestor exists.
+-}
 runTextHandlersAll :: Rewriter -> TextChunkRef -> IO Bool
 runTextHandlersAll rw tr = go False 0
   where
@@ -315,8 +326,6 @@ runElementHandlersClass rw tag addr# classOff classLen er = go False 0
               else go matched (i + 1)
           _ -> go matched (i + 1)
 {-# INLINE runElementHandlersClass #-}
-
-
 
 
 -- | Class-only decomposed selector matching at byte level.
@@ -361,6 +370,7 @@ matchCompoundForEnd (CompoundSelector mtype _subs) name _attrs =
     Nothing -> True
     Just TypeUniversal -> True
     Just (TypeTag t) -> t == name
+
 
 buildRewriter :: RewriterBuilder () -> Either SelectorError Rewriter
 buildRewriter builder =
@@ -479,17 +489,17 @@ compileConfig cfg = do
     concatTextSelectors hs =
       let !totalLen = foldl' (\n h -> case h of CHText ds _ -> n + sizeofSmallArray ds; _ -> n) 0 hs
       in if totalLen == 0
-        then emptySmallArray
-        else runSmallArray $ do
-          ma <- newSmallArray totalLen (error "unreachable")
-          let fill !_ [] = pure ()
-              fill !off (CHText ds _ : rest) = do
-                let !dsLen = sizeofSmallArray ds
-                copySmallArray ma off ds 0 dsLen
-                fill (off + dsLen) rest
-              fill !off (_ : rest) = fill off rest
-          fill 0 hs
-          pure ma
+           then emptySmallArray
+           else runSmallArray $ do
+             ma <- newSmallArray totalLen (error "unreachable")
+             let fill !_ [] = pure ()
+                 fill !off (CHText ds _ : rest) = do
+                   let !dsLen = sizeofSmallArray ds
+                   copySmallArray ma off ds 0 dsLen
+                   fill (off + dsLen) rest
+                 fill !off (_ : rest) = fill off rest
+             fill 0 hs
+             pure ma
 
     validateRewriter sel =
       if isRewriterCompatible sel

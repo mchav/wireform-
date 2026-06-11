@@ -1,33 +1,36 @@
--- | QuasiQuoter for inline Thrift IDL definitions.
---
--- @
--- {-\# LANGUAGE QuasiQuotes \#-}
--- {-\# LANGUAGE TemplateHaskell \#-}
--- import Thrift.QQ
---
--- [thrift|
---   struct Person { 1: string name; 2: i32 age; }
--- |]
--- @
-module Thrift.QQ
-  ( thrift
-  ) where
+{- | QuasiQuoter for inline Thrift IDL definitions.
 
-import qualified Data.Text as T
+@
+{\-\# LANGUAGE QuasiQuotes \#-\}
+{\-\# LANGUAGE TemplateHaskell \#-\}
+import Thrift.QQ
+
+[thrift|
+  struct Person { 1: string name; 2: i32 age; }
+|]
+@
+-}
+module Thrift.QQ (
+  thrift,
+) where
+
+import Data.Text qualified as T
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
-
-import Thrift.Parser (parseThrift)
 import Thrift.CodeGen (deriveThrift)
+import Thrift.Parser (parseThrift)
+
 
 -- | QuasiQuoter for Thrift IDL.
 thrift :: QuasiQuoter
-thrift = QuasiQuoter
-  { quoteExp  = \_ -> fail "thrift: not an expression quoter"
-  , quotePat  = \_ -> fail "thrift: not a pattern quoter"
-  , quoteType = \_ -> fail "thrift: not a type quoter"
-  , quoteDec  = thriftDec
-  }
+thrift =
+  QuasiQuoter
+    { quoteExp = \_ -> fail "thrift: not an expression quoter"
+    , quotePat = \_ -> fail "thrift: not a pattern quoter"
+    , quoteType = \_ -> fail "thrift: not a type quoter"
+    , quoteDec = thriftDec
+    }
+
 
 thriftDec :: String -> Q [Dec]
 thriftDec src = do

@@ -1,57 +1,64 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the in-process mock broker (cluster + producer +
--- consumer + streams driver). Mirrors the failure-mode coverage
--- librdkafka exercises through @rd_kafka_mock_cluster_t@.
+{- | Tests for the in-process mock broker (cluster + producer +
+consumer + streams driver). Mirrors the failure-mode coverage
+librdkafka exercises through @rd_kafka_mock_cluster_t@.
+-}
 module Streams.MockClusterSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int32, Int64)
-import qualified Data.List as L
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.List qualified as L
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
-import Test.Syd
-
+import Data.Text qualified as T
 import Kafka.Streams.Imperative
 import Kafka.Streams.Mock.Cluster
-import qualified Kafka.Streams.Mock.Cluster as MC
+import Kafka.Streams.Mock.Cluster qualified as MC
 import Kafka.Streams.Mock.Consumer
-import qualified Kafka.Streams.Mock.Consumer as MCons
+import Kafka.Streams.Mock.Consumer qualified as MCons
 import Kafka.Streams.Mock.Fault
-import qualified Kafka.Streams.Mock.Fault as MF
+import Kafka.Streams.Mock.Fault qualified as MF
 import Kafka.Streams.Mock.Producer
-import qualified Kafka.Streams.Mock.Producer as MP
+import Kafka.Streams.Mock.Producer qualified as MP
 import Kafka.Streams.Mock.StreamsDriver
+import Test.Syd
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
+
 
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
+
 tests :: Spec
-tests = describe "MockCluster" $ sequence_
-  [ cluster_basics
-  , append_and_fetch
-  , consumer_groups_remember_offsets
-  , producer_round_trip
-  , producer_retriable_then_succeeds
-  , producer_fatal_propagates
-  , consumer_fetch_retriable_isolated_to_partition
-  , read_committed_filters_open_txn_records
-  , transaction_commit_advances_lso
-  , transaction_abort_makes_records_invisible
-  , broker_marked_down_is_observable
-  , streams_driver_round_trip
-  , streams_driver_with_filter_topology
-  , streams_driver_handles_fetch_fault_then_recovers
-  ]
+tests =
+  describe "MockCluster" $
+    sequence_
+      [ cluster_basics
+      , append_and_fetch
+      , consumer_groups_remember_offsets
+      , producer_round_trip
+      , producer_retriable_then_succeeds
+      , producer_fatal_propagates
+      , consumer_fetch_retriable_isolated_to_partition
+      , read_committed_filters_open_txn_records
+      , transaction_commit_advances_lso
+      , transaction_abort_makes_records_invisible
+      , broker_marked_down_is_observable
+      , streams_driver_round_trip
+      , streams_driver_with_filter_topology
+      , streams_driver_handles_fetch_fault_then_recovers
+      ]
+
 
 ----------------------------------------------------------------------
 -- Cluster primitives
@@ -68,19 +75,37 @@ cluster_basics = it "createTopic / listTopics / partitionCount" $ do
   partitionCount c (topicName "y") >>= (`shouldBe` Just 1)
   partitionCount c (topicName "z") >>= (`shouldBe` Nothing)
 
+
 append_and_fetch :: Spec
 append_and_fetch = it "appendToPartition assigns offsets; fetchSlice reads them back" $ do
   c <- newMockCluster 1
   createTopic c (topicName "log") 1
-  Right o0 <- appendToPartition c (topicName "log") 0
-                (Just (bytes "k")) (bytes "a") (t 0) [] Nothing
-  Right o1 <- appendToPartition c (topicName "log") 0
-                (Just (bytes "k")) (bytes "b") (t 1) [] Nothing
+  Right o0 <-
+    appendToPartition
+      c
+      (topicName "log")
+      0
+      (Just (bytes "k"))
+      (bytes "a")
+      (t 0)
+      []
+      Nothing
+  Right o1 <-
+    appendToPartition
+      c
+      (topicName "log")
+      0
+      (Just (bytes "k"))
+      (bytes "b")
+      (t 1)
+      []
+      Nothing
   o0 `shouldBe` 0
   o1 `shouldBe` 1
   Right (rs, next) <- fetchSlice c (topicName "log") 0 0 100 False
   map (unbytes . srValue) rs `shouldBe` ["a", "b"]
   next `shouldBe` 2
+
 
 consumer_groups_remember_offsets :: Spec
 consumer_groups_remember_offsets =
@@ -88,7 +113,9 @@ consumer_groups_remember_offsets =
     c <- newMockCluster 1
     createTopic c (topicName "log") 2
     let g = GroupId "consumers"
-    commitGroupOffsets c g
+    commitGroupOffsets
+      c
+      g
       [ (topicName "log", 0, 7)
       , (topicName "log", 1, 12)
       ]
@@ -96,6 +123,7 @@ consumer_groups_remember_offsets =
     Map.lookup (topicName "log", 0) m `shouldBe` Just 7
     Map.lookup (topicName "log", 1) m `shouldBe` Just 12
     Map.lookup (topicName "log", 2) m `shouldBe` Nothing
+
 
 ----------------------------------------------------------------------
 -- Producer round trip + faults
@@ -107,33 +135,35 @@ producer_round_trip =
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    r  <- sendMock p (topicName "out") 0 (Just (bytes "k")) (bytes "v") (t 0)
+    p <- newMockProducer c fp Nothing
+    r <- sendMock p (topicName "out") 0 (Just (bytes "k")) (bytes "v") (t 0)
     case r of
       MPSent 0 0 -> pure ()
-      other      -> error ("unexpected " <> show other)
+      other -> error ("unexpected " <> show other)
     sz <- partitionLogSize c (topicName "out") 0
     sz `shouldBe` 1
+
 
 producer_retriable_then_succeeds :: Spec
 producer_retriable_then_succeeds =
   it "queued retriable produce error fires once, then the next send succeeds" $ do
-    c  <- newMockCluster 1
+    c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
     addProduceFault fp (topicName "out") 0 ErrLeaderNotAvailable
-    p  <- newMockProducer c fp Nothing
+    p <- newMockProducer c fp Nothing
     r1 <- sendMock p (topicName "out") 0 Nothing (bytes "v1") (t 0)
     case r1 of
       MPFault e -> isRetriable e `shouldBe` True
-      other     -> error ("expected fault, got " <> show other)
+      other -> error ("expected fault, got " <> show other)
     r2 <- sendMock p (topicName "out") 0 Nothing (bytes "v2") (t 1)
     case r2 of
       MPSent 0 0 -> pure ()
-      other      -> error ("unexpected " <> show other)
+      other -> error ("unexpected " <> show other)
     -- Only the second send made it into the log.
     log_ <- dumpPartition c (topicName "out") 0
     map (unbytes . srValue) log_ `shouldBe` ["v2"]
+
 
 producer_fatal_propagates :: Spec
 producer_fatal_propagates =
@@ -142,12 +172,13 @@ producer_fatal_propagates =
     createTopic c (topicName "out") 1
     fp <- noFaults
     addProduceFault fp (topicName "out") 0 ErrAuthorizationFailed
-    p  <- newMockProducer c fp Nothing
-    r  <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
+    p <- newMockProducer c fp Nothing
+    r <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
     case r of
       MPFault e -> isFatal e `shouldBe` True
-      other     -> error ("expected fault, got " <> show other)
+      other -> error ("expected fault, got " <> show other)
     partitionLogSize c (topicName "out") 0 >>= (`shouldBe` 0)
+
 
 ----------------------------------------------------------------------
 -- Consumer faults
@@ -167,11 +198,12 @@ consumer_fetch_retriable_isolated_to_partition =
     addFetchFault fp (topicName "in") 0 ErrCoordinatorLoadInProgress
     cons <- newMockConsumer c fp g ReadUncommitted 100
     subscribeMC cons [topicName "in"]
-    PollResult{ prRecords = recs, prErrors = errs } <- pollMC cons
+    PollResult {prRecords = recs, prErrors = errs} <- pollMC cons
     -- Partition 0 surfaced an error; partition 1 returned its record.
     map (\(_, p, _) -> p) errs `shouldBe` [0]
     map (\(_, p, sr) -> (p, unbytes (srValue sr))) recs
       `shouldBe` [(1, "p1")]
+
 
 ----------------------------------------------------------------------
 -- Transactions
@@ -183,7 +215,7 @@ read_committed_filters_open_txn_records =
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp (Just (TxnId "tx1"))
+    p <- newMockProducer c fp (Just (TxnId "tx1"))
     Right () <- beginTxnMP p
     _ <- sendMock p (topicName "out") 0 Nothing (bytes "in-txn") (t 0)
     -- Read-uncommitted sees the record:
@@ -199,13 +231,14 @@ read_committed_filters_open_txn_records =
     PollResult committed _ <- pollMC cc
     committed `shouldBe` []
 
+
 transaction_commit_advances_lso :: Spec
 transaction_commit_advances_lso =
   it "commitTxn advances LSO so read-committed consumers catch up" $ do
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp (Just (TxnId "tx2"))
+    p <- newMockProducer c fp (Just (TxnId "tx2"))
     Right () <- beginTxnMP p
     _ <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
     Right () <- commitTxnMP p
@@ -216,13 +249,14 @@ transaction_commit_advances_lso =
     map (\(_, _, sr) -> unbytes (srValue sr)) committed `shouldBe` ["v"]
     txnState c (TxnId "tx2") >>= (`shouldBe` Just TxnCommitted)
 
+
 transaction_abort_makes_records_invisible :: Spec
 transaction_abort_makes_records_invisible =
   it "abortTxn keeps read-committed consumers from ever seeing the records" $ do
     c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp (Just (TxnId "tx3"))
+    p <- newMockProducer c fp (Just (TxnId "tx3"))
     Right () <- beginTxnMP p
     _ <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
     Right () <- abortTxnMP p
@@ -232,6 +266,7 @@ transaction_abort_makes_records_invisible =
     PollResult committed _ <- pollMC cc
     committed `shouldBe` []
     txnState c (TxnId "tx3") >>= (`shouldBe` Just TxnAborted)
+
 
 ----------------------------------------------------------------------
 -- Brokers
@@ -249,6 +284,7 @@ broker_marked_down_is_observable =
     isBrokerUp c (BrokerId 0) >>= (`shouldBe` True)
     downedBrokers c >>= (`shouldBe` [])
 
+
 ----------------------------------------------------------------------
 -- StreamsDriver wiring (engine + producer + consumer)
 ----------------------------------------------------------------------
@@ -260,8 +296,9 @@ passthroughTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   topo <- buildTopology b
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> pure v
+    Left err -> error (show err)
+    Right v -> pure v
+
 
 filterTopo :: IO TopologyValid
 filterTopo = do
@@ -271,16 +308,17 @@ filterTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s'
   topo <- buildTopology b
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> pure v
+    Left err -> error (show err)
+    Right v -> pure v
+
 
 streams_driver_round_trip :: Spec
 streams_driver_round_trip =
   it "MockStreamsDriver: pass-through topology delivers in -> out" $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
-    topo    <- passthroughTopo
-    d       <- newMockStreamsDriver cluster fp topo "app" 1
+    fp <- noFaults
+    topo <- passthroughTopo
+    d <- newMockStreamsDriver cluster fp topo "app" 1
 
     _ <- externalSend d (topicName "in") 0 Nothing (bytes "alpha") (t 0)
     _ <- externalSend d (topicName "in") 0 Nothing (bytes "bravo") (t 1)
@@ -290,13 +328,14 @@ streams_driver_round_trip =
     map (unbytes . srValue) out `shouldBe` ["alpha", "bravo"]
     closeMockDriver d
 
+
 streams_driver_with_filter_topology :: Spec
 streams_driver_with_filter_topology =
   it "MockStreamsDriver: filter topology drops 'skip' records" $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
-    topo    <- filterTopo
-    d       <- newMockStreamsDriver cluster fp topo "app" 1
+    fp <- noFaults
+    topo <- filterTopo
+    d <- newMockStreamsDriver cluster fp topo "app" 1
 
     mapM_
       (\(v, ts) -> externalSend d (topicName "in") 0 Nothing (bytes v) ts)
@@ -307,15 +346,16 @@ streams_driver_with_filter_topology =
     map (unbytes . srValue) out `shouldBe` ["a", "b"]
     closeMockDriver d
 
+
 streams_driver_handles_fetch_fault_then_recovers :: Spec
 streams_driver_handles_fetch_fault_then_recovers =
   it "MockStreamsDriver: a queued fetch fault skips one tick, then recovers" $ do
     cluster <- newMockCluster 1
-    fp      <- noFaults
+    fp <- noFaults
     -- Inject one retriable fetch error; subsequent polls succeed.
     addFetchFault fp (topicName "in") 0 ErrCoordinatorLoadInProgress
-    topo    <- passthroughTopo
-    d       <- newMockStreamsDriver cluster fp topo "app" 1
+    topo <- passthroughTopo
+    d <- newMockStreamsDriver cluster fp topo "app" 1
 
     _ <- externalSend d (topicName "in") 0 Nothing (bytes "v1") (t 0)
     -- First tick: fetch fault fires; consumer sees the error and

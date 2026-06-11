@@ -2,75 +2,79 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
--- |
--- Module      : Kafka.Streams.Discovery.Subscription
--- Description : Subscription-userdata blob for cross-instance IQ
---
--- The streams partition assignor (KIP-429) carries a binary
--- /SubscriptionInfo/ blob in every JoinGroup request. The
--- blob includes — among other things — the instance's
--- @application.server@ host:port and the state-store names it
--- has materialised, which is what KIP-535 cross-instance
--- interactive-query routing keys off.
---
--- This module provides a self-describing encode / decode for
--- a /streams-port subscription/ blob that the assignor on the
--- leader can read off every peer's JoinGroup and re-emit so
--- every instance sees the full topology of who-owns-what.
---
--- Wire format (versioned, length-prefixed for forward-compat):
---
--- @
--- version :: int8
--- host    :: utf8-string (len-prefixed int16)
--- port    :: int32
--- stores  :: array<utf8-string>  (count int16, then strings)
--- topics  :: array<utf8-string>  (count int16, then strings)
--- partitions :: array<(string, int32)>  (count int16, then pairs)
--- @
---
--- The format is /our/ format, not the JVM Streams one, so two
--- different ports can't share a consumer group. That's the
--- expected scope: this is one Haskell streams app talking to
--- itself across N instances.
-module Kafka.Streams.Discovery.Subscription
-  ( SubscriptionInfo (..)
-  , encodeSubscriptionInfo
-  , decodeSubscriptionInfo
-  ) where
+{- |
+Module      : Kafka.Streams.Discovery.Subscription
+Description : Subscription-userdata blob for cross-instance IQ
 
-import qualified Data.Binary.Get as G
-import qualified Data.Binary.Put as P
+The streams partition assignor (KIP-429) carries a binary
+/SubscriptionInfo/ blob in every JoinGroup request. The
+blob includes — among other things — the instance's
+@application.server@ host:port and the state-store names it
+has materialised, which is what KIP-535 cross-instance
+interactive-query routing keys off.
+
+This module provides a self-describing encode / decode for
+a /streams-port subscription/ blob that the assignor on the
+leader can read off every peer's JoinGroup and re-emit so
+every instance sees the full topology of who-owns-what.
+
+Wire format (versioned, length-prefixed for forward-compat):
+
+@
+version :: int8
+host    :: utf8-string (len-prefixed int16)
+port    :: int32
+stores  :: array<utf8-string>  (count int16, then strings)
+topics  :: array<utf8-string>  (count int16, then strings)
+partitions :: array<(string, int32)>  (count int16, then pairs)
+@
+
+The format is /our/ format, not the JVM Streams one, so two
+different ports can't share a consumer group. That's the
+expected scope: this is one Haskell streams app talking to
+itself across N instances.
+-}
+module Kafka.Streams.Discovery.Subscription (
+  SubscriptionInfo (..),
+  encodeSubscriptionInfo,
+  decodeSubscriptionInfo,
+) where
+
+import Data.Binary.Get qualified as G
+import Data.Binary.Put qualified as P
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BL
+import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int8)
-import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
+import Data.Text.Encoding qualified as TE
 import GHC.Generics (Generic)
-
-import qualified Kafka.Client.Consumer as KC
+import Kafka.Client.Consumer qualified as KC
 import Kafka.Streams.Discovery (HostInfo (..))
+
 
 -- | Per-member subscription userdata.
 data SubscriptionInfo = SubscriptionInfo
-  { host         :: !HostInfo
-  , storeNames   :: !(Set Text)
+  { host :: !HostInfo
+  , storeNames :: !(Set Text)
   , sourceTopics :: !(Set Text)
-  , active       :: !(Set KC.TopicPartition)
-    -- ^ Active partitions the member is /currently/ serving
-    --   (carried so the assignor can compute stickiness).
-  , standby      :: !(Set KC.TopicPartition)
+  , active :: !(Set KC.TopicPartition)
+  {- ^ Active partitions the member is /currently/ serving
+  (carried so the assignor can compute stickiness).
+  -}
+  , standby :: !(Set KC.TopicPartition)
   }
   deriving stock (Eq, Show, Generic)
 
+
 currentVersion :: Int8
 currentVersion = 1
+
 
 encodeSubscriptionInfo :: SubscriptionInfo -> ByteString
 encodeSubscriptionInfo si =
@@ -80,8 +84,8 @@ encodeSubscriptionInfo si =
     P.putInt32be (fromIntegral si.host.port)
     putTextSet si.storeNames
     putTextSet si.sourceTopics
-    putTpSet   si.active
-    putTpSet   si.standby
+    putTpSet si.active
+    putTpSet si.standby
   where
     putText t = do
       let bs = TE.encodeUtf8 t
@@ -95,19 +99,22 @@ encodeSubscriptionInfo si =
       let xs = Set.toAscList s
       P.putInt16be (fromIntegral (length xs))
       mapM_
-        (\tp -> do
-           putText tp.topic
-           P.putInt32be tp.partition)
+        ( \tp -> do
+            putText tp.topic
+            P.putInt32be tp.partition
+        )
         xs
 
--- | Decode the wire format. Returns 'Left' with a reason on
--- malformed input or an unknown version.
+
+{- | Decode the wire format. Returns 'Left' with a reason on
+malformed input or an unknown version.
+-}
 decodeSubscriptionInfo
   :: ByteString -> Either String SubscriptionInfo
 decodeSubscriptionInfo bs =
   case G.runGetOrFail getSI (BL.fromStrict bs) of
-    Left  (_, _, err) -> Left err
-    Right (_, _, si)  -> Right si
+    Left (_, _, err) -> Left err
+    Right (_, _, si) -> Right si
   where
     getSI = do
       v <- G.getInt8
@@ -120,30 +127,33 @@ decodeSubscriptionInfo bs =
           topics <- getTextSet
           actives <- getTpSet
           standbys <- getTpSet
-          pure SubscriptionInfo
-            { host = HostInfo h prt
-            , storeNames = ss
-            , sourceTopics = topics
-            , active  = actives
-            , standby = standbys
-            }
+          pure
+            SubscriptionInfo
+              { host = HostInfo h prt
+              , storeNames = ss
+              , sourceTopics = topics
+              , active = actives
+              , standby = standbys
+              }
     getText = do
       !n <- fromIntegral <$> G.getInt16be
       bs_ <- G.getByteString n
       case TE.decodeUtf8' bs_ of
         Right t -> pure t
-        Left e  -> fail ("invalid utf-8: " <> show e)
+        Left e -> fail ("invalid utf-8: " <> show e)
     getTextSet = do
       !n <- G.getInt16be
-      Set.fromList <$> sequence
-        [ getText | _ <- [1 .. fromIntegral n :: Int] ]
+      Set.fromList
+        <$> sequence
+          [getText | _ <- [1 .. fromIntegral n :: Int]]
     getTpSet = do
       !n <- G.getInt16be
-      pairs <- sequence
-        [ do t <- getText
-             p <- G.getInt32be
-             pure (KC.TopicPartition t p)
-        | _ <- [1 .. fromIntegral n :: Int]
-        ]
+      pairs <-
+        sequence
+          [ do
+              t <- getText
+              p <- G.getInt32be
+              pure (KC.TopicPartition t p)
+          | _ <- [1 .. fromIntegral n :: Int]
+          ]
       pure (Set.fromList pairs)
-

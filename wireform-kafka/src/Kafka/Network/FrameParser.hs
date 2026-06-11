@@ -1,9 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE BlockArguments #-}
 
 {- |
 Module      : Kafka.Network.FrameParser
@@ -30,74 +30,83 @@ Used by 'Kafka.Client.Pipeline' to replace the legacy
 @connectionGetExact@ / @runGet@ loop with a single allocation-free
 streaming parse.
 -}
-module Kafka.Network.FrameParser
-  ( FrameError (..)
-  , kafkaFrameParser
-  , runKafkaFrameLoop
-  ) where
+module Kafka.Network.FrameParser (
+  FrameError (..),
+  kafkaFrameParser,
+  runKafkaFrameLoop,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int (Int32)
-
-import Wireform.Parser
-  ( Parser
-  , anyInt32be
-  , err
-  , takeBs
-  )
-import Wireform.Parser.Driver
-  ( LoopControl
-  , runParserLoop
-  )
+import Wireform.Parser (
+  Parser,
+  anyInt32be,
+  err,
+  takeBs,
+ )
+import Wireform.Parser.Driver (
+  LoopControl,
+  runParserLoop,
+ )
 import Wireform.Parser.Error (ParseError)
 import Wireform.Parser.Internal (Stream)
 import Wireform.Transport (ReceiveTransport)
 
--- | Kafka-specific recoverable parse errors raised by 'cut' /
--- 'err' inside the frame parser.  The driver wraps these in a
--- 'Wireform.Parser.Error.ParseErr'.
+
+{- | Kafka-specific recoverable parse errors raised by 'cut' /
+'err' inside the frame parser.  The driver wraps these in a
+'Wireform.Parser.Error.ParseErr'.
+-}
 data FrameError
-  = FrameTooShort     -- ^ length prefix < 4 (no room for correlation id)
-  | FrameNegativeLen  -- ^ length prefix is negative
-  | FrameOversized !Int -- ^ length prefix is greater than the allowed maximum
+  = -- | length prefix < 4 (no room for correlation id)
+    FrameTooShort
+  | -- | length prefix is negative
+    FrameNegativeLen
+  | -- | length prefix is greater than the allowed maximum
+    FrameOversized !Int
   deriving stock (Eq, Show)
 
--- | Parse exactly one Kafka response frame off the wire.
---
---   * 4-byte big-endian frame length (the count of bytes that
---     follow, /including/ the correlation id).
---   * 4-byte big-endian correlation id.
---   * @length - 4@ body bytes, returned as a zero-copy slice into
---     the ring's backing memory.
---
--- The caller MUST consume / copy the body 'ByteString' before
--- returning from the response handler — once the driver advances
--- the ring tail past the frame the slice's bytes may be overwritten
--- by a subsequent recv.
---
--- A negative length, or a length less than 4, raises 'FrameTooShort'
--- / 'FrameNegativeLen' (recoverable via 'cut' in calling code).  Use
--- 'kafkaFrameParser' as-is when the upstream Kafka broker is trusted;
--- set a per-message cap by passing through 'oversizedAt'.
+
+{- | Parse exactly one Kafka response frame off the wire.
+
+  * 4-byte big-endian frame length (the count of bytes that
+    follow, /including/ the correlation id).
+  * 4-byte big-endian correlation id.
+  * @length - 4@ body bytes, returned as a zero-copy slice into
+    the ring's backing memory.
+
+The caller MUST consume / copy the body 'ByteString' before
+returning from the response handler — once the driver advances
+the ring tail past the frame the slice's bytes may be overwritten
+by a subsequent recv.
+
+A negative length, or a length less than 4, raises 'FrameTooShort'
+/ 'FrameNegativeLen' (recoverable via 'cut' in calling code).  Use
+'kafkaFrameParser' as-is when the upstream Kafka broker is trusted;
+set a per-message cap by passing through 'oversizedAt'.
+-}
 kafkaFrameParser :: Parser Stream FrameError (Int32, ByteString)
 kafkaFrameParser = do
   !len <- anyInt32be
   case len of
-    _ | len < 4   -> err (if len < 0 then FrameNegativeLen else FrameTooShort)
+    _
+      | len < 4 -> err (if len < 0 then FrameNegativeLen else FrameTooShort)
       | otherwise -> do
-          !cid  <- anyInt32be
+          !cid <- anyInt32be
           !body <- takeBs (fromIntegral len - 4)
           pure (cid, body)
 {-# INLINE kafkaFrameParser #-}
 
--- | Streaming driver: run 'kafkaFrameParser' against the transport
--- repeatedly, dispatching every parsed frame to the supplied
--- handler.  Returns 'Left' on parse / transport error, 'Right ()'
--- on clean EOF.
---
--- The handler may return 'Stop' to terminate the loop voluntarily
--- (matches the contract of 'runParserLoop' from wireform-core).
+
+{- | Streaming driver: run 'kafkaFrameParser' against the transport
+repeatedly, dispatching every parsed frame to the supplied
+handler.  Returns 'Left' on parse / transport error, 'Right ()'
+on clean EOF.
+
+The handler may return 'Stop' to terminate the loop voluntarily
+(matches the contract of 'runParserLoop' from wireform-core).
+-}
 runKafkaFrameLoop
   :: ReceiveTransport
   -> ((Int32, ByteString) -> IO LoopControl)

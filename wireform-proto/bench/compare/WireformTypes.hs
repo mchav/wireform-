@@ -365,10 +365,10 @@ sizeRepeated :: HWithRepeated -> Int
 sizeRepeated m =
   ( let vs = hwrValues m
     in if VU.null vs
-        then 0
-        else
-          let !packedSz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vs
-          in 1 + varintSize (fromIntegral packedSz) + packedSz
+         then 0
+         else
+           let !packedSz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vs
+           in 1 + varintSize (fromIntegral packedSz) + packedSz
   )
     + V.foldl' (\acc s -> acc + archStringSize s) 0 (hwrTags m)
     + V.foldl' (\acc item -> acc + archSubmessageSize (sizeSmall item)) 0 (hwrItems m)

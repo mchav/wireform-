@@ -1,9 +1,13 @@
 module Main (main) where
 
+import Test.NDJSON.Derive qualified
 import Test.Syd
-import qualified Test.NDJSON.Derive
+
 
 main :: IO ()
-main = sydTest $ describe "wireform-ndjson-derive" $ sequence_
-  [ Test.NDJSON.Derive.tests
-  ]
+main =
+  sydTest $
+    describe "wireform-ndjson-derive" $
+      sequence_
+        [ Test.NDJSON.Derive.tests
+        ]

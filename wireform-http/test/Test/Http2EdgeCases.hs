@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 {- | Edge-case and stress tests for HTTP/2 through the unified API.
 
 Covers: large bodies, concurrent multiplexed streams, error status
@@ -10,33 +11,35 @@ module Test.Http2EdgeCases (tests) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.CaseInsensitive as CI
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
+import Data.CaseInsensitive qualified as CI
 import Data.IORef
-import qualified Network.Socket as NS
-
-import Test.Syd
-
 import Network.HTTP
 import Network.HTTP.Connection
 import Network.HTTP.Server
-import qualified Network.HTTP.Types.Status as S
-import qualified Network.HTTP.Types.Version as V
+import Network.HTTP.Types.Status qualified as S
+import Network.HTTP.Types.Version qualified as V
+import Network.Socket qualified as NS
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "HTTP/2 edge cases" $ sequence_
-  [ emptyBody
-  , errorStatusCodes
-  , largeBodyRoundTrip
-  , streamingLargeBody
-  , binaryPayload
-  , manyHeaders
-  , concurrentManyStreams
-  , sequentialRequestReuse
-  , streamingRequestLargeBody
-  , emptyStreamingResponse
-  ]
+tests =
+  describe "HTTP/2 edge cases" $
+    sequence_
+      [ emptyBody
+      , errorStatusCodes
+      , largeBodyRoundTrip
+      , streamingLargeBody
+      , binaryPayload
+      , manyHeaders
+      , concurrentManyStreams
+      , sequentialRequestReuse
+      , streamingRequestLargeBody
+      , emptyStreamingResponse
+      ]
+
 
 ------------------------------------------------------------------------
 
@@ -47,6 +50,7 @@ emptyBody = it "GET returning empty body" $
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       drainBody (responseBody r)
     body `shouldBe` ""
+
 
 errorStatusCodes :: Spec
 errorStatusCodes = it "various error status codes" $
@@ -69,7 +73,8 @@ errorStatusCodes = it "various error status codes" $
       "/400" -> pure (resp S.status400 "bad request")
       "/404" -> pure (resp S.status404 "not found")
       "/500" -> pure (resp S.status500 "internal error")
-      _      -> pure (resp S.status200 "ok")
+      _ -> pure (resp S.status200 "ok")
+
 
 largeBodyRoundTrip :: Spec
 largeBodyRoundTrip = it "64 KiB body round-trips" $
@@ -87,6 +92,7 @@ largeBodyRoundTrip = it "64 KiB body round-trips" $
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
+
 streamingLargeBody :: Spec
 streamingLargeBody = it "streaming 256 KiB response body" $
   withTestServer http2Only handler $ \port -> do
@@ -100,27 +106,29 @@ streamingLargeBody = it "streaming 256 KiB response body" $
           totalChunks = 64 :: Int
           chunk = BS.replicate chunkSize 0x58
       ref <- newIORef totalChunks
-      pure Response
-        { responseStatus  = S.status200
-        , responseVersion = V.HTTP2
-        , responseHeaders = []
-        , responseBody    = BodyStream $ do
-            remaining <- readIORef ref
-            if remaining <= 0
-              then pure Nothing
-              else do
-                writeIORef ref (remaining - 1)
-                pure (Just chunk)
-        , responseTrailers = pure []
-        , responseH2StreamId = 0
-        , responseCancel = pure ()
-        , responsePushPromises = pure []
-        }
+      pure
+        Response
+          { responseStatus = S.status200
+          , responseVersion = V.HTTP2
+          , responseHeaders = []
+          , responseBody = BodyStream $ do
+              remaining <- readIORef ref
+              if remaining <= 0
+                then pure Nothing
+                else do
+                  writeIORef ref (remaining - 1)
+                  pure (Just chunk)
+          , responseTrailers = pure []
+          , responseH2StreamId = 0
+          , responseCancel = pure ()
+          , responsePushPromises = pure []
+          }
+
 
 binaryPayload :: Spec
 binaryPayload = it "binary body with all byte values" $
   withTestServer http2Only echo $ \port -> do
-    let payload = BS.pack [0..255]
+    let payload = BS.pack [0 .. 255]
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes payload) [])
       drainBody (responseBody r)
@@ -130,12 +138,14 @@ binaryPayload = it "binary body with all byte values" $
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
+
 manyHeaders :: Spec
 manyHeaders = it "request with 50 custom headers" $
   withTestServer http2Only counter $ \port -> do
-    let hdrs = [ (CI.mk (BS8.pack ("x-custom-" <> show n)), BS8.pack ("val-" <> show n))
-               | n <- [1 :: Int .. 50]
-               ]
+    let hdrs =
+          [ (CI.mk (BS8.pack ("x-custom-" <> show n)), BS8.pack ("val-" <> show n))
+          | n <- [1 :: Int .. 50]
+          ]
     body <- runClient http2Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty hdrs)
       drainBody (responseBody r)
@@ -143,21 +153,26 @@ manyHeaders = it "request with 50 custom headers" $
     (count >= 50) `shouldBe` True
   where
     counter req = do
-      let customCount = length
-            [ ()
-            | (n, _) <- requestHeaders req
-            , "x-custom-" `BS.isPrefixOf` CI.foldedCase n
-            ]
+      let customCount =
+            length
+              [ ()
+              | (n, _) <- requestHeaders req
+              , "x-custom-" `BS.isPrefixOf` CI.foldedCase n
+              ]
       pure (resp S.status200 (BS8.pack (show customCount)))
+
 
 concurrentManyStreams :: Spec
 concurrentManyStreams =
   it "10 concurrent streams on one connection" $
     withTestServer http2Only handler $ \port -> do
       runClient http2Only port $ \c -> do
-        responses <- mapM (\i -> do
-          sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
-          ) [1 :: Int .. 10]
+        responses <-
+          mapM
+            ( \i -> do
+                sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
+            )
+            [1 :: Int .. 10]
         bodies <- mapM (drainBody . responseBody) responses
         let statuses = map responseStatus responses
         all (== S.status200) statuses `shouldBe` True
@@ -167,18 +182,23 @@ concurrentManyStreams =
       let target = requestTarget req
       pure (resp S.status200 target)
 
+
 sequentialRequestReuse :: Spec
 sequentialRequestReuse =
   it "5 sequential requests on one h2 connection" $
     withTestServer http2Only (\_ -> pure (resp S.status200 "ok")) $ \port -> do
       runClient http2Only port $ \c -> do
-        results <- mapM (\i -> do
-          r <- sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
-          b <- drainBody (responseBody r)
-          pure (responseStatus r, b)
-          ) [1 :: Int .. 5]
+        results <-
+          mapM
+            ( \i -> do
+                r <- sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
+                b <- drainBody (responseBody r)
+                pure (responseStatus r, b)
+            )
+            [1 :: Int .. 5]
         let statuses = map fst results
         all (== S.status200) statuses `shouldBe` True
+
 
 streamingRequestLargeBody :: Spec
 streamingRequestLargeBody =
@@ -206,6 +226,7 @@ streamingRequestLargeBody =
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
+
 emptyStreamingResponse :: Spec
 emptyStreamingResponse = it "streaming body that immediately returns Nothing" $
   withTestServer http2Only handler $ \port -> do
@@ -214,16 +235,19 @@ emptyStreamingResponse = it "streaming body that immediately returns Nothing" $
       drainBody (responseBody r)
     body `shouldBe` ""
   where
-    handler _ = pure Response
-      { responseStatus  = S.status200
-      , responseVersion = V.HTTP2
-      , responseHeaders = []
-      , responseBody    = BodyStream (pure Nothing)
-      , responseTrailers = pure []
-      , responseH2StreamId = 0
-      , responseCancel = pure ()
-      , responsePushPromises = pure []
-      }
+    handler _ =
+      pure
+        Response
+          { responseStatus = S.status200
+          , responseVersion = V.HTTP2
+          , responseHeaders = []
+          , responseBody = BodyStream (pure Nothing)
+          , responseTrailers = pure []
+          , responseH2StreamId = 0
+          , responseCancel = pure ()
+          , responsePushPromises = pure []
+          }
+
 
 ------------------------------------------------------------------------
 -- Plumbing
@@ -236,14 +260,15 @@ withTestServer
   -> IO a
 withTestServer range handler action = do
   readyVar <- newEmptyMVar
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
     [] -> expectationFailure "no addr available for test bind"
-    (addr:_) -> bracket
+    (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close
       $ \listenSock -> do
@@ -254,27 +279,31 @@ withTestServer range handler action = do
         let portStr = case bound of
               NS.SockAddrInet p _ -> show (fromIntegral p :: Int)
               _ -> "0"
-            cfg = defaultServerConfig
-              { serverHost = "127.0.0.1"
-              , serverPort = portStr
-              , serverVersionRange = range
-              , serverHandler = handler
-              }
+            cfg =
+              defaultServerConfig
+                { serverHost = "127.0.0.1"
+                , serverPort = portStr
+                , serverVersionRange = range
+                , serverHandler = handler
+                }
         tid <- forkIO $ do
           putMVar readyVar ()
           runServerOnListener cfg listenSock
         takeMVar readyVar
         action portStr `finally` killThread tid
 
+
 runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a
 runClient range port action = do
-  let cfg = defaultConnectionConfig
-        { connectionHost = "127.0.0.1"
-        , connectionPort = port
-        , connectionVersionRange = range
-        , connectionTls = Nothing
-        }
+  let cfg =
+        defaultConnectionConfig
+          { connectionHost = "127.0.0.1"
+          , connectionPort = port
+          , connectionVersionRange = range
+          , connectionTls = Nothing
+          }
   withConnection cfg action
+
 
 mkRequest
   :: BS.ByteString
@@ -283,28 +312,32 @@ mkRequest
   -> Body
   -> Headers
   -> Request
-mkRequest method target port body extras = Request
-  { requestMethod    = methodFromBytes method
-  , requestTarget    = target
-  , requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
-  , requestScheme    = SchemeHttp
-  , requestHeaders   = extras
-  , requestBody      = body
-  , requestVersion   = V.HTTP2
-  , requestTrailers  = pure []
-  }
+mkRequest method target port body extras =
+  Request
+    { requestMethod = methodFromBytes method
+    , requestTarget = target
+    , requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
+    , requestScheme = SchemeHttp
+    , requestHeaders = extras
+    , requestBody = body
+    , requestVersion = V.HTTP2
+    , requestTrailers = pure []
+    }
+
 
 resp :: S.Status -> BS.ByteString -> Response
-resp status body = Response
-  { responseStatus   = status
-  , responseVersion  = V.HTTP2
-  , responseHeaders  = []
-  , responseBody     = if BS.null body then BodyEmpty else BodyBytes body
-  , responseTrailers = pure []
-  , responseH2StreamId = 0
-  , responseCancel = pure ()
-  , responsePushPromises = pure []
-  }
+resp status body =
+  Response
+    { responseStatus = status
+    , responseVersion = V.HTTP2
+    , responseHeaders = []
+    , responseBody = if BS.null body then BodyEmpty else BodyBytes body
+    , responseTrailers = pure []
+    , responseH2StreamId = 0
+    , responseCancel = pure ()
+    , responsePushPromises = pure []
+    }
+
 
 drainBody :: Body -> IO BS.ByteString
 drainBody BodyEmpty = pure ""

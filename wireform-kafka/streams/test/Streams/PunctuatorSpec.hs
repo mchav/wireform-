@@ -3,43 +3,51 @@
 
 module Streams.PunctuatorSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
 import Data.Int (Int64)
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "Punctuator" $ sequence_
-  [ stream_time_punctuator
-  , wall_clock_punctuator
-  , punctuator_can_be_cancelled
-  , punctuator_no_fire_before_due
-  ]
+tests =
+  describe "Punctuator" $
+    sequence_
+      [ stream_time_punctuator
+      , wall_clock_punctuator
+      , punctuator_can_be_cancelled
+      , punctuator_no_fire_before_due
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 mkProc
-  :: IORef [Timestamp]                    -- ^ accumulator for fire timestamps
-  -> Int                                  -- ^ interval ms
+  :: IORef [Timestamp]
+  -- ^ accumulator for fire timestamps
+  -> Int
+  -- ^ interval ms
   -> PunctuationType
   -> IO (Processor Text Text)
 mkProc accRef intervalMs ptype = do
   ctxRef <- newIORef Nothing
-  pure Processor
-    { procName = processorName "PUNCT-PROC"
-    , procInit = \ctx -> do
-        writeIORef ctxRef (Just ctx)
-        _ <- schedule ctx intervalMs ptype $ Punctuator $ \ts ->
-                modifyIORef' accRef (ts :)
-        pure ()
-    , procClose = pure ()
-    , procProcess = \_ -> pure ()
-    }
+  pure
+    Processor
+      { procName = processorName "PUNCT-PROC"
+      , procInit = \ctx -> do
+          writeIORef ctxRef (Just ctx)
+          _ <- schedule ctx intervalMs ptype $ Punctuator $ \ts ->
+            modifyIORef' accRef (ts :)
+          pure ()
+      , procClose = pure ()
+      , procProcess = \_ -> pure ()
+      }
+
 
 stream_time_punctuator :: Spec
 stream_time_punctuator =
@@ -73,6 +81,7 @@ stream_time_punctuator =
     length f3 `shouldBe` 2
     closeDriver driver
 
+
 wall_clock_punctuator :: Spec
 wall_clock_punctuator =
   it "wall-clock punctuator fires after advanceWallClockTime" $ do
@@ -82,7 +91,9 @@ wall_clock_punctuator =
     let bld = kstreamBuilder src
     nm <- freshNodeName bld "PUNCT"
     withTopology_ bld $
-      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src]
+      Kafka.Streams.Imperative.addProcessor
+        nm
+        [kstreamParent src]
         (mkProc fired 100 WallClockTimePunctuation)
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"
@@ -100,6 +111,7 @@ wall_clock_punctuator =
     length f3 `shouldBe` 2
     closeDriver driver
 
+
 punctuator_can_be_cancelled :: Spec
 punctuator_can_be_cancelled =
   it "schedule returns a cancel that suppresses future fires" $ do
@@ -110,34 +122,36 @@ punctuator_can_be_cancelled =
     let bld = kstreamBuilder src
         proc_ = do
           ctxRef <- newIORef Nothing
-          pure Processor
-            { procName = processorName "PUNCT-CANC"
-            , procInit = \ctx -> do
-                writeIORef ctxRef (Just ctx)
-                tok <- schedule ctx 100 WallClockTimePunctuation
-                          $ Punctuator $ \ts ->
-                              modifyIORef' fired (ts :)
-                writeIORef cancelRef (Just tok)
-            , procClose = pure ()
-            , procProcess = \_ -> pure ()
-            }
+          pure
+            Processor
+              { procName = processorName "PUNCT-CANC"
+              , procInit = \ctx -> do
+                  writeIORef ctxRef (Just ctx)
+                  tok <- schedule ctx 100 WallClockTimePunctuation $
+                    Punctuator $ \ts ->
+                      modifyIORef' fired (ts :)
+                  writeIORef cancelRef (Just tok)
+              , procClose = pure ()
+              , procProcess = \_ -> pure ()
+              }
     nm <- freshNodeName bld "PUNCT-CANC"
     withTopology_ bld $
       Kafka.Streams.Imperative.addProcessor nm [kstreamParent src] proc_
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"
 
-    advanceWallClockTime driver 200    -- fires
+    advanceWallClockTime driver 200 -- fires
     f1 <- readIORef fired
     length f1 `shouldBe` 1
 
     Just tok <- readIORef cancelRef
     cancel tok
 
-    advanceWallClockTime driver 500    -- should not fire
+    advanceWallClockTime driver 500 -- should not fire
     f2 <- readIORef fired
     length f2 `shouldBe` 1
     closeDriver driver
+
 
 punctuator_no_fire_before_due :: Spec
 punctuator_no_fire_before_due =
@@ -148,7 +162,9 @@ punctuator_no_fire_before_due =
     let bld = kstreamBuilder src
     nm <- freshNodeName bld "PUNCT"
     withTopology_ bld $
-      Kafka.Streams.Imperative.addProcessor nm [kstreamParent src]
+      Kafka.Streams.Imperative.addProcessor
+        nm
+        [kstreamParent src]
         (mkProc fired 1000 WallClockTimePunctuation)
     topo <- buildTopology bld
     driver <- newDriver topo "punct-app"

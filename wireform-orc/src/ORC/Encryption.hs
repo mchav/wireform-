@@ -169,8 +169,8 @@ encryptStripeKey localKey stripeId =
   let !iv = stripeIdToIV stripeId
       !payload = BS.replicate (BS.length localKey) 0
   in case aesCtrCombine localKey iv payload of
-      Left e -> Left e
-      Right ks -> Right ks
+       Left e -> Left e
+       Right ks -> Right ks
 
 
 {- | The 16-byte AES-CTR IV the spec derives from a stream's byte
@@ -395,18 +395,18 @@ decodeEncryption bs =
           , encKeyProvider = ProviderUnknown
           }
   in decodeMsg bs empty_ $ \e -> \case
-      Encryption_Mask -> ReadBytesE $ \payload -> do
-        m <- decodeDataMask payload
-        Right e {encMasks = encMasks e ++ [m]}
-      Encryption_Key -> ReadBytesE $ \payload -> do
-        k <- decodeEncryptionKey payload
-        Right e {encKeys = encKeys e ++ [k]}
-      Encryption_Variants -> ReadBytesE $ \payload -> do
-        v <- decodeEncryptionVariant payload
-        Right e {encVariants = encVariants e ++ [v]}
-      Encryption_KeyProvider -> ReadVarint $ \v ->
-        e {encKeyProvider = providerFromTag (fromIntegral v)}
-      _ -> SkipUnknown
+       Encryption_Mask -> ReadBytesE $ \payload -> do
+         m <- decodeDataMask payload
+         Right e {encMasks = encMasks e ++ [m]}
+       Encryption_Key -> ReadBytesE $ \payload -> do
+         k <- decodeEncryptionKey payload
+         Right e {encKeys = encKeys e ++ [k]}
+       Encryption_Variants -> ReadBytesE $ \payload -> do
+         v <- decodeEncryptionVariant payload
+         Right e {encVariants = encVariants e ++ [v]}
+       Encryption_KeyProvider -> ReadVarint $ \v ->
+         e {encKeyProvider = providerFromTag (fromIntegral v)}
+       _ -> SkipUnknown
 
 
 decodeEncryptionKey :: ByteString -> Either String EncryptionKey

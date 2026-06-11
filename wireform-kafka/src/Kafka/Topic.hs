@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Topic
 Description : Typed topic reference carrying its key / value serdes.
 Copyright   : (c) 2025
@@ -29,44 +29,52 @@ main =
     'Kafka.Client.Producer.publish' p events (Just \"order-42\") (Event ...)
 @
 -}
-module Kafka.Topic
-  ( -- * Type
-    Topic (..)
-    -- * Construction
-  , topic
-  , topicAny
-  , bytesTopic
-  , textTopic
-  ) where
+module Kafka.Topic (
+  -- * Type
+  Topic (..),
+
+  -- * Construction
+  topic,
+  topicAny,
+  bytesTopic,
+  textTopic,
+) where
 
 import Data.ByteString (ByteString)
-import Data.Text       (Text)
+import Data.Text (Text)
+import Kafka.Serde (Serde, byteStringSerde, textSerde, voidSerde)
 
-import Kafka.Serde     (Serde, byteStringSerde, textSerde, voidSerde)
 
--- | A topic reference plus the serdes that turn its records into
--- typed values.
+{- | A topic reference plus the serdes that turn its records into
+typed values.
+-}
 data Topic k v = Topic
-  { topicName       :: !Text
-  , topicKeySerde   :: !(Serde k)
+  { topicName :: !Text
+  , topicKeySerde :: !(Serde k)
   , topicValueSerde :: !(Serde v)
   }
+
 
 -- | The everyday smart constructor.
 topic :: Text -> Serde k -> Serde v -> Topic k v
 topic = Topic
 
--- | A topic that doesn't expect typed keys (Kafka allows null keys
--- for compaction tombstones and partition-by-record-count work).
--- Note: producers can still send a 'Maybe k' for the key; this
--- function just defaults the key serde to 'voidSerde'.
+
+{- | A topic that doesn't expect typed keys (Kafka allows null keys
+for compaction tombstones and partition-by-record-count work).
+Note: producers can still send a 'Maybe k' for the key; this
+function just defaults the key serde to 'voidSerde'.
+-}
 topicAny :: Text -> Serde v -> Topic () v
 topicAny n vs = Topic n voidSerde vs
 
--- | Identity serdes on both sides — useful for handing raw bytes
--- through without typed wrapping.
+
+{- | Identity serdes on both sides — useful for handing raw bytes
+through without typed wrapping.
+-}
 bytesTopic :: Text -> Topic ByteString ByteString
 bytesTopic n = Topic n byteStringSerde byteStringSerde
+
 
 -- | UTF-8 'Text' on both key and value.
 textTopic :: Text -> Topic Text Text

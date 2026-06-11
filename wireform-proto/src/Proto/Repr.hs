@@ -261,23 +261,26 @@ data StringAdapter = StringAdapter
   { stringType :: Q Type
   -- ^ The Haskell type (e.g. @[t| Text |]@, @[t| Url |]@).
   , stringEncode :: Q Exp
-  -- ^ @Int -> a -> Builder@. The 'Int' is the proto field number.
-  -- The adapter is responsible for emitting the tag + payload.
+  {- ^ @Int -> a -> Builder@. The 'Int' is the proto field number.
+  The adapter is responsible for emitting the tag + payload.
+  -}
   , stringSize :: Q Exp
   -- ^ @a -> Int@. Wire size of the field /including/ the tag byte.
   , stringDecode :: Q Exp
-  -- ^ @Text -> a@. Post-processing function applied after the wire
-  -- decoder produces a strict 'Text'. For the default (strict text)
-  -- this is 'id'.
+  {- ^ @Text -> a@. Post-processing function applied after the wire
+  decoder produces a strict 'Text'. For the default (strict text)
+  this is 'id'.
+  -}
   , stringEmpty :: Q Exp
   -- ^ @a@. The proto default / zero value.
   , stringIsEmpty :: Q Exp
   -- ^ @a -> Bool@. For the proto3 default-skip rule.
   , stringBaseRep :: !StringRep
-  -- ^ The underlying base representation, used by the JSON/metadata
-  -- codegen to select the right serialisation path. Custom adapters
-  -- wrapping a base type should set this to the corresponding enum
-  -- (e.g. a newtype over 'Text' should use 'StrictTextRep').
+  {- ^ The underlying base representation, used by the JSON/metadata
+  codegen to select the right serialisation path. Custom adapters
+  wrapping a base type should set this to the corresponding enum
+  (e.g. a newtype over 'Text' should use 'StrictTextRep').
+  -}
   }
 
 
@@ -289,24 +292,27 @@ data BytesAdapter = BytesAdapter
   , bytesSize :: Q Exp
   -- ^ @a -> Int@. Wire size including tag byte.
   , bytesDecode :: Q Exp
-  -- ^ @ByteString -> a@. Post-processing function applied after the
-  -- wire decoder produces a strict 'ByteString'. For the default
-  -- (strict bytes) this is 'id'.
+  {- ^ @ByteString -> a@. Post-processing function applied after the
+  wire decoder produces a strict 'ByteString'. For the default
+  (strict bytes) this is 'id'.
+  -}
   , bytesEmpty :: Q Exp
   -- ^ @a@.
   , bytesIsEmpty :: Q Exp
   -- ^ @a -> Bool@.
   , bytesBaseRep :: !BytesRep
-  -- ^ The underlying base representation, used by JSON/metadata
-  -- codegen to select the right serialisation path.
+  {- ^ The underlying base representation, used by JSON/metadata
+  codegen to select the right serialisation path.
+  -}
   }
 
 
 -- | A recipe for the container backing a proto @repeated@ field.
 data RepeatedAdapter = RepeatedAdapter
   { repeatedType :: Q Type -> Q Type
-  -- ^ Given an element type, produce the container type.
-  -- E.g. @\\t -> [t| V.Vector $t |]@.
+  {- ^ Given an element type, produce the container type.
+  E.g. @\\t -> [t| V.Vector $t |]@.
+  -}
   , repeatedEmpty :: Q Exp
   -- ^ @f a@. Empty container.
   , repeatedSnoc :: Q Exp
@@ -316,8 +322,9 @@ data RepeatedAdapter = RepeatedAdapter
   , repeatedIsEmpty :: Q Exp
   -- ^ @f a -> Bool@.
   , repeatedBaseRep :: !RepeatedRep
-  -- ^ The underlying base representation, used by JSON/metadata
-  -- codegen to select the right serialisation path.
+  {- ^ The underlying base representation, used by JSON/metadata
+  codegen to select the right serialisation path.
+  -}
   }
 
 
@@ -567,18 +574,21 @@ data RepConfig = RepConfig
   { configDefault :: !FieldRep
   -- ^ Default representation for all fields.
   , configUnboxedRepeated :: !Bool
-  -- ^ When 'True', repeated fields whose element type is 'Unbox'-able
-  -- (all numeric scalars and Bool) default to @Data.Vector.Unboxed@
-  -- instead of @Data.Vector@. Zero per-element heap overhead for
-  -- packed repeated fields. Default: 'False' (for backwards compat).
+  {- ^ When 'True', repeated fields whose element type is 'Unbox'-able
+  (all numeric scalars and Bool) default to @Data.Vector.Unboxed@
+  instead of @Data.Vector@. Zero per-element heap overhead for
+  packed repeated fields. Default: 'False' (for backwards compat).
+  -}
   , configMessageOverrides :: !(Map Text FieldRep)
   -- ^ Per-message override (applies to all fields in the message).
   , configFieldOverrides :: !(Map (Text, Text) FieldRep)
-  -- ^ Per-field override. Key is (messageName, fieldName).
-  -- Haskell-side overrides take precedence over .proto annotations.
+  {- ^ Per-field override. Key is (messageName, fieldName).
+  Haskell-side overrides take precedence over .proto annotations.
+  -}
   , configAdapterRegistry :: !AdapterRegistry
-  -- ^ Maps string names (from .proto annotations like
-  -- @[(wireform.haskell_bytes) = \"lazy\"]@) to adapters.
+  {- ^ Maps string names (from .proto annotations like
+  @[(wireform.haskell_bytes) = \"lazy\"]@) to adapters.
+  -}
   }
 
 

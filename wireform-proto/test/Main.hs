@@ -11,9 +11,10 @@ import Test.Syd
 
 main :: IO ()
 main =
-  sydTest $
-    describe
-      "wireform-proto:Derive" $ sequence_
+  sydTest
+    $ describe
+      "wireform-proto:Derive"
+    $ sequence_
       [ Test.Proto.Derive.tests
       , Test.Proto.Derive.Auto.tests
       , Test.Proto.Derive.Golden.tests

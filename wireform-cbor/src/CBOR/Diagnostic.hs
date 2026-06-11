@@ -1,33 +1,35 @@
 {-# LANGUAGE BangPatterns #-}
--- | CBOR diagnostic notation (RFC 8949 Section 8).
---
--- Human-readable text representation of CBOR values. Useful for
--- debugging, test fixtures, and protocol documentation.
---
--- Examples:
---
--- @
--- toDiagnostic (UInt 42)          == "42"
--- toDiagnostic (NInt 0)           == "-1"
--- toDiagnostic (TextString "hi")  == "\"hi\""
--- toDiagnostic (Array [UInt 1])   == "[1]"
--- toDiagnostic (Tag 0 (TextString "2013-03-21T20:04:00Z"))
---   == "0(\"2013-03-21T20:04:00Z\")"
--- @
-module CBOR.Diagnostic
-  ( toDiagnostic
-  , fromDiagnostic
-  ) where
 
+{- | CBOR diagnostic notation (RFC 8949 Section 8).
+
+Human-readable text representation of CBOR values. Useful for
+debugging, test fixtures, and protocol documentation.
+
+Examples:
+
+@
+toDiagnostic (UInt 42)          == "42"
+toDiagnostic (NInt 0)           == "-1"
+toDiagnostic (TextString "hi")  == "\"hi\""
+toDiagnostic (Array [UInt 1])   == "[1]"
+toDiagnostic (Tag 0 (TextString "2013-03-21T20:04:00Z"))
+  == "0(\"2013-03-21T20:04:00Z\")"
+@
+-}
+module CBOR.Diagnostic (
+  toDiagnostic,
+  fromDiagnostic,
+) where
+
+import CBOR.Value qualified as C
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isDigit, isHexDigit, isSpace, ord, toLower)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
-import Data.Word (Word8, Word64)
+import Data.Text qualified as T
+import Data.Vector qualified as V
+import Data.Word (Word64, Word8)
 
-import qualified CBOR.Value as C
 
 ------------------------------------------------------------------------
 -- Rendering
@@ -36,68 +38,77 @@ import qualified CBOR.Value as C
 toDiagnostic :: C.Value -> Text
 toDiagnostic = renderValue
 
+
 renderValue :: C.Value -> Text
-renderValue (C.UInt n)       = T.pack (show n)
-renderValue (C.NInt n)       = T.pack (show (negate (fromIntegral n :: Integer) - 1))
-renderValue (C.Bool True)    = "true"
-renderValue (C.Bool False)   = "false"
-renderValue C.Null           = "null"
-renderValue C.Undefined      = "undefined"
-renderValue (C.Float16 f)    = renderFloat (realToFrac f :: Double)
-renderValue (C.Float32 f)    = renderFloat (realToFrac f :: Double)
-renderValue (C.Float64 d)    = renderFloat d
+renderValue (C.UInt n) = T.pack (show n)
+renderValue (C.NInt n) = T.pack (show (negate (fromIntegral n :: Integer) - 1))
+renderValue (C.Bool True) = "true"
+renderValue (C.Bool False) = "false"
+renderValue C.Null = "null"
+renderValue C.Undefined = "undefined"
+renderValue (C.Float16 f) = renderFloat (realToFrac f :: Double)
+renderValue (C.Float32 f) = renderFloat (realToFrac f :: Double)
+renderValue (C.Float64 d) = renderFloat d
 renderValue (C.ByteString b) = "h'" <> bytesToHex b <> "'"
 renderValue (C.TextString t) = "\"" <> escapeText t <> "\""
-renderValue (C.Array vec)    = "[" <> renderItems vec <> "]"
-renderValue (C.Map vec)      = "{" <> renderPairs vec <> "}"
-renderValue (C.Tag n v)      = T.pack (show n) <> "(" <> renderValue v <> ")"
-renderValue (C.Simple n)     = "simple(" <> T.pack (show n) <> ")"
+renderValue (C.Array vec) = "[" <> renderItems vec <> "]"
+renderValue (C.Map vec) = "{" <> renderPairs vec <> "}"
+renderValue (C.Tag n v) = T.pack (show n) <> "(" <> renderValue v <> ")"
+renderValue (C.Simple n) = "simple(" <> T.pack (show n) <> ")"
+
 
 renderFloat :: Double -> Text
 renderFloat d
-  | isNaN d      = "NaN"
+  | isNaN d = "NaN"
   | isInfinite d = if d > 0 then "Infinity" else "-Infinity"
-  | otherwise    =
+  | otherwise =
       let s = show d
-      in T.pack $ if '.' `elem` s || 'e' `elem` s || 'E' `elem` s
-                  then s
-                  else s ++ ".0"
+      in T.pack $
+           if '.' `elem` s || 'e' `elem` s || 'E' `elem` s
+             then s
+             else s ++ ".0"
+
 
 renderItems :: V.Vector C.Value -> Text
 renderItems vec
   | V.null vec = ""
-  | otherwise  = T.intercalate ", " (V.toList (V.map renderValue vec))
+  | otherwise = T.intercalate ", " (V.toList (V.map renderValue vec))
+
 
 renderPairs :: V.Vector (C.Value, C.Value) -> Text
 renderPairs vec
   | V.null vec = ""
-  | otherwise  = T.intercalate ", " (V.toList (V.map renderPair vec))
+  | otherwise = T.intercalate ", " (V.toList (V.map renderPair vec))
   where
     renderPair (k, v) = renderValue k <> ": " <> renderValue v
+
 
 bytesToHex :: ByteString -> Text
 bytesToHex = T.pack . concatMap byteToHex . BS.unpack
   where
     byteToHex b = [hexChar (b `div` 16), hexChar (b `mod` 16)]
     hexChar n
-      | n < 10    = chr (ord '0' + fromIntegral n)
+      | n < 10 = chr (ord '0' + fromIntegral n)
       | otherwise = chr (ord 'a' + fromIntegral n - 10)
+
 
 escapeText :: Text -> Text
 escapeText = T.concatMap escChar
   where
-    escChar '"'  = "\\\""
+    escChar '"' = "\\\""
     escChar '\\' = "\\\\"
     escChar '\n' = "\\n"
     escChar '\r' = "\\r"
     escChar '\t' = "\\t"
-    escChar c    = T.singleton c
+    escChar c = T.singleton c
+
 
 ------------------------------------------------------------------------
 -- Parsing
 ------------------------------------------------------------------------
 
 type Parser a = String -> Either String (a, String)
+
 
 fromDiagnostic :: Text -> Either String C.Value
 fromDiagnostic t =
@@ -107,62 +118,51 @@ fromDiagnostic t =
       | all isSpace rest -> Right val
       | otherwise -> Left $ "CBOR.Diagnostic: trailing characters: " ++ take 20 rest
 
+
 parseValue :: Parser C.Value
 parseValue input = case dropWhile isSpace input of
   [] -> Left "CBOR.Diagnostic: unexpected end of input"
-
   '"' : rest -> parseTextString rest
-
   'h' : '\'' : rest -> parseByteString rest
-
   't' : 'r' : 'u' : 'e' : rest
     | notIdentCont rest -> Right (C.Bool True, rest)
-
   'f' : 'a' : 'l' : 's' : 'e' : rest
     | notIdentCont rest -> Right (C.Bool False, rest)
-
   'n' : 'u' : 'l' : 'l' : rest
     | notIdentCont rest -> Right (C.Null, rest)
-
   'u' : 'n' : 'd' : 'e' : 'f' : 'i' : 'n' : 'e' : 'd' : rest
     | notIdentCont rest -> Right (C.Undefined, rest)
-
   'N' : 'a' : 'N' : rest
-    | notIdentCont rest -> Right (C.Float64 (0/0), rest)
-
+    | notIdentCont rest -> Right (C.Float64 (0 / 0), rest)
   'I' : 'n' : 'f' : 'i' : 'n' : 'i' : 't' : 'y' : rest
-    | notIdentCont rest -> Right (C.Float64 (1/0), rest)
-
+    | notIdentCont rest -> Right (C.Float64 (1 / 0), rest)
   '-' : 'I' : 'n' : 'f' : 'i' : 'n' : 'i' : 't' : 'y' : rest
-    | notIdentCont rest -> Right (C.Float64 ((-1)/0), rest)
-
+    | notIdentCont rest -> Right (C.Float64 ((-1) / 0), rest)
   's' : 'i' : 'm' : 'p' : 'l' : 'e' : '(' : rest -> parseSimple rest
-
   '[' : rest -> parseArray rest
-
   '{' : rest -> parseMap rest
-
   '-' : rest -> parseNegNumber rest
-
   s@(c : _) | isDigit c -> parseNumberOrTag s
-
   other -> Left $ "CBOR.Diagnostic: unexpected input: " ++ take 20 other
 
+
 notIdentCont :: String -> Bool
-notIdentCont []    = True
-notIdentCont (c:_) = not (isDigit c || c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+notIdentCont [] = True
+notIdentCont (c : _) = not (isDigit c || c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+
 
 parseTextString :: Parser C.Value
 parseTextString = go []
   where
     go acc [] = Left "CBOR.Diagnostic: unterminated string"
     go acc ('"' : rest) = Right (C.TextString (T.pack (reverse acc)), rest)
-    go acc ('\\' : '"' : rest)  = go ('"' : acc) rest
+    go acc ('\\' : '"' : rest) = go ('"' : acc) rest
     go acc ('\\' : '\\' : rest) = go ('\\' : acc) rest
-    go acc ('\\' : 'n' : rest)  = go ('\n' : acc) rest
-    go acc ('\\' : 'r' : rest)  = go ('\r' : acc) rest
-    go acc ('\\' : 't' : rest)  = go ('\t' : acc) rest
+    go acc ('\\' : 'n' : rest) = go ('\n' : acc) rest
+    go acc ('\\' : 'r' : rest) = go ('\r' : acc) rest
+    go acc ('\\' : 't' : rest) = go ('\t' : acc) rest
     go acc (c : rest) = go (c : acc) rest
+
 
 parseByteString :: Parser C.Value
 parseByteString = go []
@@ -177,15 +177,17 @@ parseByteString = go []
       | isSpace c = go acc rest
       | otherwise = Left $ "CBOR.Diagnostic: invalid hex character: " ++ [c]
 
+
 parseSimple :: Parser C.Value
 parseSimple input = case span isDigit input of
   ([], _) -> Left "CBOR.Diagnostic: expected number after simple("
   (digits, ')' : rest) ->
     let n = read digits :: Int
     in if n > 255
-       then Left "CBOR.Diagnostic: simple value out of range (0-255)"
-       else Right (C.Simple (fromIntegral n), rest)
+         then Left "CBOR.Diagnostic: simple value out of range (0-255)"
+         else Right (C.Simple (fromIntegral n), rest)
   _ -> Left "CBOR.Diagnostic: expected ')' after simple value"
+
 
 parseArray :: Parser C.Value
 parseArray input = case dropWhile isSpace input of
@@ -198,6 +200,7 @@ parseArray input = case dropWhile isSpace input of
         ',' : rest2 -> parseArrayItems (val : acc) rest2
         ']' : rest2 -> Right (C.Array (V.fromList (reverse (val : acc))), rest2)
         _ -> Left "CBOR.Diagnostic: expected ',' or ']' in array"
+
 
 parseMap :: Parser C.Value
 parseMap input = case dropWhile isSpace input of
@@ -215,6 +218,7 @@ parseMap input = case dropWhile isSpace input of
             _ -> Left "CBOR.Diagnostic: expected ',' or '}' in map"
         _ -> Left "CBOR.Diagnostic: expected ':' in map"
 
+
 parseNegNumber :: Parser C.Value
 parseNegNumber input = case span isDigit input of
   ([], _) -> Left "CBOR.Diagnostic: expected digit after '-'"
@@ -227,8 +231,9 @@ parseNegNumber input = case span isDigit input of
         let n = read digits :: Integer
             encoded = n - 1
         in if encoded < 0
-           then Left "CBOR.Diagnostic: negative integer -0 not valid in CBOR"
-           else Right (C.NInt (fromIntegral encoded), rest)
+             then Left "CBOR.Diagnostic: negative integer -0 not valid in CBOR"
+             else Right (C.NInt (fromIntegral encoded), rest)
+
 
 parseNegFloat :: String -> String -> Either String (C.Value, String)
 parseNegFloat intPart rest =
@@ -238,20 +243,22 @@ parseNegFloat intPart rest =
        [(d, "")] -> Right (C.Float64 d, rest2)
        _ -> Left $ "CBOR.Diagnostic: invalid float: " ++ fullStr
 
+
 parseNumberOrTag :: Parser C.Value
 parseNumberOrTag input =
   let (digits, rest) = span isDigit input
   in case rest of
-    '(' : rest2 -> do
-      let tagNum = read digits :: Word64
-      (val, rest3) <- parseValue rest2
-      case dropWhile isSpace rest3 of
-        ')' : rest4 -> Right (C.Tag tagNum val, rest4)
-        _ -> Left "CBOR.Diagnostic: expected ')' after tag content"
-    '.' : _ -> parsePosFloat digits rest
-    'e' : _ -> parsePosFloat digits rest
-    'E' : _ -> parsePosFloat digits rest
-    _ -> Right (C.UInt (read digits), rest)
+       '(' : rest2 -> do
+         let tagNum = read digits :: Word64
+         (val, rest3) <- parseValue rest2
+         case dropWhile isSpace rest3 of
+           ')' : rest4 -> Right (C.Tag tagNum val, rest4)
+           _ -> Left "CBOR.Diagnostic: expected ')' after tag content"
+       '.' : _ -> parsePosFloat digits rest
+       'e' : _ -> parsePosFloat digits rest
+       'E' : _ -> parsePosFloat digits rest
+       _ -> Right (C.UInt (read digits), rest)
+
 
 parsePosFloat :: String -> String -> Either String (C.Value, String)
 parsePosFloat intPart rest =
@@ -261,16 +268,17 @@ parsePosFloat intPart rest =
        [(d, "")] -> Right (C.Float64 d, rest2)
        _ -> Left $ "CBOR.Diagnostic: invalid float: " ++ fullStr
 
+
 spanFloat :: String -> (String, String)
 spanFloat s =
   let (frac, s1) = case s of
         '.' : rest -> let (ds, r) = span isDigit rest in ('.' : ds, r)
-        _          -> ("", s)
+        _ -> ("", s)
       (ex, s2) = case s1 of
         e : rest | e == 'e' || e == 'E' ->
           case rest of
             '+' : rest2 -> let (ds, r) = span isDigit rest2 in (e : '+' : ds, r)
             '-' : rest2 -> let (ds, r) = span isDigit rest2 in (e : '-' : ds, r)
-            _           -> let (ds, r) = span isDigit rest  in (e : ds, r)
+            _ -> let (ds, r) = span isDigit rest in (e : ds, r)
         _ -> ("", s1)
   in (frac ++ ex, s2)

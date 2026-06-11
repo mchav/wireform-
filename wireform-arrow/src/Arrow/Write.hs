@@ -234,14 +234,14 @@ encodePlainFixedSizeBinary !w vec =
         ( \acc bs ->
             let !raw = BS.length bs
             in if raw == w
-                then acc <> B.byteString bs
-                else
-                  if raw > w
-                    then acc <> B.byteString (BS.take w bs)
-                    else
-                      acc
-                        <> B.byteString bs
-                        <> B.byteString (BS.replicate (w - raw) 0)
+                 then acc <> B.byteString bs
+                 else
+                   if raw > w
+                     then acc <> B.byteString (BS.take w bs)
+                     else
+                       acc
+                         <> B.byteString bs
+                         <> B.byteString (BS.replicate (w - raw) 0)
         )
         mempty
         vec
@@ -295,10 +295,11 @@ data BuildAcc = BuildAcc
   , baBufs :: ![Buffer]
   , baBody :: !B.Builder
   , baVariadic :: ![Int64]
-  -- ^ For each Utf8View / BinaryView field encountered (in
-  -- pre-order DFS), the number of variadic data buffers emitted.
-  -- The Arrow @RecordBatch.variadicBufferCounts@ vector is the
-  -- reverse of this list at the end of encoding.
+  {- ^ For each Utf8View / BinaryView field encountered (in
+  pre-order DFS), the number of variadic data buffers emitted.
+  The Arrow @RecordBatch.variadicBufferCounts@ vector is the
+  reverse of this list at the end of encoding.
+  -}
   }
 
 
@@ -312,11 +313,11 @@ addBufData bs (BuildAcc off ns bufs body var) =
       !padded = alignUp8 rawLen
       !pad = padded - rawLen
   in BuildAcc
-      (off + fromIntegral padded)
-      ns
-      (Buffer off (fromIntegral rawLen) : bufs)
-      (body <> B.byteString bs <> B.byteString (BS.replicate pad 0))
-      var
+       (off + fromIntegral padded)
+       ns
+       (Buffer off (fromIntegral rawLen) : bufs)
+       (body <> B.byteString bs <> B.byteString (BS.replicate pad 0))
+       var
 
 
 addFieldNode :: Int64 -> Int64 -> BuildAcc -> BuildAcc
@@ -373,12 +374,12 @@ buildRecordBatch schema cols =
       !metaPad = paddedMetaLen - metaLen
       !bodyBs = BL.toStrict (B.toLazyByteString (baBody acc))
   in BL.toStrict $
-      B.toLazyByteString $
-        B.word32LE 0xFFFFFFFF
-          <> B.int32LE (fromIntegral paddedMetaLen)
-          <> B.byteString metaBs
-          <> B.byteString (BS.replicate metaPad 0)
-          <> B.byteString bodyBs
+       B.toLazyByteString $
+         B.word32LE 0xFFFFFFFF
+           <> B.int32LE (fromIntegral paddedMetaLen)
+           <> B.byteString metaBs
+           <> B.byteString (BS.replicate metaPad 0)
+           <> B.byteString bodyBs
 
 
 -- Metadata in the same simplified format as Arrow.IPC
@@ -678,9 +679,9 @@ encodeCol f col acc = case col of
       { baNodes =
           baNodes acc
             ++ [ FieldNode
-                  { fnLength = fromIntegral n
-                  , fnNullCount = fromIntegral n
-                  }
+                   { fnLength = fromIntegral n
+                   , fnNullCount = fromIntegral n
+                   }
                ]
       }
 
@@ -831,8 +832,8 @@ primNullable enc zero vec acc =
       vals = VP.generate (V.length vec) $ \i ->
         fromMaybe zero (V.unsafeIndex vec i)
   in addBufData (enc vals) $
-      addBufData (encodeNullBitmap validity) $
-        addFieldNode n nc acc
+       addBufData (encodeNullBitmap validity) $
+         addFieldNode n nc acc
 
 
 {- | Encode a @V.Vector (Maybe a)@ backed by 'V.Vector' (i.e. not
@@ -852,8 +853,8 @@ primNullableBoxed enc zero vec acc =
       validity = V.map isJust vec
       vals = V.map (fromMaybe zero) vec
   in addBufData (enc vals) $
-      addBufData (encodeNullBitmap validity) $
-        addFieldNode n nc acc
+       addBufData (encodeNullBitmap validity) $
+         addFieldNode n nc acc
 
 
 {- | Encode a @V.Vector (Maybe a)@ that serialises as an
@@ -872,9 +873,9 @@ varNullableBoxed enc zero vec acc =
       vals = V.map (fromMaybe zero) vec
       (offBs, datBs) = enc vals
   in addBufData datBs $
-      addBufData offBs $
-        addBufData (encodeNullBitmap validity) $
-          addFieldNode n nc acc
+       addBufData offBs $
+         addBufData (encodeNullBitmap validity) $
+           addFieldNode n nc acc
 
 
 -- | Count @False@ entries in a validity bitmap.
@@ -923,26 +924,26 @@ writeArrowFile schema batches =
       footerBs = encodeFooter schema blockOffsets
       !footerLen = BS.length footerBs
   in BS.concat
-      [ arrowMagic
-      , BS.pack [0, 0]
-      , schemaBs
-      , BS.replicate schemaPad 0
-      , BS.concat (V.toList batchBss)
-      , footerBs
-      , BL.toStrict (B.toLazyByteString (B.int32LE (fromIntegral footerLen)))
-      , arrowMagic
-      ]
+       [ arrowMagic
+       , BS.pack [0, 0]
+       , schemaBs
+       , BS.replicate schemaPad 0
+       , BS.concat (V.toList batchBss)
+       , footerBs
+       , BL.toStrict (B.toLazyByteString (B.int32LE (fromIntegral footerLen)))
+       , arrowMagic
+       ]
 
 
 encodeFooter :: Schema -> [Int64] -> ByteString
 encodeFooter schema blockOffsets =
   let !schemaBs = encodeIPCMessage (SchemaMessage schema)
   in BL.toStrict $
-      B.toLazyByteString $
-        B.int32LE (fromIntegral (BS.length schemaBs))
-          <> B.byteString schemaBs
-          <> B.int32LE (fromIntegral (length blockOffsets))
-          <> foldl' (\acc off -> acc <> B.int64LE off) mempty blockOffsets
+       B.toLazyByteString $
+         B.int32LE (fromIntegral (BS.length schemaBs))
+           <> B.byteString schemaBs
+           <> B.int32LE (fromIntegral (length blockOffsets))
+           <> foldl' (\acc off -> acc <> B.int64LE off) mempty blockOffsets
   where
     foldl' _ z [] = z
     foldl' g !z (x : xs) = foldl' g (g z x) xs

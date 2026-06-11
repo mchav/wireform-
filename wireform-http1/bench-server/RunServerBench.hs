@@ -16,42 +16,51 @@ module Main (main) where
 
 import Control.Concurrent (forkOn, getNumCapabilities)
 import Data.IORef
-import System.Environment (getArgs)
-
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
+import System.Environment (getArgs)
+
 
 main :: IO ()
 main = do
   args <- getArgs
   let port = case args of
         (p : _) -> p
-        []      -> "8081"
+        [] -> "8081"
   caps <- getNumCapabilities
   capCounter <- newIORef (0 :: Int)
   let pinningFork io = do
-        cap <- atomicModifyIORef' capCounter
-                 (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
+        cap <-
+          atomicModifyIORef'
+            capCounter
+            (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
         forkOn cap io
-  let cfg = defaultServerConfig
-        { serverHost = "0.0.0.0"
-        , serverPort = port
-        , serverHandler = handler
-        , serverForkConnection = pinningFork
-        }
-  putStrLn $ "wireform-http1-runserver-bench: " <> show caps
-           <> " capabilities, port " <> port
+  let cfg =
+        defaultServerConfig
+          { serverHost = "0.0.0.0"
+          , serverPort = port
+          , serverHandler = handler
+          , serverForkConnection = pinningFork
+          }
+  putStrLn $
+    "wireform-http1-runserver-bench: "
+      <> show caps
+      <> " capabilities, port "
+      <> port
   runServer cfg
 
+
 handler :: Handler
-handler _req = pure $ Response
-  { responseStatus  = OK
-  , responseVersion = HTTP_1_1
-  , responseHeaders =
-      [ ("Content-Type", "text/plain")
-      , ("Server", "wireform-http1")
-      ]
-  , responseBody = BodyBytes "Hello, world!\n"
-  , responseTrailers = pure []
-  }
+handler _req =
+  pure $
+    Response
+      { responseStatus = OK
+      , responseVersion = HTTP_1_1
+      , responseHeaders =
+          [ ("Content-Type", "text/plain")
+          , ("Server", "wireform-http1")
+          ]
+      , responseBody = BodyBytes "Hello, world!\n"
+      , responseTrailers = pure []
+      }

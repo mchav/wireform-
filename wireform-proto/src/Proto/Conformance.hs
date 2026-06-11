@@ -60,8 +60,8 @@ instance MessageEncode ConformanceRequest where
   buildMessage cr =
     (if BS.null (crPayload cr) then mempty else encodeFieldBytes 1 (crPayload cr))
       <> ( if crRequestedOutputFormat cr == 0
-            then mempty
-            else encodeFieldVarint 3 (fromIntegral (crRequestedOutputFormat cr))
+             then mempty
+             else encodeFieldVarint 3 (fromIntegral (crRequestedOutputFormat cr))
          )
       <> (if crMessageType cr == "" then mempty else encodeFieldString 4 (crMessageType cr))
 

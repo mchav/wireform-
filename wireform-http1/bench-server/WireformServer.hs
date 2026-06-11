@@ -29,13 +29,13 @@ module Main (main) where
 
 import Control.Concurrent (forkOn, getNumCapabilities)
 import Data.IORef
-import System.Environment (getArgs)
-import System.IO (BufferMode (..), hSetBuffering, stdout)
-
-import qualified Network.HTTP1.Encode as Enc
+import Network.HTTP1.Encode qualified as Enc
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
+import System.Environment (getArgs)
+import System.IO (BufferMode (..), hSetBuffering, stdout)
+
 
 main :: IO ()
 main = do
@@ -43,53 +43,64 @@ main = do
   args <- getArgs
   let port = case args of
         (p : _) -> p
-        []      -> "8080"
+        [] -> "8080"
   caps <- getNumCapabilities
   capCounter <- newIORef (0 :: Int)
   let pinningFork io = do
-        cap <- atomicModifyIORef' capCounter
-                 (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
+        cap <-
+          atomicModifyIORef'
+            capCounter
+            (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
         forkOn cap io
-  let cfg = defaultServerConfig
-        { serverHost = "0.0.0.0"
-        , serverPort = port
-        , serverHandler = handler
-        , serverForkConnection = pinningFork
-        , serverListenBacklog = 4096
-        , serverTcpDeferAcceptSecs = Just 5
-        }
-  putStrLn $ "wireform-http1-bench-server: " <> show caps
-           <> " capabilities, port " <> port
+  let cfg =
+        defaultServerConfig
+          { serverHost = "0.0.0.0"
+          , serverPort = port
+          , serverHandler = handler
+          , serverForkConnection = pinningFork
+          , serverListenBacklog = 4096
+          , serverTcpDeferAcceptSecs = Just 5
+          }
+  putStrLn $
+    "wireform-http1-bench-server: "
+      <> show caps
+      <> " capabilities, port "
+      <> port
   runServer cfg
+
 
 ------------------------------------------------------------------------
 -- Pre-encoded responses
 ------------------------------------------------------------------------
 
--- | The default GET response: 200 OK with a tiny text body.
---
--- 'Enc.precomputeResponse' runs the encoder /once/ at module init and
--- wraps the wire bytes in a 'BodyPreEncoded' marker. The server's send
--- path recognises that marker and emits the bytes with a single
--- @send()@ — no encoder run, no headers-list traversal, no Builder
--- allocation per request.
---
--- The Response record stays intact (status, version, headers are still
--- inspectable) so the framework's keep-alive bookkeeping continues to
--- work normally. For HEAD requests the server zero-copy slices to
--- 'peHeadLen', so the metadata (incl. Content-Length) survives but the
--- body is dropped, per RFC 9110 § 9.3.2.
+{- | The default GET response: 200 OK with a tiny text body.
+
+'Enc.precomputeResponse' runs the encoder /once/ at module init and
+wraps the wire bytes in a 'BodyPreEncoded' marker. The server's send
+path recognises that marker and emits the bytes with a single
+@send()@ — no encoder run, no headers-list traversal, no Builder
+allocation per request.
+
+The Response record stays intact (status, version, headers are still
+inspectable) so the framework's keep-alive bookkeeping continues to
+work normally. For HEAD requests the server zero-copy slices to
+'peHeadLen', so the metadata (incl. Content-Length) survives but the
+body is dropped, per RFC 9110 § 9.3.2.
+-}
 staticOk :: Response
-staticOk = Enc.precomputeResponse $ Response
-  { responseStatus  = OK
-  , responseVersion = HTTP_1_1
-  , responseHeaders =
-      [ ("Content-Type", "text/plain")
-      , ("Server", "wireform-http1")
-      ]
-  , responseBody = BodyBytes "Hello, world!\n"
-  , responseTrailers = pure []
-  }
+staticOk =
+  Enc.precomputeResponse $
+    Response
+      { responseStatus = OK
+      , responseVersion = HTTP_1_1
+      , responseHeaders =
+          [ ("Content-Type", "text/plain")
+          , ("Server", "wireform-http1")
+          ]
+      , responseBody = BodyBytes "Hello, world!\n"
+      , responseTrailers = pure []
+      }
+
 
 handler :: Handler
 handler _ = pure staticOk

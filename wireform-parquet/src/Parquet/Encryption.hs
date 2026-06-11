@@ -193,10 +193,10 @@ decryptModule key aad bs = case BS.length bs of
         let (nonce, rest) = BS.splitAt 12 bs
             (ct, tagBs) = BS.splitAt (BS.length rest - 16) rest
         in withAes
-            key
-            (\(c :: Crypto.AES128) -> gcmDecrypt c nonce aad ct tagBs)
-            (\(c :: Crypto.AES192) -> gcmDecrypt c nonce aad ct tagBs)
-            (\(c :: Crypto.AES256) -> gcmDecrypt c nonce aad ct tagBs)
+             key
+             (\(c :: Crypto.AES128) -> gcmDecrypt c nonce aad ct tagBs)
+             (\(c :: Crypto.AES192) -> gcmDecrypt c nonce aad ct tagBs)
+             (\(c :: Crypto.AES256) -> gcmDecrypt c nonce aad ct tagBs)
 
 
 encryptGcmWithNonce :: ByteString -> ByteString -> ByteString -> ByteString -> Either String ByteString
@@ -257,10 +257,10 @@ decryptModuleCtr key bs
   | otherwise =
       let (nonce, ct) = BS.splitAt 12 bs
       in withAes
-          key
-          (\(c :: Crypto.AES128) -> ctrCombine c nonce ct)
-          (\(c :: Crypto.AES192) -> ctrCombine c nonce ct)
-          (\(c :: Crypto.AES256) -> ctrCombine c nonce ct)
+           key
+           (\(c :: Crypto.AES128) -> ctrCombine c nonce ct)
+           (\(c :: Crypto.AES192) -> ctrCombine c nonce ct)
+           (\(c :: Crypto.AES256) -> ctrCombine c nonce ct)
 
 
 ctrEncryptWithNonce :: ByteString -> ByteString -> ByteString -> Either String ByteString
@@ -431,8 +431,8 @@ readFramedModule bs off
   | otherwise =
       let !len = readLE32 bs off
       in if off + 4 + len > BS.length bs
-          then Left "Parquet.Encryption: framed module runs past end of buffer"
-          else Right (BS.take len (BS.drop (off + 4) bs), off + 4 + len)
+           then Left "Parquet.Encryption: framed module runs past end of buffer"
+           else Right (BS.take len (BS.drop (off + 4) bs), off + 4 + len)
 
 
 -- | Prepend a 4-byte little-endian length to the module bytes.
@@ -440,9 +440,9 @@ frameModule :: ByteString -> ByteString
 frameModule bs =
   let !len = BS.length bs
   in BL.toStrict $
-      B.toLazyByteString $
-        B.word32LE (fromIntegral len)
-          <> B.byteString bs
+       B.toLazyByteString $
+         B.word32LE (fromIntegral len)
+           <> B.byteString bs
 
 
 -- | Read a 32-bit little-endian length from @bs@ at @off@.

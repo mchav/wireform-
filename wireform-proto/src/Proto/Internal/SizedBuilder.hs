@@ -107,7 +107,7 @@ withSubMessage sb =
   let !payloadSize = sbSize sb
       !lenPrefixBuilder = putVarint (fromIntegral payloadSize)
   in SizedBuilder
-      { sbSize = varintSize (fromIntegral payloadSize) + payloadSize
-      , sbBuilder = lenPrefixBuilder <> sbBuilder sb
-      }
+       { sbSize = varintSize (fromIntegral payloadSize) + payloadSize
+       , sbBuilder = lenPrefixBuilder <> sbBuilder sb
+       }
 {-# INLINE withSubMessage #-}

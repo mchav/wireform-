@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | 401 \/ 407 challenge handling (RFC 9110 \u00a711).
 
 Three pieces:
@@ -42,74 +45,78 @@ Multiple header lines are still concatenated per RFC 9110 §5.3:
 @parseAuthChallenges@ runs the hermes parser on each header value
 and joins the resulting challenge lists.
 -}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Client.AuthChallenge
-  ( -- * Challenges
-    AuthChallenge (..)
-  , parseAuthChallenges
-    -- * Middleware
-  , ChallengeResponder
-  , withChallengeAuth
-  , withProxyChallengeAuth
-    -- * Built-in responders
-  , basicChallengeResponder
-  , bearerChallengeResponder
-    -- * Request-aware variants
-  , RequestChallengeResponder
-  , withRequestChallengeAuth
-  ) where
+module Network.HTTP.Client.AuthChallenge (
+  -- * Challenges
+  AuthChallenge (..),
+  parseAuthChallenges,
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base64 as B64
+  -- * Middleware
+  ChallengeResponder,
+  withChallengeAuth,
+  withProxyChallengeAuth,
+
+  -- * Built-in responders
+  basicChallengeResponder,
+  bearerChallengeResponder,
+
+  -- * Request-aware variants
+  RequestChallengeResponder,
+  withRequestChallengeAuth,
+) where
+
 import Data.ByteString (ByteString)
-import qualified Data.CaseInsensitive as CI
+import Data.ByteString qualified as BS
+import Data.ByteString.Base64 qualified as B64
 import Data.CaseInsensitive (CI)
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Short as ST
-
+import Data.CaseInsensitive qualified as CI
+import Data.Text.Encoding qualified as TE
+import Data.Text.Short qualified as ST
+import Network.HTTP.Client.BodyStream (BodyStream, drainPopper)
+import Network.HTTP.Client.Request qualified as WReq
+import Network.HTTP.Client.Response qualified as Resp
+import Network.HTTP.Client.Transport
+import Network.HTTP.Headers.Authorization qualified as HAuth
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
+import Network.HTTP.Headers.Parsing.Util qualified as Hermes
+import Network.HTTP.Headers.WWWAuthenticate qualified as HWA
+import Network.HTTP.Types.Header qualified as H
+import Network.HTTP.Types.Status qualified as S
 
-import qualified Network.HTTP.Headers.Authorization     as HAuth
-import qualified Network.HTTP.Headers.Parsing.Util        as Hermes
-import qualified Network.HTTP.Headers.WWWAuthenticate     as HWA
-
-import qualified Network.HTTP.Types.Header as H
-import qualified Network.HTTP.Types.Status as S
-
-import qualified Network.HTTP.Client.Request   as WReq
-import qualified Network.HTTP.Client.Response  as Resp
-import           Network.HTTP.Client.Transport
-import           Network.HTTP.Client.BodyStream (BodyStream, drainPopper)
 
 -- ---------------------------------------------------------------------------
 -- Challenge data
 -- ---------------------------------------------------------------------------
 
--- | A parsed authentication challenge. Mirrors hermes's 'Credentials'
--- shape projected onto the case-insensitive 'ByteString' vocabulary
--- the rest of the client uses.
+{- | A parsed authentication challenge. Mirrors hermes's 'Credentials'
+shape projected onto the case-insensitive 'ByteString' vocabulary
+the rest of the client uses.
+-}
 data AuthChallenge = AuthChallenge
   { acScheme :: !(CI ByteString)
-    -- ^ Scheme, e.g. @\"Basic\"@. Compared case-insensitively per
-    --   RFC 9110 \u00a711.4.
+  {- ^ Scheme, e.g. @\"Basic\"@. Compared case-insensitively per
+  RFC 9110 \u00a711.4.
+  -}
   , acParams :: ![(CI ByteString, ByteString)]
-    -- ^ Parameter list, e.g. @[(\"realm\", \"example\")]@. Names
-    --   are compared case-insensitively; values are the unquoted
-    --   bytes (RFC 7230 quoted-string backslash escapes are already
-    --   resolved by the hermes parser).
+  {- ^ Parameter list, e.g. @[(\"realm\", \"example\")]@. Names
+  are compared case-insensitively; values are the unquoted
+  bytes (RFC 7230 quoted-string backslash escapes are already
+  resolved by the hermes parser).
+  -}
   , acToken68 :: !(Maybe ByteString)
-    -- ^ Bearer-style schemes carry a single @token68@ form instead
-    --   of a parameter list (e.g. @Negotiate ABC...@).
+  {- ^ Bearer-style schemes carry a single @token68@ form instead
+  of a parameter list (e.g. @Negotiate ABC...@).
+  -}
   }
   deriving stock (Eq, Show)
 
--- | Parse a single @WWW-Authenticate@ \/ @Proxy-Authenticate@
--- header value into the list of challenges it carries. Multiple
--- challenges in the same value are disambiguated from
--- intra-challenge auth-param commas by
--- 'Hermes.WWWAuthenticate.challengesParser' (RFC 9110 §11.6.1).
--- Returns @[]@ if the value doesn't parse.
+
+{- | Parse a single @WWW-Authenticate@ \/ @Proxy-Authenticate@
+header value into the list of challenges it carries. Multiple
+challenges in the same value are disambiguated from
+intra-challenge auth-param commas by
+'Hermes.WWWAuthenticate.challengesParser' (RFC 9110 §11.6.1).
+Returns @[]@ if the value doesn't parse.
+-}
 parseAuthChallenges :: ByteString -> [AuthChallenge]
 parseAuthChallenges raw =
   case runParser HWA.challengesParser raw of
@@ -120,55 +127,64 @@ parseAuthChallenges raw =
   where
     isWS w = w == 0x20 || w == 0x09
 
--- | Project hermes's structured 'HWA.AuthChallenge' onto the
--- wireform shape (case-insensitive scheme \/ param names, raw
--- bytes for values).
+
+{- | Project hermes's structured 'HWA.AuthChallenge' onto the
+wireform shape (case-insensitive scheme \/ param names, raw
+bytes for values).
+-}
 fromHermesChallenge :: HWA.AuthChallenge -> AuthChallenge
-fromHermesChallenge ch = AuthChallenge
-  { acScheme  = CI.mk (schemeBytes (HWA.challengeScheme ch))
-  , acParams  = case HWA.challengeContents ch of
-      HWA.ChallengeParams ps ->
-        [ (CI.mk (shortToBytes k), paramValueBytes v) | (k, v) <- ps ]
-      _ -> []
-  , acToken68 = case HWA.challengeContents ch of
-      HWA.ChallengeToken68 bs -> Just bs
-      _ -> Nothing
-  }
+fromHermesChallenge ch =
+  AuthChallenge
+    { acScheme = CI.mk (schemeBytes (HWA.challengeScheme ch))
+    , acParams = case HWA.challengeContents ch of
+        HWA.ChallengeParams ps ->
+          [(CI.mk (shortToBytes k), paramValueBytes v) | (k, v) <- ps]
+        _ -> []
+    , acToken68 = case HWA.challengeContents ch of
+        HWA.ChallengeToken68 bs -> Just bs
+        _ -> Nothing
+    }
   where
     schemeBytes (HAuth.AuthScheme s) = shortToBytes s
     paramValueBytes = \case
-      HAuth.CredentialParamToken t  -> shortToBytes t
+      HAuth.CredentialParamToken t -> shortToBytes t
       HAuth.CredentialParamString s ->
         shortToBytes (Hermes.unsafeToRFC8941String s)
     shortToBytes = TE.encodeUtf8 . ST.toText
+
 
 -- ---------------------------------------------------------------------------
 -- Middleware
 -- ---------------------------------------------------------------------------
 
--- | A user-supplied function that turns a list of challenges into an
--- @Authorization@ (or @Proxy-Authorization@) header value, or
--- 'Nothing' if it can't satisfy any of them.
+{- | A user-supplied function that turns a list of challenges into an
+@Authorization@ (or @Proxy-Authorization@) header value, or
+'Nothing' if it can't satisfy any of them.
+-}
 type ChallengeResponder = [AuthChallenge] -> IO (Maybe ByteString)
 
--- | Re-issue a request with an @Authorization@ header when the inner
--- transport returns @401@ with a parseable challenge that the
--- responder accepts. Limits to a single retry per request \u2014
--- multi-leg negotiations (Negotiate, NTLM) need a per-scheme
--- middleware; this one is the common case.
+
+{- | Re-issue a request with an @Authorization@ header when the inner
+transport returns @401@ with a parseable challenge that the
+responder accepts. Limits to a single retry per request \u2014
+multi-leg negotiations (Negotiate, NTLM) need a per-scheme
+middleware; this one is the common case.
+-}
 withChallengeAuth :: ChallengeResponder -> Middleware IO
 withChallengeAuth = challengeAuth 401 H.hAuthorization H.hWWWAuthenticate
+
 
 withProxyChallengeAuth :: ChallengeResponder -> Middleware IO
 withProxyChallengeAuth = challengeAuth 407 H.hProxyAuthorization H.hProxyAuthenticate
 
+
 challengeAuth
   :: Int
-    -- ^ Status code that triggers a retry (401 or 407).
+  -- ^ Status code that triggers a retry (401 or 407).
   -> H.HeaderName
-    -- ^ Header to set on the retry (Authorization \/ Proxy-Authorization).
+  -- ^ Header to set on the retry (Authorization \/ Proxy-Authorization).
   -> H.HeaderName
-    -- ^ Challenge header on the response (WWW-Authenticate \/ Proxy-Authenticate).
+  -- ^ Challenge header on the response (WWW-Authenticate \/ Proxy-Authenticate).
   -> ChallengeResponder
   -> Middleware IO
 challengeAuth triggerCode authHdr challengeHdr responder inner = Transport $ \req -> do
@@ -178,7 +194,8 @@ challengeAuth triggerCode authHdr challengeHdr responder inner = Transport $ \re
     then pure raw
     else do
       let challenges =
-            concatMap parseAuthChallenges
+            concatMap
+              parseAuthChallenges
               (H.lookupHeaders challengeHdr (Resp.headers raw))
       case challenges of
         [] -> pure raw
@@ -190,36 +207,41 @@ challengeAuth triggerCode authHdr challengeHdr responder inner = Transport $ \re
               -- Drain the failure response so the connection / mock
               -- can advance.
               drainPopper (Resp.bodyPopper raw)
-              let req' = req
-                    { WReq.headers =
-                        H.insertHeader authHdr header (WReq.headers req)
-                    }
+              let req' =
+                    req
+                      { WReq.headers =
+                          H.insertHeader authHdr header (WReq.headers req)
+                      }
               sendRaw inner req'
+
 
 -- ---------------------------------------------------------------------------
 -- Request-aware variant
 -- ---------------------------------------------------------------------------
 
--- | Like 'ChallengeResponder' but sees the outgoing request, so it
--- can read the method, request-target, body length, etc. when
--- constructing the auth header.  This is what Digest needs
--- (RFC 7616 §3.4 — the @response@ digest is keyed on the request
--- method + URI), and is the right shape for any other scheme
--- whose answer is request-specific.
---
--- The body type is fixed to 'BodyStream' because that's the body
--- shape the middleware layer sees (per 'Transport'); responders
--- that don't care about the body should pattern-match on it as
--- @_@.
-type RequestChallengeResponder
-  =  WReq.Request BodyStream
+{- | Like 'ChallengeResponder' but sees the outgoing request, so it
+can read the method, request-target, body length, etc. when
+constructing the auth header.  This is what Digest needs
+(RFC 7616 §3.4 — the @response@ digest is keyed on the request
+method + URI), and is the right shape for any other scheme
+whose answer is request-specific.
+
+The body type is fixed to 'BodyStream' because that's the body
+shape the middleware layer sees (per 'Transport'); responders
+that don't care about the body should pattern-match on it as
+@_@.
+-}
+type RequestChallengeResponder =
+  WReq.Request BodyStream
   -> [AuthChallenge]
   -> IO (Maybe ByteString)
 
--- | Middleware variant of 'withChallengeAuth' that hands the
--- responder the request being retried.  Wire your Digest
--- responder up through this; for Basic \/ Bearer the simpler
--- 'withChallengeAuth' is enough.
+
+{- | Middleware variant of 'withChallengeAuth' that hands the
+responder the request being retried.  Wire your Digest
+responder up through this; for Basic \/ Bearer the simpler
+'withChallengeAuth' is enough.
+-}
 withRequestChallengeAuth :: RequestChallengeResponder -> Middleware IO
 withRequestChallengeAuth responder inner = Transport $ \req -> do
   raw <- sendRaw inner req
@@ -228,81 +250,90 @@ withRequestChallengeAuth responder inner = Transport $ \req -> do
     then pure raw
     else do
       let challenges =
-            concatMap parseAuthChallenges
+            concatMap
+              parseAuthChallenges
               (H.lookupHeaders H.hWWWAuthenticate (Resp.headers raw))
       case challenges of
         [] -> pure raw
         cs -> do
           mAuth <- responder req cs
           case mAuth of
-            Nothing     -> pure raw
+            Nothing -> pure raw
             Just header -> do
               drainPopper (Resp.bodyPopper raw)
-              let req' = req
-                    { WReq.headers =
-                        H.insertHeader H.hAuthorization header (WReq.headers req)
-                    }
+              let req' =
+                    req
+                      { WReq.headers =
+                          H.insertHeader H.hAuthorization header (WReq.headers req)
+                      }
               sendRaw inner req'
+
 
 -- ---------------------------------------------------------------------------
 -- Basic
 -- ---------------------------------------------------------------------------
 
--- | A 'ChallengeResponder' that fulfils RFC 7617 Basic challenges
--- when the supplied per-realm credentials match.
+{- | A 'ChallengeResponder' that fulfils RFC 7617 Basic challenges
+when the supplied per-realm credentials match.
+-}
 basicChallengeResponder
   :: (ByteString -> Maybe (ByteString, ByteString))
-    -- ^ realm \u2192 (user, password). Pass @const Nothing@ to refuse.
+  -- ^ realm \u2192 (user, password). Pass @const Nothing@ to refuse.
   -> ChallengeResponder
 basicChallengeResponder lookupCreds challenges =
-  pure $ firstJust
-    [ case lookupCreds realm of
-        Just (u, p) -> Just ("Basic " <> B64.encode (u <> ":" <> p))
-        Nothing     -> Nothing
-    | ch <- challenges
-    , acScheme ch == basic
-    , let realm = case lookup (CI.mk "realm") (acParams ch) of
-            Just r  -> r
-            Nothing -> ""
-    ]
+  pure $
+    firstJust
+      [ case lookupCreds realm of
+          Just (u, p) -> Just ("Basic " <> B64.encode (u <> ":" <> p))
+          Nothing -> Nothing
+      | ch <- challenges
+      , acScheme ch == basic
+      , let realm = case lookup (CI.mk "realm") (acParams ch) of
+              Just r -> r
+              Nothing -> ""
+      ]
   where
     basic = CI.mk "Basic"
+
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust = go
   where
-    go []           = Nothing
+    go [] = Nothing
     go (Just x : _) = Just x
     go (Nothing : r) = go r
+
 
 -- ---------------------------------------------------------------------------
 -- Bearer (RFC 6750)
 -- ---------------------------------------------------------------------------
 
--- | A 'ChallengeResponder' for RFC 6750 @Bearer@ challenges. The
--- callback is consulted with each challenge's @realm@ (empty
--- 'ByteString' if absent) and is expected to return the
--- caller's access token; the responder then emits
--- @Authorization: Bearer \<token\>@.
---
--- Pass @const Nothing@ to refuse all Bearer challenges (useful
--- when stacking multiple responders so a Bearer-then-Basic
--- combination falls through to Basic when no token is provisioned
--- for a given realm).
+{- | A 'ChallengeResponder' for RFC 6750 @Bearer@ challenges. The
+callback is consulted with each challenge's @realm@ (empty
+'ByteString' if absent) and is expected to return the
+caller's access token; the responder then emits
+@Authorization: Bearer \<token\>@.
+
+Pass @const Nothing@ to refuse all Bearer challenges (useful
+when stacking multiple responders so a Bearer-then-Basic
+combination falls through to Basic when no token is provisioned
+for a given realm).
+-}
 bearerChallengeResponder
   :: (ByteString -> Maybe ByteString)
-    -- ^ realm → access token.
+  -- ^ realm → access token.
   -> ChallengeResponder
 bearerChallengeResponder lookupToken challenges =
-  pure $ firstJust
-    [ case lookupToken realm of
-        Just tok -> Just ("Bearer " <> tok)
-        Nothing  -> Nothing
-    | ch <- challenges
-    , acScheme ch == bearer
-    , let realm = case lookup (CI.mk "realm") (acParams ch) of
-            Just r  -> r
-            Nothing -> ""
-    ]
+  pure $
+    firstJust
+      [ case lookupToken realm of
+          Just tok -> Just ("Bearer " <> tok)
+          Nothing -> Nothing
+      | ch <- challenges
+      , acScheme ch == bearer
+      , let realm = case lookup (CI.mk "realm") (acParams ch) of
+              Just r -> r
+              Nothing -> ""
+      ]
   where
     bearer = CI.mk "Bearer"

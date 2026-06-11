@@ -2,48 +2,52 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |
--- Module      : Streams.Properties.CDCSourceSpec
--- Description : Property suite for the CDC source primitive
---
--- Properties:
---
---   1. /Mapping correctness/: any sequence of CDC events applied
---      to a KV store produces the same final state as the
---      \"last-write-wins\" projection over the event sequence,
---      with deletes pruning the key.
---   2. /FIFO polling/: events pushed in order are polled in order.
---   3. /Tombstone semantics/: Insert/Update with after = Nothing
---      acts as a delete.
---   4. /Drain step model match/: 'cdcToKTableStep' applied
---      repeatedly equals 'applyCDCToKVStore' folded over all
---      pushed events.
+{- |
+Module      : Streams.Properties.CDCSourceSpec
+Description : Property suite for the CDC source primitive
+
+Properties:
+
+  1. /Mapping correctness/: any sequence of CDC events applied
+     to a KV store produces the same final state as the
+     \"last-write-wins\" projection over the event sequence,
+     with deletes pruning the key.
+  2. /FIFO polling/: events pushed in order are polled in order.
+  3. /Tombstone semantics/: Insert/Update with after = Nothing
+     acts as a delete.
+  4. /Drain step model match/: 'cdcToKTableStep' applied
+     repeatedly equals 'applyCDCToKVStore' folded over all
+     pushed events.
+-}
 module Streams.Properties.CDCSourceSpec (tests) where
 
 import Control.Monad (forM_)
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import qualified Hedgehog as H
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Data.Map.Strict qualified as Map
+import Hedgehog qualified as H
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Kafka.Streams.Sources.CDC
+import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
+import Kafka.Streams.State.Store (
+  KeyValueStore (..),
+  kvIteratorToList,
+  storeName,
+ )
+import Kafka.Streams.Time (Timestamp (..))
 import Test.Syd
 import Test.Syd.Hedgehog ()
 
-import Kafka.Streams.Sources.CDC
-import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
-import Kafka.Streams.State.Store
-  ( KeyValueStore (..)
-  , kvIteratorToList
-  , storeName
-  )
-import Kafka.Streams.Time (Timestamp (..))
 
 ----------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------
 
 type K = Int
+
+
 type V = Int
+
 
 ----------------------------------------------------------------------
 -- Unit tests
@@ -58,6 +62,7 @@ unit_insert_then_get =
     _ <- cdcToKTableStep src kvs
     kvsGet kvs 1 >>= (`shouldBe` Just 100)
 
+
 unit_update_overwrites :: Spec
 unit_update_overwrites =
   it "CDCUpdate: after-image overwrites the value" $ do
@@ -67,6 +72,7 @@ unit_update_overwrites =
     pushCDC q (CDCEvent CDCUpdate 1 (Just 100) (Just 200) 1 (Timestamp 1))
     _ <- cdcToKTableStep src kvs
     kvsGet kvs 1 >>= (`shouldBe` Just 200)
+
 
 unit_delete_removes :: Spec
 unit_delete_removes =
@@ -78,6 +84,7 @@ unit_delete_removes =
     _ <- cdcToKTableStep src kvs
     kvsGet kvs 1 >>= (`shouldBe` Nothing)
 
+
 unit_tombstone_after_image :: Spec
 unit_tombstone_after_image =
   it "CDCUpdate with after=Nothing is a logical delete" $ do
@@ -88,6 +95,7 @@ unit_tombstone_after_image =
     _ <- cdcToKTableStep src kvs
     kvsGet kvs 1 >>= (`shouldBe` Nothing)
 
+
 ----------------------------------------------------------------------
 -- Property: arbitrary event sequence matches the pure projection
 ----------------------------------------------------------------------
@@ -95,20 +103,23 @@ unit_tombstone_after_image =
 genOp :: H.Gen CDCOp
 genOp = Gen.element [CDCInsert, CDCUpdate, CDCDelete]
 
+
 genEvent :: H.Gen (CDCEvent K V)
 genEvent = do
   op <- genOp
-  k  <- Gen.int (Range.linear 0 4)
+  k <- Gen.int (Range.linear 0 4)
   -- after-image: Insert / Update may have Nothing (logical delete);
   -- Delete always has Nothing.
   after <- case op of
     CDCDelete -> pure Nothing
-    _         -> Gen.choice
-                    [ pure Nothing
-                    , Just <$> Gen.int (Range.linear 0 999)
-                    ]
+    _ ->
+      Gen.choice
+        [ pure Nothing
+        , Just <$> Gen.int (Range.linear 0 999)
+        ]
   off <- Gen.int64 (Range.linear 0 1_000_000)
   pure (CDCEvent op k Nothing after off (Timestamp 0))
+
 
 -- | Pure projection of an event sequence onto a Map.
 projectEvents :: [CDCEvent K V] -> Map K V
@@ -116,12 +127,13 @@ projectEvents = foldl step Map.empty
   where
     step m e = case cdcOp e of
       CDCInsert -> case cdcAfter e of
-        Just v  -> Map.insert (cdcKey e) v m
+        Just v -> Map.insert (cdcKey e) v m
         Nothing -> Map.delete (cdcKey e) m
       CDCUpdate -> case cdcAfter e of
-        Just v  -> Map.insert (cdcKey e) v m
+        Just v -> Map.insert (cdcKey e) v m
         Nothing -> Map.delete (cdcKey e) m
       CDCDelete -> Map.delete (cdcKey e) m
+
 
 prop_apply_matches_projection :: H.Property
 prop_apply_matches_projection = H.property $ do
@@ -135,15 +147,19 @@ prop_apply_matches_projection = H.property $ do
     pure (Map.fromList rs)
   observed H.=== projectEvents events
 
+
 ----------------------------------------------------------------------
 -- Property: drain step splits cleanly into multiple polls
 ----------------------------------------------------------------------
 
 prop_drain_in_chunks :: H.Property
 prop_drain_in_chunks = H.property $ do
-  chunks <- H.forAll
-              (Gen.list (Range.linear 1 6)
-                (Gen.list (Range.linear 1 8) genEvent))
+  chunks <-
+    H.forAll
+      ( Gen.list
+          (Range.linear 1 6)
+          (Gen.list (Range.linear 1 8) genEvent)
+      )
   observed <- H.evalIO $ do
     (src, q) <- inMemoryCDCSource @K @V "c"
     kvs <- inMemoryKeyValueStore @K @V (storeName "c")
@@ -155,26 +171,30 @@ prop_drain_in_chunks = H.property $ do
     pure (Map.fromList rs)
   observed H.=== projectEvents (concat chunks)
 
+
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "CDC source" $ sequence_
-  [ unit_insert_then_get
-  , unit_update_overwrites
-  , unit_delete_removes
-  , unit_tombstone_after_image
-  , it "applyCDCToKVStore matches the pure projection" $
-      H.withTests 150 prop_apply_matches_projection
-  , it "polling in chunks does not change the final state" $
-      H.withTests 100 prop_drain_in_chunks
-  , unit_compaction_keeps_last_per_key
-  , unit_phase_round_trip
-  , unit_schema_changes_surfaced
-  , it "compactCDCBatch is idempotent" $
-      H.withTests 100 prop_compaction_idempotent
-  ]
+tests =
+  describe "CDC source" $
+    sequence_
+      [ unit_insert_then_get
+      , unit_update_overwrites
+      , unit_delete_removes
+      , unit_tombstone_after_image
+      , it "applyCDCToKVStore matches the pure projection" $
+          H.withTests 150 prop_apply_matches_projection
+      , it "polling in chunks does not change the final state" $
+          H.withTests 100 prop_drain_in_chunks
+      , unit_compaction_keeps_last_per_key
+      , unit_phase_round_trip
+      , unit_schema_changes_surfaced
+      , it "compactCDCBatch is idempotent" $
+          H.withTests 100 prop_compaction_idempotent
+      ]
+
 
 ----------------------------------------------------------------------
 -- Compaction
@@ -193,12 +213,14 @@ unit_compaction_keeps_last_per_key =
         out = compactCDCBatch evs
     map cdcAfter out `shouldBe` [Just 30, Nothing]
 
+
 prop_compaction_idempotent :: H.Property
 prop_compaction_idempotent = H.property $ do
   events <- H.forAll (Gen.list (Range.linear 1 40) genEvent)
   let once = compactCDCBatch events
       twice = compactCDCBatch once
   twice H.=== once
+
 
 ----------------------------------------------------------------------
 -- Phase
@@ -215,6 +237,7 @@ unit_phase_round_trip =
     p1 <- cdcPollPhase <$> cdcPoll src
     p1 `shouldBe` StreamingPhase
 
+
 ----------------------------------------------------------------------
 -- Schema changes
 ----------------------------------------------------------------------
@@ -223,11 +246,13 @@ unit_schema_changes_surfaced :: Spec
 unit_schema_changes_surfaced =
   it "pushSchemaChange events are surfaced through cdcPoll" $ do
     (src, h) <- inMemoryCDCSource @K @V "s"
-    pushSchemaChange h SchemaChange
-      { scTable = "orders"
-      , scVersion = 2
-      , scStmt    = "ALTER TABLE orders ADD COLUMN ts TIMESTAMP"
-      , scAt      = Timestamp 0
-      }
+    pushSchemaChange
+      h
+      SchemaChange
+        { scTable = "orders"
+        , scVersion = 2
+        , scStmt = "ALTER TABLE orders ADD COLUMN ts TIMESTAMP"
+        , scAt = Timestamp 0
+        }
     poll <- cdcPoll src
     map scTable (cdcPollSchema poll) `shouldBe` ["orders"]

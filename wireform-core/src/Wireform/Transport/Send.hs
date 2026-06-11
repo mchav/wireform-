@@ -79,34 +79,41 @@ data SendTransport = SendTransport
   , sendRingMask :: {-# UNPACK #-} !Int
   -- ^ @sendRingSize - 1@, cached for cheap @pos .&. mask@.
   , sendLoadTail :: !(IO Word64)
-  -- ^ Read the consumer's current tail position
-  -- (monotonically increasing).
+  {- ^ Read the consumer's current tail position
+  (monotonically increasing).
+  -}
   , sendLoadHead :: !(IO Word64)
-  -- ^ Read the current head position.  Encoders maintain this
-  -- locally between commits; exposed here so debugging tools
-  -- and background workers can observe progress.
+  {- ^ Read the current head position.  Encoders maintain this
+  locally between commits; exposed here so debugging tools
+  and background workers can observe progress.
+  -}
   , sendPublishHead :: !(Word64 -> IO ())
-  -- ^ Producer publishes a new head after writing bytes into the
-  -- ring.  Implementations may use this as the flush trigger
-  -- (e.g. an io_uring SQ submit) or rely on an explicit
-  -- 'sendFlush'.
+  {- ^ Producer publishes a new head after writing bytes into the
+  ring.  Implementations may use this as the flush trigger
+  (e.g. an io_uring SQ submit) or rely on an explicit
+  'sendFlush'.
+  -}
   , sendWaitSpace :: !(Word64 -> IO SendWait)
-  -- ^ Block until 'sendLoadTail >= pos - sendRingSize' — i.e.
-  -- until there is room to advance head to @pos@.  The dual of
-  -- 'Wireform.Transport.Receive.receiveWaitData'.
+  {- ^ Block until 'sendLoadTail >= pos - sendRingSize' — i.e.
+  until there is room to advance head to @pos@.  The dual of
+  'Wireform.Transport.Receive.receiveWaitData'.
+  -}
   , sendFlush :: !(IO ())
-  -- ^ Request the consumer side drain everything published so
-  -- far.  For an inline (synchronous @sendmsg@ / @SSL_write@)
-  -- consumer this is @pure ()@ because 'sendPublishHead' already
-  -- drained.  For a background-worker / io_uring consumer this
-  -- kicks the SQ / signals the worker.
+  {- ^ Request the consumer side drain everything published so
+  far.  For an inline (synchronous @sendmsg@ / @SSL_write@)
+  consumer this is @pure ()@ because 'sendPublishHead' already
+  drained.  For a background-worker / io_uring consumer this
+  kicks the SQ / signals the worker.
+  -}
   , sendShutdownWrite :: !(IO ())
-  -- ^ Half-close (@shutdown(SHUT_WR)@ on TCP, @close_notify@
-  -- on TLS), keeping the recv side alive so we can still read
-  -- the peer's final reply.
+  {- ^ Half-close (@shutdown(SHUT_WR)@ on TCP, @close_notify@
+  on TLS), keeping the recv side alive so we can still read
+  the peer's final reply.
+  -}
   , sendClose :: !(IO ())
-  -- ^ Full release: tear down the ring + any background worker.
-  -- Idempotent.
+  {- ^ Full release: tear down the ring + any background worker.
+  Idempotent.
+  -}
   }
 
 
@@ -114,8 +121,9 @@ data SendTransport = SendTransport
 data SendWait
   = -- | New tail position.  Room is @sendRingSize - (head - tail)@.
     SendSpaceAvailable {-# UNPACK #-} !Word64
-  | -- | Consumer closed (peer sent RST, FIN-after-shutdown, etc).
-    -- Sticky.
+  | {- | Consumer closed (peer sent RST, FIN-after-shutdown, etc).
+    Sticky.
+    -}
     SendPeerClosed
   | -- | Wire-side failure.  Sticky.
     SendFailed !SomeException

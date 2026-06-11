@@ -3,9 +3,9 @@
 
 module Test.YAML.Derive.Instances () where
 
+import Test.YAML.Derive.Types
 import YAML.Derive
 
-import Test.YAML.Derive.Types
 
 deriveYAML ''Profile
 deriveYAML ''Tag

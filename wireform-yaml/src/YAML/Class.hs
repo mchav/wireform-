@@ -690,5 +690,5 @@ instance (Selector s, FromYAML a) => GFromYAMLFields (M1 S s (K1 i a)) where
   gFromYAMLFields lkup =
     let nm = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup nm of
-        Nothing -> Left $ "GFromYAML: missing field " ++ T.unpack nm
-        Just v -> M1 . K1 <$> fromYAML v
+         Nothing -> Left $ "GFromYAML: missing field " ++ T.unpack nm
+         Just v -> M1 . K1 <$> fromYAML v

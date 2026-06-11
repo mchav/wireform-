@@ -352,8 +352,8 @@ getVarint !bs !off = go off 0 0
           let !b = fromIntegral (BSU.unsafeIndex bs i) :: Word64
               !acc' = acc .|. ((b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-              then Just (acc', i + 1)
-              else go (i + 1) acc' (shift + 7)
+               then Just (acc', i + 1)
+               else go (i + 1) acc' (shift + 7)
 {-# INLINE getVarint #-}
 
 
@@ -533,12 +533,12 @@ tBinDecodeFieldBegin !bs !off
   | otherwise =
       let !typeByte = BSU.unsafeIndex bs off
       in if typeByte == 0x00
-          then Just (TT_STOP, 0, off + 1)
-          else case thriftTypeFromBin typeByte of
-            Nothing -> Nothing
-            Just !tt -> case getBE16 bs (off + 1) of
-              Nothing -> Nothing
-              Just (!fid, !off') -> Just (tt, fromIntegral fid, off')
+           then Just (TT_STOP, 0, off + 1)
+           else case thriftTypeFromBin typeByte of
+             Nothing -> Nothing
+             Just !tt -> case getBE16 bs (off + 1) of
+               Nothing -> Nothing
+               Just (!fid, !off') -> Just (tt, fromIntegral fid, off')
 {-# INLINE tBinDecodeFieldBegin #-}
 
 
@@ -549,10 +549,10 @@ tBinDecodeListBegin !bs !off
   | otherwise =
       let !typeByte = BSU.unsafeIndex bs off
       in case thriftTypeFromBin typeByte of
-          Nothing -> Nothing
-          Just !tt -> case getBE32 bs (off + 1) of
-            Nothing -> Nothing
-            Just (!sz, !off') -> Just (tt, fromIntegral sz, off')
+           Nothing -> Nothing
+           Just !tt -> case getBE32 bs (off + 1) of
+             Nothing -> Nothing
+             Just (!sz, !off') -> Just (tt, fromIntegral sz, off')
 {-# INLINE tBinDecodeListBegin #-}
 
 
@@ -570,10 +570,10 @@ tBinDecodeMapBegin !bs !off
       let !kByte = BSU.unsafeIndex bs off
           !vByte = BSU.unsafeIndex bs (off + 1)
       in case (thriftTypeFromBin kByte, thriftTypeFromBin vByte) of
-          (Just !kt, Just !vt) -> case getBE32 bs (off + 2) of
-            Nothing -> Nothing
-            Just (!sz, !off') -> Just (kt, vt, fromIntegral sz, off')
-          _ -> Nothing
+           (Just !kt, Just !vt) -> case getBE32 bs (off + 2) of
+             Nothing -> Nothing
+             Just (!sz, !off') -> Just (kt, vt, fromIntegral sz, off')
+           _ -> Nothing
 {-# INLINE tBinDecodeMapBegin #-}
 
 
@@ -647,8 +647,8 @@ tCompEncodeFieldBegin !tt !fid !lastFid !boolVal =
         TT_BOOL -> if boolVal then 1 else 2
         _ -> thriftTypeToCompact tt
   in if delta > 0 && delta <= 15
-      then B.word8 (fromIntegral delta `shiftL` 4 .|. ctype)
-      else B.word8 ctype <> putVarint (fromIntegral (zigZagEncode32 (fromIntegral fid)))
+       then B.word8 (fromIntegral delta `shiftL` 4 .|. ctype)
+       else B.word8 ctype <> putVarint (fromIntegral (zigZagEncode32 (fromIntegral fid)))
 {-# INLINE tCompEncodeFieldBegin #-}
 
 
@@ -667,8 +667,8 @@ tCompEncodeListBegin :: ThriftType -> Int32 -> Builder
 tCompEncodeListBegin !elemType !sz =
   let !ctype = thriftTypeToCompact elemType
   in if sz < 15
-      then B.word8 (fromIntegral sz `shiftL` 4 .|. ctype)
-      else B.word8 (0xF0 .|. ctype) <> putVarint (fromIntegral sz)
+       then B.word8 (fromIntegral sz `shiftL` 4 .|. ctype)
+       else B.word8 (0xF0 .|. ctype) <> putVarint (fromIntegral sz)
 {-# INLINE tCompEncodeListBegin #-}
 
 
@@ -787,21 +787,21 @@ tCompDecodeFieldBegin !bs !off !lastFid
   | otherwise =
       let !hdr = BSU.unsafeIndex bs off
       in if hdr == 0x00
-          then Just (TT_STOP, 0, off + 1, False)
-          else
-            let !ctype = hdr .&. 0x0F
-                !delta = hdr `shiftR` 4
-                !boolVal = ctype == 1 -- BOOLEAN_TRUE
-            in case thriftTypeFromCompact ctype of
-                Nothing -> Nothing
-                Just !tt ->
-                  if delta /= 0
-                    then Just (tt, lastFid + fromIntegral delta, off + 1, boolVal)
-                    else case getVarint bs (off + 1) of
-                      Nothing -> Nothing
-                      Just (!zz, !off') ->
-                        let !fid = fromIntegral (zigZagDecode32 (fromIntegral zz))
-                        in Just (tt, fid, off', boolVal)
+           then Just (TT_STOP, 0, off + 1, False)
+           else
+             let !ctype = hdr .&. 0x0F
+                 !delta = hdr `shiftR` 4
+                 !boolVal = ctype == 1 -- BOOLEAN_TRUE
+             in case thriftTypeFromCompact ctype of
+                  Nothing -> Nothing
+                  Just !tt ->
+                    if delta /= 0
+                      then Just (tt, lastFid + fromIntegral delta, off + 1, boolVal)
+                      else case getVarint bs (off + 1) of
+                        Nothing -> Nothing
+                        Just (!zz, !off') ->
+                          let !fid = fromIntegral (zigZagDecode32 (fromIntegral zz))
+                          in Just (tt, fid, off', boolVal)
 {-# INLINE tCompDecodeFieldBegin #-}
 
 
@@ -816,13 +816,13 @@ tCompDecodeListBegin !bs !off
           !szHi = hdr `shiftR` 4
           !ctype = hdr .&. 0x0F
       in case thriftTypeFromCompact ctype of
-          Nothing -> Nothing
-          Just !tt ->
-            if szHi /= 0x0F
-              then Just (tt, fromIntegral szHi, off + 1)
-              else case getVarint bs (off + 1) of
-                Nothing -> Nothing
-                Just (!sz, !off') -> Just (tt, fromIntegral sz, off')
+           Nothing -> Nothing
+           Just !tt ->
+             if szHi /= 0x0F
+               then Just (tt, fromIntegral szHi, off + 1)
+               else case getVarint bs (off + 1) of
+                 Nothing -> Nothing
+                 Just (!sz, !off') -> Just (tt, fromIntegral sz, off')
 {-# INLINE tCompDecodeListBegin #-}
 
 

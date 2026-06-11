@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 {- | Encoder \/ parser round-trip properties.
 
 These are the gold-standard tests: if a 'Request' \/ 'Response' encodes
@@ -8,57 +9,63 @@ cover unusual header sequences, empty bodies, oversized bodies, etc.
 -}
 module Test.RoundTrip (tests) where
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
 import Data.ByteString (ByteString)
-
-import Test.Syd
-import Test.QuickCheck
-
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BSC
 import Network.HTTP1.Encode (encodeRequestHead, encodeResponseHead)
 import Network.HTTP1.Parser
 import Network.HTTP1.Types
+import Test.QuickCheck
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "RoundTrip" $ sequence_
-  [ it "request head"  $ property prop_requestHead
-  , it "response head" $ property prop_responseHead
-  ]
+tests =
+  describe "RoundTrip" $
+    sequence_
+      [ it "request head" $ property prop_requestHead
+      , it "response head" $ property prop_responseHead
+      ]
+
 
 prop_requestHead :: GenRequest -> Property
 prop_requestHead (GenRequest meth tgt hdrs) =
   let req = Request meth tgt HTTP_1_1 hdrs BodyEmpty (pure [])
-      bs  = encodeRequestHead req
+      bs = encodeRequestHead req
       stripped = stripBlankLine bs
   in case parseRequest stripped of
        Left e -> counterexample (show (e, bs)) False
-       Right (r, _) -> conjoin
-         [ requestMethod r === meth
-         , requestTarget r === tgt
-         , filter (notZeroCL . fst) (requestHeaders r)
-             === filter (notZeroCL . fst) hdrs
-         ]
+       Right (r, _) ->
+         conjoin
+           [ requestMethod r === meth
+           , requestTarget r === tgt
+           , filter (notZeroCL . fst) (requestHeaders r)
+               === filter (notZeroCL . fst) hdrs
+           ]
   where
     notZeroCL n = not (asciiIeqStr n "content-length")
+
 
 prop_responseHead :: GenResponse -> Property
 prop_responseHead (GenResponse st hdrs) =
   let resp = Response st HTTP_1_1 hdrs BodyEmpty (pure [])
-      bs   = encodeResponseHead resp
+      bs = encodeResponseHead resp
       stripped = stripBlankLine bs
   in case parseResponse GET stripped of
        Left e -> counterexample (show (e, bs)) False
-       Right (r, _) -> conjoin
-         [ responseStatus r === st
-         , filter notAutoInjected (responseHeaders r)
-             === filter notAutoInjected hdrs
-         ]
+       Right (r, _) ->
+         conjoin
+           [ responseStatus r === st
+           , filter notAutoInjected (responseHeaders r)
+               === filter notAutoInjected hdrs
+           ]
   where
     -- The encoder auto-injects Content-Length and Date; filter both
     -- out before comparing to the input header list.
     notAutoInjected (n, _) =
-         not (asciiIeqStr n "content-length")
-      && not (asciiIeqStr n "date")
+      not (asciiIeqStr n "content-length")
+        && not (asciiIeqStr n "date")
+
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -70,9 +77,12 @@ stripBlankLine :: ByteString -> ByteString
 stripBlankLine bs = case BS.breakSubstring "\r\n\r\n" bs of
   (block, _) -> block
 
+
 asciiIeqStr :: ByteString -> ByteString -> Bool
 asciiIeqStr a b = BSC.map dn a == BSC.map dn b
-  where dn c | c >= 'A' && c <= 'Z' = toEnum (fromEnum c + 32) | otherwise = c
+  where
+    dn c | c >= 'A' && c <= 'Z' = toEnum (fromEnum c + 32) | otherwise = c
+
 
 ------------------------------------------------------------------------
 -- Generators
@@ -81,8 +91,10 @@ asciiIeqStr a b = BSC.map dn a == BSC.map dn b
 data GenRequest = GenRequest !Method !ByteString !Headers
   deriving stock (Show)
 
+
 data GenResponse = GenResponse !Status !Headers
   deriving stock (Show)
+
 
 instance Arbitrary GenRequest where
   arbitrary = do
@@ -94,18 +106,26 @@ instance Arbitrary GenRequest where
     -- parser enforces this, so the generator must always seed one.
     pure (GenRequest meth tgt (("Host", "example.com") : extras))
 
+
 instance Arbitrary GenResponse where
   arbitrary = do
     code <- elements [200, 201, 301, 400, 404, 500]
     hdrs <- listOf genHeader
     pure (GenResponse (Status code) hdrs)
 
+
 genHeader :: Gen Header
 genHeader = do
-  k <- elements
-    [ "X-Foo", "X-Bar", "Accept", "Content-Type"
-    , "Cache-Control", "Pragma", "User-Agent"
-    ]
+  k <-
+    elements
+      [ "X-Foo"
+      , "X-Bar"
+      , "Accept"
+      , "Content-Type"
+      , "Cache-Control"
+      , "Pragma"
+      , "User-Agent"
+      ]
   vlen <- choose (1, 32)
   v <- BS.pack <$> vectorOf vlen (choose (0x21, 0x7e))
   pure (k, v)

@@ -1,80 +1,86 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | The CEL evaluator, structured as per-node /combinators/.
---
--- Each AST node compiles to a 'Compiled' closure @'Env' -> 'Either' 'CelError'
--- 'Value'@ built from the 'Compiled' closures of its children
--- ('compileExpr'). 'evalIn' / 'eval' just run that closure. This has two
--- benefits over a @case@-over-AST interpreter:
---
---   * the AST is walked once ('compileExpr'); reuse the result to evaluate the
---     same program against many environments with no re-dispatch; and
---   * the combinators are exactly what "CEL.TH" emits at compile time, so the
---     compile-time-compiled code and the runtime evaluator share one source of
---     truth for semantics (error-absorbing @&&@/@||@, short-circuit @?:@, the
---     comprehension macros, and longest-prefix name resolution).
-module CEL.Eval
-  ( eval
-  , evalIn
-  , compileExpr
-  , Compiled
+{- | The CEL evaluator, structured as per-node /combinators/.
 
-    -- * Node combinators (used by "CEL.TH"; not generally needed directly)
-  , cLit
-  , cName
-  , cSelect
-  , cIndex
-  , cList
-  , cMapLit
-  , cStruct
-  , cCond
-  , cAnd
-  , cOr
-  , cNot
-  , cNeg
-  , cArith
-  , cRel
-  , cCall
-  , cHas
-  , cHasInvalid
-  , cAll
-  , cExists
-  , cExistsOne
-  , cFilter
-  , cMapMacro
-  , cAll2
-  , cExists2
-  , cExistsOne2
-  , cTransformList
-  , cTransformMap
-  ) where
+Each AST node compiles to a 'Compiled' closure @'Env' -> 'Either' 'CelError'
+'Value'@ built from the 'Compiled' closures of its children
+('compileExpr'). 'evalIn' / 'eval' just run that closure. This has two
+benefits over a @case@-over-AST interpreter:
 
-import Control.Monad (foldM)
-import Data.List (inits)
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector as V
+  * the AST is walked once ('compileExpr'); reuse the result to evaluate the
+    same program against many environments with no re-dispatch; and
+  * the combinators are exactly what "CEL.TH" emits at compile time, so the
+    compile-time-compiled code and the runtime evaluator share one source of
+    truth for semantics (error-absorbing @&&@/@||@, short-circuit @?:@, the
+    comprehension macros, and longest-prefix name resolution).
+-}
+module CEL.Eval (
+  eval,
+  evalIn,
+  compileExpr,
+  Compiled,
+
+  -- * Node combinators (used by "CEL.TH"; not generally needed directly)
+  cLit,
+  cName,
+  cSelect,
+  cIndex,
+  cList,
+  cMapLit,
+  cStruct,
+  cCond,
+  cAnd,
+  cOr,
+  cNot,
+  cNeg,
+  cArith,
+  cRel,
+  cCall,
+  cHas,
+  cHasInvalid,
+  cAll,
+  cExists,
+  cExistsOne,
+  cFilter,
+  cMapMacro,
+  cAll2,
+  cExists2,
+  cExistsOne2,
+  cTransformList,
+  cTransformMap,
+) where
 
 import CEL.Environment
 import CEL.Error
 import CEL.Stdlib
 import CEL.Syntax
 import CEL.Value
+import Control.Monad (foldM)
+import Data.List (inits)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Vector qualified as V
+
 
 -- | A compiled expression: a function from the binding environment to a result.
 type Compiled = Env -> Either CelError Value
+
 
 -- | Evaluate an expression in the empty environment.
 eval :: Expr -> Either CelError Value
 eval = evalIn emptyEnv
 
--- | Evaluate an expression in the given environment. (Equivalent to
--- @'compileExpr' expr env@; reuse 'compileExpr' to avoid recompiling.)
+
+{- | Evaluate an expression in the given environment. (Equivalent to
+@'compileExpr' expr env@; reuse 'compileExpr' to avoid recompiling.)
+-}
 evalIn :: Env -> Expr -> Either CelError Value
 evalIn env expr = compileExpr expr env
 
--- | Compile an expression to a reusable 'Compiled' closure by structural
--- recursion over the combinators.
+
+{- | Compile an expression to a reusable 'Compiled' closure by structural
+recursion over the combinators.
+-}
 compileExpr :: Expr -> Compiled
 compileExpr expr = case expr of
   ELit l -> cLit l
@@ -95,8 +101,10 @@ compileExpr expr = case expr of
   ERel op a b -> cRel op (compileExpr a) (compileExpr b)
   ECall recv name args -> compileCall recv name args
 
--- | Compile a call, recognizing the @has@ and comprehension macros at
--- compile time (so macro dispatch is not repeated per evaluation).
+
+{- | Compile a call, recognizing the @has@ and comprehension macros at
+compile time (so macro dispatch is not repeated per evaluation).
+-}
 compileCall :: Maybe Expr -> Text -> [Expr] -> Compiled
 compileCall Nothing "has" [ESelect e f] = cHas (compileExpr e) f
 compileCall Nothing "has" [_] = cHasInvalid
@@ -105,8 +113,10 @@ compileCall (Just recv) name args
 compileCall recv name args =
   cCall (fmap compileExpr recv) name (map compileExpr args)
 
--- | Recognize a comprehension macro shape and compile it; 'Nothing' if the
--- call is an ordinary function.
+
+{- | Recognize a comprehension macro shape and compile it; 'Nothing' if the
+call is an ordinary function.
+-}
 compileMacro :: Expr -> Text -> [Expr] -> Maybe Compiled
 compileMacro recv name args = case (name, args) of
   ("all", [EIdent _ v, p]) -> Just (cAll (compileExpr recv) v (compileExpr p))
@@ -126,6 +136,7 @@ compileMacro recv name args = case (name, args) of
   ("transformMap", [EIdent _ a, EIdent _ b, p, t]) -> Just (cTransformMap (compileExpr recv) a b (Just (compileExpr p)) (compileExpr t))
   _ -> Nothing
 
+
 ----------------------------------------------------------------------
 -- Leaf / structural combinators
 ----------------------------------------------------------------------
@@ -134,13 +145,16 @@ compileMacro recv name args = case (name, args) of
 cLit :: Literal -> Compiled
 cLit l = let !v = literalValue l in \_ -> Right v
 
+
 -- | A (possibly dotted) name resolved against the environment.
 cName :: Bool -> [Text] -> Compiled
 cName root segs env = resolveName env root segs
 
+
 -- | Field selection on a computed value.
 cSelect :: Compiled -> Text -> Compiled
 cSelect e f env = e env >>= \v -> selectField v f
+
 
 -- | Indexing.
 cIndex :: Compiled -> Compiled -> Compiled
@@ -149,9 +163,11 @@ cIndex e i env = do
   idx <- i env
   indexValue v idx
 
+
 -- | List literal.
 cList :: [Compiled] -> Compiled
 cList cs env = VList . V.fromList <$> mapM ($ env) cs
+
 
 -- | Map literal.
 cMapLit :: [(Compiled, Compiled)] -> Compiled
@@ -167,9 +183,11 @@ cMapLit entries env = do
       v <- vc env
       Right (k, v)
 
+
 -- | Message/struct construction (unsupported).
 cStruct :: [Text] -> Compiled
 cStruct segs _ = Left (unsupported ("message construction is not supported: " <> T.intercalate "." segs))
+
 
 literalValue :: Literal -> Value
 literalValue = \case
@@ -181,6 +199,7 @@ literalValue = \case
   LString s -> VString s
   LBytes b -> VBytes b
 
+
 validateKey :: Value -> Either CelError ()
 validateKey v = case v of
   VInt _ -> Right ()
@@ -188,6 +207,7 @@ validateKey v = case v of
   VBool _ -> Right ()
   VString _ -> Right ()
   _ -> Left (invalidArg ("invalid map key type: " <> typeNameText (typeOf v)))
+
 
 ----------------------------------------------------------------------
 -- Operators
@@ -202,19 +222,24 @@ cCond c t e env = do
     VBool False -> e env
     _ -> Left (noOverload "_?_:_")
 
+
 -- | Error-absorbing, commutative logical AND.
 cAnd :: Compiled -> Compiled -> Compiled
 cAnd a b env = combineAnd (asBool (a env)) (asBool (b env))
+
 
 -- | Error-absorbing, commutative logical OR.
 cOr :: Compiled -> Compiled -> Compiled
 cOr a b env = combineOr (asBool (a env)) (asBool (b env))
 
+
 cNot :: Compiled -> Compiled
 cNot e env = e env >>= notValue
 
+
 cNeg :: Compiled -> Compiled
 cNeg e env = e env >>= negateValue
+
 
 cArith :: ArithOp -> Compiled -> Compiled -> Compiled
 cArith op a b env = do
@@ -222,11 +247,13 @@ cArith op a b env = do
   vb <- b env
   arith op va vb
 
+
 cRel :: RelOp -> Compiled -> Compiled -> Compiled
 cRel op a b env = do
   va <- a env
   vb <- b env
   relApply op va vb
+
 
 relApply :: RelOp -> Value -> Value -> Either CelError Value
 relApply op va vb = case op of
@@ -235,10 +262,12 @@ relApply op va vb = case op of
   In -> inOp va vb
   _ -> ordCompare op va vb
 
+
 asBool :: Either CelError Value -> Either CelError Bool
 asBool (Right (VBool b)) = Right b
 asBool (Right _) = Left (noOverload "logical operator on non-bool")
 asBool (Left e) = Left e
+
 
 combineAnd :: Either CelError Bool -> Either CelError Bool -> Either CelError Value
 combineAnd ea eb = case (ea, eb) of
@@ -248,6 +277,7 @@ combineAnd ea eb = case (ea, eb) of
   (Left e, _) -> Left e
   (_, Left e) -> Left e
 
+
 combineOr :: Either CelError Bool -> Either CelError Bool -> Either CelError Value
 combineOr ea eb = case (ea, eb) of
   (Right True, _) -> Right (VBool True)
@@ -255,6 +285,7 @@ combineOr ea eb = case (ea, eb) of
   (Right False, Right False) -> Right (VBool False)
   (Left e, _) -> Left e
   (_, Left e) -> Left e
+
 
 ----------------------------------------------------------------------
 -- Calls
@@ -270,6 +301,7 @@ cCall recvC name argCs env = do
     Just r -> r
     Nothing -> callFunction name allArgs
 
+
 -- | @has(e.f)@.
 cHas :: Compiled -> Text -> Compiled
 cHas ec f env = do
@@ -278,9 +310,11 @@ cHas ec f env = do
     VMap m -> Right (VBool (maybe False (const True) (celMapLookup (VString f) m)))
     _ -> Left (noSuchField f)
 
+
 -- | @has@ applied to a non-selection argument.
 cHasInvalid :: Compiled
 cHasInvalid _ = Left (invalidArg "has() requires a field selection argument, e.g. has(x.y)")
+
 
 ----------------------------------------------------------------------
 -- Comprehension macros
@@ -291,10 +325,12 @@ rangeElems (VList v) = Right (V.toList v)
 rangeElems (VMap m) = Right (map fst (celMapEntries m))
 rangeElems v = Left (noOverload ("comprehension over " <> typeNameText (typeOf v)))
 
+
 rangeElems2 :: Value -> Either CelError [(Value, Value)]
 rangeElems2 (VList v) = Right (zipWith (\i x -> (VInt (fromIntegral (i :: Int)), x)) [0 ..] (V.toList v))
 rangeElems2 (VMap m) = Right (celMapEntries m)
 rangeElems2 v = Left (noOverload ("comprehension over " <> typeNameText (typeOf v)))
+
 
 cAll :: Compiled -> Text -> Compiled -> Compiled
 cAll recvC var predC env = do
@@ -308,6 +344,7 @@ cAll recvC var predC env = do
       Right True -> go rest mErr
       Left e -> go rest (Just (maybe e id mErr))
 
+
 cExists :: Compiled -> Text -> Compiled -> Compiled
 cExists recvC var predC env = do
   v <- recvC env
@@ -319,6 +356,7 @@ cExists recvC var predC env = do
       Right True -> Right (VBool True)
       Right False -> go rest mErr
       Left e -> go rest (Just (maybe e id mErr))
+
 
 cExistsOne :: Compiled -> Text -> Compiled -> Compiled
 cExistsOne recvC var predC env = do
@@ -332,6 +370,7 @@ cExistsOne recvC var predC env = do
       Right False -> go rest n
       Left e -> Left e
 
+
 cFilter :: Compiled -> Text -> Compiled -> Compiled
 cFilter recvC var predC env = do
   v <- recvC env
@@ -344,6 +383,7 @@ cFilter recvC var predC env = do
       Right False -> go rest
       Left e -> Left e
 
+
 cMapMacro :: Compiled -> Text -> Maybe Compiled -> Compiled -> Compiled
 cMapMacro recvC var mFilter transformC env = do
   v <- recvC env
@@ -353,12 +393,13 @@ cMapMacro recvC var mFilter transformC env = do
     go [] = Right []
     go (el : rest) =
       let env' = bindLocal var el env
-       in case mFilter of
-            Nothing -> do r <- transformC env'; (r :) <$> go rest
-            Just p -> case asBool (p env') of
-              Right True -> do r <- transformC env'; (r :) <$> go rest
-              Right False -> go rest
-              Left e -> Left e
+      in case mFilter of
+           Nothing -> do r <- transformC env'; (r :) <$> go rest
+           Just p -> case asBool (p env') of
+             Right True -> do r <- transformC env'; (r :) <$> go rest
+             Right False -> go rest
+             Left e -> Left e
+
 
 cAll2 :: Compiled -> Text -> Text -> Compiled -> Compiled
 cAll2 recvC v1 v2 predC env = do
@@ -372,6 +413,7 @@ cAll2 recvC v1 v2 predC env = do
       Right True -> go rest mErr
       Left e -> go rest (Just (maybe e id mErr))
 
+
 cExists2 :: Compiled -> Text -> Text -> Compiled -> Compiled
 cExists2 recvC v1 v2 predC env = do
   v <- recvC env
@@ -383,6 +425,7 @@ cExists2 recvC v1 v2 predC env = do
       Right True -> Right (VBool True)
       Right False -> go rest mErr
       Left e -> go rest (Just (maybe e id mErr))
+
 
 cExistsOne2 :: Compiled -> Text -> Text -> Compiled -> Compiled
 cExistsOne2 recvC v1 v2 predC env = do
@@ -396,6 +439,7 @@ cExistsOne2 recvC v1 v2 predC env = do
       Right False -> go rest n
       Left e -> Left e
 
+
 cTransformList :: Compiled -> Text -> Text -> Maybe Compiled -> Compiled -> Compiled
 cTransformList recvC v1 v2 mFilter transformC env = do
   v <- recvC env
@@ -405,12 +449,13 @@ cTransformList recvC v1 v2 mFilter transformC env = do
     go [] = Right []
     go ((a, b) : rest) =
       let env' = bind2 v1 a v2 b env
-       in case mFilter of
-            Nothing -> do r <- transformC env'; (r :) <$> go rest
-            Just p -> case asBool (p env') of
-              Right True -> do r <- transformC env'; (r :) <$> go rest
-              Right False -> go rest
-              Left e -> Left e
+      in case mFilter of
+           Nothing -> do r <- transformC env'; (r :) <$> go rest
+           Just p -> case asBool (p env') of
+             Right True -> do r <- transformC env'; (r :) <$> go rest
+             Right False -> go rest
+             Left e -> Left e
+
 
 cTransformMap :: Compiled -> Text -> Text -> Maybe Compiled -> Compiled -> Compiled
 cTransformMap recvC kVar vVar mFilter transformC env = do
@@ -426,15 +471,17 @@ cTransformMap recvC kVar vVar mFilter transformC env = do
     go [] = Right []
     go ((k, val) : rest) =
       let env' = bind2 kVar k vVar val env
-       in case mFilter of
-            Nothing -> do nv <- transformC env'; ((k, nv) :) <$> go rest
-            Just p -> case asBool (p env') of
-              Right True -> do nv <- transformC env'; ((k, nv) :) <$> go rest
-              Right False -> go rest
-              Left e -> Left e
+      in case mFilter of
+           Nothing -> do nv <- transformC env'; ((k, nv) :) <$> go rest
+           Just p -> case asBool (p env') of
+             Right True -> do nv <- transformC env'; ((k, nv) :) <$> go rest
+             Right False -> go rest
+             Left e -> Left e
+
 
 bind2 :: Text -> Value -> Text -> Value -> Env -> Env
 bind2 v1 a v2 b = bindLocal v2 b . bindLocal v1 a
+
 
 ----------------------------------------------------------------------
 -- Name resolution
@@ -461,13 +508,15 @@ resolveName env root segs =
       let prefix = take k segs
           rest = drop k segs
           candidates = map (\cp -> T.intercalate "." (cp ++ prefix)) prefixes
-       in case firstJust (map (\nm -> fmap (\val -> (val, rest)) (lookupVar nm env)) candidates) of
-            Just r -> Just r
-            Nothing -> tryK (k - 1)
+      in case firstJust (map (\nm -> fmap (\val -> (val, rest)) (lookupVar nm env)) candidates) of
+           Just r -> Just r
+           Nothing -> tryK (k - 1)
+
 
 containerScopes :: Text -> [[Text]]
 containerScopes "" = [[]]
 containerScopes c = reverse (inits (T.splitOn "." c))
+
 
 lookupTypeName :: Text -> Maybe CelType
 lookupTypeName = \case
@@ -484,6 +533,7 @@ lookupTypeName = \case
   "google.protobuf.Timestamp" -> Just TyTimestamp
   "google.protobuf.Duration" -> Just TyDuration
   _ -> Nothing
+
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust [] = Nothing

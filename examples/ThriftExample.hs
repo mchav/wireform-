@@ -1,21 +1,31 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import Thrift.Class (ToThrift, FromThrift, encodeThriftBinary, decodeThriftBinary,
-                     encodeThriftCompact, decodeThriftCompact)
+import GHC.Generics (Generic)
+import Thrift.Class (
+  FromThrift,
+  ToThrift,
+  decodeThriftBinary,
+  decodeThriftCompact,
+  encodeThriftBinary,
+  encodeThriftCompact,
+ )
+
 
 data LogEntry = LogEntry
-  { level   :: !Text
+  { level :: !Text
   , message :: !Text
-  , code    :: !Int
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToThrift, FromThrift)
+  , code :: !Int
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToThrift, FromThrift)
+
 
 main :: IO ()
 main = do
@@ -26,14 +36,14 @@ main = do
 
   case decodeThriftBinary binBytes of
     Right decoded -> putStrLn $ "Binary decoded: " ++ show (decoded :: LogEntry)
-    Left err      -> putStrLn $ "Binary error: " ++ err
+    Left err -> putStrLn $ "Binary error: " ++ err
 
   let compBytes = encodeThriftCompact entry
   putStrLn $ "Compact: " ++ show (BS.length compBytes) ++ " bytes"
 
   case decodeThriftCompact compBytes of
     Right decoded -> putStrLn $ "Compact decoded: " ++ show (decoded :: LogEntry)
-    Left err      -> putStrLn $ "Compact error: " ++ err
+    Left err -> putStrLn $ "Compact error: " ++ err
 
   putStrLn $ "Roundtrip (binary): " ++ show (decodeThriftBinary (encodeThriftBinary entry) == Right entry)
   putStrLn $ "Roundtrip (compact): " ++ show (decodeThriftCompact (encodeThriftCompact entry) == Right entry)

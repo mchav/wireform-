@@ -20,17 +20,18 @@ modules:
 The Network.HTTP.Types.* primitives were vendored from the @hermes@
 library and rebranded into wireform.
 -}
-module Network.HTTP
-  ( -- * Versions
-    module Network.HTTP.Types.Version
-  , module Network.HTTP.VersionRange
-    -- * Messages
-  , module Network.HTTP.Types.Method
-  , module Network.HTTP.Types.Status
-  , module Network.HTTP.Types.Header
-  , module Network.HTTP.Types.Body
-  , module Network.HTTP.Message
-  ) where
+module Network.HTTP (
+  -- * Versions
+  module Network.HTTP.Types.Version,
+  module Network.HTTP.VersionRange,
+
+  -- * Messages
+  module Network.HTTP.Types.Method,
+  module Network.HTTP.Types.Status,
+  module Network.HTTP.Types.Header,
+  module Network.HTTP.Types.Body,
+  module Network.HTTP.Message,
+) where
 
 import Network.HTTP.Message
 import Network.HTTP.Types.Body
@@ -39,3 +40,4 @@ import Network.HTTP.Types.Method
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Version
 import Network.HTTP.VersionRange
+

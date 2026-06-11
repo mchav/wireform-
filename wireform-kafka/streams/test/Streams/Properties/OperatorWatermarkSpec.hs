@@ -1,28 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |
--- Module      : Streams.Properties.OperatorWatermarkSpec
--- Description : Operators (e.g. suppress) read the coordinated
---               watermark, not just per-task stream-time.
+{- |
+Module      : Streams.Properties.OperatorWatermarkSpec
+Description : Operators (e.g. suppress) read the coordinated
+              watermark, not just per-task stream-time.
+-}
 module Streams.Properties.OperatorWatermarkSpec (tests) where
 
-import qualified Data.IORef as IORef
-import qualified Data.Text as T
+import Data.IORef qualified as IORef
+import Data.Text qualified as T
+import Kafka.Streams (Timestamp (..))
+import Kafka.Streams.Processor (TaskId (..), effectiveTime)
+import Kafka.Streams.Processor qualified as Processor
+import Kafka.Streams.Processor.Mock (mockContext, newMockProcessorContext)
+import Kafka.Streams.Processor.Mock qualified as Mock
 import Test.Syd
 
-import Kafka.Streams (Timestamp (..))
-import qualified Kafka.Streams.Processor as Processor
-import Kafka.Streams.Processor (effectiveTime)
-import Kafka.Streams.Processor.Mock (newMockProcessorContext, mockContext)
-import qualified Kafka.Streams.Processor.Mock as Mock
-import Kafka.Streams.Processor (TaskId (..))
 
 tests :: Spec
-tests = describe "Operator watermark plumbing" $ sequence_
-  [ effective_time_falls_back_to_stream_time
-  , effective_time_prefers_coordinator_when_set
-  ]
+tests =
+  describe "Operator watermark plumbing" $
+    sequence_
+      [ effective_time_falls_back_to_stream_time
+      , effective_time_prefers_coordinator_when_set
+      ]
+
 
 effective_time_falls_back_to_stream_time :: Spec
 effective_time_falls_back_to_stream_time =
@@ -32,6 +35,7 @@ effective_time_falls_back_to_stream_time =
     let ctx = mockContext mctx
     t <- effectiveTime ctx
     t `shouldBe` Timestamp 42
+
 
 effective_time_prefers_coordinator_when_set :: Spec
 effective_time_prefers_coordinator_when_set =
@@ -45,7 +49,9 @@ effective_time_prefers_coordinator_when_set =
     Mock.setStreamTime mctx (Timestamp 100)
     let baseCtx = mockContext mctx
         wmRef = Timestamp 50
-        ctx = baseCtx
-          { Processor.ctxCoordinatedWatermark = pure (Just wmRef) }
+        ctx =
+          baseCtx
+            { Processor.ctxCoordinatedWatermark = pure (Just wmRef)
+            }
     t <- effectiveTime ctx
     t `shouldBe` wmRef

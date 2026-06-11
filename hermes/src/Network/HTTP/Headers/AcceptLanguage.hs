@@ -71,21 +71,21 @@ weightParser = flip (<|>) (pure 1) $ do
   where
     qValue =
       $( switch
-          [|
-            case _ of
-              "0." -> withSpan anyAsciiDecimalWord $ \d (Span (Pos start) (Pos end)) -> do
-                let d' = fromIntegral d
-                case end - start of
-                  1 -> pure $! d' / 10
-                  2 -> pure $! d' / 100
-                  3 -> pure $! d' / 1000
-                  _ -> err "Too many digits after the decimal point in q-value"
-              "0" -> pure 0
-              "1.000" -> pure 1
-              "1.00" -> pure 1
-              "1.0" -> pure 1
-              "1" -> pure 1
-            |]
+           [|
+             case _ of
+               "0." -> withSpan anyAsciiDecimalWord $ \d (Span (Pos start) (Pos end)) -> do
+                 let d' = fromIntegral d
+                 case end - start of
+                   1 -> pure $! d' / 10
+                   2 -> pure $! d' / 100
+                   3 -> pure $! d' / 1000
+                   _ -> err "Too many digits after the decimal point in q-value"
+               "0" -> pure 0
+               "1.000" -> pure 1
+               "1.00" -> pure 1
+               "1.0" -> pure 1
+               "1" -> pure 1
+             |]
        )
 
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Serde.Avro
 Description : Apache Avro 'Kafka.Serde.Serde' built on top of @wireform-avro@.
 Copyright   : (c) 2025
@@ -48,70 +48,80 @@ envelope; see "Kafka.Streams.Serde.SchemaRegistry").
     Useful when the application is happy to work in the dynamic
     value representation (e.g. a generic streams operator).
 -}
-module Kafka.Serde.Avro
-  ( -- * Typed value serde
-    avroSerde
-    -- * Dynamic-value serde
-  , avroValueSerde
-    -- * Lower-level access
-  , encodeAvroValue
-  , decodeAvroValue
-  ) where
+module Kafka.Serde.Avro (
+  -- * Typed value serde
+  avroSerde,
 
-import qualified Data.ByteString as BS
-import qualified Data.Text       as T
+  -- * Dynamic-value serde
+  avroValueSerde,
 
-import           Kafka.Serde     (Serde (..))
+  -- * Lower-level access
+  encodeAvroValue,
+  decodeAvroValue,
+) where
 
-import qualified Avro.Class      as Avro.Class
-import qualified Avro.Decode     as Avro.Decode
-import qualified Avro.Encode     as Avro.Encode
-import qualified Avro.Schema     as Avro.Schema
-import qualified Avro.Value      as Avro.Value
+import Avro.Class qualified as Avro.Class
+import Avro.Decode qualified as Avro.Decode
+import Avro.Encode qualified as Avro.Encode
+import Avro.Schema qualified as Avro.Schema
+import Avro.Value qualified as Avro.Value
+import Data.ByteString qualified as BS
+import Data.Text qualified as T
+import Kafka.Serde (Serde (..))
 
--- | Schema-driven typed Avro serde. Threads the application
--- value through 'Avro.Class.toAvro' \/ 'Avro.Class.fromAvro' on
--- either side of the 'Avro.Encode.encodeAvro' \/
--- 'Avro.Decode.decodeAvro' pair.
---
--- The caller must supply the writer schema; for Schema-Registry-
--- backed deployments use the @wireform-kafka-streams@
--- "Kafka.Streams.Serde.SchemaRegistry" wrapper, which fetches
--- the schema lazily by id.
+
+{- | Schema-driven typed Avro serde. Threads the application
+value through 'Avro.Class.toAvro' \/ 'Avro.Class.fromAvro' on
+either side of the 'Avro.Encode.encodeAvro' \/
+'Avro.Decode.decodeAvro' pair.
+
+The caller must supply the writer schema; for Schema-Registry-
+backed deployments use the @wireform-kafka-streams@
+"Kafka.Streams.Serde.SchemaRegistry" wrapper, which fetches
+the schema lazily by id.
+-}
 avroSerde
   :: (Avro.Class.ToAvro a, Avro.Class.FromAvro a)
   => Avro.Schema.AvroType
   -> Serde a
-avroSerde schema = Serde
-  { serialize   = \a -> Avro.Encode.encodeAvro schema (Avro.Class.toAvro a)
-  , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
-      Left e    -> Left (T.pack e)
-      Right val -> case Avro.Class.fromAvro val of
-        Left e'  -> Left (T.pack e')
-        Right a' -> Right a'
-  , serializeHeaders = const mempty
-  }
+avroSerde schema =
+  Serde
+    { serialize = \a -> Avro.Encode.encodeAvro schema (Avro.Class.toAvro a)
+    , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
+        Left e -> Left (T.pack e)
+        Right val -> case Avro.Class.fromAvro val of
+          Left e' -> Left (T.pack e')
+          Right a' -> Right a'
+    , serializeHeaders = const mempty
+    }
 
--- | Dynamic-value serde. Operates directly on 'Avro.Value.Value'
--- — useful for generic stream operators that don't have a Haskell
--- type for the payload.
+
+{- | Dynamic-value serde. Operates directly on 'Avro.Value.Value'
+— useful for generic stream operators that don't have a Haskell
+type for the payload.
+-}
 avroValueSerde :: Avro.Schema.AvroType -> Serde Avro.Value.Value
-avroValueSerde schema = Serde
-  { serialize   = Avro.Encode.encodeAvro schema
-  , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
-      Left e  -> Left (T.pack e)
-      Right v -> Right v
-  , serializeHeaders = const mempty
-  }
+avroValueSerde schema =
+  Serde
+    { serialize = Avro.Encode.encodeAvro schema
+    , deserialize = \b -> case Avro.Decode.decodeAvro schema b of
+        Left e -> Left (T.pack e)
+        Right v -> Right v
+    , serializeHeaders = const mempty
+    }
 
--- | Standalone encode of an 'Avro.Value.Value'. Identical to
--- 'Avro.Encode.encodeAvro'; re-exported for symmetry with
--- 'Kafka.Serde.Proto.encodeProto'.
+
+{- | Standalone encode of an 'Avro.Value.Value'. Identical to
+'Avro.Encode.encodeAvro'; re-exported for symmetry with
+'Kafka.Serde.Proto.encodeProto'.
+-}
 encodeAvroValue :: Avro.Schema.AvroType -> Avro.Value.Value -> BS.ByteString
 encodeAvroValue = Avro.Encode.encodeAvro
 
--- | Standalone decode. Identical to 'Avro.Decode.decodeAvro';
--- the schema must be supplied by the caller.
+
+{- | Standalone decode. Identical to 'Avro.Decode.decodeAvro';
+the schema must be supplied by the caller.
+-}
 decodeAvroValue
   :: Avro.Schema.AvroType
   -> BS.ByteString

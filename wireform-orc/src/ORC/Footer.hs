@@ -151,10 +151,10 @@ writeORCFooter footer =
             }
       !psLen = BS.length psBytes
   in BL.toStrict $
-      B.toLazyByteString $
-        B.byteString footerBytes
-          <> B.byteString psBytes
-          <> B.word8 (fromIntegral psLen)
+       B.toLazyByteString $
+         B.byteString footerBytes
+           <> B.byteString psBytes
+           <> B.word8 (fromIntegral psLen)
 
 
 -- Internal PostScript type
@@ -791,8 +791,8 @@ readVarintRaw bs !off !len = go off 0 0
           let !b = fromIntegral (BS.index bs pos) :: Word64
               !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
           in if b .&. 0x80 == 0
-              then Just (val', pos + 1)
-              else go (pos + 1) val' (shift + 7)
+               then Just (val', pos + 1)
+               else go (pos + 1) val' (shift + 7)
 
 -- Decoder primitives + DSL ('decodeMsg', 'FieldAction', 'getVarint',
 -- 'getLenDelim', 'skipField') and encoder helpers

@@ -5,7 +5,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-|
+{- |
 Module      : Kafka.Network.Connection
 Description : TCP/TLS connection management for Kafka brokers
 
@@ -17,124 +17,136 @@ owning 'Wireform.Network.TLS.OpenSSL.SslConn'.  The legacy
 that the rest of @wireform-kafka@ speaks to is implemented in
 terms of those.
 -}
-module Kafka.Network.Connection
-  ( -- * Connection
-    I.Connection (..)
-  , ConnectionConfig (..)
-  , BrokerAddress (..)
-  , BrokerAddressFamily (..)
-  , DnsLookupMode (..)
-    -- * crypton-connection-shaped surface (re-exported from
-    -- "Kafka.Network.Connection.Internal" to break a cycle with
-    -- "Kafka.Network.Auth.SASL")
-  , I.connectionGet
-  , I.connectionPut
-  , I.connectionPutBuilder
-  , I.connectionClose
-    -- * Connection lifecycle
-  , connect
-  , connectTls
-  , disconnect
-  , withConnection
-    -- * Connection manager
-  , ConnectionManager
-  , createConnectionManager
-  , getOrCreateConnection
-  , closeAllConnections
-  , withBrokerLock
-    -- * Liveness
-  , isConnected
-    -- * Defaults
-  , defaultConnectionConfig
-  , defaultTlsSettings
-    -- * TLS offload (sidecar / kTLS / NLB)
-  , TlsOffloadConfig (..)
-  , TlsOffloadEndpoint (..)
-  , OffloadBrokerKey (..)
-  , transparentTlsOffload
-  , staticTlsOffload
-  , perBrokerTlsOffload
-  , customTlsOffload
-  , brokerAddressToOffloadKey
-  , connectOffload
-    -- * Backoff
-  , calculateBackoffDelay
-    -- * Pluggable host resolution
-  , HostResolver (..)
-    -- * Connection-quota throttling
-  , ConnectionQuotaState
-  , newConnectionQuotaState
-  , recordThrottle
-  , shouldDelayConnect
-    -- * Idle-expiry tracking
-  , IdleConnTracker
-  , newIdleConnTracker
-  , recordActivity
-  , isIdle
-    -- * SASL timeouts
-  , SaslTimeouts (..)
-  , defaultSaslTimeouts
-    -- * Request quality-of-service
-  , QosClass (..)
-  , QosWeight (..)
-  , prioritise
-  ) where
+module Kafka.Network.Connection (
+  -- * Connection
+  I.Connection (..),
+  ConnectionConfig (..),
+  BrokerAddress (..),
+  BrokerAddressFamily (..),
+  DnsLookupMode (..),
+
+  -- * crypton-connection-shaped surface (re-exported from
+
+  -- "Kafka.Network.Connection.Internal" to break a cycle with
+  -- "Kafka.Network.Auth.SASL")
+  I.connectionGet,
+  I.connectionPut,
+  I.connectionPutBuilder,
+  I.connectionClose,
+
+  -- * Connection lifecycle
+  connect,
+  connectTls,
+  disconnect,
+  withConnection,
+
+  -- * Connection manager
+  ConnectionManager,
+  createConnectionManager,
+  getOrCreateConnection,
+  closeAllConnections,
+  withBrokerLock,
+
+  -- * Liveness
+  isConnected,
+
+  -- * Defaults
+  defaultConnectionConfig,
+  defaultTlsSettings,
+
+  -- * TLS offload (sidecar / kTLS / NLB)
+  TlsOffloadConfig (..),
+  TlsOffloadEndpoint (..),
+  OffloadBrokerKey (..),
+  transparentTlsOffload,
+  staticTlsOffload,
+  perBrokerTlsOffload,
+  customTlsOffload,
+  brokerAddressToOffloadKey,
+  connectOffload,
+
+  -- * Backoff
+  calculateBackoffDelay,
+
+  -- * Pluggable host resolution
+  HostResolver (..),
+
+  -- * Connection-quota throttling
+  ConnectionQuotaState,
+  newConnectionQuotaState,
+  recordThrottle,
+  shouldDelayConnect,
+
+  -- * Idle-expiry tracking
+  IdleConnTracker,
+  newIdleConnTracker,
+  recordActivity,
+  isIdle,
+
+  -- * SASL timeouts
+  SaslTimeouts (..),
+  defaultSaslTimeouts,
+
+  -- * Request quality-of-service
+  QosClass (..),
+  QosWeight (..),
+  prioritise,
+) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracketOnError, try)
 import Control.Monad (when)
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString.Internal qualified as BSI
 import Data.Hashable (Hashable (hashWithSalt))
 import Data.IORef
 import Data.Int (Int64)
-import qualified Data.List as L
-import qualified Data.Map.Strict as Map
+import Data.List qualified as L
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
-import qualified ListT
+import Kafka.Network.Auth.SASL qualified as SASL
+import Kafka.Network.Connection.Internal (
+  Connection (..),
+ )
+import Kafka.Network.Connection.Internal qualified as I
+import Kafka.Network.TlsOffload (
+  OffloadBrokerKey (..),
+  TlsOffloadConfig (..),
+  TlsOffloadEndpoint (..),
+  customTlsOffload,
+  describeOffloadEndpoint,
+  perBrokerTlsOffload,
+  staticTlsOffload,
+  transparentTlsOffload,
+ )
+import Kafka.Network.TlsOffload qualified as TlsOffload
+import ListT qualified
 import Network.Socket (HostName, PortNumber)
-import qualified Network.Socket as NS
-import qualified StmContainers.Map as StmMap
+import Network.Socket qualified as NS
+import StmContainers.Map qualified as StmMap
 import System.Random (randomRIO)
+import Wireform.Network (
+  defaultTransportConfig,
+  newDuplexTransport,
+ )
+import Wireform.Network.TLS.Config (
+  TlsClientConfig (..),
+  buildClientCtx,
+  defaultTlsClientConfig,
+ )
+import Wireform.Network.TLS.OpenSSL (
+  SslConn,
+  SslCtx,
+  newClient,
+  newTlsDuplexTransport,
+  setClientHostnameVerify,
+ )
+import Wireform.Transport.Config qualified as WC
 
-import Wireform.Network
-  ( defaultTransportConfig
-  , newDuplexTransport
-  )
-import qualified Wireform.Transport.Config as WC
-
-import Wireform.Network.TLS.Config
-  ( TlsClientConfig (..)
-  , buildClientCtx
-  , defaultTlsClientConfig
-  )
-import Wireform.Network.TLS.OpenSSL
-  ( SslConn
-  , SslCtx
-  , newClient
-  , newTlsDuplexTransport
-  , setClientHostnameVerify
-  )
-
-import Kafka.Network.Connection.Internal
-  (Connection (..))
-import qualified Kafka.Network.Connection.Internal as I
-import qualified Kafka.Network.Auth.SASL as SASL
-import qualified Kafka.Network.TlsOffload as TlsOffload
-import Kafka.Network.TlsOffload
-  ( OffloadBrokerKey (..)
-  , TlsOffloadConfig (..)
-  , TlsOffloadEndpoint (..)
-  , describeOffloadEndpoint
-  , transparentTlsOffload
-  , staticTlsOffload
-  , perBrokerTlsOffload
-  , customTlsOffload
-  )
 
 ------------------------------------------------------------------------
 -- Broker addressing + config
@@ -143,11 +155,14 @@ import Kafka.Network.TlsOffload
 data BrokerAddress = BrokerAddress
   { brokerHost :: !HostName
   , brokerPort :: !PortNumber
-  } deriving (Eq, Show, Ord, Generic)
+  }
+  deriving (Eq, Show, Ord, Generic)
+
 
 instance Hashable BrokerAddress where
   hashWithSalt salt (BrokerAddress host port) =
     salt `hashWithSalt` host `hashWithSalt` (fromIntegral port :: Int)
+
 
 data BrokerAddressFamily
   = BrokerAddressAny
@@ -155,10 +170,12 @@ data BrokerAddressFamily
   | BrokerAddressIPv6
   deriving (Eq, Show, Generic)
 
+
 data DnsLookupMode
   = DnsResolveCanonicalBootstrapServersOnly
   | DnsUseAllDnsIps
   deriving (Eq, Show, Generic)
+
 
 data ConnectionConfig = ConnectionConfig
   { connTimeout :: !Int
@@ -189,74 +206,85 @@ data ConnectionConfig = ConnectionConfig
   , connSasl :: !(Maybe SASL.SaslConfig)
   , connClientId :: !Text
   , connTlsOffload :: !(Maybe TlsOffloadConfig)
-  } deriving (Generic)
+  }
+  deriving (Generic)
+
 
 defaultConnectionConfig :: ConnectionConfig
-defaultConnectionConfig = ConnectionConfig
-  { connTimeout                            = 10
-  , connReadTimeout                        = 30
-  , connWriteTimeout                       = 30
-  , connRequestTimeoutMs                   = 30_000
-  , connRetryDelay                         = 100
-  , connMaxRetries                         = 3
-  , connBackoffMaxMs                       = 10_000
-  , connBackoffMultiplier                  = 2.0
-  , connSocketKeepalive                    = True
-  , connSocketNagleDisable                 = True
-  , connSocketSendBuffer                   = 0
-  , connSocketReceiveBuffer                = 0
-  , connSocketMaxFails                     = 1
-  , connMaxIdleMs                          = 540_000
-  , connMaxReauthMs                        = 0
-  , connMessageMaxBytes                    = 1_000_000
-  , connReceiveMessageMaxBytes             = 100_000_000
-  , connMetadataMaxAgeMs                   = 900_000
-  , connTopicMetadataRefreshFastIntervalMs = 250
-  , connTopicMetadataRefreshSparse         = True
-  , connBrokerAddressTtl                   = 1000
-  , connBrokerAddressFamily                = BrokerAddressAny
-  , connDnsLookup                          = DnsResolveCanonicalBootstrapServersOnly
-  , connUseTls                             = False
-  , connTlsSettings                        = Nothing
-  , connSasl                               = Nothing
-  , connClientId                           = T.pack "wireform-kafka"
-  , connTlsOffload                         = Nothing
-  }
+defaultConnectionConfig =
+  ConnectionConfig
+    { connTimeout = 10
+    , connReadTimeout = 30
+    , connWriteTimeout = 30
+    , connRequestTimeoutMs = 30_000
+    , connRetryDelay = 100
+    , connMaxRetries = 3
+    , connBackoffMaxMs = 10_000
+    , connBackoffMultiplier = 2.0
+    , connSocketKeepalive = True
+    , connSocketNagleDisable = True
+    , connSocketSendBuffer = 0
+    , connSocketReceiveBuffer = 0
+    , connSocketMaxFails = 1
+    , connMaxIdleMs = 540_000
+    , connMaxReauthMs = 0
+    , connMessageMaxBytes = 1_000_000
+    , connReceiveMessageMaxBytes = 100_000_000
+    , connMetadataMaxAgeMs = 900_000
+    , connTopicMetadataRefreshFastIntervalMs = 250
+    , connTopicMetadataRefreshSparse = True
+    , connBrokerAddressTtl = 1000
+    , connBrokerAddressFamily = BrokerAddressAny
+    , connDnsLookup = DnsResolveCanonicalBootstrapServersOnly
+    , connUseTls = False
+    , connTlsSettings = Nothing
+    , connSasl = Nothing
+    , connClientId = T.pack "wireform-kafka"
+    , connTlsOffload = Nothing
+    }
 
--- | OpenSSL-backed default TLS settings.  @hostname@ becomes the
--- SNI server name + cert-pinned hostname.
+
+{- | OpenSSL-backed default TLS settings.  @hostname@ becomes the
+SNI server name + cert-pinned hostname.
+-}
 defaultTlsSettings :: HostName -> TlsClientConfig
-defaultTlsSettings hostname = defaultTlsClientConfig
-  { tlsClientVerifyPeer    = True
-  , tlsClientVerifyHostname = Just (BSI.packChars hostname)
-  }
+defaultTlsSettings hostname =
+  defaultTlsClientConfig
+    { tlsClientVerifyPeer = True
+    , tlsClientVerifyHostname = Just (BSI.packChars hostname)
+    }
+
 
 ------------------------------------------------------------------------
 -- Connection manager
 ------------------------------------------------------------------------
 
 data ConnectionManager = ConnectionManager
-  { connectionMap   :: !(StmMap.Map BrokerAddress Connection)
+  { connectionMap :: !(StmMap.Map BrokerAddress Connection)
   , connectionLocks :: !(StmMap.Map BrokerAddress (MVar ()))
   }
+
 
 createConnectionManager :: IO ConnectionManager
 createConnectionManager = ConnectionManager <$> StmMap.newIO <*> StmMap.newIO
 
+
 withBrokerLock :: ConnectionManager -> BrokerAddress -> IO a -> IO a
 withBrokerLock (ConnectionManager _ lockMap) addr action = do
-  lock <- atomically (StmMap.lookup addr lockMap) >>= \case
-    Just l  -> pure l
-    Nothing -> do
-      fresh <- newMVar ()
-      atomically $ do
-        m <- StmMap.lookup addr lockMap
-        case m of
-          Just existing -> pure existing
-          Nothing       -> do
-            StmMap.insert fresh addr lockMap
-            pure fresh
+  lock <-
+    atomically (StmMap.lookup addr lockMap) >>= \case
+      Just l -> pure l
+      Nothing -> do
+        fresh <- newMVar ()
+        atomically $ do
+          m <- StmMap.lookup addr lockMap
+          case m of
+            Just existing -> pure existing
+            Nothing -> do
+              StmMap.insert fresh addr lockMap
+              pure fresh
   withMVar lock (\_ -> action)
+
 
 getOrCreateConnection
   :: ConnectionManager
@@ -278,7 +306,7 @@ getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
         Just offload -> connectOffload addr config offload
         Nothing
           | connUseTls config -> connectTls addr config
-          | otherwise         -> connect addr config
+          | otherwise -> connect addr config
       case connResult of
         Left err -> pure (Left err)
         Right newConn -> do
@@ -289,7 +317,7 @@ getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
               r <- SASL.authenticateDetailed newConn (connClientId config) host sc
               case r of
                 Right _ -> pure (Right ())
-                Left e   -> pure (Left ("SASL authentication failed: " ++ show e))
+                Left e -> pure (Left ("SASL authentication failed: " ++ show e))
           case authResult of
             Left err -> do
               I.connectionClose newConn
@@ -297,6 +325,7 @@ getOrCreateConnection cm@(ConnectionManager connMap _) addr config = do
             Right () -> do
               atomically $ StmMap.insert newConn addr connMap
               pure (Right newConn)
+
 
 closeAllConnections :: ConnectionManager -> IO ()
 closeAllConnections (ConnectionManager connMap lockMap) = do
@@ -307,6 +336,7 @@ closeAllConnections (ConnectionManager connMap lockMap) = do
   atomically $ do
     StmMap.reset connMap
     StmMap.reset lockMap
+
 
 calculateBackoffDelay :: Int -> ConnectionConfig -> IO Int
 calculateBackoffDelay attemptNum config = do
@@ -319,6 +349,7 @@ calculateBackoffDelay attemptNum config = do
       delayMicros = round (finalDelayMs * 1000)
   pure delayMicros
 
+
 ------------------------------------------------------------------------
 -- Socket helpers
 ------------------------------------------------------------------------
@@ -330,96 +361,118 @@ openTunedSocket
   -> PortNumber
   -> IO NS.Socket
 openTunedSocket cfg host port = do
-  let !hints = NS.defaultHints
-        { NS.addrFlags      = [NS.AI_ADDRCONFIG]
-        , NS.addrSocketType = NS.Stream
-        , NS.addrFamily     = case connBrokerAddressFamily cfg of
-            BrokerAddressIPv4 -> NS.AF_INET
-            BrokerAddressIPv6 -> NS.AF_INET6
-            BrokerAddressAny  -> NS.AF_UNSPEC
-        }
+  let !hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_ADDRCONFIG]
+          , NS.addrSocketType = NS.Stream
+          , NS.addrFamily = case connBrokerAddressFamily cfg of
+              BrokerAddressIPv4 -> NS.AF_INET
+              BrokerAddressIPv6 -> NS.AF_INET6
+              BrokerAddressAny -> NS.AF_UNSPEC
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just (show port))
   let attempt addr = bracketOnError
-        (NS.socket (NS.addrFamily addr) (NS.addrSocketType addr)
-                   (NS.addrProtocol addr))
+        ( NS.socket
+            (NS.addrFamily addr)
+            (NS.addrSocketType addr)
+            (NS.addrProtocol addr)
+        )
         NS.close
         $ \sock -> do
-            applyTcpTuning cfg sock
-            NS.connect sock (NS.addrAddress addr)
-            pure sock
-      tryAll []     = ioError (userError ("openTunedSocket: no addrinfo for " ++ host ++ ":" ++ show port))
-      tryAll [a]    = attempt a
-      tryAll (a:as) = do
+          applyTcpTuning cfg sock
+          NS.connect sock (NS.addrAddress addr)
+          pure sock
+      tryAll [] = ioError (userError ("openTunedSocket: no addrinfo for " ++ host ++ ":" ++ show port))
+      tryAll [a] = attempt a
+      tryAll (a : as) = do
         r <- try (attempt a)
         case r of
-          Right sock           -> pure sock
+          Right sock -> pure sock
           Left (_ :: SomeException) -> tryAll as
   tryAll addrs
+
 
 {-# INLINE applyTcpTuning #-}
 applyTcpTuning :: ConnectionConfig -> NS.Socket -> IO ()
 applyTcpTuning cfg sock = do
   when (connSocketNagleDisable cfg) $
-    silently $ NS.setSocketOption sock NS.NoDelay 1
+    silently $
+      NS.setSocketOption sock NS.NoDelay 1
   when (connSocketKeepalive cfg) $
-    silently $ NS.setSocketOption sock NS.KeepAlive 1
+    silently $
+      NS.setSocketOption sock NS.KeepAlive 1
   when (connSocketSendBuffer cfg > 0) $
-    silently $ NS.setSocketOption sock NS.SendBuffer (connSocketSendBuffer cfg)
+    silently $
+      NS.setSocketOption sock NS.SendBuffer (connSocketSendBuffer cfg)
   when (connSocketReceiveBuffer cfg > 0) $
-    silently $ NS.setSocketOption sock NS.RecvBuffer (connSocketReceiveBuffer cfg)
+    silently $
+      NS.setSocketOption sock NS.RecvBuffer (connSocketReceiveBuffer cfg)
   where
     silently :: IO () -> IO ()
     silently act = do
       _ <- try act :: IO (Either SomeException ())
       pure ()
 
+
 {-# INLINE openUnixSocket #-}
 openUnixSocket :: FilePath -> IO NS.Socket
-openUnixSocket path = bracketOnError
-  (NS.socket NS.AF_UNIX NS.Stream 0)
-  NS.close
-  (\sock -> do
-      NS.connect sock (NS.SockAddrUnix path)
-      pure sock)
+openUnixSocket path =
+  bracketOnError
+    (NS.socket NS.AF_UNIX NS.Stream 0)
+    NS.close
+    ( \sock -> do
+        NS.connect sock (NS.SockAddrUnix path)
+        pure sock
+    )
+
 
 ------------------------------------------------------------------------
 -- Connection construction
 ------------------------------------------------------------------------
 
--- | Build a magic-ring 'Connection' from an already-connected socket.
--- Plain TCP path; no TLS.
+{- | Build a magic-ring 'Connection' from an already-connected socket.
+Plain TCP path; no TLS.
+-}
 buildPlainConnection :: NS.Socket -> IO Connection
 buildPlainConnection sock = do
-  let cfg = defaultTransportConfig
-        { WC.ringSizeHint = 1024 * 1024 }
+  let cfg =
+        defaultTransportConfig
+          { WC.ringSizeHint = 1024 * 1024
+          }
   duplex <- newDuplexTransport cfg sock
   cursor <- newIORef 0
   closed <- newIORef False
-  pure I.Connection
-    { I.connDuplex  = duplex
-    , I.connSocket  = sock
-    , I.connSslConn = Nothing
-    , I.connCtx     = Nothing
-    , I.connCursor  = cursor
-    , I.connClosed  = closed
-    }
+  pure
+    I.Connection
+      { I.connDuplex = duplex
+      , I.connSocket = sock
+      , I.connSslConn = Nothing
+      , I.connCtx = Nothing
+      , I.connCursor = cursor
+      , I.connClosed = closed
+      }
+
 
 -- | Build a 'Connection' from an already-handshaked TLS connection.
 buildTlsConnection :: NS.Socket -> SslCtx -> SslConn -> IO Connection
 buildTlsConnection sock ctx sslConn = do
-  let cfg = defaultTransportConfig
-        { WC.ringSizeHint = 1024 * 1024 }
+  let cfg =
+        defaultTransportConfig
+          { WC.ringSizeHint = 1024 * 1024
+          }
   duplex <- newTlsDuplexTransport cfg sslConn
   cursor <- newIORef 0
   closed <- newIORef False
-  pure I.Connection
-    { I.connDuplex  = duplex
-    , I.connSocket  = sock
-    , I.connSslConn = Just sslConn
-    , I.connCtx     = Just ctx
-    , I.connCursor  = cursor
-    , I.connClosed  = closed
-    }
+  pure
+    I.Connection
+      { I.connDuplex = duplex
+      , I.connSocket = sock
+      , I.connSslConn = Just sslConn
+      , I.connCtx = Just ctx
+      , I.connCursor = cursor
+      , I.connClosed = closed
+      }
+
 
 connect :: BrokerAddress -> ConnectionConfig -> IO (Either String Connection)
 connect addr config = go 0
@@ -433,52 +486,89 @@ connect addr config = go 0
         Left (e :: SomeException)
           | attemptNum < connMaxRetries config -> do
               delayMicros <- calculateBackoffDelay attemptNum config
-              putStrLn $ "Connection attempt " ++ show (attemptNum + 1) ++
-                        " to " ++ brokerHost addr ++ ":" ++ show (brokerPort addr) ++
-                        " failed: " ++ show e ++
-                        ". Retrying in " ++ show (delayMicros `div` 1000) ++ "ms..."
+              putStrLn $
+                "Connection attempt "
+                  ++ show (attemptNum + 1)
+                  ++ " to "
+                  ++ brokerHost addr
+                  ++ ":"
+                  ++ show (brokerPort addr)
+                  ++ " failed: "
+                  ++ show e
+                  ++ ". Retrying in "
+                  ++ show (delayMicros `div` 1000)
+                  ++ "ms..."
               threadDelay delayMicros
               go (attemptNum + 1)
           | otherwise ->
-              pure $ Left $ "Failed to connect to " ++ brokerHost addr ++ ":" ++
-                            show (brokerPort addr) ++ " after " ++ show (attemptNum + 1) ++
-                            " attempts: " ++ show e
+              pure $
+                Left $
+                  "Failed to connect to "
+                    ++ brokerHost addr
+                    ++ ":"
+                    ++ show (brokerPort addr)
+                    ++ " after "
+                    ++ show (attemptNum + 1)
+                    ++ " attempts: "
+                    ++ show e
+
 
 connectTls :: BrokerAddress -> ConnectionConfig -> IO (Either String Connection)
 connectTls addr config = case connTlsSettings config of
-  Nothing      -> pure $ Left "TLS enabled but no TLS settings provided"
-  Just tlsCfg  -> go tlsCfg 0
+  Nothing -> pure $ Left "TLS enabled but no TLS settings provided"
+  Just tlsCfg -> go tlsCfg 0
   where
     go tlsCfg attemptNum = do
       result <- try $ do
         sock <- openTunedSocket config (brokerHost addr) (brokerPort addr)
-        ctx  <- buildClientCtx tlsCfg
-        conn <- newClient ctx sock
-                  (case tlsClientVerifyHostname tlsCfg of
-                     Just h -> Just h
-                     Nothing -> Just (BSI.packChars (brokerHost addr)))
+        ctx <- buildClientCtx tlsCfg
+        conn <-
+          newClient
+            ctx
+            sock
+            ( case tlsClientVerifyHostname tlsCfg of
+                Just h -> Just h
+                Nothing -> Just (BSI.packChars (brokerHost addr))
+            )
         case tlsClientVerifyHostname tlsCfg of
           Just h | tlsClientVerifyPeer tlsCfg -> setClientHostnameVerify conn h
-          _                                   -> pure ()
+          _ -> pure ()
         buildTlsConnection sock ctx conn
       case result of
         Right c -> pure (Right c)
         Left (e :: SomeException)
           | attemptNum < connMaxRetries config -> do
               delayMicros <- calculateBackoffDelay attemptNum config
-              putStrLn $ "TLS connection attempt " ++ show (attemptNum + 1) ++
-                        " to " ++ brokerHost addr ++ ":" ++ show (brokerPort addr) ++
-                        " failed: " ++ show e ++
-                        ". Retrying in " ++ show (delayMicros `div` 1000) ++ "ms..."
+              putStrLn $
+                "TLS connection attempt "
+                  ++ show (attemptNum + 1)
+                  ++ " to "
+                  ++ brokerHost addr
+                  ++ ":"
+                  ++ show (brokerPort addr)
+                  ++ " failed: "
+                  ++ show e
+                  ++ ". Retrying in "
+                  ++ show (delayMicros `div` 1000)
+                  ++ "ms..."
               threadDelay delayMicros
               go tlsCfg (attemptNum + 1)
           | otherwise ->
-              pure $ Left $ "Failed to connect (TLS) to " ++ brokerHost addr ++ ":" ++
-                            show (brokerPort addr) ++ " after " ++ show (attemptNum + 1) ++
-                            " attempts: " ++ show e
+              pure $
+                Left $
+                  "Failed to connect (TLS) to "
+                    ++ brokerHost addr
+                    ++ ":"
+                    ++ show (brokerPort addr)
+                    ++ " after "
+                    ++ show (attemptNum + 1)
+                    ++ " attempts: "
+                    ++ show e
+
 
 disconnect :: Connection -> IO ()
 disconnect = I.connectionClose
+
 
 withConnection
   :: BrokerAddress
@@ -490,7 +580,7 @@ withConnection addr config action = do
     Just offload -> connectOffload addr config offload
     Nothing
       | connUseTls config -> connectTls addr config
-      | otherwise         -> connect addr config
+      | otherwise -> connect addr config
   case connResult of
     Left err -> pure (Left err)
     Right conn -> do
@@ -500,24 +590,29 @@ withConnection addr config action = do
         Left (e :: SomeException) -> Left $ "Connection action failed: " ++ show e
         Right val -> Right val
 
--- | Best-effort liveness check.  Reads zero bytes (a 0-byte recv on
--- the socket via the GHC IO manager would block; we use a tail-vs-
--- head delta as a cheap availability hint, treating any sticky
--- error state as dead).
+
+{- | Best-effort liveness check.  Reads zero bytes (a 0-byte recv on
+the socket via the GHC IO manager would block; we use a tail-vs-
+head delta as a cheap availability hint, treating any sticky
+error state as dead).
+-}
 isConnected :: Connection -> IO Bool
 isConnected conn = do
   closedFlag <- readIORef (I.connClosed conn)
   pure (not closedFlag)
+
 
 ------------------------------------------------------------------------
 -- TLS-offload variant
 ------------------------------------------------------------------------
 
 brokerAddressToOffloadKey :: BrokerAddress -> OffloadBrokerKey
-brokerAddressToOffloadKey BrokerAddress{..} =
-  OffloadBrokerKey { offloadBrokerHost = brokerHost
-                   , offloadBrokerPort = brokerPort
-                   }
+brokerAddressToOffloadKey BrokerAddress {..} =
+  OffloadBrokerKey
+    { offloadBrokerHost = brokerHost
+    , offloadBrokerPort = brokerPort
+    }
+
 
 {-# INLINE openOffloadOnce #-}
 openOffloadOnce
@@ -531,19 +626,20 @@ openOffloadOnce addr cfg offload = do
   result <- try $ case mEndpoint of
     Just (TlsOffload.TlsOffloadUnix path) -> do
       sock <- openUnixSocket path
-      c    <- buildPlainConnection sock
+      c <- buildPlainConnection sock
       pure (c, describeOffloadEndpoint (TlsOffload.TlsOffloadUnix path))
     Just (TlsOffload.TlsOffloadTcp h p) -> do
       sock <- openTunedSocket cfg h p
-      c    <- buildPlainConnection sock
+      c <- buildPlainConnection sock
       pure (c, describeOffloadEndpoint (TlsOffload.TlsOffloadTcp h p))
     Nothing -> do
       sock <- openTunedSocket cfg (brokerHost addr) (brokerPort addr)
-      c    <- buildPlainConnection sock
+      c <- buildPlainConnection sock
       pure (c, "transparent:" <> brokerHost addr <> ":" <> show (brokerPort addr))
   case result of
-    Right ok                  -> pure (Right ok)
+    Right ok -> pure (Right ok)
     Left (e :: SomeException) -> pure (Left (show e))
+
 
 connectOffload
   :: BrokerAddress
@@ -560,21 +656,37 @@ connectOffload addr config offload = go 0
           if attemptNum < connMaxRetries config
             then do
               delayMicros <- calculateBackoffDelay attemptNum config
-              putStrLn $ "TLS-offload connection attempt "
-                        ++ show (attemptNum + 1)
-                        ++ " to " ++ brokerHost addr ++ ":"
-                        ++ show (brokerPort addr)
-                        ++ " (offload=" ++ T.unpack (TlsOffload.tlsOffloadLabel offload) ++ ")"
-                        ++ " failed: " ++ err
-                        ++ ". Retrying in " ++ show (delayMicros `div` 1000) ++ "ms..."
+              putStrLn $
+                "TLS-offload connection attempt "
+                  ++ show (attemptNum + 1)
+                  ++ " to "
+                  ++ brokerHost addr
+                  ++ ":"
+                  ++ show (brokerPort addr)
+                  ++ " (offload="
+                  ++ T.unpack (TlsOffload.tlsOffloadLabel offload)
+                  ++ ")"
+                  ++ " failed: "
+                  ++ err
+                  ++ ". Retrying in "
+                  ++ show (delayMicros `div` 1000)
+                  ++ "ms..."
               threadDelay delayMicros
               go (attemptNum + 1)
             else
-              pure $ Left $
-                "Failed to connect (TLS-offload " ++ T.unpack (TlsOffload.tlsOffloadLabel offload)
-                ++ ") to " ++ brokerHost addr ++ ":" ++ show (brokerPort addr)
-                ++ " after " ++ show (attemptNum + 1)
-                ++ " attempts: " ++ err
+              pure $
+                Left $
+                  "Failed to connect (TLS-offload "
+                    ++ T.unpack (TlsOffload.tlsOffloadLabel offload)
+                    ++ ") to "
+                    ++ brokerHost addr
+                    ++ ":"
+                    ++ show (brokerPort addr)
+                    ++ " after "
+                    ++ show (attemptNum + 1)
+                    ++ " attempts: "
+                    ++ err
+
 
 ------------------------------------------------------------------------
 -- Additional connection-layer ergonomics
@@ -584,15 +696,20 @@ newtype HostResolver = HostResolver
   { resolveHost :: Text -> IO [Text]
   }
 
+
 newtype ConnectionQuotaState = ConnectionQuotaState
-  { cqsThrottleUntilMs :: TVar Int64 }
+  {cqsThrottleUntilMs :: TVar Int64}
+
 
 newConnectionQuotaState :: IO ConnectionQuotaState
 newConnectionQuotaState = ConnectionQuotaState <$> newTVarIO 0
 
+
 recordThrottle :: ConnectionQuotaState -> Int64 -> Int -> IO ()
-recordThrottle st now throttleMs = atomically $
-  writeTVar (cqsThrottleUntilMs st) (now + fromIntegral throttleMs)
+recordThrottle st now throttleMs =
+  atomically $
+    writeTVar (cqsThrottleUntilMs st) (now + fromIntegral throttleMs)
+
 
 shouldDelayConnect :: ConnectionQuotaState -> Int64 -> IO (Maybe Int)
 shouldDelayConnect st now = do
@@ -600,15 +717,20 @@ shouldDelayConnect st now = do
   let !wait = until_ - now
   pure $ if wait > 0 then Just (fromIntegral wait) else Nothing
 
+
 newtype IdleConnTracker key = IdleConnTracker
-  { ictLastActivity :: TVar (Map key Int64) }
+  {ictLastActivity :: TVar (Map key Int64)}
+
 
 newIdleConnTracker :: Ord key => IO (IdleConnTracker key)
 newIdleConnTracker = IdleConnTracker <$> newTVarIO Map.empty
 
+
 recordActivity :: Ord key => IdleConnTracker key -> key -> Int64 -> IO ()
-recordActivity (IdleConnTracker v) k now = atomically $
-  modifyTVar' v (Map.insert k now)
+recordActivity (IdleConnTracker v) k now =
+  atomically $
+    modifyTVar' v (Map.insert k now)
+
 
 isIdle
   :: Ord key
@@ -623,16 +745,21 @@ isIdle (IdleConnTracker v) k now thresholdMs = do
     Nothing -> True
     Just ts -> now - ts >= fromIntegral thresholdMs
 
+
 data SaslTimeouts = SaslTimeouts
   { saslConnectTimeoutMs :: !Int
-  , saslMaxIdleMs        :: !Int
-  } deriving stock (Eq, Show, Generic)
+  , saslMaxIdleMs :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+
 
 defaultSaslTimeouts :: SaslTimeouts
-defaultSaslTimeouts = SaslTimeouts
-  { saslConnectTimeoutMs = 30_000
-  , saslMaxIdleMs        = 0
-  }
+defaultSaslTimeouts =
+  SaslTimeouts
+    { saslConnectTimeoutMs = 30_000
+    , saslMaxIdleMs = 0
+    }
+
 
 data QosClass
   = QosCritical
@@ -641,13 +768,15 @@ data QosClass
   | QosLow
   deriving stock (Eq, Ord, Show, Generic)
 
-newtype QosWeight = QosWeight { unQosWeight :: Int }
+
+newtype QosWeight = QosWeight {unQosWeight :: Int}
   deriving stock (Eq, Show, Generic)
+
 
 prioritise :: [(QosClass, a)] -> [(QosClass, a)]
 prioritise = L.sortOn (\(c, _) -> classWeight c)
   where
     classWeight QosCritical = 0 :: Int
-    classWeight QosHigh     = 1
-    classWeight QosNormal   = 2
-    classWeight QosLow      = 3
+    classWeight QosHigh = 1
+    classWeight QosNormal = 2
+    classWeight QosLow = 3

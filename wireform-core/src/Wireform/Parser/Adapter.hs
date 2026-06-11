@@ -70,8 +70,9 @@ data ChunkParseError = ChunkParseError
 data ChunkMode
   = -- | Allocate a fresh 'ByteString' per chunk (safe, default).
     ChunkCopy
-  | -- | Reference ring memory directly.  Caller must not retain the
-    -- 'ByteString' past the @stepChunk@ return.
+  | {- | Reference ring memory directly.  Caller must not retain the
+    'ByteString' past the @stepChunk@ return.
+    -}
     ChunkZeroCopy
   deriving stock (Eq, Show)
 

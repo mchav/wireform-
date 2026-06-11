@@ -183,8 +183,9 @@ data FileHookCtx = FileHookCtx
   , fhcModuleName :: !Text
   , fhcFileOptions :: ![OptionDef]
   , fhcCustomOptions :: !CustomOptionRegistry
-  -- ^ Registry of custom option extensions extracted from
-  -- @extend google.protobuf.FieldOptions@ blocks in this file.
+  {- ^ Registry of custom option extensions extracted from
+  @extend google.protobuf.FieldOptions@ blocks in this file.
+  -}
   }
   deriving stock (Show)
 

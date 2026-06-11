@@ -4,8 +4,8 @@
 module Test.Bond.Derive.Instances () where
 
 import Bond.Derive
-
 import Test.Bond.Derive.Types
+
 
 deriveBond ''Profile
 deriveBond ''Tag

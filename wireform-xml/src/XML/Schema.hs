@@ -1,42 +1,47 @@
--- | XSD (XML Schema Definition) types for code generation.
---
--- Represents a subset of XSD sufficient for generating Haskell types
--- from XML Schema files.
-module XML.Schema
-  ( XSDSchema(..)
-  , XSDType(..)
-  , SimpleTypeRestriction(..)
-  , ComplexContent(..)
-  , XSDElement(..)
-  , Occurrence(..)
-  , XSDAttribute(..)
-  , parseXSD
-  ) where
+{- | XSD (XML Schema Definition) types for code generation.
 
-import Control.DeepSeq (NFData(..))
+Represents a subset of XSD sufficient for generating Haskell types
+from XML Schema files.
+-}
+module XML.Schema (
+  XSDSchema (..),
+  XSDType (..),
+  SimpleTypeRestriction (..),
+  ComplexContent (..),
+  XSDElement (..),
+  Occurrence (..),
+  XSDAttribute (..),
+  parseXSD,
+) where
+
+import Control.DeepSeq (NFData (..))
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Generics (Generic)
+import XML.Decode qualified as XD
+import XML.Value (Attribute (..), Document (..), Name (..), Node (..))
 
-import XML.Value (Node(..), Name(..), Attribute(..), Document(..))
-import qualified XML.Decode as XD
 
 data XSDSchema = XSDSchema !(Vector XSDType)
   deriving stock (Show, Eq, Generic)
 
+
 instance NFData XSDSchema where
   rnf (XSDSchema ts) = rnf ts
+
 
 data XSDType
   = XSDSimple !Text !SimpleTypeRestriction
   | XSDComplex !Text !ComplexContent
   deriving stock (Show, Eq, Generic)
 
+
 instance NFData XSDType where
   rnf (XSDSimple n r) = rnf n `seq` rnf r
   rnf (XSDComplex n c) = rnf n `seq` rnf c
+
 
 data SimpleTypeRestriction
   = STRString
@@ -52,7 +57,9 @@ data SimpleTypeRestriction
   | STROther !Text
   deriving stock (Show, Eq, Generic)
 
+
 instance NFData SimpleTypeRestriction
+
 
 data ComplexContent
   = CCSequence !(Vector XSDElement)
@@ -62,6 +69,7 @@ data ComplexContent
   | CCEmpty
   deriving stock (Show, Eq, Generic)
 
+
 instance NFData ComplexContent where
   rnf (CCSequence es) = rnf es
   rnf (CCChoice es) = rnf es
@@ -69,15 +77,19 @@ instance NFData ComplexContent where
   rnf (CCSimpleContent t) = rnf t
   rnf CCEmpty = ()
 
+
 data XSDElement = XSDElement
   { xsdElemName :: !Text
   , xsdElemType :: !Text
   , xsdElemNillable :: !Bool
   , xsdElemOccurrence :: !Occurrence
-  } deriving stock (Show, Eq, Generic)
+  }
+  deriving stock (Show, Eq, Generic)
+
 
 instance NFData XSDElement where
   rnf (XSDElement n t ni o) = rnf n `seq` rnf t `seq` rnf ni `seq` rnf o
+
 
 data Occurrence
   = Once
@@ -86,22 +98,28 @@ data Occurrence
   | Range !Int !Int
   deriving stock (Show, Eq, Generic)
 
+
 instance NFData Occurrence
+
 
 data XSDAttribute = XSDAttribute
   { xsdAttrName :: !Text
   , xsdAttrType :: !Text
   , xsdAttrRequired :: !Bool
-  } deriving stock (Show, Eq, Generic)
+  }
+  deriving stock (Show, Eq, Generic)
+
 
 instance NFData XSDAttribute where
   rnf (XSDAttribute n t r) = rnf n `seq` rnf t `seq` rnf r
+
 
 -- | Parse an XSD document into an XSDSchema.
 parseXSD :: Text -> Either String XSDSchema
 parseXSD txt = do
   doc <- XD.decodeText txt
   extractSchema (docRoot doc)
+
 
 extractSchema :: Node -> Either String XSDSchema
 extractSchema root = do
@@ -111,10 +129,12 @@ extractSchema root = do
   types <- V.mapM extractType (V.filter isTypeNode children)
   Right (XSDSchema types)
 
+
 isTypeNode :: Node -> Bool
 isTypeNode (Element name _ _) =
   nameLocal name == "simpleType" || nameLocal name == "complexType" || nameLocal name == "element"
 isTypeNode _ = False
+
 
 extractType :: Node -> Either String XSDType
 extractType (Element name attrs cs)
@@ -137,6 +157,7 @@ extractType (Element name attrs cs)
   | otherwise = Left $ "Unknown type node: " ++ T.unpack (nameLocal name)
 extractType _ = Left "Expected element node for type"
 
+
 extractSimpleRestriction :: Vector Node -> Either String SimpleTypeRestriction
 extractSimpleRestriction cs =
   case V.find isRestriction cs of
@@ -147,6 +168,7 @@ extractSimpleRestriction cs =
   where
     isRestriction (Element n _ _) = nameLocal n == "restriction"
     isRestriction _ = False
+
 
 extractComplexContent :: Vector Node -> Either String ComplexContent
 extractComplexContent cs
@@ -160,13 +182,16 @@ extractComplexContent cs
       Right (CCSimpleContent (maybe "" id (extractExtBase sc)))
   | otherwise = Right CCEmpty
 
+
 isElem :: Text -> Node -> Bool
 isElem target (Element n _ _) = nameLocal n == target
 isElem _ _ = False
 
+
 elemChildren :: Node -> Vector Node
 elemChildren (Element _ _ cs) = cs
 elemChildren _ = V.empty
+
 
 extractExtBase :: Node -> Maybe Text
 extractExtBase (Element _ _ cs) =
@@ -175,8 +200,10 @@ extractExtBase (Element _ _ cs) =
     _ -> Nothing
 extractExtBase _ = Nothing
 
+
 extractElements :: Vector Node -> Either String (Vector XSDElement)
 extractElements cs = V.mapM extractElement (V.filter (isElem "element") cs)
+
 
 extractElement :: Node -> Either String XSDElement
 extractElement (Element _ attrs _) =
@@ -188,6 +215,7 @@ extractElement (Element _ attrs _) =
       occ = parseOccurrence minOcc maxOcc
   in Right (XSDElement name typeName nillable occ)
 extractElement _ = Left "Expected element node"
+
 
 parseOccurrence :: Text -> Text -> Occurrence
 parseOccurrence "0" "1" = Optional
@@ -202,23 +230,25 @@ parseOccurrence minT maxT =
       [(v, "")] -> Just v
       _ -> Nothing
 
+
 parseBaseType :: Text -> SimpleTypeRestriction
 parseBaseType t =
   let local = case T.breakOnEnd ":" t of
         (_, l) | T.null l -> t
         (_, l) -> l
   in case local of
-    "string"       -> STRString
-    "int"          -> STRInt
-    "integer"      -> STRInteger
-    "decimal"      -> STRDecimal
-    "float"        -> STRFloat
-    "double"       -> STRDouble
-    "date"         -> STRDate
-    "dateTime"     -> STRDateTime
-    "boolean"      -> STRBoolean
-    "base64Binary" -> STRBase64Binary
-    other          -> STROther other
+       "string" -> STRString
+       "int" -> STRInt
+       "integer" -> STRInteger
+       "decimal" -> STRDecimal
+       "float" -> STRFloat
+       "double" -> STRDouble
+       "date" -> STRDate
+       "dateTime" -> STRDateTime
+       "boolean" -> STRBoolean
+       "base64Binary" -> STRBase64Binary
+       other -> STROther other
+
 
 attrVal :: Text -> Vector Attribute -> Maybe Text
 attrVal name attrs = go 0
@@ -227,5 +257,6 @@ attrVal name attrs = go 0
     go !i
       | i >= len = Nothing
       | Attribute aname val <- attrs V.! i
-      , nameLocal aname == name = Just val
+      , nameLocal aname == name =
+          Just val
       | otherwise = go (i + 1)

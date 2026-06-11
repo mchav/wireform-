@@ -1,9 +1,13 @@
 module Main (main) where
 
+import Test.Ion.Derive qualified
 import Test.Syd
-import qualified Test.Ion.Derive
+
 
 main :: IO ()
-main = sydTest $ describe "wireform-ion-derive" $ sequence_
-  [ Test.Ion.Derive.tests
-  ]
+main =
+  sydTest $
+    describe "wireform-ion-derive" $
+      sequence_
+        [ Test.Ion.Derive.tests
+        ]

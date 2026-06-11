@@ -415,13 +415,13 @@ statisticsForInt32 vs
           encMin = i32LE mn
           encMax = i32LE mx
       in Statistics
-          { statMin = Just encMin
-          , statMax = Just encMax
-          , statNullCount = Just 0
-          , statDistinctCount = Nothing
-          , statMinValue = Just encMin
-          , statMaxValue = Just encMax
-          }
+           { statMin = Just encMin
+           , statMax = Just encMax
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just encMin
+           , statMaxValue = Just encMax
+           }
 
 
 -- | Compute Parquet 'Statistics' for an @INT64@ column (LE i64 min/max).
@@ -434,13 +434,13 @@ statisticsForInt64 vs
           encMin = i64LE mn
           encMax = i64LE mx
       in Statistics
-          { statMin = Just encMin
-          , statMax = Just encMax
-          , statNullCount = Just 0
-          , statDistinctCount = Nothing
-          , statMinValue = Just encMin
-          , statMaxValue = Just encMax
-          }
+           { statMin = Just encMin
+           , statMax = Just encMax
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just encMin
+           , statMaxValue = Just encMax
+           }
 
 
 {- | Compute Parquet 'Statistics' for a @BYTE_ARRAY@ column. Values are
@@ -454,13 +454,13 @@ statisticsForByteArray vs
       let !mn = V.foldl1' minBS vs
           !mx = V.foldl1' maxBS vs
       in Statistics
-          { statMin = Just mn
-          , statMax = Just mx
-          , statNullCount = Just 0
-          , statDistinctCount = Nothing
-          , statMinValue = Just mn
-          , statMaxValue = Just mx
-          }
+           { statMin = Just mn
+           , statMax = Just mx
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just mn
+           , statMaxValue = Just mx
+           }
   where
     minBS a b = if a <= b then a else b
     maxBS a b = if a >= b then a else b
@@ -490,12 +490,12 @@ statisticsForFloat vs
           encMin = fLE mn
           encMax = fLE mx
       in Statistics
-          (Just encMin)
-          (Just encMax)
-          (Just 0)
-          Nothing
-          (Just encMin)
-          (Just encMax)
+           (Just encMin)
+           (Just encMax)
+           (Just 0)
+           Nothing
+           (Just encMin)
+           (Just encMax)
 
 
 -- | Compute Parquet 'Statistics' for a @DOUBLE@ column.
@@ -508,12 +508,12 @@ statisticsForDouble vs
           encMin = dLE mn
           encMax = dLE mx
       in Statistics
-          (Just encMin)
-          (Just encMax)
-          (Just 0)
-          Nothing
-          (Just encMin)
-          (Just encMax)
+           (Just encMin)
+           (Just encMax)
+           (Just 0)
+           Nothing
+           (Just encMin)
+           (Just encMax)
 
 
 {- | Compute Parquet 'Statistics' for a @BOOLEAN@ column. Min is the
@@ -529,12 +529,12 @@ statisticsForBool vs
           encMin = if hasFalse then BS.singleton 0 else BS.singleton 1
           encMax = if hasTrue then BS.singleton 1 else BS.singleton 0
       in Statistics
-          (Just encMin)
-          (Just encMax)
-          (Just 0)
-          Nothing
-          (Just encMin)
-          (Just encMax)
+           (Just encMin)
+           (Just encMax)
+           (Just 0)
+           Nothing
+           (Just encMin)
+           (Just encMax)
 
 
 fLE :: Float -> ByteString
@@ -731,16 +731,16 @@ encodeColumnDataPagePayload = \case
     let !n = V.length v
         !numBytes = (n + 7) `quot` 8
     in BL.toStrict $
-        B.toLazyByteString $
-          flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
-            let goBit !bit !acc
-                  | bit >= 8 = acc
-                  | byteIdx * 8 + bit >= n = acc
-                  | otherwise =
-                      let !x = V.unsafeIndex v (byteIdx * 8 + bit)
-                          !flag = if x then (1 :: Int) * (2 ^ bit) else 0
-                      in goBit (bit + 1) (acc + flag)
-            in B.word8 (fromIntegral (goBit 0 0))
+         B.toLazyByteString $
+           flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
+             let goBit !bit !acc
+                   | bit >= 8 = acc
+                   | byteIdx * 8 + bit >= n = acc
+                   | otherwise =
+                       let !x = V.unsafeIndex v (byteIdx * 8 + bit)
+                           !flag = if x then (1 :: Int) * (2 ^ bit) else 0
+                       in goBit (bit + 1) (acc + flag)
+             in B.word8 (fromIntegral (goBit 0 0))
   ColByteArray v ->
     BL.toStrict $
       B.toLazyByteString $
@@ -887,20 +887,23 @@ builds a per-column 'ColumnEncryption' from the file-wide
 -}
 data ColumnEncryption = ColumnEncryption
   { ceAlgorithm :: !Enc.EncryptionAlgorithm
-  -- ^ 'Enc.AesGcmV1' encrypts every page (header + body) with GCM;
-  -- 'Enc.AesGcmCtrV1' encrypts data\/dictionary page bodies with CTR
-  -- and everything else (page headers, column metadata, indexes) with
-  -- GCM. Both algorithms produce the same on-the-wire framing.
+  {- ^ 'Enc.AesGcmV1' encrypts every page (header + body) with GCM;
+  'Enc.AesGcmCtrV1' encrypts data\/dictionary page bodies with CTR
+  and everything else (page headers, column metadata, indexes) with
+  GCM. Both algorithms produce the same on-the-wire framing.
+  -}
   , ceKey :: !BS.ByteString
   -- ^ AES key (16, 24, or 32 bytes).
   , ceFileId :: !BS.ByteString
-  -- ^ The 8-byte @aad_file_id@ for AAD construction. Padded to 8
-  -- bytes by 'Enc.buildAadSuffix'.
+  {- ^ The 8-byte @aad_file_id@ for AAD construction. Padded to 8
+  bytes by 'Enc.buildAadSuffix'.
+  -}
   , ceAadPrefix :: !BS.ByteString
   -- ^ Caller-supplied AAD prefix (typically empty).
   , ceKeyMetadata :: !BS.ByteString
-  -- ^ Opaque KMS handle to record on the column chunk; round-trips
-  -- through to 'cmKeyMetadata' so readers can reconstruct the key.
+  {- ^ Opaque KMS handle to record on the column chunk; round-trips
+  through to 'cmKeyMetadata' so readers can reconstruct the key.
+  -}
   , ceColumnOrdinal :: !Int
   -- ^ Column ordinal within the row group.
   }
@@ -913,25 +916,29 @@ the produced file.
 -}
 data ColumnAux = ColumnAux
   { caBloomFilter :: !(Maybe Sbbf)
-  -- ^ Pre-built split-block bloom filter for this column chunk. The
-  -- writer serialises it into the bloom-filter region and records the
-  -- (offset, length) on the column metadata.
+  {- ^ Pre-built split-block bloom filter for this column chunk. The
+  writer serialises it into the bloom-filter region and records the
+  (offset, length) on the column metadata.
+  -}
   , caOffsetIndex :: !(Maybe OffsetIndex)
-  -- ^ Per-page @(offset, compressed_size, first_row_index)@ entries.
-  -- The writer rewrites the @plOffset@ of each 'PageLocation' so that
-  -- it points at the actual page-bytes location in the assembled file.
+  {- ^ Per-page @(offset, compressed_size, first_row_index)@ entries.
+  The writer rewrites the @plOffset@ of each 'PageLocation' so that
+  it points at the actual page-bytes location in the assembled file.
+  -}
   , caColumnIndex :: !(Maybe ColumnIndex)
   -- ^ Per-page null/min/max statistics. Written verbatim.
   , caCodec :: !Compression
-  -- ^ Compression codec for the column-chunk page bytes. Default
-  -- 'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
+  {- ^ Compression codec for the column-chunk page bytes. Default
+  'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
+  -}
   , caPageVersion :: !PageVersion
   -- ^ Page header version to emit. Defaults to 'PageV1'.
   , caEncryption :: !(Maybe ColumnEncryption)
-  -- ^ When 'Just', the page header + body for this column chunk are
-  -- encrypted per the spec module-wise framing (nonce || ciphertext
-  -- || tag for GCM modules; nonce || ciphertext for CTR modules).
-  -- Defaults to 'Nothing' (plaintext).
+  {- ^ When 'Just', the page header + body for this column chunk are
+  encrypted per the spec module-wise framing (nonce || ciphertext
+  || tag for GCM modules; nonce || ciphertext for CTR modules).
+  Defaults to 'Nothing' (plaintext).
+  -}
   }
   deriving (Show, Eq)
 
@@ -1116,8 +1123,8 @@ encryptAuxModule mEnc mt rgOrd payload = case mEnc of
             0
         !aad = Enc.buildAad (ceAadPrefix ce) suffix
     in case Enc.encryptGcmModuleFramed (ceKey ce) aad payload of
-        Right enc -> enc
-        Left _ -> payload
+         Right enc -> enc
+         Left _ -> payload
 
 
 layoutBlooms
@@ -1149,30 +1156,30 @@ layoutBlooms rgs auxes start = go 0 start [] V.empty
     rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
       in case mAux >>= caBloomFilter of
-          Nothing -> (V.snoc ccs cc, off, payloads)
-          Just bf ->
-            let !raw = encodeBloomFilter bf
-                -- Encrypt the bloom filter bitset module if the
-                -- column's encrypted. We treat the encoded bloom
-                -- filter (which already includes the
-                -- length-delimited header) as a single
-                -- 'ModuleBloomFilterBitset' module per the spec's
-                -- "modular encryption" framing.
-                !bs =
-                  encryptAuxModule
-                    (mAux >>= caEncryption)
-                    Enc.ModuleBloomFilterBitset
-                    rgOrd
-                    raw
-                !bsLen = BS.length bs
-                !cm0 = fromMaybe defaultMetadata (ccMetadata cc)
-                !cm' =
-                  cm0
-                    { cmBloomFilterOffset = Just (fromIntegral off)
-                    , cmBloomFilterLength = Just (fromIntegral bsLen)
-                    }
-                !cc' = cc {ccMetadata = Just cm'}
-            in (V.snoc ccs cc', off + bsLen, bs : payloads)
+           Nothing -> (V.snoc ccs cc, off, payloads)
+           Just bf ->
+             let !raw = encodeBloomFilter bf
+                 -- Encrypt the bloom filter bitset module if the
+                 -- column's encrypted. We treat the encoded bloom
+                 -- filter (which already includes the
+                 -- length-delimited header) as a single
+                 -- 'ModuleBloomFilterBitset' module per the spec's
+                 -- "modular encryption" framing.
+                 !bs =
+                   encryptAuxModule
+                     (mAux >>= caEncryption)
+                     Enc.ModuleBloomFilterBitset
+                     rgOrd
+                     raw
+                 !bsLen = BS.length bs
+                 !cm0 = fromMaybe defaultMetadata (ccMetadata cc)
+                 !cm' =
+                   cm0
+                     { cmBloomFilterOffset = Just (fromIntegral off)
+                     , cmBloomFilterLength = Just (fromIntegral bsLen)
+                     }
+                 !cc' = cc {ccMetadata = Just cm'}
+             in (V.snoc ccs cc', off + bsLen, bs : payloads)
 
     defaultMetadata =
       ColumnMetadata
@@ -1220,22 +1227,22 @@ layoutOffsetIndex rgs auxes start _ = go 0 start [] V.empty
     rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
       in case mAux >>= caOffsetIndex of
-          Nothing -> (V.snoc ccs cc, off, payloads)
-          Just oi ->
-            let !raw = encodeOffsetIndex oi
-                !bs =
-                  encryptAuxModule
-                    (mAux >>= caEncryption)
-                    Enc.ModuleOffsetIndex
-                    rgOrd
-                    raw
-                !bsLen = BS.length bs
-                !cc' =
-                  cc
-                    { ccOffsetIndexOffset = Just (fromIntegral off)
-                    , ccOffsetIndexLength = Just (fromIntegral bsLen)
-                    }
-            in (V.snoc ccs cc', off + bsLen, bs : payloads)
+           Nothing -> (V.snoc ccs cc, off, payloads)
+           Just oi ->
+             let !raw = encodeOffsetIndex oi
+                 !bs =
+                   encryptAuxModule
+                     (mAux >>= caEncryption)
+                     Enc.ModuleOffsetIndex
+                     rgOrd
+                     raw
+                 !bsLen = BS.length bs
+                 !cc' =
+                   cc
+                     { ccOffsetIndexOffset = Just (fromIntegral off)
+                     , ccOffsetIndexLength = Just (fromIntegral bsLen)
+                     }
+             in (V.snoc ccs cc', off + bsLen, bs : payloads)
 
 
 layoutColumnIndex
@@ -1266,22 +1273,22 @@ layoutColumnIndex rgs auxes start = go 0 start [] V.empty
     rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
       in case mAux >>= caColumnIndex of
-          Nothing -> (V.snoc ccs cc, off, payloads)
-          Just ci ->
-            let !raw = encodeColumnIndex ci
-                !bs =
-                  encryptAuxModule
-                    (mAux >>= caEncryption)
-                    Enc.ModuleColumnIndex
-                    rgOrd
-                    raw
-                !bsLen = BS.length bs
-                !cc' =
-                  cc
-                    { ccColumnIndexOffset = Just (fromIntegral off)
-                    , ccColumnIndexLength = Just (fromIntegral bsLen)
-                    }
-            in (V.snoc ccs cc', off + bsLen, bs : payloads)
+           Nothing -> (V.snoc ccs cc, off, payloads)
+           Just ci ->
+             let !raw = encodeColumnIndex ci
+                 !bs =
+                   encryptAuxModule
+                     (mAux >>= caEncryption)
+                     Enc.ModuleColumnIndex
+                     rgOrd
+                     raw
+                 !bsLen = BS.length bs
+                 !cc' =
+                   cc
+                     { ccColumnIndexOffset = Just (fromIntegral off)
+                     , ccColumnIndexLength = Just (fromIntegral bsLen)
+                     }
+             in (V.snoc ccs cc', off + bsLen, bs : payloads)
 
 
 -- Suppress unused-import warning when bloom-filter sizing helpers aren't
@@ -1358,9 +1365,10 @@ data FooterEncryption = FooterEncryption
   , feAadPrefix :: !ByteString
   -- ^ Caller AAD prefix (typically empty).
   , feKeyMetadata :: !ByteString
-  -- ^ Opaque KMS handle to record on the file. Round-trips
-  -- verbatim through the encrypted-footer trailer; readers feed it
-  -- back to their KMS to recover the key.
+  {- ^ Opaque KMS handle to record on the file. Round-trips
+  verbatim through the encrypted-footer trailer; readers feed it
+  back to their KMS to recover the key.
+  -}
   }
   deriving (Show, Eq)
 
@@ -1487,11 +1495,11 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
             !aad = Enc.buildAad (feAadPrefix fe) suffix
             !cryptoMeta = encodeCompact (fileCryptoMetaDataToThrift fe)
         in case Enc.encryptGcmModulePure (feKey fe) aad plainThrift of
-            Right encModule ->
-              writeRawFooter
-                parquetEncryptedMagic
-                (cryptoMeta <> encModule)
-            Left _ -> writeFooter fm
+             Right encModule ->
+               writeRawFooter
+                 parquetEncryptedMagic
+                 (cryptoMeta <> encModule)
+             Left _ -> writeFooter fm
   in
     BL.toStrict $
       B.toLazyByteString $
@@ -1523,64 +1531,64 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
           !pageVer = maybe PageV1 caPageVersion mAux
           !mEnc = mAux >>= caEncryption
       in case pageVer of
-          PageV1 ->
-            let (hdr, body) = encodeColumnDataPageParts cd
-                (compBody, cActual) = case Compress.compressPageBytes codecRequested body of
-                  Right cb -> (cb, codecRequested)
-                  Left _ -> (body, Uncompressed)
-                -- Re-encode the header now that the body has its
-                -- compressed size; the header records the on-disk
-                -- compressed_page_size so the reader can frame pages
-                -- without scanning forward.
-                !n = columnDataLength cd
-                !hdr' =
-                  encodePageHeader
-                    ( PageHeader
-                        { phType =
-                            PtDataPage
-                              DataPageHeader
-                                { dphNumValues = fromIntegral n
-                                , dphEncoding = 0
-                                }
-                        , phUncompressedPageSize = Just (fromIntegral (BS.length body))
-                        , phCompressedPageSize = Just (fromIntegral (BS.length compBody))
-                        }
-                    )
-                !uncompSz = BS.length hdr + BS.length body
-            in case mEnc of
-                Nothing ->
-                  (BS.append hdr' compBody, uncompSz, cActual)
-                Just ce ->
-                  case encryptPageBytes ce Enc.ModuleDataPage 0 0 hdr' compBody of
-                    Right encBytes -> (encBytes, uncompSz, cActual)
-                    Left _ -> (BS.append hdr' compBody, uncompSz, cActual)
-          PageV2 ->
-            -- For V2 the codec is applied only to the values segment,
-            -- but we account for the *full* page bytes (header +
-            -- segments) when recording sizes on the column metadata so
-            -- that ccTotalCompressedSize / ccTotalUncompressedSize
-            -- reflect on-disk reality.
-            let !raw = encodeColumnDataPage cd
-                uncompSz = BS.length raw
-                partsResult = encodeColumnDataPageV2Parts codecRequested cd
-                parts = case partsResult of
-                  Right p -> p
-                  Left _ -> case encodeColumnDataPageV2Parts Uncompressed cd of
-                    Right p -> p
-                    Left _ -> (raw, BS.empty, BS.empty, BS.empty)
-                codecActual =
-                  if codecRequested == Uncompressed
-                    then Uncompressed
-                    else codecRequested
-                finalBytes = case mEnc of
-                  Nothing -> concatV2Parts parts
+           PageV1 ->
+             let (hdr, body) = encodeColumnDataPageParts cd
+                 (compBody, cActual) = case Compress.compressPageBytes codecRequested body of
+                   Right cb -> (cb, codecRequested)
+                   Left _ -> (body, Uncompressed)
+                 -- Re-encode the header now that the body has its
+                 -- compressed size; the header records the on-disk
+                 -- compressed_page_size so the reader can frame pages
+                 -- without scanning forward.
+                 !n = columnDataLength cd
+                 !hdr' =
+                   encodePageHeader
+                     ( PageHeader
+                         { phType =
+                             PtDataPage
+                               DataPageHeader
+                                 { dphNumValues = fromIntegral n
+                                 , dphEncoding = 0
+                                 }
+                         , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+                         , phCompressedPageSize = Just (fromIntegral (BS.length compBody))
+                         }
+                     )
+                 !uncompSz = BS.length hdr + BS.length body
+             in case mEnc of
+                  Nothing ->
+                    (BS.append hdr' compBody, uncompSz, cActual)
                   Just ce ->
-                    case parts of
-                      (h, r, d, v) ->
-                        case encryptPageBytesV2 ce 0 0 h r d v of
-                          Right enc -> enc
-                          Left _ -> concatV2Parts parts
-            in (finalBytes, uncompSz, codecActual)
+                    case encryptPageBytes ce Enc.ModuleDataPage 0 0 hdr' compBody of
+                      Right encBytes -> (encBytes, uncompSz, cActual)
+                      Left _ -> (BS.append hdr' compBody, uncompSz, cActual)
+           PageV2 ->
+             -- For V2 the codec is applied only to the values segment,
+             -- but we account for the *full* page bytes (header +
+             -- segments) when recording sizes on the column metadata so
+             -- that ccTotalCompressedSize / ccTotalUncompressedSize
+             -- reflect on-disk reality.
+             let !raw = encodeColumnDataPage cd
+                 uncompSz = BS.length raw
+                 partsResult = encodeColumnDataPageV2Parts codecRequested cd
+                 parts = case partsResult of
+                   Right p -> p
+                   Left _ -> case encodeColumnDataPageV2Parts Uncompressed cd of
+                     Right p -> p
+                     Left _ -> (raw, BS.empty, BS.empty, BS.empty)
+                 codecActual =
+                   if codecRequested == Uncompressed
+                     then Uncompressed
+                     else codecRequested
+                 finalBytes = case mEnc of
+                   Nothing -> concatV2Parts parts
+                   Just ce ->
+                     case parts of
+                       (h, r, d, v) ->
+                         case encryptPageBytesV2 ce 0 0 h r d v of
+                           Right enc -> enc
+                           Left _ -> concatV2Parts parts
+             in (finalBytes, uncompSz, codecActual)
 
     buildRG
       :: (V.Vector RowGroup, Int)
@@ -1656,8 +1664,9 @@ dropping to the page-level builders.
 data ParquetColumn
   = -- | A required (non-null) column.
     PCRequired !ColumnData
-  | -- | A nullable column. Encoded as @DATA_PAGE_V1@ with a
-    -- definition-level stream followed by present-only values.
+  | {- | A nullable column. Encoded as @DATA_PAGE_V1@ with a
+    definition-level stream followed by present-only values.
+    -}
     PCOptional !OptionalColumn
   deriving (Show, Eq)
 
@@ -1849,10 +1858,10 @@ buildParquetFileMixedRaw codec schema rowGroups =
           , fmColumnOrders = Nothing
           }
   in BL.toStrict $
-      B.toLazyByteString $
-        B.byteString parquetMagic
-          <> mconcat (map B.byteString allPageBytes)
-          <> B.byteString (writeFooter fm)
+       B.toLazyByteString $
+         B.byteString parquetMagic
+           <> mconcat (map B.byteString allPageBytes)
+           <> B.byteString (writeFooter fm)
   where
     !leaves' = V.filter (maybe False (const True) . seType) schema
 

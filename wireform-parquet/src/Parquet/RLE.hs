@@ -50,8 +50,8 @@ decodeHybridRleLengthPrefixed bw numValues bs
       let !len = fromIntegral (readLE32 bs 0) :: Int
           !rest = BS.drop 4 bs
       in if len < 0 || len > BS.length rest
-          then Left "Parquet.RLE: invalid length-prefixed hybrid size"
-          else decodeHybridRleUnsigned32 bw numValues (BS.take len rest)
+           then Left "Parquet.RLE: invalid length-prefixed hybrid size"
+           else decodeHybridRleUnsigned32 bw numValues (BS.take len rest)
 
 
 {- | Hybrid RLE / bit-packed unsigned integers at most @bitWidth@ bits, returned
@@ -153,12 +153,12 @@ fillHybrid bw need bs = runST $ do
                                           MVP.unsafeWrite out (w0 + i) (fromIntegral v :: Int32)
                                           goP (i + 1)
                                 in do
-                                    goP 0
-                                    writeSTRef wref (w0 + takeN)
-                                    if takeN < nFlat
-                                      then writeSTRef pref (Just (flat, takeN))
-                                      else writeSTRef pref Nothing
-                                    loop
+                                     goP 0
+                                     writeSTRef wref (w0 + takeN)
+                                     if takeN < nFlat
+                                       then writeSTRef pref (Just (flat, takeN))
+                                       else writeSTRef pref Nothing
+                                     loop
                       else do
                         let !runLen = fromIntegral (header `shiftR` 1) :: Int64
                         if runLen <= 0
@@ -178,13 +178,13 @@ fillHybrid bw need bs = runST $ do
                                           MVP.unsafeWrite out (w0 + i) val
                                           goE (i + 1)
                                 in do
-                                    goE 0
-                                    writeSTRef wref (w0 + emit)
-                                    let !left = runLen - emit64
-                                    if left > 0
-                                      then writeSTRef rref (Just (val, fromIntegral left))
-                                      else writeSTRef rref Nothing
-                                    loop
+                                     goE 0
+                                     writeSTRef wref (w0 + emit)
+                                     let !left = runLen - emit64
+                                     if left > 0
+                                       then writeSTRef rref (Just (val, fromIntegral left))
+                                       else writeSTRef rref Nothing
+                                     loop
   er <- loop
   case er of
     Left e -> return (Left e)
@@ -219,23 +219,23 @@ unpackGroup8 w bs off
           r :: Int -> Word32
           r si = fromIntegral (BS.index inp si)
       in Right $
-          VP.generate 8 $ \i ->
-            let startBit = i * w
-                endBit = startBit + w
-                startBitOffset = startBit `mod` 8
-                endBitOffset = endBit `mod` 8
-                startByte = startBit `quot` 8
-                endByte = endBit `quot` 8
-            in if startByte /= endByte && endBitOffset /= 0
-                then
-                  let val = r startByte
-                      a = val `shiftR` startBitOffset
-                      val2 = r endByte
-                      b = val2 `shiftL` (w - endBitOffset)
-                  in (a .|. (b .&. mask)) .&. mask
-                else
-                  let val = r startByte
-                  in (val `shiftR` startBitOffset) .&. mask
+           VP.generate 8 $ \i ->
+             let startBit = i * w
+                 endBit = startBit + w
+                 startBitOffset = startBit `mod` 8
+                 endBitOffset = endBit `mod` 8
+                 startByte = startBit `quot` 8
+                 endByte = endBit `quot` 8
+             in if startByte /= endByte && endBitOffset /= 0
+                  then
+                    let val = r startByte
+                        a = val `shiftR` startBitOffset
+                        val2 = r endByte
+                        b = val2 `shiftL` (w - endBitOffset)
+                    in (a .|. (b .&. mask)) .&. mask
+                  else
+                    let val = r startByte
+                    in (val `shiftR` startBitOffset) .&. mask
 
 
 readPaddedLE :: Int -> ByteString -> Int -> Either String (Word32, Int)

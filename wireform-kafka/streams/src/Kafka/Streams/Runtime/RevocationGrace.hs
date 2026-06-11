@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-{-|
+{- |
 Module      : Kafka.Streams.Runtime.RevocationGrace
 Description : KIP-869 high-availability task revocation policy
 
@@ -16,50 +16,60 @@ classification ('classifyRevocation') without spinning up the
 runtime, and the engine driver invokes 'planRevocation' when the
 consumer rebalance listener fires.
 -}
-module Kafka.Streams.Runtime.RevocationGrace
-  ( RevocationOutcome (..)
-  , RevocationPlan (..)
-  , classifyRevocation
-  , planRevocation
-  ) where
+module Kafka.Streams.Runtime.RevocationGrace (
+  RevocationOutcome (..),
+  RevocationPlan (..),
+  classifyRevocation,
+  planRevocation,
+) where
 
 import Data.Int (Int64)
 import GHC.Generics (Generic)
-
 import Kafka.Streams.Processor (TaskId)
+
 
 -- | The shape of a single revocation decision.
 data RevocationOutcome
-  = -- | Drop the task immediately. The legacy behaviour and the
-    --   only correct option when no grace window is configured.
+  = {- | Drop the task immediately. The legacy behaviour and the
+    only correct option when no grace window is configured.
+    -}
     RevokeImmediate
-  | -- | Keep the task running as a read-only standby until the
-    --   given absolute deadline (epoch ms). Once the deadline
-    --   elapses without a re-promotion, the engine drops the
-    --   task.
+  | {- | Keep the task running as a read-only standby until the
+    given absolute deadline (epoch ms). Once the deadline
+    elapses without a re-promotion, the engine drops the
+    task.
+    -}
     KeepAsStandby !Int64
   deriving stock (Eq, Show, Generic)
 
+
 data RevocationPlan = RevocationPlan
-  { rpTask    :: !TaskId
+  { rpTask :: !TaskId
   , rpOutcome :: !RevocationOutcome
   }
   deriving stock (Eq, Show, Generic)
 
--- | Pure classification of a single revocation. The grace window
--- comes from the @task.timeout.ms@-style config knob; @0@ disables
--- the grace and yields 'RevokeImmediate'.
+
+{- | Pure classification of a single revocation. The grace window
+comes from the @task.timeout.ms@-style config knob; @0@ disables
+the grace and yields 'RevokeImmediate'.
+-}
 classifyRevocation
-  :: Int64    -- ^ now (ms)
-  -> Int      -- ^ grace window (ms; 0 = no grace)
+  :: Int64
+  -- ^ now (ms)
+  -> Int
+  -- ^ grace window (ms; 0 = no grace)
   -> RevocationOutcome
 classifyRevocation now graceMs
   | graceMs <= 0 = RevokeImmediate
-  | otherwise    = KeepAsStandby (now + fromIntegral graceMs)
+  | otherwise = KeepAsStandby (now + fromIntegral graceMs)
+
 
 planRevocation
-  :: Int64    -- ^ now (ms)
-  -> Int      -- ^ grace window (ms)
+  :: Int64
+  -- ^ now (ms)
+  -> Int
+  -- ^ grace window (ms)
   -> [TaskId]
   -> [RevocationPlan]
 planRevocation now graceMs =

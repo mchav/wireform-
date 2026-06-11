@@ -72,8 +72,8 @@ decodeMessageStream lbs
         let msgLen = fromIntegral len :: Int64
             (msgBytes, remaining) = BL.splitAt msgLen rest
         in if BL.length msgBytes < msgLen
-            then [Left UnexpectedEnd]
-            else decodeMessage (BL.toStrict msgBytes) : decodeMessageStream remaining
+             then [Left UnexpectedEnd]
+             else decodeMessage (BL.toStrict msgBytes) : decodeMessageStream remaining
 
 
 -- ---------------------------------------------------------------------------
@@ -96,13 +96,15 @@ Feed @Just chunk@ for more input, @Nothing@ to signal end-of-input
 (which produces 'IFail' if the message is incomplete).
 -}
 data IDecode a
-  = -- | Successfully decoded a message. The 'ByteString' contains
-    -- any unconsumed input that follows the message.
+  = {- | Successfully decoded a message. The 'ByteString' contains
+    any unconsumed input that follows the message.
+    -}
     IDone !a !ByteString
   | -- | Decode failed. The 'ByteString' contains unconsumed input.
     IFail !DecodeError !ByteString
-  | -- | More input needed. Supply @Just chunk@ for more bytes, or
-    -- @Nothing@ to signal that no more input will arrive.
+  | {- | More input needed. Supply @Just chunk@ for more bytes, or
+    @Nothing@ to signal that no more input will arrive.
+    -}
     IPartial (Maybe ByteString -> IDecode a)
 
 
@@ -161,12 +163,12 @@ goVarint !acc !shift !buf
           !rest = BS.drop 1 buf
           !val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
       in if b < 0x80
-          then
-            let !msgLen = fromIntegral val :: Int
-            in if msgLen < 0
-                then IFail NegativeLength rest
-                else goBody msgLen 0 [] rest
-          else goVarint val (shift + 7) rest
+           then
+             let !msgLen = fromIntegral val :: Int
+             in if msgLen < 0
+                  then IFail NegativeLength rest
+                  else goBody msgLen 0 [] rest
+           else goVarint val (shift + 7) rest
 
 
 -- ---------------------------------------------------------------------------
@@ -187,10 +189,10 @@ goBody !needed !have !acc !buf
       let !available = BS.length buf
           !remaining = needed - have
       in if available >= remaining
-          then
-            let (!msgPart, !leftover) = BS.splitAt remaining buf
-            in finishDecode needed (msgPart : acc) leftover
-          else goBody needed (have + available) (buf : acc) BS.empty
+           then
+             let (!msgPart, !leftover) = BS.splitAt remaining buf
+             in finishDecode needed (msgPart : acc) leftover
+           else goBody needed (have + available) (buf : acc) BS.empty
 
 
 finishDecode :: MessageDecode a => Int -> [ByteString] -> ByteString -> IDecode a
@@ -199,8 +201,8 @@ finishDecode needed acc leftover =
         [single] | BS.length single == needed -> single
         _ -> BS.concat (reverse acc)
   in case decodeMessage msgBytes of
-      Left e -> IFail e leftover
-      Right a -> IDone a leftover
+       Left e -> IFail e leftover
+       Right a -> IDone a leftover
 
 
 reassemble :: [ByteString] -> ByteString
@@ -222,8 +224,8 @@ getVarintLazy = go 0 0
           Just (b, rest) ->
             let val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
             in if b < 0x80
-                then Right (val, rest)
-                else go val (shift + 7) rest
+                 then Right (val, rest)
+                 else go val (shift + 7) rest
 
 
 -- ---------------------------------------------------------------------------
@@ -278,12 +280,12 @@ dsVarint !acc !shift !buf
           !rest = BS.drop 1 buf
           !val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
       in if b < 0x80
-          then
-            let !msgLen = fromIntegral val :: Int
-            in if msgLen < 0
-                then Fail "negative message length"
-                else dsBody msgLen 0 [] rest
-          else dsVarint val (shift + 7) rest
+           then
+             let !msgLen = fromIntegral val :: Int
+             in if msgLen < 0
+                  then Fail "negative message length"
+                  else dsBody msgLen 0 [] rest
+           else dsVarint val (shift + 7) rest
 
 
 dsBody :: MessageDecode a => Int -> Int -> [ByteString] -> ByteString -> DecodeStep a
@@ -299,10 +301,10 @@ dsBody !needed !have !acc !buf
       let !available = BS.length buf
           !remaining = needed - have
       in if available >= remaining
-          then
-            let (!msgPart, !leftover) = BS.splitAt remaining buf
-            in dsFinish needed (msgPart : acc) leftover
-          else dsBody needed (have + available) (buf : acc) BS.empty
+           then
+             let (!msgPart, !leftover) = BS.splitAt remaining buf
+             in dsFinish needed (msgPart : acc) leftover
+           else dsBody needed (have + available) (buf : acc) BS.empty
 
 
 dsFinish :: MessageDecode a => Int -> [ByteString] -> ByteString -> DecodeStep a
@@ -311,5 +313,5 @@ dsFinish needed acc leftover =
         [single] | BS.length single == needed -> single
         _ -> BS.concat (reverse acc)
   in case decodeMessage msgBytes of
-      Left e -> Fail (show e)
-      Right a -> Done a leftover
+       Left e -> Fail (show e)
+       Right a -> Done a leftover

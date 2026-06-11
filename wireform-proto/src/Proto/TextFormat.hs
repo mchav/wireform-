@@ -94,13 +94,13 @@ typedToTextPretty
 typedToTextPretty p msg =
   let !bytes = BL.toStrict (BB.toLazyByteString (PE.buildMessage msg))
   in case decodeDynamic bytes of
-      Left _ -> "" -- shouldn't happen: we just re-encoded a valid value
-      Right dyn ->
-        let descriptors = PS.protoFieldDescriptors p
-            nameOf fn = case Map.lookup fn descriptors of
-              Just (PS.SomeField fd) -> PS.fdName fd
-              Nothing -> intToText fn
-        in renderDynNamed nameOf 0 dyn
+       Left _ -> "" -- shouldn't happen: we just re-encoded a valid value
+       Right dyn ->
+         let descriptors = PS.protoFieldDescriptors p
+             nameOf fn = case Map.lookup fn descriptors of
+               Just (PS.SomeField fd) -> PS.fdName fd
+               Nothing -> intToText fn
+         in renderDynNamed nameOf 0 dyn
 
 
 renderDynNamed :: (Int -> Text) -> Int -> DynamicMessage -> Text
@@ -130,34 +130,34 @@ renderDynField :: Int -> Bool -> Text -> DynamicValue -> Text
 renderDynField depth pretty name val =
   let ind = if pretty then T.replicate (depth * 2) " " else ""
   in case val of
-      DynMessage m ->
-        ind
-          <> name
-          <> " {"
-          <> (if pretty then "\n" else " ")
-          <> renderDyn (depth + 1) pretty m
-          <> (if pretty then T.replicate (depth * 2) " " else "")
-          <> "}"
-      DynRepeated vs ->
-        T.concat
-          ( fmap
-              ( \v ->
-                  renderDynField depth pretty name v
-                    <> (if pretty then "\n" else " ")
-              )
-              vs
-          )
-      DynString s -> ind <> name <> ": \"" <> escapeText s <> "\""
-      DynBytes bs -> ind <> name <> ": \"" <> TE.decodeUtf8 (Base16.encode bs) <> "\""
-      DynBool b -> ind <> name <> ": " <> (if b then "true" else "false")
-      DynVarint v -> ind <> name <> ": " <> word64ToText v
-      DynSVarint v -> ind <> name <> ": " <> int64ToText v
-      DynFixed32 v -> ind <> name <> ": " <> word64ToText (fromIntegral v)
-      DynFixed64 v -> ind <> name <> ": " <> word64ToText v
-      DynFloat v -> ind <> name <> ": " <> T.pack (show v)
-      DynDouble v -> ind <> name <> ": " <> T.pack (show v)
-      DynEnum v -> ind <> name <> ": " <> intToText v
-      DynMap _ -> ind <> name <> " {}"
+       DynMessage m ->
+         ind
+           <> name
+           <> " {"
+           <> (if pretty then "\n" else " ")
+           <> renderDyn (depth + 1) pretty m
+           <> (if pretty then T.replicate (depth * 2) " " else "")
+           <> "}"
+       DynRepeated vs ->
+         T.concat
+           ( fmap
+               ( \v ->
+                   renderDynField depth pretty name v
+                     <> (if pretty then "\n" else " ")
+               )
+               vs
+           )
+       DynString s -> ind <> name <> ": \"" <> escapeText s <> "\""
+       DynBytes bs -> ind <> name <> ": \"" <> TE.decodeUtf8 (Base16.encode bs) <> "\""
+       DynBool b -> ind <> name <> ": " <> (if b then "true" else "false")
+       DynVarint v -> ind <> name <> ": " <> word64ToText v
+       DynSVarint v -> ind <> name <> ": " <> int64ToText v
+       DynFixed32 v -> ind <> name <> ": " <> word64ToText (fromIntegral v)
+       DynFixed64 v -> ind <> name <> ": " <> word64ToText v
+       DynFloat v -> ind <> name <> ": " <> T.pack (show v)
+       DynDouble v -> ind <> name <> ": " <> T.pack (show v)
+       DynEnum v -> ind <> name <> ": " <> intToText v
+       DynMap _ -> ind <> name <> " {}"
 
 
 escapeText :: Text -> Text
@@ -207,10 +207,10 @@ parseFields = go []
     go acc t =
       let s = T.stripStart t
       in if T.null s || T.head s == '}'
-          then Right (reverse acc, s)
-          else case parseField s of
-            Right (f, rest) -> go (f : acc) rest
-            Left e -> Left e
+           then Right (reverse acc, s)
+           else case parseField s of
+             Right (f, rest) -> go (f : acc) rest
+             Left e -> Left e
 
 
 parseField :: Text -> Either String (TextField, Text)
@@ -271,12 +271,12 @@ parseTextNumber :: Text -> Either String (TextValue, Text)
 parseTextNumber t =
   let (numStr, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) t
   in if T.any (== '.') numStr || T.any (\c -> c == 'e' || c == 'E') numStr
-      then case TR.signed TR.double numStr of
-        Right (n, leftover) | T.null leftover -> Right (TVNumber n, rest)
-        _ -> Left ("Invalid number: " <> T.unpack numStr)
-      else case TR.signed TR.decimal numStr of
-        Right (n, leftover) | T.null leftover -> Right (TVInteger n, rest)
-        _ -> Left ("Invalid integer: " <> T.unpack numStr)
+       then case TR.signed TR.double numStr of
+         Right (n, leftover) | T.null leftover -> Right (TVNumber n, rest)
+         _ -> Left ("Invalid number: " <> T.unpack numStr)
+       else case TR.signed TR.decimal numStr of
+         Right (n, leftover) | T.null leftover -> Right (TVInteger n, rest)
+         _ -> Left ("Invalid integer: " <> T.unpack numStr)
 
 
 intToText :: Int -> Text

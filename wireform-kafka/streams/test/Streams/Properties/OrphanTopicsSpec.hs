@@ -1,81 +1,101 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Streams.Properties.OrphanTopicsSpec
--- Description : Detector tests for orphaned internal topics
+{- |
+Module      : Streams.Properties.OrphanTopicsSpec
+Description : Detector tests for orphaned internal topics
+-}
 module Streams.Properties.OrphanTopicsSpec (tests) where
 
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.Set qualified as Set
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
+import Kafka.Streams.Observability.OrphanTopics (
+  OrphanInternalTopic (..),
+  OrphanReason (..),
+  changelogTopic,
+  detectOrphans,
+  expectedInternalTopics,
+  isInternalTopicName,
+  repartitionTopic,
+ )
+import Kafka.Streams.State.Store qualified as Store
+import Kafka.Streams.Topology qualified as Topo
 import Test.Syd
 
-import Kafka.Streams.Imperative
-import qualified Kafka.Streams.State.Store as Store
-import qualified Kafka.Streams.Topology as Topo
-import Kafka.Streams.Observability.OrphanTopics
-  ( OrphanInternalTopic (..)
-  , OrphanReason (..)
-  , changelogTopic
-  , detectOrphans
-  , expectedInternalTopics
-  , isInternalTopicName
-  , repartitionTopic
-  )
 
 ----------------------------------------------------------------------
 -- Topologies
 ----------------------------------------------------------------------
 
--- | A topology with one logged KV store under the standard
--- changelog convention.
+{- | A topology with one logged KV store under the standard
+changelog convention.
+-}
 loggedStoreTopology :: IO Topo.Topology
 loggedStoreTopology = do
   b <- newStreamsBuilder
   s <- streamFromTopic b (topicName "in") (consumed textSerde int64Serde)
-  let g  = grouped textSerde int64Serde
+  let g = grouped textSerde int64Serde
       ks = groupByKey g s
-  _ <- countStream
-         (materializedAs (Store.storeName "logged-store"))
-         ks
+  _ <-
+    countStream
+      (materializedAs (Store.storeName "logged-store"))
+      ks
   buildTopology b
 
--- | A topology with no stores at all (passthrough). Used to
--- check that 'expectedInternalTopics' yields an empty set when
--- there's nothing logged.
+
+{- | A topology with no stores at all (passthrough). Used to
+check that 'expectedInternalTopics' yields an empty set when
+there's nothing logged.
+-}
 storelessTopology :: IO Topo.Topology
 storelessTopology = do
   b <- newStreamsBuilder
-  s <- streamFromTopic b (topicName "in")
-         (consumed textSerde textSerde)
+  s <-
+    streamFromTopic
+      b
+      (topicName "in")
+      (consumed textSerde textSerde)
   toTopic (topicName "out") (produced textSerde textSerde) s
   buildTopology b
 
--- | A topology that uses 'repartition' on the stream — produces
--- an internal repartition node.
+
+{- | A topology that uses 'repartition' on the stream — produces
+an internal repartition node.
+-}
 repartitionTopology :: IO Topo.Topology
 repartitionTopology = do
   b <- newStreamsBuilder
-  s  <- streamFromTopic b (topicName "in") (consumed textSerde int64Serde)
-  s' <- selectKey (\r -> T.reverse (case recordKey r of
-                                      Just k -> k
-                                      Nothing -> ""))
-                  s
-  _  <- repartition "prefix" s'
+  s <- streamFromTopic b (topicName "in") (consumed textSerde int64Serde)
+  s' <-
+    selectKey
+      ( \r ->
+          T.reverse
+            ( case recordKey r of
+                Just k -> k
+                Nothing -> ""
+            )
+      )
+      s
+  _ <- repartition "prefix" s'
   buildTopology b
+
 
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "OrphanTopics" $ sequence_
-  [ expected_set_contains_changelog_for_logged_store
-  , expected_set_empty_for_storeless
-  , detect_orphan_changelog_from_old_deploy
-  , detect_does_not_flag_legit_topics
-  , detect_orphan_repartition
-  , is_internal_topic_name_matches_convention
-  ]
+tests =
+  describe "OrphanTopics" $
+    sequence_
+      [ expected_set_contains_changelog_for_logged_store
+      , expected_set_empty_for_storeless
+      , detect_orphan_changelog_from_old_deploy
+      , detect_does_not_flag_legit_topics
+      , detect_orphan_repartition
+      , is_internal_topic_name_matches_convention
+      ]
+
 
 ----------------------------------------------------------------------
 
@@ -84,8 +104,15 @@ expected_set_contains_changelog_for_logged_store =
   it "expectedInternalTopics names the logged store's changelog" $ do
     topo <- loggedStoreTopology
     let s = expectedInternalTopics topo "app1"
-    (if (Set.member (changelogTopic "app1" (Store.storeName "logged-store")) s) then pure () else expectationFailure ("expected to find app1-logged-store-changelog; got "
-        <> show s))
+    ( if (Set.member (changelogTopic "app1" (Store.storeName "logged-store")) s)
+        then pure ()
+        else
+          expectationFailure
+            ( "expected to find app1-logged-store-changelog; got "
+                <> show s
+            )
+      )
+
 
 expected_set_empty_for_storeless :: Spec
 expected_set_empty_for_storeless =
@@ -93,21 +120,23 @@ expected_set_empty_for_storeless =
     topo <- storelessTopology
     expectedInternalTopics topo "app-empty" `shouldBe` Set.empty
 
+
 detect_orphan_changelog_from_old_deploy :: Spec
 detect_orphan_changelog_from_old_deploy =
   it "detectOrphans flags a leftover changelog from a renamed store" $ do
     topo <- loggedStoreTopology
     let broker =
-          [ topicName "in"                                  -- input topic
+          [ topicName "in" -- input topic
           , changelogTopic "app1" (Store.storeName "logged-store")
-              -- still in the current topology
-          , changelogTopic "app1" (Store.storeName "removed-store")
-              -- left over from a previous deploy
+          , -- still in the current topology
+            changelogTopic "app1" (Store.storeName "removed-store")
+            -- left over from a previous deploy
           ]
         orphans = detectOrphans topo "app1" broker
     map orphanTopic orphans
       `shouldBe` [changelogTopic "app1" (Store.storeName "removed-store")]
     map orphanReason orphans `shouldBe` [OrphanChangelog]
+
 
 detect_does_not_flag_legit_topics :: Spec
 detect_does_not_flag_legit_topics =
@@ -116,11 +145,12 @@ detect_does_not_flag_legit_topics =
     let broker =
           [ topicName "in"
           , topicName "out"
-          , topicName "user-events"                 -- not prefixed by app id
-          , topicName "app1-some-business-topic"    -- prefixed but not -changelog/-repartition
+          , topicName "user-events" -- not prefixed by app id
+          , topicName "app1-some-business-topic" -- prefixed but not -changelog/-repartition
           ]
         orphans = detectOrphans topo "app1" broker
     orphans `shouldBe` []
+
 
 detect_orphan_repartition :: Spec
 detect_orphan_repartition =
@@ -135,13 +165,14 @@ detect_orphan_repartition =
     -- is in 'expectedInternalTopics'; the stale name is orphan.
     map orphanReason orphans `shouldBe` [OrphanRepartition]
 
+
 is_internal_topic_name_matches_convention :: Spec
 is_internal_topic_name_matches_convention =
   it "isInternalTopicName recognises -changelog and -repartition suffixes" $ do
-    isInternalTopicName "app" (topicName "app-store-changelog")     `shouldBe` True
-    isInternalTopicName "app" (topicName "app-node-repartition")    `shouldBe` True
-    isInternalTopicName "app" (topicName "app-business-data")       `shouldBe` False
-    isInternalTopicName "app" (topicName "other-store-changelog")   `shouldBe` False
+    isInternalTopicName "app" (topicName "app-store-changelog") `shouldBe` True
+    isInternalTopicName "app" (topicName "app-node-repartition") `shouldBe` True
+    isInternalTopicName "app" (topicName "app-business-data") `shouldBe` False
+    isInternalTopicName "app" (topicName "other-store-changelog") `shouldBe` False
     -- Also check the conventional helpers round-trip:
     let t = changelogTopic "app" (Store.storeName "s")
     isInternalTopicName "app" t `shouldBe` True

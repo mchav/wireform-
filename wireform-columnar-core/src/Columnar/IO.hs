@@ -45,20 +45,23 @@ import System.IO.MMap (mmapFileByteString)
 
 -- | When to use mmap vs an eager read.
 data LoadStrategy
-  = -- | Always memory-map. Cheapest for any size; slightly
-    -- slower than 'AlwaysEager' for very small files (<1KB)
-    -- because of the syscall + mapping overhead.
+  = {- | Always memory-map. Cheapest for any size; slightly
+    slower than 'AlwaysEager' for very small files (<1KB)
+    because of the syscall + mapping overhead.
+    -}
     AlwaysMmap
-  | -- | Always 'BS.readFile'. Predictable behaviour, no
-    -- mapping lifetime to think about; suboptimal for large
-    -- files because the entire file gets pulled into the GC
-    -- heap up front.
+  | {- | Always 'BS.readFile'. Predictable behaviour, no
+    mapping lifetime to think about; suboptimal for large
+    files because the entire file gets pulled into the GC
+    heap up front.
+    -}
     AlwaysEager
-  | -- | mmap files larger than the given threshold (bytes),
-    -- 'BS.readFile' below. The default 'defaultLoadStrategy'
-    -- threshold is 64KiB — large enough that the mapping
-    -- amortises but small enough that any \"real\" Parquet
-    -- file qualifies.
+  | {- | mmap files larger than the given threshold (bytes),
+    'BS.readFile' below. The default 'defaultLoadStrategy'
+    threshold is 64KiB — large enough that the mapping
+    amortises but small enough that any \"real\" Parquet
+    file qualifies.
+    -}
     MmapAbove !Int
   deriving (Show, Eq)
 

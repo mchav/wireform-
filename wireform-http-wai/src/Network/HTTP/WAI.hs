@@ -188,8 +188,8 @@ decodePath :: ByteString -> [T.Text]
 decodePath raw =
   let stripped = BS.dropWhile (== 0x2F) raw
   in if BS.null stripped
-      then []
-      else map TE.decodeUtf8 (BS.split 0x2F stripped)
+       then []
+       else map TE.decodeUtf8 (BS.split 0x2F stripped)
 
 
 {- | Ensure the header list contains a Host entry. If absent and
@@ -269,17 +269,17 @@ toWaiResponse r =
   let status = toWaiStatus (U.responseStatus r)
       hdrs = toWaiHeaders (U.responseHeaders r)
   in case U.responseBody r of
-      U.BodyEmpty -> Wai.responseLBS status hdrs LBS.empty
-      U.BodyBytes bs -> Wai.responseLBS status hdrs (LBS.fromStrict bs)
-      U.BodyStream p -> Wai.responseStream status hdrs $ \write flush -> do
-        let loop = do
-              mb <- p
-              case mb of
-                Nothing -> flush
-                Just chunk -> do
-                  write (byteString chunk)
-                  loop
-        loop
+       U.BodyEmpty -> Wai.responseLBS status hdrs LBS.empty
+       U.BodyBytes bs -> Wai.responseLBS status hdrs (LBS.fromStrict bs)
+       U.BodyStream p -> Wai.responseStream status hdrs $ \write flush -> do
+         let loop = do
+               mb <- p
+               case mb of
+                 Nothing -> flush
+                 Just chunk -> do
+                   write (byteString chunk)
+                   loop
+         loop
 
 
 {- | Convert a WAI 'Wai.Response' into a wireform unified 'U.Response'.

@@ -106,8 +106,8 @@ buildPairs ps
         ( \acc i (k, v) ->
             let pair = buildValue k <> singleton ' ' <> buildValue v
             in if i == 0
-                then acc <> pair
-                else acc <> fromText ", " <> pair
+                 then acc <> pair
+                 else acc <> fromText ", " <> pair
         )
         mempty
         ps
@@ -129,14 +129,14 @@ escapeStringBS !bs = go 0
           let !escPos = findJsonEscapeBS bs pos
               !safeLen = escPos - pos
           in ( if safeLen > 0
-                then BB.byteString (BSU.unsafeTake safeLen (BSU.unsafeDrop pos bs))
-                else mempty
+                 then BB.byteString (BSU.unsafeTake safeLen (BSU.unsafeDrop pos bs))
+                 else mempty
              )
-              <> if escPos >= len
-                then mempty
-                else
-                  let !b = BSU.unsafeIndex bs escPos
-                  in escByte b <> go (escPos + 1)
+               <> if escPos >= len
+                 then mempty
+                 else
+                   let !b = BSU.unsafeIndex bs escPos
+                   in escByte b <> go (escPos + 1)
 
     escByte :: Word8 -> BB.Builder
     escByte 0x22 = BB.byteString "\\\""

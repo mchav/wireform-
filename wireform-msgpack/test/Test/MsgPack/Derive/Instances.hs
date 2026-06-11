@@ -4,8 +4,8 @@
 module Test.MsgPack.Derive.Instances () where
 
 import MsgPack.Derive
-
 import Test.MsgPack.Derive.Types
+
 
 deriveMsgPack ''Profile
 deriveMsgPack ''Tag

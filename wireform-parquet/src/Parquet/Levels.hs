@@ -1,47 +1,50 @@
 {-# LANGUAGE BangPatterns #-}
--- | Parquet definition / repetition levels for data page v1.
---
--- Data page v1 layout (uncompressed body): repetition levels (if @max repetition > 0@),
--- then definition levels (if @max definition > 0@), then encoded values (@PLAIN@, etc.).
--- Each level column is length-prefixed hybrid RLE (see @Parquet.RLE@).
---
--- Use 'maxLevelsForColumnPath' with footer schema + 'ColumnMetadata' path to obtain
--- @maxRep@ / @maxDef@ for a leaf column.
-module Parquet.Levels
-  ( levelBitWidth
-  , maxLevelsForColumnPath
-  , parseDataPageV1Levels
-  , materializePlainInt32Optional
-  , materializePlainInt64Optional
-  , materializePlainFloatOptional
-  , materializePlainDoubleOptional
-  , materializePlainBoolOptional
-  , materializePlainByteArrayOptional
-  , materializeRepeatedInt32
-  , materializeRepeatedInt64
-  , materializeRepeatedFloat
-  , materializeRepeatedDouble
-  , materializeRepeatedByteArray
-  , materializeRepeatedByNested
-  , NestedValue (..)
-  ) where
+
+{- | Parquet definition / repetition levels for data page v1.
+
+Data page v1 layout (uncompressed body): repetition levels (if @max repetition > 0@),
+then definition levels (if @max definition > 0@), then encoded values (@PLAIN@, etc.).
+Each level column is length-prefixed hybrid RLE (see @Parquet.RLE@).
+
+Use 'maxLevelsForColumnPath' with footer schema + 'ColumnMetadata' path to obtain
+@maxRep@ / @maxDef@ for a leaf column.
+-}
+module Parquet.Levels (
+  levelBitWidth,
+  maxLevelsForColumnPath,
+  parseDataPageV1Levels,
+  materializePlainInt32Optional,
+  materializePlainInt64Optional,
+  materializePlainFloatOptional,
+  materializePlainDoubleOptional,
+  materializePlainBoolOptional,
+  materializePlainByteArrayOptional,
+  materializeRepeatedInt32,
+  materializeRepeatedInt64,
+  materializeRepeatedFloat,
+  materializeRepeatedDouble,
+  materializeRepeatedByteArray,
+  materializeRepeatedByNested,
+  NestedValue (..),
+) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Vector as V
-import qualified Data.Vector.Primitive as VP
+import Data.Vector qualified as V
+import Data.Vector.Primitive qualified as VP
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
-
 import Parquet.RLE (decodeHybridRleUnsigned32)
 import Parquet.Types (Repetition (..), SchemaElement (..))
 
--- | Bits required to store any level in @[0 .. maxLevel]@. Returns @0@ when
--- @maxLevel == 0@ (no level data on disk for that column).
+
+{- | Bits required to store any level in @[0 .. maxLevel]@. Returns @0@ when
+@maxLevel == 0@ (no level data on disk for that column).
+-}
 levelBitWidth :: Int -> Int
 levelBitWidth maxLevel
   | maxLevel <= 0 = 0
@@ -51,6 +54,7 @@ levelBitWidth maxLevel
       | bound > maxLevel = w
       | otherwise = go (bound * 2) (w + 1)
 
+
 readLE32 :: ByteString -> Int -> Word32
 readLE32 bs o =
   let b0 = fromIntegral (BS.index bs o) :: Word32
@@ -59,11 +63,13 @@ readLE32 bs o =
       b3 = fromIntegral (BS.index bs (o + 3)) :: Word32
   in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
 
+
 readLE64 :: ByteString -> Int -> Word64
 readLE64 bs o =
   let w0 = fromIntegral (readLE32 bs o) :: Word64
       w1 = fromIntegral (readLE32 bs (o + 4)) :: Word64
   in w0 .|. (w1 `shiftL` 32)
+
 
 {-# INLINE readBitLsb #-}
 readBitLsb :: ByteString -> Int -> Bool
@@ -73,14 +79,16 @@ readBitLsb bs bitIdx =
       b = BS.index bs bi
   in (b `shiftR` ii) .&. 1 /= 0
 
--- | Decode one length-prefixed hybrid level stream starting at @off@.
--- Returns decoded levels and the offset immediately after this stream.
-decodeLengthPrefixedHybrid ::
-  Int ->
-  Int ->
-  ByteString ->
-  Int ->
-  Either String (VP.Vector Int32, Int)
+
+{- | Decode one length-prefixed hybrid level stream starting at @off@.
+Returns decoded levels and the offset immediately after this stream.
+-}
+decodeLengthPrefixedHybrid
+  :: Int
+  -> Int
+  -> ByteString
+  -> Int
+  -> Either String (VP.Vector Int32, Int)
 decodeLengthPrefixedHybrid bw n bs off
   | bw == 0 =
       if n < 0
@@ -91,23 +99,25 @@ decodeLengthPrefixedHybrid bw n bs off
   | otherwise =
       let !len = fromIntegral (readLE32 bs off) :: Int
           !rest = BS.drop (off + 4) bs
-       in if len < 0 || len > BS.length rest
-            then Left "Parquet.Levels: invalid level slice length"
-            else case decodeHybridRleUnsigned32 bw n (BS.take len rest) of
-              Left e -> Left e
-              Right v -> Right (v, off + 4 + len)
+      in if len < 0 || len > BS.length rest
+           then Left "Parquet.Levels: invalid level slice length"
+           else case decodeHybridRleUnsigned32 bw n (BS.take len rest) of
+             Left e -> Left e
+             Right v -> Right (v, off + 4 + len)
 
--- | Split an uncompressed data page v1 body into repetition levels, definition
--- levels, and the remaining payload (e.g. @PLAIN@ values).
---
--- When @maxRep@ or @maxDef@ is @0@, the corresponding vector is all zeros and no
--- bytes are consumed for that stream (Parquet omits zero-bit-width level data).
-parseDataPageV1Levels ::
-  Int ->
-  Int ->
-  Int ->
-  ByteString ->
-  Either String (VP.Vector Int32, VP.Vector Int32, ByteString)
+
+{- | Split an uncompressed data page v1 body into repetition levels, definition
+levels, and the remaining payload (e.g. @PLAIN@ values).
+
+When @maxRep@ or @maxDef@ is @0@, the corresponding vector is all zeros and no
+bytes are consumed for that stream (Parquet omits zero-bit-width level data).
+-}
+parseDataPageV1Levels
+  :: Int
+  -> Int
+  -> Int
+  -> ByteString
+  -> Either String (VP.Vector Int32, VP.Vector Int32, ByteString)
 parseDataPageV1Levels maxRep maxDef numValues raw = do
   let !bwRep = levelBitWidth maxRep
       !bwDef = levelBitWidth maxDef
@@ -116,13 +126,15 @@ parseDataPageV1Levels maxRep maxDef numValues raw = do
   let !rest = BS.drop off2 raw
   pure (rep, def, rest)
 
--- | Map @PLAIN@ packed @INT32@ values using Parquet definition levels: rows with
--- @def == maxDef@ consume the next four bytes; nulls use @def \< maxDef@.
-materializePlainInt32Optional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe Int32))
+
+{- | Map @PLAIN@ packed @INT32@ values using Parquet definition levels: rows with
+@def == maxDef@ consume the next four bytes; nulls use @def \< maxDef@.
+-}
+materializePlainInt32Optional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe Int32))
 materializePlainInt32Optional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -146,33 +158,34 @@ materializePlainInt32Optional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            let !v = fromIntegral (readLE32 plain off) :: Int32
-                             in go (Just v : acc) (i + 1) (off + 4)
-                          else go (Nothing : acc) (i + 1) off
-       in if BS.length plain < needBytes
-            then
-              Left $
-                "Parquet.Levels: PLAIN INT32 buffer too small for "
-                  ++ show needPresent
-                  ++ " defined values"
-            else case go [] 0 0 of
-              Left e -> Left e
-              Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           let !v = fromIntegral (readLE32 plain off) :: Int32
+                           in go (Just v : acc) (i + 1) (off + 4)
+                         else go (Nothing : acc) (i + 1) off
+      in if BS.length plain < needBytes
+           then
+             Left $
+               "Parquet.Levels: PLAIN INT32 buffer too small for "
+                 ++ show needPresent
+                 ++ " defined values"
+           else case go [] 0 0 of
+             Left e -> Left e
+             Right xs -> Right $! V.fromList (reverse xs)
+
 
 -- | @PLAIN@ @INT64@ (8-byte LE per defined value).
-materializePlainInt64Optional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe Int64))
+materializePlainInt64Optional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe Int64))
 materializePlainInt64Optional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -196,33 +209,34 @@ materializePlainInt64Optional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            let !v = fromIntegral (readLE64 plain off) :: Int64
-                             in go (Just v : acc) (i + 1) (off + 8)
-                          else go (Nothing : acc) (i + 1) off
-       in if BS.length plain < needBytes
-            then
-              Left $
-                "Parquet.Levels: PLAIN INT64 buffer too small for "
-                  ++ show needPresent
-                  ++ " defined values"
-            else case go [] 0 0 of
-              Left e -> Left e
-              Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           let !v = fromIntegral (readLE64 plain off) :: Int64
+                           in go (Just v : acc) (i + 1) (off + 8)
+                         else go (Nothing : acc) (i + 1) off
+      in if BS.length plain < needBytes
+           then
+             Left $
+               "Parquet.Levels: PLAIN INT64 buffer too small for "
+                 ++ show needPresent
+                 ++ " defined values"
+           else case go [] 0 0 of
+             Left e -> Left e
+             Right xs -> Right $! V.fromList (reverse xs)
+
 
 -- | @PLAIN@ @FLOAT@ (4-byte IEEE LE per defined value).
-materializePlainFloatOptional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe Float))
+materializePlainFloatOptional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe Float))
 materializePlainFloatOptional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -246,34 +260,35 @@ materializePlainFloatOptional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            let !w = readLE32 plain off
-                                !v = castWord32ToFloat w
-                             in go (Just v : acc) (i + 1) (off + 4)
-                          else go (Nothing : acc) (i + 1) off
-       in if BS.length plain < needBytes
-            then
-              Left $
-                "Parquet.Levels: PLAIN FLOAT buffer too small for "
-                  ++ show needPresent
-                  ++ " defined values"
-            else case go [] 0 0 of
-              Left e -> Left e
-              Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           let !w = readLE32 plain off
+                               !v = castWord32ToFloat w
+                           in go (Just v : acc) (i + 1) (off + 4)
+                         else go (Nothing : acc) (i + 1) off
+      in if BS.length plain < needBytes
+           then
+             Left $
+               "Parquet.Levels: PLAIN FLOAT buffer too small for "
+                 ++ show needPresent
+                 ++ " defined values"
+           else case go [] 0 0 of
+             Left e -> Left e
+             Right xs -> Right $! V.fromList (reverse xs)
+
 
 -- | @PLAIN@ @DOUBLE@ (8-byte IEEE LE per defined value).
-materializePlainDoubleOptional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe Double))
+materializePlainDoubleOptional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe Double))
 materializePlainDoubleOptional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -297,35 +312,37 @@ materializePlainDoubleOptional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            let !w = readLE64 plain off
-                                !v = castWord64ToDouble w
-                             in go (Just v : acc) (i + 1) (off + 8)
-                          else go (Nothing : acc) (i + 1) off
-       in if BS.length plain < needBytes
-            then
-              Left $
-                "Parquet.Levels: PLAIN DOUBLE buffer too small for "
-                  ++ show needPresent
-                  ++ " defined values"
-            else case go [] 0 0 of
-              Left e -> Left e
-              Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           let !w = readLE64 plain off
+                               !v = castWord64ToDouble w
+                           in go (Just v : acc) (i + 1) (off + 8)
+                         else go (Nothing : acc) (i + 1) off
+      in if BS.length plain < needBytes
+           then
+             Left $
+               "Parquet.Levels: PLAIN DOUBLE buffer too small for "
+                 ++ show needPresent
+                 ++ " defined values"
+           else case go [] 0 0 of
+             Left e -> Left e
+             Right xs -> Right $! V.fromList (reverse xs)
 
--- | @PLAIN@ @BOOLEAN@ — packed bits in definition order; only defined values
--- occupy bits (LSB of first byte is first defined value).
-materializePlainBoolOptional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe Bool))
+
+{- | @PLAIN@ @BOOLEAN@ — packed bits in definition order; only defined values
+occupy bits (LSB of first byte is first defined value).
+-}
+materializePlainBoolOptional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe Bool))
 materializePlainBoolOptional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -349,33 +366,34 @@ materializePlainBoolOptional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            let !b = readBitLsb plain bitPos
-                             in go (Just b : acc) (i + 1) (bitPos + 1)
-                          else go (Nothing : acc) (i + 1) bitPos
-       in if BS.length plain < needBytes
-            then
-              Left $
-                "Parquet.Levels: PLAIN BOOLEAN buffer too small for "
-                  ++ show needBits
-                  ++ " defined bits"
-            else case go [] 0 0 of
-              Left e -> Left e
-              Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           let !b = readBitLsb plain bitPos
+                           in go (Just b : acc) (i + 1) (bitPos + 1)
+                         else go (Nothing : acc) (i + 1) bitPos
+      in if BS.length plain < needBytes
+           then
+             Left $
+               "Parquet.Levels: PLAIN BOOLEAN buffer too small for "
+                 ++ show needBits
+                 ++ " defined bits"
+           else case go [] 0 0 of
+             Left e -> Left e
+             Right xs -> Right $! V.fromList (reverse xs)
+
 
 -- | @PLAIN@ @BYTE_ARRAY@ — per defined value: 4-byte LE length + payload.
-materializePlainByteArrayOptional ::
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (Maybe ByteString))
+materializePlainByteArrayOptional
+  :: VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (Maybe ByteString))
 materializePlainByteArrayOptional defs maxDef plain
   | maxDef < 0 = Left "Parquet.Levels: negative max definition level"
   | otherwise =
@@ -391,37 +409,39 @@ materializePlainByteArrayOptional defs maxDef plain
             | otherwise =
                 let !d = VP.unsafeIndex defs i
                     !maxD = fromIntegral maxDef :: Int32
-                 in if d > maxD || d < 0
-                      then
-                        Left $
-                          "Parquet.Levels: definition level out of range: "
-                            ++ show d
-                      else
-                        if d == maxD
-                          then
-                            if off + 4 > BS.length plain
-                              then Left "Parquet.Levels: PLAIN BYTE_ARRAY truncated length"
-                              else
-                                let !len = fromIntegral (readLE32 plain off) :: Int
-                                    !off2 = off + 4
-                                 in if len < 0 || off2 + len > BS.length plain
-                                      then
-                                        Left "Parquet.Levels: PLAIN BYTE_ARRAY payload out of bounds"
-                                      else
-                                        let !payload = BS.take len (BS.drop off2 plain)
-                                         in go (Just payload : acc) (i + 1) (off2 + len)
-                          else go (Nothing : acc) (i + 1) off
-       in case go [] 0 0 of
-        Left e -> Left e
-        Right xs -> Right $! V.fromList (reverse xs)
+                in if d > maxD || d < 0
+                     then
+                       Left $
+                         "Parquet.Levels: definition level out of range: "
+                           ++ show d
+                     else
+                       if d == maxD
+                         then
+                           if off + 4 > BS.length plain
+                             then Left "Parquet.Levels: PLAIN BYTE_ARRAY truncated length"
+                             else
+                               let !len = fromIntegral (readLE32 plain off) :: Int
+                                   !off2 = off + 4
+                               in if len < 0 || off2 + len > BS.length plain
+                                    then
+                                      Left "Parquet.Levels: PLAIN BYTE_ARRAY payload out of bounds"
+                                    else
+                                      let !payload = BS.take len (BS.drop off2 plain)
+                                      in go (Just payload : acc) (i + 1) (off2 + len)
+                         else go (Nothing : acc) (i + 1) off
+      in case go [] 0 0 of
+           Left e -> Left e
+           Right xs -> Right $! V.fromList (reverse xs)
 
--- | Maximum repetition and definition levels for a leaf column identified by
--- @path@ (same as 'Parquet.Types.ColumnMetadata' @path_in_schema@), from a
--- preorder Parquet schema. On success: @(max repetition level, max definition level)@.
-maxLevelsForColumnPath ::
-  V.Vector SchemaElement ->
-  V.Vector Text ->
-  Either String (Int, Int)
+
+{- | Maximum repetition and definition levels for a leaf column identified by
+@path@ (same as 'Parquet.Types.ColumnMetadata' @path_in_schema@), from a
+preorder Parquet schema. On success: @(max repetition level, max definition level)@.
+-}
+maxLevelsForColumnPath
+  :: V.Vector SchemaElement
+  -> V.Vector Text
+  -> Either String (Int, Int)
 maxLevelsForColumnPath sch path
   | V.null sch = Left "Parquet.Levels: empty schema"
   | V.null path = Left "Parquet.Levels: empty path"
@@ -450,6 +470,7 @@ maxLevelsForColumnPath sch path
     stepLevels Optional (!maxRep, !maxDef) = (maxRep, maxDef + 1)
     stepLevels Repeated (!maxRep, !maxDef) = (maxRep + 1, maxDef + 1)
 
+
 -- | Size of the preorder subtree rooted at @i@ (including @i@).
 subtreeSize :: V.Vector SchemaElement -> Int -> Either String Int
 subtreeSize sch i
@@ -465,7 +486,8 @@ subtreeSize sch i
                 | otherwise = do
                     sz <- subtreeSize sch idx
                     go (idx + sz) (remaining - 1) (total + sz)
-           in go (i + 1) k 0
+          in go (i + 1) k 0
+
 
 -- | Index of the direct child of @parent@ named @name@.
 findChild :: V.Vector SchemaElement -> Int -> Text -> Either String Int
@@ -484,16 +506,18 @@ findChild sch parent name = do
             go (idx + sz) (remaining - 1)
   go (parent + 1) k0
 
--- | Materialize a repeated @INT32@ column using repetition and definition levels.
---
--- @rep=0@ starts a new top-level row. Within a row, @rep>0@ continues the same
--- list. @def \< maxDef@ means the list element is null.
-materializeRepeatedInt32 ::
-  VP.Vector Int32 ->
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (V.Vector (Maybe Int32)))
+
+{- | Materialize a repeated @INT32@ column using repetition and definition levels.
+
+@rep=0@ starts a new top-level row. Within a row, @rep>0@ continues the same
+list. @def \< maxDef@ means the list element is null.
+-}
+materializeRepeatedInt32
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Int32)))
 materializeRepeatedInt32 reps defs maxDef plain
   | VP.length reps /= VP.length defs =
       Left "Parquet.Levels: rep/def level count mismatch"
@@ -505,8 +529,12 @@ materializeRepeatedInt32 reps defs maxDef plain
     !n = VP.length reps
     !maxD = fromIntegral maxDef :: Int32
 
-    goRepI32 :: [[Maybe Int32]] -> [Maybe Int32] -> Int -> Int
-             -> Either String ([[Maybe Int32]], Int)
+    goRepI32
+      :: [[Maybe Int32]]
+      -> [Maybe Int32]
+      -> Int
+      -> Int
+      -> Either String ([[Maybe Int32]], Int)
     goRepI32 !rows !curRow !i !off
       | i >= n =
           let !finalRows = if null curRow then rows else curRow : rows
@@ -514,25 +542,28 @@ materializeRepeatedInt32 reps defs maxDef plain
       | otherwise =
           let !r = VP.unsafeIndex reps i
               !d = VP.unsafeIndex defs i
-              !rows' = if r == 0
-                         then if null curRow then rows else curRow : rows
-                         else rows
+              !rows' =
+                if r == 0
+                  then if null curRow then rows else curRow : rows
+                  else rows
               !row' = if r == 0 then [] else curRow
           in if d == maxD
                then
                  if off + 4 > BS.length plain
                    then Left "Parquet.Levels: PLAIN INT32 buffer too small for repeated column"
-                   else let !v = fromIntegral (readLE32 plain off) :: Int32
-                        in goRepI32 rows' (Just v : row') (i + 1) (off + 4)
+                   else
+                     let !v = fromIntegral (readLE32 plain off) :: Int32
+                     in goRepI32 rows' (Just v : row') (i + 1) (off + 4)
                else goRepI32 rows' (Nothing : row') (i + 1) off
 
+
 -- | Materialize a repeated @BYTE_ARRAY@ column using repetition and definition levels.
-materializeRepeatedByteArray ::
-  VP.Vector Int32 ->
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (V.Vector (Maybe ByteString)))
+materializeRepeatedByteArray
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe ByteString)))
 materializeRepeatedByteArray reps defs maxDef plain
   | VP.length reps /= VP.length defs =
       Left "Parquet.Levels: rep/def level count mismatch"
@@ -544,8 +575,12 @@ materializeRepeatedByteArray reps defs maxDef plain
     !n = VP.length reps
     !maxD = fromIntegral maxDef :: Int32
 
-    goRepBA :: [[Maybe ByteString]] -> [Maybe ByteString] -> Int -> Int
-            -> Either String ([[Maybe ByteString]], Int)
+    goRepBA
+      :: [[Maybe ByteString]]
+      -> [Maybe ByteString]
+      -> Int
+      -> Int
+      -> Either String ([[Maybe ByteString]], Int)
     goRepBA !rows !curRow !i !off
       | i >= n =
           let !finalRows = if null curRow then rows else curRow : rows
@@ -553,57 +588,65 @@ materializeRepeatedByteArray reps defs maxDef plain
       | otherwise =
           let !r = VP.unsafeIndex reps i
               !d = VP.unsafeIndex defs i
-              !rows' = if r == 0
-                         then if null curRow then rows else curRow : rows
-                         else rows
+              !rows' =
+                if r == 0
+                  then if null curRow then rows else curRow : rows
+                  else rows
               !row' = if r == 0 then [] else curRow
           in if d == maxD
                then
                  if off + 4 > BS.length plain
                    then Left "Parquet.Levels: BYTE_ARRAY truncated length for repeated column"
-                   else let !len = fromIntegral (readLE32 plain off) :: Int
-                            !off2 = off + 4
-                        in if len < 0 || off2 + len > BS.length plain
-                             then Left "Parquet.Levels: BYTE_ARRAY payload out of bounds for repeated column"
-                             else let !val = BS.take len (BS.drop off2 plain)
-                                  in goRepBA rows' (Just val : row') (i + 1) (off2 + len)
+                   else
+                     let !len = fromIntegral (readLE32 plain off) :: Int
+                         !off2 = off + 4
+                     in if len < 0 || off2 + len > BS.length plain
+                          then Left "Parquet.Levels: BYTE_ARRAY payload out of bounds for repeated column"
+                          else
+                            let !val = BS.take len (BS.drop off2 plain)
+                            in goRepBA rows' (Just val : row') (i + 1) (off2 + len)
                else goRepBA rows' (Nothing : row') (i + 1) off
 
+
 -- | Materialize a repeated @INT64@ column using repetition and definition levels.
-materializeRepeatedInt64 ::
-  VP.Vector Int32 ->
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (V.Vector (Maybe Int64)))
+materializeRepeatedInt64
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Int64)))
 materializeRepeatedInt64 =
   materializeFixedWidth 8 decodeI64
   where
     decodeI64 !bs !off = fromIntegral (readLE64 bs off) :: Int64
 
+
 -- | Materialize a repeated @FLOAT@ column using repetition and definition levels.
-materializeRepeatedFloat ::
-  VP.Vector Int32 ->
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (V.Vector (Maybe Float)))
+materializeRepeatedFloat
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Float)))
 materializeRepeatedFloat =
   materializeFixedWidth 4 (\bs off -> castWord32ToFloat (readLE32 bs off))
 
+
 -- | Materialize a repeated @DOUBLE@ column using repetition and definition levels.
-materializeRepeatedDouble ::
-  VP.Vector Int32 ->
-  VP.Vector Int32 ->
-  Int ->
-  ByteString ->
-  Either String (V.Vector (V.Vector (Maybe Double)))
+materializeRepeatedDouble
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe Double)))
 materializeRepeatedDouble =
   materializeFixedWidth 8 (\bs off -> castWord64ToDouble (readLE64 bs off))
 
--- | Fixed-width primitive repeated materialiser. Walks rep/def
--- levels row-grouped and lifts the fixed-size on-disk slice at
--- @off@ via @decode bs off@ when @d == maxDef@.
+
+{- | Fixed-width primitive repeated materialiser. Walks rep/def
+levels row-grouped and lifts the fixed-size on-disk slice at
+@off@ via @decode bs off@ when @d == maxDef@.
+-}
 materializeFixedWidth
   :: Int
   -> (ByteString -> Int -> a)
@@ -630,47 +673,53 @@ materializeFixedWidth !w decode reps defs maxDef plain
       | otherwise =
           let !r = VP.unsafeIndex reps i
               !d = VP.unsafeIndex defs i
-              !rows' = if r == 0
-                         then if null curRow then rows else curRow : rows
-                         else rows
+              !rows' =
+                if r == 0
+                  then if null curRow then rows else curRow : rows
+                  else rows
               !row' = if r == 0 then [] else curRow
           in if d == maxD
                then
                  if off + w > BS.length plain
                    then Left "Parquet.Levels: PLAIN buffer too small for repeated column"
-                   else let !v = decode plain off
-                        in go rows' (Just v : row') (i + 1) (off + w)
+                   else
+                     let !v = decode plain off
+                     in go rows' (Just v : row') (i + 1) (off + w)
                else go rows' (Nothing : row') (i + 1) off
 
--- | Decode a column with arbitrary repetition depth (i.e. nested
--- @LIST<LIST<…<T>>>@) using the standard Dremel reconstruction
--- algorithm. Returns one 'NestedValue' tree per top-level row.
---
--- The parameter @maxRep@ is the maximum repetition level (number of
--- nested @LIST@ wrappers). A @rep == 0@ marker starts a new
--- top-level row; @rep == k@ starts a new sibling at depth @k@.
---
--- @
---   maxRep = 2
---   reps  = 0 2 1 2 0 1
---   defs  = 2 2 2 2 2 2   (all present, maxDef == 2)
---   →
---   row 0 = [ [v0, v1], [v2, v3] ]
---   row 1 = [ [v4],     [v5]      ]   -- second top-level row
--- @
---
--- The caller supplies a per-leaf decoder that lifts one on-disk
--- value to a @Maybe a@ and returns the advanced offset. A
--- non-maximal definition level produces a 'NVLeaf' @Nothing@ at
--- the appropriate depth (Dremel's null-with-shape semantics).
+
+{- | Decode a column with arbitrary repetition depth (i.e. nested
+@LIST<LIST<…<T>>>@) using the standard Dremel reconstruction
+algorithm. Returns one 'NestedValue' tree per top-level row.
+
+The parameter @maxRep@ is the maximum repetition level (number of
+nested @LIST@ wrappers). A @rep == 0@ marker starts a new
+top-level row; @rep == k@ starts a new sibling at depth @k@.
+
+@
+  maxRep = 2
+  reps  = 0 2 1 2 0 1
+  defs  = 2 2 2 2 2 2   (all present, maxDef == 2)
+  →
+  row 0 = [ [v0, v1], [v2, v3] ]
+  row 1 = [ [v4],     [v5]      ]   -- second top-level row
+@
+
+The caller supplies a per-leaf decoder that lifts one on-disk
+value to a @Maybe a@ and returns the advanced offset. A
+non-maximal definition level produces a 'NVLeaf' @Nothing@ at
+the appropriate depth (Dremel's null-with-shape semantics).
+-}
 materializeRepeatedByNested
   :: VP.Vector Int32
   -> VP.Vector Int32
-  -> Int                             -- ^ maxDef
-  -> Int                             -- ^ maxRep
+  -> Int
+  -- ^ maxDef
+  -> Int
+  -- ^ maxRep
   -> ByteString
   -> (ByteString -> Int -> Either String (a, Int))
-                                      -- ^ per-leaf decoder
+  -- ^ per-leaf decoder
   -> Either String (V.Vector (NestedValue a))
 materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
   | VP.length reps /= VP.length defs =
@@ -680,7 +729,7 @@ materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
   | VP.null reps = Right V.empty
   | otherwise = go 0 0 []
   where
-    !n   = VP.length reps
+    !n = VP.length reps
     !maxD = fromIntegral maxDef :: Int32
 
     -- Decode the leaf at cursor @i@ given the on-disk @off@. When
@@ -699,7 +748,7 @@ materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
     -- @off@ is the current decoder position into @plain@; @i@ is
     -- the current rep/def cursor.
     go !off !i rev
-      | i >= n   = Right (V.fromList (reverse rev))
+      | i >= n = Right (V.fromList (reverse rev))
       | otherwise = do
           (row, off', i') <- consumeRow off i
           go off' i' (row : rev)
@@ -725,33 +774,37 @@ materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
           let !acc' = appendAtDepth maxRep r (fromIntegral d) leaf acc
           buildRow off1 (i + 1) acc'
 
--- | Build the initial single-leaf row value: wrap @leaf@ in
--- @maxRep@ list layers so the leaf lands at the innermost
--- position.
---
--- Nuance: a row with @def \< maxDef@ in a nested column actually
--- represents an /empty list/ or /null at some intermediate level/
--- — Dremel's def-level encoding distinguishes those cases — but
--- the standard Parquet/Dremel reconstruction requires you to look
--- at @def@ relative to the schema's nullable layers. For now we
--- always emit a fully-nested singleton; callers that need the
--- empty-list case should consult the def stream directly.
+
+{- | Build the initial single-leaf row value: wrap @leaf@ in
+@maxRep@ list layers so the leaf lands at the innermost
+position.
+
+Nuance: a row with @def \< maxDef@ in a nested column actually
+represents an /empty list/ or /null at some intermediate level/
+— Dremel's def-level encoding distinguishes those cases — but
+the standard Parquet/Dremel reconstruction requires you to look
+at @def@ relative to the schema's nullable layers. For now we
+always emit a fully-nested singleton; callers that need the
+empty-list case should consult the def stream directly.
+-}
 singletonAtDepth :: Int -> NestedValue a -> Int -> NestedValue a
 singletonAtDepth !depth !leaf !_def = wrapLists depth leaf
 
--- | Append a new leaf to an existing nested value tree at the
--- specified rep depth. The leaf is wrapped so its physical depth
--- under the row root is @maxRep@ (i.e. it lands as an innermost-
--- list element). The /append point/ is at depth @rep@ of the
--- existing tree:
---
---   * @rep == maxRep@: descend to the innermost list and append
---     the bare leaf as a new sibling.
---   * @rep == maxRep-1@: descend one level less and append a /new
---     innermost list containing the leaf/.
---   * In general: descend @rep - 1@ list layers (rightmost child
---     each time), then append a new node of depth @maxRep - rep@
---     to that list.
+
+{- | Append a new leaf to an existing nested value tree at the
+specified rep depth. The leaf is wrapped so its physical depth
+under the row root is @maxRep@ (i.e. it lands as an innermost-
+list element). The /append point/ is at depth @rep@ of the
+existing tree:
+
+  * @rep == maxRep@: descend to the innermost list and append
+    the bare leaf as a new sibling.
+  * @rep == maxRep-1@: descend one level less and append a /new
+    innermost list containing the leaf/.
+  * In general: descend @rep - 1@ list layers (rightmost child
+    each time), then append a new node of depth @maxRep - rep@
+    to that list.
+-}
 appendAtDepth :: Int -> Int -> Int -> NestedValue a -> NestedValue a -> NestedValue a
 appendAtDepth !maxRep !rep !_def !leaf !tree =
   goDescend (rep - 1) tree
@@ -764,7 +817,7 @@ appendAtDepth !maxRep !rep !_def !leaf !tree =
     -- child each time), then append @newSibling@ to that list.
     goDescend !k node = case node of
       NVList xs
-        | k <= 0    -> NVList (xs ++ [newSibling])
+        | k <= 0 -> NVList (xs ++ [newSibling])
         | otherwise -> case reverse xs of
             (lastChild : revInit) ->
               NVList (reverse revInit ++ [goDescend (k - 1) lastChild])
@@ -774,15 +827,18 @@ appendAtDepth !maxRep !rep !_def !leaf !tree =
         -- correctly, but be defensive.
         NVList [node, newSibling]
 
+
 -- | Wrap a value in @k@ singleton lists.
 wrapLists :: Int -> NestedValue a -> NestedValue a
 wrapLists !k v
-  | k <= 0    = v
+  | k <= 0 = v
   | otherwise = NVList [wrapLists (k - 1) v]
 
--- | A nested value: either a leaf (possibly null) or a list of
--- children. The caller's row is one 'NestedValue' per top-level
--- column entry.
+
+{- | A nested value: either a leaf (possibly null) or a list of
+children. The caller's row is one 'NestedValue' per top-level
+column entry.
+-}
 data NestedValue a
   = NVLeaf !(Maybe a)
   | NVList ![NestedValue a]

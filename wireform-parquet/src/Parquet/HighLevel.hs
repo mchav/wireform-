@@ -123,33 +123,39 @@ let opts = 'defaultWriteOptions'
 -}
 data WriteOptions = WriteOptions
   { writeCompression :: !Compression
-  -- ^ Compression codec applied to every column's data pages.
-  -- Default: 'Snappy'. Use 'Uncompressed' to skip.
+  {- ^ Compression codec applied to every column's data pages.
+  Default: 'Snappy'. Use 'Uncompressed' to skip.
+  -}
   , writePageVersion :: !PageVersion
-  -- ^ Data page version. 'PageV2' is recommended for modern
-  -- writers; 'PageV1' interoperates with older Parquet readers.
-  -- Default: 'PageV2'.
+  {- ^ Data page version. 'PageV2' is recommended for modern
+  writers; 'PageV1' interoperates with older Parquet readers.
+  Default: 'PageV2'.
+  -}
   , writeBloomFilters :: ![Text]
-  -- ^ Column paths (top-level field names) that should carry a
-  -- split-block bloom filter. Empty list → no bloom filters.
-  -- Filter parameters use parquet-cpp's defaults
-  -- (~3% FPP at 1024 distinct values per row group).
+  {- ^ Column paths (top-level field names) that should carry a
+  split-block bloom filter. Empty list → no bloom filters.
+  Filter parameters use parquet-cpp's defaults
+  (~3% FPP at 1024 distinct values per row group).
+  -}
   , writePageIndex :: !Bool
-  -- ^ Emit per-column 'OffsetIndex' / 'ColumnIndex' regions in
-  -- the trailing page-index area. Default: 'True' — page
-  -- indexes substantially improve scan performance for filter
-  -- pushdown and most ecosystem readers (pyarrow, parquet-mr,
-  -- DuckDB, Trino) take advantage of them when present.
+  {- ^ Emit per-column 'OffsetIndex' / 'ColumnIndex' regions in
+  the trailing page-index area. Default: 'True' — page
+  indexes substantially improve scan performance for filter
+  pushdown and most ecosystem readers (pyarrow, parquet-mr,
+  DuckDB, Trino) take advantage of them when present.
+  -}
   , writeColumnEncryption :: !(V.Vector (Maybe ColumnEncryption))
-  -- ^ Per-leaf-column encryption configuration. The vector
-  -- length must match the number of leaf columns; 'Nothing'
-  -- entries leave the column in plaintext. Default:
-  -- 'V.empty' (no per-column encryption — interpreted as
-  -- "all columns plaintext").
+  {- ^ Per-leaf-column encryption configuration. The vector
+  length must match the number of leaf columns; 'Nothing'
+  entries leave the column in plaintext. Default:
+  'V.empty' (no per-column encryption — interpreted as
+  "all columns plaintext").
+  -}
   , writeFooterEncryption :: !(Maybe FooterEncryption)
-  -- ^ When 'Just', the file is emitted in /encrypted-footer/
-  -- mode (PARE trailing magic). When 'Nothing', the footer
-  -- stays in plaintext (PAR1 magic). Default: 'Nothing'.
+  {- ^ When 'Just', the file is emitted in /encrypted-footer/
+  mode (PARE trailing magic). When 'Nothing', the footer
+  stays in plaintext (PAR1 magic). Default: 'Nothing'.
+  -}
   }
   deriving (Show, Eq)
 
@@ -191,9 +197,9 @@ encodeParquet opts schema rgs =
   let !rowGroups = V.fromList rgs
       !auxes = V.map (mkAuxes opts schema) rowGroups
   in case writeFooterEncryption opts of
-      Nothing -> buildParquetFileWithIndex schema rowGroups auxes
-      Just fe ->
-        buildParquetFileWithIndexEncryptedFooter fe schema rowGroups auxes
+       Nothing -> buildParquetFileWithIndex schema rowGroups auxes
+       Just fe ->
+         buildParquetFileWithIndexEncryptedFooter fe schema rowGroups auxes
 
 
 {- | Build the leaf-name -> column-index lookup for a flat
@@ -291,18 +297,18 @@ buildBloomFilterFor col =
       !nBytes = Bloom.optimalNumBytes ndv 0.01
       !empty0 = Bloom.newSbbf nBytes
   in case col of
-      ColInt32 v ->
-        VP.foldl' (\acc x -> Bloom.sbbfInsert (i32LE x) acc) empty0 v
-      ColInt64 v ->
-        VP.foldl' (\acc x -> Bloom.sbbfInsert (i64LE x) acc) empty0 v
-      ColFloat v ->
-        VP.foldl' (\acc x -> Bloom.sbbfInsert (f32LE x) acc) empty0 v
-      ColDouble v ->
-        VP.foldl' (\acc x -> Bloom.sbbfInsert (f64LE x) acc) empty0 v
-      ColBool v ->
-        V.foldl' (\acc x -> Bloom.sbbfInsert (boolPayload x) acc) empty0 v
-      ColByteArray v ->
-        V.foldl' (\acc x -> Bloom.sbbfInsert x acc) empty0 v
+       ColInt32 v ->
+         VP.foldl' (\acc x -> Bloom.sbbfInsert (i32LE x) acc) empty0 v
+       ColInt64 v ->
+         VP.foldl' (\acc x -> Bloom.sbbfInsert (i64LE x) acc) empty0 v
+       ColFloat v ->
+         VP.foldl' (\acc x -> Bloom.sbbfInsert (f32LE x) acc) empty0 v
+       ColDouble v ->
+         VP.foldl' (\acc x -> Bloom.sbbfInsert (f64LE x) acc) empty0 v
+       ColBool v ->
+         V.foldl' (\acc x -> Bloom.sbbfInsert (boolPayload x) acc) empty0 v
+       ColByteArray v ->
+         V.foldl' (\acc x -> Bloom.sbbfInsert x acc) empty0 v
 
 
 {- | Cheap distinct-value upper bound: row count. Real
@@ -386,10 +392,11 @@ let opts = 'defaultReadOptions'
 -}
 data ReadOptions = ReadOptions
   { readFooterDecryption :: !(Maybe FooterDecryption)
-  -- ^ When 'Just', expect an encrypted-footer file (PARE
-  -- trailing magic) and decrypt with the supplied key / AAD /
-  -- file-id. When 'Nothing' (the default), a plaintext (PAR1)
-  -- footer is expected.
+  {- ^ When 'Just', expect an encrypted-footer file (PARE
+  trailing magic) and decrypt with the supplied key / AAD /
+  file-id. When 'Nothing' (the default), a plaintext (PAR1)
+  footer is expected.
+  -}
   }
   deriving (Show, Eq)
 

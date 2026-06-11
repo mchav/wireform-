@@ -4,30 +4,32 @@
 module Wireform.Parser.Test (spec) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int
 import Data.Word
-import Test.Syd
 import Test.QuickCheck
-
+import Test.Syd
 import Wireform.Parser
-import Wireform.Parser.Internal (Pure)
 import Wireform.Parser.Driver (parseByteString)
 import Wireform.Parser.Error
+import Wireform.Parser.Internal (Pure)
+
 
 type P = Parser Pure String
 
+
 ok :: (Show a, Eq a) => Either (ParseError String) a -> a -> Expectation
 ok (Right a) expected = a `shouldBe` expected
-ok (Left e) _         = expectationFailure ("parse failed: " <> show e)
+ok (Left e) _ = expectationFailure ("parse failed: " <> show e)
+
 
 bad :: (Show a) => Either (ParseError String) a -> Expectation
-bad (Left _)  = pure ()
+bad (Left _) = pure ()
 bad (Right a) = expectationFailure ("expected failure, got: " <> show a)
+
 
 spec :: Spec
 spec = describe "Parser" $ do
-
   describe "byte primitives" $ do
     it "anyWord8" $
       ok (parseByteString (anyWord8 :: P Word8) "\x42") 0x42
@@ -218,8 +220,8 @@ spec = describe "Parser" $ do
   describe "chainl" $ do
     it "left-associative chain" $ do
       let digit = anyAsciiDecimalInt :: P Int
-          plus  = word8 0x2B *> digit
-          p     = chainl (+) digit plus
+          plus = word8 0x2B *> digit
+          p = chainl (+) digit plus
       ok (parseByteString p "1+2+3x") 6
 
   describe "position and span" $ do
@@ -263,8 +265,11 @@ spec = describe "Parser" $ do
             restore m
             anyWord8 :: P Word8
       ok (parseByteString p "\xAA\xBB") 0xAA
-
   where
     isLE :: Bool
-    isLE = BS.pack [1, 0] == BS.pack (let w = 1 :: Word16 in
-             [fromIntegral w, fromIntegral (w `div` 256)])
+    isLE =
+      BS.pack [1, 0]
+        == BS.pack
+          ( let w = 1 :: Word16
+            in [fromIntegral w, fromIntegral (w `div` 256)]
+          )

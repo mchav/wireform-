@@ -1,33 +1,34 @@
--- | Apache Parquet file metadata types.
---
--- Parquet is a columnar storage format. The metadata (file footer, schema,
--- row groups, column chunks) is Thrift Compact Protocol encoded. These types
--- mirror the Parquet spec's Thrift definitions.
-module Parquet.Types
-  ( FileMetadata(..)
-  , SchemaElement(..)
-  , RowGroup(..)
-  , SortingColumn(..)
-  , ColumnOrder(..)
-  , ColumnChunk(..)
-  , ColumnMetadata(..)
-  , ParquetType(..)
-  , Repetition(..)
-  , Encoding(..)
-  , Compression(..)
-  , ConvertedType(..)
-  , LogicalType(..)
-  , LtTimeUnit(..)
-  , Statistics(..)
-  , PageLocation(..)
-  , OffsetIndex(..)
-  , ColumnIndex(..)
-  , BoundaryOrder(..)
-  , parquetTypeToInt
-  , intToParquetType
-  , boundaryOrderToInt
-  , intToBoundaryOrder
-  ) where
+{- | Apache Parquet file metadata types.
+
+Parquet is a columnar storage format. The metadata (file footer, schema,
+row groups, column chunks) is Thrift Compact Protocol encoded. These types
+mirror the Parquet spec's Thrift definitions.
+-}
+module Parquet.Types (
+  FileMetadata (..),
+  SchemaElement (..),
+  RowGroup (..),
+  SortingColumn (..),
+  ColumnOrder (..),
+  ColumnChunk (..),
+  ColumnMetadata (..),
+  ParquetType (..),
+  Repetition (..),
+  Encoding (..),
+  Compression (..),
+  ConvertedType (..),
+  LogicalType (..),
+  LtTimeUnit (..),
+  Statistics (..),
+  PageLocation (..),
+  OffsetIndex (..),
+  ColumnIndex (..),
+  BoundaryOrder (..),
+  parquetTypeToInt,
+  intToParquetType,
+  boundaryOrderToInt,
+  intToBoundaryOrder,
+) where
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
@@ -35,6 +36,7 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import GHC.Generics (Generic)
+
 
 data ParquetType
   = PTBoolean
@@ -48,16 +50,18 @@ data ParquetType
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+
 parquetTypeToInt :: ParquetType -> Int32
 parquetTypeToInt = \case
-  PTBoolean          -> 0
-  PTInt32            -> 1
-  PTInt64            -> 2
-  PTInt96            -> 3
-  PTFloat            -> 4
-  PTDouble           -> 5
-  PTByteArray        -> 6
+  PTBoolean -> 0
+  PTInt32 -> 1
+  PTInt64 -> 2
+  PTInt96 -> 3
+  PTFloat -> 4
+  PTDouble -> 5
+  PTByteArray -> 6
   PTFixedLenByteArray -> 7
+
 
 intToParquetType :: Int32 -> Maybe ParquetType
 intToParquetType = \case
@@ -71,9 +75,11 @@ intToParquetType = \case
   7 -> Just PTFixedLenByteArray
   _ -> Nothing
 
+
 data Repetition = Required | Optional | Repeated
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
+
 
 data Encoding
   = Plain
@@ -88,6 +94,7 @@ data Encoding
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+
 data Compression
   = Uncompressed
   | Snappy
@@ -99,6 +106,7 @@ data Compression
   | LZ4Raw
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
+
 
 data ConvertedType
   = CTUtf8
@@ -126,193 +134,239 @@ data ConvertedType
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+
 -- | LogicalType time/timestamp unit (parquet.thrift @TimeUnit@).
 data LtTimeUnit = LtMillis | LtMicros | LtNanos
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
--- | Modern Parquet logical-type annotation. Mirrors the
--- @LogicalType@ union in @parquet.thrift@. Each constructor
--- corresponds to a single field of the union.
---
--- This ADT is the modern annotation slot ('seLogicalType');
--- 'ConvertedType' is the legacy slot kept around for older
--- readers. Writers should populate /both/ slots when possible.
+
+{- | Modern Parquet logical-type annotation. Mirrors the
+@LogicalType@ union in @parquet.thrift@. Each constructor
+corresponds to a single field of the union.
+
+This ADT is the modern annotation slot ('seLogicalType');
+'ConvertedType' is the legacy slot kept around for older
+readers. Writers should populate /both/ slots when possible.
+-}
 data LogicalType
   = LTString
   | LTMap
   | LTList
   | LTEnum
-  | LTDecimal !Int32 !Int32
-    -- ^ @(precision, scale)@.
+  | -- | @(precision, scale)@.
+    LTDecimal !Int32 !Int32
   | LTDate
   | LTTime
-      !Bool       -- ^ @isAdjustedToUTC@
-      !LtTimeUnit -- ^ unit (millis / micros / nanos)
+      !Bool
+      -- ^ @isAdjustedToUTC@
+      !LtTimeUnit
+      -- ^ unit (millis / micros / nanos)
   | LTTimestamp
-      !Bool       -- ^ @isAdjustedToUTC@
-      !LtTimeUnit -- ^ unit
+      !Bool
+      -- ^ @isAdjustedToUTC@
+      !LtTimeUnit
+      -- ^ unit
   | LTInteger
-      !Int32      -- ^ bit width (8, 16, 32, 64)
-      !Bool       -- ^ is signed
+      !Int32
+      -- ^ bit width (8, 16, 32, 64)
+      !Bool
+      -- ^ is signed
   | LTNull
   | LTJson
   | LTBson
   | LTUUID
-  | LTFloat16
-    -- ^ Parquet IEEE 754 half-precision; physical type is
-    -- @FIXED_LEN_BYTE_ARRAY(2)@.
-  | LTGeometry
-    -- ^ Parquet geospatial geometry (parquet-format 2.11+);
-    -- physical type is @BYTE_ARRAY@ holding WKB.
-  | LTGeography
-    -- ^ Parquet geospatial geography (parquet-format 2.11+);
-    -- physical type is @BYTE_ARRAY@ holding WKB.
-  | LTVariant !Int32
-    -- ^ Parquet 'Variant' (semi-structured) annotation. The
-    -- payload column is itself a struct of (metadata, value)
-    -- BYTE_ARRAY columns; the carried Int32 is the
-    -- @specification_version@ field.
+  | {- | Parquet IEEE 754 half-precision; physical type is
+    @FIXED_LEN_BYTE_ARRAY(2)@.
+    -}
+    LTFloat16
+  | {- | Parquet geospatial geometry (parquet-format 2.11+);
+    physical type is @BYTE_ARRAY@ holding WKB.
+    -}
+    LTGeometry
+  | {- | Parquet geospatial geography (parquet-format 2.11+);
+    physical type is @BYTE_ARRAY@ holding WKB.
+    -}
+    LTGeography
+  | {- | Parquet 'Variant' (semi-structured) annotation. The
+    payload column is itself a struct of (metadata, value)
+    BYTE_ARRAY columns; the carried Int32 is the
+    @specification_version@ field.
+    -}
+    LTVariant !Int32
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
+
 data SchemaElement = SchemaElement
-  { seName        :: !Text
-  , seRepetition  :: !(Maybe Repetition)
-  , seType        :: !(Maybe ParquetType)
+  { seName :: !Text
+  , seRepetition :: !(Maybe Repetition)
+  , seType :: !(Maybe ParquetType)
   , seNumChildren :: !(Maybe Int32)
   , seConvertedType :: !(Maybe ConvertedType)
   , seLogicalType :: !(Maybe LogicalType)
-  , seFieldId     :: !(Maybe Int32)
-    -- ^ Iceberg's identifier for this leaf column. Required for any
-    -- Parquet file that participates in an Iceberg table — readers
-    -- match @field_id@, not @name@. Encoded into Thrift field 9 of
-    -- @parquet.thrift::SchemaElement@ (field 8 is @precision@, field 7
-    -- is @scale@).
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  , seFieldId :: !(Maybe Int32)
+  {- ^ Iceberg's identifier for this leaf column. Required for any
+  Parquet file that participates in an Iceberg table — readers
+  match @field_id@, not @name@. Encoded into Thrift field 9 of
+  @parquet.thrift::SchemaElement@ (field 8 is @precision@, field 7
+  is @scale@).
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data ColumnMetadata = ColumnMetadata
-  { cmType                  :: !ParquetType
-  , cmEncodings             :: !(Vector Encoding)
-  , cmPathInSchema          :: !(Vector Text)
-  , cmCodec                 :: !Compression
-  , cmNumValues             :: !Int64
+  { cmType :: !ParquetType
+  , cmEncodings :: !(Vector Encoding)
+  , cmPathInSchema :: !(Vector Text)
+  , cmCodec :: !Compression
+  , cmNumValues :: !Int64
   , cmTotalUncompressedSize :: !Int64
-  , cmTotalCompressedSize   :: !Int64
-  , cmDataPageOffset        :: !Int64
-  -- | Byte offset of the (optional) dictionary page (parquet.thrift
-  -- field 10). When present this is /before/ 'cmDataPageOffset' and
-  -- callers reading raw column-chunk bytes must start their slice
-  -- here, not at 'cmDataPageOffset'. Modern writers (pyarrow, polars,
-  -- duckdb) always populate this when the column uses dictionary
-  -- encoding.
-  , cmDictionaryPageOffset  :: !(Maybe Int64)
-  , cmStatistics            :: !(Maybe Statistics)
-  -- | Byte offset from beginning of file to the bloom filter for this
-  -- column chunk, if a bloom filter is written. Field 14.
-  , cmBloomFilterOffset     :: !(Maybe Int64)
-  -- | Length of the bloom filter (header + bitset) in bytes. Field 15
-  -- (added in parquet-format 2.10).
-  , cmBloomFilterLength     :: !(Maybe Int32)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  , cmTotalCompressedSize :: !Int64
+  , cmDataPageOffset :: !Int64
+  , cmDictionaryPageOffset :: !(Maybe Int64)
+  {- ^ Byte offset of the (optional) dictionary page (parquet.thrift
+  field 10). When present this is /before/ 'cmDataPageOffset' and
+  callers reading raw column-chunk bytes must start their slice
+  here, not at 'cmDataPageOffset'. Modern writers (pyarrow, polars,
+  duckdb) always populate this when the column uses dictionary
+  encoding.
+  -}
+  , cmStatistics :: !(Maybe Statistics)
+  , cmBloomFilterOffset :: !(Maybe Int64)
+  {- ^ Byte offset from beginning of file to the bloom filter for this
+  column chunk, if a bloom filter is written. Field 14.
+  -}
+  , cmBloomFilterLength :: !(Maybe Int32)
+  {- ^ Length of the bloom filter (header + bitset) in bytes. Field 15
+  (added in parquet-format 2.10).
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data ColumnChunk = ColumnChunk
-  { ccFilePath          :: !(Maybe Text)
-  , ccFileOffset        :: !Int64
-  , ccMetadata          :: !(Maybe ColumnMetadata)
-  -- | Byte offset of this column chunk's 'OffsetIndex' (Thrift Compact),
-  -- relative to the start of the file. Page-index spec, field 7.
+  { ccFilePath :: !(Maybe Text)
+  , ccFileOffset :: !Int64
+  , ccMetadata :: !(Maybe ColumnMetadata)
   , ccOffsetIndexOffset :: !(Maybe Int64)
-  -- | Length in bytes of the serialized 'OffsetIndex'. Field 8.
+  {- ^ Byte offset of this column chunk's 'OffsetIndex' (Thrift Compact),
+  relative to the start of the file. Page-index spec, field 7.
+  -}
   , ccOffsetIndexLength :: !(Maybe Int32)
-  -- | Byte offset of this column chunk's 'ColumnIndex' (Thrift Compact),
-  -- relative to the start of the file. Field 9.
+  -- ^ Length in bytes of the serialized 'OffsetIndex'. Field 8.
   , ccColumnIndexOffset :: !(Maybe Int64)
-  -- | Length in bytes of the serialized 'ColumnIndex'. Field 10.
+  {- ^ Byte offset of this column chunk's 'ColumnIndex' (Thrift Compact),
+  relative to the start of the file. Field 9.
+  -}
   , ccColumnIndexLength :: !(Maybe Int32)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  -- ^ Length in bytes of the serialized 'ColumnIndex'. Field 10.
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
--- | One entry of @RowGroup.sorting_columns@. Tells readers
--- (DuckDB, Trino, parquet-mr) which leaf columns the row
--- group is sorted on so they can skip ORDER BY scans.
+
+{- | One entry of @RowGroup.sorting_columns@. Tells readers
+(DuckDB, Trino, parquet-mr) which leaf columns the row
+group is sorted on so they can skip ORDER BY scans.
+-}
 data SortingColumn = SortingColumn
-  { scColumnIdx  :: !Int32
-    -- ^ Leaf-column index in the row group (0-based, parallel
-    -- to @rgColumns@).
+  { scColumnIdx :: !Int32
+  {- ^ Leaf-column index in the row group (0-based, parallel
+  to @rgColumns@).
+  -}
   , scDescending :: !Bool
-    -- ^ Sort direction. @False@ = ascending.
+  -- ^ Sort direction. @False@ = ascending.
   , scNullsFirst :: !Bool
-    -- ^ Whether nulls sort before non-nulls.
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  -- ^ Whether nulls sort before non-nulls.
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data RowGroup = RowGroup
-  { rgColumns       :: !(Vector ColumnChunk)
+  { rgColumns :: !(Vector ColumnChunk)
   , rgTotalByteSize :: !Int64
-  , rgNumRows       :: !Int64
+  , rgNumRows :: !Int64
   , rgSortingColumns :: !(Maybe (Vector SortingColumn))
-    -- ^ Per-row-group sort metadata. 'Nothing' for unsorted
-    -- row groups (the common case); populated by writers that
-    -- want to advertise an ordering. Readers use this to skip
-    -- an ORDER BY when scanning a sorted file.
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  {- ^ Per-row-group sort metadata. 'Nothing' for unsorted
+  row groups (the common case); populated by writers that
+  want to advertise an ordering. Readers use this to skip
+  an ORDER BY when scanning a sorted file.
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
--- | Per-leaf-column ordering rule. parquet-format defines this
--- as a union with a single variant 'TypeDefinedOrder' meaning
--- \"use the type's natural ordering\". Without it, statistics
--- on BYTE_ARRAY columns can be reported but readers may refuse
--- to use them for pushdown.
+
+{- | Per-leaf-column ordering rule. parquet-format defines this
+as a union with a single variant 'TypeDefinedOrder' meaning
+\"use the type's natural ordering\". Without it, statistics
+on BYTE_ARRAY columns can be reported but readers may refuse
+to use them for pushdown.
+-}
 data ColumnOrder
   = TypeDefinedOrder
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+
 data FileMetadata = FileMetadata
-  { fmVersion   :: !Int32
-  , fmSchema    :: !(Vector SchemaElement)
-  , fmNumRows   :: !Int64
+  { fmVersion :: !Int32
+  , fmSchema :: !(Vector SchemaElement)
+  , fmNumRows :: !Int64
   , fmRowGroups :: !(Vector RowGroup)
   , fmCreatedBy :: !(Maybe Text)
   , fmColumnOrders :: !(Maybe (Vector ColumnOrder))
-    -- ^ Per-leaf-column ordering rules (parquet-format field 7).
-    -- Length must match the leaf-column count when populated.
-    -- 'Nothing' means readers fall back to legacy ordering;
-    -- modern writers always emit this.
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  {- ^ Per-leaf-column ordering rules (parquet-format field 7).
+  Length must match the leaf-column count when populated.
+  'Nothing' means readers fall back to legacy ordering;
+  modern writers always emit this.
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data Statistics = Statistics
-  { statMin           :: !(Maybe ByteString)
-  , statMax           :: !(Maybe ByteString)
-  , statNullCount     :: !(Maybe Int64)
+  { statMin :: !(Maybe ByteString)
+  , statMax :: !(Maybe ByteString)
+  , statNullCount :: !(Maybe Int64)
   , statDistinctCount :: !(Maybe Int64)
-  , statMinValue      :: !(Maybe ByteString)
-  , statMaxValue      :: !(Maybe ByteString)
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  , statMinValue :: !(Maybe ByteString)
+  , statMaxValue :: !(Maybe ByteString)
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data PageLocation = PageLocation
-  { plOffset             :: !Int64
+  { plOffset :: !Int64
   , plCompressedPageSize :: !Int32
-  , plFirstRowIndex      :: !Int64
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  , plFirstRowIndex :: !Int64
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
 
 data OffsetIndex = OffsetIndex
-  { oiPageLocations              :: !(Vector PageLocation)
-  -- | Per-page unencoded byte counts for BYTE_ARRAY columns (parquet-format
-  -- 2.11+). Same length as 'oiPageLocations' when present; @Nothing@ for
-  -- non-BYTE_ARRAY columns or older writers.
+  { oiPageLocations :: !(Vector PageLocation)
   , oiUnencodedByteArrayDataBytes :: !(Maybe (Vector Int64))
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  {- ^ Per-page unencoded byte counts for BYTE_ARRAY columns (parquet-format
+  2.11+). Same length as 'oiPageLocations' when present; @Nothing@ for
+  non-BYTE_ARRAY columns or older writers.
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
--- | Page-level boundary ordering for a column index's @min_values@ and
--- @max_values@. See @parquet.thrift@ enum @BoundaryOrder@.
+
+{- | Page-level boundary ordering for a column index's @min_values@ and
+@max_values@. See @parquet.thrift@ enum @BoundaryOrder@.
+-}
 data BoundaryOrder
   = OrderUnordered
   | OrderAscending
@@ -320,11 +374,13 @@ data BoundaryOrder
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+
 boundaryOrderToInt :: BoundaryOrder -> Int32
 boundaryOrderToInt = \case
   OrderUnordered -> 0
   OrderAscending -> 1
   OrderDescending -> 2
+
 
 intToBoundaryOrder :: Int32 -> Maybe BoundaryOrder
 intToBoundaryOrder = \case
@@ -333,17 +389,21 @@ intToBoundaryOrder = \case
   2 -> Just OrderDescending
   _ -> Nothing
 
+
 data ColumnIndex = ColumnIndex
-  { ciNullPages       :: !(Vector Bool)
-  , ciMinValues       :: !(Vector ByteString)
-  , ciMaxValues       :: !(Vector ByteString)
-  , ciBoundaryOrder   :: !BoundaryOrder
-  , ciNullCounts      :: !(Maybe (Vector Int64))
-  -- | Per-page repetition level histograms (flattened: @max_rep + 1@ values
-  -- per page). Optional, parquet-format 2.11+.
+  { ciNullPages :: !(Vector Bool)
+  , ciMinValues :: !(Vector ByteString)
+  , ciMaxValues :: !(Vector ByteString)
+  , ciBoundaryOrder :: !BoundaryOrder
+  , ciNullCounts :: !(Maybe (Vector Int64))
   , ciRepetitionLevelHistograms :: !(Maybe (Vector Int64))
-  -- | Per-page definition level histograms (flattened: @max_def + 1@ values
-  -- per page). Optional, parquet-format 2.11+.
+  {- ^ Per-page repetition level histograms (flattened: @max_rep + 1@ values
+  per page). Optional, parquet-format 2.11+.
+  -}
   , ciDefinitionLevelHistograms :: !(Maybe (Vector Int64))
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+  {- ^ Per-page definition level histograms (flattened: @max_def + 1@ values
+  per page). Optional, parquet-format 2.11+.
+  -}
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)

@@ -70,14 +70,17 @@ data Forward
     Method
   | -- | The cache did not contain any responses that matched the request URI.
     UriMiss
-  | -- | The cache contained a response that matched the request URI, but it could not select a response based
-    -- upon this request's header fields and stored Vary header fields.
+  | {- | The cache contained a response that matched the request URI, but it could not select a response based
+    upon this request's header fields and stored Vary header fields.
+    -}
     VaryMiss
-  | -- | The cache did not contain any responses that could be used to satisfy this request
-    -- (to be used when an implementation cannot distinguish between uri-miss and vary-miss).
+  | {- | The cache did not contain any responses that could be used to satisfy this request
+    (to be used when an implementation cannot distinguish between uri-miss and vary-miss).
+    -}
     Miss
-  | -- | The cache was able to select a fresh response for the request, but the request's
-    -- semantics (e.g., Cache-Control request directives) did not allow its use.
+  | {- | The cache was able to select a fresh response for the request, but the request's
+    semantics (e.g., Cache-Control request directives) did not allow its use.
+    -}
     Request
   | -- | The cache was able to select a response for the request, but it was stale.
     Stale

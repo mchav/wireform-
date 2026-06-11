@@ -70,11 +70,12 @@ expected=N, actual=0" error.
 data StripeFooter = StripeFooter
   { sfStreams :: !(V.Vector Stream)
   , sfEncodings :: !(V.Vector ColumnEncoding)
-  -- ^ One entry per column in the file's type tree (column 0
-  -- is the synthetic root, columns 1.. are leaves in
-  -- pre-order). Use 'defaultColumnEncodings' to populate
-  -- with @DIRECT_V2@ for every column (the right default
-  -- since wireform's writer emits RLEv2 streams).
+  {- ^ One entry per column in the file's type tree (column 0
+  is the synthetic root, columns 1.. are leaves in
+  pre-order). Use 'defaultColumnEncodings' to populate
+  with @DIRECT_V2@ for every column (the right default
+  since wireform's writer emits RLEv2 streams).
+  -}
   }
   deriving stock (Show, Eq)
 
@@ -186,8 +187,8 @@ stripeFooterBytes stripeBs si =
   let !flen = fromIntegral (siFooterLength si) :: Int
       !n = BS.length stripeBs
   in if flen <= 0 || flen > n
-      then Left "ORC.Stripe: invalid stripe footer length"
-      else Right $! BS.take flen (BS.drop (n - flen) stripeBs)
+       then Left "ORC.Stripe: invalid stripe footer length"
+       else Right $! BS.take flen (BS.drop (n - flen) stripeBs)
 
 
 -- | Slice @stLength@ bytes for this stream starting at @offset@ within @stripeBs@.
@@ -197,8 +198,8 @@ streamSlice stripeBs !offset !len =
       !l = fromIntegral len :: Int
       !n = BS.length stripeBs
   in if o < 0 || l < 0 || o + l > n
-      then Left "ORC.Stripe: stream slice out of bounds"
-      else Right $! BS.take l (BS.drop o stripeBs)
+       then Left "ORC.Stripe: stream slice out of bounds"
+       else Right $! BS.take l (BS.drop o stripeBs)
 
 
 {- | Walk streams in @StripeFooter@ order and slice each payload from the start
@@ -213,9 +214,9 @@ stripeStreamSlices stripeBs (StripeFooter streams _encs) = go 0 0 V.empty
           let st = V.unsafeIndex streams i
               !l = stLength st
           in case streamSlice stripeBs pos l of
-              Left e -> Left e
-              Right chunk ->
-                go (i + 1) (pos + l) (V.snoc acc (st, chunk))
+               Left e -> Left e
+               Right chunk ->
+                 go (i + 1) (pos + l) (V.snoc acc (st, chunk))
 
 
 {- | Parse protobuf @StripeFooter@. Reads the @streams@ list

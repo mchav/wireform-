@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-{-|
+{- |
 Module      : Kafka.Streams.Serde.JsonSchema
 Description : JSON-Schema payload serde for Confluent Schema Registry
 
@@ -11,46 +11,51 @@ payloads. The wire format is identical (Confluent envelope +
 JSON body); the schema registered with the registry is a
 JSON-Schema document rather than an Avro schema.
 -}
-module Kafka.Streams.Serde.JsonSchema
-  ( JsonSchemaEncoder (..)
-  , JsonSchemaDecoder (..)
-  , JsonSchemaSerdeConfig (..)
-  , jsonSchemaSerde
-  ) where
+module Kafka.Streams.Serde.JsonSchema (
+  JsonSchemaEncoder (..),
+  JsonSchemaDecoder (..),
+  JsonSchemaSerdeConfig (..),
+  jsonSchemaSerde,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.Text as T
-
+import Data.Text qualified as T
 import Kafka.Streams.Serde (Serde (..))
-import qualified Kafka.Streams.Serde.SchemaRegistry as SR
+import Kafka.Streams.Serde.SchemaRegistry qualified as SR
+
 
 newtype JsonSchemaEncoder a = JsonSchemaEncoder
   { runJsonSchemaEncoder :: a -> ByteString
   }
 
+
 newtype JsonSchemaDecoder a = JsonSchemaDecoder
   { runJsonSchemaDecoder :: ByteString -> Either String a
   }
 
+
 data JsonSchemaSerdeConfig a = JsonSchemaSerdeConfig
-  { jssClient   :: !SR.SchemaRegistryClient
-  , jssSubject  :: !SR.SchemaSubject
-  , jssSchema   :: !SR.SchemaPayload
-  , jssEncoder  :: !(JsonSchemaEncoder a)
-  , jssDecoder  :: !(JsonSchemaDecoder a)
+  { jssClient :: !SR.SchemaRegistryClient
+  , jssSubject :: !SR.SchemaSubject
+  , jssSchema :: !SR.SchemaPayload
+  , jssEncoder :: !(JsonSchemaEncoder a)
+  , jssDecoder :: !(JsonSchemaDecoder a)
   }
 
+
 jsonSchemaSerde :: JsonSchemaSerdeConfig a -> IO (Serde a)
-jsonSchemaSerde JsonSchemaSerdeConfig{..} =
-  SR.registrySerde SR.SchemaRegistrySerdeConfig
-    { SR.srscClient  = jssClient
-    , SR.srscSubject = jssSubject
-    , SR.srscSchema  = jssSchema
-    , SR.srscPayload = Serde
-        { serialize   = runJsonSchemaEncoder jssEncoder
-        , deserialize = \b -> case runJsonSchemaDecoder jssDecoder b of
-            Left e  -> Left (T.pack e)
-            Right a -> Right a
-        , serializeHeaders = const mempty
-        }
-    }
+jsonSchemaSerde JsonSchemaSerdeConfig {..} =
+  SR.registrySerde
+    SR.SchemaRegistrySerdeConfig
+      { SR.srscClient = jssClient
+      , SR.srscSubject = jssSubject
+      , SR.srscSchema = jssSchema
+      , SR.srscPayload =
+          Serde
+            { serialize = runJsonSchemaEncoder jssEncoder
+            , deserialize = \b -> case runJsonSchemaDecoder jssDecoder b of
+                Left e -> Left (T.pack e)
+                Right a -> Right a
+            , serializeHeaders = const mempty
+            }
+      }

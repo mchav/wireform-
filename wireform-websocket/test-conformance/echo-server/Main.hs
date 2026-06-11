@@ -16,41 +16,44 @@ module Main (main) where
 
 import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, try)
-import qualified Data.ByteString.Char8 as BS8
-import qualified System.Environment as Env
-import System.IO
-
+import Data.ByteString.Char8 qualified as BS8
 import Network.WebSocket.Message
 import Network.WebSocket.Server
+import System.Environment qualified as Env
+import System.IO
+
 
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   port <- maybe "9001" id <$> Env.lookupEnv "WIREFORM_AUTOBAHN_PORT"
   putStrLn $ "wireform-websocket Autobahn echo server: listening on 127.0.0.1:" <> port
-  runWebSocketServer defaultWebSocketServerConfig
-    { wscHost              = "127.0.0.1"
-    , wscPort              = port
-    , wscHandler           = echo
-    , wscOnException       = \req e -> do
-        BS8.hPutStrLn stderr ("handler exception: " <> BS8.pack (show e))
-        BS8.hPutStrLn stderr ("  for: " <> BS8.pack (show req))
-    , wscOnHandshakeError  = \e ->
-        BS8.hPutStrLn stderr ("handshake rejected: " <> BS8.pack (show e))
-    , wscSelectSubProtocol = \_ -> Nothing
-    , wscForkConnection    = forkIO
-    }
+  runWebSocketServer
+    defaultWebSocketServerConfig
+      { wscHost = "127.0.0.1"
+      , wscPort = port
+      , wscHandler = echo
+      , wscOnException = \req e -> do
+          BS8.hPutStrLn stderr ("handler exception: " <> BS8.pack (show e))
+          BS8.hPutStrLn stderr ("  for: " <> BS8.pack (show req))
+      , wscOnHandshakeError = \e ->
+          BS8.hPutStrLn stderr ("handshake rejected: " <> BS8.pack (show e))
+      , wscSelectSubProtocol = \_ -> Nothing
+      , wscForkConnection = forkIO
+      }
 
--- | The simplest possible echo: 'receiveMessage' already drives
--- ping \u2192 pong autopilot and surfaces peer close via
--- 'WebSocketPeerClosed', so the only work the handler does is
--- echo each data message verbatim.
+
+{- | The simplest possible echo: 'receiveMessage' already drives
+ping \u2192 pong autopilot and surfaces peer close via
+'WebSocketPeerClosed', so the only work the handler does is
+echo each data message verbatim.
+-}
 echo :: WebSocketHandler
 echo _req conn = loop
   where
     loop = do
       r <- try @SomeException (receiveMessage conn defaultMessageLimit)
       case r of
-        Left _                    -> pure ()
-        Right (TextMessage t)     -> sendTextMessage   conn t   >> loop
-        Right (BinaryMessage bs)  -> sendBinaryMessage conn bs  >> loop
+        Left _ -> pure ()
+        Right (TextMessage t) -> sendTextMessage conn t >> loop
+        Right (BinaryMessage bs) -> sendBinaryMessage conn bs >> loop

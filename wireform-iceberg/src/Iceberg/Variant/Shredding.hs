@@ -73,11 +73,13 @@ data ShreddedType
   | ShredDouble
   | ShredBool
   | ShredString
-  | -- | Nested array element type. Enables @LIST<LIST<…>>@ shapes
-    -- on the read path.
+  | {- | Nested array element type. Enables @LIST<LIST<…>>@ shapes
+    on the read path.
+    -}
     ShredArrayOf !ShreddedType
-  | -- | Nested object element schema. Enables objects nested
-    -- inside arrays / other objects on the read path.
+  | {- | Nested object element schema. Enables objects nested
+    inside arrays / other objects on the read path.
+    -}
     ShredObjectOf !ObjectShreddingSchema
   deriving (Show, Eq)
 
@@ -102,9 +104,10 @@ data ShreddedRow
     ShredAsValue !ByteString
   | ShredMissing
   | ShredVariantNull
-  | -- | Element of a shredded-array column whose element type is
-    -- itself an array. Allows nested @LIST<LIST<…>>@ and
-    -- @LIST<OBJECT<…>>@ shapes on the read path.
+  | {- | Element of a shredded-array column whose element type is
+    itself an array. Allows nested @LIST<LIST<…>>@ and
+    @LIST<OBJECT<…>>@ shapes on the read path.
+    -}
     ShredAsArrayOf !ArrayShreddedRow
   | -- | Element whose type is itself a shredded object.
     ShredAsObjectOf !ObjectShreddedRow
@@ -273,11 +276,13 @@ Mirrors the Python @construct_variant@ algorithm's input.
 -}
 data ShreddedColumn = ShreddedColumn
   { sc_value :: !(Maybe ByteString)
-  -- ^ The unshredded fallback. When non-null, holds the
-  --   re-encoded Variant value bytes for the row.
+  {- ^ The unshredded fallback. When non-null, holds the
+  re-encoded Variant value bytes for the row.
+  -}
   , sc_typedValue :: !(Maybe TypedValue)
-  -- ^ The typed sub-column. When non-null, the row matched the
-  --   shredded type.
+  {- ^ The typed sub-column. When non-null, the row matched the
+  shredded type.
+  -}
   }
   deriving (Show, Eq)
 
@@ -315,8 +320,9 @@ between 'IV.VNull' and 'Nothing' depending on context.
 -}
 reconstructVariant
   :: ByteString
-  -- ^ Shared metadata bytes (the 'metadata' column of the
-  --   shredded group, the same for every row).
+  {- ^ Shared metadata bytes (the 'metadata' column of the
+  shredded group, the same for every row).
+  -}
   -> ShreddedColumn
   -> Either String (Maybe IV.Variant)
 reconstructVariant meta sc = case (sc_value sc, sc_typedValue sc) of
@@ -427,13 +433,15 @@ shape per the spec:
 -}
 data ObjectShreddedRow = ObjectShreddedRow
   { osrValue :: !(Maybe ByteString)
-  -- ^ Bytes of the unshredded fallback (re-encoded Variant); may
-  --   be the canonical Variant-null encoding @0x00@.
+  {- ^ Bytes of the unshredded fallback (re-encoded Variant); may
+  be the canonical Variant-null encoding @0x00@.
+  -}
   , osrTypedFields :: !(Maybe [(Text, ShreddedRow)])
-  -- ^ When the variant was an object (fully or partially
-  --   shredded), one entry per shredded field in
-  --   'ossFields' order. When the variant wasn't an object,
-  --   'Nothing'.
+  {- ^ When the variant was an object (fully or partially
+  shredded), one entry per shredded field in
+  'ossFields' order. When the variant wasn't an object,
+  'Nothing'.
+  -}
   }
   deriving (Show, Eq)
 
@@ -610,13 +618,15 @@ reconstructTypedFields meta = go
 -- | One row of an array-shredded column.
 data ArrayShreddedRow = ArrayShreddedRow
   { asrValue :: !(Maybe ByteString)
-  -- ^ Unshredded fallback: the canonical Variant null bytes
-  --   when the row is null, the re-encoded non-array variant
-  --   when the row isn't an array, or 'Nothing' when the row
-  --   is an array (in which case 'asrTypedElements' is set).
+  {- ^ Unshredded fallback: the canonical Variant null bytes
+  when the row is null, the re-encoded non-array variant
+  when the row isn't an array, or 'Nothing' when the row
+  is an array (in which case 'asrTypedElements' is set).
+  -}
   , asrTypedElements :: !(Maybe [ShreddedRow])
-  -- ^ One ShreddedRow per array element when the row is an
-  --   array; 'Nothing' otherwise.
+  {- ^ One ShreddedRow per array element when the row is an
+  array; 'Nothing' otherwise.
+  -}
   }
   deriving (Show, Eq)
 

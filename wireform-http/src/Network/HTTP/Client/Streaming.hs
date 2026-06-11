@@ -1,3 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {- | Streaming-friendly base transport.
 
 The default 'Network.HTTP.Client.Base.baseTransport' and
@@ -39,42 +44,37 @@ This module is the substrate for a streaming-capable pool. Once
 pool can adopt this same worker-per-checkout shape and we collapse
 the two transports back into one.
 -}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-module Network.HTTP.Client.Streaming
-  ( streamedTransport
-  , streamedTransportVia
-  , streamedTransportWith
-  , streamedTransportWithVia
-  , StreamingError (..)
-  ) where
+module Network.HTTP.Client.Streaming (
+  streamedTransport,
+  streamedTransportVia,
+  streamedTransportWith,
+  streamedTransportWithVia,
+  StreamingError (..),
+) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, mask, throwIO, try)
 import Control.Monad (void)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef
+import Network.HTTP.Client.BodyStream (BodyStream, Popper, bodyStreamBytes)
+import Network.HTTP.Client.Protocol
+import Network.HTTP.Client.Proxy (Proxy, ProxyConfig)
+import Network.HTTP.Client.Proxy qualified as Pxy
+import Network.HTTP.Client.Request qualified as WReq
+import Network.HTTP.Client.Response
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI qualified as WURI
+import Network.HTTP.Connection qualified as Conn
+import Network.HTTP.Message qualified as Msg
+import Network.HTTP.Types.Body qualified as LB
+import Network.HTTP.Types.Version qualified as LV
+import Network.HTTP.VersionRange qualified as VR
 
-import qualified Network.HTTP.Connection    as Conn
-import qualified Network.HTTP.Message       as Msg
-import qualified Network.HTTP.Types.Body    as LB
-import qualified Network.HTTP.Types.Version as LV
-import qualified Network.HTTP.VersionRange  as VR
-
-import           Network.HTTP.Client.BodyStream (BodyStream, Popper, bodyStreamBytes)
-import           Network.HTTP.Client.Protocol
-import qualified Network.HTTP.Client.Request   as WReq
-import           Network.HTTP.Client.Response
-import           Network.HTTP.Client.Transport
-import qualified Network.HTTP.Client.URI       as WURI
-import qualified Network.HTTP.Client.Proxy     as Pxy
-import           Network.HTTP.Client.Proxy     (Proxy, ProxyConfig)
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -85,7 +85,9 @@ data StreamingError
   | StreamingHandshakeFailed !String
   deriving stock (Show)
 
+
 instance Exception StreamingError
+
 
 -- ---------------------------------------------------------------------------
 -- Public API
@@ -95,41 +97,47 @@ instance Exception StreamingError
 streamedTransport :: VR.VersionRange -> Transport IO
 streamedTransport = streamedTransportWith 32
 
--- | Proxy-aware variant of 'streamedTransport'. See
--- 'streamedTransportWithVia' for the routing rules.
+
+{- | Proxy-aware variant of 'streamedTransport'. See
+'streamedTransportWithVia' for the routing rules.
+-}
 streamedTransportVia :: VR.VersionRange -> ProxyConfig -> Transport IO
 streamedTransportVia = streamedTransportWithVia 32
 
--- | Streaming base transport with explicit chunk-queue capacity. A
--- small queue applies natural back-pressure to the producer when
--- the consumer is slow; a large queue smooths over jittery
--- consumers at the cost of more buffering.
+
+{- | Streaming base transport with explicit chunk-queue capacity. A
+small queue applies natural back-pressure to the producer when
+the consumer is slow; a large queue smooths over jittery
+consumers at the cost of more buffering.
+-}
 streamedTransportWith :: Int -> VR.VersionRange -> Transport IO
 streamedTransportWith qcap versionRange =
   streamedTransportWithVia qcap versionRange Pxy.noProxyConfig
 
--- | Proxy-aware variant of 'streamedTransportWith'. Routes HTTPS
--- targets through @CONNECT@ when an HTTPS proxy is configured;
--- HTTP targets dial the proxy directly (the absolute-form request
--- line is the responsibility of the
--- 'Network.HTTP.Client.Proxy.withProxy' middleware).
+
+{- | Proxy-aware variant of 'streamedTransportWith'. Routes HTTPS
+targets through @CONNECT@ when an HTTPS proxy is configured;
+HTTP targets dial the proxy directly (the absolute-form request
+line is the responsibility of the
+'Network.HTTP.Client.Proxy.withProxy' middleware).
+-}
 streamedTransportWithVia :: Int -> VR.VersionRange -> ProxyConfig -> Transport IO
 streamedTransportWithVia qcap versionRange pcfg = Transport $ \req -> do
   cfg <- connectionConfigForRequest versionRange req
   uri_ <- case WURI.renderRequestURI (WReq.requestURI req) of
-    Right u  -> pure u
+    Right u -> pure u
     Left err -> throwIO (StreamingInvalidURI err)
   let mProxy
         | Pxy.shouldBypass pcfg (WURI.uriHost uri_) = Nothing
         | otherwise = case WURI.uriScheme uri_ of
-            WURI.SchemeHttp  -> Pxy.proxyForHttp pcfg
+            WURI.SchemeHttp -> Pxy.proxyForHttp pcfg
             WURI.SchemeHttps -> Pxy.proxyForHttps pcfg
   bodyBytes <- bodyStreamBytes (WReq.body req)
   let lowReq = toLowLevelRequest uri_ bodyBytes req
 
-  chunks   <- newTBQueueIO (fromIntegral qcap)
-  rawVar   <- newEmptyMVar
-  doneVar  <- newEmptyMVar
+  chunks <- newTBQueueIO (fromIntegral qcap)
+  rawVar <- newEmptyMVar
+  doneVar <- newEmptyMVar
   finished <- newIORef False
 
   -- Worker holds the bracketed connection for the lifetime of the
@@ -138,8 +146,9 @@ streamedTransportWithVia qcap versionRange pcfg = Transport $ \req -> do
   _wtid <- forkIO $ workerLoop cfg mProxy lowReq chunks rawVar doneVar finished
   result <- takeMVar rawVar
   case result of
-    Left e    -> throwIO e
+    Left e -> throwIO e
     Right raw -> pure raw
+
 
 -- ---------------------------------------------------------------------------
 -- Worker
@@ -173,18 +182,21 @@ workerLoop cfg mProxy lowReq chunks rawVar doneVar finished = do
             atomically (writeTBQueue chunks Nothing)
             _ <- tryPutMVar doneVar ()
             pure ()
-          raw   = RawResponse
-            { statusCode    = Msg.responseStatus resp
-            , headers       = Msg.responseHeaders resp
-            , bodyPopper    = popper
-            , protocolInfo  = case Msg.responseVersion resp of
-                LV.HTTP2 -> HTTP2 Http2Info
-                  { h2StreamId     = Msg.responseH2StreamId resp
-                  , h2PushPromises = pure []
-                  , h2CancelStream = cancel
-                  }
-                _        -> HTTP1_1
-            }
+          raw =
+            RawResponse
+              { statusCode = Msg.responseStatus resp
+              , headers = Msg.responseHeaders resp
+              , bodyPopper = popper
+              , protocolInfo = case Msg.responseVersion resp of
+                  LV.HTTP2 ->
+                    HTTP2
+                      Http2Info
+                        { h2StreamId = Msg.responseH2StreamId resp
+                        , h2PushPromises = pure []
+                        , h2CancelStream = cancel
+                        }
+                  _ -> HTTP1_1
+              }
       putMVar rawVar (Right raw)
 
       -- 2. Pump the underlying body popper into 'chunks'.
@@ -206,13 +218,15 @@ workerLoop cfg mProxy lowReq chunks rawVar doneVar finished = do
       _ <- pure noResult
       pure ()
 
--- | Drain chunks from the underlying body into the TBQueue. On
--- end-of-body, queues a single 'Nothing' as the EOF marker.
+
+{- | Drain chunks from the underlying body into the TBQueue. On
+end-of-body, queues a single 'Nothing' as the EOF marker.
+-}
 pumpBody :: LB.Body -> TBQueue (Maybe ByteString) -> IO ()
 pumpBody body chunks = case body of
-  LB.BodyEmpty    -> atomically (writeTBQueue chunks Nothing)
+  LB.BodyEmpty -> atomically (writeTBQueue chunks Nothing)
   LB.BodyBytes bs -> do
-    !_ <- pure bs  -- materialised already
+    !_ <- pure bs -- materialised already
     atomically $ do
       writeTBQueue chunks (Just bs)
       writeTBQueue chunks Nothing
@@ -228,9 +242,11 @@ pumpBody body chunks = case body of
               atomically (writeTBQueue chunks (Just b))
               drainStream p
 
--- | Read one chunk from the queue. EOF (the queue's 'Nothing'
--- marker, or repeated reads after EOF) returns an empty
--- 'ByteString' and signals the worker via 'doneVar'.
+
+{- | Read one chunk from the queue. EOF (the queue's 'Nothing'
+marker, or repeated reads after EOF) returns an empty
+'ByteString' and signals the worker via 'doneVar'.
+-}
 readChunk
   :: TBQueue (Maybe ByteString)
   -> IORef Bool
@@ -251,6 +267,7 @@ readChunk chunks finished doneVar = do
           void (tryPutMVar doneVar ())
           pure BS.empty
 
+
 -- ---------------------------------------------------------------------------
 -- Connection config + request lowering (shared with the pool, but
 -- replicated here to keep the modules independent).
@@ -263,18 +280,20 @@ connectionConfigForRequest
 connectionConfigForRequest versionRange req = do
   case WURI.renderRequestURI (WReq.requestURI req) of
     Left err -> throwIO (StreamingInvalidURI err)
-    Right u  -> do
+    Right u -> do
       let scheme = WURI.uriScheme u
-          host   = BS8.unpack (WURI.uriHost u)
-          tls    = case scheme of
+          host = BS8.unpack (WURI.uriHost u)
+          tls = case scheme of
             WURI.SchemeHttps -> Just (Conn.defaultTlsConnectionConfig host)
-            WURI.SchemeHttp  -> Nothing
-      pure Conn.ConnectionConfig
-        { Conn.connectionHost         = host
-        , Conn.connectionPort         = show (WURI.uriPort u)
-        , Conn.connectionVersionRange = versionRange
-        , Conn.connectionTls          = tls
-        }
+            WURI.SchemeHttp -> Nothing
+      pure
+        Conn.ConnectionConfig
+          { Conn.connectionHost = host
+          , Conn.connectionPort = show (WURI.uriPort u)
+          , Conn.connectionVersionRange = versionRange
+          , Conn.connectionTls = tls
+          }
+
 
 toLowLevelRequest
   :: WURI.URI
@@ -284,26 +303,31 @@ toLowLevelRequest
 toLowLevelRequest uri_ bodyBytes req =
   let lowScheme = case WURI.uriScheme uri_ of
         WURI.SchemeHttps -> Msg.SchemeHttps
-        WURI.SchemeHttp  -> Msg.SchemeHttp
+        WURI.SchemeHttp -> Msg.SchemeHttp
       target = WURI.uriPathAndQuery uri_
       hostBs = WURI.uriHost uri_
       authority =
-        Just (hostBs <> case (WURI.uriScheme uri_, WURI.uriPort uri_) of
-                          (WURI.SchemeHttp,  80)  -> ""
-                          (WURI.SchemeHttps, 443) -> ""
-                          (_,                p)   -> ":" <> BS8.pack (show p))
+        Just
+          ( hostBs <> case (WURI.uriScheme uri_, WURI.uriPort uri_) of
+              (WURI.SchemeHttp, 80) -> ""
+              (WURI.SchemeHttps, 443) -> ""
+              (_, p) -> ":" <> BS8.pack (show p)
+          )
   in Msg.Request
-       { Msg.requestMethod    = WReq.method req
-       , Msg.requestTarget    = target
+       { Msg.requestMethod = WReq.method req
+       , Msg.requestTarget = target
        , Msg.requestAuthority = authority
-       , Msg.requestScheme    = lowScheme
-       , Msg.requestHeaders   = WReq.headers req
-       , Msg.requestBody      = if BS.null bodyBytes
-                                   then LB.BodyEmpty
-                                   else LB.BodyBytes bodyBytes
-       , Msg.requestVersion   = VR.preferredVersion (Conn.connectionVersionRange placeholder)
-       , Msg.requestTrailers  = pure []
+       , Msg.requestScheme = lowScheme
+       , Msg.requestHeaders = WReq.headers req
+       , Msg.requestBody =
+           if BS.null bodyBytes
+             then LB.BodyEmpty
+             else LB.BodyBytes bodyBytes
+       , Msg.requestVersion = VR.preferredVersion (Conn.connectionVersionRange placeholder)
+       , Msg.requestTrailers = pure []
        }
   where
-    placeholder = Conn.defaultConnectionConfig
-      { Conn.connectionVersionRange = VR.preferHttp1 }
+    placeholder =
+      Conn.defaultConnectionConfig
+        { Conn.connectionVersionRange = VR.preferHttp1
+        }

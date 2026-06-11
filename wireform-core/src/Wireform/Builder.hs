@@ -97,10 +97,11 @@ module Wireform.Builder (
 
   -- * Builder internals (advanced)
 
-  -- | 'StreamSink' and 'withStreamTransform' allow interposing a
-  -- streaming transformation (e.g. compression) between the builder
-  -- and its output destination. See "Wireform.Builder.FastBuilder" for
-  -- the full internal API.
+  {- | 'StreamSink' and 'withStreamTransform' allow interposing a
+  streaming transformation (e.g. compression) between the builder
+  and its output destination. See "Wireform.Builder.FastBuilder" for
+  the full internal API.
+  -}
   module Wireform.Builder.FastBuilder,
 ) where
 

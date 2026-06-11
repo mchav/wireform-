@@ -1,36 +1,38 @@
 module Test.Thrift (thriftTests) where
 
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.Vector as V
-
+import Data.Vector qualified as V
 import Hedgehog
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Test.Syd
 import Test.Syd.Hedgehog ()
-
-import Thrift.Encode (encodeBinary, encodeCompact)
 import Thrift.Decode (decodeBinary, decodeCompact)
-import Thrift.JSON (thriftToJSON, thriftFromJSON, thriftToTypedJSON, thriftFromTypedJSON)
+import Thrift.Encode (encodeBinary, encodeCompact)
+import Thrift.JSON (thriftFromJSON, thriftFromTypedJSON, thriftToJSON, thriftToTypedJSON)
 import Thrift.Message
 import Thrift.Transport (frameMessage, unframeMessage, unframeMessages)
-import qualified Thrift.Value as TV
+import Thrift.Value qualified as TV
 import Thrift.Wire (ThriftType (..))
 
+
 thriftTests :: Spec
-thriftTests = describe "Thrift Encode/Decode" $ sequence_
-  [ propertyBinaryRoundtrip
-  , propertyCompactRoundtrip
-  , unitMixedStruct
-  , unitNestedStructs
-  , unitContainers
-  , unitEmptyStructAndContainers
-  , unitProtocolsDiffer
-  , jsonTests
-  , messageTests
-  , transportTests
-  ]
+thriftTests =
+  describe "Thrift Encode/Decode" $
+    sequence_
+      [ propertyBinaryRoundtrip
+      , propertyCompactRoundtrip
+      , unitMixedStruct
+      , unitNestedStructs
+      , unitContainers
+      , unitEmptyStructAndContainers
+      , unitProtocolsDiffer
+      , jsonTests
+      , messageTests
+      , transportTests
+      ]
+
 
 --------------------------------------------------------------------------------
 -- Generators
@@ -39,609 +41,701 @@ thriftTests = describe "Thrift Encode/Decode" $ sequence_
 genText :: Gen Text
 genText = Gen.text (Range.linear 0 32) Gen.unicode
 
+
 wrapStruct :: TV.Value -> TV.Value
 wrapStruct v = TV.Struct (V.fromList [(1, v)])
+
 
 --------------------------------------------------------------------------------
 -- Property: Binary roundtrip for each primitive
 --------------------------------------------------------------------------------
 
 propertyBinaryRoundtrip :: Spec
-propertyBinaryRoundtrip = describe "Binary roundtrip (property)" $ sequence_
-  [ it "Bool" $ property $ do
-      b <- forAll Gen.bool
-      let v = wrapStruct (TV.Bool b)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "Byte" $ property $ do
-      x <- forAll $ Gen.int8 Range.linearBounded
-      let v = wrapStruct (TV.Byte x)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "I16" $ property $ do
-      x <- forAll $ Gen.int16 Range.linearBounded
-      let v = wrapStruct (TV.I16 x)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "I32" $ property $ do
-      x <- forAll $ Gen.int32 Range.linearBounded
-      let v = wrapStruct (TV.I32 x)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "I64" $ property $ do
-      x <- forAll $ Gen.int64 Range.linearBounded
-      let v = wrapStruct (TV.I64 x)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "Double" $ property $ do
-      x <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
-      let v = wrapStruct (TV.Double x)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "String" $ property $ do
-      t <- forAll genText
-      let v = wrapStruct (TV.String t)
-      decodeBinary (encodeBinary v) === Right v
-
-  , it "Binary" $ property $ do
-      b <- forAll $ Gen.bytes (Range.linear 0 128)
-      let v = wrapStruct (TV.Binary b)
-          encoded = encodeBinary v
-          decoded = decodeBinary encoded
-      case decoded of
-        Right (TV.Struct fields) | V.length fields == 1 ->
-          case snd (V.head fields) of
-            TV.Binary b' -> b' === b
-            TV.String _  -> success
+propertyBinaryRoundtrip =
+  describe "Binary roundtrip (property)" $
+    sequence_
+      [ it "Bool" $ property $ do
+          b <- forAll Gen.bool
+          let v = wrapStruct (TV.Bool b)
+          decodeBinary (encodeBinary v) === Right v
+      , it "Byte" $ property $ do
+          x <- forAll $ Gen.int8 Range.linearBounded
+          let v = wrapStruct (TV.Byte x)
+          decodeBinary (encodeBinary v) === Right v
+      , it "I16" $ property $ do
+          x <- forAll $ Gen.int16 Range.linearBounded
+          let v = wrapStruct (TV.I16 x)
+          decodeBinary (encodeBinary v) === Right v
+      , it "I32" $ property $ do
+          x <- forAll $ Gen.int32 Range.linearBounded
+          let v = wrapStruct (TV.I32 x)
+          decodeBinary (encodeBinary v) === Right v
+      , it "I64" $ property $ do
+          x <- forAll $ Gen.int64 Range.linearBounded
+          let v = wrapStruct (TV.I64 x)
+          decodeBinary (encodeBinary v) === Right v
+      , it "Double" $ property $ do
+          x <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
+          let v = wrapStruct (TV.Double x)
+          decodeBinary (encodeBinary v) === Right v
+      , it "String" $ property $ do
+          t <- forAll genText
+          let v = wrapStruct (TV.String t)
+          decodeBinary (encodeBinary v) === Right v
+      , it "Binary" $ property $ do
+          b <- forAll $ Gen.bytes (Range.linear 0 128)
+          let v = wrapStruct (TV.Binary b)
+              encoded = encodeBinary v
+              decoded = decodeBinary encoded
+          case decoded of
+            Right (TV.Struct fields) | V.length fields == 1 ->
+              case snd (V.head fields) of
+                TV.Binary b' -> b' === b
+                TV.String _ -> success
+                other -> do
+                  annotate (show other)
+                  failure
             other -> do
               annotate (show other)
               failure
-        other -> do
-          annotate (show other)
-          failure
+      , it "UUID" $ property $ do
+          u <- forAll $ Gen.bytes (Range.singleton 16)
+          let v = wrapStruct (TV.UUID u)
+          decodeBinary (encodeBinary v) === Right v
+      ]
 
-  , it "UUID" $ property $ do
-      u <- forAll $ Gen.bytes (Range.singleton 16)
-      let v = wrapStruct (TV.UUID u)
-      decodeBinary (encodeBinary v) === Right v
-  ]
 
 --------------------------------------------------------------------------------
 -- Property: Compact roundtrip for each primitive
 --------------------------------------------------------------------------------
 
 propertyCompactRoundtrip :: Spec
-propertyCompactRoundtrip = describe "Compact roundtrip (property)" $ sequence_
-  [ it "Bool" $ property $ do
-      b <- forAll Gen.bool
-      let v = wrapStruct (TV.Bool b)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "Byte" $ property $ do
-      x <- forAll $ Gen.int8 Range.linearBounded
-      let v = wrapStruct (TV.Byte x)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "I16" $ property $ do
-      x <- forAll $ Gen.int16 Range.linearBounded
-      let v = wrapStruct (TV.I16 x)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "I32" $ property $ do
-      x <- forAll $ Gen.int32 Range.linearBounded
-      let v = wrapStruct (TV.I32 x)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "I64" $ property $ do
-      x <- forAll $ Gen.int64 Range.linearBounded
-      let v = wrapStruct (TV.I64 x)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "Double" $ property $ do
-      x <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
-      let v = wrapStruct (TV.Double x)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "String" $ property $ do
-      t <- forAll genText
-      let v = wrapStruct (TV.String t)
-      decodeCompact (encodeCompact v) === Right v
-
-  , it "Binary" $ property $ do
-      b <- forAll $ Gen.bytes (Range.linear 0 128)
-      let v = wrapStruct (TV.Binary b)
-          encoded = encodeCompact v
-          decoded = decodeCompact encoded
-      case decoded of
-        Right (TV.Struct fields) | V.length fields == 1 ->
-          case snd (V.head fields) of
-            TV.Binary b' -> b' === b
-            TV.String _  -> success
+propertyCompactRoundtrip =
+  describe "Compact roundtrip (property)" $
+    sequence_
+      [ it "Bool" $ property $ do
+          b <- forAll Gen.bool
+          let v = wrapStruct (TV.Bool b)
+          decodeCompact (encodeCompact v) === Right v
+      , it "Byte" $ property $ do
+          x <- forAll $ Gen.int8 Range.linearBounded
+          let v = wrapStruct (TV.Byte x)
+          decodeCompact (encodeCompact v) === Right v
+      , it "I16" $ property $ do
+          x <- forAll $ Gen.int16 Range.linearBounded
+          let v = wrapStruct (TV.I16 x)
+          decodeCompact (encodeCompact v) === Right v
+      , it "I32" $ property $ do
+          x <- forAll $ Gen.int32 Range.linearBounded
+          let v = wrapStruct (TV.I32 x)
+          decodeCompact (encodeCompact v) === Right v
+      , it "I64" $ property $ do
+          x <- forAll $ Gen.int64 Range.linearBounded
+          let v = wrapStruct (TV.I64 x)
+          decodeCompact (encodeCompact v) === Right v
+      , it "Double" $ property $ do
+          x <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
+          let v = wrapStruct (TV.Double x)
+          decodeCompact (encodeCompact v) === Right v
+      , it "String" $ property $ do
+          t <- forAll genText
+          let v = wrapStruct (TV.String t)
+          decodeCompact (encodeCompact v) === Right v
+      , it "Binary" $ property $ do
+          b <- forAll $ Gen.bytes (Range.linear 0 128)
+          let v = wrapStruct (TV.Binary b)
+              encoded = encodeCompact v
+              decoded = decodeCompact encoded
+          case decoded of
+            Right (TV.Struct fields) | V.length fields == 1 ->
+              case snd (V.head fields) of
+                TV.Binary b' -> b' === b
+                TV.String _ -> success
+                other -> do
+                  annotate (show other)
+                  failure
             other -> do
               annotate (show other)
               failure
-        other -> do
-          annotate (show other)
-          failure
+      , it "UUID" $ property $ do
+          u <- forAll $ Gen.bytes (Range.singleton 16)
+          let v = wrapStruct (TV.UUID u)
+          decodeCompact (encodeCompact v) === Right v
+      ]
 
-  , it "UUID" $ property $ do
-      u <- forAll $ Gen.bytes (Range.singleton 16)
-      let v = wrapStruct (TV.UUID u)
-      decodeCompact (encodeCompact v) === Right v
-  ]
 
 --------------------------------------------------------------------------------
 -- Unit: struct with mixed field types
 --------------------------------------------------------------------------------
 
 unitMixedStruct :: Spec
-unitMixedStruct = describe "Mixed struct roundtrip" $ sequence_
-  [ it "Binary" $ do
-      let v = mixedStruct
-      decodeBinary (encodeBinary v) `shouldBe` Right v
+unitMixedStruct =
+  describe "Mixed struct roundtrip" $
+    sequence_
+      [ it "Binary" $ do
+          let v = mixedStruct
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Compact" $ do
+          let v = mixedStruct
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      ]
 
-  , it "Compact" $ do
-      let v = mixedStruct
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-  ]
 
 mixedStruct :: TV.Value
-mixedStruct = TV.Struct $ V.fromList
-  [ (1,  TV.Bool True)
-  , (2,  TV.Byte 42)
-  , (3,  TV.I16 1000)
-  , (4,  TV.I32 100000)
-  , (5,  TV.I64 9999999999)
-  , (6,  TV.Double 3.14)
-  , (7,  TV.String "hello world")
-  , (8,  TV.Binary (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
-  , (10, TV.UUID (BS.pack [0..15]))
-  ]
+mixedStruct =
+  TV.Struct $
+    V.fromList
+      [ (1, TV.Bool True)
+      , (2, TV.Byte 42)
+      , (3, TV.I16 1000)
+      , (4, TV.I32 100000)
+      , (5, TV.I64 9999999999)
+      , (6, TV.Double 3.14)
+      , (7, TV.String "hello world")
+      , (8, TV.Binary (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
+      , (10, TV.UUID (BS.pack [0 .. 15]))
+      ]
+
 
 --------------------------------------------------------------------------------
 -- Unit: nested structs
 --------------------------------------------------------------------------------
 
 unitNestedStructs :: Spec
-unitNestedStructs = describe "Nested structs" $ sequence_
-  [ it "Binary" $ do
-      let v = nestedStruct
-      decodeBinary (encodeBinary v) `shouldBe` Right v
+unitNestedStructs =
+  describe "Nested structs" $
+    sequence_
+      [ it "Binary" $ do
+          let v = nestedStruct
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Compact" $ do
+          let v = nestedStruct
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      ]
 
-  , it "Compact" $ do
-      let v = nestedStruct
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-  ]
 
 nestedStruct :: TV.Value
-nestedStruct = TV.Struct $ V.fromList
-  [ (1, TV.String "outer")
-  , (2, TV.Struct $ V.fromList
-      [ (1, TV.String "inner")
-      , (2, TV.I32 42)
-      , (3, TV.Struct $ V.fromList
-          [ (1, TV.Bool False)
-          , (2, TV.I64 (-999))
-          ])
-      ])
-  , (3, TV.I32 7)
-  ]
+nestedStruct =
+  TV.Struct $
+    V.fromList
+      [ (1, TV.String "outer")
+      ,
+        ( 2
+        , TV.Struct $
+            V.fromList
+              [ (1, TV.String "inner")
+              , (2, TV.I32 42)
+              ,
+                ( 3
+                , TV.Struct $
+                    V.fromList
+                      [ (1, TV.Bool False)
+                      , (2, TV.I64 (-999))
+                      ]
+                )
+              ]
+        )
+      , (3, TV.I32 7)
+      ]
+
 
 --------------------------------------------------------------------------------
 -- Unit: lists, sets, maps
 --------------------------------------------------------------------------------
 
 unitContainers :: Spec
-unitContainers = describe "Container roundtrip" $ sequence_
-  [ it "List of i32 (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3]))])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
+unitContainers =
+  describe "Container roundtrip" $
+    sequence_
+      [ it "List of i32 (Binary)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3]))])
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "List of i32 (Compact)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3]))])
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Set of strings (Binary)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"]))])
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Set of strings (Compact)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"]))])
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Map i32->string (Binary)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.Map
+                            TT_I32
+                            TT_STRING
+                            ( V.fromList
+                                [ (TV.I32 1, TV.String "one")
+                                , (TV.I32 2, TV.String "two")
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Map i32->string (Compact)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.Map
+                            TT_I32
+                            TT_STRING
+                            ( V.fromList
+                                [ (TV.I32 1, TV.String "one")
+                                , (TV.I32 2, TV.String "two")
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "List of structs (Binary)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.List
+                            TT_STRUCT
+                            ( V.fromList
+                                [ TV.Struct (V.fromList [(1, TV.I32 10)])
+                                , TV.Struct (V.fromList [(1, TV.I32 20)])
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "List of structs (Compact)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.List
+                            TT_STRUCT
+                            ( V.fromList
+                                [ TV.Struct (V.fromList [(1, TV.I32 10)])
+                                , TV.Struct (V.fromList [(1, TV.I32 20)])
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Map with struct values (Binary)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.Map
+                            TT_STRING
+                            TT_STRUCT
+                            ( V.fromList
+                                [ (TV.String "x", TV.Struct (V.fromList [(1, TV.Bool True)]))
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Map with struct values (Compact)" $ do
+          let v =
+                TV.Struct
+                  ( V.fromList
+                      [
+                        ( 1
+                        , TV.Map
+                            TT_STRING
+                            TT_STRUCT
+                            ( V.fromList
+                                [ (TV.String "x", TV.Struct (V.fromList [(1, TV.Bool True)]))
+                                ]
+                            )
+                        )
+                      ]
+                  )
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      ]
 
-  , it "List of i32 (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3]))])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Set of strings (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"]))])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Set of strings (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"]))])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Map i32->string (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING
-                  (V.fromList [ (TV.I32 1, TV.String "one")
-                              , (TV.I32 2, TV.String "two")
-                              ]))])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Map i32->string (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING
-                  (V.fromList [ (TV.I32 1, TV.String "one")
-                              , (TV.I32 2, TV.String "two")
-                              ]))])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "List of structs (Binary)" $ do
-      let v = TV.Struct
-                (V.fromList [(1, TV.List TT_STRUCT
-                  (V.fromList [ TV.Struct (V.fromList [(1, TV.I32 10)])
-                              , TV.Struct (V.fromList [(1, TV.I32 20)])
-                              ]))])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "List of structs (Compact)" $ do
-      let v = TV.Struct
-                (V.fromList [(1, TV.List TT_STRUCT
-                  (V.fromList [ TV.Struct (V.fromList [(1, TV.I32 10)])
-                              , TV.Struct (V.fromList [(1, TV.I32 20)])
-                              ]))])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Map with struct values (Binary)" $ do
-      let v = TV.Struct
-                (V.fromList [(1, TV.Map TT_STRING TT_STRUCT
-                  (V.fromList [ (TV.String "x", TV.Struct (V.fromList [(1, TV.Bool True)]))
-                              ]))])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Map with struct values (Compact)" $ do
-      let v = TV.Struct
-                (V.fromList [(1, TV.Map TT_STRING TT_STRUCT
-                  (V.fromList [ (TV.String "x", TV.Struct (V.fromList [(1, TV.Bool True)]))
-                              ]))])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-  ]
 
 --------------------------------------------------------------------------------
 -- Unit: empty struct and empty containers
 --------------------------------------------------------------------------------
 
 unitEmptyStructAndContainers :: Spec
-unitEmptyStructAndContainers = describe "Empty struct and containers" $ sequence_
-  [ it "Empty struct (Binary)" $ do
-      let v = TV.Struct V.empty
-      decodeBinary (encodeBinary v) `shouldBe` Right v
+unitEmptyStructAndContainers =
+  describe "Empty struct and containers" $
+    sequence_
+      [ it "Empty struct (Binary)" $ do
+          let v = TV.Struct V.empty
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Empty struct (Compact)" $ do
+          let v = TV.Struct V.empty
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Empty list (Binary)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.List TT_I32 V.empty)])
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Empty list (Compact)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.List TT_I32 V.empty)])
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Empty set (Binary)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING V.empty)])
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Empty set (Compact)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING V.empty)])
+          decodeCompact (encodeCompact v) `shouldBe` Right v
+      , it "Empty map (Binary)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING V.empty)])
+          decodeBinary (encodeBinary v) `shouldBe` Right v
+      , it "Empty map (Compact)" $ do
+          let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING V.empty)])
+              decoded = decodeCompact (encodeCompact v)
+          case decoded of
+            Right (TV.Struct fields) | V.length fields == 1 ->
+              case snd (V.head fields) of
+                TV.Map _ _ entries | V.null entries -> return ()
+                other -> expectationFailure $ "Expected empty map, got: " ++ show other
+            other -> expectationFailure $ "Expected empty map struct, got: " ++ show other
+      ]
 
-  , it "Empty struct (Compact)" $ do
-      let v = TV.Struct V.empty
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Empty list (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.List TT_I32 V.empty)])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Empty list (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.List TT_I32 V.empty)])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Empty set (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING V.empty)])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Empty set (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Set TT_STRING V.empty)])
-      decodeCompact (encodeCompact v) `shouldBe` Right v
-
-  , it "Empty map (Binary)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING V.empty)])
-      decodeBinary (encodeBinary v) `shouldBe` Right v
-
-  , it "Empty map (Compact)" $ do
-      let v = TV.Struct (V.fromList [(1, TV.Map TT_I32 TT_STRING V.empty)])
-          decoded = decodeCompact (encodeCompact v)
-      case decoded of
-        Right (TV.Struct fields) | V.length fields == 1 ->
-          case snd (V.head fields) of
-            TV.Map _ _ entries | V.null entries -> return ()
-            other -> expectationFailure $ "Expected empty map, got: " ++ show other
-        other -> expectationFailure $ "Expected empty map struct, got: " ++ show other
-  ]
 
 --------------------------------------------------------------------------------
 -- Unit: Binary and Compact produce different bytes but decode to same value
 --------------------------------------------------------------------------------
 
 unitProtocolsDiffer :: Spec
-unitProtocolsDiffer = describe "Protocols differ in bytes, agree on values" $ sequence_
-  [ it "Simple struct" $ do
-      let v = TV.Struct $ V.fromList
-                [ (1, TV.Bool True)
-                , (2, TV.I32 42)
-                , (3, TV.String "test")
-                ]
-          binBytes  = encodeBinary v
-          compBytes = encodeCompact v
-      (binBytes /= compBytes) `shouldBe` True
-      decodeBinary binBytes   `shouldBe` Right v
-      decodeCompact compBytes `shouldBe` Right v
+unitProtocolsDiffer =
+  describe "Protocols differ in bytes, agree on values" $
+    sequence_
+      [ it "Simple struct" $ do
+          let v =
+                TV.Struct $
+                  V.fromList
+                    [ (1, TV.Bool True)
+                    , (2, TV.I32 42)
+                    , (3, TV.String "test")
+                    ]
+              binBytes = encodeBinary v
+              compBytes = encodeCompact v
+          (binBytes /= compBytes) `shouldBe` True
+          decodeBinary binBytes `shouldBe` Right v
+          decodeCompact compBytes `shouldBe` Right v
+      , it "Struct with containers" $ do
+          let v =
+                TV.Struct $
+                  V.fromList
+                    [ (1, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
+                    ,
+                      ( 2
+                      , TV.Map
+                          TT_STRING
+                          TT_I32
+                          (V.fromList [(TV.String "a", TV.I32 1)])
+                      )
+                    ]
+              binBytes = encodeBinary v
+              compBytes = encodeCompact v
+          (binBytes /= compBytes) `shouldBe` True
+          decodeBinary binBytes `shouldBe` Right v
+          decodeCompact compBytes `shouldBe` Right v
+      , it "Nested struct" $ do
+          let v =
+                TV.Struct $
+                  V.fromList
+                    [ (1, TV.Struct (V.fromList [(1, TV.I32 (-1)), (2, TV.Bool False)]))
+                    , (2, TV.Double 2.718)
+                    ]
+              binBytes = encodeBinary v
+              compBytes = encodeCompact v
+          (binBytes /= compBytes) `shouldBe` True
+          decodeBinary binBytes `shouldBe` Right v
+          decodeCompact compBytes `shouldBe` Right v
+      ]
 
-  , it "Struct with containers" $ do
-      let v = TV.Struct $ V.fromList
-                [ (1, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
-                , (2, TV.Map TT_STRING TT_I32
-                     (V.fromList [(TV.String "a", TV.I32 1)]))
-                ]
-          binBytes  = encodeBinary v
-          compBytes = encodeCompact v
-      (binBytes /= compBytes) `shouldBe` True
-      decodeBinary binBytes   `shouldBe` Right v
-      decodeCompact compBytes `shouldBe` Right v
-
-  , it "Nested struct" $ do
-      let v = TV.Struct $ V.fromList
-                [ (1, TV.Struct (V.fromList [(1, TV.I32 (-1)), (2, TV.Bool False)]))
-                , (2, TV.Double 2.718)
-                ]
-          binBytes  = encodeBinary v
-          compBytes = encodeCompact v
-      (binBytes /= compBytes) `shouldBe` True
-      decodeBinary binBytes   `shouldBe` Right v
-      decodeCompact compBytes `shouldBe` Right v
-  ]
 
 --------------------------------------------------------------------------------
 -- JSON protocol tests
 --------------------------------------------------------------------------------
 
 jsonTests :: Spec
-jsonTests = describe "Thrift JSON" $ sequence_
-  [ jsonPrimitiveRoundtrip
-  , jsonStructEncodeDecode
-  , jsonNestedStruct
-  , jsonContainers
-  , jsonEmptyContainers
-  , typedJsonMixedStruct
-  ]
+jsonTests =
+  describe "Thrift JSON" $
+    sequence_
+      [ jsonPrimitiveRoundtrip
+      , jsonStructEncodeDecode
+      , jsonNestedStruct
+      , jsonContainers
+      , jsonEmptyContainers
+      , typedJsonMixedStruct
+      ]
+
 
 jsonPrimitiveRoundtrip :: Spec
-jsonPrimitiveRoundtrip = describe "JSON primitive roundtrip" $ sequence_
-  [ it "Bool" $ do
-      let v = TV.Bool True
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+jsonPrimitiveRoundtrip =
+  describe "JSON primitive roundtrip" $
+    sequence_
+      [ it "Bool" $ do
+          let v = TV.Bool True
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Byte" $ do
+          let v = TV.Byte 42
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "I16" $ do
+          let v = TV.I16 (-1000)
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "I32" $ do
+          let v = TV.I32 100000
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "I64" $ do
+          let v = TV.I64 9999999999
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Double" $ do
+          let v = TV.Double 3.14
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "String" $ do
+          let v = TV.String "hello"
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Binary" $ do
+          let v = TV.Binary (BS.pack [0xDE, 0xAD])
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "UUID" $ do
+          let v = TV.UUID (BS.pack [0 .. 15])
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      ]
 
-  , it "Byte" $ do
-      let v = TV.Byte 42
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "I16" $ do
-      let v = TV.I16 (-1000)
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "I32" $ do
-      let v = TV.I32 100000
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "I64" $ do
-      let v = TV.I64 9999999999
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "Double" $ do
-      let v = TV.Double 3.14
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "String" $ do
-      let v = TV.String "hello"
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "Binary" $ do
-      let v = TV.Binary (BS.pack [0xDE, 0xAD])
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "UUID" $ do
-      let v = TV.UUID (BS.pack [0..15])
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-  ]
 
 jsonStructEncodeDecode :: Spec
 jsonStructEncodeDecode = it "JSON struct encode/decode" $ do
-  let v = TV.Struct $ V.fromList
+  let v =
+        TV.Struct $
+          V.fromList
             [ (1, TV.Bool True)
             , (2, TV.I32 42)
             , (3, TV.String "test")
             ]
   thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
 
+
 jsonNestedStruct :: Spec
 jsonNestedStruct = it "JSON nested struct" $ do
-  let v = TV.Struct $ V.fromList
+  let v =
+        TV.Struct $
+          V.fromList
             [ (1, TV.String "outer")
-            , (2, TV.Struct $ V.fromList
-                [ (1, TV.String "inner")
-                , (2, TV.I32 42)
-                ])
+            ,
+              ( 2
+              , TV.Struct $
+                  V.fromList
+                    [ (1, TV.String "inner")
+                    , (2, TV.I32 42)
+                    ]
+              )
             ]
   thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
 
+
 jsonContainers :: Spec
-jsonContainers = describe "JSON list/set/map" $ sequence_
-  [ it "List of i32" $ do
-      let v = TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3])
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+jsonContainers =
+  describe "JSON list/set/map" $
+    sequence_
+      [ it "List of i32" $ do
+          let v = TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2, TV.I32 3])
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Set of strings" $ do
+          let v = TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"])
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Map i32->string" $ do
+          let v =
+                TV.Map
+                  TT_I32
+                  TT_STRING
+                  ( V.fromList
+                      [ (TV.I32 1, TV.String "one")
+                      , (TV.I32 2, TV.String "two")
+                      ]
+                  )
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      ]
 
-  , it "Set of strings" $ do
-      let v = TV.Set TT_STRING (V.fromList [TV.String "a", TV.String "b"])
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "Map i32->string" $ do
-      let v = TV.Map TT_I32 TT_STRING
-                (V.fromList [ (TV.I32 1, TV.String "one")
-                            , (TV.I32 2, TV.String "two")
-                            ])
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-  ]
 
 jsonEmptyContainers :: Spec
-jsonEmptyContainers = describe "JSON empty containers" $ sequence_
-  [ it "Empty list" $ do
-      let v = TV.List TT_I32 V.empty
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+jsonEmptyContainers =
+  describe "JSON empty containers" $
+    sequence_
+      [ it "Empty list" $ do
+          let v = TV.List TT_I32 V.empty
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Empty set" $ do
+          let v = TV.Set TT_STRING V.empty
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      , it "Empty map" $ do
+          let v = TV.Map TT_I32 TT_STRING V.empty
+          thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
+      ]
 
-  , it "Empty set" $ do
-      let v = TV.Set TT_STRING V.empty
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-
-  , it "Empty map" $ do
-      let v = TV.Map TT_I32 TT_STRING V.empty
-      thriftFromJSON v (thriftToJSON v) `shouldBe` Right v
-  ]
 
 typedJsonMixedStruct :: Spec
 typedJsonMixedStruct = it "Typed JSON roundtrip (mixed struct)" $ do
-  let v = TV.Struct $ V.fromList
-            [ (1,  TV.Bool True)
-            , (2,  TV.Byte 42)
-            , (3,  TV.I16 1000)
-            , (4,  TV.I32 100000)
-            , (5,  TV.I64 9999999999)
-            , (6,  TV.Double 3.14)
-            , (7,  TV.String "hello world")
-            , (8,  TV.Binary (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
-            , (9,  TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2]))
+  let v =
+        TV.Struct $
+          V.fromList
+            [ (1, TV.Bool True)
+            , (2, TV.Byte 42)
+            , (3, TV.I16 1000)
+            , (4, TV.I32 100000)
+            , (5, TV.I64 9999999999)
+            , (6, TV.Double 3.14)
+            , (7, TV.String "hello world")
+            , (8, TV.Binary (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
+            , (9, TV.List TT_I32 (V.fromList [TV.I32 1, TV.I32 2]))
             , (10, TV.Set TT_STRING (V.fromList [TV.String "x", TV.String "y"]))
             ]
       encoded = thriftToTypedJSON v
       decoded = thriftFromTypedJSON encoded
   decoded `shouldBe` Right v
 
+
 --------------------------------------------------------------------------------
 -- Thrift RPC message header roundtrip tests
 --------------------------------------------------------------------------------
 
 messageTests :: Spec
-messageTests = describe "Thrift Message Headers" $ sequence_
-  [ binaryMessageTests
-  , compactMessageTests
-  ]
+messageTests =
+  describe "Thrift Message Headers" $
+    sequence_
+      [ binaryMessageTests
+      , compactMessageTests
+      ]
+
 
 binaryMessageTests :: Spec
-binaryMessageTests = describe "Binary Protocol messages" $ sequence_
-  [ it "Call roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+binaryMessageTests =
+  describe "Binary Protocol messages" $
+    sequence_
+      [ it "Call roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Reply roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Exception roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Oneway roundtrip" $ do
+          let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TV.Struct V.empty)
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Complex payload roundtrip" $ do
+          let payload =
+                TV.Struct $
+                  V.fromList
+                    [ (1, TV.String "hello")
+                    , (2, TV.I32 42)
+                    , (3, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
+                    ]
+              msg = ThriftMessage "complexMethod" TMsgCall 7 payload
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Empty method name" $ do
+          let msg = ThriftMessage "" TMsgCall 0 (TV.Struct V.empty)
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      , it "Negative seqid" $ do
+          let msg = ThriftMessage "test" TMsgReply (-1) simplePayload
+          decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
+      ]
 
-  , it "Reply roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-
-  , it "Exception roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-
-  , it "Oneway roundtrip" $ do
-      let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TV.Struct V.empty)
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-
-  , it "Complex payload roundtrip" $ do
-      let payload = TV.Struct $ V.fromList
-            [ (1, TV.String "hello")
-            , (2, TV.I32 42)
-            , (3, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
-            ]
-          msg = ThriftMessage "complexMethod" TMsgCall 7 payload
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-
-  , it "Empty method name" $ do
-      let msg = ThriftMessage "" TMsgCall 0 (TV.Struct V.empty)
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-
-  , it "Negative seqid" $ do
-      let msg = ThriftMessage "test" TMsgReply (-1) simplePayload
-      decodeMessageBinary (encodeMessageBinary msg) `shouldBe` Right msg
-  ]
 
 compactMessageTests :: Spec
-compactMessageTests = describe "Compact Protocol messages" $ sequence_
-  [ it "Call roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+compactMessageTests =
+  describe "Compact Protocol messages" $
+    sequence_
+      [ it "Call roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Reply roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Exception roundtrip" $ do
+          let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Oneway roundtrip" $ do
+          let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TV.Struct V.empty)
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Complex payload roundtrip" $ do
+          let payload =
+                TV.Struct $
+                  V.fromList
+                    [ (1, TV.String "hello")
+                    , (2, TV.I32 42)
+                    , (3, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
+                    ]
+              msg = ThriftMessage "complexMethod" TMsgCall 7 payload
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Empty method name" $ do
+          let msg = ThriftMessage "" TMsgCall 0 (TV.Struct V.empty)
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Large seqid" $ do
+          let msg = ThriftMessage "test" TMsgReply 100000 simplePayload
+          decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
+      , it "Binary and Compact produce different bytes" $ do
+          let msg = ThriftMessage "method" TMsgCall 1 simplePayload
+              binBytes = encodeMessageBinary msg
+              compBytes = encodeMessageCompact msg
+          (binBytes /= compBytes) `shouldBe` True
+          decodeMessageBinary binBytes `shouldBe` Right msg
+          decodeMessageCompact compBytes `shouldBe` Right msg
+      ]
 
-  , it "Reply roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Exception roundtrip" $ do
-      let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Oneway roundtrip" $ do
-      let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TV.Struct V.empty)
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Complex payload roundtrip" $ do
-      let payload = TV.Struct $ V.fromList
-            [ (1, TV.String "hello")
-            , (2, TV.I32 42)
-            , (3, TV.List TT_I64 (V.fromList [TV.I64 100, TV.I64 200]))
-            ]
-          msg = ThriftMessage "complexMethod" TMsgCall 7 payload
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Empty method name" $ do
-      let msg = ThriftMessage "" TMsgCall 0 (TV.Struct V.empty)
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Large seqid" $ do
-      let msg = ThriftMessage "test" TMsgReply 100000 simplePayload
-      decodeMessageCompact (encodeMessageCompact msg) `shouldBe` Right msg
-
-  , it "Binary and Compact produce different bytes" $ do
-      let msg = ThriftMessage "method" TMsgCall 1 simplePayload
-          binBytes  = encodeMessageBinary msg
-          compBytes = encodeMessageCompact msg
-      (binBytes /= compBytes) `shouldBe` True
-      decodeMessageBinary binBytes `shouldBe` Right msg
-      decodeMessageCompact compBytes `shouldBe` Right msg
-  ]
 
 simplePayload :: TV.Value
 simplePayload = TV.Struct (V.fromList [(1, TV.I32 42)])
+
 
 --------------------------------------------------------------------------------
 -- Thrift framed transport tests
 --------------------------------------------------------------------------------
 
 transportTests :: Spec
-transportTests = describe "Thrift Framed Transport" $ sequence_
-  [ it "frame/unframe roundtrip" $ do
-      let payload = BS.pack [1,2,3,4,5]
-      unframeMessage (frameMessage payload) `shouldBe` Right payload
-
-  , it "frame/unframe empty payload" $ do
-      let payload = BS.empty
-      unframeMessage (frameMessage payload) `shouldBe` Right payload
-
-  , it "frame adds 4-byte big-endian length prefix" $ do
-      let payload = BS.pack [0xDE, 0xAD]
-          framed = frameMessage payload
-      BS.length framed `shouldBe` 6
-      BS.take 4 framed `shouldBe` BS.pack [0, 0, 0, 2]
-
-  , it "unframe rejects too-short input" $ do
-      case unframeMessage (BS.pack [0, 0]) of
-        Left _ -> pure ()
-        Right _ -> expectationFailure "expected error on short input"
-
-  , it "unframe rejects truncated payload" $ do
-      case unframeMessage (BS.pack [0, 0, 0, 10, 1, 2]) of
-        Left _ -> pure ()
-        Right _ -> expectationFailure "expected error on truncated payload"
-
-  , it "unframeMessages empty" $ do
-      unframeMessages BS.empty `shouldBe` Right []
-
-  , it "unframeMessages multiple" $ do
-      let p1 = BS.pack [1,2]
-          p2 = BS.pack [3,4,5]
-          stream = frameMessage p1 <> frameMessage p2
-      unframeMessages stream `shouldBe` Right [p1, p2]
-
-  , it "unframeMessages with framed thrift message" $ do
-      let msg = ThriftMessage "test" TMsgCall 1 simplePayload
-          payload = encodeMessageBinary msg
-          framed = frameMessage payload
-      case unframeMessage framed of
-        Right unframed -> decodeMessageBinary unframed `shouldBe` Right msg
-        Left err -> expectationFailure err
-  ]
+transportTests =
+  describe "Thrift Framed Transport" $
+    sequence_
+      [ it "frame/unframe roundtrip" $ do
+          let payload = BS.pack [1, 2, 3, 4, 5]
+          unframeMessage (frameMessage payload) `shouldBe` Right payload
+      , it "frame/unframe empty payload" $ do
+          let payload = BS.empty
+          unframeMessage (frameMessage payload) `shouldBe` Right payload
+      , it "frame adds 4-byte big-endian length prefix" $ do
+          let payload = BS.pack [0xDE, 0xAD]
+              framed = frameMessage payload
+          BS.length framed `shouldBe` 6
+          BS.take 4 framed `shouldBe` BS.pack [0, 0, 0, 2]
+      , it "unframe rejects too-short input" $ do
+          case unframeMessage (BS.pack [0, 0]) of
+            Left _ -> pure ()
+            Right _ -> expectationFailure "expected error on short input"
+      , it "unframe rejects truncated payload" $ do
+          case unframeMessage (BS.pack [0, 0, 0, 10, 1, 2]) of
+            Left _ -> pure ()
+            Right _ -> expectationFailure "expected error on truncated payload"
+      , it "unframeMessages empty" $ do
+          unframeMessages BS.empty `shouldBe` Right []
+      , it "unframeMessages multiple" $ do
+          let p1 = BS.pack [1, 2]
+              p2 = BS.pack [3, 4, 5]
+              stream = frameMessage p1 <> frameMessage p2
+          unframeMessages stream `shouldBe` Right [p1, p2]
+      , it "unframeMessages with framed thrift message" $ do
+          let msg = ThriftMessage "test" TMsgCall 1 simplePayload
+              payload = encodeMessageBinary msg
+              framed = frameMessage payload
+          case unframeMessage framed of
+            Right unframed -> decodeMessageBinary unframed `shouldBe` Right msg
+            Left err -> expectationFailure err
+      ]

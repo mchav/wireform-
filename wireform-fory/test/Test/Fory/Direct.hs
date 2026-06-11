@@ -1,147 +1,168 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
--- | Tests for the typed 'Fory.Direct' encoder / decoder. Each
--- case asserts that 'encodeDirect' produces the same bytes as
--- 'Fory.Encode.encode' would for the corresponding 'Value', and
--- that 'decodeDirect' round-trips the original Haskell value.
+
+{- | Tests for the typed 'Fory.Direct' encoder / decoder. Each
+case asserts that 'encodeDirect' produces the same bytes as
+'Fory.Encode.encode' would for the corresponding 'Value', and
+that 'decodeDirect' round-trips the original Haskell value.
+-}
 module Test.Fory.Direct (tests) where
 
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import Data.Int (Int8, Int16, Int32, Int64)
+import Data.HashMap.Strict qualified as HM
+import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Text (Text)
-import qualified Data.Vector as V
-import qualified Data.Vector.Storable as VS
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Vector qualified as V
+import Data.Vector.Storable qualified as VS
+import Data.Word (Word16, Word32, Word64, Word8)
+import Fory.Direct qualified as FD
+import Fory.Encode qualified as E
+import Fory.Value qualified as VV
 import Test.Syd
 
-import qualified Fory.Direct as FD
-import qualified Fory.Encode as E
-import qualified Fory.Value as VV
 
 tests :: Spec
-tests = describe "Fory.Direct" $ sequence_
-  [ describe "primitives match Value bytes" $ sequence_
-      [ it "Int 1234567890" $
-          FD.encodeDirect (1234567890 :: Int)
-            `shouldBe` E.encode (VV.VarInt64Val 1234567890)
-      , it "Int8 -42" $
-          FD.encodeDirect (-42 :: Int8)
-            `shouldBe` E.encode (VV.Int8Val (-42))
-      , it "Int32 maxBound" $
-          FD.encodeDirect (maxBound :: Int32)
-            `shouldBe` E.encode (VV.Int32Val maxBound)
-      , it "Word16 0xABCD" $
-          FD.encodeDirect (0xABCD :: Word16)
-            `shouldBe` E.encode (VV.Uint16Val 0xABCD)
-      , it "Float 3.14" $
-          FD.encodeDirect (3.14 :: Float)
-            `shouldBe` E.encode (VV.Float32Val 3.14)
-      , it "Double 3.14159" $
-          FD.encodeDirect (3.14159 :: Double)
-            `shouldBe` E.encode (VV.Float64Val 3.14159)
-      , it "Bool True" $
-          FD.encodeDirect True
-            `shouldBe` E.encode (VV.BoolVal True)
-      , it "Text \"hello\"" $
-          FD.encodeDirect ("hello" :: Text)
-            `shouldBe` E.encode (VV.StringVal "hello")
-      , it "ByteString [42, 43, 44]" $
-          FD.encodeDirect (BS.pack [42, 43, 44])
-            `shouldBe` E.encode (VV.BinaryVal (BS.pack [42, 43, 44]))
+tests =
+  describe "Fory.Direct" $
+    sequence_
+      [ describe "primitives match Value bytes" $
+          sequence_
+            [ it "Int 1234567890" $
+                FD.encodeDirect (1234567890 :: Int)
+                  `shouldBe` E.encode (VV.VarInt64Val 1234567890)
+            , it "Int8 -42" $
+                FD.encodeDirect (-42 :: Int8)
+                  `shouldBe` E.encode (VV.Int8Val (-42))
+            , it "Int32 maxBound" $
+                FD.encodeDirect (maxBound :: Int32)
+                  `shouldBe` E.encode (VV.Int32Val maxBound)
+            , it "Word16 0xABCD" $
+                FD.encodeDirect (0xABCD :: Word16)
+                  `shouldBe` E.encode (VV.Uint16Val 0xABCD)
+            , it "Float 3.14" $
+                FD.encodeDirect (3.14 :: Float)
+                  `shouldBe` E.encode (VV.Float32Val 3.14)
+            , it "Double 3.14159" $
+                FD.encodeDirect (3.14159 :: Double)
+                  `shouldBe` E.encode (VV.Float64Val 3.14159)
+            , it "Bool True" $
+                FD.encodeDirect True
+                  `shouldBe` E.encode (VV.BoolVal True)
+            , it "Text \"hello\"" $
+                FD.encodeDirect ("hello" :: Text)
+                  `shouldBe` E.encode (VV.StringVal "hello")
+            , it "ByteString [42, 43, 44]" $
+                FD.encodeDirect (BS.pack [42, 43, 44])
+                  `shouldBe` E.encode (VV.BinaryVal (BS.pack [42, 43, 44]))
+            ]
+      , describe "[a] (boxed lists) match Value bytes" $
+          sequence_
+            [ it "[Int] [1..5]" $ do
+                let xs = [1 .. 5] :: [Int]
+                    direct = FD.encodeDirect xs
+                    valForm =
+                      VV.ListVal
+                        (V.fromList (map (VV.VarInt64Val . fromIntegral) xs))
+                    viaValue = E.encode valForm
+                direct `shouldBe` viaValue
+            , it "[Int] empty" $
+                FD.encodeDirect ([] :: [Int])
+                  `shouldBe` E.encode (VV.ListVal V.empty)
+            , it "[Text] [\"hi\", \"world\"]" $ do
+                let xs = ["hi", "world"] :: [Text]
+                    direct = FD.encodeDirect xs
+                    valForm = VV.ListVal (V.fromList (map VV.StringVal xs))
+                direct `shouldBe` E.encode valForm
+            , it "[Int32] [10, 20, 30]" $ do
+                let xs = [10, 20, 30] :: [Int32]
+                    direct = FD.encodeDirect xs
+                    valForm = VV.ListVal (V.fromList (map VV.Int32Val xs))
+                direct `shouldBe` E.encode valForm
+            ]
+      , describe "primitive arrays match Value bytes" $
+          sequence_
+            [ it "VS.Vector Int32 [1,2,3]" $ do
+                let v = VS.fromList [1, 2, 3 :: Int32]
+                    direct = FD.encodeDirect v
+                    valForm = VV.Int32ArrayVal v
+                direct `shouldBe` E.encode valForm
+            , it "VS.Vector Float64 [1.5, -2.5]" $ do
+                let v = VS.fromList [1.5, -2.5]
+                    direct = FD.encodeDirect v
+                    valForm = VV.Float64ArrayVal v
+                direct `shouldBe` E.encode valForm
+            , it "VS.Vector Word8 [0xDE, 0xAD]" $ do
+                let v = VS.fromList [0xDE, 0xAD :: Word8]
+                    direct = FD.encodeDirect v
+                    valForm = VV.Uint8ArrayVal v
+                direct `shouldBe` E.encode valForm
+            ]
+      , describe "Map / HashMap match Value bytes" $
+          sequence_
+            [ it "Map Text Int [(k0,0)..(k4,4)]" $ do
+                let kvs =
+                      [ ("k" <> "0", 0)
+                      , ("k1", 1)
+                      , ("k2", 2)
+                      , ("k3", 3)
+                      , ("k4", 4)
+                      ]
+                        :: [(Text, Int)]
+                    m = M.fromList kvs
+                    direct = FD.encodeDirect m
+                    valForm =
+                      VV.MapVal $
+                        V.fromList
+                          [ (VV.StringVal k, VV.VarInt64Val (fromIntegral v))
+                          | (k, v) <- M.toAscList m
+                          ]
+                direct `shouldBe` E.encode valForm
+            , it "HashMap Text Int round-trips" $ do
+                let kvs = [("a", 1), ("b", 2), ("c", 3)] :: [(Text, Int)]
+                    m = HM.fromList kvs :: HashMap Text Int
+                    bs = FD.encodeDirect m
+                FD.decodeDirect bs `shouldBe` Right m
+            ]
+      , describe "round-trips" $
+          sequence_
+            [ it "Int" $ rtEq @Int 1234567890
+            , it "Int32" $ rtEq @Int32 (-1)
+            , it "Word64" $ rtEq @Word64 0xDEADBEEFCAFEBABE
+            , it "Float" $ rtEq @Float 1.25
+            , it "Double" $ rtEq @Double 3.141592653589793
+            , it "Bool" $ rtEq @Bool False
+            , it "Text" $ rtEq @Text "hello world"
+            , it "ByteString" $ rtEq @BS.ByteString (BS.pack [1, 2, 3, 4])
+            , it "[Int]" $ rtEq @[Int] [1, 2, 3, 4, 5]
+            , it "[Text]" $ rtEq @[Text] ["alpha", "beta", "gamma"]
+            , it "VS.Vector Int32" $
+                rtEq @(VS.Vector Int32)
+                  (VS.fromList [-1, 0, 1, 2, 3])
+            , it "Map Text Int" $
+                rtEq @(Map Text Int)
+                  (M.fromList [("a", 1), ("b", 2), ("c", 3)])
+            , it "Map Text Text" $
+                rtEq @(Map Text Text)
+                  (M.fromList [("a", "alpha"), ("b", "beta")])
+            ]
+      , describe "encode size sanity" $
+          sequence_
+            [ it "encodeDirect [1..100 :: Int] is non-empty" $ do
+                let bs = FD.encodeDirect ([1 .. 100] :: [Int])
+                (BS.length bs > 100) `shouldBe` True
+            ]
       ]
 
-  , describe "[a] (boxed lists) match Value bytes" $ sequence_
-      [ it "[Int] [1..5]" $ do
-          let xs = [1..5] :: [Int]
-              direct = FD.encodeDirect xs
-              valForm = VV.ListVal
-                (V.fromList (map (VV.VarInt64Val . fromIntegral) xs))
-              viaValue = E.encode valForm
-          direct `shouldBe` viaValue
-      , it "[Int] empty" $
-          FD.encodeDirect ([] :: [Int])
-            `shouldBe` E.encode (VV.ListVal V.empty)
-      , it "[Text] [\"hi\", \"world\"]" $ do
-          let xs = ["hi", "world"] :: [Text]
-              direct = FD.encodeDirect xs
-              valForm = VV.ListVal (V.fromList (map VV.StringVal xs))
-          direct `shouldBe` E.encode valForm
-      , it "[Int32] [10, 20, 30]" $ do
-          let xs = [10, 20, 30] :: [Int32]
-              direct = FD.encodeDirect xs
-              valForm = VV.ListVal (V.fromList (map VV.Int32Val xs))
-          direct `shouldBe` E.encode valForm
-      ]
 
-  , describe "primitive arrays match Value bytes" $ sequence_
-      [ it "VS.Vector Int32 [1,2,3]" $ do
-          let v = VS.fromList [1, 2, 3 :: Int32]
-              direct = FD.encodeDirect v
-              valForm = VV.Int32ArrayVal v
-          direct `shouldBe` E.encode valForm
-      , it "VS.Vector Float64 [1.5, -2.5]" $ do
-          let v = VS.fromList [1.5, -2.5]
-              direct = FD.encodeDirect v
-              valForm = VV.Float64ArrayVal v
-          direct `shouldBe` E.encode valForm
-      , it "VS.Vector Word8 [0xDE, 0xAD]" $ do
-          let v = VS.fromList [0xDE, 0xAD :: Word8]
-              direct = FD.encodeDirect v
-              valForm = VV.Uint8ArrayVal v
-          direct `shouldBe` E.encode valForm
-      ]
-
-  , describe "Map / HashMap match Value bytes" $ sequence_
-      [ it "Map Text Int [(k0,0)..(k4,4)]" $ do
-          let kvs = [("k" <> "0", 0), ("k1", 1), ("k2", 2)
-                    , ("k3", 3), ("k4", 4)] :: [(Text, Int)]
-              m = M.fromList kvs
-              direct = FD.encodeDirect m
-              valForm = VV.MapVal $ V.fromList
-                [ (VV.StringVal k, VV.VarInt64Val (fromIntegral v))
-                | (k, v) <- M.toAscList m]
-          direct `shouldBe` E.encode valForm
-      , it "HashMap Text Int round-trips" $ do
-          let kvs = [("a", 1), ("b", 2), ("c", 3)] :: [(Text, Int)]
-              m = HM.fromList kvs :: HashMap Text Int
-              bs = FD.encodeDirect m
-          FD.decodeDirect bs `shouldBe` Right m
-      ]
-
-  , describe "round-trips" $ sequence_
-      [ it "Int" $ rtEq @Int 1234567890
-      , it "Int32" $ rtEq @Int32 (-1)
-      , it "Word64" $ rtEq @Word64 0xDEADBEEFCAFEBABE
-      , it "Float" $ rtEq @Float 1.25
-      , it "Double" $ rtEq @Double 3.141592653589793
-      , it "Bool" $ rtEq @Bool False
-      , it "Text" $ rtEq @Text "hello world"
-      , it "ByteString" $ rtEq @BS.ByteString (BS.pack [1,2,3,4])
-      , it "[Int]" $ rtEq @[Int] [1, 2, 3, 4, 5]
-      , it "[Text]" $ rtEq @[Text] ["alpha", "beta", "gamma"]
-      , it "VS.Vector Int32" $ rtEq @(VS.Vector Int32)
-          (VS.fromList [-1, 0, 1, 2, 3])
-      , it "Map Text Int" $ rtEq @(Map Text Int)
-          (M.fromList [("a", 1), ("b", 2), ("c", 3)])
-      , it "Map Text Text" $ rtEq @(Map Text Text)
-          (M.fromList [("a", "alpha"), ("b", "beta")])
-      ]
-
-  , describe "encode size sanity" $ sequence_
-      [ it "encodeDirect [1..100 :: Int] is non-empty" $ do
-          let bs = FD.encodeDirect ([1..100] :: [Int])
-          (BS.length bs > 100) `shouldBe` True
-      ]
-  ]
-
--- | Round-trip property: 'decodeDirect' inverts 'encodeDirect'
--- exactly, even for collections.
+{- | Round-trip property: 'decodeDirect' inverts 'encodeDirect'
+exactly, even for collections.
+-}
 rtEq
-  :: forall a. (FD.EncodeDirect a, FD.DecodeDirect a, Eq a, Show a)
+  :: forall a
+   . (FD.EncodeDirect a, FD.DecodeDirect a, Eq a, Show a)
   => a -> IO ()
 rtEq x = FD.decodeDirect (FD.encodeDirect x) `shouldBe` Right x

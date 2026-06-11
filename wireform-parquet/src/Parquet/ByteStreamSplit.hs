@@ -1,25 +1,27 @@
 {-# LANGUAGE BangPatterns #-}
--- | Encoder side of @BYTE_STREAM_SPLIT@ (Parquet encoding 9).
---
--- Transposes the little-endian byte representation of fixed-width
--- numeric values: instead of writing @[byte0, byte1, byte2, byte3]@ of
--- value 0, then the same of value 1, etc., the encoder writes
--- @[byte0(v0), byte0(v1), ...]@, then @[byte1(v0), byte1(v1), ...]@,
--- and so on. For columns of mostly-similar floats this clusters the
--- redundant high bytes together so downstream compressors (zstd /
--- snappy / gzip) recover most of the savings.
---
--- Reader counterparts: 'Parquet.Read.decodeByteStreamSplitFloat',
--- 'Parquet.Read.decodeByteStreamSplitDouble'.
-module Parquet.ByteStreamSplit
-  ( encodeByteStreamSplitFloat
-  , encodeByteStreamSplitDouble
-  ) where
+
+{- | Encoder side of @BYTE_STREAM_SPLIT@ (Parquet encoding 9).
+
+Transposes the little-endian byte representation of fixed-width
+numeric values: instead of writing @[byte0, byte1, byte2, byte3]@ of
+value 0, then the same of value 1, etc., the encoder writes
+@[byte0(v0), byte0(v1), ...]@, then @[byte1(v0), byte1(v1), ...]@,
+and so on. For columns of mostly-similar floats this clusters the
+redundant high bytes together so downstream compressors (zstd /
+snappy / gzip) recover most of the savings.
+
+Reader counterparts: 'Parquet.Read.decodeByteStreamSplitFloat',
+'Parquet.Read.decodeByteStreamSplitDouble'.
+-}
+module Parquet.ByteStreamSplit (
+  encodeByteStreamSplitFloat,
+  encodeByteStreamSplitDouble,
+) where
 
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Internal as BSI
-import qualified Data.Vector.Primitive as VP
+import Data.ByteString.Internal qualified as BSI
+import Data.Vector.Primitive qualified as VP
 import Data.Word (Word32, Word64, Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr)
@@ -27,55 +29,61 @@ import Foreign.Storable (pokeByteOff)
 import GHC.Float (castDoubleToWord64, castFloatToWord32)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
+
 -- | @BYTE_STREAM_SPLIT@ for @FLOAT@: 4 streams of @n@ bytes (4n bytes total).
 encodeByteStreamSplitFloat :: VP.Vector Float -> ByteString
 encodeByteStreamSplitFloat vs =
   let !n = VP.length vs
       !total = 4 * n
-   in unsafeDupablePerformIO $ do
-        fp <- BSI.mallocByteString total
-        withForeignPtr fp $ \ptr -> writeFloats ptr vs n 0
-        pure (BSI.fromForeignPtr fp 0 total)
+  in unsafeDupablePerformIO $ do
+       fp <- BSI.mallocByteString total
+       withForeignPtr fp $ \ptr -> writeFloats ptr vs n 0
+       pure (BSI.fromForeignPtr fp 0 total)
+
 
 writeFloats :: Ptr Word8 -> VP.Vector Float -> Int -> Int -> IO ()
 writeFloats !ptr !vs !n !i
   | i >= n = pure ()
   | otherwise = do
       let !w = castFloatToWord32 (VP.unsafeIndex vs i)
-      pokeByteOff ptr i               (byteOf32 0 w)
-      pokeByteOff ptr (n + i)         (byteOf32 1 w)
-      pokeByteOff ptr (2 * n + i)     (byteOf32 2 w)
-      pokeByteOff ptr (3 * n + i)     (byteOf32 3 w)
+      pokeByteOff ptr i (byteOf32 0 w)
+      pokeByteOff ptr (n + i) (byteOf32 1 w)
+      pokeByteOff ptr (2 * n + i) (byteOf32 2 w)
+      pokeByteOff ptr (3 * n + i) (byteOf32 3 w)
       writeFloats ptr vs n (i + 1)
+
 
 byteOf32 :: Int -> Word32 -> Word8
 byteOf32 k w = fromIntegral ((w `shiftR` (k * 8)) .&. 0xFF)
 {-# INLINE byteOf32 #-}
+
 
 -- | @BYTE_STREAM_SPLIT@ for @DOUBLE@: 8 streams of @n@ bytes (8n bytes total).
 encodeByteStreamSplitDouble :: VP.Vector Double -> ByteString
 encodeByteStreamSplitDouble vs =
   let !n = VP.length vs
       !total = 8 * n
-   in unsafeDupablePerformIO $ do
-        fp <- BSI.mallocByteString total
-        withForeignPtr fp $ \ptr -> writeDoubles ptr vs n 0
-        pure (BSI.fromForeignPtr fp 0 total)
+  in unsafeDupablePerformIO $ do
+       fp <- BSI.mallocByteString total
+       withForeignPtr fp $ \ptr -> writeDoubles ptr vs n 0
+       pure (BSI.fromForeignPtr fp 0 total)
+
 
 writeDoubles :: Ptr Word8 -> VP.Vector Double -> Int -> Int -> IO ()
 writeDoubles !ptr !vs !n !i
   | i >= n = pure ()
   | otherwise = do
       let !w = castDoubleToWord64 (VP.unsafeIndex vs i)
-      pokeByteOff ptr i               (byteOf64 0 w)
-      pokeByteOff ptr (n + i)         (byteOf64 1 w)
-      pokeByteOff ptr (2 * n + i)     (byteOf64 2 w)
-      pokeByteOff ptr (3 * n + i)     (byteOf64 3 w)
-      pokeByteOff ptr (4 * n + i)     (byteOf64 4 w)
-      pokeByteOff ptr (5 * n + i)     (byteOf64 5 w)
-      pokeByteOff ptr (6 * n + i)     (byteOf64 6 w)
-      pokeByteOff ptr (7 * n + i)     (byteOf64 7 w)
+      pokeByteOff ptr i (byteOf64 0 w)
+      pokeByteOff ptr (n + i) (byteOf64 1 w)
+      pokeByteOff ptr (2 * n + i) (byteOf64 2 w)
+      pokeByteOff ptr (3 * n + i) (byteOf64 3 w)
+      pokeByteOff ptr (4 * n + i) (byteOf64 4 w)
+      pokeByteOff ptr (5 * n + i) (byteOf64 5 w)
+      pokeByteOff ptr (6 * n + i) (byteOf64 6 w)
+      pokeByteOff ptr (7 * n + i) (byteOf64 7 w)
       writeDoubles ptr vs n (i + 1)
+
 
 byteOf64 :: Int -> Word64 -> Word8
 byteOf64 k w = fromIntegral ((w `shiftR` (k * 8)) .&. 0xFF)

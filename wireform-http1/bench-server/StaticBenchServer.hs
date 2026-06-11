@@ -25,14 +25,14 @@ Run:
 module Main (main) where
 
 import Control.Concurrent (forkOn, getNumCapabilities)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.IORef
-import System.Environment (getArgs)
-import System.IO (BufferMode (..), hSetBuffering, stdout)
-
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
+import System.Environment (getArgs)
+import System.IO (BufferMode (..), hSetBuffering, stdout)
+
 
 main :: IO ()
 main = do
@@ -40,14 +40,16 @@ main = do
   args <- getArgs
   let (port, path, mime) = case args of
         (p : f : m : _) -> (p, f, m)
-        (p : f : _)     -> (p, f, "application/octet-stream")
-        [p]             -> (p, "/tmp/hello.txt", "text/plain")
-        []              -> ("8084", "/tmp/hello.txt", "text/plain")
+        (p : f : _) -> (p, f, "application/octet-stream")
+        [p] -> (p, "/tmp/hello.txt", "text/plain")
+        [] -> ("8084", "/tmp/hello.txt", "text/plain")
   caps <- getNumCapabilities
   capCounter <- newIORef (0 :: Int)
   let pinningFork io = do
-        cap <- atomicModifyIORef' capCounter
-                 (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
+        cap <-
+          atomicModifyIORef'
+            capCounter
+            (\n -> let !n' = if n + 1 >= caps then 0 else n + 1 in (n', n))
         forkOn cap io
   -- Open the file once at startup and cache its fd in the 'FileBody'.
   -- Every request reuses the same fd — no 'open()' / 'close()' on
@@ -58,35 +60,49 @@ main = do
   -- servers. The fd lives until the process exits.
   fb <- wholeFileBodyFd path
   let mimeBs = stringToBS mime
-      cfg = defaultServerConfig
-        { serverHost = "0.0.0.0"
-        , serverPort = port
-        , serverHandler = staticHandler fb mimeBs
-        , serverForkConnection = pinningFork
-        , serverListenBacklog = 4096
-        , serverTcpDeferAcceptSecs = Just 5
-        }
-  putStrLn $ "wireform-http1-static-bench-server: " <> show caps
-           <> " capabilities, port " <> port
-           <> ", serving " <> path
-           <> " (" <> show (fbLength fb) <> " bytes, " <> mime <> ")"
+      cfg =
+        defaultServerConfig
+          { serverHost = "0.0.0.0"
+          , serverPort = port
+          , serverHandler = staticHandler fb mimeBs
+          , serverForkConnection = pinningFork
+          , serverListenBacklog = 4096
+          , serverTcpDeferAcceptSecs = Just 5
+          }
+  putStrLn $
+    "wireform-http1-static-bench-server: "
+      <> show caps
+      <> " capabilities, port "
+      <> port
+      <> ", serving "
+      <> path
+      <> " ("
+      <> show (fbLength fb)
+      <> " bytes, "
+      <> mime
+      <> ")"
   runServer cfg
 
+
 staticHandler :: FileBody -> BS.ByteString -> Handler
-staticHandler fb mime = \_req -> pure Response
-  { responseStatus  = OK
-  , responseVersion = HTTP_1_1
-  , responseHeaders =
-      [ ("Content-Type", mime)
-      , ("Server", "wireform-http1")
-      ]
-  , responseBody = BodyFile fb
-  , responseTrailers = pure []
-  }
+staticHandler fb mime = \_req ->
+  pure
+    Response
+      { responseStatus = OK
+      , responseVersion = HTTP_1_1
+      , responseHeaders =
+          [ ("Content-Type", mime)
+          , ("Server", "wireform-http1")
+          ]
+      , responseBody = BodyFile fb
+      , responseTrailers = pure []
+      }
 {-# INLINE staticHandler #-}
 
--- | ASCII-only conversion is enough for HTTP header values; if the
--- mime type carries non-ASCII (it shouldn't) we just truncate to the
--- low byte.
+
+{- | ASCII-only conversion is enough for HTTP header values; if the
+mime type carries non-ASCII (it shouldn't) we just truncate to the
+low byte.
+-}
 stringToBS :: String -> BS.ByteString
 stringToBS = BS.pack . map (fromIntegral . fromEnum)

@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import XML.Class (ToXML, FromXML, encodeXML, decodeXML)
+import GHC.Generics (Generic)
+import XML.Class (FromXML, ToXML, decodeXML, encodeXML)
+
 
 data Book = Book
-  { title  :: !Text
+  { title :: !Text
   , author :: !Text
-  , year   :: !Int
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToXML, FromXML)
+  , year :: !Int
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToXML, FromXML)
+
 
 main :: IO ()
 main = do
@@ -25,7 +29,7 @@ main = do
 
   case decodeXML xml of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Book)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeXML (encodeXML book) == Right book)
 

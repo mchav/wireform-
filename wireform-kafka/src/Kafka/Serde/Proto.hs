@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Serde.Proto
 Description : Protocol Buffers 'Kafka.Serde.Serde' built on top of @wireform-proto@.
 Copyright   : (c) 2025
@@ -47,45 +47,49 @@ If you need the Confluent Schema Registry envelope (the
 JVM @KafkaProtobufSerializer@ produces), wrap 'protoSerde' with
 the helpers from "Kafka.Streams.Serde.SchemaRegistry".
 -}
-module Kafka.Serde.Proto
-  ( -- * Generic message serde
-    protoSerde
-    -- * Lower-level access
-  , encodeProto
-  , decodeProto
-  ) where
+module Kafka.Serde.Proto (
+  -- * Generic message serde
+  protoSerde,
 
-import qualified Data.ByteString        as BS
-import           Data.Bifunctor         (first)
+  -- * Lower-level access
+  encodeProto,
+  decodeProto,
+) where
 
-import           Kafka.Serde            (Serde, unsafeSerde)
+import Data.Bifunctor (first)
+import Data.ByteString qualified as BS
+import Kafka.Serde (Serde, unsafeSerde)
+import Proto.Decode qualified as Proto.Decode
+import Proto.Encode qualified as Proto.Encode
 
-import qualified Proto.Encode           as Proto.Encode
-import qualified Proto.Decode           as Proto.Decode
 
--- | Bidirectional protobuf serde. Encodes the message body via
--- 'Proto.Encode.encodeMessage' (no length prefix); decodes via
--- 'Proto.Decode.decodeMessage' and surfaces 'DecodeError' as the
--- 'Serde'\'s 'String'-typed error channel.
---
--- The encode path is a single pass over the message structure
--- (the @wireform-proto@ codegen emits direct @Builder@ ops); the
--- decode path is also single-pass and never copies the input
--- bytes, so the serde adds no Kafka-specific overhead beyond
--- whatever the generated codec already does.
+{- | Bidirectional protobuf serde. Encodes the message body via
+'Proto.Encode.encodeMessage' (no length prefix); decodes via
+'Proto.Decode.decodeMessage' and surfaces 'DecodeError' as the
+'Serde'\'s 'String'-typed error channel.
+
+The encode path is a single pass over the message structure
+(the @wireform-proto@ codegen emits direct @Builder@ ops); the
+decode path is also single-pass and never copies the input
+bytes, so the serde adds no Kafka-specific overhead beyond
+whatever the generated codec already does.
+-}
 protoSerde
   :: (Proto.Encode.MessageEncode a, Proto.Decode.MessageDecode a)
   => Serde a
 protoSerde = unsafeSerde encodeProto decodeProto
 
+
 -- | Standalone encoder; calls 'Proto.Encode.encodeMessage'.
 encodeProto :: Proto.Encode.MessageEncode a => a -> BS.ByteString
 encodeProto = Proto.Encode.encodeMessage
 
--- | Standalone decoder. Threads the @wireform-proto@ 'DecodeError'
--- through 'show' so it fits the 'Serde'\'s 'Left' 'String' shape;
--- callers that want the structured error should call
--- 'Proto.Decode.decodeMessage' directly.
+
+{- | Standalone decoder. Threads the @wireform-proto@ 'DecodeError'
+through 'show' so it fits the 'Serde'\'s 'Left' 'String' shape;
+callers that want the structured error should call
+'Proto.Decode.decodeMessage' directly.
+-}
 decodeProto
   :: Proto.Decode.MessageDecode a
   => BS.ByteString

@@ -39,11 +39,11 @@ encodeIPCMessage msg =
       !paddedMetaLen = alignTo8 metaLen
       !metaPadding = paddedMetaLen - metaLen
   in BL.toStrict $
-      B.toLazyByteString $
-        buildLE32 0xFFFFFFFF -- continuation
-          <> buildLE32 (fromIntegral paddedMetaLen) -- metadata size
-          <> B.byteString metadataBytes
-          <> B.byteString (BS.replicate metaPadding 0)
+       B.toLazyByteString $
+         buildLE32 0xFFFFFFFF -- continuation
+           <> buildLE32 (fromIntegral paddedMetaLen) -- metadata size
+           <> B.byteString metadataBytes
+           <> B.byteString (BS.replicate metaPadding 0)
 
 
 decodeIPCMessage :: ByteString -> Either String Message
@@ -98,11 +98,11 @@ encodeField :: Field -> B.Builder
 encodeField f =
   let !nameBS = TE.encodeUtf8 (fieldName f)
   in buildLE16 (fromIntegral (BS.length nameBS))
-      <> B.byteString nameBS
-      <> B.word8 (if fieldNullable f then 1 else 0)
-      <> encodeArrowType (fieldType f)
-      <> buildLE32 (fromIntegral (V.length (fieldChildren f)))
-      <> V.foldl' (\acc c -> acc <> encodeField c) mempty (fieldChildren f)
+       <> B.byteString nameBS
+       <> B.word8 (if fieldNullable f then 1 else 0)
+       <> encodeArrowType (fieldType f)
+       <> buildLE32 (fromIntegral (V.length (fieldChildren f)))
+       <> V.foldl' (\acc c -> acc <> encodeField c) mempty (fieldChildren f)
 
 
 encodeArrowType :: ArrowType -> B.Builder
@@ -363,13 +363,13 @@ readLE64 :: ByteString -> Int -> Word64
 readLE64 bs off =
   let rd i = fromIntegral (rdByte bs (off + i)) :: Word64
   in rd 0
-      .|. (rd 1 `shiftL` 8)
-      .|. (rd 2 `shiftL` 16)
-      .|. (rd 3 `shiftL` 24)
-      .|. (rd 4 `shiftL` 32)
-      .|. (rd 5 `shiftL` 40)
-      .|. (rd 6 `shiftL` 48)
-      .|. (rd 7 `shiftL` 56)
+       .|. (rd 1 `shiftL` 8)
+       .|. (rd 2 `shiftL` 16)
+       .|. (rd 3 `shiftL` 24)
+       .|. (rd 4 `shiftL` 32)
+       .|. (rd 5 `shiftL` 40)
+       .|. (rd 6 `shiftL` 48)
+       .|. (rd 7 `shiftL` 56)
 
 
 buildLE16 :: Word16 -> B.Builder

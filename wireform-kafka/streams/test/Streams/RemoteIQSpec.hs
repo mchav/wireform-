@@ -2,61 +2,69 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | KIP-535 cross-instance IQ: subscription metadata
--- round-trip + the routing-decision helper.
+{- | KIP-535 cross-instance IQ: subscription metadata
+round-trip + the routing-decision helper.
+-}
 module Streams.RemoteIQSpec (tests) where
 
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.Set qualified as Set
 import Data.Text (Text)
-import Test.Syd
-
-import qualified Kafka.Client.Consumer as KC
-import Kafka.Streams.Discovery
-  ( HostInfo (..)
-  , KeyQueryMetadata (..)
-  )
-import Kafka.Client.Internal.Subscribe
-  ( encodeSubscriptionWithOwned
-  , decodeSubscriptionFull
-  )
+import Data.Text qualified as T
+import Kafka.Client.Consumer qualified as KC
+import Kafka.Client.Internal.Subscribe (
+  decodeSubscriptionFull,
+  encodeSubscriptionWithOwned,
+ )
+import Kafka.Streams.Discovery (
+  HostInfo (..),
+  KeyQueryMetadata (..),
+ )
 import Kafka.Streams.Discovery.RemoteIQ
 import Kafka.Streams.Discovery.Subscription
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Cross-instance IQ (KIP-535)" $ sequence_
-  [ subscription_info_round_trip
-  , subscription_info_rejects_unknown_version
-  , route_query_local_when_active
-  , route_query_local_when_standby
-  , route_query_remote_otherwise
-  , route_query_missing_when_nobody_owns
-  , subscription_info_userdata_round_trips_through_joingroup
-  ]
+tests =
+  describe "Cross-instance IQ (KIP-535)" $
+    sequence_
+      [ subscription_info_round_trip
+      , subscription_info_rejects_unknown_version
+      , route_query_local_when_active
+      , route_query_local_when_standby
+      , route_query_remote_otherwise
+      , route_query_missing_when_nobody_owns
+      , subscription_info_userdata_round_trips_through_joingroup
+      ]
+
 
 ----------------------------------------------------------------------
 -- Subscription wire format
 ----------------------------------------------------------------------
 
 sampleSI :: SubscriptionInfo
-sampleSI = SubscriptionInfo
-  { host = HostInfo "instance-1.example.com" 9091
-  , storeNames = Set.fromList ["orders", "customers"]
-  , sourceTopics = Set.fromList ["t1", "t2"]
-  , active = Set.fromList
-      [ KC.TopicPartition "t1" 0
-      , KC.TopicPartition "t1" 1
-      ]
-  , standby = Set.singleton (KC.TopicPartition "t2" 0)
-  }
+sampleSI =
+  SubscriptionInfo
+    { host = HostInfo "instance-1.example.com" 9091
+    , storeNames = Set.fromList ["orders", "customers"]
+    , sourceTopics = Set.fromList ["t1", "t2"]
+    , active =
+        Set.fromList
+          [ KC.TopicPartition "t1" 0
+          , KC.TopicPartition "t1" 1
+          ]
+    , standby = Set.singleton (KC.TopicPartition "t2" 0)
+    }
+
 
 subscription_info_round_trip :: Spec
 subscription_info_round_trip =
   it "SubscriptionInfo: encode . decode = id" $ do
-    let !bs   = encodeSubscriptionInfo sampleSI
+    let !bs = encodeSubscriptionInfo sampleSI
     case decodeSubscriptionInfo bs of
       Right si -> si `shouldBe` sampleSI
-      Left e   -> expectationFailure e
+      Left e -> expectationFailure e
+
 
 subscription_info_rejects_unknown_version :: Spec
 subscription_info_rejects_unknown_version =
@@ -65,8 +73,9 @@ subscription_info_rejects_unknown_version =
     -- silently accepted.
     let !bad = "\99\x00\x00garbage"
     case decodeSubscriptionInfo bad of
-      Left _  -> pure ()
+      Left _ -> pure ()
       Right _ -> expectationFailure "expected Left on unknown version"
+
 
 ----------------------------------------------------------------------
 -- routeQuery
@@ -79,26 +88,33 @@ route_query_local_when_active =
         kqm = KeyQueryMetadata local [] 0
     routeQuery local (Just kqm) `shouldBe` RouteLocal
 
+
 route_query_local_when_standby :: Spec
 route_query_local_when_standby =
   it "routeQuery: active remote but standby local => RouteLocal" $ do
     let local = HostInfo "self" 9099
-        kqm = KeyQueryMetadata
-                (HostInfo "remote" 9090) [local] 0
+        kqm =
+          KeyQueryMetadata
+            (HostInfo "remote" 9090)
+            [local]
+            0
     routeQuery local (Just kqm) `shouldBe` RouteLocal
+
 
 route_query_remote_otherwise :: Spec
 route_query_remote_otherwise =
   it "routeQuery: nothing local => RouteRemote with active host" $ do
-    let local  = HostInfo "self" 9099
+    let local = HostInfo "self" 9099
         active = HostInfo "owner" 9090
-        kqm    = KeyQueryMetadata active [] 0
+        kqm = KeyQueryMetadata active [] 0
     routeQuery local (Just kqm) `shouldBe` RouteRemote active
+
 
 route_query_missing_when_nobody_owns :: Spec
 route_query_missing_when_nobody_owns =
   it "routeQuery: no KeyQueryMetadata => RouteMissing" $ do
     routeQuery (HostInfo "self" 9099) Nothing `shouldBe` RouteMissing
+
 
 ----------------------------------------------------------------------
 -- Subscription userdata flows end-to-end through the JoinGroup
@@ -132,5 +148,5 @@ subscription_info_userdata_round_trips_through_joingroup =
         -- original SubscriptionInfo.
         case decodeSubscriptionInfo decodedUserdata of
           Right si -> si `shouldBe` sampleSI
-          Left e   -> expectationFailure ("inner decode: " <> e)
+          Left e -> expectationFailure ("inner decode: " <> e)
       Left e -> expectationFailure ("outer decode: " <> e)

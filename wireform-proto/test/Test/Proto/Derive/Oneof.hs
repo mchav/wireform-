@@ -22,65 +22,66 @@ import Test.Syd
 tests :: Spec
 tests =
   describe
-    "Proto.TH oneof bridge" $ sequence_
-    [ it "no choice variant set: round-trips empty payload" $ do
-        let e = defaultEnvelope
-        let bs = PE.encodeMessage e
-        bs `shouldBe` BS.empty
-        PD.decodeMessage bs `shouldBe` Right e
-    , it "label only: round-trips" $ do
-        let e = defaultEnvelope {envelopeEnvelopeLabel = T.pack "labelled"}
-        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
-    , it "choice_url variant round-trips" $ do
-        let e =
-              defaultEnvelope
-                { envelopeEnvelopeLabel = T.pack "withUrl"
-                , envelopeEnvelopeChoice =
-                    Just
-                      ( Envelope'EnvelopeChoice'ChoiceUrl
-                          (T.pack "https://example.test/x")
-                      )
-                }
-        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
-    , it "choice_blob variant round-trips" $ do
-        let e =
-              defaultEnvelope
-                { envelopeEnvelopeChoice =
-                    Just
-                      ( Envelope'EnvelopeChoice'ChoiceBlob
-                          (BS.pack [0xCA, 0xFE, 0xBA, 0xBE])
-                      )
-                }
-        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
-    , it "choice_seed variant round-trips" $ do
-        let e =
-              defaultEnvelope
-                { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 12345)
-                }
-        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
-    , it "choice_inner submessage variant round-trips" $ do
-        let inner = defaultInner {innerInnerId = 99}
-            e =
-              defaultEnvelope
-                { envelopeEnvelopeLabel = T.pack "nested"
-                , envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceInner inner)
-                }
-        PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
-    , it "later variant on the wire wins (proto3 oneof semantics)" $ do
-        -- Concatenate two encodings that each set a different
-        -- variant; per proto3 the last one wins on decode.
-        let eUrl =
-              defaultEnvelope
-                { envelopeEnvelopeChoice =
-                    Just
-                      ( Envelope'EnvelopeChoice'ChoiceUrl
-                          (T.pack "old")
-                      )
-                }
-            eSeed =
-              defaultEnvelope
-                { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 7)
-                }
-            combined = PE.encodeMessage eUrl `BS.append` PE.encodeMessage eSeed
-        PD.decodeMessage combined `shouldBe` Right eSeed
-    ]
+    "Proto.TH oneof bridge"
+    $ sequence_
+      [ it "no choice variant set: round-trips empty payload" $ do
+          let e = defaultEnvelope
+          let bs = PE.encodeMessage e
+          bs `shouldBe` BS.empty
+          PD.decodeMessage bs `shouldBe` Right e
+      , it "label only: round-trips" $ do
+          let e = defaultEnvelope {envelopeEnvelopeLabel = T.pack "labelled"}
+          PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+      , it "choice_url variant round-trips" $ do
+          let e =
+                defaultEnvelope
+                  { envelopeEnvelopeLabel = T.pack "withUrl"
+                  , envelopeEnvelopeChoice =
+                      Just
+                        ( Envelope'EnvelopeChoice'ChoiceUrl
+                            (T.pack "https://example.test/x")
+                        )
+                  }
+          PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+      , it "choice_blob variant round-trips" $ do
+          let e =
+                defaultEnvelope
+                  { envelopeEnvelopeChoice =
+                      Just
+                        ( Envelope'EnvelopeChoice'ChoiceBlob
+                            (BS.pack [0xCA, 0xFE, 0xBA, 0xBE])
+                        )
+                  }
+          PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+      , it "choice_seed variant round-trips" $ do
+          let e =
+                defaultEnvelope
+                  { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 12345)
+                  }
+          PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+      , it "choice_inner submessage variant round-trips" $ do
+          let inner = defaultInner {innerInnerId = 99}
+              e =
+                defaultEnvelope
+                  { envelopeEnvelopeLabel = T.pack "nested"
+                  , envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceInner inner)
+                  }
+          PD.decodeMessage (PE.encodeMessage e) `shouldBe` Right e
+      , it "later variant on the wire wins (proto3 oneof semantics)" $ do
+          -- Concatenate two encodings that each set a different
+          -- variant; per proto3 the last one wins on decode.
+          let eUrl =
+                defaultEnvelope
+                  { envelopeEnvelopeChoice =
+                      Just
+                        ( Envelope'EnvelopeChoice'ChoiceUrl
+                            (T.pack "old")
+                        )
+                  }
+              eSeed =
+                defaultEnvelope
+                  { envelopeEnvelopeChoice = Just (Envelope'EnvelopeChoice'ChoiceSeed 7)
+                  }
+              combined = PE.encodeMessage eUrl `BS.append` PE.encodeMessage eSeed
+          PD.decodeMessage combined `shouldBe` Right eSeed
+      ]

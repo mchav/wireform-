@@ -47,261 +47,262 @@ import Test.Syd
 tests :: Spec
 tests =
   describe
-    "Proto.TH.Derive" $ sequence_
-    [ it "default User round-trips" $ do
-        let u = defaultUser
-        let bs = PE.encodeMessage u
-        bs `shouldBe` BS.empty -- proto3 default: every field skipped
-        PD.decodeMessage bs `shouldBe` Right u
-    , it "scalar fields round-trip" $ do
-        let u =
-              defaultUser
-                { userId = 42
-                , userName = T.pack "alice"
-                , userActive = True
-                , userScore = 3.14
-                , userTagBits = 0xDEADBEEFCAFEBABE
-                , userBlob = BS.pack [0, 1, 2, 3, 254, 255]
-                }
-        roundTrip u
-    , it "ZigZag override on negative sint32" $ do
-        let u = defaultUser {userOffset = -123456}
-        roundTrip u
-    , it "fixed32 override on uint32" $ do
-        let u = defaultUser {userPort = 0xCAFEBABE}
-        roundTrip u
-        -- The fixed32 wire payload always occupies 4 bytes plus 1 tag byte;
-        -- assert the encoded length to confirm we picked the right encoding.
-        BS.length (PE.encodeMessage u) `shouldBe` 5
-    , it "Maybe Address present round-trips" $ do
-        let addr =
-              Address
-                { addrStreet = T.pack "1 Wireform Way"
-                , addrCity = T.pack "Berlin"
-                , addrZip = 10119
-                }
-        let u = defaultUser {userId = 7, userAddr = Just addr}
-        roundTrip u
-    , it "Maybe Address absent skips field" $ do
-        let u = defaultUser {userId = 7}
-        let bs = PE.encodeMessage u
-        -- Tag for field 9 is (9 << 3) | 2 = 74; assert it's NOT in the stream.
-        (74 `BS.notElem` bs) `shouldBe` True
-        PD.decodeMessage bs `shouldBe` Right u
-    , it "deriveProtoFromTranslated: round-trip preserves UserT" $ do
-        let u =
-              (defaultUserT :: UserT)
-                { tuserId = 99
-                , tuserName = T.pack "carol"
-                , tuserActive = True
-                , tuserScore = 2.71
-                , tuserTagBits = 0xFEEDFACECAFEBEEF
-                , tuserBlob = BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
-                , tuserOffset = -98765
-                , tuserPort = 0xCAFEBABE
-                , tuserAddr =
-                    Just
-                      AddressT
-                        { taddrStreet = T.pack "1 Wireform Way"
-                        , taddrCity = T.pack "Berlin"
-                        , taddrZip = 10119
-                        }
-                }
-        PD.decodeMessage (PE.encodeMessage u) `shouldBe` Right u
-    , it "deriveProtoFromTranslated: byte-identical to deriveProto" $ do
-        let u =
-              defaultUser
-                { userId = 99
-                , userName = T.pack "carol"
-                , userActive = True
-                , userScore = 2.71
-                , userTagBits = 0xFEEDFACECAFEBEEF
-                , userBlob = BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
-                , userOffset = -98765
-                , userPort = 0xCAFEBABE
-                , userAddr =
-                    Just
-                      Address
-                        { addrStreet = T.pack "1 Wireform Way"
-                        , addrCity = T.pack "Berlin"
-                        , addrZip = 10119
-                        }
-                }
-            uT =
-              (defaultUserT :: UserT)
-                { tuserId = userId u
-                , tuserName = userName u
-                , tuserActive = userActive u
-                , tuserScore = userScore u
-                , tuserTagBits = userTagBits u
-                , tuserBlob = userBlob u
-                , tuserOffset = userOffset u
-                , tuserPort = userPort u
-                , tuserAddr =
-                    fmap
-                      ( \a ->
-                          AddressT
-                            { taddrStreet = addrStreet a
-                            , taddrCity = addrCity a
-                            , taddrZip = addrZip a
-                            }
-                      )
-                      (userAddr u)
-                }
-        PE.encodeMessage uT `shouldBe` PE.encodeMessage u
-    , -- ---------------------------------------------------------------
-      -- Enum
-      -- ---------------------------------------------------------------
-      it "Painting (enum field): default round-trips" $ do
-        let p = Painting {pTitle = T.empty, pColor = ColRed}
-        let bs = PE.encodeMessage p
-        bs `shouldBe` BS.empty
-        PD.decodeMessage bs `shouldBe` Right p
-    , it "Painting (enum field): non-default round-trips" $ do
-        let p = Painting {pTitle = T.pack "Composition VIII", pColor = ColBlue}
-        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
-    , it "Painting (enum field): zero-valued enum is skipped" $ do
-        let p = Painting {pTitle = T.pack "X", pColor = ColRed}
-        let bs = PE.encodeMessage p
-        -- field 2 (color) has tag byte (2 << 3) | 0 = 16; assert it's
-        -- absent because ColRed = 0 is the proto default.
-        (16 `BS.notElem` bs) `shouldBe` True
-    , -- ---------------------------------------------------------------
-      -- Repeated
-      -- ---------------------------------------------------------------
-      it "Inventory (Vector-repeated submessages): empty round-trips" $ do
-        let inv = Inventory {invName = T.empty, invItems = V.empty}
-        PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
-    , it "Inventory (Vector-repeated submessages): three elements" $ do
-        let items =
-              V.fromList
-                [ Item {iName = T.pack "alpha", iCount = 1}
-                , Item {iName = T.pack "beta", iCount = 2}
-                , Item {iName = T.pack "gamma", iCount = 3}
-                ]
-            inv = Inventory {invName = T.pack "warehouse", invItems = items}
-        PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
-    , it "LooseInventory (list-repeated strings): preserves order" $ do
-        let li =
-              LooseInventory
-                { liId = 99
-                , liTags = [T.pack "a", T.pack "b", T.pack "c"]
-                }
-        PD.decodeMessage (PE.encodeMessage li) `shouldBe` Right li
-    , -- ---------------------------------------------------------------
-      -- Map
-      -- ---------------------------------------------------------------
-      it "Tagged (map<string, string>): empty map round-trips" $ do
-        let t = Tagged {tagName = T.empty, tagAttrs = Map.empty}
-        let bs = PE.encodeMessage t
-        bs `shouldBe` BS.empty
-        PD.decodeMessage bs `shouldBe` Right t
-    , it "Tagged (map<string, string>): three entries round-trip" $ do
-        let attrs =
-              Map.fromList
-                [ (T.pack "color", T.pack "red")
-                , (T.pack "size", T.pack "large")
-                , (T.pack "shape", T.pack "round")
-                ]
-            t = Tagged {tagName = T.pack "demo", tagAttrs = attrs}
-        PD.decodeMessage (PE.encodeMessage t) `shouldBe` Right t
-    , -- ---------------------------------------------------------------
-      -- Oneof
-      -- ---------------------------------------------------------------
-      it "Profile (oneof): unset oneof round-trips" $ do
-        let p = Profile {profName = T.empty, profAvatar = Nothing}
-        let bs = PE.encodeMessage p
-        bs `shouldBe` BS.empty
-        PD.decodeMessage bs `shouldBe` Right p
-    , it "Profile (oneof): AvatarUrl variant round-trips" $ do
-        let p =
-              Profile
-                { profName = T.pack "ada"
-                , profAvatar = Just (AvatarUrl (T.pack "https://example.test/x.png"))
-                }
-        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
-    , it "Profile (oneof): AvatarBlob variant round-trips" $ do
-        let p =
-              Profile
-                { profName = T.pack "grace"
-                , profAvatar = Just (AvatarBlob (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
-                }
-        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
-    , it "Profile (oneof): AvatarSeed variant round-trips" $ do
-        let p =
-              Profile
-                { profName = T.pack "joan"
-                , profAvatar = Just (AvatarSeed 42)
-                }
-        PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
-    , it "Profile (oneof): later variant wins on the wire" $ do
-        -- Concatenate two oneof field encodings; per proto3 spec the
-        -- last-wins, so encoding a Seed-only profile and decoding a
-        -- Url+Seed concatenation should yield the Seed variant.
-        let pUrl =
-              Profile
-                { profName = T.empty
-                , profAvatar = Just (AvatarUrl (T.pack "old"))
-                }
-            pSeed =
-              Profile
-                { profName = T.empty
-                , profAvatar = Just (AvatarSeed 7)
-                }
-            combined = PE.encodeMessage pUrl `BS.append` PE.encodeMessage pSeed
-        PD.decodeMessage combined `shouldBe` Right pSeed
-    , -- ---------------------------------------------------------------
-      -- Byte-equivalence regression: deriveProtoFromTranslated vs. loadProto
-      -- ---------------------------------------------------------------
-      --
-      -- 'Proto.TH.loadProto' is the long-standing proto code generator
-      -- and the implementation of record. The new IDL bridge
-      -- ('deriveProtoFromTranslated') must produce wire bytes that
-      -- match it for the same logical message; otherwise downstream
-      -- consumers that switch from one to the other would observe
-      -- silent corruption.
+    "Proto.TH.Derive"
+    $ sequence_
+      [ it "default User round-trips" $ do
+          let u = defaultUser
+          let bs = PE.encodeMessage u
+          bs `shouldBe` BS.empty -- proto3 default: every field skipped
+          PD.decodeMessage bs `shouldBe` Right u
+      , it "scalar fields round-trip" $ do
+          let u =
+                defaultUser
+                  { userId = 42
+                  , userName = T.pack "alice"
+                  , userActive = True
+                  , userScore = 3.14
+                  , userTagBits = 0xDEADBEEFCAFEBABE
+                  , userBlob = BS.pack [0, 1, 2, 3, 254, 255]
+                  }
+          roundTrip u
+      , it "ZigZag override on negative sint32" $ do
+          let u = defaultUser {userOffset = -123456}
+          roundTrip u
+      , it "fixed32 override on uint32" $ do
+          let u = defaultUser {userPort = 0xCAFEBABE}
+          roundTrip u
+          -- The fixed32 wire payload always occupies 4 bytes plus 1 tag byte;
+          -- assert the encoded length to confirm we picked the right encoding.
+          BS.length (PE.encodeMessage u) `shouldBe` 5
+      , it "Maybe Address present round-trips" $ do
+          let addr =
+                Address
+                  { addrStreet = T.pack "1 Wireform Way"
+                  , addrCity = T.pack "Berlin"
+                  , addrZip = 10119
+                  }
+          let u = defaultUser {userId = 7, userAddr = Just addr}
+          roundTrip u
+      , it "Maybe Address absent skips field" $ do
+          let u = defaultUser {userId = 7}
+          let bs = PE.encodeMessage u
+          -- Tag for field 9 is (9 << 3) | 2 = 74; assert it's NOT in the stream.
+          (74 `BS.notElem` bs) `shouldBe` True
+          PD.decodeMessage bs `shouldBe` Right u
+      , it "deriveProtoFromTranslated: round-trip preserves UserT" $ do
+          let u =
+                (defaultUserT :: UserT)
+                  { tuserId = 99
+                  , tuserName = T.pack "carol"
+                  , tuserActive = True
+                  , tuserScore = 2.71
+                  , tuserTagBits = 0xFEEDFACECAFEBEEF
+                  , tuserBlob = BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
+                  , tuserOffset = -98765
+                  , tuserPort = 0xCAFEBABE
+                  , tuserAddr =
+                      Just
+                        AddressT
+                          { taddrStreet = T.pack "1 Wireform Way"
+                          , taddrCity = T.pack "Berlin"
+                          , taddrZip = 10119
+                          }
+                  }
+          PD.decodeMessage (PE.encodeMessage u) `shouldBe` Right u
+      , it "deriveProtoFromTranslated: byte-identical to deriveProto" $ do
+          let u =
+                defaultUser
+                  { userId = 99
+                  , userName = T.pack "carol"
+                  , userActive = True
+                  , userScore = 2.71
+                  , userTagBits = 0xFEEDFACECAFEBEEF
+                  , userBlob = BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
+                  , userOffset = -98765
+                  , userPort = 0xCAFEBABE
+                  , userAddr =
+                      Just
+                        Address
+                          { addrStreet = T.pack "1 Wireform Way"
+                          , addrCity = T.pack "Berlin"
+                          , addrZip = 10119
+                          }
+                  }
+              uT =
+                (defaultUserT :: UserT)
+                  { tuserId = userId u
+                  , tuserName = userName u
+                  , tuserActive = userActive u
+                  , tuserScore = userScore u
+                  , tuserTagBits = userTagBits u
+                  , tuserBlob = userBlob u
+                  , tuserOffset = userOffset u
+                  , tuserPort = userPort u
+                  , tuserAddr =
+                      fmap
+                        ( \a ->
+                            AddressT
+                              { taddrStreet = addrStreet a
+                              , taddrCity = addrCity a
+                              , taddrZip = addrZip a
+                              }
+                        )
+                        (userAddr u)
+                  }
+          PE.encodeMessage uT `shouldBe` PE.encodeMessage u
+      , -- ---------------------------------------------------------------
+        -- Enum
+        -- ---------------------------------------------------------------
+        it "Painting (enum field): default round-trips" $ do
+          let p = Painting {pTitle = T.empty, pColor = ColRed}
+          let bs = PE.encodeMessage p
+          bs `shouldBe` BS.empty
+          PD.decodeMessage bs `shouldBe` Right p
+      , it "Painting (enum field): non-default round-trips" $ do
+          let p = Painting {pTitle = T.pack "Composition VIII", pColor = ColBlue}
+          PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+      , it "Painting (enum field): zero-valued enum is skipped" $ do
+          let p = Painting {pTitle = T.pack "X", pColor = ColRed}
+          let bs = PE.encodeMessage p
+          -- field 2 (color) has tag byte (2 << 3) | 0 = 16; assert it's
+          -- absent because ColRed = 0 is the proto default.
+          (16 `BS.notElem` bs) `shouldBe` True
+      , -- ---------------------------------------------------------------
+        -- Repeated
+        -- ---------------------------------------------------------------
+        it "Inventory (Vector-repeated submessages): empty round-trips" $ do
+          let inv = Inventory {invName = T.empty, invItems = V.empty}
+          PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
+      , it "Inventory (Vector-repeated submessages): three elements" $ do
+          let items =
+                V.fromList
+                  [ Item {iName = T.pack "alpha", iCount = 1}
+                  , Item {iName = T.pack "beta", iCount = 2}
+                  , Item {iName = T.pack "gamma", iCount = 3}
+                  ]
+              inv = Inventory {invName = T.pack "warehouse", invItems = items}
+          PD.decodeMessage (PE.encodeMessage inv) `shouldBe` Right inv
+      , it "LooseInventory (list-repeated strings): preserves order" $ do
+          let li =
+                LooseInventory
+                  { liId = 99
+                  , liTags = [T.pack "a", T.pack "b", T.pack "c"]
+                  }
+          PD.decodeMessage (PE.encodeMessage li) `shouldBe` Right li
+      , -- ---------------------------------------------------------------
+        -- Map
+        -- ---------------------------------------------------------------
+        it "Tagged (map<string, string>): empty map round-trips" $ do
+          let t = Tagged {tagName = T.empty, tagAttrs = Map.empty}
+          let bs = PE.encodeMessage t
+          bs `shouldBe` BS.empty
+          PD.decodeMessage bs `shouldBe` Right t
+      , it "Tagged (map<string, string>): three entries round-trip" $ do
+          let attrs =
+                Map.fromList
+                  [ (T.pack "color", T.pack "red")
+                  , (T.pack "size", T.pack "large")
+                  , (T.pack "shape", T.pack "round")
+                  ]
+              t = Tagged {tagName = T.pack "demo", tagAttrs = attrs}
+          PD.decodeMessage (PE.encodeMessage t) `shouldBe` Right t
+      , -- ---------------------------------------------------------------
+        -- Oneof
+        -- ---------------------------------------------------------------
+        it "Profile (oneof): unset oneof round-trips" $ do
+          let p = Profile {profName = T.empty, profAvatar = Nothing}
+          let bs = PE.encodeMessage p
+          bs `shouldBe` BS.empty
+          PD.decodeMessage bs `shouldBe` Right p
+      , it "Profile (oneof): AvatarUrl variant round-trips" $ do
+          let p =
+                Profile
+                  { profName = T.pack "ada"
+                  , profAvatar = Just (AvatarUrl (T.pack "https://example.test/x.png"))
+                  }
+          PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+      , it "Profile (oneof): AvatarBlob variant round-trips" $ do
+          let p =
+                Profile
+                  { profName = T.pack "grace"
+                  , profAvatar = Just (AvatarBlob (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
+                  }
+          PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+      , it "Profile (oneof): AvatarSeed variant round-trips" $ do
+          let p =
+                Profile
+                  { profName = T.pack "joan"
+                  , profAvatar = Just (AvatarSeed 42)
+                  }
+          PD.decodeMessage (PE.encodeMessage p) `shouldBe` Right p
+      , it "Profile (oneof): later variant wins on the wire" $ do
+          -- Concatenate two oneof field encodings; per proto3 spec the
+          -- last-wins, so encoding a Seed-only profile and decoding a
+          -- Url+Seed concatenation should yield the Seed variant.
+          let pUrl =
+                Profile
+                  { profName = T.empty
+                  , profAvatar = Just (AvatarUrl (T.pack "old"))
+                  }
+              pSeed =
+                Profile
+                  { profName = T.empty
+                  , profAvatar = Just (AvatarSeed 7)
+                  }
+              combined = PE.encodeMessage pUrl `BS.append` PE.encodeMessage pSeed
+          PD.decodeMessage combined `shouldBe` Right pSeed
+      , -- ---------------------------------------------------------------
+        -- Byte-equivalence regression: deriveProtoFromTranslated vs. loadProto
+        -- ---------------------------------------------------------------
+        --
+        -- 'Proto.TH.loadProto' is the long-standing proto code generator
+        -- and the implementation of record. The new IDL bridge
+        -- ('deriveProtoFromTranslated') must produce wire bytes that
+        -- match it for the same logical message; otherwise downstream
+        -- consumers that switch from one to the other would observe
+        -- silent corruption.
 
-      it "regression: empty RegInventory matches BridgeRegInventory bytes" $ do
-        let pBridge = BridgeRegInventory {briName = T.empty, briItems = V.empty}
-            pProto = defaultRegInventory
-        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
-    , it "regression: name-only RegInventory matches" $ do
-        let pBridge =
-              BridgeRegInventory
-                { briName = T.pack "warehouse-7"
-                , briItems = V.empty
-                }
-            pProto = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
-        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
-    , it "regression: repeated submessages produce identical bytes" $ do
-        let bridgeItems =
-              V.fromList
-                [ BridgeRegItem (T.pack "alpha") 1
-                , BridgeRegItem (T.pack "beta") 2
-                , BridgeRegItem (T.pack "gamma") 3
-                ]
-            protoItems =
-              V.fromList
-                [ defaultRegItem {regItemRegiName = T.pack "alpha", regItemRegiCount = 1}
-                , defaultRegItem {regItemRegiName = T.pack "beta", regItemRegiCount = 2}
-                , defaultRegItem {regItemRegiName = T.pack "gamma", regItemRegiCount = 3}
-                ]
-            pBridge =
-              BridgeRegInventory
-                { briName = T.pack "depot"
-                , briItems = bridgeItems
-                }
-            pProto =
-              defaultRegInventory
-                { regInventoryReginvName = T.pack "depot"
-                , regInventoryReginvItems = protoItems
-                }
-        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
-    , it "regression: single RegItem matches BridgeRegItem bytes" $ do
-        let pBridge = BridgeRegItem (T.pack "widget") 99
-            pProto = defaultRegItem {regItemRegiName = T.pack "widget", regItemRegiCount = 99}
-        PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
-    ]
+        it "regression: empty RegInventory matches BridgeRegInventory bytes" $ do
+          let pBridge = BridgeRegInventory {briName = T.empty, briItems = V.empty}
+              pProto = defaultRegInventory
+          PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+      , it "regression: name-only RegInventory matches" $ do
+          let pBridge =
+                BridgeRegInventory
+                  { briName = T.pack "warehouse-7"
+                  , briItems = V.empty
+                  }
+              pProto = defaultRegInventory {regInventoryReginvName = T.pack "warehouse-7"}
+          PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+      , it "regression: repeated submessages produce identical bytes" $ do
+          let bridgeItems =
+                V.fromList
+                  [ BridgeRegItem (T.pack "alpha") 1
+                  , BridgeRegItem (T.pack "beta") 2
+                  , BridgeRegItem (T.pack "gamma") 3
+                  ]
+              protoItems =
+                V.fromList
+                  [ defaultRegItem {regItemRegiName = T.pack "alpha", regItemRegiCount = 1}
+                  , defaultRegItem {regItemRegiName = T.pack "beta", regItemRegiCount = 2}
+                  , defaultRegItem {regItemRegiName = T.pack "gamma", regItemRegiCount = 3}
+                  ]
+              pBridge =
+                BridgeRegInventory
+                  { briName = T.pack "depot"
+                  , briItems = bridgeItems
+                  }
+              pProto =
+                defaultRegInventory
+                  { regInventoryReginvName = T.pack "depot"
+                  , regInventoryReginvItems = protoItems
+                  }
+          PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+      , it "regression: single RegItem matches BridgeRegItem bytes" $ do
+          let pBridge = BridgeRegItem (T.pack "widget") 99
+              pProto = defaultRegItem {regItemRegiName = T.pack "widget", regItemRegiCount = 99}
+          PE.encodeMessage pBridge `shouldBe` PE.encodeMessage pProto
+      ]
 
 
 defaultUserT :: UserT

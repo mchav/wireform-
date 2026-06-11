@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Kafka.Client.RebalanceListener
 Description : KIP-415 / 429 cooperative rebalance listener
 
@@ -28,73 +28,89 @@ Tests for the cooperative rebalancer's pure decision layer
 ('Streams.AssignorSpec') already cover the assignment math; this
 module wires the listener-callback shape on the consumer side.
 -}
-module Kafka.Client.RebalanceListener
-  ( -- * Listener
-    RebalanceListener (..)
-  , noopRebalanceListener
-    -- * Convenience constructors
-  , logRebalanceListener
-  , combineListeners
-    -- * Dispatch
-  , dispatchAssigned
-  , dispatchRevoked
-  , dispatchLost
-  ) where
+module Kafka.Client.RebalanceListener (
+  -- * Listener
+  RebalanceListener (..),
+  noopRebalanceListener,
+
+  -- * Convenience constructors
+  logRebalanceListener,
+  combineListeners,
+
+  -- * Dispatch
+  dispatchAssigned,
+  dispatchRevoked,
+  dispatchLost,
+) where
 
 import Control.Exception (SomeException, try)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
-import qualified System.IO as IO
-
 import Kafka.Client.Consumer (TopicPartition (..))
+import System.IO qualified as IO
+
 
 -- | Java's @ConsumerRebalanceListener@.
 data RebalanceListener = RebalanceListener
   { rlOnAssigned :: !([TopicPartition] -> IO ())
-  , rlOnRevoked  :: !([TopicPartition] -> IO ())
-  , rlOnLost     :: !([TopicPartition] -> IO ())
+  , rlOnRevoked :: !([TopicPartition] -> IO ())
+  , rlOnLost :: !([TopicPartition] -> IO ())
   }
-  deriving stock Generic
+  deriving stock (Generic)
+
 
 noopRebalanceListener :: RebalanceListener
-noopRebalanceListener = RebalanceListener
-  { rlOnAssigned = \_ -> pure ()
-  , rlOnRevoked  = \_ -> pure ()
-  , rlOnLost     = \_ -> pure ()
-  }
+noopRebalanceListener =
+  RebalanceListener
+    { rlOnAssigned = \_ -> pure ()
+    , rlOnRevoked = \_ -> pure ()
+    , rlOnLost = \_ -> pure ()
+    }
 
--- | Listener that writes one line per event to stderr. Useful
--- as a default during development; production should swap in a
--- structured-logger variant.
+
+{- | Listener that writes one line per event to stderr. Useful
+as a default during development; production should swap in a
+structured-logger variant.
+-}
 logRebalanceListener :: RebalanceListener
-logRebalanceListener = RebalanceListener
-  { rlOnAssigned = log_ "assigned"
-  , rlOnRevoked  = log_ "revoked"
-  , rlOnLost     = log_ "lost"
-  }
+logRebalanceListener =
+  RebalanceListener
+    { rlOnAssigned = log_ "assigned"
+    , rlOnRevoked = log_ "revoked"
+    , rlOnLost = log_ "lost"
+    }
   where
-    log_ tag tps = TIO.hPutStrLn IO.stderr
-      ("[rebalance] " <> tag <> " " <> T.pack (show tps))
+    log_ tag tps =
+      TIO.hPutStrLn
+        IO.stderr
+        ("[rebalance] " <> tag <> " " <> T.pack (show tps))
+
 
 combineListeners :: RebalanceListener -> RebalanceListener -> RebalanceListener
-combineListeners a b = RebalanceListener
-  { rlOnAssigned = \tps -> rlOnAssigned a tps >> rlOnAssigned b tps
-  , rlOnRevoked  = \tps -> rlOnRevoked  a tps >> rlOnRevoked  b tps
-  , rlOnLost     = \tps -> rlOnLost     a tps >> rlOnLost     b tps
-  }
+combineListeners a b =
+  RebalanceListener
+    { rlOnAssigned = \tps -> rlOnAssigned a tps >> rlOnAssigned b tps
+    , rlOnRevoked = \tps -> rlOnRevoked a tps >> rlOnRevoked b tps
+    , rlOnLost = \tps -> rlOnLost a tps >> rlOnLost b tps
+    }
 
--- | Best-effort dispatch helpers. Catch + swallow exceptions so
--- a buggy listener can't tear the consumer down.
-dispatchAssigned, dispatchRevoked, dispatchLost
-  :: RebalanceListener -> [TopicPartition] -> IO ()
+
+{- | Best-effort dispatch helpers. Catch + swallow exceptions so
+a buggy listener can't tear the consumer down.
+-}
+dispatchAssigned
+  , dispatchRevoked
+  , dispatchLost
+    :: RebalanceListener -> [TopicPartition] -> IO ()
 dispatchAssigned l tps = catchIgnore (rlOnAssigned l tps)
-dispatchRevoked  l tps = catchIgnore (rlOnRevoked  l tps)
-dispatchLost     l tps = catchIgnore (rlOnLost     l tps)
+dispatchRevoked l tps = catchIgnore (rlOnRevoked l tps)
+dispatchLost l tps = catchIgnore (rlOnLost l tps)
+
 
 catchIgnore :: IO () -> IO ()
 catchIgnore m = do
   r <- try m :: IO (Either SomeException ())
   case r of
     Right () -> pure ()
-    Left _   -> pure ()
+    Left _ -> pure ()

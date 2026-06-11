@@ -38,8 +38,8 @@ medium :: Vector Subject
 medium =
   V.fromList
     [ Subject
-      (T.pack ("host-" <> show i <> ".example.com"))
-      (T.pack ("Org-" <> show i))
+        (T.pack ("host-" <> show i <> ".example.com"))
+        (T.pack ("Org-" <> show i))
     | i <- [1 .. 100 :: Int]
     ]
 

@@ -63,19 +63,19 @@ instance KnownHeader Allow where
 httpMethodParser :: ParserT st e HttpMethod
 httpMethodParser =
   $( switch
-      [|
-        case _ of
-          "GET" -> pure GET
-          "HEAD" -> pure HEAD
-          "POST" -> pure POST
-          "PUT" -> pure PUT
-          "DELETE" -> pure DELETE
-          "CONNECT" -> pure CONNECT
-          "OPTIONS" -> pure OPTIONS
-          "TRACE" -> pure TRACE
-          "PATCH" -> pure PATCH
-          _ -> CustomMethod <$> rfc9110Token
-        |]
+       [|
+         case _ of
+           "GET" -> pure GET
+           "HEAD" -> pure HEAD
+           "POST" -> pure POST
+           "PUT" -> pure PUT
+           "DELETE" -> pure DELETE
+           "CONNECT" -> pure CONNECT
+           "OPTIONS" -> pure OPTIONS
+           "TRACE" -> pure TRACE
+           "PATCH" -> pure PATCH
+           _ -> CustomMethod <$> rfc9110Token
+         |]
    )
 
 

@@ -116,13 +116,14 @@ data RegistryError
   | SubjectNotFound !SchemaSubject
   | RegistryHttpError !Int !Text
   | RegistryDecode !Text
-  | IncompatibleSchema !SchemaSubject !Text
-    -- ^ The new schema failed the registry's compatibility
-    -- check against the subject's current versions. The
-    -- 'Text' carries the registry's verbatim explanation
-    -- (Confluent normally returns @\"is_compatible\": false@
-    -- with no further detail; we surface what the HTTP body
-    -- carried).
+  | {- | The new schema failed the registry's compatibility
+    check against the subject's current versions. The
+    'Text' carries the registry's verbatim explanation
+    (Confluent normally returns @\"is_compatible\": false@
+    with no further detail; we surface what the HTTP body
+    carried).
+    -}
+    IncompatibleSchema !SchemaSubject !Text
   deriving stock (Eq, Show, Generic)
 
 
@@ -142,8 +143,9 @@ data CompatibilityMode
   deriving stock (Eq, Show, Generic)
 
 
--- | The default compatibility mode Confluent applies when a
--- subject has none explicitly set (@BACKWARD@).
+{- | The default compatibility mode Confluent applies when a
+subject has none explicitly set (@BACKWARD@).
+-}
 defaultCompatibilityMode :: CompatibilityMode
 defaultCompatibilityMode = CompatBackward
 
@@ -154,10 +156,11 @@ under the subject's configured 'CompatibilityMode'.
 -}
 data CompatibilityResult
   = Compatible
-  | Incompatible !Text
-    -- ^ The registry rejected the candidate. The 'Text' carries
-    -- the registry's verbatim explanation (or @\"incompatible\"@
-    -- when the registry didn't elaborate).
+  | {- | The registry rejected the candidate. The 'Text' carries
+    the registry's verbatim explanation (or @\"incompatible\"@
+    when the registry didn't elaborate).
+    -}
+    Incompatible !Text
   deriving stock (Eq, Show, Generic)
 
 
@@ -186,19 +189,21 @@ data SchemaRegistryClient = SchemaRegistryClient
   , srCompatibilityMode
       :: SchemaSubject
       -> IO (Either RegistryError CompatibilityMode)
-    -- ^ Read the configured compatibility mode for a subject.
-    -- Returns 'defaultCompatibilityMode' when the subject has
-    -- never been configured. Implementations that don't know
-    -- about subject-level config (e.g. 'inMemoryRegistry')
-    -- return @Right 'CompatNone'@ unconditionally.
+  {- ^ Read the configured compatibility mode for a subject.
+  Returns 'defaultCompatibilityMode' when the subject has
+  never been configured. Implementations that don't know
+  about subject-level config (e.g. 'inMemoryRegistry')
+  return @Right 'CompatNone'@ unconditionally.
+  -}
   , srTestCompatibility
       :: SchemaSubject
       -> SchemaPayload
       -> IO (Either RegistryError CompatibilityResult)
-    -- ^ Test whether @payload@ is compatible with the
-    -- subject's latest version under the subject's
-    -- configured compatibility mode. Mirrors Confluent's
-    -- @POST /compatibility/subjects/{subject}/versions/latest@.
+  {- ^ Test whether @payload@ is compatible with the
+  subject's latest version under the subject's
+  configured compatibility mode. Mirrors Confluent's
+  @POST /compatibility/subjects/{subject}/versions/latest@.
+  -}
   }
 
 
@@ -426,8 +431,9 @@ default is @"<topic>-key"@ / @"<topic>-value"@).
 data SchemaRegistrySerdeConfig a = SchemaRegistrySerdeConfig
   { srscClient :: !SchemaRegistryClient
   , srscSchema :: !SchemaPayload
-  -- ^ The schema to register on the producer side. The
-  --   consumer side typically only needs 'srscClient'.
+  {- ^ The schema to register on the producer side. The
+  consumer side typically only needs 'srscClient'.
+  -}
   , srscSubject :: !SchemaSubject
   , srscPayload :: !(Serde a)
   -- ^ The format-specific serde (e.g. an Avro serializer).

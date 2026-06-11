@@ -1,57 +1,63 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Payments.Domain
--- Description : Pure projections between the wire contracts.
---
--- This is where the actual business logic lives, and deliberately so: it is
--- all /pure/ functions over the generated protobuf records. The gRPC server
--- and the Kafka Streams topology are thin shells that move bytes around and
--- call into here.
---
---   * 'transactionEventFromRequest' — the gRPC front door turns an inbound
---     'PaymentRequest' into the canonical 'TransactionEvent' that gets
---     appended to the event log.
---   * 'eventToRiskFeature' — the risk-engine projection.
---   * 'eventToBookkeepingEntry' — the bookkeeping-product projection.
---
--- Both projections are total functions of a single 'TransactionEvent', which
--- is what makes the event log replayable: rebuild either view from scratch by
--- folding the stream.
-module Payments.Domain
-  ( -- * Tunables
-    highValueThresholdMinor
-  , minorUnitsPerMajor
+{- |
+Module      : Payments.Domain
+Description : Pure projections between the wire contracts.
 
-    -- * Projections
-  , transactionEventFromRequest
-  , eventToRiskFeature
-  , eventToBookkeepingEntry
+This is where the actual business logic lives, and deliberately so: it is
+all /pure/ functions over the generated protobuf records. The gRPC server
+and the Kafka Streams topology are thin shells that move bytes around and
+call into here.
 
-    -- * Keys
-  , riskKeyForEvent
-  ) where
+  * 'transactionEventFromRequest' — the gRPC front door turns an inbound
+    'PaymentRequest' into the canonical 'TransactionEvent' that gets
+    appended to the event log.
+  * 'eventToRiskFeature' — the risk-engine projection.
+  * 'eventToBookkeepingEntry' — the bookkeeping-product projection.
+
+Both projections are total functions of a single 'TransactionEvent', which
+is what makes the event log replayable: rebuild either view from scratch by
+folding the stream.
+-}
+module Payments.Domain (
+  -- * Tunables
+  highValueThresholdMinor,
+  minorUnitsPerMajor,
+
+  -- * Projections
+  transactionEventFromRequest,
+  eventToRiskFeature,
+  eventToBookkeepingEntry,
+
+  -- * Keys
+  riskKeyForEvent,
+) where
 
 import Data.Int (Int64)
 import Data.Text (Text)
-import qualified Data.Text as T
-
-import Proto.Payments
+import Data.Text qualified as T
 import Proto.Google.Protobuf.Timestamp (Timestamp (..), defaultTimestamp)
+import Proto.Payments
 
--- | Transactions at or above this amount (in minor units) are flagged as
--- high-value by the risk projection. 100_000 minor units == 1,000.00 major.
+
+{- | Transactions at or above this amount (in minor units) are flagged as
+high-value by the risk projection. 100_000 minor units == 1,000.00 major.
+-}
 highValueThresholdMinor :: Int64
 highValueThresholdMinor = 100_000
 
--- | Minor units per major unit (cents per dollar). Used to render the
--- risk feature's @amount_major@.
+
+{- | Minor units per major unit (cents per dollar). Used to render the
+risk feature's @amount_major@.
+-}
 minorUnitsPerMajor :: Double
 minorUnitsPerMajor = 100
 
--- | Build the canonical event from an inbound request. The caller supplies
--- the freshly-minted transaction id and the event timestamp (both effects
--- live in the server, keeping this function pure and testable).
+
+{- | Build the canonical event from an inbound request. The caller supplies
+the freshly-minted transaction id and the event timestamp (both effects
+live in the server, keeping this function pure and testable).
+-}
 transactionEventFromRequest :: Text -> Int64 -> PaymentRequest -> TransactionEvent
 transactionEventFromRequest transactionId occurredAtMillis req =
   defaultTransactionEvent
@@ -70,6 +76,7 @@ transactionEventFromRequest transactionId occurredAtMillis req =
     , transactionEventReceivedAt = Just (millisToTimestamp occurredAtMillis)
     }
 
+
 -- | Convert epoch-millis into a @google.protobuf.Timestamp@.
 millisToTimestamp :: Int64 -> Timestamp
 millisToTimestamp millis =
@@ -78,16 +85,20 @@ millisToTimestamp millis =
     , timestampNanos = fromIntegral ((millis `mod` 1000) * 1_000_000)
     }
 
--- | The account the risk engine assesses: the account losing money. For a
--- payment that is the payer; for a refund it is the payee.
+
+{- | The account the risk engine assesses: the account losing money. For a
+payment that is the payer; for a refund it is the payee.
+-}
 riskKeyForEvent :: TransactionEvent -> Text
 riskKeyForEvent ev =
   case transactionEventType ev of
     TransactionType'TransactionTypeRefund -> transactionEventPayeeAccount ev
-    _                                     -> transactionEventPayerAccount ev
+    _ -> transactionEventPayerAccount ev
 
--- | Flatten an event into a numeric risk feature keyed by the assessed
--- account.
+
+{- | Flatten an event into a numeric risk feature keyed by the assessed
+account.
+-}
 eventToRiskFeature :: TransactionEvent -> RiskFeature
 eventToRiskFeature ev =
   defaultRiskFeature
@@ -102,13 +113,15 @@ eventToRiskFeature ev =
   where
     isOutbound = case transactionEventType ev of
       TransactionType'TransactionTypeRefund -> False
-      _                                     -> True
+      _ -> True
 
--- | Turn an event into a single ledger posting for the bookkeeping product.
--- A payment debits the payee and credits the payer; a refund reverses the
--- two. (The exact debit/credit convention does not matter for the demo —
--- the point is that this is a /different, domain-owned shape/ derived from
--- the same event.)
+
+{- | Turn an event into a single ledger posting for the bookkeeping product.
+A payment debits the payee and credits the payer; a refund reverses the
+two. (The exact debit/credit convention does not matter for the demo —
+the point is that this is a /different, domain-owned shape/ derived from
+the same event.)
+-}
 eventToBookkeepingEntry :: TransactionEvent -> BookkeepingEntry
 eventToBookkeepingEntry ev =
   defaultBookkeepingEntry
@@ -129,4 +142,4 @@ eventToBookkeepingEntry ev =
         (transactionEventPayeeAccount ev, transactionEventPayerAccount ev)
     memo =
       let d = transactionEventDescription ev
-       in if T.null d then "payment " <> transactionEventTransactionId ev else d
+      in if T.null d then "payment " <> transactionEventTransactionId ev else d

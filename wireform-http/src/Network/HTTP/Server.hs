@@ -97,24 +97,29 @@ data ServerConfig = ServerConfig
   { serverHost :: !String
   , serverPort :: !String
   , serverVersionRange :: !VersionRange
-  -- ^ Versions the server is willing to speak.  The preferred
-  -- version drives the plaintext dispatch.
+  {- ^ Versions the server is willing to speak.  The preferred
+  version drives the plaintext dispatch.
+  -}
   , serverHandler :: !Handler
   , serverTls :: !(Maybe TlsServerConfig)
   , serverForkConnection :: IO () -> IO ThreadId
-  -- ^ How to fork the per-connection thread.  Defaults to 'forkIO';
-  -- use 'Control.Concurrent.forkOn' for pinned-core scheduling.
+  {- ^ How to fork the per-connection thread.  Defaults to 'forkIO';
+  use 'Control.Concurrent.forkOn' for pinned-core scheduling.
+  -}
   , serverNameToken :: !(Maybe ByteString)
-  -- ^ Default value for the @Server@ response header
-  --   (RFC 9110 \u00a710.2.4). 'Nothing' suppresses the header
-  --   entirely.
+  {- ^ Default value for the @Server@ response header
+  (RFC 9110 \u00a710.2.4). 'Nothing' suppresses the header
+  entirely.
+  -}
   , serverEmitDate :: !Bool
-  -- ^ Auto-inject a @Date@ header on responses that don't carry
-  --   one (RFC 9110 \u00a710.2.2). Defaults to 'True'.
+  {- ^ Auto-inject a @Date@ header on responses that don't carry
+  one (RFC 9110 \u00a710.2.2). Defaults to 'True'.
+  -}
   , serverLimits :: !ServerLimits
   , serverRingPool :: !(Maybe RingPool)
-  -- ^ Optional pool of pre-allocated magic ring buffers for
-  -- connection recycling. See 'Wireform.Ring.Pool'.
+  {- ^ Optional pool of pre-allocated magic ring buffers for
+  connection recycling. See 'Wireform.Ring.Pool'.
+  -}
   }
 
 
@@ -125,24 +130,27 @@ HTTP\/2 frame layer, where their absence is the most damaging).
 -}
 data ServerLimits = ServerLimits
   { limitMaxHeaderBytes :: !Int
-  -- ^ Cap on the cumulative header block size, including request
-  --   line. Default: 64 KiB. RFC 9112 has no fixed value but the
-  --   common practice cap is 8\u201364 KiB. The unified server
-  --   enforces this against the sum of @name + \": \" + value + 2@
-  --   bytes of every parsed header (a close proxy for the
-  --   raw block size; the parser layer has already discarded the
-  --   exact byte count by the time we get here). Violations
-  --   short-circuit the handler and emit a @431 Request Header
-  --   Fields Too Large@ response per RFC 6585 §5.
+  {- ^ Cap on the cumulative header block size, including request
+  line. Default: 64 KiB. RFC 9112 has no fixed value but the
+  common practice cap is 8\u201364 KiB. The unified server
+  enforces this against the sum of @name + \": \" + value + 2@
+  bytes of every parsed header (a close proxy for the
+  raw block size; the parser layer has already discarded the
+  exact byte count by the time we get here). Violations
+  short-circuit the handler and emit a @431 Request Header
+  Fields Too Large@ response per RFC 6585 §5.
+  -}
   , limitMaxRequestTargetBytes :: !Int
-  -- ^ Cap on the @request-target@ size (path + query). Default:
-  --   8 KiB. Violations short-circuit the handler and emit a
-  --   @414 URI Too Long@ response per RFC 9110 §15.5.15.
+  {- ^ Cap on the @request-target@ size (path + query). Default:
+  8 KiB. Violations short-circuit the handler and emit a
+  @414 URI Too Long@ response per RFC 9110 §15.5.15.
+  -}
   , limitMaxRequestBody :: !(Maybe Int)
-  -- ^ Cap on inbound request body length. 'Nothing' = unlimited.
-  --   Enforcement currently delegates to user middleware that
-  --   wraps 'requestBody'; ServerConfig surfaces the value so the
-  --   middleware can read one consistent number.
+  {- ^ Cap on inbound request body length. 'Nothing' = unlimited.
+  Enforcement currently delegates to user middleware that
+  wraps 'requestBody'; ServerConfig surfaces the value so the
+  middleware can read one consistent number.
+  -}
   , limitReadTimeoutSecs :: !(Maybe Double)
   -- ^ Idle-read timeout. 'Nothing' disables.
   , limitWriteTimeoutSecs :: !(Maybe Double)
@@ -275,8 +283,8 @@ runServer cfg = case serverTls cfg of
   Nothing ->
     let preferred = preferredVersion (serverVersionRange cfg)
     in if preferred == U.HTTP2
-        then runHttp2 cfg
-        else runHttp1 cfg
+         then runHttp2 cfg
+         else runHttp1 cfg
 
 
 runTlsServer :: ServerConfig -> TlsServerConfig -> IO ()
@@ -366,9 +374,9 @@ handleAcceptedSocket cfg sock =
           && (U.HTTP1_1 `elem` allowed || U.HTTP1_0 `elem` allowed)
       preferred = preferredVersion (serverVersionRange cfg)
   in case (mixed, preferred) of
-      (False, U.HTTP2) -> dispatchH2 cfg sock BS.empty
-      (False, _) -> dispatchH1 cfg sock BS.empty
-      (True, _) -> sniffAndDispatch cfg sock
+       (False, U.HTTP2) -> dispatchH2 cfg sock BS.empty
+       (False, _) -> dispatchH1 cfg sock BS.empty
+       (True, _) -> sniffAndDispatch cfg sock
 
 
 {- | Read up to the length of the HTTP\/2 preface from the socket
@@ -419,10 +427,10 @@ dispatchH2 cfg sock prebuf =
           { H2.serverHandler = wrapHttp2Handler cfg (serverHandler cfg)
           }
   in if BS.null prebuf
-      then H2.runServerOnSocket h2cfg sock
-      else do
-        transport <- prebuffered2 sock prebuf
-        H2.runServerOnTransport h2cfg transport
+       then H2.runServerOnSocket h2cfg sock
+       else do
+         transport <- prebuffered2 sock prebuf
+         H2.runServerOnTransport h2cfg transport
 
 
 {- | Build an HTTP\/1 'H1C.Connection' from a 'NS.Socket' with @prebuf@

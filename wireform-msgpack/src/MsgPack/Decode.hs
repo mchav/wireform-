@@ -1,59 +1,64 @@
 {-# LANGUAGE BangPatterns #-}
--- | MessagePack binary decoding.
---
--- Decodes a wire-format 'ByteString' into a 'MsgPack.Value.Value' tree
--- using pre-allocated mutable vectors instead of list accumulation.
--- Uses 'Ptr'-based unsafe indexing for performance on validated input.
---
--- @
--- import qualified MsgPack.Decode as MPD
---
--- case MPD.decode bytes of
---   Right val -> print val
---   Left err  -> putStrLn err
--- @
-module MsgPack.Decode
-  ( decode
-  ) where
+
+{- | MessagePack binary decoding.
+
+Decodes a wire-format 'ByteString' into a 'MsgPack.Value.Value' tree
+using pre-allocated mutable vectors instead of list accumulation.
+Uses 'Ptr'-based unsafe indexing for performance on validated input.
+
+@
+import qualified MsgPack.Decode as MPD
+
+case MPD.decode bytes of
+  Right val -> print val
+  Left err  -> putStrLn err
+@
+-}
+module MsgPack.Decode (
+  decode,
+) where
 
 import Control.Monad.ST (stToIO)
-import Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
-import Data.Int (Int8, Int16, Int32, Int64)
-import Data.Word (Word8, Word32, Word64)
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BSI
+import Data.ByteString.Unsafe qualified as BSU
+import Data.Int (Int16, Int32, Int64, Int8)
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
+import Data.Word (Word32, Word64, Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import MsgPack.Value qualified as MV'
 import System.IO.Unsafe (unsafeDupablePerformIO)
-
-import qualified MsgPack.Value as MV'
 import Wireform.FFI (decodeTextFast)
+
 
 -- | Decode a MessagePack binary into a Value.
 decode :: ByteString -> Either String MV'.Value
 decode bs
   | BS.null bs = Left "MsgPack.Decode: empty input"
-  | otherwise  = unsafeDupablePerformIO $ withBSPtr bs $ \ptr -> do
+  | otherwise = unsafeDupablePerformIO $ withBSPtr bs $ \ptr -> do
       let !len = BS.length bs
       result <- decodeValue ptr len 0 bs
       pure $! case result of
         Left e -> Left e
         Right (v, off)
           | off == len -> Right v
-          | otherwise  -> Left $ "MsgPack.Decode: " ++ show (len - off) ++ " trailing bytes"
+          | otherwise -> Left $ "MsgPack.Decode: " ++ show (len - off) ++ " trailing bytes"
+
 
 withBSPtr :: ByteString -> (Ptr Word8 -> IO a) -> IO a
 withBSPtr (BSI.BS fp _) f = withForeignPtr fp (f . castPtr)
 
+
 peekAt :: Ptr Word8 -> Int -> IO Word8
 peekAt p off = peekByteOff p off
 {-# INLINE peekAt #-}
+
 
 readBE16 :: Ptr Word8 -> Int -> IO Word64
 readBE16 p off = do
@@ -62,17 +67,20 @@ readBE16 p off = do
   pure $! (fromIntegral b0 `shiftL` 8) .|. fromIntegral b1
 {-# INLINE readBE16 #-}
 
+
 readBE32 :: Ptr Word8 -> Int -> IO Word64
 readBE32 p off = do
   b0 <- peekAt p off
   b1 <- peekAt p (off + 1)
   b2 <- peekAt p (off + 2)
   b3 <- peekAt p (off + 3)
-  pure $! (fromIntegral b0 `shiftL` 24)
+  pure $!
+    (fromIntegral b0 `shiftL` 24)
       .|. (fromIntegral b1 `shiftL` 16)
       .|. (fromIntegral b2 `shiftL` 8)
       .|. fromIntegral b3
 {-# INLINE readBE32 #-}
+
 
 readBE64 :: Ptr Word8 -> Int -> IO Word64
 readBE64 p off = do
@@ -84,7 +92,8 @@ readBE64 p off = do
   b5 <- peekAt p (off + 5)
   b6 <- peekAt p (off + 6)
   b7 <- peekAt p (off + 7)
-  pure $! (fromIntegral b0 `shiftL` 56)
+  pure $!
+    (fromIntegral b0 `shiftL` 56)
       .|. (fromIntegral b1 `shiftL` 48)
       .|. (fromIntegral b2 `shiftL` 40)
       .|. (fromIntegral b3 `shiftL` 32)
@@ -94,7 +103,9 @@ readBE64 p off = do
       .|. fromIntegral b7
 {-# INLINE readBE64 #-}
 
+
 type DecResult = IO (Either String (MV'.Value, Int))
+
 
 decodeValue :: Ptr Word8 -> Int -> Int -> ByteString -> DecResult
 decodeValue p len off origBs
@@ -105,12 +116,11 @@ decodeValue p len off origBs
       dispatch p len off1 b origBs
 {-# INLINE decodeValue #-}
 
+
 dispatch :: Ptr Word8 -> Int -> Int -> Word8 -> ByteString -> DecResult
 dispatch p len off b origBs
-
   -- positive fixint 0x00-0x7f
   | b <= 0x7f = pure $ Right (MV'.Word (fromIntegral b), off)
-
   -- fixmap 0x80-0x8f
   | b >= 0x80 && b <= 0x8f = do
       let !cnt = fromIntegral (b .&. 0x0f)
@@ -128,16 +138,12 @@ dispatch p len off b origBs
 
   -- nil
   | b == 0xc0 = pure $ Right (MV'.Nil, off)
-
   -- (never used) 0xc1
   | b == 0xc1 = pure $ Left "MsgPack.Decode: reserved byte 0xc1"
-
   -- false
   | b == 0xc2 = pure $ Right (MV'.Bool False, off)
-
   -- true
   | b == 0xc3 = pure $ Right (MV'.Bool True, off)
-
   -- bin8
   | b == 0xc4 = requireBytes p len off 1 $ do
       blen <- fromIntegral <$> peekAt p off
@@ -156,19 +162,19 @@ dispatch p len off b origBs
   -- ext8
   | b == 0xc7 = requireBytes p len off 2 $ do
       elen <- fromIntegral <$> peekAt p off
-      ty   <- peekAt p (off + 1)
+      ty <- peekAt p (off + 1)
       decodeExtData p len (off + 2) (fromIntegral ty :: Int8) elen origBs
 
   -- ext16
   | b == 0xc8 = requireBytes p len off 3 $ do
       elen <- fromIntegral <$> readBE16 p off
-      ty   <- peekAt p (off + 2)
+      ty <- peekAt p (off + 2)
       decodeExtData p len (off + 3) (fromIntegral ty :: Int8) elen origBs
 
   -- ext32
   | b == 0xc9 = requireBytes p len off 5 $ do
       elen <- fromIntegral <$> readBE32 p off
-      ty   <- peekAt p (off + 4)
+      ty <- peekAt p (off + 4)
       decodeExtData p len (off + 5) (fromIntegral ty :: Int8) elen origBs
 
   -- float32
@@ -236,7 +242,6 @@ dispatch p len off b origBs
   | b == 0xd7 = decodeFixExt p len off 8 origBs
   -- fixext16
   | b == 0xd8 = decodeFixExt p len off 16 origBs
-
   -- str8
   | b == 0xd9 = requireBytes p len off 1 $ do
       slen <- fromIntegral <$> peekAt p off
@@ -275,11 +280,13 @@ dispatch p len off b origBs
   -- negative fixint 0xe0-0xff
   | otherwise = pure $ Right (MV'.Int (fromIntegral (fromIntegral b :: Int8)), off)
 
+
 requireBytes :: Ptr Word8 -> Int -> Int -> Int -> DecResult -> DecResult
 requireBytes _ len off need action
   | off + need > len = pure $ Left "MsgPack.Decode: unexpected end of input"
-  | otherwise        = action
+  | otherwise = action
 {-# INLINE requireBytes #-}
+
 
 decodeStr :: Ptr Word8 -> Int -> Int -> Int -> ByteString -> DecResult
 decodeStr _ len off slen origBs
@@ -287,8 +294,9 @@ decodeStr _ len off slen origBs
   | otherwise = do
       let !slice = BSU.unsafeTake slen (BSU.unsafeDrop off origBs)
       case decodeTextFast slice of
-        Left _  -> pure $ Left "MsgPack.Decode: invalid UTF-8 in string"
+        Left _ -> pure $ Left "MsgPack.Decode: invalid UTF-8 in string"
         Right t -> pure $ Right (MV'.String t, off + slen)
+
 
 decodeBin :: Ptr Word8 -> Int -> Int -> Int -> ByteString -> DecResult
 decodeBin _ len off blen origBs
@@ -296,6 +304,7 @@ decodeBin _ len off blen origBs
   | otherwise = do
       let !slice = BSU.unsafeTake blen (BSU.unsafeDrop off origBs)
       pure $ Right (MV'.Binary slice, off + blen)
+
 
 decodeArrayN :: Ptr Word8 -> Int -> Int -> Int -> ByteString -> DecResult
 decodeArrayN p len off0 cnt origBs
@@ -311,11 +320,12 @@ decodeArrayN p len off0 cnt origBs
       | otherwise = do
           r <- decodeValue p len off origBs
           case r of
-            Left e       -> pure $ Left e
+            Left e -> pure $ Left e
             Right (v, o) -> do
               stToIO $ MV.unsafeWrite mv i v
               go mv (i + 1) o
 {-# INLINE decodeArrayN #-}
+
 
 decodeMapN :: Ptr Word8 -> Int -> Int -> Int -> ByteString -> DecResult
 decodeMapN p len off0 cnt origBs
@@ -341,6 +351,7 @@ decodeMapN p len off0 cnt origBs
                   go mv (i + 1) o2
 {-# INLINE decodeMapN #-}
 
+
 decodeFixExt :: Ptr Word8 -> Int -> Int -> Int -> ByteString -> DecResult
 decodeFixExt p len off elen origBs
   | off + 1 + elen > len = pure $ Left "MsgPack.Decode: fixext truncated"
@@ -349,13 +360,15 @@ decodeFixExt p len off elen origBs
       let !ty = fromIntegral tyByte :: Int8
       decodeExtData p len (off + 1) ty elen origBs
 
+
 decodeExtData :: Ptr Word8 -> Int -> Int -> Int8 -> Int -> ByteString -> DecResult
 decodeExtData _ len off ty elen origBs
   | off + elen > len = pure $ Left "MsgPack.Decode: ext truncated"
-  | ty == -1  = decodeTimestamp off elen origBs
+  | ty == -1 = decodeTimestamp off elen origBs
   | otherwise = do
       let !slice = BSU.unsafeTake elen (BSU.unsafeDrop off origBs)
       pure $ Right (MV'.Ext ty slice, off + elen)
+
 
 decodeTimestamp :: Int -> Int -> ByteString -> DecResult
 decodeTimestamp off elen origBs = case elen of
@@ -366,7 +379,6 @@ decodeTimestamp off elen origBs = case elen of
         !b3 = fromIntegral (BSU.unsafeIndex origBs (off + 3)) :: Word64
         !secs = (b0 `shiftL` 24) .|. (b1 `shiftL` 16) .|. (b2 `shiftL` 8) .|. b3
     pure $ Right (MV'.Timestamp (fromIntegral secs) 0, off + 4)
-
   8 -> do
     let !b0 = fromIntegral (BSU.unsafeIndex origBs off) :: Word64
         !b1 = fromIntegral (BSU.unsafeIndex origBs (off + 1)) :: Word64
@@ -376,13 +388,18 @@ decodeTimestamp off elen origBs = case elen of
         !b5 = fromIntegral (BSU.unsafeIndex origBs (off + 5)) :: Word64
         !b6 = fromIntegral (BSU.unsafeIndex origBs (off + 6)) :: Word64
         !b7 = fromIntegral (BSU.unsafeIndex origBs (off + 7)) :: Word64
-        !w64 = (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
-           .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
-           .|. (b6 `shiftL` 8) .|. b7
+        !w64 =
+          (b0 `shiftL` 56)
+            .|. (b1 `shiftL` 48)
+            .|. (b2 `shiftL` 40)
+            .|. (b3 `shiftL` 32)
+            .|. (b4 `shiftL` 24)
+            .|. (b5 `shiftL` 16)
+            .|. (b6 `shiftL` 8)
+            .|. b7
         !nsAdj = w64 `shiftR` 34
-        !secs  = w64 .&. 0x3FFFFFFFF
+        !secs = w64 .&. 0x3FFFFFFFF
     pure $ Right (MV'.Timestamp (fromIntegral secs) (fromIntegral nsAdj), off + 8)
-
   12 -> do
     let !b0 = fromIntegral (BSU.unsafeIndex origBs off) :: Word64
         !b1 = fromIntegral (BSU.unsafeIndex origBs (off + 1)) :: Word64
@@ -397,9 +414,14 @@ decodeTimestamp off elen origBs = case elen of
         !b9 = fromIntegral (BSU.unsafeIndex origBs (off + 9)) :: Word64
         !b10 = fromIntegral (BSU.unsafeIndex origBs (off + 10)) :: Word64
         !b11 = fromIntegral (BSU.unsafeIndex origBs (off + 11)) :: Word64
-        !sec64 = (b4 `shiftL` 56) .|. (b5 `shiftL` 48) .|. (b6 `shiftL` 40)
-             .|. (b7 `shiftL` 32) .|. (b8 `shiftL` 24) .|. (b9 `shiftL` 16)
-             .|. (b10 `shiftL` 8) .|. b11
+        !sec64 =
+          (b4 `shiftL` 56)
+            .|. (b5 `shiftL` 48)
+            .|. (b6 `shiftL` 40)
+            .|. (b7 `shiftL` 32)
+            .|. (b8 `shiftL` 24)
+            .|. (b9 `shiftL` 16)
+            .|. (b10 `shiftL` 8)
+            .|. b11
     pure $ Right (MV'.Timestamp (fromIntegral sec64 :: Int64) (fromIntegral ns32 :: Word32), off + 12)
-
   _ -> pure $ Left $ "MsgPack.Decode: invalid timestamp ext size: " ++ show elen

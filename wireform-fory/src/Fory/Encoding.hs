@@ -334,9 +334,9 @@ readWord32LE bs !off
           !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
           !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
       in Right
-          ( b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-          , off + 4
-          )
+           ( b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+           , off + 4
+           )
 
 
 readWord64LE :: ByteString -> Int -> Either String (Word64, Int)
@@ -391,8 +391,8 @@ readVaruint32 bs = go 0 0
               !acc' = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
               !off' = off + 1
           in if b .&. 0x80 == 0
-              then Right (acc', off')
-              else go (shift + 7) acc' off'
+               then Right (acc', off')
+               else go (shift + 7) acc' off'
 
 
 readVaruint64 :: ByteString -> Int -> Either String (Word64, Int)
@@ -412,8 +412,8 @@ readVaruint64 bs = go 0 0 0
               !acc' = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
               !off' = off + 1
           in if b .&. 0x80 == 0
-              then Right (acc', off')
-              else go (i + 1) (shift + 7) acc' off'
+               then Right (acc', off')
+               else go (i + 1) (shift + 7) acc' off'
 
 
 readVarint32 :: ByteString -> Int -> Either String (Int32, Int)

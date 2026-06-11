@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Conformance.T0000.Unittests
 Description : librdkafka @tests\/0000-unittests.c@
 
@@ -16,33 +16,32 @@ surface that the librdkafka equivalent exercises:
 -}
 module Conformance.T0000.Unittests (tests) where
 
-import qualified Data.Text as T
-
+import Data.Text qualified as T
+import Kafka.Client.Consumer qualified as C
+import Kafka.Client.Group qualified as G
+import Kafka.Client.Producer qualified as P
 import Test.Syd
 
-import qualified Kafka.Client.Consumer as C
-import qualified Kafka.Client.Producer as P
-import qualified Kafka.Client.Group as G
 
 tests :: Spec
-tests = describe "0000-unittests" $ sequence_
-  [ it "default consumer config has sensible knobs" $ do
-      let cfg = C.defaultConsumerConfig
-      (not (T.null (C.consumerClientId cfg))) `shouldBe` True
-      C.consumerSessionTimeoutMs   cfg `shouldBe` 45000   -- KIP-735
-      C.consumerHeartbeatIntervalMs cfg `shouldBe` 3000
-      C.consumerMaxPollRecords     cfg `shouldBe` 500
-      C.consumerMaxPollIntervalMs  cfg `shouldBe` 300000
-
-  , it "default producer config has sensible knobs" $ do
-      let cfg = P.defaultProducerConfig
-      -- Just check the constructor + record selectors round-trip
-      -- (we exercise the types; the configured values are what they are).
-      seq cfg (return () :: IO ())
-
-  , it "high-level group umbrella exports a default" $ do
-      let cfg = G.defaultGroupConfig
-      (not (null (G.bootstrapBrokers cfg))) `shouldBe` True
-      G.sessionTimeoutMs   cfg `shouldBe` 10000
-      G.maxPollIntervalMs  cfg `shouldBe` 300000
-  ]
+tests =
+  describe "0000-unittests" $
+    sequence_
+      [ it "default consumer config has sensible knobs" $ do
+          let cfg = C.defaultConsumerConfig
+          (not (T.null (C.consumerClientId cfg))) `shouldBe` True
+          C.consumerSessionTimeoutMs cfg `shouldBe` 45000 -- KIP-735
+          C.consumerHeartbeatIntervalMs cfg `shouldBe` 3000
+          C.consumerMaxPollRecords cfg `shouldBe` 500
+          C.consumerMaxPollIntervalMs cfg `shouldBe` 300000
+      , it "default producer config has sensible knobs" $ do
+          let cfg = P.defaultProducerConfig
+          -- Just check the constructor + record selectors round-trip
+          -- (we exercise the types; the configured values are what they are).
+          seq cfg (return () :: IO ())
+      , it "high-level group umbrella exports a default" $ do
+          let cfg = G.defaultGroupConfig
+          (not (null (G.bootstrapBrokers cfg))) `shouldBe` True
+          G.sessionTimeoutMs cfg `shouldBe` 10000
+          G.maxPollIntervalMs cfg `shouldBe` 300000
+      ]

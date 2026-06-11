@@ -86,9 +86,10 @@ data Variant
     VDecimal4 !Word8 !Int32
   | -- | scale, unscaled int64 (precision <= 18)
     VDecimal8 !Word8 !Int64
-  | -- | scale, unscaled int128 (precision <= 38). Stored as 'Integer'
-    --   so callers don't have to manage two-words by hand; the
-    --   encoder packs it as 16 little-endian bytes (two's complement).
+  | {- | scale, unscaled int128 (precision <= 38). Stored as 'Integer'
+    so callers don't have to manage two-words by hand; the
+    encoder packs it as 16 little-endian bytes (two's complement).
+    -}
     VDecimal16 !Word8 !Integer
   | -- | days since 1970-01-01.
     VDate !Int32
@@ -108,9 +109,10 @@ data Variant
   | VBinary !ByteString
   | VArray !(Vector Variant)
   | VObject !(Map Text Variant)
-  | -- | Forward-compat: any primitive type ID this version doesn't
-    --   model. Now only used for tags >= 21 (which the spec hasn't
-    --   assigned yet).
+  | {- | Forward-compat: any primitive type ID this version doesn't
+    model. Now only used for tags >= 21 (which the spec hasn't
+    assigned yet).
+    -}
     VUnsupportedPrimitive !Word8 !ByteString
   deriving (Show, Eq)
 
@@ -224,13 +226,13 @@ encodeValue dict = BL.toStrict . B.toLazyByteString . goB
         let !bs = TE.encodeUtf8 t
             !n = BS.length bs
         in if n < 64
-            then -- short_string: basic=1, value_header = length
-              B.word8 (fromIntegral ((n `shiftL` 2) .|. 1))
-                <> B.byteString bs
-            else
-              primHeader 16
-                <> B.word32LE (fromIntegral n)
-                <> B.byteString bs
+             then -- short_string: basic=1, value_header = length
+               B.word8 (fromIntegral ((n `shiftL` 2) .|. 1))
+                 <> B.byteString bs
+             else
+               primHeader 16
+                 <> B.word32LE (fromIntegral n)
+                 <> B.byteString bs
       VBinary bs ->
         primHeader 15
           <> B.word32LE (fromIntegral (BS.length bs))
@@ -261,14 +263,14 @@ encodeInt128LE !v0 =
           then ((1 `shiftL` 128) + v0) .&. mask128
           else v0 .&. mask128
   in BS.pack
-      ( map
-          ( \i ->
-              fromIntegral
-                ((uns `shiftR` (i * 8)) .&. 0xFF)
-                :: Word8
-          )
-          [0 .. 15]
-      )
+       ( map
+           ( \i ->
+               fromIntegral
+                 ((uns `shiftR` (i * 8)) .&. 0xFF)
+                 :: Word8
+           )
+           [0 .. 15]
+       )
 
 
 {- | Decode 16 little-endian bytes as a signed two's-complement
@@ -310,9 +312,9 @@ encodeArray dict xs =
           then B.word32LE (fromIntegral n)
           else B.word8 (fromIntegral n)
   in B.word8 (fromIntegral valueMetadata)
-      <> numElementsBytes
-      <> V.foldl' (\acc o -> acc <> writeUleN offSize o) mempty offsets
-      <> V.foldl' (\acc bs -> acc <> B.byteString bs) mempty encodedKids
+       <> numElementsBytes
+       <> V.foldl' (\acc o -> acc <> writeUleN offSize o) mempty offsets
+       <> V.foldl' (\acc bs -> acc <> B.byteString bs) mempty encodedKids
 
 
 {- | Encode an object. Field ids are dictionary indices and must be
@@ -342,10 +344,10 @@ encodeObject dict m =
           then B.word32LE (fromIntegral n)
           else B.word8 (fromIntegral n)
   in B.word8 (fromIntegral valueMetadata)
-      <> numElementsBytes
-      <> mconcat (map (writeUleN idSize) fieldIds)
-      <> mconcat (map (writeUleN offSize) offsets)
-      <> mconcat (map B.byteString encodedKids)
+       <> numElementsBytes
+       <> mconcat (map (writeUleN idSize) fieldIds)
+       <> mconcat (map (writeUleN offSize) offsets)
+       <> mconcat (map B.byteString encodedKids)
 
 
 -- ============================================================
@@ -408,10 +410,10 @@ decodeValueAt dict bs off
         1 ->
           let !len = hdr
           in if off + 1 + len > BS.length bs
-              then Left "Iceberg.Variant: short string runs past end"
-              else case TE.decodeUtf8' (BS.take len (BS.drop (off + 1) bs)) of
-                Right t -> Right (VString t, off + 1 + len)
-                Left e -> Left ("Iceberg.Variant: short-string UTF-8: " ++ show e)
+               then Left "Iceberg.Variant: short string runs past end"
+               else case TE.decodeUtf8' (BS.take len (BS.drop (off + 1) bs)) of
+                 Right t -> Right (VString t, off + 1 + len)
+                 Left e -> Left ("Iceberg.Variant: short-string UTF-8: " ++ show e)
         2 -> decodeObjectAt dict hdr bs (off + 1)
         3 -> decodeArrayAt dict hdr bs (off + 1)
         _ -> Left ("Iceberg.Variant: unknown basic_type " ++ show basic)
@@ -651,12 +653,12 @@ formatDecimal sc unscaled =
       !abs' = abs unscaled
       !s = T.pack (show abs')
   in if scI == 0
-      then sign <> s
-      else
-        let !padLen = max 0 (scI + 1 - T.length s)
-            !padded = T.replicate padLen (T.singleton '0') <> s
-            (intP, fracP) = T.splitAt (T.length padded - scI) padded
-        in sign <> intP <> T.singleton '.' <> fracP
+       then sign <> s
+       else
+         let !padLen = max 0 (scI + 1 - T.length s)
+             !padded = T.replicate padLen (T.singleton '0') <> s
+             (intP, fracP) = T.splitAt (T.length padded - scI) padded
+         in sign <> intP <> T.singleton '.' <> fracP
 
 
 {- | Format a date (days since 1970-01-01) as ISO-8601 (@YYYY-MM-DD@).
@@ -667,7 +669,7 @@ formatDate days =
   let !d = TC.addDays (fromIntegral days) (TC.fromGregorian 1970 1 1)
       (y, m, dd) = TC.toGregorian d
   in T.pack
-      (printf "%04d-%02d-%02d" y m dd)
+       (printf "%04d-%02d-%02d" y m dd)
 
 
 {- | Format microseconds-since-midnight as ISO-8601
@@ -684,10 +686,10 @@ formatTime micros =
       !sign = if micros < 0 then "-" else "" :: String
       !base = printf "%s%02d:%02d:%02d" sign hh mm ss :: String
   in T.pack
-      ( if rem' == 0
-          then base
-          else base ++ printf ".%06d" rem'
-      )
+       ( if rem' == 0
+           then base
+           else base ++ printf ".%06d" rem'
+       )
 
 
 {- | Format an integer-microsecond / -nanosecond timestamp as ISO-8601
@@ -712,17 +714,17 @@ formatTimestamp value adjustedToUtc isNanos =
         | otherwise = printf ".%06d" subSecs
       !zone = if adjustedToUtc then "Z" else ""
   in T.pack
-      ( printf
-          "%04d-%02d-%02dT%02d:%02d:%02d%s%s"
-          y
-          m
-          dd
-          hh
-          mm
-          ss
-          (suffix :: String)
-          (zone :: String)
-      )
+       ( printf
+           "%04d-%02d-%02dT%02d:%02d:%02d%s%s"
+           y
+           m
+           dd
+           hh
+           mm
+           ss
+           (suffix :: String)
+           (zone :: String)
+       )
 
 
 {- | Format 16 raw bytes as the canonical UUID string @8-4-4-4-12@
@@ -735,16 +737,16 @@ formatUuid raw =
       !hex16 = concatMap (printf "%02x") (BS.unpack padded)
       seg lo hi = take (hi - lo) (drop lo hex16)
   in T.pack
-      ( seg 0 8
-          ++ "-"
-          ++ seg 8 12
-          ++ "-"
-          ++ seg 12 16
-          ++ "-"
-          ++ seg 16 20
-          ++ "-"
-          ++ seg 20 32
-      )
+       ( seg 0 8
+           ++ "-"
+           ++ seg 8 12
+           ++ "-"
+           ++ seg 12 16
+           ++ "-"
+           ++ seg 16 20
+           ++ "-"
+           ++ seg 20 32
+       )
 
 
 {- | Format a binary blob as a base64 string. Mirrors the

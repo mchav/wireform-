@@ -20,19 +20,21 @@ comparisons with grouped bounds checks.
 
 @
 -}
-module Wireform.Parser.Switch
-  ( switch
-  , switchWithPost
-    -- * TH literal splices
-  , char
-  , string
-    -- * Helpers used by generated code (not for direct use)
-  , switchFailed
-  , switchBranch
-  , switchAnyWord8Unsafe
-  , switchPeekWord8Unsafe
-  , switchSkip1
-  ) where
+module Wireform.Parser.Switch (
+  switch,
+  switchWithPost,
+
+  -- * TH literal splices
+  char,
+  string,
+
+  -- * Helpers used by generated code (not for direct use)
+  switchFailed,
+  switchBranch,
+  switchAnyWord8Unsafe,
+  switchPeekWord8Unsafe,
+  switchSkip1,
+) where
 
 import Control.Monad (forM)
 import Data.ByteString.Char8 qualified as BSC
@@ -66,30 +68,35 @@ switchAnyWord8Unsafe = Parser \_ _ s st ->
     w# -> (# st, OK# (W8# w#) (plusAddr# s 1#) #)
 {-# INLINE switchAnyWord8Unsafe #-}
 
--- | Peek the next byte without consuming. Used by the trie code
--- generator so that a wildcard-branch falling back to the
--- current node's terminal action does not eat a byte that
--- belongs to whatever runs after the switch.
---
--- (Previously the generator used 'switchAnyWord8Unsafe' for the
--- byte dispatch, which consumed the byte and then ran the
--- terminal action /past/ that byte. For input like @\"1,…\"@ on a
--- switch with literals @\"1\", \"1.0\", \"1.00\"@, that meant the
--- @\"1\"@ terminal action ran from after the comma — silently
--- breaking every quality-weighted Accept-* parser whose first
--- entry used @q=1@.)
+
+{- | Peek the next byte without consuming. Used by the trie code
+generator so that a wildcard-branch falling back to the
+current node's terminal action does not eat a byte that
+belongs to whatever runs after the switch.
+
+(Previously the generator used 'switchAnyWord8Unsafe' for the
+byte dispatch, which consumed the byte and then ran the
+terminal action /past/ that byte. For input like @\"1,…\"@ on a
+switch with literals @\"1\", \"1.0\", \"1.00\"@, that meant the
+@\"1\"@ terminal action ran from after the comma — silently
+breaking every quality-weighted Accept-* parser whose first
+entry used @q=1@.)
+-}
 switchPeekWord8Unsafe :: Parser m e Word8
 switchPeekWord8Unsafe = Parser \_env _eob s st ->
   case indexWord8OffAddr# s 0# of
     w# -> (# st, OK# (W8# w#) s #)
 {-# INLINE switchPeekWord8Unsafe #-}
 
--- | Skip one byte (used after 'switchPeekWord8Unsafe' has
--- decided a child branch matches).
+
+{- | Skip one byte (used after 'switchPeekWord8Unsafe' has
+decided a child branch matches).
+-}
 switchSkip1 :: Parser m e ()
 switchSkip1 = Parser \_env _eob s st ->
   (# st, OK# () (plusAddr# s 1#) #)
 {-# INLINE switchSkip1 #-}
+
 
 -- | Branch on an ensure check: if enough bytes, run @t@; else @f@.
 switchBranch :: Int -> Parser m e a -> Parser m e a -> Parser m e a
@@ -236,13 +243,19 @@ genTrieCode names = go 0
             pure (w, InfixE (Just (VarE 'switchSkip1)) (VarE '(>>)) (Just e))
 
           let defE = VarE (ruleName rule)
-              body = mkDoE
-                [ BindS (VarP (mkName "c")) (VarE 'switchPeekWord8Unsafe)
-                , NoBindS (CaseE (VarE (mkName "c"))
-                    (  [Match (LitP (IntegerL (fromIntegral w))) (NormalB e) []
-                       | (w, e) <- branches]
-                    <> [Match WildP (NormalB defE) []]))
-                ]
+              body =
+                mkDoE
+                  [ BindS (VarP (mkName "c")) (VarE 'switchPeekWord8Unsafe)
+                  , NoBindS
+                      ( CaseE
+                          (VarE (mkName "c"))
+                          ( [ Match (LitP (IntegerL (fromIntegral w))) (NormalB e) []
+                            | (w, e) <- branches
+                            ]
+                              <> [Match WildP (NormalB defE) []]
+                          )
+                      )
+                  ]
 
           if need
             then [|switchBranch depth $(pure body) $(pure defE)|]

@@ -3,32 +3,38 @@
 
 module Streams.AggregationSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 tests :: Spec
-tests = describe "Aggregation" $ sequence_
-  [ count_per_key
-  , reduce_per_key
-  , aggregate_with_init
-  , windowed_count
-  , windowed_count_drops_late_record_past_grace
-  , windowed_count_accepts_late_record_within_grace
-  ]
+tests =
+  describe "Aggregation" $
+    sequence_
+      [ count_per_key
+      , reduce_per_key
+      , aggregate_with_init
+      , windowed_count
+      , windowed_count_drops_late_record_past_grace
+      , windowed_count_accepts_late_record_within_grace
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 i64Bytes :: Int64 -> BSC.ByteString
 i64Bytes = serialize int64Serde
 
+
 t :: Int64 -> Timestamp
 t = Timestamp
+
 
 count_per_key :: Spec
 count_per_key = it "count per key writes monotone counts" $ do
@@ -48,7 +54,7 @@ count_per_key = it "count per key writes monotone counts" $ do
 
   mStore <- getKeyValueStore @Text @Int64 driver (ctlStore table)
   case mStore of
-    Nothing  -> error "store missing"
+    Nothing -> error "store missing"
     Just kvs -> do
       ca <- kvsGet kvs "a"
       cb <- kvsGet kvs "b"
@@ -56,43 +62,52 @@ count_per_key = it "count per key writes monotone counts" $ do
       cb `shouldBe` Just 1
   closeDriver driver
 
+
 reduce_per_key :: Spec
 reduce_per_key = it "reduce sums values per key" $ do
   b <- newStreamsBuilder
-  src <- streamFromTopic b (topicName "in")
-           (consumed textSerde int64Serde)
+  src <-
+    streamFromTopic
+      b
+      (topicName "in")
+      (consumed textSerde int64Serde)
   let g = grouped textSerde int64Serde
       kgs = groupByKey g src
   table <- reduceStream (+) materialized kgs
   topo <- buildTopology b
   driver <- newDriver topo "reduce-app"
 
-  pipeInput driver (topicName "in") (Just (bytes "a")) (i64Bytes 5)  (t 0) 0
+  pipeInput driver (topicName "in") (Just (bytes "a")) (i64Bytes 5) (t 0) 0
   pipeInput driver (topicName "in") (Just (bytes "a")) (i64Bytes 10) (t 1) 0
-  pipeInput driver (topicName "in") (Just (bytes "b")) (i64Bytes 1)  (t 2) 0
-  pipeInput driver (topicName "in") (Just (bytes "a")) (i64Bytes 2)  (t 3) 0
+  pipeInput driver (topicName "in") (Just (bytes "b")) (i64Bytes 1) (t 2) 0
+  pipeInput driver (topicName "in") (Just (bytes "a")) (i64Bytes 2) (t 3) 0
   pipeInput driver (topicName "in") (Just (bytes "b")) (i64Bytes 100) (t 4) 0
 
   mStore <- getKeyValueStore @Text @Int64 driver (ctlStore table)
   case mStore of
-    Nothing  -> error "store missing"
+    Nothing -> error "store missing"
     Just kvs -> do
       kvsGet kvs "a" >>= (`shouldBe` Just 17)
       kvsGet kvs "b" >>= (`shouldBe` Just 101)
   closeDriver driver
 
+
 aggregate_with_init :: Spec
 aggregate_with_init = it "aggregate with non-trivial init" $ do
   b <- newStreamsBuilder
-  src <- streamFromTopic b (topicName "in")
-           (consumed textSerde int64Serde)
+  src <-
+    streamFromTopic
+      b
+      (topicName "in")
+      (consumed textSerde int64Serde)
   let g = grouped textSerde int64Serde
       kgs = groupByKey g src
-  table <- aggregateStream
-             (pure (1 :: Int64))   -- start at 1, multiply by each value
-             (\_ v acc -> acc * v)
-             materialized
-             kgs
+  table <-
+    aggregateStream
+      (pure (1 :: Int64)) -- start at 1, multiply by each value
+      (\_ v acc -> acc * v)
+      materialized
+      kgs
   topo <- buildTopology b
   driver <- newDriver topo "agg-init-app"
 
@@ -102,9 +117,10 @@ aggregate_with_init = it "aggregate with non-trivial init" $ do
 
   mStore <- getKeyValueStore @Text @Int64 driver (ctlStore table)
   case mStore of
-    Nothing  -> error "store missing"
+    Nothing -> error "store missing"
     Just kvs -> kvsGet kvs "x" >>= (`shouldBe` Just 30)
   closeDriver driver
+
 
 windowed_count :: Spec
 windowed_count = it "tumbling windowed count" $ do
@@ -127,11 +143,12 @@ windowed_count = it "tumbling windowed count" $ do
 
   mStore <- getWindowStore @Text @Int64 driver (wthStore table)
   case mStore of
-    Nothing  -> error "window store missing"
-    Just ws  -> do
-      wsFetch ws "k" (Timestamp 0)   >>= (`shouldBe` Just 3)
+    Nothing -> error "window store missing"
+    Just ws -> do
+      wsFetch ws "k" (Timestamp 0) >>= (`shouldBe` Just 3)
       wsFetch ws "k" (Timestamp 100) >>= (`shouldBe` Just 2)
   closeDriver driver
+
 
 windowed_count_drops_late_record_past_grace :: Spec
 windowed_count_drops_late_record_past_grace =
@@ -140,8 +157,10 @@ windowed_count_drops_late_record_past_grace =
     src <- streamFromTopic b (topicName "in") (consumed textSerde textSerde)
     let g = grouped textSerde textSerde
         kgs = groupByKey g src
-        ws = withWindowsRetention (millis 100_000)
-              (withGracePeriod (millis 50) (tumblingWindows (millis 100)))
+        ws =
+          withWindowsRetention
+            (millis 100_000)
+            (withGracePeriod (millis 50) (tumblingWindows (millis 100)))
         twks = windowedByTime ws kgs
     table <- countWindowed materialized twks
     topo <- buildTopology b
@@ -158,9 +177,10 @@ windowed_count_drops_late_record_past_grace =
 
     mStore <- getWindowStore @Text @Int64 driver (wthStore table)
     case mStore of
-      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
+      Just ws_ -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
       Nothing -> error "store missing"
     closeDriver driver
+
 
 windowed_count_accepts_late_record_within_grace :: Spec
 windowed_count_accepts_late_record_within_grace =
@@ -184,6 +204,6 @@ windowed_count_accepts_late_record_within_grace =
 
     mStore <- getWindowStore @Text @Int64 driver (wthStore table)
     case mStore of
-      Just ws_  -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
+      Just ws_ -> wsFetch ws_ "k" (Timestamp 0) >>= (`shouldBe` Just 2)
       Nothing -> error "store missing"
     closeDriver driver

@@ -72,24 +72,24 @@ wkbDecodePoint bs
   | otherwise =
       let !bo = BS.index bs 0
       in case bo of
-          1 -> do
-            ty <- readU32 1 LE
-            if ty /= 1
-              then Left ("wkbDecodePoint: expected POINT (type 1), got type " ++ show ty)
-              else do
-                let !x = castWord64ToDouble (readU64 5 LE)
-                    !y = castWord64ToDouble (readU64 13 LE)
-                Right (Point x y)
-          0 -> do
-            ty <- readU32 1 BE
-            if ty /= 1
-              then Left ("wkbDecodePoint: expected POINT (type 1), got type " ++ show ty)
-              else do
-                let !x = castWord64ToDouble (readU64 5 BE)
-                    !y = castWord64ToDouble (readU64 13 BE)
-                Right (Point x y)
-          _ ->
-            Left ("wkbDecodePoint: unknown byte-order flag " ++ show bo)
+           1 -> do
+             ty <- readU32 1 LE
+             if ty /= 1
+               then Left ("wkbDecodePoint: expected POINT (type 1), got type " ++ show ty)
+               else do
+                 let !x = castWord64ToDouble (readU64 5 LE)
+                     !y = castWord64ToDouble (readU64 13 LE)
+                 Right (Point x y)
+           0 -> do
+             ty <- readU32 1 BE
+             if ty /= 1
+               then Left ("wkbDecodePoint: expected POINT (type 1), got type " ++ show ty)
+               else do
+                 let !x = castWord64ToDouble (readU64 5 BE)
+                     !y = castWord64ToDouble (readU64 13 BE)
+                 Right (Point x y)
+           _ ->
+             Left ("wkbDecodePoint: unknown byte-order flag " ++ show bo)
   where
     readU32 :: Int -> Endian -> Either String Word32
     readU32 off LE =
@@ -99,10 +99,10 @@ wkbDecodePoint bs
             b2 = fromIntegral (BS.index bs (off + 2)) :: Word32
             b3 = fromIntegral (BS.index bs (off + 3)) :: Word32
         in b0
-            .&. 0xFF
-            + (b1 `shiftL` 8)
-            + (b2 `shiftL` 16)
-            + (b3 `shiftL` 24)
+             .&. 0xFF
+             + (b1 `shiftL` 8)
+             + (b2 `shiftL` 16)
+             + (b3 `shiftL` 24)
     readU32 off BE =
       Right $!
         let b0 = fromIntegral (BS.index bs off) :: Word32
@@ -115,23 +115,23 @@ wkbDecodePoint bs
     readU64 off LE =
       let bn i = fromIntegral (BS.index bs (off + i)) :: Word64
       in bn 0
-          + (bn 1 `shiftL` 8)
-          + (bn 2 `shiftL` 16)
-          + (bn 3 `shiftL` 24)
-          + (bn 4 `shiftL` 32)
-          + (bn 5 `shiftL` 40)
-          + (bn 6 `shiftL` 48)
-          + (bn 7 `shiftL` 56)
+           + (bn 1 `shiftL` 8)
+           + (bn 2 `shiftL` 16)
+           + (bn 3 `shiftL` 24)
+           + (bn 4 `shiftL` 32)
+           + (bn 5 `shiftL` 40)
+           + (bn 6 `shiftL` 48)
+           + (bn 7 `shiftL` 56)
     readU64 off BE =
       let bn i = fromIntegral (BS.index bs (off + i)) :: Word64
       in (bn 0 `shiftL` 56)
-          + (bn 1 `shiftL` 48)
-          + (bn 2 `shiftL` 40)
-          + (bn 3 `shiftL` 32)
-          + (bn 4 `shiftL` 24)
-          + (bn 5 `shiftL` 16)
-          + (bn 6 `shiftL` 8)
-          + bn 7
+           + (bn 1 `shiftL` 48)
+           + (bn 2 `shiftL` 40)
+           + (bn 3 `shiftL` 32)
+           + (bn 4 `shiftL` 24)
+           + (bn 5 `shiftL` 16)
+           + (bn 6 `shiftL` 8)
+           + bn 7
 
 
 data Endian = LE | BE

@@ -43,6 +43,7 @@ import Test.Proto.Derive.RegressionTypes (
  )
 import Wireform.Derive (tag)
 
+
 -- TH-generated JSON instances carry a 'Given ExtensionRegistry' constraint
 -- for proto2 extensions; this test target has none, so satisfy it with
 -- the empty registry.

@@ -70,15 +70,15 @@ genValue depth =
     ]
       ++ [ ( 3
            , VV.ListVal . V.fromList
-              <$> Gen.list (Range.linear 0 5) (genValue (depth - 1))
+               <$> Gen.list (Range.linear 0 5) (genValue (depth - 1))
            )
          | depth > 0
          ]
       ++ [ ( 2
            , VV.MapVal . V.fromList
-              <$> Gen.list
-                (Range.linear 0 4)
-                ((,) <$> genStringy (depth - 1) <*> genValue (depth - 1))
+               <$> Gen.list
+                 (Range.linear 0 4)
+                 ((,) <$> genStringy (depth - 1) <*> genValue (depth - 1))
            )
          | depth > 0
          ]

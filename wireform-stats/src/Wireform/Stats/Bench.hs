@@ -137,11 +137,13 @@ markdown table + one chart.
 -}
 data BenchSummary = BenchSummary
   { bsId :: !Text
-  -- ^ Stable identifier; matches the @bench:\<id\>@ marker key in
-  -- the README and the filename under @bench-results/summary/@.
+  {- ^ Stable identifier; matches the @bench:\<id\>@ marker key in
+  the README and the filename under @bench-results/summary/@.
+  -}
   , bsTitle :: !Text
-  -- ^ Human-readable title shown above the chart and in the table
-  -- header sentence.
+  {- ^ Human-readable title shown above the chart and in the table
+  header sentence.
+  -}
   , bsUnit :: !Unit
   , bsHigherIsBetter :: !Bool
   , bsGroups :: ![Text]
@@ -149,12 +151,14 @@ data BenchSummary = BenchSummary
   , bsSeries :: ![BenchSeries]
   -- ^ One series per legend entry; values aligned with 'bsGroups'.
   , bsBaseline :: !(Maybe Text)
-  -- ^ Optional name of the series used as the @1.00x@ ratio
-  -- baseline in the table.
+  {- ^ Optional name of the series used as the @1.00x@ ratio
+  baseline in the table.
+  -}
   , bsCapturedAt :: !UTCTime
   , bsToolchain :: !Text
-  -- ^ Free-form description of the GHC + OS + CPU the numbers
-  -- were captured on.
+  {- ^ Free-form description of the GHC + OS + CPU the numbers
+  were captured on.
+  -}
   }
   deriving stock (Eq, Show, Generic)
 
@@ -325,10 +329,10 @@ summaryToTable s =
               _ -> "-"
         in g : map cell (bsSeries s) ++ [ratio]
   in Tbl.Table
-      { Tbl.tableHeader = header
-      , Tbl.tableAlign = align
-      , Tbl.tableRows = zipWith mkRow [0 ..] (bsGroups s)
-      }
+       { Tbl.tableHeader = header
+       , Tbl.tableAlign = align
+       , Tbl.tableRows = zipWith mkRow [0 ..] (bsGroups s)
+       }
 
 
 -- ---------------------------------------------------------------------------

@@ -31,13 +31,15 @@ import Kafka.Streams.State.Store (WindowedKey (..))
 import Kafka.Streams.Time (Timestamp (..))
 import Wireform.Builder qualified as BB
 
--- | A 'WindowedKey' inherits the inner key's serde and composes
--- it with the standard window-start framing. This lives here
--- (rather than alongside 'WindowedKey' in
--- 'Kafka.Streams.State.Store') so it can reuse 'windowedSerde'
--- directly. It's an orphan instance in the strict sense, but
--- only between two types both owned by this library — no
--- downstream clash risk.
+
+{- | A 'WindowedKey' inherits the inner key's serde and composes
+it with the standard window-start framing. This lives here
+(rather than alongside 'WindowedKey' in
+'Kafka.Streams.State.Store') so it can reuse 'windowedSerde'
+directly. It's an orphan instance in the strict sense, but
+only between two types both owned by this library — no
+downstream clash risk.
+-}
 instance HasSerde k => HasSerde (WindowedKey k) where
   serde = windowedSerde serde
 
@@ -67,17 +69,18 @@ windowedSerde inner =
                 !tsStart = kEnd
                 !tsEnd = tsStart + 8
             in if BS.length b /= tsEnd
-                then
-                  Left $ T.pack $
-                    "windowedSerde: expected "
-                      <> show tsEnd
-                      <> " bytes, got "
-                      <> show (BS.length b)
-                else do
-                  let !kBytes = BS.take (fromIntegral kLen) (BS.drop kStart b)
-                      !tsBs = BS.take 8 (BS.drop tsStart b)
-                  k <- deserialize inner kBytes
-                  ts <- deserialize int64Serde tsBs
-                  Right (WindowedKey k (Timestamp ts))
+                 then
+                   Left $
+                     T.pack $
+                       "windowedSerde: expected "
+                         <> show tsEnd
+                         <> " bytes, got "
+                         <> show (BS.length b)
+                 else do
+                   let !kBytes = BS.take (fromIntegral kLen) (BS.drop kStart b)
+                       !tsBs = BS.take 8 (BS.drop tsStart b)
+                   k <- deserialize inner kBytes
+                   ts <- deserialize int64Serde tsBs
+                   Right (WindowedKey k (Timestamp ts))
     , serializeHeaders = const mempty
     }

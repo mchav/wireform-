@@ -216,20 +216,20 @@ serverAccept req mSelectedProto =
         Just p -> [(secWebSocketProtocolH, p)]
         Nothing -> []
   in Response
-      { responseStatus = S.status101
-      , responseVersion = V.HTTP1_1
-      , responseHeaders =
-          [ (H.hUpgrade, "websocket")
-          , (H.hConnection, "Upgrade")
-          , (secWebSocketAcceptH, acceptVal)
-          ]
-            <> protoHdr
-      , responseBody = BodyEmpty
-      , responseTrailers = pure []
-      , responseH2StreamId = 0
-      , responseCancel = pure ()
-      , responsePushPromises = pure []
-      }
+       { responseStatus = S.status101
+       , responseVersion = V.HTTP1_1
+       , responseHeaders =
+           [ (H.hUpgrade, "websocket")
+           , (H.hConnection, "Upgrade")
+           , (secWebSocketAcceptH, acceptVal)
+           ]
+             <> protoHdr
+       , responseBody = BodyEmpty
+       , responseTrailers = pure []
+       , responseH2StreamId = 0
+       , responseCancel = pure ()
+       , responsePushPromises = pure []
+       }
 
 
 ------------------------------------------------------------------------
@@ -248,8 +248,9 @@ data WebSocketHandshakeOpts = WebSocketHandshakeOpts
   , wsOptExtensions :: ![ByteString]
   -- ^ @Sec-WebSocket-Extensions@ values to advertise.
   , wsOptOrigin :: !(Maybe ByteString)
-  -- ^ Optional @Origin@ to send (browsers always do; native
-  -- clients usually do not need to).
+  {- ^ Optional @Origin@ to send (browsers always do; native
+  clients usually do not need to).
+  -}
   , wsOptExtraHeaders :: ![H.Header]
   -- ^ Anything else (auth tokens, cookies, etc.).
   }

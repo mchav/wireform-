@@ -22,13 +22,14 @@ module Proto.Internal.JSON.WellKnown (
 
   -- * Wrapper types
 
-  -- | Per the proto3 JSON spec, every @google.protobuf.XValue@
-  -- wrapper serialises as just its inner value (rather than the
-  -- generic @{"value": ...}@ shape the pre-generated @ToJSON@
-  -- instances produce). The 'wrap*' helpers go in the encode
-  -- direction; the 'unwrap*' helpers parse a bare JSON value
-  -- and construct the wrapper. 64-bit integer wrappers
-  -- additionally string-encode their inner value.
+  {- | Per the proto3 JSON spec, every @google.protobuf.XValue@
+  wrapper serialises as just its inner value (rather than the
+  generic @{"value": ...}@ shape the pre-generated @ToJSON@
+  instances produce). The 'wrap*' helpers go in the encode
+  direction; the 'unwrap*' helpers parse a bare JSON value
+  and construct the wrapper. 64-bit integer wrappers
+  additionally string-encode their inner value.
+  -}
   wrapBoolValue,
   wrapInt32Value,
   wrapInt64Value,
@@ -350,13 +351,13 @@ parseTime :: Text -> Either String ParsedTime
 parseTime t =
   let (wholePart, fracPart) = T.breakOn "." t
   in case T.splitOn ":" wholePart of
-      [hs, ms, ss] -> do
-        h <- readInt hs
-        m <- readInt ms
-        s <- readInt ss
-        let !nanos = parseFracNanos fracPart
-        Right (ParsedTime h m s nanos)
-      _ -> Left "Invalid time format"
+       [hs, ms, ss] -> do
+         h <- readInt hs
+         m <- readInt ms
+         s <- readInt ss
+         let !nanos = parseFracNanos fracPart
+         Right (ParsedTime h m s nanos)
+       _ -> Left "Invalid time format"
 
 
 parseFracNanos :: Text -> Int32
@@ -366,8 +367,8 @@ parseFracNanos t
       let digits = T.takeWhile isDigit (T.tail t)
           padded = T.take 9 (digits <> T.replicate (9 - T.length digits) "0")
       in case readInt padded of
-          Right n -> fromIntegral n
-          Left _ -> 0
+           Right n -> fromIntegral n
+           Left _ -> 0
   | otherwise = 0
 
 
@@ -424,23 +425,23 @@ parseDuration t = do
             Just ('-', _) -> True
             _ -> False
       in case T.breakOn "." numPart of
-          (wholePart, fracPart) -> do
-            secs <- readInt wholePart
-            let !rawNanos = parseFracNanos fracPart
-                -- Proto3 spec: nanos carry the same sign as seconds.
-                -- For "-0.5s" the wholePart parses to 0 but the
-                -- sign comes from the leading '-' in the input.
-                !nanos = if negative then negate rawNanos else rawNanos
-                !secs64 = fromIntegral secs :: Int64
-            if secs64 < durationMinSecs || secs64 > durationMaxSecs
-              then Left "Duration out of range [-315576000000, 315576000000]"
-              else
-                Right
-                  Duration
-                    { durationSeconds = secs64
-                    , durationNanos = nanos
-                    , durationUnknownFields = []
-                    }
+           (wholePart, fracPart) -> do
+             secs <- readInt wholePart
+             let !rawNanos = parseFracNanos fracPart
+                 -- Proto3 spec: nanos carry the same sign as seconds.
+                 -- For "-0.5s" the wholePart parses to 0 but the
+                 -- sign comes from the leading '-' in the input.
+                 !nanos = if negative then negate rawNanos else rawNanos
+                 !secs64 = fromIntegral secs :: Int64
+             if secs64 < durationMinSecs || secs64 > durationMaxSecs
+               then Left "Duration out of range [-315576000000, 315576000000]"
+               else
+                 Right
+                   Duration
+                     { durationSeconds = secs64
+                     , durationNanos = nanos
+                     , durationUnknownFields = []
+                     }
 
 
 -- FieldMask: comma-separated paths
@@ -784,10 +785,10 @@ typeFromUrl :: Text -> Text
 typeFromUrl t =
   let prefix = T.pack "type.googleapis.com/"
   in case T.stripPrefix prefix t of
-      Just rest -> rest
-      Nothing -> case T.breakOnEnd (T.pack "/") t of
-        (_, suffix) | not (T.null suffix) -> suffix
-        _ -> t
+       Just rest -> rest
+       Nothing -> case T.breakOnEnd (T.pack "/") t of
+         (_, suffix) | not (T.null suffix) -> suffix
+         _ -> t
 
 
 {- | @google.protobuf.Any@ JSON shape:
@@ -815,29 +816,29 @@ anyToJSON registry a =
               ]
           )
   in case lookupCodec ty registry of
-      Just codec ->
-        case acToJSON codec (Any.anyValue a) of
-          Left _ -> fallback
-          Right v
-            | acIsWkt codec ->
-                Aeson.Object
-                  ( AesonKM.fromList
-                      [ typeVal
-                      , (AesonKey.fromText (T.pack "value"), v)
-                      ]
-                  )
-            | Aeson.Object obj <- v ->
-                Aeson.Object (AesonKM.insert typeKey (Aeson.String url) obj)
-            | otherwise ->
-                -- Codec for a non-WKT returned a non-object;
-                -- shouldn't happen for our registered types, but
-                -- we degrade gracefully by switching back to the
-                -- "value": <encoded> form rather than crash.
-                Aeson.Object
-                  ( AesonKM.fromList
-                      [typeVal, (AesonKey.fromText (T.pack "value"), v)]
-                  )
-      Nothing -> fallback
+       Just codec ->
+         case acToJSON codec (Any.anyValue a) of
+           Left _ -> fallback
+           Right v
+             | acIsWkt codec ->
+                 Aeson.Object
+                   ( AesonKM.fromList
+                       [ typeVal
+                       , (AesonKey.fromText (T.pack "value"), v)
+                       ]
+                   )
+             | Aeson.Object obj <- v ->
+                 Aeson.Object (AesonKM.insert typeKey (Aeson.String url) obj)
+             | otherwise ->
+                 -- Codec for a non-WKT returned a non-object;
+                 -- shouldn't happen for our registered types, but
+                 -- we degrade gracefully by switching back to the
+                 -- "value": <encoded> form rather than crash.
+                 Aeson.Object
+                   ( AesonKM.fromList
+                       [typeVal, (AesonKey.fromText (T.pack "value"), v)]
+                   )
+       Nothing -> fallback
 
 
 anyFromJSON :: TypeRegistry -> Aeson.Value -> Either String Any.Any
@@ -863,8 +864,8 @@ anyFromJSON registry (Aeson.Object o) = do
       | otherwise ->
           let inner = Aeson.Object (AesonKM.delete typeKey o)
           in do
-              bs <- acFromJSON codec inner
-              Right Any.defaultAny {Any.anyTypeUrl = url, Any.anyValue = bs}
+               bs <- acFromJSON codec inner
+               Right Any.defaultAny {Any.anyTypeUrl = url, Any.anyValue = bs}
     Nothing -> do
       -- Unregistered type: fall back to the degenerate
       -- "value": base64 form. Tests like AnyWithFieldMask

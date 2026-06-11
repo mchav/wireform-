@@ -79,9 +79,9 @@ failureSetResponse :: ConformanceResponse
 failureSetResponse =
   let payload = PE.encodeMessage defaultFailureSet
   in defaultConformanceResponse
-      { conformanceResponseResult =
-          Just (ConformanceResponse'Result'ProtobufPayload payload)
-      }
+       { conformanceResponseResult =
+           Just (ConformanceResponse'Result'ProtobufPayload payload)
+       }
 
 
 handleTestAllTypesProto3 :: ConformanceRequest -> IO ConformanceResponse

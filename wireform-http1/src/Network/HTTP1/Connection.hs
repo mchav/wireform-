@@ -26,243 +26,292 @@ state machine inferred by 'Network.HTTP1.Parser.requestFraming' \/
 as soon as the previous body is consumed (HTTP\/1.1 keep-alive +
 pipelining).
 -}
-module Network.HTTP1.Connection
-  ( Connection
-  , newConnectionFromSocket
-  , newConnectionFromSocketPooled
-  , newConnectionFromTls
-  , newConnectionFromDuplex
-  , newConnectionFromDuplexWithRingSize
-  , defaultRingSize
-  , connectionReceive
-  , connectionSend
-  , connectionSocket
-  , connectionSslConn
-  , connectionCursor
-  , connectionReadCursor
-  , connectionAdvanceCursor
-  , closeConnection
-    -- * Send helpers
-  , connectionSendBytes
-  , connectionSendMany
-  , connectionSendBuilder
-  , connectionSendBuilderDirect
-  , withConnectionCork
-    -- * Head readers (zero-copy, SIMD on the ring)
-  , readRequestHead
-  , readResponseHead
-    -- * Framing-aware body
-  , readBody
-  , readBodyAndTrailers
-  , drainBody
-  , ProtocolException (..)
-  ) where
+module Network.HTTP1.Connection (
+  Connection,
+  newConnectionFromSocket,
+  newConnectionFromSocketPooled,
+  newConnectionFromTls,
+  newConnectionFromDuplex,
+  newConnectionFromDuplexWithRingSize,
+  defaultRingSize,
+  connectionReceive,
+  connectionSend,
+  connectionSocket,
+  connectionSslConn,
+  connectionCursor,
+  connectionReadCursor,
+  connectionAdvanceCursor,
+  closeConnection,
 
-import Control.Concurrent.MVar
-  (MVar, newEmptyMVar, newMVar, readMVar, tryPutMVar)
+  -- * Send helpers
+  connectionSendBytes,
+  connectionSendMany,
+  connectionSendBuilder,
+  connectionSendBuilderDirect,
+  withConnectionCork,
+
+  -- * Head readers (zero-copy, SIMD on the ring)
+  readRequestHead,
+  readResponseHead,
+
+  -- * Framing-aware body
+  readBody,
+  readBodyAndTrailers,
+  drainBody,
+  ProtocolException (..),
+) where
+
+import Control.Concurrent.MVar (
+  MVar,
+  newEmptyMVar,
+  newMVar,
+  readMVar,
+  tryPutMVar,
+ )
 import Control.Exception (Exception, SomeException, throwIO, try)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.IORef
 import Data.Word (Word64)
 import GHC.Generics (Generic)
-import Network.Socket (Socket)
-import qualified Network.Socket as S
 import Network.HTTP1.Headers (Header)
-
-import qualified Wireform.Builder as B
-import Wireform.Network
-  ( DuplexTransport (..)
-  , closeDuplexTransport
-  , newDuplexTransport
-  , newDuplexBufTransportPooled
-  )
-import Wireform.Ring.Pool (RingPool)
-import qualified Wireform.Transport.Config as WC
-import Wireform.Transport.Config (defaultTransportConfig)
-import Wireform.Transport.Receive (ReceiveTransport, receiveAdvanceTail)
-import Wireform.Transport.Send
-  ( SendTransport
-  , sendBuilder
-  , sendBuilderDirect
-  , sendByteString
-  , sendByteStringMany
-  , withSendCork
-  )
-
-import Wireform.Network.TLS.OpenSSL (SslConn, freeConn, newTlsDuplexTransport, sslConnSocket)
-
-import qualified Network.HTTP1.Method as Method
+import Network.HTTP1.Method qualified as Method
 import Network.HTTP1.Parser (Framing (..), ParseError (..))
-import qualified Network.HTTP1.StreamingReader as SR
-import Network.HTTP1.Types
-  ( Body (..)
-  , Request
-  , Response
-  )
+import Network.HTTP1.StreamingReader qualified as SR
+import Network.HTTP1.Types (
+  Body (..),
+  Request,
+  Response,
+ )
+import Network.Socket (Socket)
+import Network.Socket qualified as S
+import Wireform.Builder qualified as B
+import Wireform.Network (
+  DuplexTransport (..),
+  closeDuplexTransport,
+  newDuplexBufTransportPooled,
+  newDuplexTransport,
+ )
+import Wireform.Network.TLS.OpenSSL (SslConn, freeConn, newTlsDuplexTransport, sslConnSocket)
+import Wireform.Ring.Pool (RingPool)
+import Wireform.Transport.Config (defaultTransportConfig)
+import Wireform.Transport.Config qualified as WC
+import Wireform.Transport.Receive (ReceiveTransport, receiveAdvanceTail)
+import Wireform.Transport.Send (
+  SendTransport,
+  sendBuilder,
+  sendBuilderDirect,
+  sendByteString,
+  sendByteStringMany,
+  withSendCork,
+ )
 
--- | Thrown by a streaming-body producer when the wire bytes violate
--- the framing the parser inferred.
+
+{- | Thrown by a streaming-body producer when the wire bytes violate
+the framing the parser inferred.
+-}
 newtype ProtocolException = ProtocolException ParseError
   deriving stock (Eq, Show, Generic)
 
+
 instance Exception ProtocolException
 
+
 data Connection = Connection
-  { connDuplex  :: !DuplexTransport
-  , connSocket  :: !(Maybe Socket)
-    -- ^ The raw socket fd if this is a plain TCP connection.  TLS
-    -- connections set this to 'Nothing' so the sendfile fast path
-    -- correctly falls back to a userspace copy.
+  { connDuplex :: !DuplexTransport
+  , connSocket :: !(Maybe Socket)
+  {- ^ The raw socket fd if this is a plain TCP connection.  TLS
+  connections set this to 'Nothing' so the sendfile fast path
+  correctly falls back to a userspace copy.
+  -}
   , connSslConn :: !(Maybe SslConn)
-    -- ^ The OpenSSL connection if this is a TLS connection.  Used
-    -- so 'closeConnection' can issue @SSL_shutdown@ + free the
-    -- @SSL*@.
-  , connCursor  :: !(IORef Word64)
-    -- ^ Position past the last byte the recv path has consumed.
-  , connClosed  :: !(IORef Bool)
+  {- ^ The OpenSSL connection if this is a TLS connection.  Used
+  so 'closeConnection' can issue @SSL_shutdown@ + free the
+  @SSL*@.
+  -}
+  , connCursor :: !(IORef Word64)
+  -- ^ Position past the last byte the recv path has consumed.
+  , connClosed :: !(IORef Bool)
   }
 
--- | Default magic-ring size: 256 KiB.  Easily fits the largest
--- header block (h2o caps requests at 32 KiB by default) plus
--- several chunked-TE body chunks (16 KiB cap each) plus some
--- breathing room, while keeping per-connection virtual memory
--- modest.
+
+{- | Default magic-ring size: 256 KiB.  Easily fits the largest
+header block (h2o caps requests at 32 KiB by default) plus
+several chunked-TE body chunks (16 KiB cap each) plus some
+breathing room, while keeping per-connection virtual memory
+modest.
+-}
 defaultRingSize :: Int
 defaultRingSize = 256 * 1024
 
--- | Build a 'Connection' from a plain TCP 'Socket'.  Allocates one
--- receive ring + one send ring of 'defaultRingSize' bytes each.
--- Caller is responsible for closing the socket; 'closeConnection'
--- only tears down the rings.
+
+{- | Build a 'Connection' from a plain TCP 'Socket'.  Allocates one
+receive ring + one send ring of 'defaultRingSize' bytes each.
+Caller is responsible for closing the socket; 'closeConnection'
+only tears down the rings.
+-}
 newConnectionFromSocket :: Socket -> IO Connection
 newConnectionFromSocket sock = do
-  let !cfg = defaultTransportConfig { WC.ringSizeHint = defaultRingSize }
+  let !cfg = defaultTransportConfig {WC.ringSizeHint = defaultRingSize}
   duplex <- newDuplexTransport cfg sock
   buildConnection duplex (Just sock) Nothing
 
--- | Like 'newConnectionFromSocket' but acquires ring buffers from a
--- 'RingPool' instead of allocating fresh ones. On 'closeConnection',
--- rings are returned to the pool for reuse. This eliminates the
--- @memfd_create@ + @mmap@ + @memset@ cost of ring allocation on the
--- connection hot path.
+
+{- | Like 'newConnectionFromSocket' but acquires ring buffers from a
+'RingPool' instead of allocating fresh ones. On 'closeConnection',
+rings are returned to the pool for reuse. This eliminates the
+@memfd_create@ + @mmap@ + @memset@ cost of ring allocation on the
+connection hot path.
+-}
 newConnectionFromSocketPooled :: RingPool -> Socket -> IO Connection
 newConnectionFromSocketPooled pool sock = do
-  let !cfg = defaultTransportConfig { WC.ringSizeHint = defaultRingSize }
-  duplex <- newDuplexBufTransportPooled pool cfg
-              (\p n -> S.recvBuf sock p n)
-              (\p n -> S.sendBuf sock p n)
-              (S.shutdown sock S.ShutdownSend)
+  let !cfg = defaultTransportConfig {WC.ringSizeHint = defaultRingSize}
+  duplex <-
+    newDuplexBufTransportPooled
+      pool
+      cfg
+      (\p n -> S.recvBuf sock p n)
+      (\p n -> S.sendBuf sock p n)
+      (S.shutdown sock S.ShutdownSend)
   buildConnection duplex (Just sock) Nothing
 
--- | Build a 'Connection' from a handshaked OpenSSL TLS connection.
--- The @SSL*@ is owned by the 'Connection': 'closeConnection' issues
--- @SSL_shutdown@ then frees the SSL.  The underlying socket is NOT
--- closed (caller owns the socket).
+
+{- | Build a 'Connection' from a handshaked OpenSSL TLS connection.
+The @SSL*@ is owned by the 'Connection': 'closeConnection' issues
+@SSL_shutdown@ then frees the SSL.  The underlying socket is NOT
+closed (caller owns the socket).
+-}
 newConnectionFromTls :: SslConn -> IO Connection
 newConnectionFromTls conn = do
-  let !cfg = defaultTransportConfig { WC.ringSizeHint = defaultRingSize }
+  let !cfg = defaultTransportConfig {WC.ringSizeHint = defaultRingSize}
   duplex <- newTlsDuplexTransport cfg conn
   -- For TLS we deliberately set connSocket to Nothing so the
   -- sendfile(2) fast path falls back to a userspace copy.
   buildConnection duplex Nothing (Just conn)
 
--- | Build a 'Connection' from an externally-managed 'DuplexTransport'.
--- Used by in-memory pipes / tests that already own the duplex.
--- 'closeConnection' will still call 'duplexClose'.
+
+{- | Build a 'Connection' from an externally-managed 'DuplexTransport'.
+Used by in-memory pipes / tests that already own the duplex.
+'closeConnection' will still call 'duplexClose'.
+-}
 newConnectionFromDuplex :: DuplexTransport -> IO Connection
 newConnectionFromDuplex = newConnectionFromDuplexWithRingSize defaultRingSize
 
--- | Like 'newConnectionFromDuplex' but the ring-size argument is
--- noted purely for forwards-compatibility (the duplex is taken
--- as-is).  Kept for API symmetry with the pre-rewrite shape.
+
+{- | Like 'newConnectionFromDuplex' but the ring-size argument is
+noted purely for forwards-compatibility (the duplex is taken
+as-is).  Kept for API symmetry with the pre-rewrite shape.
+-}
 newConnectionFromDuplexWithRingSize :: Int -> DuplexTransport -> IO Connection
 newConnectionFromDuplexWithRingSize _ duplex =
   buildConnection duplex Nothing Nothing
+
 
 buildConnection :: DuplexTransport -> Maybe Socket -> Maybe SslConn -> IO Connection
 buildConnection duplex mSock mSsl = do
   cursor <- newIORef 0
   closed <- newIORef False
-  pure Connection
-    { connDuplex  = duplex
-    , connSocket  = mSock
-    , connSslConn = mSsl
-    , connCursor  = cursor
-    , connClosed  = closed
-    }
+  pure
+    Connection
+      { connDuplex = duplex
+      , connSocket = mSock
+      , connSslConn = mSsl
+      , connCursor = cursor
+      , connClosed = closed
+      }
+
 
 -- | The receive-side transport.
 connectionReceive :: Connection -> ReceiveTransport
 connectionReceive = duplexReceive . connDuplex
 
+
 -- | The send-side transport.
 connectionSend :: Connection -> SendTransport
 connectionSend = duplexSend . connDuplex
 
--- | The raw socket if this connection is plain TCP, else 'Nothing'.
--- The sendfile fast path branches on this.
+
+{- | The raw socket if this connection is plain TCP, else 'Nothing'.
+The sendfile fast path branches on this.
+-}
 connectionSocket :: Connection -> Maybe Socket
 connectionSocket conn = case connSocket conn of
-  Just s  -> Just s
+  Just s -> Just s
   Nothing -> sslConnSocket <$> connSslConn conn
-  -- TLS connections expose the underlying socket too (for socket
-  -- options, raw fd inspection); only the sendfile fast path
-  -- intentionally avoids the TLS socket because writing raw bytes
-  -- past the TLS layer would corrupt the stream.
+
+
+-- TLS connections expose the underlying socket too (for socket
+-- options, raw fd inspection); only the sendfile fast path
+-- intentionally avoids the TLS socket because writing raw bytes
+-- past the TLS layer would corrupt the stream.
 
 -- | The OpenSSL connection if this connection is TLS, else 'Nothing'.
 connectionSslConn :: Connection -> Maybe SslConn
 connectionSslConn = connSslConn
 
+
 -- | The 'IORef' tracking how far the recv path has consumed.
 connectionCursor :: Connection -> IORef Word64
 connectionCursor = connCursor
+
 
 -- | Read the cursor.
 connectionReadCursor :: Connection -> IO Word64
 connectionReadCursor = readIORef . connCursor
 
--- | Bump the cursor to the supplied position and tell the recv ring
--- transport it can recycle bytes up to that point.
+
+{- | Bump the cursor to the supplied position and tell the recv ring
+transport it can recycle bytes up to that point.
+-}
 connectionAdvanceCursor :: Connection -> Word64 -> IO ()
 connectionAdvanceCursor conn pos = do
   writeIORef (connCursor conn) pos
   receiveAdvanceTail (connectionReceive conn) pos
 
--- | Send the given bytes through the connection's send ring.  Goes
--- through one ring reservation + one drain into the wire.
+
+{- | Send the given bytes through the connection's send ring.  Goes
+through one ring reservation + one drain into the wire.
+-}
 connectionSendBytes :: Connection -> ByteString -> IO ()
 connectionSendBytes conn = sendByteString (connectionSend conn)
 
--- | Send multiple byte strings as one merged reservation.  Lets the
--- kernel coalesce them into one @sendmsg@.
+
+{- | Send multiple byte strings as one merged reservation.  Lets the
+kernel coalesce them into one @sendmsg@.
+-}
 connectionSendMany :: Connection -> [ByteString] -> IO ()
 connectionSendMany conn = sendByteStringMany (connectionSend conn)
+
 
 -- | Materialise + stage a 'B.Builder' into the send ring.
 connectionSendBuilder :: Connection -> B.Builder -> IO ()
 connectionSendBuilder conn = sendBuilder (connectionSend conn)
 
--- | Like 'connectionSendBuilder' but uses 'sendBuilderDirect'
--- explicitly (writes the builder directly into ring memory).
+
+{- | Like 'connectionSendBuilder' but uses 'sendBuilderDirect'
+explicitly (writes the builder directly into ring memory).
+-}
 connectionSendBuilderDirect :: Connection -> B.Builder -> IO ()
 connectionSendBuilderDirect conn = sendBuilderDirect (connectionSend conn)
 
--- | Cork the connection's send transport.  Bytes written inside
--- the callback accumulate in the ring without triggering a drain
--- (no @sendmsg@ \/ io_uring SQE).  On exit, a single publish
--- covers everything — one syscall for headers + body.
---
--- If the ring fills mid-cork, the cork falls back to a real
--- publish so the consumer can drain.
+
+{- | Cork the connection's send transport.  Bytes written inside
+the callback accumulate in the ring without triggering a drain
+(no @sendmsg@ \/ io_uring SQE).  On exit, a single publish
+covers everything — one syscall for headers + body.
+
+If the ring fills mid-cork, the cork falls back to a real
+publish so the consumer can drain.
+-}
 withConnectionCork :: Connection -> (SendTransport -> IO a) -> IO a
 withConnectionCork conn = withSendCork (connectionSend conn)
 
--- | Tear down the connection.  Order: drain + close the send ring,
--- close the receive ring, then (for TLS) issue @SSL_shutdown@ and
--- free the @SSL*@.  Idempotent.  The underlying 'Socket' is NOT
--- closed; the caller owns its lifetime.
+
+{- | Tear down the connection.  Order: drain + close the send ring,
+close the receive ring, then (for TLS) issue @SSL_shutdown@ and
+free the @SSL*@.  Idempotent.  The underlying 'Socket' is NOT
+closed; the caller owns its lifetime.
+-}
 closeConnection :: Connection -> IO ()
 closeConnection conn = do
   wasClosed <- atomicModifyIORef' (connClosed conn) (\c -> (True, c))
@@ -271,10 +320,11 @@ closeConnection conn = do
     else do
       _ <- try @SomeException (closeDuplexTransport (connDuplex conn))
       case connSslConn conn of
-        Just s  -> do
+        Just s -> do
           _ <- try @SomeException (freeConn s)
           pure ()
         Nothing -> pure ()
+
 
 ------------------------------------------------------------------------
 -- Head readers
@@ -285,12 +335,13 @@ readRequestHead
   -> IO (Either SR.ReadError (Request, Framing))
 readRequestHead conn = do
   pos <- readIORef (connCursor conn)
-  r   <- SR.readRequestHeadFrom (connectionReceive conn) pos
+  r <- SR.readRequestHeadFrom (connectionReceive conn) pos
   case r of
     Right (ok, newPos) -> do
       writeIORef (connCursor conn) newPos
       pure (Right ok)
     Left e -> pure (Left e)
+
 
 readResponseHead
   :: Connection
@@ -298,12 +349,13 @@ readResponseHead
   -> IO (Either SR.ReadError (Response, Framing))
 readResponseHead conn reqMethod = do
   pos <- readIORef (connCursor conn)
-  r   <- SR.readResponseHeadFrom (connectionReceive conn) pos reqMethod
+  r <- SR.readResponseHeadFrom (connectionReceive conn) pos reqMethod
   case r of
     Right (ok, newPos) -> do
       writeIORef (connCursor conn) newPos
       pure (Right ok)
     Left e -> pure (Left e)
+
 
 ------------------------------------------------------------------------
 -- Body
@@ -311,6 +363,7 @@ readResponseHead conn reqMethod = do
 
 readBody :: Connection -> Framing -> IO Body
 readBody conn framing = fst <$> readBodyAndTrailers conn framing
+
 
 readBodyAndTrailers
   :: Connection -> Framing -> IO (Body, IO [Header])
@@ -367,13 +420,16 @@ readBodyAndTrailers conn CloseDelimited = do
             pure (Just chunkCopy)
   pure (BodyStream producer, readMVar trailersMV)
 
+
 when' :: Bool -> IO () -> IO ()
 when' True m = m
 when' False _ = pure ()
 
+
 data ChunkState
   = ChunkPending !Word64
   | ChunkDone
+
 
 readChunkedStep
   :: Connection
@@ -428,12 +484,13 @@ readChunkedStep conn ref trailersMV = do
               writeIORef ref (ChunkPending n')
           pure (Just sliceCopy)
 
+
 readTrailers :: Connection -> IO [Header]
 readTrailers conn = go []
   where
     go acc = do
       pos <- readIORef (connCursor conn)
-      r   <- SR.readUntilCRLFStrict (connectionReceive conn) pos 8192
+      r <- SR.readUntilCRLFStrict (connectionReceive conn) pos 8192
       case r of
         Left e -> throwIO (ProtocolException (readErrorToParseError e))
         Right (Nothing, _) ->
@@ -444,12 +501,14 @@ readTrailers conn = go []
           writeIORef (connCursor conn) newPos
           if BS.null bs
             then pure (reverse acc)
-            else if BS.any badByte bs
-                   then throwIO (ProtocolException ParseInvalidHeaderValue)
-                   else case parseTrailerLine bs of
-                     Nothing  -> throwIO (ProtocolException ParseInvalidHeaderValue)
-                     Just hdr -> go (hdr : acc)
+            else
+              if BS.any badByte bs
+                then throwIO (ProtocolException ParseInvalidHeaderValue)
+                else case parseTrailerLine bs of
+                  Nothing -> throwIO (ProtocolException ParseInvalidHeaderValue)
+                  Just hdr -> go (hdr : acc)
     badByte b = b == 0x0a || b == 0x00 || b == 0x0d
+
 
 parseTrailerLine :: ByteString -> Maybe Header
 parseTrailerLine bs = do
@@ -462,6 +521,7 @@ parseTrailerLine bs = do
   where
     stripOWS = BS.dropWhile isOWS . BS.reverse . BS.dropWhile isOWS . BS.reverse
     isOWS b = b == 0x20 || b == 0x09
+
 
 drainBody :: Body -> IO ()
 drainBody = \case
@@ -477,9 +537,10 @@ drainBody = \case
         Nothing -> pure ()
         Just _ -> loop producer
 
+
 readErrorToParseError :: SR.ReadError -> ParseError
 readErrorToParseError = \case
-  SR.ReadParse e            -> e
-  SR.ReadMessageTooLong _   -> ParseMessageTooLong
-  SR.ReadUnexpectedEof      -> ParseUnexpectedEof
-  SR.ReadTransportError _   -> ParseUnexpectedEof
+  SR.ReadParse e -> e
+  SR.ReadMessageTooLong _ -> ParseMessageTooLong
+  SR.ReadUnexpectedEof -> ParseUnexpectedEof
+  SR.ReadTransportError _ -> ParseUnexpectedEof

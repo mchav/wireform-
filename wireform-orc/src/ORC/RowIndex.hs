@@ -54,12 +54,14 @@ varies per type).
 -}
 data RowIndexEntry = RowIndexEntry
   { riePositions :: ![Word64]
-  -- ^ Byte offsets into the column streams. The number of entries is
-  --   determined by the column's encoding (e.g. INT columns have
-  --   one position per stream, all of which the reader uses to seek).
+  {- ^ Byte offsets into the column streams. The number of entries is
+  determined by the column's encoding (e.g. INT columns have
+  one position per stream, all of which the reader uses to seek).
+  -}
   , rieStatistics :: !ByteString
-  -- ^ Pre-encoded @ColumnStatistics@ protobuf bytes; pass 'BS.empty'
-  --   to omit the statistics field entirely.
+  {- ^ Pre-encoded @ColumnStatistics@ protobuf bytes; pass 'BS.empty'
+  to omit the statistics field entirely.
+  -}
   }
   deriving (Show, Eq)
 
@@ -157,5 +159,5 @@ readVarint bs !off !len = go off 0 0
           let !b = fromIntegral (BS.index bs pos) :: Word64
               !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
           in if b .&. 0x80 == 0
-              then (val', pos + 1)
-              else go (pos + 1) val' (shift + 7)
+               then (val', pos + 1)
+               else go (pos + 1) val' (shift + 7)

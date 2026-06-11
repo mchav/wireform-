@@ -23,15 +23,15 @@ Server authors usually import "Network.WebSocket.Server"
 directly; this umbrella is for one-import smoke tests and the
 examples directory.
 -}
-module Network.WebSocket
-  ( module Network.WebSocket.Frame
-  , module Network.WebSocket.Handshake
-  , module Network.WebSocket.Connection
-  , module Network.WebSocket.Message
-  , module Network.WebSocket.Server
-  , module Network.WebSocket.Client
-  , module Network.WebSocket.URI
-  ) where
+module Network.WebSocket (
+  module Network.WebSocket.Frame,
+  module Network.WebSocket.Handshake,
+  module Network.WebSocket.Connection,
+  module Network.WebSocket.Message,
+  module Network.WebSocket.Server,
+  module Network.WebSocket.Client,
+  module Network.WebSocket.URI,
+) where
 
 import Network.WebSocket.Client
 import Network.WebSocket.Connection
@@ -40,3 +40,4 @@ import Network.WebSocket.Handshake
 import Network.WebSocket.Message
 import Network.WebSocket.Server
 import Network.WebSocket.URI
+

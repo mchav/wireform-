@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Kafka.Consumer.Types
 Description : @hw-kafka-client@ consumer types backed by wireform handles.
 
@@ -7,29 +7,29 @@ This module mirrors the public consumer data types from
 new code should prefer the native "Kafka.Client.Consumer" records and
 offset types.
 -}
-module Kafka.Consumer.Types
-  ( KafkaConsumer (..)
-  , ConsumerGroupId (..)
-  , Offset (..)
-  , OffsetReset (..)
-  , RebalanceEvent (..)
-  , PartitionOffset (..)
-  , SubscribedPartitions (..)
-  , Timestamp (..)
-  , OffsetCommit (..)
-  , OffsetStoreSync (..)
-  , OffsetStoreMethod (..)
-  , TopicPartition (..)
-  , ConsumerRecord (..)
-  , crMapKey
-  , crMapValue
-  , crMapKV
-  , sequenceFirst
-  , traverseFirst
-  , traverseFirstM
-  , traverseM
-  , bitraverseM
-  ) where
+module Kafka.Consumer.Types (
+  KafkaConsumer (..),
+  ConsumerGroupId (..),
+  Offset (..),
+  OffsetReset (..),
+  RebalanceEvent (..),
+  PartitionOffset (..),
+  SubscribedPartitions (..),
+  Timestamp (..),
+  OffsetCommit (..),
+  OffsetStoreSync (..),
+  OffsetStoreMethod (..),
+  TopicPartition (..),
+  ConsumerRecord (..),
+  crMapKey,
+  crMapValue,
+  crMapKV,
+  sequenceFirst,
+  traverseFirst,
+  traverseFirstM,
+  traverseM,
+  bitraverseM,
+) where
 
 import Data.Bifoldable (Bifoldable (..))
 import Data.Bifunctor (Bifunctor (..))
@@ -39,48 +39,58 @@ import Data.String (IsString)
 import Data.Text (Text)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
-import Kafka.Internal.Compat
-  ( HasKafka (..)
-  , HasKafkaConf (..)
-  , Kafka (..)
-  , KafkaConf (..)
-  )
+import Kafka.Internal.Compat (
+  HasKafka (..),
+  HasKafkaConf (..),
+  Kafka (..),
+  KafkaConf (..),
+ )
 import Kafka.Types (Headers, Millis (..), PartitionId (..), TopicName (..))
 
--- | Main type for Kafka consumption.
---
--- Use 'Kafka.Consumer.newConsumer' to acquire this handle. The fields
--- wrap native wireform consumer state rather than librdkafka pointers.
+
+{- | Main type for Kafka consumption.
+
+Use 'Kafka.Consumer.newConsumer' to acquire this handle. The fields
+wrap native wireform consumer state rather than librdkafka pointers.
+-}
 data KafkaConsumer = KafkaConsumer
   { kcKafkaPtr :: !Kafka
-    -- ^ Opaque compatibility handle for the underlying consumer.
+  -- ^ Opaque compatibility handle for the underlying consumer.
   , kcKafkaConf :: !KafkaConf
-    -- ^ Compatibility copy of Kafka-level properties.
+  -- ^ Compatibility copy of Kafka-level properties.
   }
+
 
 instance HasKafka KafkaConsumer where
   getKafka = kcKafkaPtr
 
+
 instance HasKafkaConf KafkaConsumer where
   getKafkaConf = kcKafkaConf
 
--- | Consumer group ID.
---
--- Different consumers with the same group ID get assigned different
--- partitions of each subscribed topic.
+
+{- | Consumer group ID.
+
+Different consumers with the same group ID get assigned different
+partitions of each subscribed topic.
+-}
 newtype ConsumerGroupId = ConsumerGroupId
   { unConsumerGroupId :: Text
-  } deriving (Show, Ord, Eq, IsString, Generic)
+  }
+  deriving (Show, Ord, Eq, IsString, Generic)
+
 
 -- | A message offset in a partition.
-newtype Offset = Offset { unOffset :: Int64 }
+newtype Offset = Offset {unOffset :: Int64}
   deriving (Show, Eq, Ord, Read, Generic)
+
 
 -- | Where to reset the offset when there is no initial offset in Kafka.
 data OffsetReset
   = Earliest
   | Latest
   deriving (Show, Eq, Generic)
+
 
 -- | Rebalancing lifecycle events from the legacy callback API.
 data RebalanceEvent
@@ -90,45 +100,50 @@ data RebalanceEvent
   | RebalanceRevoke [(TopicName, PartitionId)]
   deriving (Eq, Show, Generic)
 
+
 -- | Partition offset selector.
 data PartitionOffset
-  = PartitionOffsetBeginning
-    -- ^ Start at the beginning of the partition.
-  | PartitionOffsetEnd
-    -- ^ Start at the end of the partition.
-  | PartitionOffset Int64
-    -- ^ Start at an explicit offset.
-  | PartitionOffsetStored
-    -- ^ Use the stored offset when available.
-  | PartitionOffsetInvalid
-    -- ^ Invalid or unknown offset.
+  = -- | Start at the beginning of the partition.
+    PartitionOffsetBeginning
+  | -- | Start at the end of the partition.
+    PartitionOffsetEnd
+  | -- | Start at an explicit offset.
+    PartitionOffset Int64
+  | -- | Use the stored offset when available.
+    PartitionOffsetStored
+  | -- | Invalid or unknown offset.
+    PartitionOffsetInvalid
   deriving (Eq, Show, Generic)
+
 
 -- | Partitions subscribed by a consumer.
 data SubscribedPartitions
-  = SubscribedPartitions [PartitionId]
-    -- ^ Subscribe only to these partitions.
-  | SubscribedPartitionsAll
-    -- ^ Subscribe to all partitions.
+  = -- | Subscribe only to these partitions.
+    SubscribedPartitions [PartitionId]
+  | -- | Subscribe to all partitions.
+    SubscribedPartitionsAll
   deriving (Show, Eq, Generic)
+
 
 -- | Consumer record timestamp.
 data Timestamp
-  = CreateTime !Millis
-    -- ^ Timestamp set by the producer.
-  | LogAppendTime !Millis
-    -- ^ Timestamp set by the broker.
-  | NoTimestamp
-    -- ^ No timestamp is available.
+  = -- | Timestamp set by the producer.
+    CreateTime !Millis
+  | -- | Timestamp set by the broker.
+    LogAppendTime !Millis
+  | -- | No timestamp is available.
+    NoTimestamp
   deriving (Show, Eq, Read, Generic)
+
 
 -- | Offset commit mode.
 data OffsetCommit
-  = OffsetCommit
-    -- ^ Block until broker offset commit is done.
-  | OffsetCommitAsync
-    -- ^ Commit offsets without blocking for the broker response.
+  = -- | Block until broker offset commit is done.
+    OffsetCommit
+  | -- | Commit offsets without blocking for the broker response.
+    OffsetCommitAsync
   deriving (Show, Eq, Generic)
+
 
 -- | Indicates how offsets are to be synced to disk in legacy code.
 data OffsetStoreSync
@@ -137,92 +152,123 @@ data OffsetStoreSync
   | OffsetSyncInterval Int
   deriving (Show, Eq, Generic)
 
+
 -- | Indicates the method of storing offsets in legacy code.
 data OffsetStoreMethod
   = OffsetStoreBroker
   | OffsetStoreFile FilePath OffsetStoreSync
   deriving (Show, Eq, Generic)
 
+
 -- | Kafka topic partition structure.
 data TopicPartition = TopicPartition
   { tpTopicName :: TopicName
-    -- ^ Topic name.
+  -- ^ Topic name.
   , tpPartition :: PartitionId
-    -- ^ Partition ID.
+  -- ^ Partition ID.
   , tpOffset :: PartitionOffset
-    -- ^ Offset selector or concrete offset.
-  } deriving (Show, Eq, Generic)
+  -- ^ Offset selector or concrete offset.
+  }
+  deriving (Show, Eq, Generic)
+
 
 -- | Represents a /received/ message from Kafka.
 data ConsumerRecord k v = ConsumerRecord
   { crTopic :: !TopicName
-    -- ^ Kafka topic this message was received from.
+  -- ^ Kafka topic this message was received from.
   , crPartition :: !PartitionId
-    -- ^ Kafka partition this message was received from.
+  -- ^ Kafka partition this message was received from.
   , crOffset :: !Offset
-    -- ^ Offset within 'crPartition'.
+  -- ^ Offset within 'crPartition'.
   , crTimestamp :: !Timestamp
-    -- ^ Message timestamp.
+  -- ^ Message timestamp.
   , crHeaders :: !Headers
-    -- ^ Message headers.
+  -- ^ Message headers.
   , crKey :: !k
-    -- ^ Message key.
+  -- ^ Message key.
   , crValue :: !v
-    -- ^ Message value.
-  } deriving (Eq, Show, Read, Typeable, Generic)
+  -- ^ Message value.
+  }
+  deriving (Eq, Show, Read, Typeable, Generic)
+
 
 instance Bifunctor ConsumerRecord where
   bimap f g (ConsumerRecord t p o ts hds k v) =
     ConsumerRecord t p o ts hds (f k) (g v)
 
+
 instance Functor (ConsumerRecord k) where
   fmap = second
+
 
 instance Foldable (ConsumerRecord k) where
   foldMap f r = f (crValue r)
 
+
 instance Traversable (ConsumerRecord k) where
   traverse f r = (\v -> crMapValue (const v) r) <$> f (crValue r)
 
+
 instance Bifoldable ConsumerRecord where
   bifoldMap f g r = f (crKey r) <> g (crValue r)
+
 
 instance Bitraversable ConsumerRecord where
   bitraverse f g r =
     (\k v -> bimap (const k) (const v) r) <$> f (crKey r) <*> g (crValue r)
 
+
 {-# DEPRECATED crMapKey "Isn't concern of this library. Use 'first'" #-}
--- | Map the key of a 'ConsumerRecord'.
---
--- Deprecated upstream; use 'Data.Bifunctor.first'.
+
+
+{- | Map the key of a 'ConsumerRecord'.
+
+Deprecated upstream; use 'Data.Bifunctor.first'.
+-}
 crMapKey :: (k -> k') -> ConsumerRecord k v -> ConsumerRecord k' v
 crMapKey = first
 
+
 {-# DEPRECATED crMapValue "Isn't concern of this library. Use 'second'" #-}
--- | Map the value of a 'ConsumerRecord'.
---
--- Deprecated upstream; use 'Data.Bifunctor.second'.
+
+
+{- | Map the value of a 'ConsumerRecord'.
+
+Deprecated upstream; use 'Data.Bifunctor.second'.
+-}
 crMapValue :: (v -> v') -> ConsumerRecord k v -> ConsumerRecord k v'
 crMapValue = second
 
+
 {-# DEPRECATED crMapKV "Isn't concern of this library. Use 'bimap'" #-}
--- | Map both key and value of a 'ConsumerRecord'.
---
--- Deprecated upstream; use 'Data.Bifunctor.bimap'.
+
+
+{- | Map both key and value of a 'ConsumerRecord'.
+
+Deprecated upstream; use 'Data.Bifunctor.bimap'.
+-}
 crMapKV :: (k -> k') -> (v -> v') -> ConsumerRecord k v -> ConsumerRecord k' v'
 crMapKV = bimap
 
+
 {-# DEPRECATED sequenceFirst "Isn't concern of this library. Use 'bitraverse' 'id' 'pure'" #-}
--- | Sequence the key side of a bitraversable value.
---
--- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+
+
+{- | Sequence the key side of a bitraversable value.
+
+Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+-}
 sequenceFirst :: (Bitraversable t, Applicative f) => t (f k) v -> f (t k v)
 sequenceFirst = bitraverse id pure
 
+
 {-# DEPRECATED traverseFirst "Isn't concern of this library. Use 'bitraverse' f 'pure'" #-}
--- | Traverse the key side of a bitraversable value.
---
--- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+
+
+{- | Traverse the key side of a bitraversable value.
+
+Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+-}
 traverseFirst
   :: (Bitraversable t, Applicative f)
   => (k -> f k')
@@ -230,10 +276,14 @@ traverseFirst
   -> f (t k' v)
 traverseFirst f = bitraverse f pure
 
+
 {-# DEPRECATED traverseFirstM "Isn't concern of this library. Use bitraverse directly" #-}
--- | Monadic traverse over the key side, preserving an applicative wrapper.
---
--- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+
+
+{- | Monadic traverse over the key side, preserving an applicative wrapper.
+
+Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+-}
 traverseFirstM
   :: (Bitraversable t, Applicative f, Monad m)
   => (k -> m (f k'))
@@ -241,10 +291,14 @@ traverseFirstM
   -> m (f (t k' v))
 traverseFirstM f r = bitraverse id pure <$> bitraverse f pure r
 
+
 {-# DEPRECATED traverseM "Isn't concern of this library. Use sequenceA with traverse" #-}
--- | Monadic traverse over values, preserving an applicative wrapper.
---
--- Deprecated upstream; use 'traverse' and 'sequenceA' directly.
+
+
+{- | Monadic traverse over values, preserving an applicative wrapper.
+
+Deprecated upstream; use 'traverse' and 'sequenceA' directly.
+-}
 traverseM
   :: (Traversable t, Applicative f, Monad m)
   => (v -> m (f v'))
@@ -252,10 +306,14 @@ traverseM
   -> m (f (t v'))
 traverseM f r = sequenceA <$> traverse f r
 
+
 {-# DEPRECATED bitraverseM "Isn't concern of this library. Use bitraverse directly" #-}
--- | Monadic bitraverse preserving an applicative wrapper.
---
--- Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+
+
+{- | Monadic bitraverse preserving an applicative wrapper.
+
+Deprecated upstream; use 'Data.Bitraversable.bitraverse' directly.
+-}
 bitraverseM
   :: (Bitraversable t, Applicative f, Monad m)
   => (k -> m (f k'))

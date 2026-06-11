@@ -1,9 +1,13 @@
 module Main (main) where
 
 import Test.Syd
-import qualified Test.WAI
+import Test.WAI qualified
+
 
 main :: IO ()
-main = sydTest $ describe "wireform-http-wai" $ sequence_
-  [ Test.WAI.tests
-  ]
+main =
+  sydTest $
+    describe "wireform-http-wai" $
+      sequence_
+        [ Test.WAI.tests
+        ]

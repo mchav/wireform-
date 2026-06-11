@@ -1,59 +1,62 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Kafka.Client.Mock.ShareConsumer
--- Description : In-memory KIP-932 share-group consumer over a MockCluster
---
--- This module gives tests a deterministic share-group surface without
--- a Kafka 4.x broker. It models the queue-specific parts of KIP-932:
--- record locks, redelivery after lock expiry, and Accept / Release /
--- Reject acknowledgements.
-module Kafka.Client.Mock.ShareConsumer
-  ( MockShareConsumer
-  , newMockShareConsumer
-  , pollShareMC
-  , acknowledgeShareMC
-  , commitAcknowledgementsMC
-  , pendingAcknowledgementsMC
-  , mockShareRunner
-  ) where
+{- |
+Module      : Kafka.Client.Mock.ShareConsumer
+Description : In-memory KIP-932 share-group consumer over a MockCluster
+
+This module gives tests a deterministic share-group surface without
+a Kafka 4.x broker. It models the queue-specific parts of KIP-932:
+record locks, redelivery after lock expiry, and Accept / Release /
+Reject acknowledgements.
+-}
+module Kafka.Client.Mock.ShareConsumer (
+  MockShareConsumer,
+  newMockShareConsumer,
+  pollShareMC,
+  acknowledgeShareMC,
+  commitAcknowledgementsMC,
+  pendingAcknowledgementsMC,
+  mockShareRunner,
+) where
 
 import Control.Concurrent.STM
 import Control.Monad (foldM)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Int (Int32, Int64)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
+import Kafka.Client.Mock.Cluster (
+  GroupId,
+  MockCluster,
+  StoredRecord,
+  clusterClockNow,
+  fetchSlice,
+  partitionCount,
+  partitionHWM,
+ )
+import Kafka.Client.Mock.Cluster qualified as Cluster
+import Kafka.Client.ShareConsumer (
+  Acknowledgement (..),
+  AcknowledgementType (..),
+  ShareConsumerConfig (..),
+  ShareConsumerRunner (..),
+  ShareRecord (..),
+ )
 
-import Kafka.Client.Mock.Cluster
-  ( GroupId
-  , MockCluster
-  , StoredRecord
-  , clusterClockNow
-  , fetchSlice
-  , partitionCount
-  , partitionHWM
-  )
-import qualified Kafka.Client.Mock.Cluster as Cluster
-import Kafka.Client.ShareConsumer
-  ( Acknowledgement (..)
-  , AcknowledgementType (..)
-  , ShareConsumerConfig (..)
-  , ShareConsumerRunner (..)
-  , ShareRecord (..)
-  )
 
 data ShareKey = ShareKey !Text !Int32 !Int64 !Int64
   deriving stock (Eq, Ord, Show)
+
 
 data ShareLock = ShareLock
   { slExpiresAtMs :: !Int64
   , slDeliveryCount :: !Int32
   }
   deriving stock (Eq, Show)
+
 
 data MockShareConsumer = MockShareConsumer
   { mscCluster :: !MockCluster
@@ -65,6 +68,7 @@ data MockShareConsumer = MockShareConsumer
   , mscPendingAcks :: !(TVar [Acknowledgement])
   }
 
+
 newMockShareConsumer
   :: MockCluster
   -> GroupId
@@ -75,15 +79,17 @@ newMockShareConsumer cluster groupId cfg = do
   attempts <- newTVarIO Map.empty
   completed <- newTVarIO Set.empty
   pending <- newTVarIO []
-  pure MockShareConsumer
-    { mscCluster = cluster
-    , mscGroupId = groupId
-    , mscConfig = cfg
-    , mscLocks = locks
-    , mscAttempts = attempts
-    , mscCompleted = completed
-    , mscPendingAcks = pending
-    }
+  pure
+    MockShareConsumer
+      { mscCluster = cluster
+      , mscGroupId = groupId
+      , mscConfig = cfg
+      , mscLocks = locks
+      , mscAttempts = attempts
+      , mscCompleted = completed
+      , mscPendingAcks = pending
+      }
+
 
 pollShareMC :: MockShareConsumer -> Int -> IO [ShareRecord]
 pollShareMC sc requestedMax = do
@@ -92,21 +98,25 @@ pollShareMC sc requestedMax = do
   locks <- readTVarIO (mscLocks sc)
   attempts <- readTVarIO (mscAttempts sc)
   completed <- readTVarIO (mscCompleted sc)
-  candidates <- foldM
-    (\acc tp -> do
-        rs <- fetchEligiblePartition sc now locks attempts completed tp
-        pure (acc <> rs))
-    []
-    tps
+  candidates <-
+    foldM
+      ( \acc tp -> do
+          rs <- fetchEligiblePartition sc now locks attempts completed tp
+          pure (acc <> rs)
+      )
+      []
+      tps
   let !limit = max 0 (min requestedMax (scMaxFetchRecords (mscConfig sc)))
       !selected = take limit candidates
   atomically $
     lockDelivered now sc selected
   pure selected
 
+
 acknowledgeShareMC :: MockShareConsumer -> Acknowledgement -> IO ()
 acknowledgeShareMC sc ack =
   atomically $ modifyTVar' (mscPendingAcks sc) (ack :)
+
 
 commitAcknowledgementsMC :: MockShareConsumer -> IO [Acknowledgement]
 commitAcknowledgementsMC sc = atomically $ do
@@ -116,18 +126,22 @@ commitAcknowledgementsMC sc = atomically $ do
   mapM_ (applyAck sc) ordered
   pure ordered
 
+
 pendingAcknowledgementsMC :: MockShareConsumer -> IO [Acknowledgement]
 pendingAcknowledgementsMC sc = reverse <$> readTVarIO (mscPendingAcks sc)
 
+
 mockShareRunner :: MockShareConsumer -> ShareConsumerRunner
-mockShareRunner mc = ShareConsumerRunner
-  { scrPoll = \_ n -> Right <$> pollShareMC mc n
-  , scrCommit = \_ acks -> do
-      mapM_ (acknowledgeShareMC mc) acks
-      _ <- commitAcknowledgementsMC mc
-      pure (Right ())
-  , scrClose = \_ -> pure ()
-  }
+mockShareRunner mc =
+  ShareConsumerRunner
+    { scrPoll = \_ n -> Right <$> pollShareMC mc n
+    , scrCommit = \_ acks -> do
+        mapM_ (acknowledgeShareMC mc) acks
+        _ <- commitAcknowledgementsMC mc
+        pure (Right ())
+    , scrClose = \_ -> pure ()
+    }
+
 
 topicPartitions :: MockCluster -> [Text] -> IO [(Text, Int32)]
 topicPartitions cluster topics =
@@ -138,6 +152,7 @@ topicPartitions cluster topics =
       case countM of
         Nothing -> pure acc
         Just count -> pure (acc <> map (\p -> (topic, fromIntegral p)) [0 .. count - 1])
+
 
 fetchEligiblePartition
   :: MockShareConsumer
@@ -157,6 +172,7 @@ fetchEligiblePartition sc now locks attempts completed (topic, part) = do
         Left _ -> pure []
         Right (records, _) ->
           pure (foldr (eligibleRecord sc now locks attempts completed topic part) [] records)
+
 
 eligibleRecord
   :: MockShareConsumer
@@ -184,6 +200,7 @@ eligibleRecord sc now locks attempts completed topic part rec acc =
            | priorDeliveries >= scMaxDeliveryCount (mscConfig sc) -> acc
            | otherwise -> shareRecord topic part rec nextDelivery : acc
 
+
 lockDelivered :: Int64 -> MockShareConsumer -> [ShareRecord] -> STM ()
 lockDelivered now sc records = do
   modifyTVar' (mscLocks sc) (\locks -> foldr lockOne locks records)
@@ -192,22 +209,25 @@ lockDelivered now sc records = do
     !expiresAt = now + fromIntegral (scLockTimeoutMs (mscConfig sc))
     lockOne rec acc =
       let !key = ShareKey (srTopic rec) (srPartition rec) (srBaseOffset rec) (srLastOffset rec)
-          !lock = ShareLock
-            { slExpiresAtMs = expiresAt
-            , slDeliveryCount = srDeliveryCount rec
-            }
+          !lock =
+            ShareLock
+              { slExpiresAtMs = expiresAt
+              , slDeliveryCount = srDeliveryCount rec
+              }
       in Map.insert key lock acc
     noteAttempt rec acc =
       let !key = ShareKey (srTopic rec) (srPartition rec) (srBaseOffset rec) (srLastOffset rec)
       in Map.insert key (srDeliveryCount rec) acc
 
+
 applyAck :: MockShareConsumer -> Acknowledgement -> STM ()
 applyAck sc ack = do
-  let !key = ShareKey
-        (ackTopic ack)
-        (ackPartition ack)
-        (ackBaseOffset ack)
-        (ackLastOffset ack)
+  let !key =
+        ShareKey
+          (ackTopic ack)
+          (ackPartition ack)
+          (ackBaseOffset ack)
+          (ackLastOffset ack)
   case ackType ack of
     AckAccept -> complete key
     AckReject -> complete key
@@ -218,19 +238,22 @@ applyAck sc ack = do
       modifyTVar' (mscAttempts sc) (Map.delete key)
       modifyTVar' (mscCompleted sc) (Set.insert key)
 
+
 shareKey :: Text -> Int32 -> StoredRecord -> ShareKey
 shareKey topic part rec =
   ShareKey topic part (Cluster.srOffset rec) (Cluster.srOffset rec)
 
+
 shareRecord :: Text -> Int32 -> StoredRecord -> Int32 -> ShareRecord
-shareRecord topic part rec deliveryCount = ShareRecord
-  { srTopic = topic
-  , srPartition = part
-  , srBaseOffset = Cluster.srOffset rec
-  , srLastOffset = Cluster.srOffset rec
-  , srKey = Cluster.srKey rec
-  , srValue = Cluster.srValue rec
-  , srHeaders = Cluster.srHeaders rec
-  , srTimestamp = Cluster.srTimestamp rec
-  , srDeliveryCount = deliveryCount
-  }
+shareRecord topic part rec deliveryCount =
+  ShareRecord
+    { srTopic = topic
+    , srPartition = part
+    , srBaseOffset = Cluster.srOffset rec
+    , srLastOffset = Cluster.srOffset rec
+    , srKey = Cluster.srKey rec
+    , srValue = Cluster.srValue rec
+    , srHeaders = Cluster.srHeaders rec
+    , srTimestamp = Cluster.srTimestamp rec
+    , srDeliveryCount = deliveryCount
+    }

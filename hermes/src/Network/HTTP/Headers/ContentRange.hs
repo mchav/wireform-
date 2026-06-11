@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+
 {- |
 RFC 9110 §14.4 @Content-Range@ — server response indicating which
 portion of the selected representation is contained in the
@@ -19,43 +20,47 @@ The @bytes@ form is by far the most common; we surface it
 typed. Other units are exposed as raw bytes so callers can route
 them through their own logic.
 -}
-module Network.HTTP.Headers.ContentRange
-  ( ContentRange (..)
-  , RangeResp (..)
-  , contentRangeParser
-  , renderContentRange
-  ) where
+module Network.HTTP.Headers.ContentRange (
+  ContentRange (..),
+  RangeResp (..),
+  contentRangeParser,
+  renderContentRange,
+) where
 
-import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Short as ST
 import Data.Word (Word64)
-import qualified Network.HTTP.Headers.Mason as M
-import qualified Network.HTTP.Headers.Rendering.Util as R
 import Network.HTTP.Headers
 import Network.HTTP.Headers.HeaderFieldName (hContentRange)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
+import qualified Network.HTTP.Headers.Rendering.Util as R
+
 
 -- ---------------------------------------------------------------------------
 -- Data
 -- ---------------------------------------------------------------------------
 
--- | The @range-resp@ payload: either a satisfied range with
--- known\\/unknown total length, or the unsatisfied form
--- @*\\/complete-length@ used on @416 Range Not Satisfiable@.
+{- | The @range-resp@ payload: either a satisfied range with
+known\\/unknown total length, or the unsatisfied form
+@*\\/complete-length@ used on @416 Range Not Satisfiable@.
+-}
 data RangeResp
   = RangeRespSatisfied
       { rangeFirst :: !Word64
-      , rangeLast  :: !Word64
+      , rangeLast :: !Word64
       , rangeTotal :: !(Maybe Word64)
       }
-  | RangeRespUnsatisfied { rangeTotal :: !(Maybe Word64) }
-    -- ^ For 416 responses. @rangeTotal@ is 'Just' iff the server
-    --   actually knew the complete length and sent it (the
-    --   @*\\/N@ form); @Nothing@ if the server emitted the
-    --   @*\\/*@ form (rare but seen in the wild).
+  | {- | For 416 responses. @rangeTotal@ is 'Just' iff the server
+    actually knew the complete length and sent it (the
+    @*\\/N@ form); @Nothing@ if the server emitted the
+    @*\\/*@ form (rare but seen in the wild).
+    -}
+    RangeRespUnsatisfied {rangeTotal :: !(Maybe Word64)}
   deriving stock (Eq, Show)
+
 
 -- | @range-unit SP range-resp@.
 data ContentRange = ContentRange
@@ -64,23 +69,29 @@ data ContentRange = ContentRange
   }
   deriving stock (Eq, Show)
 
+
 instance KnownHeader ContentRange where
   type ParseFailure ContentRange = String
   type Cardinality ContentRange = 'ZeroOrOne
   type Direction ContentRange = 'Response
+
 
   parseFromHeaders _ headers = case runParser contentRangeParser (NE.head headers) of
     OK cr leftover
       | B.null (dropOws leftover) -> Right cr
       | otherwise ->
           Left ("Unconsumed input after parsing Content-Range: " <> show leftover)
-    Fail    -> Left "Failed to parse Content-Range header"
+    Fail -> Left "Failed to parse Content-Range header"
     Err err -> Left err
-    where dropOws = B.dropWhile (\w -> w == 0x20 || w == 0x09)
+    where
+      dropOws = B.dropWhile (\w -> w == 0x20 || w == 0x09)
+
 
   renderToHeaders _ = M.toStrictByteString . renderContentRange
 
+
   headerName _ = hContentRange
+
 
 -- ---------------------------------------------------------------------------
 -- Parser
@@ -92,7 +103,7 @@ contentRangeParser = do
   unit <- rfc9110Token
   skipSome $(char ' ')
   resp <- unsatisfied <|> satisfied
-  pure ContentRange { contentRangeUnit = unit, contentRangeResp = resp }
+  pure ContentRange {contentRangeUnit = unit, contentRangeResp = resp}
   where
     unsatisfied = do
       $(char '*')
@@ -106,11 +117,13 @@ contentRangeParser = do
       b <- anyAsciiDecimalWord
       $(char '/')
       total <- (Nothing <$ $(char '*')) <|> (Just . fromIntegral <$> anyAsciiDecimalWord)
-      pure RangeRespSatisfied
-        { rangeFirst = fromIntegral a
-        , rangeLast  = fromIntegral b
-        , rangeTotal = total
-        }
+      pure
+        RangeRespSatisfied
+          { rangeFirst = fromIntegral a
+          , rangeLast = fromIntegral b
+          , rangeTotal = total
+          }
+
 
 -- ---------------------------------------------------------------------------
 -- Renderer
@@ -129,5 +142,5 @@ renderContentRange (ContentRange unit resp) =
           <> mTotal mTot
       RangeRespUnsatisfied mTot ->
         "*/" <> mTotal mTot
-    mTotal Nothing  = "*"
+    mTotal Nothing = "*"
     mTotal (Just n) = M.wordDec (fromIntegral n)

@@ -152,40 +152,44 @@ obsTextCharSet :: CharSet
 obsTextCharSet = CharSet.fromList ['\x80' .. '\xFF']
 
 
--- | RFC 9110 §5.6.4 @quoted-pair@ body — the set of bytes
--- permitted after a literal backslash inside a quoted-string.
--- @quoted-pair = \"\\\\\" ( HTAB / SP / VCHAR / obs-text )@ where
--- @VCHAR = %x21-7E@.
---
--- (Previously written as the string literal @\"\\t !-~\"@; the
--- 'IsString' instance for 'CharSet' interprets that as the
--- five-character set @{TAB, SP, !, -, ~}@, not a range from
--- @!@ to @~@. The literal was a long-standing bug that made
--- 'mkRFC8941String' reject any payload containing DQUOTE or
--- backslash — both of which are explicitly meant to be
--- escapable.)
+{- | RFC 9110 §5.6.4 @quoted-pair@ body — the set of bytes
+permitted after a literal backslash inside a quoted-string.
+@quoted-pair = \"\\\\\" ( HTAB / SP / VCHAR / obs-text )@ where
+@VCHAR = %x21-7E@.
+
+(Previously written as the string literal @\"\\t !-~\"@; the
+'IsString' instance for 'CharSet' interprets that as the
+five-character set @{TAB, SP, !, -, ~}@, not a range from
+@!@ to @~@. The literal was a long-standing bug that made
+'mkRFC8941String' reject any payload containing DQUOTE or
+backslash — both of which are explicitly meant to be
+escapable.)
+-}
 quotedPairCharSet :: CharSet
 quotedPairCharSet =
-     CharSet.singleton '\t'
-  <> CharSet.singleton ' '
-  <> CharSet.range '\x21' '\x7E'
-  <> obsTextCharSet
+  CharSet.singleton '\t'
+    <> CharSet.singleton ' '
+    <> CharSet.range '\x21' '\x7E'
+    <> obsTextCharSet
 
--- | RFC 9110 §5.6.4 @qdtext@ — bytes allowed /unescaped/ inside a
--- quoted-string.
--- @qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / obs-text@.
---
--- (Previously the @%x23-5B@ leg used the range @\\x2A..\\x5B@
--- instead of @\\x23..\\x5B@, silently dropping @#$%&\\'()@ from
--- the unescaped set.)
+
+{- | RFC 9110 §5.6.4 @qdtext@ — bytes allowed /unescaped/ inside a
+quoted-string.
+@qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / obs-text@.
+
+(Previously the @%x23-5B@ leg used the range @\\x2A..\\x5B@
+instead of @\\x23..\\x5B@, silently dropping @#$%&\\'()@ from
+the unescaped set.)
+-}
 quotedCharSet :: CharSet
 quotedCharSet =
-     CharSet.singleton '\t'
-  <> CharSet.singleton ' '
-  <> CharSet.singleton '\x21'
-  <> CharSet.range '\x23' '\x5B'
-  <> CharSet.range '\x5D' '\x7E'
-  <> obsTextCharSet
+  CharSet.singleton '\t'
+    <> CharSet.singleton ' '
+    <> CharSet.singleton '\x21'
+    <> CharSet.range '\x23' '\x5B'
+    <> CharSet.range '\x5D' '\x7E'
+    <> obsTextCharSet
+
 
 quotedString :: ParserT st e ST.ShortText
 quotedString =
@@ -336,11 +340,11 @@ rfc8941Token = withByteString tokenParser $ \_ bs -> do
 rfc8941Boolean :: ParserT st e Bool
 rfc8941Boolean =
   $( switch
-      [|
-        case _ of
-          "?0" -> pure True
-          "?1" -> pure False
-        |]
+       [|
+         case _ of
+           "?0" -> pure True
+           "?1" -> pure False
+         |]
    )
 {-# INLINE rfc8941Boolean #-}
 

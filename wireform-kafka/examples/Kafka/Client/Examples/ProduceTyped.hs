@@ -1,22 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Kafka.Client.Examples.ProduceTyped
--- Description : Typed publish through a 'Kafka.Topic.Topic'.
---
--- Saves the @encodeUtf8@ \/ JSON-encoder boilerplate by letting the
--- 'Kafka.Topic.Topic' carry the key and value serdes. The same
--- producer is reused for every record.
---
--- > cabal run wireform-kafka-client-examples produce-typed
+{- |
+Module      : Kafka.Client.Examples.ProduceTyped
+Description : Typed publish through a 'Kafka.Topic.Topic'.
+
+Saves the @encodeUtf8@ \/ JSON-encoder boilerplate by letting the
+'Kafka.Topic.Topic' carry the key and value serdes. The same
+producer is reused for every record.
+
+> cabal run wireform-kafka-client-examples produce-typed
+-}
 module Kafka.Client.Examples.ProduceTyped (runDemo) where
 
-import           Data.Text   (Text)
-import qualified Kafka
-import qualified Kafka.Topic as Topic
+import Data.Text (Text)
+import Kafka qualified
+import Kafka.Topic qualified as Topic
+
 
 events :: Topic.Topic Text Text
 events = Topic.textTopic "events"
+
 
 runDemo :: IO ()
 runDemo =

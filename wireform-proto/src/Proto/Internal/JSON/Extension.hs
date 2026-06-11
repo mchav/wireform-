@@ -72,8 +72,9 @@ the message stores under its unknown-fields slot.
 -}
 data ExtJsonCodec = ExtJsonCodec
   { ejcExtensionFqn :: !Text
-  -- ^ Fully-qualified proto name of the extension (the
-  --   bracket-quoted JSON key without the brackets).
+  {- ^ Fully-qualified proto name of the extension (the
+  bracket-quoted JSON key without the brackets).
+  -}
   , ejcFieldNumber :: !Int
   , ejcParseValue :: Aeson.Value -> Either String UnknownField
   , ejcEncodeValue :: UnknownField -> Either String Aeson.Value
@@ -213,12 +214,12 @@ parseExtensionEntry
 parseExtensionEntry reg parentFqn key val =
   let t = AesonKey.toText key
   in case T.uncons t of
-      Just ('[', rest) -> case T.unsnoc rest of
-        Just (fqn, ']') -> case lookupExtensionByFqn reg parentFqn fqn of
-          Just codec -> Just (ejcParseValue codec val)
-          Nothing -> Nothing -- unrecognised extension; ignore
-        _ -> Nothing
-      _ -> Nothing
+       Just ('[', rest) -> case T.unsnoc rest of
+         Just (fqn, ']') -> case lookupExtensionByFqn reg parentFqn fqn of
+           Just codec -> Just (ejcParseValue codec val)
+           Nothing -> Nothing -- unrecognised extension; ignore
+         _ -> Nothing
+       _ -> Nothing
 {-# INLINE parseExtensionEntry #-}
 
 

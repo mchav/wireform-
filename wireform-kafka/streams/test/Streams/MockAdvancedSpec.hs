@@ -4,45 +4,52 @@
 -- | Advanced failure-mode tests for the mock broker.
 module Streams.MockAdvancedSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
 import Data.Int (Int32)
-import qualified Data.List as L
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.List qualified as L
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
-import Test.Syd
-
+import Data.Text qualified as T
 import Kafka.Streams.Imperative
-import qualified Kafka.Streams.Mock.Cluster as MC
-import Kafka.Streams.Mock.Cluster
-  hiding (leaveGroup)
+import Kafka.Streams.Mock.Cluster hiding (
+  leaveGroup,
+ )
+import Kafka.Streams.Mock.Cluster qualified as MC
 import Kafka.Streams.Mock.Consumer
 import Kafka.Streams.Mock.Fault
 import Kafka.Streams.Mock.Producer
+import Test.Syd
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
+
 
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
+
 tests :: Spec
-tests = describe "MockAdvanced" $ sequence_
-  [ headers_round_trip
-  , empty_headers_round_trip
-  , epoch_bumps_on_commit
-  , producer_fenced_after_concurrent_commit
-  , multi_partition_txn_commit_advances_lso
-  , two_consumers_split_partitions_round_robin
-  , three_consumers_one_leaves_partitions_redistribute
-  , coordinator_retry_then_success
-  , several_topics_one_consumer
-  ]
+tests =
+  describe "MockAdvanced" $
+    sequence_
+      [ headers_round_trip
+      , empty_headers_round_trip
+      , epoch_bumps_on_commit
+      , producer_fenced_after_concurrent_commit
+      , multi_partition_txn_commit_advances_lso
+      , two_consumers_split_partitions_round_robin
+      , three_consumers_one_leaves_partitions_redistribute
+      , coordinator_retry_then_success
+      , several_topics_one_consumer
+      ]
+
 
 ----------------------------------------------------------------------
 -- Headers
@@ -51,29 +58,31 @@ tests = describe "MockAdvanced" $ sequence_
 headers_round_trip :: Spec
 headers_round_trip =
   it "sendMockH stores headers; pollMC returns them on the StoredRecord" $ do
-    c  <- newMockCluster 1
+    c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
+    p <- newMockProducer c fp Nothing
     let hdrs = [("trace-id", bytes "abc"), ("source", bytes "test")]
-    _  <- sendMockH p (topicName "out") 0 (Just (bytes "k")) (bytes "v") (t 0) hdrs
+    _ <- sendMockH p (topicName "out") 0 (Just (bytes "k")) (bytes "v") (t 0) hdrs
     cons <- newMockConsumer c fp (GroupId "g") ReadUncommitted 100
     subscribeMC cons [topicName "out"]
     PollResult rs _ <- pollMC cons
     case rs of
       [(_, _, sr)] -> srHeaders sr `shouldBe` hdrs
-      _            -> error "expected exactly one record"
+      _ -> error "expected exactly one record"
+
 
 empty_headers_round_trip :: Spec
 empty_headers_round_trip =
   it "sendMock without headers stores an empty header list" $ do
-    c  <- newMockCluster 1
+    c <- newMockCluster 1
     createTopic c (topicName "out") 1
     fp <- noFaults
-    p  <- newMockProducer c fp Nothing
-    _  <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
+    p <- newMockProducer c fp Nothing
+    _ <- sendMock p (topicName "out") 0 Nothing (bytes "v") (t 0)
     [sr] <- dumpPartition c (topicName "out") 0
     srHeaders sr `shouldBe` []
+
 
 ----------------------------------------------------------------------
 -- Epoch fencing
@@ -96,6 +105,7 @@ epoch_bumps_on_commit =
     Right () <- abortTxnMP p2
     currentTxnEpoch c (TxnId "tx") >>= (`shouldBe` 2)
 
+
 producer_fenced_after_concurrent_commit :: Spec
 producer_fenced_after_concurrent_commit =
   it "stale-epoch producer is fenced when a sibling commits the same txn id" $ do
@@ -103,22 +113,23 @@ producer_fenced_after_concurrent_commit =
     createTopic c (topicName "out") 1
     fp <- noFaults
     -- Both producers attach to the same txn id "tx-stale".
-    pStale  <- newMockProducer c fp (Just (TxnId "tx-stale"))
-    Right () <- beginTxnMP pStale       -- pStale's epoch = 0
+    pStale <- newMockProducer c fp (Just (TxnId "tx-stale"))
+    Right () <- beginTxnMP pStale -- pStale's epoch = 0
     -- A concurrent restarted producer takes over the same txn id,
     -- begins, sends, and commits -> the broker bumps to epoch 1.
-    pNew    <- newMockProducer c fp (Just (TxnId "tx-stale"))
+    pNew <- newMockProducer c fp (Just (TxnId "tx-stale"))
     Right () <- beginTxnMP pNew
-    _       <- sendMock pNew (topicName "out") 0 Nothing (bytes "fresh") (t 0)
-    Right () <- commitTxnMP pNew        -- cluster epoch = 1
+    _ <- sendMock pNew (topicName "out") 0 Nothing (bytes "fresh") (t 0)
+    Right () <- commitTxnMP pNew -- cluster epoch = 1
     -- Now the stale producer tries to send with its old epoch.
     r <- sendMock pStale (topicName "out") 0 Nothing (bytes "stale") (t 1)
     case r of
       MPFenced -> pure ()
-      other    -> error ("expected MPFenced, got " <> show other)
+      other -> error ("expected MPFenced, got " <> show other)
     -- The stale send's payload never landed.
     log_ <- dumpPartition c (topicName "out") 0
     map (unbytes . srValue) log_ `shouldBe` ["fresh"]
+
 
 ----------------------------------------------------------------------
 -- Multi-partition txn
@@ -130,26 +141,31 @@ multi_partition_txn_commit_advances_lso =
     c <- newMockCluster 1
     createTopic c (topicName "ledger") 3
     fp <- noFaults
-    p  <- newMockProducer c fp (Just (TxnId "ledger-tx"))
+    p <- newMockProducer c fp (Just (TxnId "ledger-tx"))
     Right () <- beginTxnMP p
     _ <- sendMock p (topicName "ledger") 0 Nothing (bytes "a") (t 0)
     _ <- sendMock p (topicName "ledger") 1 Nothing (bytes "b") (t 0)
     _ <- sendMock p (topicName "ledger") 2 Nothing (bytes "c") (t 0)
     -- Pre-commit: every partition has HWM = 1 but LSO = 0.
-    mapM_ (\part -> do
-              Just hwm <- partitionHWM c (topicName "ledger") part
-              Just lso <- partitionLastStableOffset c (topicName "ledger") part
-              hwm `shouldBe` 1
-              lso `shouldBe` 0)
-          [0, 1, 2]
+    mapM_
+      ( \part -> do
+          Just hwm <- partitionHWM c (topicName "ledger") part
+          Just lso <- partitionLastStableOffset c (topicName "ledger") part
+          hwm `shouldBe` 1
+          lso `shouldBe` 0
+      )
+      [0, 1, 2]
     Right () <- commitTxnMP p
     -- Post-commit: LSO catches up to HWM on all three.
-    mapM_ (\part -> do
-              Just hwm <- partitionHWM c (topicName "ledger") part
-              Just lso <- partitionLastStableOffset c (topicName "ledger") part
-              hwm `shouldBe` 1
-              lso `shouldBe` 1)
-          [0, 1, 2]
+    mapM_
+      ( \part -> do
+          Just hwm <- partitionHWM c (topicName "ledger") part
+          Just lso <- partitionLastStableOffset c (topicName "ledger") part
+          hwm `shouldBe` 1
+          lso `shouldBe` 1
+      )
+      [0, 1, 2]
+
 
 ----------------------------------------------------------------------
 -- Multi-consumer rebalance
@@ -181,6 +197,7 @@ two_consumers_split_partitions_round_robin =
     -- Together they cover every partition exactly once.
     Set.fromList (a1 ++ a2)
       `shouldBe` Set.fromList [(topicName "in", p) | p <- [0, 1, 2, 3]]
+
 
 three_consumers_one_leaves_partitions_redistribute :: Spec
 three_consumers_one_leaves_partitions_redistribute =
@@ -215,6 +232,7 @@ three_consumers_one_leaves_partitions_redistribute =
     map snd aAfter `shouldBe` [0, 2, 4]
     map snd cAfter `shouldBe` [1, 3, 5]
 
+
 ----------------------------------------------------------------------
 -- Coordinator retry
 ----------------------------------------------------------------------
@@ -241,6 +259,7 @@ coordinator_retry_then_success =
     m <- groupOffsetsFor c g
     Map.lookup (topicName "in", 0) m `shouldBe` Just 1
 
+
 ----------------------------------------------------------------------
 -- Multi-topic single-consumer assignment
 ----------------------------------------------------------------------
@@ -250,16 +269,19 @@ several_topics_one_consumer =
   it "subscribing to N topics assigns every partition of every topic" $ do
     c <- newMockCluster 1
     createTopic c (topicName "alpha") 2
-    createTopic c (topicName "beta")  3
+    createTopic c (topicName "beta") 3
     createTopic c (topicName "gamma") 1
     let g = GroupId "g"
     fp <- noFaults
     cons <- newMockConsumer c fp g ReadUncommitted 100
     subscribeMC cons [topicName "alpha", topicName "beta", topicName "gamma"]
     asg <- L.sort <$> assignedPartitions cons
-    L.sort asg `shouldBe`
-      L.sort
-        [ (topicName "alpha", 0), (topicName "alpha", 1)
-        , (topicName "beta",  0), (topicName "beta",  1), (topicName "beta", 2)
+    L.sort asg
+      `shouldBe` L.sort
+        [ (topicName "alpha", 0)
+        , (topicName "alpha", 1)
+        , (topicName "beta", 0)
+        , (topicName "beta", 1)
+        , (topicName "beta", 2)
         , (topicName "gamma", 0)
         ]

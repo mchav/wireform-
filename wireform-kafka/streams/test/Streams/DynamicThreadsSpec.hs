@@ -1,43 +1,50 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | KIP-663 dynamic thread management tests. Verifies that
--- 'addStreamThread' / 'removeStreamThread' actually mutate the
--- live 'WorkerPool' (not just report a hypothetical count).
+{- | KIP-663 dynamic thread management tests. Verifies that
+'addStreamThread' / 'removeStreamThread' actually mutate the
+live 'WorkerPool' (not just report a hypothetical count).
+-}
 module Streams.DynamicThreadsSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
-import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Syd
-
-import qualified Kafka.Client.Consumer as KC
+import Data.Text qualified as T
+import Kafka.Client.Consumer qualified as KC
 import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.NativeDriver
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Dynamic thread management (KIP-663) + CloseOptions (KIP-812)" $ sequence_
-  [ add_stream_thread_grows_pool
-  , remove_stream_thread_shrinks_pool
-  , add_then_remove_returns_to_baseline
-  , single_thread_runtime_returns_nothing
-  , close_with_leave_group_false_skips_leave_group
-  ]
+tests =
+  describe "Dynamic thread management (KIP-663) + CloseOptions (KIP-812)" $
+    sequence_
+      [ add_stream_thread_grows_pool
+      , remove_stream_thread_shrinks_pool
+      , add_then_remove_returns_to_baseline
+      , single_thread_runtime_returns_nothing
+      , close_with_leave_group_false_skips_leave_group
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 mkRec :: Text -> Text -> Text -> KC.ConsumerRecord
-mkRec topic k v = KC.ConsumerRecord
-  { topic     = topic
-  , partition = 0
-  , offset    = 0
-  , timestamp = 100
-  , key       = Just (bytes k)
-  , value     = bytes v
-  , headers   = []
-  }
+mkRec topic k v =
+  KC.ConsumerRecord
+    { topic = topic
+    , partition = 0
+    , offset = 0
+    , timestamp = 100
+    , key = Just (bytes k)
+    , value = bytes v
+    , headers = []
+    }
+
 
 buildPassthrough :: IO TopologyValid
 buildPassthrough = do
@@ -47,15 +54,18 @@ buildPassthrough = do
   topo <- buildTopology b
   case validateTopology topo of
     Left err -> error (show err)
-    Right v  -> pure v
+    Right v -> pure v
+
 
 multiThreadCfg :: Int -> StreamsConfig
-multiThreadCfg n = defaultStreamsConfig
-  { applicationId    = "dyn-threads"
-  , bootstrapServers = ["mock:0"]
-  , numStreamThreads = n
-  , pollMs           = 0
-  }
+multiThreadCfg n =
+  defaultStreamsConfig
+    { applicationId = "dyn-threads"
+    , bootstrapServers = ["mock:0"]
+    , numStreamThreads = n
+    , pollMs = 0
+    }
+
 
 ----------------------------------------------------------------------
 -- 1. addStreamThread grows the pool
@@ -82,6 +92,7 @@ add_stream_thread_grows_pool =
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
+
 ----------------------------------------------------------------------
 -- 2. removeStreamThread shrinks the pool
 ----------------------------------------------------------------------
@@ -107,6 +118,7 @@ remove_stream_thread_shrinks_pool =
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
+
 ----------------------------------------------------------------------
 -- 3. Add then remove returns to baseline (and the runtime
 --    keeps processing records throughout)
@@ -121,7 +133,8 @@ add_then_remove_returns_to_baseline =
     startKafkaStreamsWith ks drv
     awaitState ks StreamsRunning
 
-    mockDriverInjectPoll h
+    mockDriverInjectPoll
+      h
       [mkRec "in" (T.pack ('k' : show i)) "v" | i <- [(0 :: Int) .. 4]]
     _ <- awaitTicks ks 3
 
@@ -130,7 +143,8 @@ add_then_remove_returns_to_baseline =
     r <- addStreamThread ks
     r `shouldBe` Just 3
     -- Push more records — should now flow through 3 workers.
-    mockDriverInjectPoll h
+    mockDriverInjectPoll
+      h
       [mkRec "in" (T.pack ('m' : show i)) "v" | i <- [(0 :: Int) .. 4]]
     _ <- awaitTicks ks 3
 
@@ -140,6 +154,7 @@ add_then_remove_returns_to_baseline =
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
+
 
 ----------------------------------------------------------------------
 -- 4. Single-thread runtime: add/remove return Nothing
@@ -154,12 +169,13 @@ single_thread_runtime_returns_nothing =
     startKafkaStreamsWith ks drv
     awaitState ks StreamsRunning
 
-    addStreamThread ks    >>= (`shouldBe` Nothing)
+    addStreamThread ks >>= (`shouldBe` Nothing)
     removeStreamThread ks >>= (`shouldBe` Nothing)
-    streamThreadCount ks  >>= (`shouldBe` 1)
+    streamThreadCount ks >>= (`shouldBe` 1)
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
+
 
 ----------------------------------------------------------------------
 -- CloseOptions threading (KIP-812)
@@ -179,6 +195,7 @@ close_with_leave_group_false_skips_leave_group =
     -- flag; the assertion is that the runtime still reaches
     -- StreamsClosed (i.e. the new code-path is wired up and
     -- doesn't get stuck waiting for a phantom LeaveGroup ack).
-    closeKafkaStreamsWith ks
-      (defaultCloseOptions { leaveGroup = False })
+    closeKafkaStreamsWith
+      ks
+      (defaultCloseOptions {leaveGroup = False})
     awaitState ks StreamsClosed

@@ -96,6 +96,6 @@ inSpan (Span (Pos start) (Pos end)) (Parser p) = Parser \env _ s st ->
       !startOff = fromIntegral start .&. mask
       !(Ptr spanStart) = base `plusPtr` startOff
   in case p env spanEnd spanStart st of
-      (# st', OK# a _ #) -> (# st', OK# a s #)
-      (# st', x #) -> (# st', unsafeCoerce# x #)
+       (# st', OK# a _ #) -> (# st', OK# a s #)
+       (# st', x #) -> (# st', unsafeCoerce# x #)
 {-# INLINE inSpan #-}

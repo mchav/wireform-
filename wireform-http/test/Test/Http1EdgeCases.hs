@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 {- | Edge-case and stress tests for HTTP/1.x through the unified API.
 
 Covers scenarios that the happy-path integration tests skip:
@@ -10,35 +11,37 @@ module Test.Http1EdgeCases (tests) where
 
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
-import Control.Exception (bracket, finally, try, SomeException)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.CaseInsensitive as CI
+import Control.Exception (SomeException, bracket, finally, try)
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
+import Data.CaseInsensitive qualified as CI
 import Data.IORef
-import qualified Network.Socket as NS
-
-import Test.Syd
-
 import Network.HTTP
 import Network.HTTP.Connection
 import Network.HTTP.Server
-import qualified Network.HTTP.Types.Status as S
-import qualified Network.HTTP.Types.Version as V
+import Network.HTTP.Types.Status qualified as S
+import Network.HTTP.Types.Version qualified as V
+import Network.Socket qualified as NS
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "HTTP/1.x edge cases" $ sequence_
-  [ emptyGetBody
-  , errorStatusCodes
-  , headMethod
-  , noContent204
-  , largeBodyRoundTrip
-  , manyHeaders
-  , keepAliveSequentialRequests
-  , streamingLargeBody
-  , binaryBodyContent
-  , requestWithQueryString
-  , oversizedHeaderBlockRejected
-  ]
+tests =
+  describe "HTTP/1.x edge cases" $
+    sequence_
+      [ emptyGetBody
+      , errorStatusCodes
+      , headMethod
+      , noContent204
+      , largeBodyRoundTrip
+      , manyHeaders
+      , keepAliveSequentialRequests
+      , streamingLargeBody
+      , binaryBodyContent
+      , requestWithQueryString
+      , oversizedHeaderBlockRejected
+      ]
+
 
 ------------------------------------------------------------------------
 
@@ -49,6 +52,7 @@ emptyGetBody = it "GET with empty body returns BodyEmpty or empty bytes" $
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty [])
       drainBody (responseBody r)
     body `shouldBe` ""
+
 
 errorStatusCodes :: Spec
 errorStatusCodes = it "server returns various error status codes" $
@@ -71,7 +75,8 @@ errorStatusCodes = it "server returns various error status codes" $
       "/400" -> pure (resp S.status400 "bad request")
       "/404" -> pure (resp S.status404 "not found")
       "/500" -> pure (resp S.status500 "internal error")
-      _      -> pure (resp S.status200 "ok")
+      _ -> pure (resp S.status200 "ok")
+
 
 headMethod :: Spec
 headMethod = it "HEAD returns headers but no body" $
@@ -83,6 +88,7 @@ headMethod = it "HEAD returns headers but no body" $
     status `shouldBe` S.status200
     body `shouldBe` ""
 
+
 noContent204 :: Spec
 noContent204 = it "204 No Content has no body" $
   withTestServer http1Only (\_ -> pure resp204) $ \port -> do
@@ -93,16 +99,18 @@ noContent204 = it "204 No Content has no body" $
     status `shouldBe` S.status204
     body `shouldBe` ""
   where
-    resp204 = Response
-      { responseStatus  = S.status204
-      , responseVersion = V.HTTP1_1
-      , responseHeaders = []
-      , responseBody    = BodyEmpty
-      , responseTrailers = pure []
-      , responseH2StreamId = 0
-      , responseCancel = pure ()
-      , responsePushPromises = pure []
-      }
+    resp204 =
+      Response
+        { responseStatus = S.status204
+        , responseVersion = V.HTTP1_1
+        , responseHeaders = []
+        , responseBody = BodyEmpty
+        , responseTrailers = pure []
+        , responseH2StreamId = 0
+        , responseCancel = pure ()
+        , responsePushPromises = pure []
+        }
+
 
 largeBodyRoundTrip :: Spec
 largeBodyRoundTrip = it "64 KiB body round-trips correctly" $
@@ -120,12 +128,14 @@ largeBodyRoundTrip = it "64 KiB body round-trips correctly" $
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
 
+
 manyHeaders :: Spec
 manyHeaders = it "request with 50 custom headers" $
   withTestServer http1Only counter $ \port -> do
-    let hdrs = [ (CI.mk (BS8.pack ("X-Custom-" <> show n)), BS8.pack ("val-" <> show n))
-               | n <- [1 :: Int .. 50]
-               ]
+    let hdrs =
+          [ (CI.mk (BS8.pack ("X-Custom-" <> show n)), BS8.pack ("val-" <> show n))
+          | n <- [1 :: Int .. 50]
+          ]
     body <- runClient http1Only port $ \c -> do
       r <- sendOn c (mkRequest "GET" "/" port BodyEmpty hdrs)
       drainBody (responseBody r)
@@ -133,27 +143,33 @@ manyHeaders = it "request with 50 custom headers" $
     (count >= 50) `shouldBe` True
   where
     counter req = do
-      let customCount = length
-            [ ()
-            | (n, _) <- requestHeaders req
-            , "x-custom-" `BS.isPrefixOf` CI.foldedCase n
-            ]
+      let customCount =
+            length
+              [ ()
+              | (n, _) <- requestHeaders req
+              , "x-custom-" `BS.isPrefixOf` CI.foldedCase n
+              ]
       pure (resp S.status200 (BS8.pack (show customCount)))
+
 
 keepAliveSequentialRequests :: Spec
 keepAliveSequentialRequests =
   it "5 sequential requests on one keep-alive connection" $
     withTestServer http1Only counter $ \port -> do
       runClient http1Only port $ \c -> do
-        results <- mapM (\i -> do
-          r <- sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
-          b <- drainBody (responseBody r)
-          pure (responseStatus r, b)
-          ) [1 :: Int .. 5]
+        results <-
+          mapM
+            ( \i -> do
+                r <- sendOn c (mkRequest "GET" (BS8.pack ("/" <> show i)) port BodyEmpty [])
+                b <- drainBody (responseBody r)
+                pure (responseStatus r, b)
+            )
+            [1 :: Int .. 5]
         let statuses = map fst results
         all (== S.status200) statuses `shouldBe` True
   where
     counter _ = pure (resp S.status200 "ok")
+
 
 streamingLargeBody :: Spec
 streamingLargeBody = it "streaming 5-chunk response body" $
@@ -165,25 +181,27 @@ streamingLargeBody = it "streaming 5-chunk response body" $
   where
     handler _ = do
       ref <- newIORef ["chunk1", "chunk2", "chunk3", "chunk4", "chunk5"]
-      pure Response
-        { responseStatus  = S.status200
-        , responseVersion = V.HTTP1_1
-        , responseHeaders = []
-        , responseBody    = BodyStream $ do
-            xs <- readIORef ref
-            case xs of
-              []    -> pure Nothing
-              (h:t) -> writeIORef ref t >> pure (Just h)
-        , responseTrailers = pure []
-        , responseH2StreamId = 0
-        , responseCancel = pure ()
-        , responsePushPromises = pure []
-        }
+      pure
+        Response
+          { responseStatus = S.status200
+          , responseVersion = V.HTTP1_1
+          , responseHeaders = []
+          , responseBody = BodyStream $ do
+              xs <- readIORef ref
+              case xs of
+                [] -> pure Nothing
+                (h : t) -> writeIORef ref t >> pure (Just h)
+          , responseTrailers = pure []
+          , responseH2StreamId = 0
+          , responseCancel = pure ()
+          , responsePushPromises = pure []
+          }
+
 
 binaryBodyContent :: Spec
 binaryBodyContent = it "binary body with all byte values 0x00-0xFF" $
   withTestServer http1Only echo $ \port -> do
-    let payload = BS.pack [0..255]
+    let payload = BS.pack [0 .. 255]
     body <- runClient http1Only port $ \c -> do
       r <- sendOn c (mkRequest "POST" "/" port (BodyBytes payload) [])
       drainBody (responseBody r)
@@ -192,6 +210,7 @@ binaryBodyContent = it "binary body with all byte values 0x00-0xFF" $
     echo req = do
       body <- drainBody (requestBody req)
       pure (resp S.status200 body)
+
 
 requestWithQueryString :: Spec
 requestWithQueryString = it "request target with query string preserved" $
@@ -203,13 +222,15 @@ requestWithQueryString = it "request target with query string preserved" $
   where
     echoTarget req = pure (resp S.status200 (requestTarget req))
 
--- | Companion to 'largeBodyRoundTrip'. The header-block cap fix in
--- 'Network.HTTP1.StreamingReader.readHeaderBlockFrom' was about
--- not /spuriously/ tripping when the body inflates the ring; this
--- test confirms the cap still triggers for a header block that is
--- genuinely too large. The default cap is 32 KiB; a single
--- header value at ~100 KiB sails well past it and the server must
--- answer 431 (and close).
+
+{- | Companion to 'largeBodyRoundTrip'. The header-block cap fix in
+'Network.HTTP1.StreamingReader.readHeaderBlockFrom' was about
+not /spuriously/ tripping when the body inflates the ring; this
+test confirms the cap still triggers for a header block that is
+genuinely too large. The default cap is 32 KiB; a single
+header value at ~100 KiB sails well past it and the server must
+answer 431 (and close).
+-}
 oversizedHeaderBlockRejected :: Spec
 oversizedHeaderBlockRejected =
   it "request with a 100 KiB header value gets 431" $
@@ -223,6 +244,7 @@ oversizedHeaderBlockRejected =
   where
     asciiByte = fromIntegral . fromEnum
 
+
 ------------------------------------------------------------------------
 -- Plumbing (shared with other integration modules)
 ------------------------------------------------------------------------
@@ -234,14 +256,15 @@ withTestServer
   -> IO a
 withTestServer range handler action = do
   readyVar <- newEmptyMVar
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
     [] -> expectationFailure "no addr available for test bind"
-    (addr:_) -> bracket
+    (addr : _) -> bracket
       (NS.openSocket addr)
       NS.close
       $ \listenSock -> do
@@ -252,27 +275,31 @@ withTestServer range handler action = do
         let portStr = case bound of
               NS.SockAddrInet p _ -> show (fromIntegral p :: Int)
               _ -> "0"
-            cfg = defaultServerConfig
-              { serverHost = "127.0.0.1"
-              , serverPort = portStr
-              , serverVersionRange = range
-              , serverHandler = handler
-              }
+            cfg =
+              defaultServerConfig
+                { serverHost = "127.0.0.1"
+                , serverPort = portStr
+                , serverVersionRange = range
+                , serverHandler = handler
+                }
         tid <- forkIO $ do
           putMVar readyVar ()
           runServerOnListener cfg listenSock
         takeMVar readyVar
         action portStr `finally` killThread tid
 
+
 runClient :: VersionRange -> String -> (Connection -> IO a) -> IO a
 runClient range port action = do
-  let cfg = defaultConnectionConfig
-        { connectionHost = "127.0.0.1"
-        , connectionPort = port
-        , connectionVersionRange = range
-        , connectionTls = Nothing
-        }
+  let cfg =
+        defaultConnectionConfig
+          { connectionHost = "127.0.0.1"
+          , connectionPort = port
+          , connectionVersionRange = range
+          , connectionTls = Nothing
+          }
   withConnection cfg action
+
 
 mkRequest
   :: BS.ByteString
@@ -281,28 +308,32 @@ mkRequest
   -> Body
   -> Headers
   -> Request
-mkRequest method target port body extras = Request
-  { requestMethod    = methodFromBytes method
-  , requestTarget    = target
-  , requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
-  , requestScheme    = SchemeHttp
-  , requestHeaders   = extras
-  , requestBody      = body
-  , requestVersion   = V.HTTP1_1
-  , requestTrailers  = pure []
-  }
+mkRequest method target port body extras =
+  Request
+    { requestMethod = methodFromBytes method
+    , requestTarget = target
+    , requestAuthority = Just (BS8.pack ("127.0.0.1:" <> port))
+    , requestScheme = SchemeHttp
+    , requestHeaders = extras
+    , requestBody = body
+    , requestVersion = V.HTTP1_1
+    , requestTrailers = pure []
+    }
+
 
 resp :: S.Status -> BS.ByteString -> Response
-resp status body = Response
-  { responseStatus   = status
-  , responseVersion  = V.HTTP1_1
-  , responseHeaders  = []
-  , responseBody     = if BS.null body then BodyEmpty else BodyBytes body
-  , responseTrailers = pure []
-  , responseH2StreamId = 0
-  , responseCancel = pure ()
-  , responsePushPromises = pure []
-  }
+resp status body =
+  Response
+    { responseStatus = status
+    , responseVersion = V.HTTP1_1
+    , responseHeaders = []
+    , responseBody = if BS.null body then BodyEmpty else BodyBytes body
+    , responseTrailers = pure []
+    , responseH2StreamId = 0
+    , responseCancel = pure ()
+    , responsePushPromises = pure []
+    }
+
 
 drainBody :: Body -> IO BS.ByteString
 drainBody BodyEmpty = pure ""

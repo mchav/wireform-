@@ -1,48 +1,49 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |
--- Module      : Streams.Properties.WatermarkWiringSpec
--- Description : Engine-side wiring of the watermark coordinator
---
--- Property + unit tests that exercise:
---
---   1. A source built with @consumed `withWatermarkStrategy` s@
---      surfaces 's' through the topology graph's
---      'sourceWatermarkStrategy' field.
---   2. After 'attachWatermarkCoordinator' wires a coordinator to
---      an engine, every record pushed through that source
---      arrives at the coordinator's per-source watermark.
---   3. Sources without a strategy do NOT report to the
---      coordinator (legacy path).
+{- |
+Module      : Streams.Properties.WatermarkWiringSpec
+Description : Engine-side wiring of the watermark coordinator
+
+Property + unit tests that exercise:
+
+  1. A source built with @consumed `withWatermarkStrategy` s@
+     surfaces 's' through the topology graph's
+     'sourceWatermarkStrategy' field.
+  2. After 'attachWatermarkCoordinator' wires a coordinator to
+     an engine, every record pushed through that source
+     arrives at the coordinator's per-source watermark.
+  3. Sources without a strategy do NOT report to the
+     coordinator (legacy path).
+-}
 module Streams.Properties.WatermarkWiringSpec (tests) where
 
 import Control.Monad (forM_)
+import Data.ByteString.Char8 qualified as BSC
 import Data.List (find)
-import qualified Data.Map.Strict as Map
-import qualified Data.Text as T
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
+import Kafka.Streams.Consumed qualified as Consumed
+import Kafka.Streams.Driver (driverEngine)
+import Kafka.Streams.Imperative (
+  Timestamp (..),
+  buildTopology,
+  closeDriver,
+  consumed,
+  newDriver,
+  newStreamsBuilder,
+  pipeInput,
+  streamFromTopic,
+  textSerde,
+  topologyValidGraph,
+  validateTopology,
+ )
+import Kafka.Streams.Internal.Engine (attachWatermarkCoordinator)
+import Kafka.Streams.Time (millis, minTimestamp)
+import Kafka.Streams.Topology qualified as Topo
+import Kafka.Streams.Watermark
 import Test.Syd
 
-import Kafka.Streams.Imperative
-  ( Timestamp (..)
-  , buildTopology
-  , closeDriver
-  , consumed
-  , newDriver
-  , newStreamsBuilder
-  , pipeInput
-  , streamFromTopic
-  , textSerde
-  , topologyValidGraph
-  , validateTopology
-  )
-import qualified Kafka.Streams.Consumed as Consumed
-import Kafka.Streams.Driver (driverEngine)
-import Kafka.Streams.Internal.Engine (attachWatermarkCoordinator)
-import qualified Kafka.Streams.Topology as Topo
-import Kafka.Streams.Time (millis, minTimestamp)
-import Kafka.Streams.Watermark
-import qualified Data.ByteString.Char8 as BSC
 
 ----------------------------------------------------------------------
 -- Test topology
@@ -50,6 +51,7 @@ import qualified Data.ByteString.Char8 as BSC
 
 bytes :: String -> BSC.ByteString
 bytes = BSC.pack
+
 
 ----------------------------------------------------------------------
 -- 1. Strategy round-trip through SourceSpec
@@ -59,20 +61,24 @@ unit_consumed_carries_strategy :: Spec
 unit_consumed_carries_strategy =
   it "consumed.withWatermarkStrategy: round-trips into SourceSpec" $ do
     b <- newStreamsBuilder
-    let c = Consumed.withWatermarkStrategy monotonicAscending
-              (consumed textSerde textSerde)
+    let c =
+          Consumed.withWatermarkStrategy
+            monotonicAscending
+            (consumed textSerde textSerde)
     _ <- streamFromTopic b "in" c
     topo <- buildTopology b
     case validateTopology topo of
       Left err -> error (show err)
-      Right v  -> do
+      Right v -> do
         let g = topologyValidGraph v
-        case find ((== "in") . head . Topo.sourceTopics)
-                  (Map.elems (Topo.topoSources g)) of
+        case find
+          ((== "in") . head . Topo.sourceTopics)
+          (Map.elems (Topo.topoSources g)) of
           Nothing -> error "no source named 'in'"
           Just spec ->
             wsName <$> Topo.sourceWatermarkStrategy spec
               `shouldBe` Just "monotonic-ascending"
+
 
 ----------------------------------------------------------------------
 -- 2. Engine routes records to the coordinator
@@ -83,8 +89,10 @@ unit_engine_reports_to_coordinator =
   it "attachWatermarkCoordinator + pipeInput: per-source wm advances" $ do
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     b <- newStreamsBuilder
-    let c = Consumed.withWatermarkStrategy monotonicAscending
-              (consumed textSerde textSerde)
+    let c =
+          Consumed.withWatermarkStrategy
+            monotonicAscending
+            (consumed textSerde textSerde)
     _ <- streamFromTopic b "in" c
     topo <- buildTopology b
     driver <- newDriver topo "wm-wire-app"
@@ -96,6 +104,7 @@ unit_engine_reports_to_coordinator =
     eff <- currentEffectiveWatermark coord
     eff `shouldBe` Timestamp 200
     closeDriver driver
+
 
 ----------------------------------------------------------------------
 -- 3. Sources WITHOUT a strategy do not report
@@ -121,6 +130,7 @@ unit_no_strategy_no_report =
     eff `shouldBe` minTimestamp
     closeDriver driver
 
+
 ----------------------------------------------------------------------
 -- 4. Alignment group survives the round-trip
 ----------------------------------------------------------------------
@@ -131,14 +141,21 @@ unit_strategy_alignment_round_trips =
     coord <- newWatermarkCoordinator (IdleTimeout (millis 60_000))
     let strat = withAlignment (AlignmentGroupId "g1") monotonicAscending
     b <- newStreamsBuilder
-    let c = Consumed.withWatermarkStrategy strat
-              (consumed textSerde textSerde)
+    let c =
+          Consumed.withWatermarkStrategy
+            strat
+            (consumed textSerde textSerde)
     _ <- streamFromTopic b "in" c
     topo <- buildTopology b
     driver <- newDriver topo "wm-wire-align"
     attachWatermarkCoordinator (driverEngine driver) coord
-    pipeInput driver "in" (Just (bytes "k")) (bytes "v")
-      (Timestamp 100) 0
+    pipeInput
+      driver
+      "in"
+      (Just (bytes "k"))
+      (bytes "v")
+      (Timestamp 100)
+      0
     -- The source is in 'g1'. perSourceWatermarks should
     -- surface that.
     snap <- perSourceWatermarks coord
@@ -147,14 +164,17 @@ unit_strategy_alignment_round_trips =
       _ -> error ("unexpected perSourceWatermarks: " <> show snap)
     closeDriver driver
 
+
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "Watermark wiring (engine integration)" $ sequence_
-  [ unit_consumed_carries_strategy
-  , unit_engine_reports_to_coordinator
-  , unit_no_strategy_no_report
-  , unit_strategy_alignment_round_trips
-  ]
+tests =
+  describe "Watermark wiring (engine integration)" $
+    sequence_
+      [ unit_consumed_carries_strategy
+      , unit_engine_reports_to_coordinator
+      , unit_no_strategy_no_report
+      , unit_strategy_alignment_round_trips
+      ]

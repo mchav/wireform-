@@ -3,51 +3,56 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |
--- Module      : Streams.Properties.StoreRefSpec
--- Description : Tests for the typed StoreRef wrapper
---
--- These verify the contract that 'StoreRef' really does pin the
--- store kind + key/value types at compile time and that the
--- runtime lookup returns the same store the builder declared.
+{- |
+Module      : Streams.Properties.StoreRefSpec
+Description : Tests for the typed StoreRef wrapper
+
+These verify the contract that 'StoreRef' really does pin the
+store kind + key/value types at compile time and that the
+runtime lookup returns the same store the builder declared.
+-}
 module Streams.Properties.StoreRefSpec (tests) where
 
 import Data.Maybe (fromJust)
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Kafka.Streams.Processor (TaskId (..))
+import Kafka.Streams.Processor qualified as Processor
+import Kafka.Streams.Processor.Mock (
+  mockContext,
+  newMockProcessorContext,
+  registerStateStore,
+ )
+import Kafka.Streams.State.KeyValue.InMemory (
+  inMemoryKeyValueStoreBuilder,
+ )
+import Kafka.Streams.State.Ref
+import Kafka.Streams.State.Store (
+  AnyStateStore (..),
+  KeyValueStore (..),
+  storeName,
+ )
+import Kafka.Streams.State.Store qualified as Store
 import Test.Syd
 
-import qualified Kafka.Streams.Processor as Processor
-import Kafka.Streams.Processor (TaskId (..))
-import Kafka.Streams.Processor.Mock
-  ( newMockProcessorContext
-  , mockContext
-  , registerStateStore
-  )
-import Kafka.Streams.State.KeyValue.InMemory
-  ( inMemoryKeyValueStoreBuilder
-  )
-import qualified Kafka.Streams.State.Store as Store
-import Kafka.Streams.State.Store
-  ( AnyStateStore (..)
-  , KeyValueStore (..)
-  , storeName
-  )
-import Kafka.Streams.State.Ref
 
 tests :: Spec
-tests = describe "Typed StoreRef" $ sequence_
-  [ kvref_round_trip
-  , kvref_wrong_kind_returns_nothing
-  , kvref_missing_store_returns_nothing
-  , someref_projection
-  ]
+tests =
+  describe "Typed StoreRef" $
+    sequence_
+      [ kvref_round_trip
+      , kvref_wrong_kind_returns_nothing
+      , kvref_missing_store_returns_nothing
+      , someref_projection
+      ]
+
 
 ----------------------------------------------------------------------
 -- Setup
 ----------------------------------------------------------------------
 
--- | Build a mock context with one in-memory KV store attached
--- under 'sName'. Returns the typed ref + the live context.
+{- | Build a mock context with one in-memory KV store attached
+under 'sName'. Returns the typed ref + the live context.
+-}
 withKVStore
   :: T.Text
   -> (StoreRef 'SKKV T.Text Int -> Processor.ProcessorContext -> IO a)
@@ -62,6 +67,7 @@ withKVStore sName k = do
   let ref = kvRefOfBuilder builder
   k ref (mockContext mctx)
 
+
 ----------------------------------------------------------------------
 -- Tests
 ----------------------------------------------------------------------
@@ -75,6 +81,7 @@ kvref_round_trip =
       kvsPut kv "k1" 7
       kvsGet kv "k1" >>= (`shouldBe` Just 7)
 
+
 kvref_wrong_kind_returns_nothing :: Spec
 kvref_wrong_kind_returns_nothing =
   it "getWindowStoreRef on a KV-attached store returns Nothing" $ do
@@ -87,7 +94,8 @@ kvref_wrong_kind_returns_nothing =
       mW <- getWindowStoreRef ctx bogus
       case mW of
         Nothing -> pure ()
-        Just _  -> (False) `shouldBe` True
+        Just _ -> (False) `shouldBe` True
+
 
 kvref_missing_store_returns_nothing :: Spec
 kvref_missing_store_returns_nothing =
@@ -98,7 +106,8 @@ kvref_missing_store_returns_nothing =
     mS <- getKVStoreRef (mockContext mctx) ref
     case mS of
       Nothing -> pure ()
-      Just _  -> (False) `shouldBe` True
+      Just _ -> (False) `shouldBe` True
+
 
 someref_projection :: Spec
 someref_projection =
@@ -109,6 +118,6 @@ someref_projection =
         wn = storeRefOfBuilder (storeName "win")
         ses :: StoreRef 'SKSession Int Int
         ses = storeRefOfBuilder (storeName "sess")
-    someStoreRefName (SomeKVRef kv)      `shouldBe` storeName "kv"
-    someStoreRefName (SomeWindowRef wn)  `shouldBe` storeName "win"
+    someStoreRefName (SomeKVRef kv) `shouldBe` storeName "kv"
+    someStoreRefName (SomeWindowRef wn) `shouldBe` storeName "win"
     someStoreRefName (SomeSessionRef ses) `shouldBe` storeName "sess"

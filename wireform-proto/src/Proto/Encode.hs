@@ -305,8 +305,8 @@ encodePackedWord64 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize v) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putVarint v) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putVarint v) mempty vals
 {-# INLINE encodePackedWord64 #-}
 
 
@@ -317,8 +317,8 @@ encodePackedWord32 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize32 v) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putVarint32 v) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putVarint32 v) mempty vals
 {-# INLINE encodePackedWord32 #-}
 
 
@@ -331,8 +331,8 @@ encodePackedInt64 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v)) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
 {-# INLINE encodePackedInt64 #-}
 
 
@@ -346,8 +346,8 @@ encodePackedInt32 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
 {-# INLINE encodePackedInt32 #-}
 
 
@@ -358,8 +358,8 @@ encodePackedBool fn vals
   | otherwise =
       let sz = VU.length vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> B.word8 (if v then 1 else 0)) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> B.word8 (if v then 1 else 0)) mempty vals
 {-# INLINE encodePackedBool #-}
 
 
@@ -379,8 +379,8 @@ encodePackedFixed32 fn vals
   | otherwise =
       let sz = VU.length vals * 4
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> vectorToBuilder vals 4
+           <> putVarint (fromIntegral sz)
+           <> vectorToBuilder vals 4
 {-# INLINE encodePackedFixed32 #-}
 
 
@@ -391,8 +391,8 @@ encodePackedFixed64 fn vals
   | otherwise =
       let sz = VU.length vals * 8
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> vectorToBuilder vals 8
+           <> putVarint (fromIntegral sz)
+           <> vectorToBuilder vals 8
 {-# INLINE encodePackedFixed64 #-}
 
 
@@ -403,8 +403,8 @@ encodePackedFloat fn vals
   | otherwise =
       let sz = VU.length vals * 4
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> vectorToBuilder vals 4
+           <> putVarint (fromIntegral sz)
+           <> vectorToBuilder vals 4
 {-# INLINE encodePackedFloat #-}
 
 
@@ -415,8 +415,8 @@ encodePackedDouble fn vals
   | otherwise =
       let sz = VU.length vals * 8
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> vectorToBuilder vals 8
+           <> putVarint (fromIntegral sz)
+           <> vectorToBuilder vals 8
 {-# INLINE encodePackedDouble #-}
 
 
@@ -447,8 +447,8 @@ encodePackedSVarint32 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral (zigZag32 v))) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putSVarint32 v) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putSVarint32 v) mempty vals
 {-# INLINE encodePackedSVarint32 #-}
 
 
@@ -459,8 +459,8 @@ encodePackedSVarint64 fn vals
   | otherwise =
       let sz = VU.foldl' (\acc v -> acc + varintSize (zigZag64 v)) 0 vals
       in putTag fn WireLengthDelimited
-          <> putVarint (fromIntegral sz)
-          <> VU.foldl' (\acc v -> acc <> putSVarint64 v) mempty vals
+           <> putVarint (fromIntegral sz)
+           <> VU.foldl' (\acc v -> acc <> putSVarint64 v) mempty vals
 {-# INLINE encodePackedSVarint64 #-}
 
 
@@ -624,4 +624,4 @@ buildMessageFramedMaterialized :: MessageEncode a => a -> B.Builder
 buildMessageFramedMaterialized msg =
   let payload = B.toStrictByteString (buildMessage msg)
   in putVarint (fromIntegral (BS.length payload))
-      <> B.byteStringCopy payload
+       <> B.byteStringCopy payload

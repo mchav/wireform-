@@ -3,38 +3,45 @@
 
 module Streams.WorkerPoolSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.HashSet as HashSet
+import Data.ByteString.Char8 qualified as BSC
 import Data.HashSet (HashSet)
-import qualified Data.Int as Int
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.HashSet qualified as HashSet
+import Data.Int qualified as Int
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Vector as V
-import Test.Syd
-
+import Data.Text qualified as T
+import Data.Vector qualified as V
 import Kafka.Streams.Imperative
 import Kafka.Streams.Internal.RecordCollector (collectorTake)
 import Kafka.Streams.Runtime.WorkerPool
+import Test.Syd
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 unbytes :: BSC.ByteString -> Text
 unbytes = T.pack . BSC.unpack
+
 
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
+
 owned :: [(Text, Int)] -> HashSet (TopicName, Int.Int32)
 owned = HashSet.fromList . map (\(tp, p) -> (topicName tp, fromIntegral p))
 
+
 tests :: Spec
-tests = describe "WorkerPool" $ sequence_
-  [ pool_routes_to_owner
-  , pool_per_worker_state_isolation
-  , pool_count_processed
-  ]
+tests =
+  describe "WorkerPool" $
+    sequence_
+      [ pool_routes_to_owner
+      , pool_per_worker_state_isolation
+      , pool_count_processed
+      ]
+
 
 passthroughTopo :: IO TopologyValid
 passthroughTopo = do
@@ -43,8 +50,9 @@ passthroughTopo = do
   toTopic (topicName "out") (produced textSerde textSerde) s
   topo <- buildTopology b
   case validateTopology topo of
-    Left  err -> error (show err)
-    Right v   -> pure v
+    Left err -> error (show err)
+    Right v -> pure v
+
 
 pool_routes_to_owner :: Spec
 pool_routes_to_owner =
@@ -75,6 +83,7 @@ pool_routes_to_owner =
       _ -> error "expected 2 workers"
     closeWorkerPool pool
 
+
 pool_per_worker_state_isolation :: Spec
 pool_per_worker_state_isolation =
   it "each worker has its own engine state" $ do
@@ -102,6 +111,7 @@ pool_per_worker_state_isolation =
       _ -> error "expected 2 workers"
     closeWorkerPool pool
 
+
 pool_count_processed :: Spec
 pool_count_processed =
   it "workerProcessedCount tracks records consumed" $ do
@@ -113,5 +123,5 @@ pool_count_processed =
     waitForQuiescence pool
     case V.toList (poolWorkers pool) of
       [w] -> workerProcessedCount w >>= (`shouldBe` 5)
-      _   -> error "expected 1 worker"
+      _ -> error "expected 1 worker"
     closeWorkerPool pool

@@ -3,28 +3,31 @@
 
 module Streams.StandbySpec (tests) where
 
-import qualified Data.IORef
-import qualified Data.Text as T
+import Data.IORef qualified
 import Data.Text (Text)
-import Test.Syd
-
+import Data.Text qualified as T
 import Kafka.Streams.Runtime.Standby
 import Kafka.Streams.Serde (textSerde)
 import Kafka.Streams.State.KeyValue.InMemory (inMemoryKeyValueStore)
-import Kafka.Streams.State.Store
-  ( KeyValueStore (..)
-  , storeName
-  )
+import Kafka.Streams.State.Store (
+  KeyValueStore (..),
+  storeName,
+ )
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Standby" $ sequence_
-  [ standby_replays_basic_writes
-  , standby_replays_tombstones
-  , standby_advance_returns_count_of_applied
-  , standby_only_applies_its_store
-  , logged_store_passes_reads_through
-  , restore_listener_fires_start_batch_end
-  ]
+tests =
+  describe "Standby" $
+    sequence_
+      [ standby_replays_basic_writes
+      , standby_replays_tombstones
+      , standby_advance_returns_count_of_applied
+      , standby_only_applies_its_store
+      , logged_store_passes_reads_through
+      , restore_listener_fires_start_batch_end
+      ]
+
 
 standby_replays_basic_writes :: Spec
 standby_replays_basic_writes =
@@ -46,6 +49,7 @@ standby_replays_basic_writes =
     kvsGet (sbStore sb) "k1" >>= (`shouldBe` Just "v1updated")
     kvsGet (sbStore sb) "k2" >>= (`shouldBe` Just "v2")
 
+
 standby_replays_tombstones :: Spec
 standby_replays_tombstones =
   it "active delete -> tombstone -> standby removes" $ do
@@ -59,6 +63,7 @@ standby_replays_tombstones =
     _ <- kvsDelete active "k"
     _ <- advanceStandby sb
     kvsGet (sbStore sb) "k" >>= (`shouldBe` Nothing)
+
 
 standby_advance_returns_count_of_applied :: Spec
 standby_advance_returns_count_of_applied =
@@ -82,6 +87,7 @@ standby_advance_returns_count_of_applied =
     n3 <- advanceStandby sb
     n3 `shouldBe` 0
 
+
 standby_only_applies_its_store :: Spec
 standby_only_applies_its_store =
   it "standby ignores entries from other stores" $ do
@@ -103,6 +109,7 @@ standby_only_applies_its_store =
     n `shouldBe` 1
     kvsGet (sbStore sb) "x" >>= (`shouldBe` Just "from-s1")
 
+
 logged_store_passes_reads_through :: Spec
 logged_store_passes_reads_through =
   it "loggedKeyValueStore preserves get / approxEntries semantics" $ do
@@ -118,6 +125,7 @@ logged_store_passes_reads_through =
     es <- readEntriesFrom topic 0
     length es `shouldBe` 1
 
+
 restore_listener_fires_start_batch_end :: Spec
 restore_listener_fires_start_batch_end =
   it "RestoreListener gets onRestoreStart / Batch / End on advance" $ do
@@ -127,20 +135,22 @@ restore_listener_fires_start_batch_end =
     standbyStore <- inMemoryKeyValueStore @Text @Text (storeName "s-sb")
     sb <- newStandbyTask standbyStore topic (storeName "s") textSerde textSerde
 
-    starts  <- Data.IORef.newIORef ([] :: [Int])
+    starts <- Data.IORef.newIORef ([] :: [Int])
     batches <- Data.IORef.newIORef ([] :: [Int])
-    ends    <- Data.IORef.newIORef ([] :: [Int])
-    setRestoreListener sb RestoreListener
-      { onRestoreStart = \_ _ _ -> Data.IORef.modifyIORef' starts (1 :)
-      , onBatchRestored = \_ _ n ->
-          Data.IORef.modifyIORef' batches (n :)
-      , onRestoreEnd = \_ n ->
-          Data.IORef.modifyIORef' ends (fromIntegral n :)
-      }
+    ends <- Data.IORef.newIORef ([] :: [Int])
+    setRestoreListener
+      sb
+      RestoreListener
+        { onRestoreStart = \_ _ _ -> Data.IORef.modifyIORef' starts (1 :)
+        , onBatchRestored = \_ _ n ->
+            Data.IORef.modifyIORef' batches (n :)
+        , onRestoreEnd = \_ n ->
+            Data.IORef.modifyIORef' ends (fromIntegral n :)
+        }
 
     kvsPut active "k1" "v1"
     kvsPut active "k2" "v2"
     _ <- advanceStandby sb
-    Data.IORef.readIORef starts  >>= ((`shouldBe` 1) . length)
+    Data.IORef.readIORef starts >>= ((`shouldBe` 1) . length)
     Data.IORef.readIORef batches >>= (`shouldBe` [2])
-    Data.IORef.readIORef ends    >>= (`shouldBe` [2])
+    Data.IORef.readIORef ends >>= (`shouldBe` [2])

@@ -560,8 +560,8 @@ readVulong bs !off = go off 0 0
           let !b = fromIntegral (BS.index bs pos) :: Word64
               !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
           in if b .&. 0x80 == 0
-              then Right (val', pos + 1)
-              else go (pos + 1) val' (shift + 7)
+               then Right (val', pos + 1)
+               else go (pos + 1) val' (shift + 7)
 
 
 {-# INLINE readVslong #-}
@@ -726,8 +726,8 @@ packBitsMSB vals !w =
               !curByte' = curByte .|. (bits `shiftL` (avail - take_))
               !bitPos' = bitPos + take_
           in if bitPos' >= 8
-              then B.word8 curByte' <> packVal val (bitsLeft - take_) valIdx 0 0 (bytesLeft - 1)
-              else packVal val (bitsLeft - take_) valIdx bitPos' curByte' bytesLeft
+               then B.word8 curByte' <> packVal val (bitsLeft - take_) valIdx 0 0 (bytesLeft - 1)
+               else packVal val (bitsLeft - take_) valIdx bitPos' curByte' bytesLeft
 
 
 -- | Byte-level RLE encoder. Groups bytes into runs and literals.
@@ -741,19 +741,19 @@ encodeByteRLE vals = BL.toStrict $ B.toLazyByteString $ goRLE 0
       | otherwise =
           let !runLen = countRun i
           in if runLen >= 3
-              then
-                let !emitLen = min runLen 130
-                    !ctrl = fromIntegral (emitLen - 3) :: Word8
-                in B.word8 ctrl
-                    <> B.word8 (VP.unsafeIndex vals i)
-                    <> goRLE (i + emitLen)
-              else
-                let !litLen = countLiterals i
-                    !emitLen = min litLen 128
-                    !ctrl = fromIntegral (negate (fromIntegral emitLen :: Int8)) :: Word8
-                in B.word8 ctrl
-                    <> mconcat (fmap (\j -> B.word8 (VP.unsafeIndex vals (i + j))) [0 .. emitLen - 1])
-                    <> goRLE (i + emitLen)
+               then
+                 let !emitLen = min runLen 130
+                     !ctrl = fromIntegral (emitLen - 3) :: Word8
+                 in B.word8 ctrl
+                      <> B.word8 (VP.unsafeIndex vals i)
+                      <> goRLE (i + emitLen)
+               else
+                 let !litLen = countLiterals i
+                     !emitLen = min litLen 128
+                     !ctrl = fromIntegral (negate (fromIntegral emitLen :: Int8)) :: Word8
+                 in B.word8 ctrl
+                      <> mconcat (fmap (\j -> B.word8 (VP.unsafeIndex vals (i + j))) [0 .. emitLen - 1])
+                      <> goRLE (i + emitLen)
 
     countRun :: Int -> Int
     countRun !start

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 {- |
 Tests for "Network.HTTP.Client.Cache". Focused on the
 'CacheStore' contract and on the behaviours that distinguish the
@@ -13,66 +14,69 @@ the cache hit vs missed.
 module Test.Cache (tests) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.IORef
-
-import qualified Network.HTTP.Types.Header as H
-import qualified Network.HTTP.Types.Method as M
-import qualified Network.HTTP.Types.Status as S
-
-import qualified Network.HTTP.Client.BodyStream as BSm
-import           Network.HTTP.Client.Cache
-import qualified Network.HTTP.Client.Request as WReq
-import           Network.HTTP.Client.Request (Request, get)
-import           Network.HTTP.Client.Response (RawResponse (..))
-import qualified Network.HTTP.Client.Response as Resp
-import           Network.HTTP.Client.Protocol  (ProtocolInfo (..))
-import           Network.HTTP.Client.Send      (prepareRequest)
-import           Network.HTTP.Client.Transport
-import qualified Network.HTTP.Client.URI       as WURI
-
+import Network.HTTP.Client.BodyStream qualified as BSm
+import Network.HTTP.Client.Cache
+import Network.HTTP.Client.Protocol (ProtocolInfo (..))
+import Network.HTTP.Client.Request (Request, get)
+import Network.HTTP.Client.Request qualified as WReq
+import Network.HTTP.Client.Response (RawResponse (..))
+import Network.HTTP.Client.Response qualified as Resp
+import Network.HTTP.Client.Send (prepareRequest)
+import Network.HTTP.Client.Transport
+import Network.HTTP.Client.URI qualified as WURI
+import Network.HTTP.Types.Header qualified as H
+import Network.HTTP.Types.Method qualified as M
+import Network.HTTP.Types.Status qualified as S
 import Test.Syd
+
 
 -- ---------------------------------------------------------------------------
 -- Test fixtures
 -- ---------------------------------------------------------------------------
 
--- | A canned response factory: each call to 'mkTransport' takes a
--- list of @(status, headers, body)@ tuples and returns a
--- 'Transport' that returns them in order, recording every call
--- into a counter.
+{- | A canned response factory: each call to 'mkTransport' takes a
+list of @(status, headers, body)@ tuples and returns a
+'Transport' that returns them in order, recording every call
+into a counter.
+-}
 mkTransport
   :: [(S.Status, [(H.HeaderName, H.HeaderValue)], ByteString)]
   -> IO (Transport IO, IORef Int, IORef [Request BSm.BodyStream])
 mkTransport canned = do
   responsesRef <- newIORef canned
-  callsRef     <- newIORef (0 :: Int)
-  requestsRef  <- newIORef ([] :: [Request BSm.BodyStream])
+  callsRef <- newIORef (0 :: Int)
+  requestsRef <- newIORef ([] :: [Request BSm.BodyStream])
   let go = Transport $ \req -> do
         atomicModifyIORef' callsRef (\n -> (n + 1, ()))
         atomicModifyIORef' requestsRef (\xs -> (req : xs, ()))
         next <- atomicModifyIORef' responsesRef $ \rs -> case rs of
           (r : rest) -> (rest, r)
-          []         -> ([], (S.status500, [], "no more canned responses"))
+          [] -> ([], (S.status500, [], "no more canned responses"))
         let (st, hdrs, body) = next
         popper <- BSm.popperFromStrict body
-        pure RawResponse
-          { Resp.statusCode    = st
-          , Resp.headers       = hdrs
-          , Resp.bodyPopper    = popper
-          , Resp.protocolInfo  = HTTP1_1
-          }
+        pure
+          RawResponse
+            { Resp.statusCode = st
+            , Resp.headers = hdrs
+            , Resp.bodyPopper = popper
+            , Resp.protocolInfo = HTTP1_1
+            }
   pure (go, callsRef, requestsRef)
+
 
 makeRequest :: ByteString -> IO (Request BSm.BodyStream)
 makeRequest pathBs =
   case WURI.parseTemplate (BS8.unpack ("http://example.com" <> pathBs)) of
     Left err -> error ("makeRequest: bad URI: " <> show err)
-    Right t  -> prepareRequest [] (get t)
+    Right t -> prepareRequest [] (get t)
+
 
 drainBody :: RawResponse -> IO ByteString
 drainBody = BSm.popperBytes . Resp.bodyPopper
+
 
 -- ---------------------------------------------------------------------------
 -- Hit + miss accounting
@@ -81,14 +85,17 @@ drainBody = BSm.popperBytes . Resp.bodyPopper
 unit_fresh_hits :: Spec
 unit_fresh_hits = it "fresh response satisfies subsequent reads" $ do
   let payload = "hello"
-  (t, calls, _) <- mkTransport
-    [ ( S.status200
-      , [ (H.hCacheControl, "max-age=60")
-        , (H.hContentLength, BS8.pack (show (BS.length payload)))
-        ]
-      , payload
-      )
-    ]
+  (t, calls, _) <-
+    mkTransport
+      [
+        ( S.status200
+        ,
+          [ (H.hCacheControl, "max-age=60")
+          , (H.hContentLength, BS8.pack (show (BS.length payload)))
+          ]
+        , payload
+        )
+      ]
   cache <- newCache defaultCacheConfig
   let withC = sendRaw (withCache cache t)
   r1 <- makeRequest "/a" >>= withC
@@ -102,13 +109,15 @@ unit_fresh_hits = it "fresh response satisfies subsequent reads" $ do
   size <- cacheSize cache
   size `shouldBe` 1
 
+
 unit_no_store_response :: Spec
 unit_no_store_response = it "no-store on response is not cached" $ do
   let payload = "secret"
-  (t, calls, _) <- mkTransport
-    [ ( S.status200, [(H.hCacheControl, "no-store, max-age=60")], payload )
-    , ( S.status200, [(H.hCacheControl, "no-store, max-age=60")], payload )
-    ]
+  (t, calls, _) <-
+    mkTransport
+      [ (S.status200, [(H.hCacheControl, "no-store, max-age=60")], payload)
+      , (S.status200, [(H.hCacheControl, "no-store, max-age=60")], payload)
+      ]
   cache <- newCache defaultCacheConfig
   let withC = sendRaw (withCache cache t)
   _ <- makeRequest "/x" >>= withC >>= drainBody
@@ -118,22 +127,27 @@ unit_no_store_response = it "no-store on response is not cached" $ do
   size <- cacheSize cache
   size `shouldBe` 0
 
+
 unit_etag_revalidation :: Spec
 unit_etag_revalidation = it "stale entry revalidates with ETag and replays on 304" $ do
   let payload = "etag-body"
-      etag    = "\"v1\""
-  (t, calls, reqsRef) <- mkTransport
-    [ ( S.status200
-      , [ (H.hCacheControl, "max-age=0")
-        , (H.hETag,         etag)
-        ]
-      , payload
-      )
-    , ( S.status304
-      , [ (H.hETag, etag) ]
-      , ""
-      )
-    ]
+      etag = "\"v1\""
+  (t, calls, reqsRef) <-
+    mkTransport
+      [
+        ( S.status200
+        ,
+          [ (H.hCacheControl, "max-age=0")
+          , (H.hETag, etag)
+          ]
+        , payload
+        )
+      ,
+        ( S.status304
+        , [(H.hETag, etag)]
+        , ""
+        )
+      ]
   cache <- newCache defaultCacheConfig
   let withC = sendRaw (withCache cache t)
   _ <- makeRequest "/e" >>= withC >>= drainBody
@@ -145,23 +159,25 @@ unit_etag_revalidation = it "stale entry revalidates with ETag and replays on 30
   body2 `shouldBe` payload
   -- The second request should have carried If-None-Match.
   reqs <- readIORef reqsRef
-  let recent  = head reqs  -- newest first
-      hadInm  = case lookup H.hIfNoneMatch (WReq.headers recent) of
-                  Just v  -> v == etag
-                  Nothing -> False
+  let recent = head reqs -- newest first
+      hadInm = case lookup H.hIfNoneMatch (WReq.headers recent) of
+        Just v -> v == etag
+        Nothing -> False
   (hadInm) `shouldBe` True
+
 
 -- ---------------------------------------------------------------------------
 -- Pluggable store
 -- ---------------------------------------------------------------------------
 
--- | A custom 'CacheStore' that records every operation it sees.
--- Used to verify the cache routes its writes / reads through
--- 'CacheStore' instead of touching internal state.
+{- | A custom 'CacheStore' that records every operation it sees.
+Used to verify the cache routes its writes / reads through
+'CacheStore' instead of touching internal state.
+-}
 mkAuditedStore :: IO (CacheStore, IORef [String])
 mkAuditedStore = do
-  inner  <- newInMemoryStore 64
-  audit  <- newIORef ([] :: [String])
+  inner <- newInMemoryStore 64
+  audit <- newIORef ([] :: [String])
   let log_ msg = atomicModifyIORef' audit (\xs -> (msg : xs, ()))
   pure
     ( CacheStore
@@ -182,15 +198,18 @@ mkAuditedStore = do
     , audit
     )
 
+
 unit_custom_store_is_used :: Spec
 unit_custom_store_is_used = it "withCache routes through a custom CacheStore" $ do
   let payload = "audit-body"
-  (t, _, _) <- mkTransport
-    [ ( S.status200
-      , [(H.hCacheControl, "max-age=60"), (H.hContentLength, BS8.pack (show (BS.length payload)))]
-      , payload
-      )
-    ]
+  (t, _, _) <-
+    mkTransport
+      [
+        ( S.status200
+        , [(H.hCacheControl, "max-age=60"), (H.hContentLength, BS8.pack (show (BS.length payload)))]
+        , payload
+        )
+      ]
   (store, audit) <- mkAuditedStore
   let cache = newCacheWith store defaultCacheConfig
       withC = sendRaw (withCache cache t)
@@ -206,19 +225,23 @@ unit_custom_store_is_used = it "withCache routes through a custom CacheStore" $ 
   where
     isPrefix p s = take (length p) s == p
 
+
 unit_custom_store_isolated :: Spec
 unit_custom_store_isolated = it "two caches with separate stores don't share state" $ do
   let payload = "isolation-body"
-  (t, calls, _) <- mkTransport
-    [ ( S.status200
-      , [(H.hCacheControl, "max-age=60")]
-      , payload
-      )
-    , ( S.status200
-      , [(H.hCacheControl, "max-age=60")]
-      , payload
-      )
-    ]
+  (t, calls, _) <-
+    mkTransport
+      [
+        ( S.status200
+        , [(H.hCacheControl, "max-age=60")]
+        , payload
+        )
+      ,
+        ( S.status200
+        , [(H.hCacheControl, "max-age=60")]
+        , payload
+        )
+      ]
   storeA <- newInMemoryStore 16
   storeB <- newInMemoryStore 16
   let cacheA = newCacheWith storeA defaultCacheConfig
@@ -228,53 +251,61 @@ unit_custom_store_isolated = it "two caches with separate stores don't share sta
   n <- readIORef calls
   n `shouldBe` 2
 
+
 unit_in_memory_eviction :: Spec
 unit_in_memory_eviction = it "in-memory store honours the entry cap" $ do
   let body = "x"
-  (t, _, _) <- mkTransport
-    [ (S.status200, [(H.hCacheControl, "max-age=60")], body)
-    | _ <- [(1 :: Int) .. 6]
-    ]
-  let cfg = defaultCacheConfig { ccMaxEntries = 3 }
+  (t, _, _) <-
+    mkTransport
+      [ (S.status200, [(H.hCacheControl, "max-age=60")], body)
+      | _ <- [(1 :: Int) .. 6]
+      ]
+  let cfg = defaultCacheConfig {ccMaxEntries = 3}
   cache <- newCache cfg
   let withC = sendRaw (withCache cache t)
   -- Insert 5 entries into a 3-slot cache.
-  mapM_ (\i -> makeRequest (BS8.pack ("/" <> show i)) >>= withC >>= drainBody)
-        [(1 :: Int) .. 5]
+  mapM_
+    (\i -> makeRequest (BS8.pack ("/" <> show i)) >>= withC >>= drainBody)
+    [(1 :: Int) .. 5]
   size <- cacheSize cache
   (if (size <= 3) then pure () else expectationFailure ("size " <> show size <> " > cap"))
 
--- | Verify that 'clearCache' on the Cache wrapper actually calls
--- the store's 'csClear' (not just the in-memory map).
+
+{- | Verify that 'clearCache' on the Cache wrapper actually calls
+the store's 'csClear' (not just the in-memory map).
+-}
 unit_clear_threads_through :: Spec
 unit_clear_threads_through = it "clearCache invokes csClear on the store" $ do
   cleared <- newIORef (0 :: Int)
-  inner   <- newInMemoryStore 16
-  let store = CacheStore
-        { csLookup = csLookup inner
-        , csInsert = csInsert inner
-        , csDelete = csDelete inner
-        , csClear  = atomicModifyIORef' cleared (\n -> (n + 1, ())) >> csClear inner
-        , csSize   = csSize inner
-        }
+  inner <- newInMemoryStore 16
+  let store =
+        CacheStore
+          { csLookup = csLookup inner
+          , csInsert = csInsert inner
+          , csDelete = csDelete inner
+          , csClear = atomicModifyIORef' cleared (\n -> (n + 1, ())) >> csClear inner
+          , csSize = csSize inner
+          }
       cache = newCacheWith store defaultCacheConfig
   clearCache cache
   clearCache cache
   n <- readIORef cleared
   n `shouldBe` 2
 
+
 -- ---------------------------------------------------------------------------
 -- Top-level
 -- ---------------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "Cache" $ sequence_
-  [ unit_fresh_hits
-  , unit_no_store_response
-  , unit_etag_revalidation
-  , unit_custom_store_is_used
-  , unit_custom_store_isolated
-  , unit_in_memory_eviction
-  , unit_clear_threads_through
-  ]
-
+tests =
+  describe "Cache" $
+    sequence_
+      [ unit_fresh_hits
+      , unit_no_store_response
+      , unit_etag_revalidation
+      , unit_custom_store_is_used
+      , unit_custom_store_isolated
+      , unit_in_memory_eviction
+      , unit_clear_threads_through
+      ]

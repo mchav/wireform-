@@ -50,8 +50,9 @@ module Proto.TH.Metadata (
 
   -- * Internal helpers used by spliced code
 
-  -- | Re-exported so the splice doesn't have to qualify them
-  -- across module boundaries.
+  {- | Re-exported so the splice doesn't have to qualify them
+  across module boundaries.
+  -}
   bytesVectorToJSON,
   bytesListToJSON,
   parseBytesVectorMaybe,
@@ -120,37 +121,44 @@ data MetaField = MetaField
   , mfProtoName :: !Text
   -- ^ Proto-side field name (snake_case).
   , mfJsonName :: !Text
-  -- ^ JSON key (proto3 default: camelCase form of the proto name,
-  -- overridable via the @json_name@ proto option — the caller is
-  -- responsible for resolving that).
+  {- ^ JSON key (proto3 default: camelCase form of the proto name,
+  overridable via the @json_name@ proto option — the caller is
+  responsible for resolving that).
+  -}
   , mfNumber :: !Int
   -- ^ Proto field number.
   , mfTypeDesc :: !(Q Exp)
-  -- ^ Splice-time builder for the field's
-  -- 'Proto.Schema.FieldTypeDescriptor' literal.
+  {- ^ Splice-time builder for the field's
+  'Proto.Schema.FieldTypeDescriptor' literal.
+  -}
   , mfLabel :: !(Q Exp)
-  -- ^ Splice-time builder for the field's
-  -- 'Proto.Schema.FieldLabel'' literal.
+  {- ^ Splice-time builder for the field's
+  'Proto.Schema.FieldLabel'' literal.
+  -}
   , mfKind :: !MetaFieldKind
-  -- ^ Container / wrap shape on the Haskell side. Drives default
-  -- value, JSON encoding, and the per-shape branch in
-  -- @hashWithSalt@.
+  {- ^ Container / wrap shape on the Haskell side. Drives default
+  value, JSON encoding, and the per-shape branch in
+  @hashWithSalt@.
+  -}
   , mfJsonKind :: !JsonKind
-  -- ^ Whether the field needs the bytes-aware JSON helpers from
-  -- "Proto.Internal.JSON" (because either the value type or the map value
-  -- type is @bytes@).
+  {- ^ Whether the field needs the bytes-aware JSON helpers from
+  "Proto.Internal.JSON" (because either the value type or the map value
+  type is @bytes@).
+  -}
   , mfBytesShape :: !BytesShape
-  -- ^ When the field carries proto @bytes@ (either directly or as
-  -- the value of a @repeated bytes@ \/ @map\<K, bytes\>@), which
-  -- physical 'Proto.Repr.BytesRep' it uses on the Haskell side.
-  -- Drives the default-skip predicate, the toJSON helper, and
-  -- the parseFieldMaybe helper picked by the JSON splice.
-  -- Defaults to 'SBStrict' (and is ignored entirely for
-  -- 'JKNormal' fields).
+  {- ^ When the field carries proto @bytes@ (either directly or as
+  the value of a @repeated bytes@ \/ @map\<K, bytes\>@), which
+  physical 'Proto.Repr.BytesRep' it uses on the Haskell side.
+  Drives the default-skip predicate, the toJSON helper, and
+  the parseFieldMaybe helper picked by the JSON splice.
+  Defaults to 'SBStrict' (and is ignored entirely for
+  'JKNormal' fields).
+  -}
   , mfJsonShape :: !JsonShape
-  -- ^ Proto3-canonical-JSON encoding shape for this field. Drives
-  -- default-skip, the per-scalar @toJSON@ \/ @parseJSON@ helper,
-  -- and oneof-variant key resolution.
+  {- ^ Proto3-canonical-JSON encoding shape for this field. Drives
+  default-skip, the per-scalar @toJSON@ \/ @parseJSON@ helper,
+  and oneof-variant key resolution.
+  -}
   }
 
 
@@ -164,36 +172,43 @@ data JsonShape
     JSScalar !JsonScalar
   | -- | @Maybe@-wrapped scalar.
     JSMaybe !JsonScalar
-  | -- | Singular submessage field
-    --   (carrier is @Maybe T@).
+  | {- | Singular submessage field
+    (carrier is @Maybe T@).
+    -}
     JSMessage
-  | -- | Singular enum field.
-    --   Skip when @fromEnum x == 0@.
+  | {- | Singular enum field.
+    Skip when @fromEnum x == 0@.
+    -}
     JSEnum
-  | -- | @Maybe Enum@ (proto2
-    --   optional enum, proto3
-    --   explicit-optional enum).
+  | {- | @Maybe Enum@ (proto2
+    optional enum, proto3
+    explicit-optional enum).
+    -}
     JSEnumMaybe
   | -- | Repeated scalar; skip when empty.
     JSRepeatedScalar !JsonScalar
-  | -- | Repeated submessage / enum;
-    --   element-encoded via 'Aeson.toJSON'.
+  | {- | Repeated submessage / enum;
+    element-encoded via 'Aeson.toJSON'.
+    -}
     JSRepeatedMessage
   | JSRepeatedEnum
-  | -- | Map with both scalar key and
-    --   scalar value. Keys always
-    --   stringify (proto3 spec).
+  | {- | Map with both scalar key and
+    scalar value. Keys always
+    stringify (proto3 spec).
+    -}
     JSMapScalar !JsonScalar !JsonScalar
   | -- | Map with submessage values.
     JSMapMessage !JsonScalar
   | -- | Map with enum values.
     JSMapEnum !JsonScalar
-  | -- | Oneof carrier — emit at most
-    --   one entry under the chosen
-    --   variant's JSON key.
+  | {- | Oneof carrier — emit at most
+    one entry under the chosen
+    variant's JSON key.
+    -}
     JSOneof ![OneofVariantJson]
-  | -- | Singular WKT field — route
-    --   through "Proto.Internal.JSON.WellKnown".
+  | {- | Singular WKT field — route
+    through "Proto.Internal.JSON.WellKnown".
+    -}
     JSWkt !WktShape
   | -- | @Maybe Wkt@: skip Nothing.
     JSWktMaybe !WktShape
@@ -274,11 +289,12 @@ data OneofValueShape
   = OVScalar !JsonScalar
   | OVMessage -- payload is a submessage; emit via 'Aeson.toJSON'
   | OVEnum -- payload is an enum; emit via 'Aeson.toJSON'
-  | -- | Oneof variant whose payload is the
-    --   @google.protobuf.NullValue@ WKT. JSON
-    --   @null@ is the variant's /value/ (mapped to
-    --   the singleton enum constant), not the
-    --   "variant unset" marker.
+  | {- | Oneof variant whose payload is the
+    @google.protobuf.NullValue@ WKT. JSON
+    @null@ is the variant's /value/ (mapped to
+    the singleton enum constant), not the
+    "variant unset" marker.
+    -}
     OVNullValue
   deriving stock (Eq, Show)
 
@@ -293,8 +309,9 @@ data MetaFieldKind
   | MFKList
   | MFKSeq
   | MFKMap
-  | -- | Carrier is @Maybe SumType@ but the JSON / hash
-    --   shape differs from a plain @MFKMaybe@.
+  | {- | Carrier is @Maybe SumType@ but the JSON / hash
+    shape differs from a plain @MFKMaybe@.
+    -}
     MFKOneof
 
 
@@ -305,18 +322,21 @@ helpers in "Proto.Internal.JSON". Plain (non-bytes) fields use the
 data JsonKind
   = -- | Standard 'Aeson.toJSON' / 'parseFieldMaybe' path.
     JKNormal
-  | -- | A @bytes@-typed field. JSON wants base64 via the
-    -- 'PJ.bytesFieldToJSON' / 'PJ.parseBytesFieldMaybe' helpers.
-    -- Pair with 'mfBytesShape' to pick the right rep-aware helper
-    -- ('protoBytesToJSON' vs. 'protoLazyBytesToJSON' vs.
-    -- 'protoShortBytesToJSON').
+  | {- | A @bytes@-typed field. JSON wants base64 via the
+    'PJ.bytesFieldToJSON' / 'PJ.parseBytesFieldMaybe' helpers.
+    Pair with 'mfBytesShape' to pick the right rep-aware helper
+    ('protoBytesToJSON' vs. 'protoLazyBytesToJSON' vs.
+    'protoShortBytesToJSON').
+    -}
     JKBytes
-  | -- | A @map\<K, bytes\>@ — values must base64.
-    -- Currently always strict bytes; per-element rep overrides
-    -- aren't honoured for map values.
+  | {- | A @map\<K, bytes\>@ — values must base64.
+    Currently always strict bytes; per-element rep overrides
+    aren't honoured for map values.
+    -}
     JKBytesMap
-  | -- | A @repeated bytes@ field carried as @Vector ByteString@.
-    -- JSON shape is an array of base64 strings.
+  | {- | A @repeated bytes@ field carried as @Vector ByteString@.
+    JSON shape is an array of base64 strings.
+    -}
     JKBytesVector
   | -- | A @repeated bytes@ field carried as @[ByteString]@.
     JKBytesList
@@ -436,12 +456,14 @@ mkAesonInstancesForMessage
   :: Name
   -- ^ Type name.
   -> Text
-  -- ^ Fully-qualified proto name (drives the
-  --   proto2 extension JSON registry lookup).
+  {- ^ Fully-qualified proto name (drives the
+  proto2 extension JSON registry lookup).
+  -}
   -> Maybe Name
-  -- ^ Unknown-fields selector ('Nothing' for
-  --   types that don't carry one — currently
-  --   none, but kept for forward compat).
+  {- ^ Unknown-fields selector ('Nothing' for
+  types that don't carry one — currently
+  none, but kept for forward compat).
+  -}
   -> Name
   -- ^ @default<Tyname>@.
   -> [MetaField]
@@ -529,70 +551,70 @@ toJSONEntry msgVar mf =
         SBLazy -> 'PJ.protoLazyBytesToJSON
         SBShort -> 'PJ.protoShortBytesToJSON
   in case mfJsonKind mf of
-      JKBytes -> case mfKind mf of
-        MFKMaybe ->
-          -- @Maybe <Bytes>@ carrier (proto2 optional bytes, proto3
-          -- explicit-optional bytes): emit when @Just@, skip on
-          -- @Nothing@. The bytes shape picks the rep-aware
-          -- 'proto*BytesToJSON' helper.
-          [|
-            case $(pure fieldExpr) of
-              Nothing -> []
-              Just bs ->
-                [($(pure jsonKey), $(varE bytesToJSONN) bs)]
-            |]
-        _ ->
-          [|
-            if $(bytesIsNullE)
-              then []
-              else
-                $( pure
-                    ( one
-                        (AppE (VarE bytesToJSONN) fieldExpr)
-                    )
-                 )
-            |]
-      JKBytesVector ->
-        let toJSONHelper = case shape of
-              SBStrict -> VarE 'bytesVectorToJSON
-              SBLazy -> VarE 'lazyBytesVectorToJSON
-              SBShort -> VarE 'shortBytesVectorToJSON
-        in [|
-            if V.null $(pure fieldExpr)
-              then []
-              else $(pure (one (AppE toJSONHelper fieldExpr)))
-            |]
-      JKBytesList ->
-        let toJSONHelper = case shape of
-              SBStrict -> VarE 'bytesListToJSON
-              SBLazy -> VarE 'lazyBytesListToJSON
-              SBShort -> VarE 'shortBytesListToJSON
-        in [|
-            if null $(pure fieldExpr)
-              then []
-              else $(pure (one (AppE toJSONHelper fieldExpr)))
-            |]
-      JKBytesSeq ->
-        let toJSONHelper = case shape of
-              SBStrict -> VarE 'bytesSeqToJSON
-              SBLazy -> VarE 'lazyBytesSeqToJSON
-              SBShort -> VarE 'shortBytesSeqToJSON
-        in [|
-            if Seq.null $(pure fieldExpr)
-              then []
-              else $(pure (one (AppE toJSONHelper fieldExpr)))
-            |]
-      JKBytesMap ->
-        let mapHelper = case shape of
-              SBStrict -> VarE 'PJI.bytesMapFieldToJSON
-              SBLazy -> VarE 'PJ.lazyBytesMapFieldToJSON
-              SBShort -> VarE 'PJ.shortBytesMapFieldToJSON
-        in [|
-            if Map.null $(pure fieldExpr)
-              then []
-              else [$(pure (AppE (AppE mapHelper jsonKey) fieldExpr))]
-            |]
-      JKNormal -> jsonShapeEntry msgVar mf fieldExpr jsonKey one
+       JKBytes -> case mfKind mf of
+         MFKMaybe ->
+           -- @Maybe <Bytes>@ carrier (proto2 optional bytes, proto3
+           -- explicit-optional bytes): emit when @Just@, skip on
+           -- @Nothing@. The bytes shape picks the rep-aware
+           -- 'proto*BytesToJSON' helper.
+           [|
+             case $(pure fieldExpr) of
+               Nothing -> []
+               Just bs ->
+                 [($(pure jsonKey), $(varE bytesToJSONN) bs)]
+             |]
+         _ ->
+           [|
+             if $(bytesIsNullE)
+               then []
+               else
+                 $( pure
+                      ( one
+                          (AppE (VarE bytesToJSONN) fieldExpr)
+                      )
+                  )
+             |]
+       JKBytesVector ->
+         let toJSONHelper = case shape of
+               SBStrict -> VarE 'bytesVectorToJSON
+               SBLazy -> VarE 'lazyBytesVectorToJSON
+               SBShort -> VarE 'shortBytesVectorToJSON
+         in [|
+              if V.null $(pure fieldExpr)
+                then []
+                else $(pure (one (AppE toJSONHelper fieldExpr)))
+              |]
+       JKBytesList ->
+         let toJSONHelper = case shape of
+               SBStrict -> VarE 'bytesListToJSON
+               SBLazy -> VarE 'lazyBytesListToJSON
+               SBShort -> VarE 'shortBytesListToJSON
+         in [|
+              if null $(pure fieldExpr)
+                then []
+                else $(pure (one (AppE toJSONHelper fieldExpr)))
+              |]
+       JKBytesSeq ->
+         let toJSONHelper = case shape of
+               SBStrict -> VarE 'bytesSeqToJSON
+               SBLazy -> VarE 'lazyBytesSeqToJSON
+               SBShort -> VarE 'shortBytesSeqToJSON
+         in [|
+              if Seq.null $(pure fieldExpr)
+                then []
+                else $(pure (one (AppE toJSONHelper fieldExpr)))
+              |]
+       JKBytesMap ->
+         let mapHelper = case shape of
+               SBStrict -> VarE 'PJI.bytesMapFieldToJSON
+               SBLazy -> VarE 'PJ.lazyBytesMapFieldToJSON
+               SBShort -> VarE 'PJ.shortBytesMapFieldToJSON
+         in [|
+              if Map.null $(pure fieldExpr)
+                then []
+                else [$(pure (AppE (AppE mapHelper jsonKey) fieldExpr))]
+              |]
+       JKNormal -> jsonShapeEntry msgVar mf fieldExpr jsonKey one
 
 
 {- | The @JKNormal@ arm of 'toJSONEntry' factored out so the
@@ -653,15 +675,15 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
           then []
           else
             $( pure
-                ( one
-                    ( AppE
-                        ( AppE
-                            (VarE 'scalarListToJSON)
-                            (scalarTagE sc)
-                        )
-                        fieldExpr
-                    )
-                )
+                 ( one
+                     ( AppE
+                         ( AppE
+                             (VarE 'scalarListToJSON)
+                             (scalarTagE sc)
+                         )
+                         fieldExpr
+                     )
+                 )
              )
         |]
     MFKSeq ->
@@ -670,15 +692,15 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
           then []
           else
             $( pure
-                ( one
-                    ( AppE
-                        ( AppE
-                            (VarE 'scalarSeqToJSON)
-                            (scalarTagE sc)
-                        )
-                        fieldExpr
-                    )
-                )
+                 ( one
+                     ( AppE
+                         ( AppE
+                             (VarE 'scalarSeqToJSON)
+                             (scalarTagE sc)
+                         )
+                         fieldExpr
+                     )
+                 )
              )
         |]
     _ ->
@@ -687,15 +709,15 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
           then []
           else
             $( pure
-                ( one
-                    ( AppE
-                        ( AppE
-                            (VarE 'scalarVectorToJSON)
-                            (scalarTagE sc)
-                        )
-                        fieldExpr
-                    )
-                )
+                 ( one
+                     ( AppE
+                         ( AppE
+                             (VarE 'scalarVectorToJSON)
+                             (scalarTagE sc)
+                         )
+                         fieldExpr
+                     )
+                 )
              )
         |]
   JSRepeatedMessage -> case mfKind mf of
@@ -742,18 +764,18 @@ jsonShapeEntry _msgVar mf fieldExpr jsonKey one = case mfJsonShape mf of
         then []
         else
           $( pure
-              ( one
-                  ( AppE
-                      ( AppE
-                          ( AppE
-                              (VarE 'scalarMapToJSON)
-                              (scalarTagE kSc)
-                          )
-                          (scalarTagE vSc)
-                      )
-                      fieldExpr
-                  )
-              )
+               ( one
+                   ( AppE
+                       ( AppE
+                           ( AppE
+                               (VarE 'scalarMapToJSON)
+                               (scalarTagE kSc)
+                           )
+                           (scalarTagE vSc)
+                       )
+                       fieldExpr
+                   )
+               )
            )
       |]
   JSMapMessage kSc ->
@@ -1097,8 +1119,8 @@ extDrain parentFqn obj
             Just (Right uf) -> Right (uf : acc)
             Just (Left e) -> Left e
       in case foldlEither go [] (AesonKM.toList obj) of
-          Right xs -> Right (reverse xs)
-          Left e -> Left e
+           Right xs -> Right (reverse xs)
+           Left e -> Left e
   where
     reg = given :: PJExt.ExtensionRegistry
     foldlEither _ z [] = Right z
@@ -1319,8 +1341,8 @@ protoFloatFromJSONLenient v = case v of
     finite n =
       let d = Sci.toRealFloat n :: a
       in if isInfinite d
-          then fail ("float/double overflow: " <> show n)
-          else pure d
+           then fail ("float/double overflow: " <> show n)
+           else pure d
 
 
 {- | Parse @Maybe (Map Text v)@ where @v@ is a generated
@@ -1975,30 +1997,30 @@ hashStep :: Name -> Exp -> MetaField -> Exp
 hashStep msgVar acc mf =
   let fieldExpr = AppE (VarE (mfSelector mf)) (VarE msgVar)
   in case mfKind mf of
-      MFKVector ->
-        AppE (AppE (AppE (VarE 'V.foldl') (VarE 'hashWithSalt)) acc) fieldExpr
-      MFKList ->
-        AppE (AppE (AppE (VarE 'foldl) (VarE 'hashWithSalt)) acc) fieldExpr
-      MFKSeq ->
-        AppE (AppE (AppE (VarE 'foldlSeq) (VarE 'hashWithSalt)) acc) fieldExpr
-      MFKMap ->
-        -- \s k v -> s `hashWithSalt` k `hashWithSalt` v
-        let s = mkName "s"
-            k = mkName "k"
-            v = mkName "v"
-            step =
-              LamE
-                [VarP s, VarP k, VarP v]
-                ( AppE
-                    ( AppE
-                        (VarE 'hashWithSalt)
-                        (AppE (AppE (VarE 'hashWithSalt) (VarE s)) (VarE k))
-                    )
-                    (VarE v)
-                )
-        in AppE (AppE (AppE (VarE 'Map.foldlWithKey') step) acc) fieldExpr
-      _ ->
-        AppE (AppE (VarE 'hashWithSalt) acc) fieldExpr
+       MFKVector ->
+         AppE (AppE (AppE (VarE 'V.foldl') (VarE 'hashWithSalt)) acc) fieldExpr
+       MFKList ->
+         AppE (AppE (AppE (VarE 'foldl) (VarE 'hashWithSalt)) acc) fieldExpr
+       MFKSeq ->
+         AppE (AppE (AppE (VarE 'foldlSeq) (VarE 'hashWithSalt)) acc) fieldExpr
+       MFKMap ->
+         -- \s k v -> s `hashWithSalt` k `hashWithSalt` v
+         let s = mkName "s"
+             k = mkName "k"
+             v = mkName "v"
+             step =
+               LamE
+                 [VarP s, VarP k, VarP v]
+                 ( AppE
+                     ( AppE
+                         (VarE 'hashWithSalt)
+                         (AppE (AppE (VarE 'hashWithSalt) (VarE s)) (VarE k))
+                     )
+                     (VarE v)
+                 )
+         in AppE (AppE (AppE (VarE 'Map.foldlWithKey') step) acc) fieldExpr
+       _ ->
+         AppE (AppE (VarE 'hashWithSalt) acc) fieldExpr
 
 
 {- | A 'Data.List.foldl''-shaped foldl over a 'Seq', exposed as a
@@ -2423,12 +2445,14 @@ mkProtoEnumInstance
   -> Text
   -- ^ Fully-qualified proto enum name.
   -> [(Name, Text, Int)]
-  -- ^ @(haskellCon, protoName, evNumber)@
-  --   for every declared value (aliases
-  --   included).
+  {- ^ @(haskellCon, protoName, evNumber)@
+  for every declared value (aliases
+  included).
+  -}
   -> Name
-  -- ^ Synthetic @<EnumName>'Unknown !Int32@
-  --   constructor for open-enum semantics.
+  {- ^ Synthetic @<EnumName>'Unknown !Int32@
+  constructor for open-enum semantics.
+  -}
   -> Q Dec
 mkProtoEnumInstance tyName fqName values unknownCon = do
   nVar <- newName "n"
@@ -2453,15 +2477,15 @@ mkProtoEnumInstance tyName fqName values unknownCon = do
     -- yields its carried int.
     toClauses =
       [ Clause
-        [ConP con [] []]
-        (NormalB (intLit num))
-        []
+          [ConP con [] []]
+          (NormalB (intLit num))
+          []
       | (con, _, num) <- values
       ]
         <> [ Clause
-              [ConP unknownCon [] [VarP nVar]]
-              (NormalB (AppE (VarE 'fromIntegral) (VarE nVar)))
-              []
+               [ConP unknownCon [] [VarP nVar]]
+               (NormalB (AppE (VarE 'fromIntegral) (VarE nVar)))
+               []
            ]
     toDec = FunD 'PS.toProtoEnumValue toClauses
     -- fromProtoEnumValue: one Just clause per primary number,
@@ -2478,20 +2502,20 @@ mkProtoEnumInstance tyName fqName values unknownCon = do
         )
         primaries
         <> [ Clause
-              [VarP nVar]
-              ( NormalB
-                  ( AppE
-                      (ConE 'Just)
-                      ( AppE
-                          (ConE unknownCon)
-                          ( SigE
-                              (AppE (VarE 'fromIntegral) (VarE nVar))
-                              (ConT ''Int32)
-                          )
-                      )
-                  )
-              )
-              []
+               [VarP nVar]
+               ( NormalB
+                   ( AppE
+                       (ConE 'Just)
+                       ( AppE
+                           (ConE unknownCon)
+                           ( SigE
+                               (AppE (VarE 'fromIntegral) (VarE nVar))
+                               (ConT ''Int32)
+                           )
+                       )
+                   )
+               )
+               []
            ]
     fromDec = FunD 'PS.fromProtoEnumValue fromClauses
   pure $
@@ -2523,18 +2547,18 @@ mkEnumAesonInstances tyName values unknownCon = do
   let primaries = primaryByNumber values
       toClauses =
         [ Clause
-          [ConP con [] []]
-          (NormalB (AppE (ConE 'Aeson.String) (textLit pname)))
-          []
+            [ConP con [] []]
+            (NormalB (AppE (ConE 'Aeson.String) (textLit pname)))
+            []
         | (con, pname, _) <- primaries
         ]
           -- Open-enum representation: @<EnumName>'Unknown n@
           -- serialises as the bare numeric value (proto3
           -- canonical-JSON for unrecognised enum values).
           <> [ Clause
-                [ConP unknownCon [] [VarP nVar]]
-                (NormalB (AppE (VarE 'Aeson.toJSON) (VarE nVar)))
-                []
+                 [ConP unknownCon [] [VarP nVar]]
+                 (NormalB (AppE (VarE 'Aeson.toJSON) (VarE nVar)))
+                 []
              ]
       toDec = FunD 'Aeson.toJSON toClauses
 
@@ -2547,9 +2571,9 @@ mkEnumAesonInstances tyName values unknownCon = do
       -- conformance tests).
       stringClauses =
         [ Match
-          (ConP 'Aeson.String [] [LitP (StringL (T.unpack pname))])
-          (NormalB (AppE (VarE 'pure) (ConE con)))
-          []
+            (ConP 'Aeson.String [] [LitP (StringL (T.unpack pname))])
+            (NormalB (AppE (VarE 'pure) (ConE con)))
+            []
         | (con, pname, _) <- values
         ]
       -- 'toEnum' is the open-enum-aware constructor: known
@@ -2760,13 +2784,13 @@ parseOneofVariants obj variants =
       keep OneofVariantNullIsUnset Aeson.Null = False
       keep _ _ = True
   in case present of
-      [] -> pure Nothing
-      [(_, v, p)] -> Just <$> p v
-      _ ->
-        fail
-          ( "Multiple oneof variants set: "
-              <> show (fmap (\(k, _, _) -> k) present)
-          )
+       [] -> pure Nothing
+       [(_, v, p)] -> Just <$> p v
+       _ ->
+         fail
+           ( "Multiple oneof variants set: "
+               <> show (fmap (\(k, _, _) -> k) present)
+           )
 {-# INLINE parseOneofVariants #-}
 
 

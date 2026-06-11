@@ -1,19 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Test.Avro.Derive (spec) where
 
-import qualified Data.Vector as V
-import Test.Syd
-
-import qualified Avro.Class as A
+import Avro.Class qualified as A
 import Avro.Derive (avroSchemaFor)
-import qualified Avro.Schema as AS
-import qualified Avro.Value as AV
-
+import Avro.Schema qualified as AS
+import Avro.Value qualified as AV
+import Data.Vector qualified as V
 import Test.Avro.Derive.Instances ()
 import Test.Avro.Derive.Types
+import Test.Syd
+
 
 spec :: Spec
 spec = describe "Avro.Derive" $ do
@@ -22,6 +21,7 @@ spec = describe "Avro.Derive" $ do
   enumTests
   sumTests
   schemaTests
+
 
 -- ---------------------------------------------------------------------------
 -- Record
@@ -43,11 +43,12 @@ recordTests = describe "record" $ do
     let p = Profile "Alice" 30 "a@x" "secret"
     case A.fromAvro (A.toAvro p) of
       Right p' -> do
-        profileName    p' `shouldBe` profileName p
-        profileAge     p' `shouldBe` profileAge p
-        profileEmail   p' `shouldBe` profileEmail p
+        profileName p' `shouldBe` profileName p
+        profileAge p' `shouldBe` profileAge p
+        profileEmail p' `shouldBe` profileEmail p
         profilePrivate p' `shouldBe` defaultPrivate
       Left e -> expectationFailure e
+
 
 -- ---------------------------------------------------------------------------
 -- Newtype
@@ -60,24 +61,26 @@ newtypeTests = describe "newtype" $ do
   it "round-trip" $
     A.fromAvro (A.toAvro (Tag 7)) `shouldBe` Right (Tag 7)
 
+
 -- ---------------------------------------------------------------------------
 -- Enum
 -- ---------------------------------------------------------------------------
 
 enumTests :: Spec
 enumTests = describe "enum" $ do
-  it "Red is ordinal 0"        $ A.toAvro Red      `shouldBe` AV.Enum 0
-  it "Green is ordinal 1"      $ A.toAvro Green    `shouldBe` AV.Enum 1
-  it "DarkBlue is ordinal 2"   $ A.toAvro DarkBlue `shouldBe` AV.Enum 2
+  it "Red is ordinal 0" $ A.toAvro Red `shouldBe` AV.Enum 0
+  it "Green is ordinal 1" $ A.toAvro Green `shouldBe` AV.Enum 1
+  it "DarkBlue is ordinal 2" $ A.toAvro DarkBlue `shouldBe` AV.Enum 2
   it "round-trip every variant" $
     mapM_ rt [Red, Green, DarkBlue]
   it "out-of-range fails" $
     case A.fromAvro (AV.Enum 99) :: Either String Color of
-      Left _  -> pure ()
+      Left _ -> pure ()
       Right c -> expectationFailure ("unexpected " ++ show c)
   where
     rt :: Color -> IO ()
     rt c = A.fromAvro (A.toAvro c) `shouldBe` Right c
+
 
 -- ---------------------------------------------------------------------------
 -- Sum
@@ -92,20 +95,21 @@ sumTests = describe "sum" $ do
     A.toAvro (Circle 1.5) `shouldBe` AV.Union 1 (AV.Double 1.5)
 
   it "Rect (n-ary) -> Union 2 (Record [...])" $
-    A.toAvro (Rect 2 3) `shouldBe`
-      AV.Union 2 (AV.Record (V.fromList [AV.Double 2, AV.Double 3]))
+    A.toAvro (Rect 2 3)
+      `shouldBe` AV.Union 2 (AV.Record (V.fromList [AV.Double 2, AV.Double 3]))
 
   it "round-trip Origin" $ rt Origin
   it "round-trip Circle" $ rt (Circle 2.5)
-  it "round-trip Rect"   $ rt (Rect 4 5)
+  it "round-trip Rect" $ rt (Rect 4 5)
 
   it "unknown branch index fails" $
     case A.fromAvro (AV.Union 99 AV.Null) :: Either String Shape of
-      Left _  -> pure ()
+      Left _ -> pure ()
       Right s -> expectationFailure ("unexpected " ++ show s)
   where
     rt :: Shape -> IO ()
     rt s = A.fromAvro (A.toAvro s) `shouldBe` Right s
+
 
 -- ---------------------------------------------------------------------------
 -- Schema
@@ -115,7 +119,7 @@ schemaTests :: Spec
 schemaTests = describe "schema" $ do
   it "Profile schema lists renamed field names in declaration order" $
     case $(avroSchemaFor ''Profile) of
-      AS.AvroRecord{..} -> do
+      AS.AvroRecord {..} -> do
         avroRecordName `shouldBe` "Profile"
         V.length avroRecordFields `shouldBe` 3
         map AS.avroFieldName (V.toList avroRecordFields)
@@ -125,14 +129,14 @@ schemaTests = describe "schema" $ do
 
   it "Color schema lists renamed symbols in declaration order" $
     case $(avroSchemaFor ''Color) of
-      AS.AvroEnum{..} -> do
+      AS.AvroEnum {..} -> do
         avroEnumName `shouldBe` "Color"
         V.toList avroEnumSymbols `shouldBe` ["red", "green", "dark-blue"]
       _ -> expectationFailure "expected AvroEnum"
 
   it "Shape schema is a Union with one branch per ctor" $
     case $(avroSchemaFor ''Shape) of
-      AS.AvroUnion{..} -> do
+      AS.AvroUnion {..} -> do
         V.length avroUnionBranches `shouldBe` 3
         avroUnionBranches V.! 0
           `shouldBe` AS.AvroPrimitive AS.AvroNull
@@ -146,4 +150,4 @@ schemaTests = describe "schema" $ do
     isPrimitive :: AS.AvroField -> Bool
     isPrimitive f = case AS.avroFieldType f of
       AS.AvroPrimitive _ -> True
-      _                  -> False
+      _ -> False

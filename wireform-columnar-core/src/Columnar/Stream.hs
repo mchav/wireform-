@@ -423,14 +423,14 @@ iterRowSlice rowCount sliceFn = go
       Right (IterYield a next) ->
         let !n = rowCount a
         in if offset >= n
-            then iterStep (go (offset - n) want next)
-            else
-              let !take' = min want (n - offset)
-                  !sliced = sliceFn offset take' a
-                  !want' = want - take'
-              in if want' <= 0
-                  then Right (IterYield sliced iterEmpty)
-                  else Right (IterYield sliced (go 0 want' next))
+             then iterStep (go (offset - n) want next)
+             else
+               let !take' = min want (n - offset)
+                   !sliced = sliceFn offset take' a
+                   !want' = want - take'
+               in if want' <= 0
+                    then Right (IterYield sliced iterEmpty)
+                    else Right (IterYield sliced (go 0 want' next))
 
 
 -- ============================================================
@@ -494,10 +494,10 @@ iterMergeBy _ [] = iterEmpty
 iterMergeBy cmp xs =
   let prepped = mapM peek xs
   in Iter $ case prepped of
-      Left e -> Left e
-      Right initial ->
-        let active = [(a, rest) | Just (a, rest) <- initial]
-        in iterStep (drain cmp active)
+       Left e -> Left e
+       Right initial ->
+         let active = [(a, rest) | Just (a, rest) <- initial]
+         in iterStep (drain cmp active)
   where
     peek :: Iter a -> Either String (Maybe (a, Iter a))
     peek it = case iterStep it of
@@ -518,10 +518,10 @@ iterMergeBy cmp xs =
         let (winner, rest) = pickMin cmp' h t
             (a, next) = winner
         in case peek next of
-            Left e -> Left e
-            Right Nothing -> Right (IterYield a (drain cmp' rest))
-            Right (Just (a', next')) ->
-              Right (IterYield a (drain cmp' ((a', next') : rest)))
+             Left e -> Left e
+             Right Nothing -> Right (IterYield a (drain cmp' rest))
+             Right (Just (a', next')) ->
+               Right (IterYield a (drain cmp' ((a', next') : rest)))
 
     -- O(k) per element — fine for small fanouts (every
     -- columnar caller is in the [2..32] range). For large k
@@ -536,8 +536,8 @@ iterMergeBy cmp xs =
     pickMin cmp' h (x : xs) =
       let (m, rest) = pickMin cmp' x xs
       in case cmp' (fst h) (fst m) of
-          GT -> (m, h : rest)
-          _ -> (h, m : rest)
+           GT -> (m, h : rest)
+           _ -> (h, m : rest)
 
 
 -- ============================================================

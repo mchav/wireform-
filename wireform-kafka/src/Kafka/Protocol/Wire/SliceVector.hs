@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-{-|
+{- |
 Module      : Kafka.Protocol.Wire.SliceVector
 Description : Compact vector-of-byte-slices over a single 'ForeignPtr'
 
@@ -76,68 +76,79 @@ slice descriptors as you decode is the intended fast path;
 that's what the codegen emits for arrays of length-prefixed
 bytes / nested structs.
 -}
-module Kafka.Protocol.Wire.SliceVector
-  ( -- * Types
-    SliceVector
-    -- * Construction
-  , empty
-  , singleton
-  , fromForeignPtr
-  , fromByteStrings
-  , fromForeignPtrSlices
-    -- * Indexing
-  , length
-  , null
-  , indexBS
-  , indexUnsafe
-  , (!)
-    -- * Iteration
-  , toList
-  , toListBS
-  , foldlSlices'
-  , foldlBS'
-  , forSlices_
-    -- * Conversion to standard types
-  , toVector
-    -- * Internal accessors (exposed for the codegen, not for
-    --   application code)
-  , sliceVectorBuffer
-  , sliceVectorOffsets
-  ) where
+module Kafka.Protocol.Wire.SliceVector (
+  -- * Types
+  SliceVector,
 
-import Prelude hiding (length, null)
+  -- * Construction
+  empty,
+  singleton,
+  fromForeignPtr,
+  fromByteStrings,
+  fromForeignPtrSlices,
+
+  -- * Indexing
+  length,
+  null,
+  indexBS,
+  indexUnsafe,
+  (!),
+
+  -- * Iteration
+  toList,
+  toListBS,
+  foldlSlices',
+  foldlBS',
+  forSlices_,
+
+  -- * Conversion to standard types
+  toVector,
+
+  -- * Internal accessors (exposed for the codegen, not for
+
+  --   application code)
+  sliceVectorBuffer,
+  sliceVectorOffsets,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString.Internal qualified as BSI
 import Data.Int (Int32)
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
+import Data.Vector qualified as V
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word8)
 import Foreign.ForeignPtr (ForeignPtr)
 import GHC.Generics (Generic)
+import Prelude hiding (length, null)
+
 
 ----------------------------------------------------------------------
 -- Type
 ----------------------------------------------------------------------
 
--- | Compact vector of byte slices that all share a single
--- 'ForeignPtr Word8' backing buffer. See the module
--- documentation for design rationale.
---
--- The 'Eq' / 'Show' instances compare slice /contents/, not
--- backing-pointer identity — two 'SliceVector's whose
--- 'indexBS' values are pairwise equal compare 'True', even if
--- they point at different buffers. (This matches the 'Eq'
--- semantics of the underlying 'ByteString' slices.)
+{- | Compact vector of byte slices that all share a single
+'ForeignPtr Word8' backing buffer. See the module
+documentation for design rationale.
+
+The 'Eq' / 'Show' instances compare slice /contents/, not
+backing-pointer identity — two 'SliceVector's whose
+'indexBS' values are pairwise equal compare 'True', even if
+they point at different buffers. (This matches the 'Eq'
+semantics of the underlying 'ByteString' slices.)
+-}
 data SliceVector = SliceVector
-  { sliceVectorBuffer  :: {-# UNPACK #-} !(ForeignPtr Word8)
-    -- ^ The shared backing buffer. Codegen-only — application
-    -- code should index via 'indexBS' / 'toListBS'.
+  { sliceVectorBuffer :: {-# UNPACK #-} !(ForeignPtr Word8)
+  {- ^ The shared backing buffer. Codegen-only — application
+  code should index via 'indexBS' / 'toListBS'.
+  -}
   , sliceVectorOffsets :: {-# UNPACK #-} !(VU.Vector (Int32, Int32))
-    -- ^ Per-slice @(offset, length)@ pairs. The offset is the
-    -- byte position inside @sliceVectorBuffer@; the length is
-    -- the slice's byte count. Codegen-only.
-  } deriving stock (Generic)
+  {- ^ Per-slice @(offset, length)@ pairs. The offset is the
+  byte position inside @sliceVectorBuffer@; the length is
+  the slice's byte count. Codegen-only.
+  -}
+  }
+  deriving stock (Generic)
+
 
 instance Show SliceVector where
   showsPrec d sv =
@@ -145,60 +156,73 @@ instance Show SliceVector where
       showString "SliceVector "
         . showsPrec 11 (toListBS sv)
 
+
 instance Eq SliceVector where
   a == b = toListBS a == toListBS b
+
 
 ----------------------------------------------------------------------
 -- Construction
 ----------------------------------------------------------------------
 
--- | The empty 'SliceVector'. The backing 'ForeignPtr' is the
--- shared one inside the empty 'ByteString' (a zero-byte
--- buffer) — never indexed since 'length' is 0.
+{- | The empty 'SliceVector'. The backing 'ForeignPtr' is the
+shared one inside the empty 'ByteString' (a zero-byte
+buffer) — never indexed since 'length' is 0.
+-}
 {-# NOINLINE empty #-}
 empty :: SliceVector
 empty =
   let !(fp, _, _) = BSI.toForeignPtr BSI.empty
   in SliceVector
-       { sliceVectorBuffer  = fp
+       { sliceVectorBuffer = fp
        , sliceVectorOffsets = VU.empty
        }
 
--- | Build a 'SliceVector' with a single slice over the given
--- source 'ForeignPtr'.
+
+{- | Build a 'SliceVector' with a single slice over the given
+source 'ForeignPtr'.
+-}
 {-# INLINE singleton #-}
 singleton
   :: ForeignPtr Word8
-  -> Int32      -- ^ slice offset (within the backing buffer)
-  -> Int32      -- ^ slice length
+  -> Int32
+  -- ^ slice offset (within the backing buffer)
+  -> Int32
+  -- ^ slice length
   -> SliceVector
-singleton fp off len = SliceVector
-  { sliceVectorBuffer  = fp
-  , sliceVectorOffsets = VU.singleton (off, len)
-  }
+singleton fp off len =
+  SliceVector
+    { sliceVectorBuffer = fp
+    , sliceVectorOffsets = VU.singleton (off, len)
+    }
 
--- | Build a 'SliceVector' from a 'ForeignPtr' and a list of
--- @(offset, length)@ pairs that live inside that buffer.
---
--- The pairs are not validated against the backing buffer's
--- size (we don't know it; 'ForeignPtr Word8' is opaque about
--- length). Out-of-bounds offsets surface only when
--- 'indexBS' is called.
+
+{- | Build a 'SliceVector' from a 'ForeignPtr' and a list of
+@(offset, length)@ pairs that live inside that buffer.
+
+The pairs are not validated against the backing buffer's
+size (we don't know it; 'ForeignPtr Word8' is opaque about
+length). Out-of-bounds offsets surface only when
+'indexBS' is called.
+-}
 {-# INLINE fromForeignPtr #-}
 fromForeignPtr
   :: ForeignPtr Word8
   -> [(Int32, Int32)]
   -> SliceVector
-fromForeignPtr fp pairs = SliceVector
-  { sliceVectorBuffer  = fp
-  , sliceVectorOffsets = VU.fromList pairs
-  }
+fromForeignPtr fp pairs =
+  SliceVector
+    { sliceVectorBuffer = fp
+    , sliceVectorOffsets = VU.fromList pairs
+    }
 
--- | 'fromForeignPtr' with the offsets pre-built into an
--- unboxed 'Data.Vector.Unboxed.Vector'. The codegen-emitted
--- decoders use this so they can build the offset vector with
--- 'Data.Vector.Unboxed.Mutable.unsafeWrite' without having to
--- round-trip through a list.
+
+{- | 'fromForeignPtr' with the offsets pre-built into an
+unboxed 'Data.Vector.Unboxed.Vector'. The codegen-emitted
+decoders use this so they can build the offset vector with
+'Data.Vector.Unboxed.Mutable.unsafeWrite' without having to
+round-trip through a list.
+-}
 {-# INLINE fromForeignPtrSlices #-}
 fromForeignPtrSlices
   :: ForeignPtr Word8
@@ -206,34 +230,38 @@ fromForeignPtrSlices
   -> SliceVector
 fromForeignPtrSlices = SliceVector
 
--- | Build a 'SliceVector' from a list of 'ByteString' slices
--- that /must/ already share the same source 'ForeignPtr'.
---
--- The helper crashes (with 'error') if the input is empty or
--- if any slice points at a different 'ForeignPtr' than the
--- first slice — there's no sensible single-buffer
--- representation for slices over different sources, and
--- silently allocating a fresh backing buffer would defeat the
--- whole point of this type.
---
--- Use 'fromForeignPtr' / 'fromForeignPtrSlices' from the
--- decoder side, where you have the source 'ForeignPtr' in
--- scope and don't need this assertion.
+
+{- | Build a 'SliceVector' from a list of 'ByteString' slices
+that /must/ already share the same source 'ForeignPtr'.
+
+The helper crashes (with 'error') if the input is empty or
+if any slice points at a different 'ForeignPtr' than the
+first slice — there's no sensible single-buffer
+representation for slices over different sources, and
+silently allocating a fresh backing buffer would defeat the
+whole point of this type.
+
+Use 'fromForeignPtr' / 'fromForeignPtrSlices' from the
+decoder side, where you have the source 'ForeignPtr' in
+scope and don't need this assertion.
+-}
 fromByteStrings :: [ByteString] -> SliceVector
-fromByteStrings []         = empty
+fromByteStrings [] = empty
 fromByteStrings (b0 : bs0) =
   let !(fp0, off0, len0) = BSI.toForeignPtr b0
-      go !acc []         = SliceVector fp0 (VU.fromList (reverse acc))
+      go !acc [] = SliceVector fp0 (VU.fromList (reverse acc))
       go !acc (b : rest) =
         let !(fp, off, len) = BSI.toForeignPtr b
         in if fp == fp0
              then go ((fromIntegral off, fromIntegral len) : acc) rest
-             else error
-                    "Kafka.Protocol.Wire.SliceVector.fromByteStrings: \
-                    \input slices share more than one ForeignPtr; use \
-                    \'fromForeignPtr' or 'fromForeignPtrSlices' from \
-                    \the decoder, where the source buffer is known."
+             else
+               error
+                 "Kafka.Protocol.Wire.SliceVector.fromByteStrings: \
+                 \input slices share more than one ForeignPtr; use \
+                 \'fromForeignPtr' or 'fromForeignPtrSlices' from \
+                 \the decoder, where the source buffer is known."
   in go [(fromIntegral off0, fromIntegral len0)] bs0
+
 
 ----------------------------------------------------------------------
 -- Indexing
@@ -244,103 +272,124 @@ fromByteStrings (b0 : bs0) =
 length :: SliceVector -> Int
 length = VU.length . sliceVectorOffsets
 
+
 -- | True when the vector contains zero slices.
 {-# INLINE null #-}
 null :: SliceVector -> Bool
 null = VU.null . sliceVectorOffsets
 
--- | Bounds-checked indexing. Returns the slice as a fresh
--- /zero-copy/ 'ByteString' that re-uses the 'SliceVector''s
--- backing 'ForeignPtr'.
+
+{- | Bounds-checked indexing. Returns the slice as a fresh
+/zero-copy/ 'ByteString' that re-uses the 'SliceVector''s
+backing 'ForeignPtr'.
+-}
 indexBS :: SliceVector -> Int -> ByteString
 indexBS sv i =
   case sliceVectorOffsets sv VU.!? i of
-    Nothing       -> error
-                       ( "Kafka.Protocol.Wire.SliceVector.indexBS: index "
-                       ++ show i
-                       ++ " out of range [0,"
-                       ++ show (length sv)
-                       ++ ")" )
+    Nothing ->
+      error
+        ( "Kafka.Protocol.Wire.SliceVector.indexBS: index "
+            ++ show i
+            ++ " out of range [0,"
+            ++ show (length sv)
+            ++ ")"
+        )
     Just (!o, !l) ->
-      BSI.fromForeignPtr (sliceVectorBuffer sv)
+      BSI.fromForeignPtr
+        (sliceVectorBuffer sv)
         (fromIntegral o)
         (fromIntegral l)
 
--- | Unsafe (no bounds check) variant of 'indexBS'. Use when
--- the index is known good — e.g. inside a counted loop.
+
+{- | Unsafe (no bounds check) variant of 'indexBS'. Use when
+the index is known good — e.g. inside a counted loop.
+-}
 {-# INLINE indexUnsafe #-}
 indexUnsafe :: SliceVector -> Int -> ByteString
 indexUnsafe sv i =
   let !(o, l) = VU.unsafeIndex (sliceVectorOffsets sv) i
-  in BSI.fromForeignPtr (sliceVectorBuffer sv)
+  in BSI.fromForeignPtr
+       (sliceVectorBuffer sv)
        (fromIntegral o)
        (fromIntegral l)
+
 
 -- | Operator alias for 'indexBS' (bounds-checked).
 {-# INLINE (!) #-}
 (!) :: SliceVector -> Int -> ByteString
 (!) = indexBS
 
+
 ----------------------------------------------------------------------
 -- Iteration
 ----------------------------------------------------------------------
 
--- | Convert to a list of @(offset, length)@ pairs. Useful for
--- tests + size checks; production code should use 'toListBS'
--- or one of the fold helpers.
+{- | Convert to a list of @(offset, length)@ pairs. Useful for
+tests + size checks; production code should use 'toListBS'
+or one of the fold helpers.
+-}
 {-# INLINE toList #-}
 toList :: SliceVector -> [(Int32, Int32)]
 toList = VU.toList . sliceVectorOffsets
+
 
 -- | Convert to a list of zero-copy 'ByteString' slices.
 {-# INLINE toListBS #-}
 toListBS :: SliceVector -> [ByteString]
 toListBS sv =
-  [ indexUnsafe sv i | i <- [0 .. length sv - 1] ]
+  [indexUnsafe sv i | i <- [0 .. length sv - 1]]
 
--- | Strict left-fold over the @(offset, length)@ pairs without
--- materialising any 'ByteString'. The fastest way to walk the
--- vector when the body only needs the lengths or offsets.
+
+{- | Strict left-fold over the @(offset, length)@ pairs without
+materialising any 'ByteString'. The fastest way to walk the
+vector when the body only needs the lengths or offsets.
+-}
 {-# INLINE foldlSlices' #-}
 foldlSlices' :: (b -> Int32 -> Int32 -> b) -> b -> SliceVector -> b
 foldlSlices' f z sv =
   VU.foldl' (\acc (o, l) -> f acc o l) z (sliceVectorOffsets sv)
 
--- | Strict left-fold that hands each slice to the function as
--- a zero-copy 'ByteString'. Use when the body wants to inspect
--- bytes but the per-iteration 'ByteString' header is fine.
+
+{- | Strict left-fold that hands each slice to the function as
+a zero-copy 'ByteString'. Use when the body wants to inspect
+bytes but the per-iteration 'ByteString' header is fine.
+-}
 {-# INLINE foldlBS' #-}
 foldlBS' :: (b -> ByteString -> b) -> b -> SliceVector -> b
 foldlBS' f z sv =
   VU.ifoldl' (\acc i _ -> f acc (indexUnsafe sv i)) z (sliceVectorOffsets sv)
 
--- | Effectful sibling of 'foldlBS_': run an 'IO' action for
--- each slice in order. The slice is handed in as a zero-copy
--- 'ByteString'.
+
+{- | Effectful sibling of 'foldlBS_': run an 'IO' action for
+each slice in order. The slice is handed in as a zero-copy
+'ByteString'.
+-}
 {-# INLINE forSlices_ #-}
 forSlices_ :: SliceVector -> (ByteString -> IO ()) -> IO ()
 forSlices_ sv f =
   let !n = length sv
       go !i
-        | i >= n    = pure ()
+        | i >= n = pure ()
         | otherwise = f (indexUnsafe sv i) >> go (i + 1)
   in go 0
+
 
 ----------------------------------------------------------------------
 -- Conversion
 ----------------------------------------------------------------------
 
--- | Materialise a 'V.Vector ByteString' from the slice
--- vector. The output 'Vector' carries one separate
--- 'ByteString' per element, each pointing at the source
--- buffer; the original 'SliceVector''s backing 'ForeignPtr'
--- stays alive through the slices' references. Allocates @O(n)@
--- 'ByteString' headers.
---
--- Use this only at the boundary where the application code
--- expects a 'V.Vector ByteString'; otherwise prefer
--- 'foldlBS'' / 'forSlices_' which avoid the per-slice
--- allocation.
+{- | Materialise a 'V.Vector ByteString' from the slice
+vector. The output 'Vector' carries one separate
+'ByteString' per element, each pointing at the source
+buffer; the original 'SliceVector''s backing 'ForeignPtr'
+stays alive through the slices' references. Allocates @O(n)@
+'ByteString' headers.
+
+Use this only at the boundary where the application code
+expects a 'V.Vector ByteString'; otherwise prefer
+'foldlBS'' / 'forSlices_' which avoid the per-slice
+allocation.
+-}
 {-# INLINE toVector #-}
 toVector :: SliceVector -> V.Vector ByteString
 toVector sv =

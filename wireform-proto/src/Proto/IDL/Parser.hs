@@ -52,10 +52,10 @@ parseProtoFileWithSpans fp src =
   let cm = buildCommentMap src
       allComments = buildAllComments src
   in case parse (parseProto cm) fp src of
-      Left e -> Left e
-      Right pf ->
-        let pf' = insertComments src allComments cm pf
-        in Right pf' {protoSource = Just src}
+       Left e -> Left e
+       Right pf ->
+         let pf' = insertComments src allComments cm pf
+         in Right pf' {protoSource = Just src}
 
 
 -- | Core parser for a proto file given a pre-built comment map.
@@ -104,8 +104,9 @@ data TLStmt
   | TLStmtImport (ImportDef' Parsed)
   | TLStmtOption (OptionDef' Parsed)
   | TLStmtTopLevel (TopLevel' Parsed)
-  | -- | One statement that expands to several top-level definitions, e.g. an
-    -- @extend@ block containing a group (which hoists the group's message).
+  | {- | One statement that expands to several top-level definitions, e.g. an
+    @extend@ block containing a group (which hoists the group's message).
+    -}
     TLStmtTopLevels [TopLevel' Parsed]
 
 

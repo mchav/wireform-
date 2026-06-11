@@ -24,21 +24,20 @@ module Kafka.Network.Transport (
   mkPipeTransport,
 ) where
 
-import Data.ByteString (ByteString)
-import qualified Wireform.Builder as WB
-
-import qualified Kafka.Network.Connection as Conn
-import qualified Wireform.Network as WN
-import qualified Wireform.Transport.Receive as WR
-import qualified Wireform.Transport.Send as WS
+import Control.Exception (SomeException, throwIO, try)
 import Data.Bits ((.&.))
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BSI
 import Data.IORef
+import Data.Word (Word64)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (plusPtr)
-import Control.Exception (SomeException, try, throwIO)
-import Data.Word (Word64)
+import Kafka.Network.Connection qualified as Conn
+import Wireform.Builder qualified as WB
+import Wireform.Network qualified as WN
+import Wireform.Transport.Receive qualified as WR
+import Wireform.Transport.Send qualified as WS
 
 
 {- | Pluggable byte-stream transport.
@@ -57,8 +56,10 @@ data Transport = Transport
   , transportName :: String
   }
 
+
 {- | Wrap a 'Kafka.Network.Connection.Connection' as a 'Transport'.
-    This is what the default code path does under the hood. -}
+    This is what the default code path does under the hood.
+-}
 mkConnectionTransport :: Conn.Connection -> String -> Transport
 mkConnectionTransport conn label =
   Transport
@@ -66,19 +67,19 @@ mkConnectionTransport conn label =
         r <- try (Conn.connectionGet conn n) :: IO (Either SomeException ByteString)
         case r of
           Right bs -> pure (Right bs)
-          Left  e  -> pure (Left (show e))
+          Left e -> pure (Left (show e))
     , transportWrite = \bs -> do
         r <- try (Conn.connectionPut conn bs) :: IO (Either SomeException ())
         case r of
           Right () -> pure (Right ())
-          Left  e  -> pure (Left (show e))
+          Left e -> pure (Left (show e))
     , transportWriteBuilder = \b -> do
         r <- try (Conn.connectionPutBuilder conn b) :: IO (Either SomeException ())
         case r of
           Right () -> pure (Right ())
-          Left  e  -> pure (Left (show e))
+          Left e -> pure (Left (show e))
     , transportClose = Conn.connectionClose conn
-    , transportName  = label
+    , transportName = label
     }
 
 
@@ -105,40 +106,43 @@ mkPipeTransport = do
                r <- try (readUpTo rx cursor n) :: IO (Either SomeException ByteString)
                case r of
                  Right bs -> pure (Right bs)
-                 Left  e  -> pure (Left (show e))
+                 Left e -> pure (Left (show e))
            , transportWrite = \bs -> do
                r <- try (WS.sendByteString tx bs) :: IO (Either SomeException ())
                case r of
                  Right () -> pure (Right ())
-                 Left  e  -> pure (Left (show e))
+                 Left e -> pure (Left (show e))
            , transportWriteBuilder = \b -> do
-               r <- try (WS.sendBuilderDirect tx b)
-                       :: IO (Either SomeException ())
+               r <-
+                 try (WS.sendBuilderDirect tx b)
+                   :: IO (Either SomeException ())
                case r of
                  Right () -> pure (Right ())
-                 Left  e  -> pure (Left (show e))
+                 Left e -> pure (Left (show e))
            , transportClose = WN.closeDuplexTransport duplex
-           , transportName  = label
+           , transportName = label
            }
 
     readUpTo rx cursor n
       | n <= 0 = pure BS.empty
       | otherwise = do
           pos <- readIORef cursor
-          h0  <- WR.receiveLoadHead rx
-          h <- if h0 > pos then pure h0
-                 else do
-                   r <- WR.receiveWaitData rx pos
-                   case r of
-                     WR.ReceiveMoreData h' -> pure h'
-                     WR.ReceiveEndOfInput  -> pure pos
-                     WR.ReceiveFailed e    -> throwIO e
+          h0 <- WR.receiveLoadHead rx
+          h <-
+            if h0 > pos
+              then pure h0
+              else do
+                r <- WR.receiveWaitData rx pos
+                case r of
+                  WR.ReceiveMoreData h' -> pure h'
+                  WR.ReceiveEndOfInput -> pure pos
+                  WR.ReceiveFailed e -> throwIO e
           if h <= pos
             then pure BS.empty
             else do
               let !want = min n (fromIntegral (h - pos))
-                  !off  = fromIntegral pos .&. WR.receiveRingMask rx
-                  !ptr  = WR.receiveRingBase rx `plusPtr` off
+                  !off = fromIntegral pos .&. WR.receiveRingMask rx
+                  !ptr = WR.receiveRingBase rx `plusPtr` off
               bs <- BSI.create want $ \dst -> copyBytes dst ptr want
               let !newPos = pos + fromIntegral want
               writeIORef cursor newPos

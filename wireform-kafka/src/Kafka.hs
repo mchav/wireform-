@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Kafka
 Description : One-stop import for the wireform-kafka client.
 Copyright   : (c) 2025
@@ -100,26 +100,30 @@ offsets, see "Kafka.Client.Transaction".
 The full guided tour lives in @TUTORIAL.md@; a plain-language Kafka
 primer is in @CONCEPTS.md@.
 -}
-module Kafka
-  ( -- * High-level producer
-    module Kafka.Client.Producer
-    -- * High-level consumer
-  , module Kafka.Client.Consumer
-    -- * \"Call this handler per record\" consumer group runner
-  , module Kafka.Client.Group
-    -- * Transactional producer
-  , module Kafka.Client.Transaction
-  ) where
+module Kafka (
+  -- * High-level producer
+  module Kafka.Client.Producer,
+
+  -- * High-level consumer
+  module Kafka.Client.Consumer,
+
+  -- * \"Call this handler per record\" consumer group runner
+  module Kafka.Client.Group,
+
+  -- * Transactional producer
+  module Kafka.Client.Transaction,
+) where
 
 import Kafka.Client.Consumer
-import Kafka.Client.Group hiding
+import Kafka.Client.Group hiding (
   -- 'Kafka.Client.Group.currentAssignment' takes a 'GroupConsumer';
   -- the 'Kafka.Client.Consumer.currentAssignment' (re-exported above)
   -- takes the lower-level 'Consumer'. Both are useful, but two
   -- different functions can't share an unqualified name in the
   -- umbrella; users who want the high-level one should import
   -- "Kafka.Client.Group" qualified.
-  ( currentAssignment
-  )
+  currentAssignment,
+ )
 import Kafka.Client.Producer
 import Kafka.Client.Transaction
+

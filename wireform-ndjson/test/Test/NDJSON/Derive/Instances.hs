@@ -4,7 +4,7 @@
 module Test.NDJSON.Derive.Instances () where
 
 import NDJSON.Derive
-
 import Test.NDJSON.Derive.Types
+
 
 deriveNDJSON ''Event

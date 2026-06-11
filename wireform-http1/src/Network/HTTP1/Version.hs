@@ -9,33 +9,38 @@ Servers MUST accept either 1.0 or 1.1 and SHOULD respond with
 parser preserves what came in so that the application layer can make
 that choice.
 -}
-module Network.HTTP1.Version
-  ( Version (..)
-  , versionToBytes
-  , versionFromBytes
-  ) where
+module Network.HTTP1.Version (
+  Version (..),
+  versionToBytes,
+  versionFromBytes,
+) where
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import GHC.Generics (Generic)
+
 
 data Version
   = HTTP_1_0
   | HTTP_1_1
   deriving stock (Eq, Ord, Show, Generic)
 
+
 instance NFData Version
+
 
 {-# INLINE versionToBytes #-}
 versionToBytes :: Version -> ByteString
 versionToBytes HTTP_1_0 = "HTTP/1.0"
 versionToBytes HTTP_1_1 = "HTTP/1.1"
 
--- | Strict parse: requires exactly @HTTP\/1.0@ or @HTTP\/1.1@. Anything
--- else is 'Nothing'.
+
+{- | Strict parse: requires exactly @HTTP\/1.0@ or @HTTP\/1.1@. Anything
+else is 'Nothing'.
+-}
 {-# INLINE versionFromBytes #-}
 versionFromBytes :: ByteString -> Maybe Version
 versionFromBytes bs
   | bs == "HTTP/1.1" = Just HTTP_1_1
   | bs == "HTTP/1.0" = Just HTTP_1_0
-  | otherwise        = Nothing
+  | otherwise = Nothing

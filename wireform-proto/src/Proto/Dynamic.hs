@@ -280,8 +280,9 @@ data ParseTable = ParseTable
   { ptFields :: !(V.Vector FieldParser)
   -- ^ Field parsers in scheduled order.
   , ptTagLUT :: !ByteString
-  -- ^ 128-byte LUT: tag byte -> index in ptFields (0xFF = miss).
-  -- For tags < 128 (field numbers 1-15), this is a direct O(1) lookup.
+  {- ^ 128-byte LUT: tag byte -> index in ptFields (0xFF = miss).
+  For tags < 128 (field numbers 1-15), this is a direct O(1) lookup.
+  -}
   , ptTagMap :: !(IntMap Int)
   -- ^ Fallback map: wire tag -> index in ptFields, for tags >= 128.
   , ptMaxMiss :: {-# UNPACK #-} !Int
@@ -309,11 +310,11 @@ compileParseTable proxy =
           | (i, fp) <- zip [0 ..] (V.toList parsers)
           ]
   in ParseTable
-      { ptFields = parsers
-      , ptTagLUT = tagLUTBytes
-      , ptTagMap = tagMap
-      , ptMaxMiss = min 4 nFields
-      }
+       { ptFields = parsers
+       , ptTagLUT = tagLUTBytes
+       , ptTagMap = tagMap
+       , ptMaxMiss = min 4 nFields
+       }
   where
     fieldList = Map.toAscList (protoFieldDescriptors proxy)
     nFields = length fieldList
@@ -347,14 +348,14 @@ mkFieldParser idx nFields fd =
       nextOk = (idx + 1) `mod` nFields
       nextErr = (idx + 1) `mod` nFields
   in FieldParser
-      { fpTag = tag
-      , fpFieldNum = fn
-      , fpNextOk = nextOk
-      , fpNextErr = nextErr
-      , fpParse = mkThunk (fdTypeDesc fd)
-      , fpLabel = fdLabel fd
-      , fpSubmsg = Nothing
-      }
+       { fpTag = tag
+       , fpFieldNum = fn
+       , fpNextOk = nextOk
+       , fpNextErr = nextErr
+       , fpParse = mkThunk (fdTypeDesc fd)
+       , fpLabel = fdLabel fd
+       , fpSubmsg = Nothing
+       }
 
 
 fieldWireType :: FieldTypeDescriptor -> WireType
@@ -566,8 +567,8 @@ findField pt tagW tagInt curIdx
   , tagInt < 128 =
       let !lutVal = BSU.unsafeIndex (ptTagLUT pt) tagInt
       in if lutVal /= 0xFF
-          then pure (Just (fromIntegral lutVal))
-          else pure Nothing
+           then pure (Just (fromIntegral lutVal))
+           else pure Nothing
   -- Predicted next field
   | curIdx < V.length (ptFields pt)
   , let fp = ptFields pt V.! curIdx
@@ -584,8 +585,8 @@ walkErr pt tagW curIdx !tries
   | otherwise =
       let !fp = ptFields pt V.! curIdx
       in if fpTag fp == tagW
-          then pure (Just curIdx)
-          else walkErr pt tagW (fpNextErr fp) (tries - 1)
+           then pure (Just curIdx)
+           else walkErr pt tagW (fpNextErr fp) (tries - 1)
 
 
 -- | Skip a wire value based on wire type. Returns new offset or Nothing.

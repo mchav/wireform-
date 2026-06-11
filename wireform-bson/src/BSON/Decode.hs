@@ -1,28 +1,30 @@
 {-# LANGUAGE BangPatterns #-}
--- | BSON binary decoding.
---
--- Decodes a BSON wire-format 'ByteString' into a 'BSON.Value.Value'.
--- Uses unsafe indexing for performance on validated input. Supports
--- all standard BSON element types.
--- Uses growing mutable vectors for document element accumulation.
-module BSON.Decode
-  ( decode
-  ) where
 
+{- | BSON binary decoding.
+
+Decodes a BSON wire-format 'ByteString' into a 'BSON.Value.Value'.
+Uses unsafe indexing for performance on validated input. Supports
+all standard BSON element types.
+Uses growing mutable vectors for document element accumulation.
+-}
+module BSON.Decode (
+  decode,
+) where
+
+import BSON.Value qualified as B
 import Control.Monad.ST (ST, runST)
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BSU
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import Data.Word (Word8, Word32, Word64)
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
+import Data.Word (Word32, Word64, Word8)
 import GHC.Float (castWord64ToDouble)
+import Wireform.FFI (decodeTextFast, findNulBS)
 
-import qualified BSON.Value as B
-import Wireform.FFI (findNulBS, decodeTextFast)
 
 decode :: ByteString -> Either String B.Value
 decode !bs
@@ -31,9 +33,11 @@ decode !bs
       Left err -> Left err
       Right (val, _) -> Right val
 
+
 rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
+
 
 readLE32 :: ByteString -> Int -> Word32
 readLE32 bs off =
@@ -43,6 +47,7 @@ readLE32 bs off =
       !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
   in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
 {-# INLINE readLE32 #-}
+
 
 readLE64 :: ByteString -> Int -> Word64
 readLE64 bs off =
@@ -54,15 +59,23 @@ readLE64 bs off =
       !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
       !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
       !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-       .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+  in b0
+       .|. (b1 `shiftL` 8)
+       .|. (b2 `shiftL` 16)
+       .|. (b3 `shiftL` 24)
+       .|. (b4 `shiftL` 32)
+       .|. (b5 `shiftL` 40)
+       .|. (b6 `shiftL` 48)
+       .|. (b7 `shiftL` 56)
 {-# INLINE readLE64 #-}
+
 
 ensure :: ByteString -> Int -> Int -> Either String ()
 ensure bs off n
   | off + n > BS.length bs = Left "BSON.Decode: unexpected end of input"
   | otherwise = Right ()
 {-# INLINE ensure #-}
+
 
 readCString :: ByteString -> Int -> Either String (Text, Int)
 readCString bs off =
@@ -71,8 +84,9 @@ readCString bs off =
     Just !i ->
       let !raw = BSU.unsafeTake (i - off) (BSU.unsafeDrop off bs)
       in case decodeTextFast raw of
-           Left _  -> Left "BSON.Decode: invalid UTF-8 in cstring"
+           Left _ -> Left "BSON.Decode: invalid UTF-8 in cstring"
            Right t -> Right (t, i + 1)
+
 
 readBSONString :: ByteString -> Int -> Either String (Text, Int)
 readBSONString bs off = do
@@ -81,8 +95,9 @@ readBSONString bs off = do
   ensure bs (off + 4) len
   let !raw = BSU.unsafeTake (len - 1) (BSU.unsafeDrop (off + 4) bs)
   case decodeTextFast raw of
-    Left _  -> Left "BSON.Decode: invalid UTF-8 in string"
+    Left _ -> Left "BSON.Decode: invalid UTF-8 in string"
     Right t -> Right (t, off + 4 + len)
+
 
 decodeDocument :: ByteString -> Int -> Either String (B.Value, Int)
 decodeDocument bs off = do
@@ -95,6 +110,7 @@ decodeDocument bs off = do
     else do
       (vec, _) <- readElements bs (off + 4) (docEnd - 1)
       Right (B.Document vec, docEnd)
+
 
 readElements :: ByteString -> Int -> Int -> Either String (V.Vector (Text, B.Value), Int)
 readElements bs off end = runST $ do
@@ -109,13 +125,15 @@ readElements bs off end = runST $ do
       | otherwise = case readOneElement bs o of
           Left e -> pure $! Left e
           Right (kv, o') -> do
-            mv' <- if i >= cap
-              then MV.grow mv cap
-              else pure mv
+            mv' <-
+              if i >= cap
+                then MV.grow mv cap
+                else pure mv
             let !cap' = if i >= cap then cap * 2 else cap
             MV.unsafeWrite mv' i kv
             go mv' (i + 1) cap' o'
 {-# INLINE readElements #-}
+
 
 readOneElement :: ByteString -> Int -> Either String ((Text, B.Value), Int)
 readOneElement bs off = do
@@ -125,6 +143,7 @@ readOneElement bs off = do
   (val, off2) <- readValue bs off1 tag
   Right ((key, val), off2)
 {-# INLINE readOneElement #-}
+
 
 readValue :: ByteString -> Int -> Word8 -> Either String (B.Value, Int)
 readValue bs off tag = case tag of

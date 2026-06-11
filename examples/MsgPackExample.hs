@@ -1,20 +1,24 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import GHC.Generics (Generic)
+import Data.ByteString qualified as BS
 import Data.Text (Text)
-import qualified Data.ByteString as BS
-import MsgPack.Class (ToMsgPack, FromMsgPack, encodeMsgPack, decodeMsgPack)
+import GHC.Generics (Generic)
+import MsgPack.Class (FromMsgPack, ToMsgPack, decodeMsgPack, encodeMsgPack)
+
 
 data Person = Person
-  { name  :: !Text
-  , age   :: !Int
+  { name :: !Text
+  , age :: !Int
   , email :: !Text
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToMsgPack, FromMsgPack)
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (ToMsgPack, FromMsgPack)
+
 
 main :: IO ()
 main = do
@@ -25,7 +29,7 @@ main = do
 
   case decodeMsgPack bytes of
     Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Person)
-    Left err      -> putStrLn $ "Error: " ++ err
+    Left err -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeMsgPack (encodeMsgPack alice) == Right alice)
 

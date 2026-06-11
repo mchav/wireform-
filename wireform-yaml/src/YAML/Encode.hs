@@ -99,16 +99,16 @@ kvLine !ind k v =
   let !keyB = buildKey k
       !inner = unwrap v
   in case inner of
-      YMap kvs
-        | V.null kvs -> keyB <> fromText ": {}\n"
-        | otherwise ->
-            keyB <> fromText ":\n" <> buildBlockMap (ind + 2) kvs
-      YSeq xs
-        | V.null xs -> keyB <> fromText ": []\n"
-        | otherwise ->
-            keyB <> fromText ":\n" <> buildBlockSeq ind xs
-      _ ->
-        keyB <> fromText ": " <> buildScalar inner <> singleton '\n'
+       YMap kvs
+         | V.null kvs -> keyB <> fromText ": {}\n"
+         | otherwise ->
+             keyB <> fromText ":\n" <> buildBlockMap (ind + 2) kvs
+       YSeq xs
+         | V.null xs -> keyB <> fromText ": []\n"
+         | otherwise ->
+             keyB <> fromText ":\n" <> buildBlockSeq ind xs
+       _ ->
+         keyB <> fromText ": " <> buildScalar inner <> singleton '\n'
 
 
 buildBlockSeq :: Int -> V.Vector Value -> Builder
@@ -121,21 +121,21 @@ seqLine :: Int -> Value -> Builder
 seqLine !ind v =
   let !inner = unwrap v
   in case inner of
-      YMap kvs
-        | V.null kvs -> fromText "- {}\n"
-        | otherwise -> fromText "- " <> firstKvLine (ind + 2) kvs
-      YSeq ys
-        | V.null ys -> fromText "- []\n"
-        | otherwise ->
-            -- Nested block sequences inside a block sequence are
-            -- emitted in flow style. The compact "- - x" form is
-            -- valid YAML but round-trips ambiguously through
-            -- plain-scalar resolution.
-            fromText "- ["
-              <> commaSep (V.map buildFlow ys)
-              <> fromText "]\n"
-      _ ->
-        fromText "- " <> buildScalar inner <> singleton '\n'
+       YMap kvs
+         | V.null kvs -> fromText "- {}\n"
+         | otherwise -> fromText "- " <> firstKvLine (ind + 2) kvs
+       YSeq ys
+         | V.null ys -> fromText "- []\n"
+         | otherwise ->
+             -- Nested block sequences inside a block sequence are
+             -- emitted in flow style. The compact "- - x" form is
+             -- valid YAML but round-trips ambiguously through
+             -- plain-scalar resolution.
+             fromText "- ["
+               <> commaSep (V.map buildFlow ys)
+               <> fromText "]\n"
+       _ ->
+         fromText "- " <> buildScalar inner <> singleton '\n'
 
 
 {- | Emit the first key-value pair on the same line as @-@, then the
@@ -265,11 +265,11 @@ escapeDQ c = case c of
     | isControl c ->
         let cp = ord c
         in if cp <= 0xFF
-            then fromText "\\x" <> hex 2 cp
-            else
-              if cp <= 0xFFFF
-                then fromText "\\u" <> hex 4 cp
-                else fromText "\\U" <> hex 8 cp
+             then fromText "\\x" <> hex 2 cp
+             else
+               if cp <= 0xFFFF
+                 then fromText "\\u" <> hex 4 cp
+                 else fromText "\\U" <> hex 8 cp
     | otherwise -> singleton c
 
 
@@ -278,8 +278,8 @@ hex pad n =
   let s = showHex n ""
       need = pad - length s
   in if need > 0
-      then fromText (T.replicate need "0") <> fromString s
-      else fromString s
+       then fromText (T.replicate need "0") <> fromString s
+       else fromString s
 
 
 singleQuoted :: Text -> Builder

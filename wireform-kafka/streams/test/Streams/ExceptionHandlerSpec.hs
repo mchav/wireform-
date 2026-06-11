@@ -1,46 +1,52 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the streams runtime exception handlers:
---   * KIP-280 ProductionExceptionHandler
---   * KIP-671 StreamsUncaughtExceptionHandler
---   * KIP-1033 ProcessingExceptionHandler
+{- | Tests for the streams runtime exception handlers:
+  * KIP-280 ProductionExceptionHandler
+  * KIP-671 StreamsUncaughtExceptionHandler
+  * KIP-1033 ProcessingExceptionHandler
+-}
 module Streams.ExceptionHandlerSpec (tests) where
 
-import qualified Control.Concurrent
-import qualified Data.ByteString.Char8 as BSC
+import Control.Concurrent qualified
+import Data.ByteString.Char8 qualified as BSC
 import Data.IORef
-import qualified Data.Text as T
 import Data.Text (Text)
-import Test.Syd
-
-import qualified Kafka.Client.Consumer as KC
-
+import Data.Text qualified as T
+import Kafka.Client.Consumer qualified as KC
 import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.NativeDriver
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Exception handlers" $ sequence_
-  [ production_handler_continue_keeps_running
-  , processing_handler_continue_keeps_running
-  , uncaught_replace_thread_respawns_loop
-  , uncaught_shutdown_client_transitions_error
-  , handler_defaults_are_continue_and_replace
-  ]
+tests =
+  describe "Exception handlers" $
+    sequence_
+      [ production_handler_continue_keeps_running
+      , processing_handler_continue_keeps_running
+      , uncaught_replace_thread_respawns_loop
+      , uncaught_shutdown_client_transitions_error
+      , handler_defaults_are_continue_and_replace
+      ]
+
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 mkRec :: Text -> Text -> Text -> KC.ConsumerRecord
-mkRec topic k v = KC.ConsumerRecord
-  { topic     = topic
-  , partition = 0
-  , offset    = 0
-  , timestamp = 100
-  , key       = Just (bytes k)
-  , value     = bytes v
-  , headers   = []
-  }
+mkRec topic k v =
+  KC.ConsumerRecord
+    { topic = topic
+    , partition = 0
+    , offset = 0
+    , timestamp = 100
+    , key = Just (bytes k)
+    , value = bytes v
+    , headers = []
+    }
+
 
 ----------------------------------------------------------------------
 -- Fixtures
@@ -54,15 +60,18 @@ buildPassthrough = do
   topo <- buildTopology b
   case validateTopology topo of
     Left err -> error (show err)
-    Right v  -> pure v
+    Right v -> pure v
+
 
 defaultCfg :: StreamsConfig
-defaultCfg = defaultStreamsConfig
-  { applicationId    = "err-handlers"
-  , bootstrapServers = ["mock:0"]
-  , numStreamThreads = 1
-  , pollMs           = 0
-  }
+defaultCfg =
+  defaultStreamsConfig
+    { applicationId = "err-handlers"
+    , bootstrapServers = ["mock:0"]
+    , numStreamThreads = 1
+    , pollMs = 0
+    }
+
 
 ----------------------------------------------------------------------
 -- 1. ProductionExceptionHandler: CONTINUE keeps the loop running
@@ -101,6 +110,7 @@ production_handler_continue_keeps_running =
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
+
 ----------------------------------------------------------------------
 -- 2. ProcessingExceptionHandler: CONTINUE swallows a thrown processor
 ----------------------------------------------------------------------
@@ -118,7 +128,7 @@ processing_handler_continue_keeps_running =
     topo' <- buildTopology b
     let topo = case validateTopology topo' of
           Left err -> error (show err)
-          Right v  -> v
+          Right v -> v
 
     ks <- newKafkaStreams defaultCfg topo
     seenRef <- newIORef (0 :: Int)
@@ -128,7 +138,8 @@ processing_handler_continue_keeps_running =
         pure ProcessingContinue
 
     (drv, h) <- newMockDriver
-    mockDriverInjectPoll h
+    mockDriverInjectPoll
+      h
       [ mkRec "in" "k1" "x"
       , mkRec "in" "k2" "y"
       ]
@@ -147,6 +158,7 @@ processing_handler_continue_keeps_running =
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
+
 
 ----------------------------------------------------------------------
 -- 3. KIP-671: ReplaceThread respawns the loop after a fatal error
@@ -168,7 +180,7 @@ uncaught_replace_thread_respawns_loop =
     topo' <- buildTopology b
     let topo = case validateTopology topo' of
           Left err -> error (show err)
-          Right v  -> v
+          Right v -> v
 
     ks <- newKafkaStreams defaultCfg topo
     setProcessingExceptionHandler ks logAndFailProcessing
@@ -195,6 +207,7 @@ uncaught_replace_thread_respawns_loop =
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
+
 ----------------------------------------------------------------------
 -- 4. KIP-671: ShutdownClient transitions to StreamsError
 ----------------------------------------------------------------------
@@ -209,7 +222,7 @@ uncaught_shutdown_client_transitions_error =
     topo' <- buildTopology b
     let topo = case validateTopology topo' of
           Left err -> error (show err)
-          Right v  -> v
+          Right v -> v
 
     ks <- newKafkaStreams defaultCfg topo
     setProcessingExceptionHandler ks logAndFailProcessing
@@ -226,10 +239,11 @@ uncaught_shutdown_client_transitions_error =
       st <- streamsStatus ks
       pure $ case st of
         StreamsError _ -> True
-        _              -> False
+        _ -> False
 
     closeKafkaStreams ks
     awaitState ks StreamsClosed
+
 
 ----------------------------------------------------------------------
 -- 5. Defaults: continue / replace-thread
@@ -248,12 +262,13 @@ handler_defaults_are_continue_and_replace =
     closeKafkaStreams ks
     awaitState ks StreamsClosed
 
+
 ----------------------------------------------------------------------
 -- Wait helper coordinated with the runtime's tick signal
 ----------------------------------------------------------------------
 
 waitForKs :: KafkaStreams -> Int -> IO Bool -> IO ()
-waitForKs _  0 _ = error "waitForKs: timed out"
+waitForKs _ 0 _ = error "waitForKs: timed out"
 waitForKs ks n act = do
   ok <- act
   if ok
@@ -261,6 +276,7 @@ waitForKs ks n act = do
     else do
       _ <- awaitTicks ks 1
       waitForKs ks (n - 1) act
+
 
 -- Local yield-based wait for tests that don't have a
 -- KafkaStreams handle yet (kept for future use).

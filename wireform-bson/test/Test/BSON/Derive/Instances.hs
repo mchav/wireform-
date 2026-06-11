@@ -4,8 +4,8 @@
 module Test.BSON.Derive.Instances () where
 
 import BSON.Derive
-
 import Test.BSON.Derive.Types
+
 
 deriveBSON ''Profile
 deriveBSON ''Tag

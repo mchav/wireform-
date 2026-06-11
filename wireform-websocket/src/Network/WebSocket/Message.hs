@@ -20,92 +20,105 @@ RFC 6455 \u00a75.4.  The receive loop transparently:
   client tries to smuggle a huge upload past the per-frame
   'PayloadLimit' by chunking).
 -}
-module Network.WebSocket.Message
-  ( -- * Messages
-    Message (..)
-  , MessageLimit (..)
-  , defaultMessageLimit
+module Network.WebSocket.Message (
+  -- * Messages
+  Message (..),
+  MessageLimit (..),
+  defaultMessageLimit,
 
-    -- * Receive
-  , receiveMessage
-  , receiveDataMessage
+  -- * Receive
+  receiveMessage,
+  receiveDataMessage,
 
-    -- * Send
-  , sendTextMessage
-  , sendBinaryMessage
+  -- * Send
+  sendTextMessage,
+  sendBinaryMessage,
 
-    -- * Loops
-  , forEachMessage
-  ) where
+  -- * Loops
+  forEachMessage,
+) where
 
 import Control.Exception (throwIO)
 import Control.Monad (when)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BSB
-import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as BSB
+import Data.ByteString.Lazy qualified as BSL
 import Data.IORef
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word16)
-
+import Data.Text.Encoding qualified as TE
+import Data.Word (Word16, Word8)
 import Network.WebSocket.Connection
 import Network.WebSocket.Frame
-import Network.WebSocket.PerMessageDeflate
-  ( PmdContext, Direction (..), compressMessage, decompressMessage
-  , pmdMaybeReset
-  )
+import Network.WebSocket.PerMessageDeflate (
+  Direction (..),
+  PmdContext,
+  compressMessage,
+  decompressMessage,
+  pmdMaybeReset,
+ )
+
 
 ------------------------------------------------------------------------
 -- Message
 ------------------------------------------------------------------------
 
 data Message
-  = TextMessage   !Text
+  = TextMessage !Text
   | BinaryMessage !ByteString
   deriving stock (Eq, Show)
 
-newtype MessageLimit = MessageLimit { unMessageLimit :: Int }
+
+newtype MessageLimit = MessageLimit {unMessageLimit :: Int}
   deriving stock (Eq, Show)
 
--- | 32 MiB.  Sum-of-fragments cap (RFC 6455 doesn't define one;
--- this is a safety net for the autopilot).
+
+{- | 32 MiB.  Sum-of-fragments cap (RFC 6455 doesn't define one;
+this is a safety net for the autopilot).
+-}
 defaultMessageLimit :: MessageLimit
 defaultMessageLimit = MessageLimit (32 * 1024 * 1024)
+
 
 ------------------------------------------------------------------------
 -- Receive
 ------------------------------------------------------------------------
 
--- | Read one full data message.  Drives the connection's
--- 'receiveFrame' loop:
---
--- * @OpText@ \/ @OpBinary@ starts a new message; subsequent
---   @OpContinuation@ frames extend it until @frameFin = True@.
--- * @OpPing@ is auto-replied with a matching @OpPong@.
--- * @OpPong@ is dropped silently (callers that want it can drop
---   down to 'receiveFrame').
--- * @OpClose@ is echoed back with the same status code, then
---   raised as 'WebSocketPeerClosed'.
--- * Non-control opcode arriving where a continuation is expected
---   (or vice versa) is a protocol error.
+{- | Read one full data message.  Drives the connection's
+'receiveFrame' loop:
+
+* @OpText@ \/ @OpBinary@ starts a new message; subsequent
+  @OpContinuation@ frames extend it until @frameFin = True@.
+* @OpPing@ is auto-replied with a matching @OpPong@.
+* @OpPong@ is dropped silently (callers that want it can drop
+  down to 'receiveFrame').
+* @OpClose@ is echoed back with the same status code, then
+  raised as 'WebSocketPeerClosed'.
+* Non-control opcode arriving where a continuation is expected
+  (or vice versa) is a protocol error.
+-}
 receiveMessage :: Connection -> MessageLimit -> IO Message
 receiveMessage = receiveDataMessage
 
--- | Same as 'receiveMessage'; kept around so callers that only
--- want data frames have a name to import.
+
+{- | Same as 'receiveMessage'; kept around so callers that only
+want data frames have a name to import.
+-}
 receiveDataMessage :: Connection -> MessageLimit -> IO Message
 receiveDataMessage conn (MessageLimit lim) = do
   firstFrame <- nextDataFrame conn
-  let !op0       = frameOpcode firstFrame
-      !payload0  = framePayload firstFrame
+  let !op0 = frameOpcode firstFrame
+      !payload0 = framePayload firstFrame
       !compressed0 = frameRsv1 firstFrame
   -- A continuation frame with no message in progress is a
   -- protocol error.
   case op0 of
-    OpContinuation -> failConnection conn protocolError
-      "continuation frame with no message in progress"
+    OpContinuation ->
+      failConnection
+        conn
+        protocolError
+        "continuation frame with no message in progress"
     _ -> pure ()
   -- When permessage-deflate is negotiated, RSV1 only marks the
   -- /first/ frame of a compressed message.  We pre-checked in
@@ -114,8 +127,10 @@ receiveDataMessage conn (MessageLimit lim) = do
   -- rejects RSV1 on continuation frames so the wire framing
   -- matches RFC 7692 sec 6.1.
   mPmd <- connectionPmd conn
-  when (compressed0 && case mPmd of { Just _ -> False; Nothing -> True }) $
-    failConnection conn protocolError
+  when (compressed0 && case mPmd of Just _ -> False; Nothing -> True) $
+    failConnection
+      conn
+      protocolError
       "RSV1 set on inbound frame but permessage-deflate not negotiated"
   when (BS.length payload0 > lim) tooBig
   if frameFin firstFrame
@@ -125,12 +140,18 @@ receiveDataMessage conn (MessageLimit lim) = do
       sizeRef <- newIORef (BS.length payload0)
       go mPmd compressed0 buf sizeRef op0
   where
-    tooBig = failConnection conn messageTooBig
-      "message exceeds configured limit"
+    tooBig =
+      failConnection
+        conn
+        messageTooBig
+        "message exceeds configured limit"
     go !mPmd !compressed !buf !sizeRef !op0 = do
       f <- nextDataFrame conn
-      when (frameRsv1 f) $ failConnection conn protocolError
-        "RSV1 set on continuation frame (RFC 7692 sec 6.1)"
+      when (frameRsv1 f) $
+        failConnection
+          conn
+          protocolError
+          "RSV1 set on continuation frame (RFC 7692 sec 6.1)"
       case frameOpcode f of
         OpContinuation -> do
           let !plen = BS.length (framePayload f)
@@ -144,30 +165,45 @@ receiveDataMessage conn (MessageLimit lim) = do
               b <- readIORef buf
               finalise mPmd compressed op0 (BSL.toStrict (BSB.toLazyByteString b))
             else go mPmd compressed buf sizeRef op0
-        other -> failConnection conn protocolError
+        other ->
+          failConnection
+            conn
+            protocolError
             ("expected continuation, got " <> show other)
     finalise mPmd compressed op bs0 = do
-      bs <- if compressed
-              then case mPmd of
-                     Just ctx -> do
-                       inflated <- decompressMessage ctx bs0
-                       pmdMaybeReset ctx Inbound
-                       when (BS.length inflated > lim) tooBig
-                       pure inflated
-                     Nothing -> failConnection conn protocolError
-                       "RSV1 set but permessage-deflate not negotiated"
-              else pure bs0
+      bs <-
+        if compressed
+          then case mPmd of
+            Just ctx -> do
+              inflated <- decompressMessage ctx bs0
+              pmdMaybeReset ctx Inbound
+              when (BS.length inflated > lim) tooBig
+              pure inflated
+            Nothing ->
+              failConnection
+                conn
+                protocolError
+                "RSV1 set but permessage-deflate not negotiated"
+          else pure bs0
       case op of
-        OpText   -> case TE.decodeUtf8' bs of
+        OpText -> case TE.decodeUtf8' bs of
           Right t -> pure (TextMessage t)
-          Left _  -> failConnection conn invalidPayload
-            "invalid UTF-8 in text message"
+          Left _ ->
+            failConnection
+              conn
+              invalidPayload
+              "invalid UTF-8 in text message"
         OpBinary -> pure (BinaryMessage bs)
-        other    -> failConnection conn protocolError
-          ("unexpected data opcode " <> show other)
+        other ->
+          failConnection
+            conn
+            protocolError
+            ("unexpected data opcode " <> show other)
 
--- | Read frames until a data frame appears, auto-handling ping
--- and close along the way.
+
+{- | Read frames until a data frame appears, auto-handling ping
+and close along the way.
+-}
 nextDataFrame :: Connection -> IO Frame
 nextDataFrame conn = loop
   where
@@ -183,16 +219,16 @@ nextDataFrame conn = loop
               -- RFC 6455 sec 7.4: a close payload with length 1
               -- is malformed (status code must be 2 bytes or 0).
               malformed = BS.length (framePayload f) == 1
-              badCode  = case mCode of
+              badCode = case mCode of
                 Nothing -> False
-                Just c  -> not (validCloseCode c)
+                Just c -> not (validCloseCode c)
               badReason = case TE.decodeUtf8' reason of
                 Right _ -> False
-                Left  _ -> True
+                Left _ -> True
               echoCode
                 | malformed || badCode || badReason = closeCodeWord protocolError
                 | otherwise = case mCode of
-                    Just c  -> c
+                    Just c -> c
                     Nothing -> closeCodeWord normalClosure
               echoPayload
                 | malformed || badCode || badReason =
@@ -200,76 +236,88 @@ nextDataFrame conn = loop
                         !lo = fromIntegral (echoCode .&. 0xFF) :: Word8
                     in BS.pack [hi, lo]
                 | otherwise = framePayload f
-          _ <- trySendFrame conn Frame
-                 { frameFin     = True
-                 , frameRsv1    = False
-                 , frameRsv2    = False
-                 , frameRsv3    = False
-                 , frameOpcode  = OpClose
-                 , frameMask    = Nothing
-                 , framePayload = echoPayload
-                 }
+          _ <-
+            trySendFrame
+              conn
+              Frame
+                { frameFin = True
+                , frameRsv1 = False
+                , frameRsv2 = False
+                , frameRsv3 = False
+                , frameOpcode = OpClose
+                , frameMask = Nothing
+                , framePayload = echoPayload
+                }
           let returnedCode
                 | malformed || badCode || badReason = Just (closeCodeWord protocolError)
-                | otherwise                          = mCode
+                | otherwise = mCode
           throwIO (WebSocketPeerClosed (CloseCode <$> returnedCode) reason)
         _ -> pure f
+
 
 parseCloseBody :: ByteString -> (Maybe Word16, ByteString)
 parseCloseBody bs
   | BS.length bs < 2 = (Nothing, BS.empty)
-  | otherwise        =
+  | otherwise =
       let !hi = fromIntegral (BS.index bs 0) :: Word16
           !lo = fromIntegral (BS.index bs 1) :: Word16
           !code = (hi * 256) + lo
       in (Just code, BS.drop 2 bs)
 
--- | RFC 6455 \u00a77.4: an endpoint MUST NOT send a close status
--- code that is one of the prohibited reserved values.
--- Specifically:
---
---   * 0\u20131000 are forbidden (the 4-digit space starts at 1000).
---   * 1004, 1005, 1006 are reserved for protocol-internal use.
---   * 1014\u20132999 are reserved (1014 was assigned for
---     bad-gateway in newer drafts but the RFC 6455 wording still
---     marks it).  The Autobahn suite treats 1015 and 1100\u20132999
---     as protocol errors.
---   * 5000+ are forbidden.
+
+{- | RFC 6455 \u00a77.4: an endpoint MUST NOT send a close status
+code that is one of the prohibited reserved values.
+Specifically:
+
+  * 0\u20131000 are forbidden (the 4-digit space starts at 1000).
+  * 1004, 1005, 1006 are reserved for protocol-internal use.
+  * 1014\u20132999 are reserved (1014 was assigned for
+    bad-gateway in newer drafts but the RFC 6455 wording still
+    marks it).  The Autobahn suite treats 1015 and 1100\u20132999
+    as protocol errors.
+  * 5000+ are forbidden.
+-}
 validCloseCode :: Word16 -> Bool
 validCloseCode c
-  | c <  1000             = False
+  | c < 1000 = False
   | c >= 1000 && c < 1004 = True
   | c >= 1004 && c < 1007 = False
   | c >= 1007 && c < 1012 = True
   | c >= 1012 && c < 3000 = False
   | c >= 3000 && c < 5000 = True
-  | otherwise             = False
+  | otherwise = False
+
 
 ------------------------------------------------------------------------
 -- Send
 ------------------------------------------------------------------------
 
--- | Send a text message as a single non-fragmented frame.
---
--- Hot-path: when @permessage-deflate@ is /not/ active, the call
--- goes through 'sendDataFrame' which skips the 'Frame' record
--- allocation entirely.  When PMD is active, the message is first
--- compressed via 'compressMessage' (one C-shim call per message)
--- and sent as a single fragment with @RSV1 = True@.
+{- | Send a text message as a single non-fragmented frame.
+
+Hot-path: when @permessage-deflate@ is /not/ active, the call
+goes through 'sendDataFrame' which skips the 'Frame' record
+allocation entirely.  When PMD is active, the message is first
+compressed via 'compressMessage' (one C-shim call per message)
+and sent as a single fragment with @RSV1 = True@.
+-}
 sendTextMessage :: Connection -> Text -> IO ()
 sendTextMessage conn t = sendMessageWithPmd conn OpText (TE.encodeUtf8 t)
+
 
 sendBinaryMessage :: Connection -> ByteString -> IO ()
 sendBinaryMessage conn = sendMessageWithPmd conn OpBinary
 
--- | Internal: dispatch on PMD presence.  Common to both text and
--- binary message sends.
+
+{- | Internal: dispatch on PMD presence.  Common to both text and
+binary message sends.
+-}
 sendMessageWithPmd :: Connection -> Opcode -> ByteString -> IO ()
 sendMessageWithPmd conn op payload = do
   mPmd <- connectionPmd conn
   case mPmd of
-    Nothing  -> sendDataFrame conn op payload
+    Nothing -> sendDataFrame conn op payload
     Just ctx -> sendCompressed conn ctx op payload
+
 
 sendCompressed :: Connection -> PmdContext -> Opcode -> ByteString -> IO ()
 sendCompressed conn ctx op payload = do
@@ -282,22 +330,26 @@ sendCompressed conn ctx op payload = do
   -- used here without a flag-passing widening that's not worth
   -- doing while PMD usage is dwarfed by uncompressed traffic in
   -- the bench.
-  sendFrame conn Frame
-    { frameFin     = True
-    , frameRsv1    = True
-    , frameRsv2    = False
-    , frameRsv3    = False
-    , frameOpcode  = op
-    , frameMask    = Nothing
-    , framePayload = body
-    }
+  sendFrame
+    conn
+    Frame
+      { frameFin = True
+      , frameRsv1 = True
+      , frameRsv2 = False
+      , frameRsv3 = False
+      , frameOpcode = op
+      , frameMask = Nothing
+      , framePayload = body
+      }
+
 
 ------------------------------------------------------------------------
 -- Loops
 ------------------------------------------------------------------------
 
--- | Run @handler@ for every message that arrives, until the peer
--- closes or the handler throws.
+{- | Run @handler@ for every message that arrives, until the peer
+closes or the handler throws.
+-}
 forEachMessage
   :: Connection
   -> MessageLimit
@@ -309,4 +361,3 @@ forEachMessage conn lim handler = loop
       m <- receiveMessage conn lim
       handler m
       loop
-

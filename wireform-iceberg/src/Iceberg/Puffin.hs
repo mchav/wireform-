@@ -144,15 +144,15 @@ blobJSON b off len =
       , ("length", Aeson.Number (fromIntegral len))
       ]
         ++ ( if Map.null (pbProperties b)
-              then []
-              else
-                [
-                  ( "properties"
-                  , Aeson.Object $
-                      KM.fromList
-                        [(Key.fromText k, Aeson.String v) | (k, v) <- Map.toList (pbProperties b)]
-                  )
-                ]
+               then []
+               else
+                 [
+                   ( "properties"
+                   , Aeson.Object $
+                       KM.fromList
+                         [(Key.fromText k, Aeson.String v) | (k, v) <- Map.toList (pbProperties b)]
+                   )
+                 ]
            )
         ++ maybe [] (\c -> [("compression-codec", Aeson.String c)]) (pbCompressionCodec b)
 

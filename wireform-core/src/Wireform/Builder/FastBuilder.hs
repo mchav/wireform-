@@ -170,23 +170,27 @@ data DataSink
     DynamicSink !(IORef DynamicSink)
   | -- | Bytes are accumulated in a contiguous buffer.
     GrowingBuffer !(IORef (ForeignPtr Word8))
-  | -- | Bytes are first accumulated in the 'Queue', then flushed to the
-    -- 'IO.Handle'.
+  | {- | Bytes are first accumulated in the 'Queue', then flushed to the
+    'IO.Handle'.
+    -}
     HandleSink !IO.Handle !Int {-next buffer size-} !(IORef Queue)
-  | -- | The buffer has a known-exact size. No 'IORef', no growth.
-    -- Used by 'toStrictByteStringExact' when the output size is
-    -- known in advance. If the builder overflows, behaviour is
-    -- undefined (but in practice 'getBytes_' will 'error').
+  | {- | The buffer has a known-exact size. No 'IORef', no growth.
+    Used by 'toStrictByteStringExact' when the output size is
+    known in advance. If the builder overflows, behaviour is
+    undefined (but in practice 'getBytes_' will 'error').
+    -}
     FixedBuffer
-  | -- | Bytes are accumulated in a buffer, then fed to a streaming
-    -- transform (compression, encryption, etc.) when the buffer fills.
+  | {- | Bytes are accumulated in a buffer, then fed to a streaming
+    transform (compression, encryption, etc.) when the buffer fills.
+    -}
     StreamingSink !Int {-next buffer size-} !(IORef StreamQueue)
-  | -- | Bytes are written directly into a double-mapped magic ring
-    -- buffer (used by 'Wireform.Transport.Send.sendBuilderDirect').
-    -- When the builder overflows, the already-written bytes are
-    -- published to the ring consumer and the builder continues
-    -- writing into newly-available ring space — no intermediate
-    -- 'S.ByteString' allocation or memcpy.
+  | {- | Bytes are written directly into a double-mapped magic ring
+    buffer (used by 'Wireform.Transport.Send.sendBuilderDirect').
+    When the builder overflows, the already-written bytes are
+    published to the ring consumer and the builder continues
+    writing into newly-available ring space — no intermediate
+    'S.ByteString' allocation or memcpy.
+    -}
     RingSink !(IORef RingSinkState)
 
 
@@ -194,9 +198,10 @@ data DataSink
 data DynamicSink
   = -- | Bytes are sent to another thread.
     ThreadedSink !(MVar Request) !(MVar Response)
-  | -- | Bytes are accumulated in a contiguous buffer until the
-    -- size limit is reached. After that, the destination switches
-    -- to a 'ThreadedSink'.
+  | {- | Bytes are accumulated in a contiguous buffer until the
+    size limit is reached. After that, the destination switches
+    to a 'ThreadedSink'.
+    -}
     BoundedGrowingBuffer {-# UNPACK #-} !(ForeignPtr Word8) !Int {-bound-}
 
 
@@ -210,8 +215,9 @@ kept only for GC liveness; the hot path uses 'sqBase' (a raw
 -}
 data StreamQueue = StreamQueue
   { sqBase :: {-# UNPACK #-} !(Ptr Word8)
-  -- ^ Buffer start, extracted once at init. The hot-path flush
-  -- reads this instead of dereferencing the 'ForeignPtr'.
+  {- ^ Buffer start, extracted once at init. The hot-path flush
+  reads this instead of dereferencing the 'ForeignPtr'.
+  -}
   , sqFptr :: !(ForeignPtr Word8)
   -- ^ Kept alive for GC. Never dereferenced on the hot path.
   , sqCap :: !Int
@@ -239,12 +245,14 @@ depend on the transport types.
 -}
 data RingSinkState = RingSinkState
   { rsHead :: {-# UNPACK #-} !Word64
-  -- ^ Logical head: start of the current buffer region.
-  -- Tracks the builder's logical write position; may be ahead
-  -- of the last published head.
+  {- ^ Logical head: start of the current buffer region.
+  Tracks the builder's logical write position; may be ahead
+  of the last published head.
+  -}
   , rsPublished :: {-# UNPACK #-} !Word64
-  -- ^ Last position passed to 'rsPublishHead'.  Everything
-  -- before this has been handed off to the ring consumer.
+  {- ^ Last position passed to 'rsPublishHead'.  Everything
+  before this has been handed off to the ring consumer.
+  -}
   , rsBase :: {-# UNPACK #-} !(Ptr Word8)
   -- ^ Ring base address (first mapping).
   , rsMask :: {-# UNPACK #-} !Int
@@ -256,11 +264,13 @@ data RingSinkState = RingSinkState
   , rsPublishHead :: !(Word64 -> IO ())
   -- ^ Publish the head position to the ring consumer.
   , rsEnsureRoom :: !(Word64 -> IO ())
-  -- ^ Block until the ring has room for head to advance to this
-  -- position.  Throws on transport failure / close.
+  {- ^ Block until the ring has room for head to advance to this
+  position.  Throws on transport failure / close.
+  -}
   , rsLoadTail :: !(IO Word64)
-  -- ^ Read the consumer's current tail position.  Used to check
-  -- whether the ring has room without publishing first.
+  {- ^ Read the consumer's current tail position.  Used to check
+  whether the ring has room without publishing first.
+  -}
   }
 
 
@@ -312,23 +322,25 @@ buffered bytes via 'byteStringCopy' or 'unsafeCStringLen'.
 -}
 data StreamSink = StreamSink
   { ssFeedRaw :: !(Ptr Word8 -> Int -> IO ())
-  -- ^ Feed a raw pointer region to the transform. The pointer
-  -- points into the builder's current buffer. The region is
-  -- valid for the duration of this call only — implementations
-  -- must consume or copy the data before returning.
-  --
-  -- @ssFeedRaw ptr len@ — @ptr@ is the start of the filled
-  -- region, @len@ is the number of valid bytes.
+  {- ^ Feed a raw pointer region to the transform. The pointer
+  points into the builder's current buffer. The region is
+  valid for the duration of this call only — implementations
+  must consume or copy the data before returning.
+
+  @ssFeedRaw ptr len@ — @ptr@ is the start of the filled
+  region, @len@ is the number of valid bytes.
+  -}
   , ssFinish :: !(IO Builder)
-  -- ^ Flush the transform and return a 'Builder' that emits the
-  -- transformed output. This builder is run directly inside the
-  -- outer builder's buffer — no intermediate 'S.ByteString' is
-  -- materialised for the output either.
-  --
-  -- Typical implementation: collect compressed chunks in an
-  -- 'IORef', then return @mconcat (map byteStringCopy chunks)@.
-  -- Or for a single contiguous output buffer, return
-  -- @unsafeCStringLen (outPtr, outLen)@.
+  {- ^ Flush the transform and return a 'Builder' that emits the
+  transformed output. This builder is run directly inside the
+  outer builder's buffer — no intermediate 'S.ByteString' is
+  materialised for the output either.
+
+  Typical implementation: collect compressed chunks in an
+  'IORef', then return @mconcat (map byteStringCopy chunks)@.
+  Or for a single contiguous output buffer, return
+  @unsafeCStringLen (outPtr, outLen)@.
+  -}
   }
 
 
@@ -355,12 +367,14 @@ data Response
     Error E.SomeException
   | -- | The builder thread has completed.
     Done !(Ptr Word8)
-  | -- | The builder thread has finished generating one chunk,
-    -- and waits for another request with the specified minimum size.
+  | {- | The builder thread has finished generating one chunk,
+    and waits for another request with the specified minimum size.
+    -}
     MoreBuffer !(Ptr Word8) !Int
-  | -- | The builder thread has partially filled the current chunk,
-    -- and wants to emit the bytestring to be included in the final
-    -- output.
+  | {- | The builder thread has partially filled the current chunk,
+    and wants to emit the bytestring to be included in the final
+    output.
+    -}
     InsertByteString !(Ptr Word8) !S.ByteString
   deriving (Show)
 

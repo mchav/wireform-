@@ -22,21 +22,24 @@ shape of the resulting record is tightly coupled to
 'WebSocketClientConfig' \u2014 keep the parser close to its
 consumer.
 -}
-module Network.WebSocket.URI
-  ( -- * URI ADT
-    WebSocketURI (..)
-  , WebSocketScheme (..)
-    -- * Parsing
-  , parseWebSocketURI
-  , URIError (..)
-    -- * Round-trip
-  , renderWebSocketURI
-  ) where
+module Network.WebSocket.URI (
+  -- * URI ADT
+  WebSocketURI (..),
+  WebSocketScheme (..),
+
+  -- * Parsing
+  parseWebSocketURI,
+  URIError (..),
+
+  -- * Round-trip
+  renderWebSocketURI,
+) where
 
 import Control.Exception (Exception)
-import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
+
 
 ------------------------------------------------------------------------
 -- ADT
@@ -46,21 +49,26 @@ import qualified Data.ByteString.Char8 as BS8
 data WebSocketScheme = WsScheme | WssScheme
   deriving stock (Eq, Show)
 
+
 data WebSocketURI = WebSocketURI
   { wsuScheme :: !WebSocketScheme
-  , wsuHost   :: !ByteString
-    -- ^ Hostname (no brackets, even for IPv6).
-  , wsuPort   :: !Int
-    -- ^ Port number, defaulted from scheme when absent.
+  , wsuHost :: !ByteString
+  -- ^ Hostname (no brackets, even for IPv6).
+  , wsuPort :: !Int
+  -- ^ Port number, defaulted from scheme when absent.
   , wsuTarget :: !ByteString
-    -- ^ Request target (path + query, no fragment).
-    --   Always non-empty; defaults to @"/"@.
-  } deriving stock (Eq, Show)
+  {- ^ Request target (path + query, no fragment).
+  Always non-empty; defaults to @"/"@.
+  -}
+  }
+  deriving stock (Eq, Show)
+
 
 -- | Default port for a scheme (RFC 6455 \u00a73).
 defaultPort :: WebSocketScheme -> Int
-defaultPort WsScheme  = 80
+defaultPort WsScheme = 80
 defaultPort WssScheme = 443
+
 
 ------------------------------------------------------------------------
 -- Errors
@@ -73,43 +81,49 @@ data URIError
   | URIUnbalancedV6 !ByteString
   deriving stock (Eq, Show)
 
+
 instance Exception URIError
+
 
 ------------------------------------------------------------------------
 -- Parse
 ------------------------------------------------------------------------
 
--- | Parse a WebSocket URI.  Strict per RFC 6455 \u00a73 (returns
--- 'Left' on anything outside the allowed grammar) with two
--- pragmatic tolerances: a trailing @#fragment@ is dropped silently
--- (RFC 6455 says fragments are forbidden but they appear in the
--- wild), and the scheme match is case-insensitive ("WS:" / "WSS:"
--- are accepted just like "ws:" / "wss:").
+{- | Parse a WebSocket URI.  Strict per RFC 6455 \u00a73 (returns
+'Left' on anything outside the allowed grammar) with two
+pragmatic tolerances: a trailing @#fragment@ is dropped silently
+(RFC 6455 says fragments are forbidden but they appear in the
+wild), and the scheme match is case-insensitive ("WS:" / "WSS:"
+are accepted just like "ws:" / "wss:").
+-}
 parseWebSocketURI :: ByteString -> Either URIError WebSocketURI
 parseWebSocketURI input = do
   (scheme, afterScheme) <- splitScheme input
   let (authPath, _frag) = case BS.break (== 0x23 {- '#' -}) afterScheme of
-        (l, r) | BS.null r -> (l, BS.empty)
-               | otherwise -> (l, BS.drop 1 r)
+        (l, r)
+          | BS.null r -> (l, BS.empty)
+          | otherwise -> (l, BS.drop 1 r)
       (authority, pathQuery) = BS.break isPathStart authPath
       isPathStart b = b == 0x2F {- '/' -} || b == 0x3F {- '?' -}
   (host, mPortBs) <- splitAuthority authority
   port <- case mPortBs of
     Nothing -> Right (defaultPort scheme)
-    Just p  -> parsePort p
+    Just p -> parsePort p
   let target = if BS.null pathQuery then "/" else pathQuery
-  Right WebSocketURI
-    { wsuScheme = scheme
-    , wsuHost   = host
-    , wsuPort   = port
-    , wsuTarget = target
-    }
+  Right
+    WebSocketURI
+      { wsuScheme = scheme
+      , wsuHost = host
+      , wsuPort = port
+      , wsuTarget = target
+      }
+
 
 splitScheme
   :: ByteString
   -> Either URIError (WebSocketScheme, ByteString)
 splitScheme bs
-  | "ws://"  `isPrefixCI` bs = Right (WsScheme,  BS.drop 5 bs)
+  | "ws://" `isPrefixCI` bs = Right (WsScheme, BS.drop 5 bs)
   | "wss://" `isPrefixCI` bs = Right (WssScheme, BS.drop 6 bs)
   | otherwise =
       let (s, _) = BS.break (== 0x3A {- ':' -}) bs
@@ -121,7 +135,8 @@ splitScheme bs
     asciiLower = BS.map toLowerB
     toLowerB b
       | b >= 0x41 && b <= 0x5A = b + 0x20
-      | otherwise              = b
+      | otherwise = b
+
 
 splitAuthority
   :: ByteString
@@ -136,15 +151,16 @@ splitAuthority bs
           let host = BS.drop 1 (BS.take ix bs)
               afterBracket = BS.drop (ix + 1) bs
           in case BS.uncons afterBracket of
-               Nothing                  -> Right (host, Nothing)
+               Nothing -> Right (host, Nothing)
                Just (0x3A {- ':' -}, p) -> Right (host, Just p)
-               _                        -> Left URIMissingHost
+               _ -> Left URIMissingHost
   | otherwise = case BS.elemIndex 0x3A {- ':' -} bs of
       Just ix ->
         let host = BS.take ix bs
             port = BS.drop (ix + 1) bs
         in if BS.null host then Left URIMissingHost else Right (host, Just port)
       Nothing -> Right (bs, Nothing)
+
 
 parsePort :: ByteString -> Either URIError Int
 parsePort bs
@@ -153,25 +169,28 @@ parsePort bs
       Just (n, leftover) | BS.null leftover && n > 0 && n <= 65535 -> Right n
       _ -> Left (URIBadPort bs)
 
+
 ------------------------------------------------------------------------
 -- Render
 ------------------------------------------------------------------------
 
--- | Render a parsed URI back to its canonical form.  Inverse of
--- 'parseWebSocketURI' (modulo the case-insensitivity tolerance).
+{- | Render a parsed URI back to its canonical form.  Inverse of
+'parseWebSocketURI' (modulo the case-insensitivity tolerance).
+-}
 renderWebSocketURI :: WebSocketURI -> ByteString
-renderWebSocketURI u = BS.concat
-  [ case wsuScheme u of WsScheme -> "ws://" ; WssScheme -> "wss://"
-  , wrapHost (wsuHost u)
-  , if wsuPort u == defaultPort (wsuScheme u)
-      then BS.empty
-      else ":" <> BS8.pack (show (wsuPort u))
-  , wsuTarget u
-  ]
+renderWebSocketURI u =
+  BS.concat
+    [ case wsuScheme u of WsScheme -> "ws://"; WssScheme -> "wss://"
+    , wrapHost (wsuHost u)
+    , if wsuPort u == defaultPort (wsuScheme u)
+        then BS.empty
+        else ":" <> BS8.pack (show (wsuPort u))
+    , wsuTarget u
+    ]
   where
     -- Wrap IPv6 literals back in brackets so the round-trip is
     -- syntactically valid.  Heuristic: any ':' in the host means
     -- it's an IPv6 literal (DNS names cannot contain ':').
     wrapHost h
       | 0x3A `BS.elem` h = "[" <> h <> "]"
-      | otherwise        = h
+      | otherwise = h

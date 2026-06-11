@@ -4,110 +4,122 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | Typeclass-based HTML serialization with GHC Generics support.
-module HTML.Class
-  ( ToHTML(..)
-  , FromHTML(..)
-  , encodeHTMLTyped
-  , encodeHTMLTypedDirect
-  , decodeHTMLTyped
-  , genericToEncoding
-  , GToHTML(..)
-  , GFromHTML(..)
-  ) where
+module HTML.Class (
+  ToHTML (..),
+  FromHTML (..),
+  encodeHTMLTyped,
+  encodeHTMLTypedDirect,
+  decodeHTMLTyped,
+  genericToEncoding,
+  GToHTML (..),
+  GFromHTML (..),
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable (toList)
-import Data.Functor.Const (Const(..))
-import Data.Functor.Compose (Compose(..))
-import Data.Functor.Identity (Identity(..))
-import qualified Data.Functor.Product as FProduct
-import qualified Data.Functor.Sum as FSum
-import qualified Data.Monoid as Mon
-import qualified Data.Semigroup as Semi
+import Data.Functor.Compose (Compose (..))
+import Data.Functor.Const (Const (..))
+import Data.Functor.Identity (Identity (..))
+import Data.Functor.Product qualified as FProduct
+import Data.Functor.Sum qualified as FSum
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
-import qualified Data.HashSet as HS
+import Data.HashSet qualified as HS
 import Data.Hashable (Hashable)
-import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Int (Int16, Int32, Int64, Int8)
 import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
+import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
+import Data.IntSet qualified as IntSet
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Ord (Down(..))
-import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Map.Strict qualified as Map
+import Data.Monoid qualified as Mon
+import Data.Ord (Down (..))
+import Data.Primitive.SmallArray (SmallArray, indexSmallArray, sizeofSmallArray, smallArrayFromList)
+import Data.Ratio (Ratio, denominator, numerator, (%))
+import Data.Semigroup qualified as Semi
 import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
+import Data.Sequence qualified as Seq
 import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Lazy.Builder as TLB
-import qualified Data.Text.Lazy.Builder.Int as TLB
-import qualified Data.Text.Lazy.Builder.RealFloat as TLB
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Read as TR
-import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Builder qualified as TLB
+import Data.Text.Lazy.Builder.Int qualified as TLB
+import Data.Text.Lazy.Builder.RealFloat qualified as TLB
+import Data.Text.Read qualified as TR
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import Data.Version (Version, makeVersion, versionBranch)
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Generics
+import HTML.Encode qualified as HE
+import HTML.Encoding (Encoding)
+import HTML.Encoding qualified as Enc
+import HTML.Parse qualified as HP
+import HTML.Value
 import Numeric.Natural (Natural)
 
-import HTML.Value
-import qualified HTML.Encode as HE
-import qualified HTML.Parse as HP
-import HTML.Encoding (Encoding)
-import qualified HTML.Encoding as Enc
 
 class ToHTML a where
   toHTML :: a -> HTMLNode
   default toHTML :: (Generic a, GToHTML (Rep a)) => a -> HTMLNode
   toHTML = gToHTML . from
 
-  -- | aeson-style direct encoder. HTML's tag-sensitive escaping rules
-  -- defeat a streaming 'Builder' at the public boundary, so
-  -- 'Encoding' wraps a fully-built 'HTMLNode'.
+
+  {- | aeson-style direct encoder. HTML's tag-sensitive escaping rules
+  defeat a streaming 'Builder' at the public boundary, so
+  'Encoding' wraps a fully-built 'HTMLNode'.
+  -}
   toEncoding :: a -> Encoding
   toEncoding = Enc.node . toHTML
+
 
 class FromHTML a where
   fromHTML :: HTMLNode -> Either String a
   default fromHTML :: (Generic a, GFromHTML (Rep a)) => HTMLNode -> Either String a
   fromHTML n = to <$> gFromHTML n
 
+
 encodeHTMLTyped :: ToHTML a => a -> ByteString
 encodeHTMLTyped a = HE.encodeHTML (HTMLDocument Nothing (toHTML a))
+
 
 -- | Encode directly via 'toEncoding'.
 encodeHTMLTypedDirect :: ToHTML a => a -> ByteString
 encodeHTMLTypedDirect = Enc.encodingToByteString . toEncoding
 
+
 genericToEncoding :: (Generic a, GToHTML (Rep a)) => a -> Encoding
 genericToEncoding = Enc.node . gToHTML . from
+
 
 decodeHTMLTyped :: FromHTML a => ByteString -> Either String a
 decodeHTMLTyped bs =
   let !doc = HP.parseHTML bs
   in fromHTML (htmlRoot doc)
 
+
 instance ToHTML Text where
   toHTML = HTMLText
+
 
 instance FromHTML Text where
   fromHTML (HTMLText t) = Right t
   fromHTML n = Right (textContent n)
 
+
 instance ToHTML Int where
   toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.decimal
+
 
 instance FromHTML Int where
   fromHTML n = do
@@ -116,8 +128,10 @@ instance FromHTML Int where
       Right (v, rest) | T.null rest -> Right v
       _ -> Left $ "FromHTML Int: cannot parse " <> T.unpack t
 
+
 instance ToHTML Integer where
   toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.decimal
+
 
 instance FromHTML Integer where
   fromHTML n = do
@@ -126,8 +140,10 @@ instance FromHTML Integer where
       Right (v, rest) | T.null rest -> Right v
       _ -> Left $ "FromHTML Integer: cannot parse " <> T.unpack t
 
+
 instance ToHTML Double where
   toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.realFloat
+
 
 instance FromHTML Double where
   fromHTML n = do
@@ -136,32 +152,41 @@ instance FromHTML Double where
       Right (v, rest) | T.null rest -> Right v
       _ -> Left $ "FromHTML Double: cannot parse " <> T.unpack t
 
+
 instance ToHTML Bool where
   toHTML True = HTMLText "true"
   toHTML False = HTMLText "false"
+
 
 instance FromHTML Bool where
   fromHTML n = do
     t <- fromHTML n
     case T.toLower (t :: Text) of
-      "true"  -> Right True
-      "1"     -> Right True
+      "true" -> Right True
+      "1" -> Right True
       "false" -> Right False
-      "0"     -> Right False
+      "0" -> Right False
       _ -> Left $ "FromHTML Bool: cannot parse " <> T.unpack t
+
 
 instance ToHTML a => ToHTML (Maybe a) where
   toHTML Nothing = HTMLElement "span" mempty mempty
   toHTML (Just x) = toHTML x
+
 
 instance FromHTML a => FromHTML (Maybe a) where
   fromHTML (HTMLElement "span" _ cs)
     | sizeofSmallArray cs == 0 = Right Nothing
   fromHTML n = Just <$> fromHTML n
 
+
 instance ToHTML a => ToHTML [a] where
-  toHTML xs = HTMLElement "ul" mempty
-    (smallArrayFromList (map (\x -> HTMLElement "li" mempty (smallArrayFromList [toHTML x])) xs))
+  toHTML xs =
+    HTMLElement
+      "ul"
+      mempty
+      (smallArrayFromList (map (\x -> HTMLElement "li" mempty (smallArrayFromList [toHTML x])) xs))
+
 
 instance FromHTML a => FromHTML [a] where
   fromHTML (HTMLElement _ _ cs) = traverse fromChild (toList cs)
@@ -173,22 +198,28 @@ instance FromHTML a => FromHTML [a] where
       fromChild n = fromHTML n
   fromHTML _ = Left "FromHTML [a]: expected element"
 
+
 instance ToHTML a => ToHTML (Vector a) where
   toHTML = toHTML . V.toList
+
 
 instance FromHTML a => FromHTML (Vector a) where
   fromHTML n = V.fromList <$> fromHTML n
 
+
 instance ToHTML HTMLNode where
   toHTML = id
 
+
 instance FromHTML HTMLNode where
   fromHTML = Right
+
 
 -- Aeson-parity instances ---------------------------------------------------
 
 intToHTML :: Int -> HTMLNode
 intToHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.decimal
+
 
 readSignedDec :: Integral a => String -> Text -> Either String a
 readSignedDec label t =
@@ -196,8 +227,10 @@ readSignedDec label t =
     Right (v, rest) | T.null rest -> Right v
     _ -> Left ("FromHTML " <> label <> ": cannot parse " <> T.unpack t)
 
+
 instance ToHTML Char where
   toHTML c = HTMLText (T.singleton c)
+
 
 instance FromHTML Char where
   fromHTML n = do
@@ -206,8 +239,10 @@ instance FromHTML Char where
       1 -> Right (T.head t)
       _ -> Left "FromHTML Char: expected single character"
 
+
 instance ToHTML Float where
   toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.realFloat
+
 
 instance FromHTML Float where
   fromHTML n = do
@@ -216,62 +251,82 @@ instance FromHTML Float where
       Right (v, rest) | T.null rest -> Right (realToFrac (v :: Double))
       _ -> Left ("FromHTML Float: cannot parse " <> T.unpack t)
 
+
 instance ToHTML Int8 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Int8 where
   fromHTML n = fromHTML n >>= readSignedDec "Int8"
 
+
 instance ToHTML Int16 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Int16 where
   fromHTML n = fromHTML n >>= readSignedDec "Int16"
 
+
 instance ToHTML Int32 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Int32 where
   fromHTML n = fromHTML n >>= readSignedDec "Int32"
 
+
 instance ToHTML Int64 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Int64 where
   fromHTML n = fromHTML n >>= readSignedDec "Int64"
 
+
 instance ToHTML Word where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Word where
   fromHTML n = fromHTML n >>= readSignedDec "Word"
 
+
 instance ToHTML Word8 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Word8 where
   fromHTML n = fromHTML n >>= readSignedDec "Word8"
 
+
 instance ToHTML Word16 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Word16 where
   fromHTML n = fromHTML n >>= readSignedDec "Word16"
 
+
 instance ToHTML Word32 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Word32 where
   fromHTML n = fromHTML n >>= readSignedDec "Word32"
 
+
 instance ToHTML Word64 where
   toHTML = intToHTML . fromIntegral
+
 
 instance FromHTML Word64 where
   fromHTML n = fromHTML n >>= readSignedDec "Word64"
 
+
 instance ToHTML Natural where
   toHTML = toHTML . toInteger
+
 
 instance FromHTML Natural where
   fromHTML n = do
@@ -280,75 +335,99 @@ instance FromHTML Natural where
       then Left "FromHTML Natural: negative integer"
       else Right (fromInteger i)
 
+
 instance ToHTML TL.Text where
   toHTML = HTMLText . TL.toStrict
+
 
 instance FromHTML TL.Text where
   fromHTML n = TL.fromStrict <$> fromHTML n
 
+
 instance ToHTML ByteString where
   toHTML = HTMLText . TE.decodeUtf8
+
 
 instance FromHTML ByteString where
   fromHTML n = TE.encodeUtf8 <$> fromHTML n
 
+
 instance ToHTML BSL.ByteString where
   toHTML = HTMLText . TE.decodeUtf8 . BSL.toStrict
+
 
 instance FromHTML BSL.ByteString where
   fromHTML n = BSL.fromStrict <$> fromHTML n
 
+
 instance ToHTML () where
   toHTML () = HTMLElement "span" mempty mempty
+
 
 instance FromHTML () where
   fromHTML _ = Right ()
 
+
 instance ToHTML a => ToHTML (NonEmpty a) where
   toHTML = toHTML . NE.toList
+
 
 instance FromHTML a => FromHTML (NonEmpty a) where
   fromHTML n = do
     xs <- fromHTML n
     case xs of
-      []     -> Left "FromHTML NonEmpty: empty list"
-      (y:ys) -> Right (y :| ys)
+      [] -> Left "FromHTML NonEmpty: empty list"
+      (y : ys) -> Right (y :| ys)
+
 
 instance (ToHTML a, ToHTML b) => ToHTML (Either a b) where
-  toHTML (Left  x) = HTMLElement "div" mempty (smallArrayFromList [HTMLElement "left"  mempty (smallArrayFromList [toHTML x])])
+  toHTML (Left x) = HTMLElement "div" mempty (smallArrayFromList [HTMLElement "left" mempty (smallArrayFromList [toHTML x])])
   toHTML (Right x) = HTMLElement "div" mempty (smallArrayFromList [HTMLElement "right" mempty (smallArrayFromList [toHTML x])])
+
 
 instance (FromHTML a, FromHTML b) => FromHTML (Either a b) where
   fromHTML (HTMLElement _ _ cs)
     | sizeofSmallArray cs == 1
     , HTMLElement tag _ inner <- indexSmallArray cs 0
     , sizeofSmallArray inner == 1 = case tag of
-        "left"  -> Left  <$> fromHTML (indexSmallArray inner 0)
+        "left" -> Left <$> fromHTML (indexSmallArray inner 0)
         "right" -> Right <$> fromHTML (indexSmallArray inner 0)
-        _       -> Left "FromHTML Either: expected left/right child"
+        _ -> Left "FromHTML Either: expected left/right child"
   fromHTML _ = Left "FromHTML Either: expected single child"
+
 
 instance (Ord a, ToHTML a) => ToHTML (Set a) where
   toHTML = toHTML . Set.toList
 
+
 instance (Ord a, FromHTML a) => FromHTML (Set a) where
   fromHTML n = Set.fromList <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Seq a) where
   toHTML s = toHTML (foldr (:) [] s)
 
+
 instance FromHTML a => FromHTML (Seq a) where
   fromHTML n = Seq.fromList <$> fromHTML n
 
+
 instance ToHTML v => ToHTML (Map Text v) where
-  toHTML m = HTMLElement "dl" mempty
-    (smallArrayFromList
-      (concatMap
-        (\(k, v) ->
-          [ HTMLElement "dt" mempty (smallArrayFromList [HTMLText k])
-          , HTMLElement "dd" mempty (smallArrayFromList [toHTML v])
-          ])
-        (Map.toList m)))
+  toHTML m =
+    HTMLElement
+      "dl"
+      mempty
+      ( smallArrayFromList
+          ( concatMap
+              ( \(k, v) ->
+                  [ HTMLElement "dt" mempty (smallArrayFromList [HTMLText k])
+                  , HTMLElement "dd" mempty (smallArrayFromList [toHTML v])
+                  ]
+              )
+              (Map.toList m)
+          )
+      )
+
 
 instance FromHTML v => FromHTML (Map Text v) where
   fromHTML (HTMLElement _ _ cs) = Map.fromList <$> goPairs (toList cs)
@@ -360,19 +439,23 @@ instance FromHTML v => FromHTML (Map Text v) where
             v <- fromHTML (indexSmallArray vCs 0)
             ((keyText, v) :) <$> goPairs rest
       goPairs [] = Right []
-      goPairs _  = Left "FromHTML (Map Text v): expected dt/dd pairs"
+      goPairs _ = Left "FromHTML (Map Text v): expected dt/dd pairs"
   fromHTML _ = Left "FromHTML (Map Text v): expected dl element"
+
 
 instance ToHTML v => ToHTML (HashMap Text v) where
   toHTML = toHTML . Map.fromList . HM.toList
+
 
 instance FromHTML v => FromHTML (HashMap Text v) where
   fromHTML n = do
     m <- fromHTML n :: Either String (Map Text v)
     Right (HM.fromList (Map.toList m))
 
+
 instance ToHTML v => ToHTML (IntMap v) where
   toHTML m = toHTML (Map.fromList [(T.pack (show k), v) | (k, v) <- IntMap.toList m])
+
 
 instance FromHTML v => FromHTML (IntMap v) where
   fromHTML n = do
@@ -384,80 +467,112 @@ instance FromHTML v => FromHTML (IntMap v) where
         Right (i, rest) | T.null rest -> Right (i, v)
         _ -> Left "FromHTML IntMap: cannot parse Int key"
 
+
 instance ToHTML IntSet where
   toHTML = toHTML . IntSet.toList
+
 
 instance FromHTML IntSet where
   fromHTML n = IntSet.fromList <$> fromHTML n
 
+
 instance (Hashable a, ToHTML a) => ToHTML (HashSet a) where
   toHTML = toHTML . HS.toList
+
 
 instance (Eq a, Hashable a, FromHTML a) => FromHTML (HashSet a) where
   fromHTML n = HS.fromList <$> fromHTML n
 
+
 instance (ToHTML a, ToHTML b) => ToHTML (a, b) where
-  toHTML (a, b) = HTMLElement "tuple" mempty
-    (smallArrayFromList [toHTML a, toHTML b])
+  toHTML (a, b) =
+    HTMLElement
+      "tuple"
+      mempty
+      (smallArrayFromList [toHTML a, toHTML b])
+
 
 instance (FromHTML a, FromHTML b) => FromHTML (a, b) where
   fromHTML (HTMLElement _ _ cs)
     | sizeofSmallArray cs == 2 =
-        (,) <$> fromHTML (indexSmallArray cs 0)
-            <*> fromHTML (indexSmallArray cs 1)
+        (,)
+          <$> fromHTML (indexSmallArray cs 0)
+          <*> fromHTML (indexSmallArray cs 1)
   fromHTML _ = Left "FromHTML (a,b): expected element with 2 children"
 
+
 instance (ToHTML a, ToHTML b, ToHTML c) => ToHTML (a, b, c) where
-  toHTML (a, b, c) = HTMLElement "tuple" mempty
-    (smallArrayFromList [toHTML a, toHTML b, toHTML c])
+  toHTML (a, b, c) =
+    HTMLElement
+      "tuple"
+      mempty
+      (smallArrayFromList [toHTML a, toHTML b, toHTML c])
+
 
 instance (FromHTML a, FromHTML b, FromHTML c) => FromHTML (a, b, c) where
   fromHTML (HTMLElement _ _ cs)
     | sizeofSmallArray cs == 3 =
-        (,,) <$> fromHTML (indexSmallArray cs 0)
-             <*> fromHTML (indexSmallArray cs 1)
-             <*> fromHTML (indexSmallArray cs 2)
+        (,,)
+          <$> fromHTML (indexSmallArray cs 0)
+          <*> fromHTML (indexSmallArray cs 1)
+          <*> fromHTML (indexSmallArray cs 2)
   fromHTML _ = Left "FromHTML (a,b,c): expected element with 3 children"
 
+
 instance (ToHTML a, ToHTML b, ToHTML c, ToHTML d) => ToHTML (a, b, c, d) where
-  toHTML (a, b, c, d) = HTMLElement "tuple" mempty
-    (smallArrayFromList [toHTML a, toHTML b, toHTML c, toHTML d])
+  toHTML (a, b, c, d) =
+    HTMLElement
+      "tuple"
+      mempty
+      (smallArrayFromList [toHTML a, toHTML b, toHTML c, toHTML d])
+
 
 instance (FromHTML a, FromHTML b, FromHTML c, FromHTML d) => FromHTML (a, b, c, d) where
   fromHTML (HTMLElement _ _ cs)
     | sizeofSmallArray cs == 4 =
-        (,,,) <$> fromHTML (indexSmallArray cs 0)
-              <*> fromHTML (indexSmallArray cs 1)
-              <*> fromHTML (indexSmallArray cs 2)
-              <*> fromHTML (indexSmallArray cs 3)
+        (,,,)
+          <$> fromHTML (indexSmallArray cs 0)
+          <*> fromHTML (indexSmallArray cs 1)
+          <*> fromHTML (indexSmallArray cs 2)
+          <*> fromHTML (indexSmallArray cs 3)
   fromHTML _ = Left "FromHTML (a,b,c,d): expected element with 4 children"
+
 
 instance ToHTML a => ToHTML (Identity a) where
   toHTML (Identity x) = toHTML x
 
+
 instance FromHTML a => FromHTML (Identity a) where
   fromHTML n = Identity <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Const a b) where
   toHTML (Const x) = toHTML x
 
+
 instance FromHTML a => FromHTML (Const a b) where
   fromHTML n = Const <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Down a) where
   toHTML (Down x) = toHTML x
 
+
 instance FromHTML a => FromHTML (Down a) where
   fromHTML n = Down <$> fromHTML n
+
 
 instance ToHTML Version where
   toHTML = toHTML . versionBranch
 
+
 instance FromHTML Version where
   fromHTML n = makeVersion <$> fromHTML n
 
+
 instance (Integral a, ToHTML a) => ToHTML (Ratio a) where
   toHTML r = toHTML (numerator r, denominator r)
+
 
 instance (Integral a, FromHTML a) => FromHTML (Ratio a) where
   fromHTML n = do
@@ -466,108 +581,150 @@ instance (Integral a, FromHTML a) => FromHTML (Ratio a) where
       then Left "FromHTML Ratio: zero denominator"
       else Right (num % den)
 
+
 -- Functor / monoid newtype instances --------------------------------------
 
 instance ToHTML a => ToHTML (Mon.Sum a) where
   toHTML = toHTML . Mon.getSum
 
+
 instance FromHTML a => FromHTML (Mon.Sum a) where
   fromHTML n = Mon.Sum <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Mon.Product a) where
   toHTML = toHTML . Mon.getProduct
 
+
 instance FromHTML a => FromHTML (Mon.Product a) where
   fromHTML n = Mon.Product <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Mon.Dual a) where
   toHTML = toHTML . Mon.getDual
 
+
 instance FromHTML a => FromHTML (Mon.Dual a) where
   fromHTML n = Mon.Dual <$> fromHTML n
+
 
 instance ToHTML Mon.All where
   toHTML = toHTML . Mon.getAll
 
+
 instance FromHTML Mon.All where
   fromHTML n = Mon.All <$> fromHTML n
+
 
 instance ToHTML Mon.Any where
   toHTML = toHTML . Mon.getAny
 
+
 instance FromHTML Mon.Any where
   fromHTML n = Mon.Any <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Mon.First a) where
   toHTML = toHTML . Mon.getFirst
 
+
 instance FromHTML a => FromHTML (Mon.First a) where
   fromHTML n = Mon.First <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Mon.Last a) where
   toHTML = toHTML . Mon.getLast
 
+
 instance FromHTML a => FromHTML (Mon.Last a) where
   fromHTML n = Mon.Last <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Semi.Min a) where
   toHTML = toHTML . Semi.getMin
 
+
 instance FromHTML a => FromHTML (Semi.Min a) where
   fromHTML n = Semi.Min <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Semi.Max a) where
   toHTML = toHTML . Semi.getMax
 
+
 instance FromHTML a => FromHTML (Semi.Max a) where
   fromHTML n = Semi.Max <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Semi.First a) where
   toHTML = toHTML . Semi.getFirst
 
+
 instance FromHTML a => FromHTML (Semi.First a) where
   fromHTML n = Semi.First <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Semi.Last a) where
   toHTML = toHTML . Semi.getLast
 
+
 instance FromHTML a => FromHTML (Semi.Last a) where
   fromHTML n = Semi.Last <$> fromHTML n
+
 
 instance ToHTML a => ToHTML (Semi.WrappedMonoid a) where
   toHTML = toHTML . Semi.unwrapMonoid
 
+
 instance FromHTML a => FromHTML (Semi.WrappedMonoid a) where
   fromHTML n = Semi.WrapMonoid <$> fromHTML n
+
 
 instance (ToHTML a, ToHTML b) => ToHTML (Semi.Arg a b) where
   toHTML (Semi.Arg a b) = toHTML (a, b)
 
+
 instance (FromHTML a, FromHTML b) => FromHTML (Semi.Arg a b) where
   fromHTML n = uncurry Semi.Arg <$> fromHTML n
+
 
 instance ToHTML (f (g a)) => ToHTML (Compose f g a) where
   toHTML = toHTML . getCompose
 
+
 instance FromHTML (f (g a)) => FromHTML (Compose f g a) where
   fromHTML n = Compose <$> fromHTML n
 
+
 instance (ToHTML (f a), ToHTML (g a)) => ToHTML (FProduct.Product f g a) where
-  toHTML (FProduct.Pair x y) = HTMLElement "tuple" mempty
-    (smallArrayFromList [toHTML x, toHTML y])
+  toHTML (FProduct.Pair x y) =
+    HTMLElement
+      "tuple"
+      mempty
+      (smallArrayFromList [toHTML x, toHTML y])
+
 
 instance (FromHTML (f a), FromHTML (g a)) => FromHTML (FProduct.Product f g a) where
   fromHTML (HTMLElement _ _ cs)
-    | sizeofSmallArray cs == 2 = FProduct.Pair
-        <$> fromHTML (indexSmallArray cs 0)
-        <*> fromHTML (indexSmallArray cs 1)
+    | sizeofSmallArray cs == 2 =
+        FProduct.Pair
+          <$> fromHTML (indexSmallArray cs 0)
+          <*> fromHTML (indexSmallArray cs 1)
   fromHTML _ = Left "FromHTML Functor.Product: expected element with 2 children"
 
+
 instance (ToHTML (f a), ToHTML (g a)) => ToHTML (FSum.Sum f g a) where
-  toHTML (FSum.InL x) = HTMLElement "div" mempty
-    (smallArrayFromList [HTMLElement "InL" mempty (smallArrayFromList [toHTML x])])
-  toHTML (FSum.InR x) = HTMLElement "div" mempty
-    (smallArrayFromList [HTMLElement "InR" mempty (smallArrayFromList [toHTML x])])
+  toHTML (FSum.InL x) =
+    HTMLElement
+      "div"
+      mempty
+      (smallArrayFromList [HTMLElement "InL" mempty (smallArrayFromList [toHTML x])])
+  toHTML (FSum.InR x) =
+    HTMLElement
+      "div"
+      mempty
+      (smallArrayFromList [HTMLElement "InR" mempty (smallArrayFromList [toHTML x])])
+
 
 instance (FromHTML (f a), FromHTML (g a)) => FromHTML (FSum.Sum f g a) where
   fromHTML (HTMLElement _ _ cs)
@@ -576,39 +733,49 @@ instance (FromHTML (f a), FromHTML (g a)) => FromHTML (FSum.Sum f g a) where
     , sizeofSmallArray inner == 1 = case tag of
         "InL" -> FSum.InL <$> fromHTML (indexSmallArray inner 0)
         "InR" -> FSum.InR <$> fromHTML (indexSmallArray inner 0)
-        _     -> Left "FromHTML Functor.Sum: expected InL/InR child"
+        _ -> Left "FromHTML Functor.Sum: expected InL/InR child"
   fromHTML _ = Left "FromHTML Functor.Sum: expected single child"
+
 
 -- GHC.Generics support
 
 class GToHTML f where
   gToHTML :: f p -> HTMLNode
 
+
 class GFromHTML f where
   gFromHTML :: HTMLNode -> Either String (f p)
+
 
 instance (Datatype d, GToHTMLCon f) => GToHTML (M1 D d f) where
   gToHTML (M1 x) = gToHTMLCon (datatypeName (undefined :: M1 D d f p)) x
 
+
 instance GFromHTMLCon f => GFromHTML (M1 D d f) where
   gFromHTML n = M1 <$> gFromHTMLCon n
+
 
 class GToHTMLCon f where
   gToHTMLCon :: String -> f p -> HTMLNode
 
+
 class GFromHTMLCon f where
   gFromHTMLCon :: HTMLNode -> Either String (f p)
+
 
 instance GToHTMLFields f => GToHTMLCon (M1 C c f) where
   gToHTMLCon typeName (M1 x) =
     let fields = gToHTMLFields x
-        children = smallArrayFromList
-          (map (\(k, v) -> HTMLElement (T.pack k) mempty (smallArrayFromList [v])) fields)
+        children =
+          smallArrayFromList
+            (map (\(k, v) -> HTMLElement (T.pack k) mempty (smallArrayFromList [v])) fields)
     in HTMLElement (T.pack typeName) mempty children
+
 
 instance GFromHTMLFields f => GFromHTMLCon (M1 C c f) where
   gFromHTMLCon (HTMLElement _ _ cs) = M1 <$> gFromHTMLFields (lookupChild cs)
   gFromHTMLCon _ = Left "GFromHTML: expected HTMLElement for record type"
+
 
 lookupChild :: SmallArray HTMLNode -> Text -> Maybe HTMLNode
 lookupChild cs name = go 0
@@ -623,24 +790,30 @@ lookupChild cs name = go 0
             else Just (HTMLElement n mempty innerCs)
       | otherwise = go (i + 1)
 
+
 class GToHTMLFields f where
   gToHTMLFields :: f p -> [(String, HTMLNode)]
+
 
 class GFromHTMLFields f where
   gFromHTMLFields :: (Text -> Maybe HTMLNode) -> Either String (f p)
 
+
 instance (GToHTMLFields a, GToHTMLFields b) => GToHTMLFields (a :*: b) where
   gToHTMLFields (a :*: b) = gToHTMLFields a ++ gToHTMLFields b
+
 
 instance (GFromHTMLFields a, GFromHTMLFields b) => GFromHTMLFields (a :*: b) where
   gFromHTMLFields lkup = (:*:) <$> gFromHTMLFields lkup <*> gFromHTMLFields lkup
 
+
 instance (Selector s, ToHTML a) => GToHTMLFields (M1 S s (K1 i a)) where
   gToHTMLFields m@(M1 (K1 x)) = [(selName m, toHTML x)]
+
 
 instance (Selector s, FromHTML a) => GFromHTMLFields (M1 S s (K1 i a)) where
   gFromHTMLFields lkup =
     let name = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup name of
          Nothing -> Left $ "GFromHTML: missing field " <> T.unpack name
-         Just v  -> M1 . K1 <$> fromHTML v
+         Just v -> M1 . K1 <$> fromHTML v

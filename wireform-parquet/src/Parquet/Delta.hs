@@ -1,24 +1,27 @@
 {-# LANGUAGE BangPatterns #-}
--- | DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, and DELTA_BYTE_ARRAY
--- encodings for Parquet columns.
---
--- See Apache Parquet spec Encodings.md.
-module Parquet.Delta
-  ( decodeDeltaBinaryPackedInt32
-  , decodeDeltaBinaryPackedInt64
-  , decodeDeltaLengthByteArray
-  , decodeDeltaByteArray
-  ) where
+
+{- | DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, and DELTA_BYTE_ARRAY
+encodings for Parquet columns.
+
+See Apache Parquet spec Encodings.md.
+-}
+module Parquet.Delta (
+  decodeDeltaBinaryPackedInt32,
+  decodeDeltaBinaryPackedInt64,
+  decodeDeltaLengthByteArray,
+  decodeDeltaByteArray,
+) where
 
 import Control.Monad.ST (ST, runST)
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Int (Int32, Int64)
+import Data.Vector qualified as V
+import Data.Vector.Primitive qualified as VP
+import Data.Vector.Primitive.Mutable qualified as MVP
 import Data.Word (Word64)
-import qualified Data.Vector as V
-import qualified Data.Vector.Primitive as VP
-import qualified Data.Vector.Primitive.Mutable as MVP
+
 
 decodeDeltaBinaryPackedInt32 :: Int -> ByteString -> Either String (VP.Vector Int32)
 decodeDeltaBinaryPackedInt32 n bs = do
@@ -26,9 +29,11 @@ decodeDeltaBinaryPackedInt32 n bs = do
   Right (VP.map fromIntegral v64)
 {-# INLINE decodeDeltaBinaryPackedInt32 #-}
 
+
 decodeDeltaBinaryPackedInt64 :: Int -> ByteString -> Either String (VP.Vector Int64)
 decodeDeltaBinaryPackedInt64 n bs = fst <$> decodeDeltaBinaryPackedRaw n bs
 {-# INLINE decodeDeltaBinaryPackedInt64 #-}
+
 
 decodeDeltaBinaryPackedRaw :: Int -> ByteString -> Either String (VP.Vector Int64, Int)
 decodeDeltaBinaryPackedRaw _n bs = do
@@ -41,13 +46,15 @@ decodeDeltaBinaryPackedRaw _n bs = do
       !totalValues = fromIntegral totalValues64 :: Int
   if totalValues == 0
     then Right (VP.empty, off4)
-    else if numMiniblocks == 0 || blockSize == 0
-      then Left "Parquet.Delta: zero block_size or num_miniblocks"
-      else do
-        let !miniblockSize = blockSize `quot` numMiniblocks
-            !numDeltas = totalValues - 1
-        (deltas, finalOff) <- decodeAllBlocks bs off4 numDeltas numMiniblocks miniblockSize
-        Right (prefixSumVector totalValues firstValue deltas, finalOff)
+    else
+      if numMiniblocks == 0 || blockSize == 0
+        then Left "Parquet.Delta: zero block_size or num_miniblocks"
+        else do
+          let !miniblockSize = blockSize `quot` numMiniblocks
+              !numDeltas = totalValues - 1
+          (deltas, finalOff) <- decodeAllBlocks bs off4 numDeltas numMiniblocks miniblockSize
+          Right (prefixSumVector totalValues firstValue deltas, finalOff)
+
 
 readULEB128 :: ByteString -> Int -> Either String (Word64, Int)
 readULEB128 bs = go 0 0
@@ -59,8 +66,9 @@ readULEB128 bs = go 0 0
           let !b = BS.index bs off
               !val = acc .|. (fromIntegral (b .&. 0x7F) `shiftL` shift)
           in if b .&. 0x80 == 0
-            then Right (val, off + 1)
-            else go val (shift + 7) (off + 1)
+               then Right (val, off + 1)
+               else go val (shift + 7) (off + 1)
+
 
 readZigzagLEB128 :: ByteString -> Int -> Either String (Int64, Int)
 readZigzagLEB128 bs off = do
@@ -69,6 +77,7 @@ readZigzagLEB128 bs off = do
       !decoded = (v `shiftR` 1) `xor` negate (v .&. 1)
   Right (decoded, next)
 
+
 prefixSumVector :: Int -> Int64 -> VP.Vector Int64 -> VP.Vector Int64
 prefixSumVector n firstVal deltas = runST $ do
   mv <- MVP.new n
@@ -76,18 +85,24 @@ prefixSumVector n firstVal deltas = runST $ do
   let go !i !prev
         | i >= n = pure ()
         | otherwise = do
-            let !d = if i - 1 < VP.length deltas
-                      then VP.unsafeIndex deltas (i - 1)
-                      else 0
+            let !d =
+                  if i - 1 < VP.length deltas
+                    then VP.unsafeIndex deltas (i - 1)
+                    else 0
                 !cur = prev + d
             MVP.write mv i cur
             go (i + 1) cur
   go 1 firstVal
   VP.unsafeFreeze mv
 
-decodeAllBlocks ::
-  ByteString -> Int -> Int -> Int -> Int ->
-  Either String (VP.Vector Int64, Int)
+
+decodeAllBlocks
+  :: ByteString
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Either String (VP.Vector Int64, Int)
 decodeAllBlocks bs off0 numDeltas nMini miniblockSize = runST $ do
   mv <- MVP.new (max numDeltas 0) :: ST s (MVP.MVector s Int64)
   result <- goBlock off0 0 mv
@@ -131,19 +146,21 @@ decodeAllBlocks bs off0 numDeltas nMini miniblockSize = runST $ do
                         fill (i + 1)
               fill 0
               goMini off (miniIdx + 1) (written + nInMini) minDelta bwOff mv
-            else if off + totalBytesInMini > BS.length bs
-              then pure (Left "Parquet.Delta: truncated miniblock data")
-              else do
-                let unpack !i
-                      | i >= nInMini = pure ()
-                      | otherwise = do
-                          let !bitStart = i * bw
-                              !raw = readBitsLE bs off bitStart bw
-                              !delta = fromIntegral raw + minDelta
-                          MVP.write mv (written + i) delta
-                          unpack (i + 1)
-                unpack 0
-                goMini (off + totalBytesInMini) (miniIdx + 1) (written + nInMini) minDelta bwOff mv
+            else
+              if off + totalBytesInMini > BS.length bs
+                then pure (Left "Parquet.Delta: truncated miniblock data")
+                else do
+                  let unpack !i
+                        | i >= nInMini = pure ()
+                        | otherwise = do
+                            let !bitStart = i * bw
+                                !raw = readBitsLE bs off bitStart bw
+                                !delta = fromIntegral raw + minDelta
+                            MVP.write mv (written + i) delta
+                            unpack (i + 1)
+                  unpack 0
+                  goMini (off + totalBytesInMini) (miniIdx + 1) (written + nInMini) minDelta bwOff mv
+
 
 {-# INLINE readBitsLE #-}
 readBitsLE :: ByteString -> Int -> Int -> Int -> Word64
@@ -164,6 +181,7 @@ readBitsLE bs baseOff bitOff bw
                 in accum (acc .|. (b `shiftL` (8 * i))) (i + 1)
       in (accum 0 0 `shiftR` startBit) .&. mask
 
+
 -- | DELTA_LENGTH_BYTE_ARRAY: delta-packed lengths followed by concatenated payloads.
 decodeDeltaLengthByteArray :: Int -> ByteString -> Either String (V.Vector ByteString)
 decodeDeltaLengthByteArray _n bs = do
@@ -172,10 +190,11 @@ decodeDeltaLengthByteArray _n bs = do
   splitByLengths lengths64 payload
 {-# INLINE decodeDeltaLengthByteArray #-}
 
+
 splitByLengths :: VP.Vector Int64 -> ByteString -> Either String (V.Vector ByteString)
 splitByLengths lens payload = case go [] 0 0 of
-    Left e -> Left e
-    Right xs -> Right $! V.fromList (reverse xs)
+  Left e -> Left e
+  Right xs -> Right $! V.fromList (reverse xs)
   where
     !n = VP.length lens
     go !acc !i !off
@@ -184,11 +203,14 @@ splitByLengths lens payload = case go [] 0 0 of
           let !len = fromIntegral (VP.unsafeIndex lens i) :: Int
           in if len < 0 || off + len > BS.length payload
                then Left "Parquet.Delta: DELTA_LENGTH_BYTE_ARRAY payload truncated"
-               else let !val = BS.take len (BS.drop off payload)
-                    in go (val : acc) (i + 1) (off + len)
+               else
+                 let !val = BS.take len (BS.drop off payload)
+                 in go (val : acc) (i + 1) (off + len)
 
--- | DELTA_BYTE_ARRAY: delta-packed prefix lengths + DELTA_LENGTH_BYTE_ARRAY suffixes.
--- Front-compressed / incremental string encoding.
+
+{- | DELTA_BYTE_ARRAY: delta-packed prefix lengths + DELTA_LENGTH_BYTE_ARRAY suffixes.
+Front-compressed / incremental string encoding.
+-}
 decodeDeltaByteArray :: Int -> ByteString -> Either String (V.Vector ByteString)
 decodeDeltaByteArray _n bs = do
   (prefixLens64, suffixOffset) <- decodeDeltaBinaryPackedRaw 0 bs
@@ -196,6 +218,7 @@ decodeDeltaByteArray _n bs = do
   suffixes <- decodeDeltaLengthByteArray (VP.length prefixLens64) suffixBs
   reconstructPrefixCompressed prefixLens64 suffixes
 {-# INLINE decodeDeltaByteArray #-}
+
 
 reconstructPrefixCompressed :: VP.Vector Int64 -> V.Vector ByteString -> Either String (V.Vector ByteString)
 reconstructPrefixCompressed prefixLens suffixes
@@ -213,6 +236,7 @@ reconstructPrefixCompressed prefixLens suffixes
               !suffix = V.unsafeIndex suffixes i
           in if pLen < 0 || pLen > BS.length prev
                then Left "Parquet.Delta: prefix length exceeds previous value length"
-               else let !prefix = BS.take pLen prev
-                        !val = BS.append prefix suffix
-                    in go (val : acc) (i + 1) val
+               else
+                 let !prefix = BS.take pLen prev
+                     !val = BS.append prefix suffix
+                 in go (val : acc) (i + 1) val

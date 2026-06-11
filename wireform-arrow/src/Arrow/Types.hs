@@ -25,12 +25,13 @@ module Arrow.Types (
 
   --
 
-  -- | These thin wrappers default the optional record fields
-  -- ('arrowMetadata', 'fieldMetadata', 'fieldDictionary',
-  -- 'fieldChildren') so test fixtures and one-off encoders
-  -- don't have to spell out every slot. Adding a new optional
-  -- field to 'Schema' or 'Field' won't break callers that
-  -- went through these constructors.
+  {- | These thin wrappers default the optional record fields
+  ('arrowMetadata', 'fieldMetadata', 'fieldDictionary',
+  'fieldChildren') so test fixtures and one-off encoders
+  don't have to spell out every slot. Adding a new optional
+  field to 'Schema' or 'Field' won't break callers that
+  went through these constructors.
+  -}
   defaultSchema,
   defaultField,
   defaultLeafField,
@@ -95,14 +96,16 @@ data ArrowType
   | ABinary
   | AUtf8
   | ABool
-  | -- | 128-bit 'Decimal' (precision, scale). Kept as @ADecimal@
-    -- for source compatibility with the original schema; the
-    -- 256-bit variant is 'ADecimal256'.
+  | {- | 128-bit 'Decimal' (precision, scale). Kept as @ADecimal@
+    for source compatibility with the original schema; the
+    256-bit variant is 'ADecimal256'.
+    -}
     ADecimal !Int !Int
-  | -- | 256-bit 'Decimal' (precision, scale). Arrow's on-wire
-    -- @Decimal@ type carries a @bitWidth@ field; we keep the two
-    -- widths as distinct 'ArrowType' constructors so the reader
-    -- can dispatch to the right 'ColumnArray' variant.
+  | {- | 256-bit 'Decimal' (precision, scale). Arrow's on-wire
+    @Decimal@ type carries a @bitWidth@ field; we keep the two
+    widths as distinct 'ArrowType' constructors so the reader
+    can dispatch to the right 'ColumnArray' variant.
+    -}
     ADecimal256 !Int !Int
   | ADate !DateUnit
   | ATime !TimeUnit !Int
@@ -139,14 +142,16 @@ data Field = Field
   , fieldType :: !ArrowType
   , fieldChildren :: !(Vector Field)
   , fieldDictionary :: !(Maybe DictionaryEncoding)
-  -- ^ When non-'Nothing', this field's @fieldType@ refers to the
-  -- /index/ type and the actual values live in a separate
-  -- 'DictionaryBatch' message keyed by 'deId'.
+  {- ^ When non-'Nothing', this field's @fieldType@ refers to the
+  /index/ type and the actual values live in a separate
+  'DictionaryBatch' message keyed by 'deId'.
+  -}
   , fieldMetadata :: !(Vector (Text, Text))
-  -- ^ Arrow per-field @custom_metadata@ (Schema.fbs field 6).
-  -- Free-form key/value pairs that travel with the field
-  -- through encode + decode. Empty when the field carries
-  -- no annotation (the common case).
+  {- ^ Arrow per-field @custom_metadata@ (Schema.fbs field 6).
+  Free-form key/value pairs that travel with the field
+  through encode + decode. Empty when the field carries
+  no annotation (the common case).
+  -}
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
@@ -188,14 +193,16 @@ data Schema = Schema
   { arrowFields :: !(Vector Field)
   , arrowEndianness :: !Endianness
   , arrowMetadata :: !(Vector (Text, Text))
-  -- ^ Arrow schema-level @custom_metadata@ (Schema.fbs field
-  -- 4 of @table Schema@). Most files set zero or one
-  -- (@pandas@-style) annotation. Empty by default.
+  {- ^ Arrow schema-level @custom_metadata@ (Schema.fbs field
+  4 of @table Schema@). Most files set zero or one
+  (@pandas@-style) annotation. Empty by default.
+  -}
   , arrowFeatures :: !(Vector Feature)
-  -- ^ Arrow schema-level @features@ (Schema.fbs field 5).
-  -- Empty by default; readers tolerate either way. Producers
-  -- emitting delta-replacement dictionary batches should
-  -- include 'FeatureDictionaryReplacement'.
+  {- ^ Arrow schema-level @features@ (Schema.fbs field 5).
+  Empty by default; readers tolerate either way. Producers
+  emitting delta-replacement dictionary batches should
+  include 'FeatureDictionaryReplacement'.
+  -}
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
@@ -222,19 +229,21 @@ data RecordBatchDef = RecordBatchDef
   , rbNodes :: !(Vector FieldNode)
   , rbBuffers :: !(Vector Buffer)
   , rbVariadicBufferCounts :: !(Vector Int64)
-  -- ^ Per Arrow @format/Message.fbs@: when the schema contains
-  -- @Utf8View@ or @BinaryView@ fields each such field has a
-  -- variable number of additional data buffers for out-of-line
-  -- string payloads. The vector lists, in pre-order schema
-  -- traversal order, the number of variadic data buffers per
-  -- view column. Empty for schemas without view types.
+  {- ^ Per Arrow @format/Message.fbs@: when the schema contains
+  @Utf8View@ or @BinaryView@ fields each such field has a
+  variable number of additional data buffers for out-of-line
+  string payloads. The vector lists, in pre-order schema
+  traversal order, the number of variadic data buffers per
+  view column. Empty for schemas without view types.
+  -}
   , rbBodyCompression :: !(Maybe BodyCompressionCodec)
-  -- ^ Per Arrow @format/Message.fbs@'s 'BodyCompression' table.
-  -- When 'Just', each buffer in the body is wrapped in an
-  -- @<i64 uncompressedLength><compressed bytes>@ envelope using
-  -- the named codec; readers see the original layout once
-  -- decompressed. 'Nothing' = uncompressed buffers (the wire
-  -- default).
+  {- ^ Per Arrow @format/Message.fbs@'s 'BodyCompression' table.
+  When 'Just', each buffer in the body is wrapped in an
+  @<i64 uncompressedLength><compressed bytes>@ envelope using
+  the named codec; readers see the original layout once
+  decompressed. 'Nothing' = uncompressed buffers (the wire
+  default).
+  -}
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
@@ -244,9 +253,10 @@ data RecordBatchDef = RecordBatchDef
 'BodyCompression' table (per @format/Message.fbs@).
 -}
 data BodyCompressionCodec
-  = -- | LZ4 frame format (@CompressionType = LZ4_FRAME = 0@).
-    -- Most widely supported; the default for pyarrow when
-    -- compression is enabled.
+  = {- | LZ4 frame format (@CompressionType = LZ4_FRAME = 0@).
+    Most widely supported; the default for pyarrow when
+    compression is enabled.
+    -}
     LZ4Frame
   | -- | Zstandard (@CompressionType = ZSTD = 1@).
     BodyZstd
@@ -332,13 +342,13 @@ schemaFingerprint sch =
     word64BE bs =
       let r i = fromIntegral (BS.index bs i) :: Word64
       in (r 0 `shiftL` 56)
-          .|. (r 1 `shiftL` 48)
-          .|. (r 2 `shiftL` 40)
-          .|. (r 3 `shiftL` 32)
-          .|. (r 4 `shiftL` 24)
-          .|. (r 5 `shiftL` 16)
-          .|. (r 6 `shiftL` 8)
-          .|. r 7
+           .|. (r 1 `shiftL` 48)
+           .|. (r 2 `shiftL` 40)
+           .|. (r 3 `shiftL` 32)
+           .|. (r 4 `shiftL` 24)
+           .|. (r 5 `shiftL` 16)
+           .|. (r 6 `shiftL` 8)
+           .|. r 7
 
     buildSchema s =
       BB.word8 (endianTag (arrowEndianness s))
@@ -357,7 +367,7 @@ schemaFingerprint sch =
     buildText t =
       let bs = TE.encodeUtf8 t
       in BB.int32BE (fromIntegral (BS.length bs))
-          <> BB.byteString bs
+           <> BB.byteString bs
 
     endianTag :: Endianness -> Word8
     endianTag Little = 0

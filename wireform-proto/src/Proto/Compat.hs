@@ -188,26 +188,26 @@ checkMessages dir new old =
       oldMsgs = Map.fromList (fmap (\m -> (msgName m, m)) (allMessages old))
   in -- Messages present in old but absent in new
      foldMap
-      ( \name -> case dir of
-          BackwardDir -> mempty
-          ForwardDir ->
-            makeError
-              (dirLabel dir <> ": message '" <> name <> "' was removed")
-              name
-              Error
-              "MESSAGE_REMOVED"
-      )
-      (Map.keys (Map.difference oldMsgs newMsgs))
-      <>
-      -- Messages present in both: check field-level compatibility
-      Map.foldlWithKey'
-        ( \acc name newMsg ->
-            case Map.lookup name oldMsgs of
-              Nothing -> acc
-              Just oldMsg -> acc <> checkMessageCompat dir name newMsg oldMsg
-        )
-        mempty
-        newMsgs
+       ( \name -> case dir of
+           BackwardDir -> mempty
+           ForwardDir ->
+             makeError
+               (dirLabel dir <> ": message '" <> name <> "' was removed")
+               name
+               Error
+               "MESSAGE_REMOVED"
+       )
+       (Map.keys (Map.difference oldMsgs newMsgs))
+       <>
+       -- Messages present in both: check field-level compatibility
+       Map.foldlWithKey'
+         ( \acc name newMsg ->
+             case Map.lookup name oldMsgs of
+               Nothing -> acc
+               Just oldMsg -> acc <> checkMessageCompat dir name newMsg oldMsg
+         )
+         mempty
+         newMsgs
 
 
 -- | Check field-level compatibility between two versions of a message definition.
@@ -220,89 +220,89 @@ checkMessageCompat dir msgPath newMsg oldMsg =
       reserved = reservedNumbers newMsg
   in -- Fields removed from old
      foldMap
-      ( \num ->
-          let oldFd = oldFields Map.! num
-              path = msgPath <> "." <> fieldName oldFd
-          in case dir of
-              BackwardDir ->
-                if num `Set.member` reserved
-                  then mempty
-                  else
-                    makeError
+       ( \num ->
+           let oldFd = oldFields Map.! num
+               path = msgPath <> "." <> fieldName oldFd
+           in case dir of
+                BackwardDir ->
+                  if num `Set.member` reserved
+                    then mempty
+                    else
+                      makeError
+                        ( dirLabel dir
+                            <> ": field '"
+                            <> fieldName oldFd
+                            <> "' (number "
+                            <> T.pack (show num)
+                            <> ") removed without reserving the number"
+                        )
+                        path
+                        Error
+                        "FIELD_REMOVED_NOT_RESERVED"
+                        <> case fieldLabel oldFd of
+                          Just Required ->
+                            makeError
+                              (dirLabel dir <> ": required field '" <> fieldName oldFd <> "' removed")
+                              path
+                              Error
+                              "REQUIRED_FIELD_REMOVED"
+                          _ -> mempty
+                ForwardDir -> mempty
+       )
+       (Set.difference oldNums newNums)
+       <>
+       -- Fields added in new
+       foldMap
+         ( \num ->
+             let newFd = newFields Map.! num
+                 path = msgPath <> "." <> fieldName newFd
+             in case dir of
+                  BackwardDir -> case fieldLabel newFd of
+                    Just Required ->
+                      makeError
+                        (dirLabel dir <> ": required field '" <> fieldName newFd <> "' added")
+                        path
+                        Error
+                        "REQUIRED_FIELD_ADDED"
+                    _ -> mempty
+                  ForwardDir -> mempty
+         )
+         (Set.difference newNums oldNums)
+       <>
+       -- Fields present in both: check type compatibility
+       Map.foldlWithKey'
+         ( \acc num newFd ->
+             case Map.lookup num oldFields of
+               Nothing -> acc
+               Just oldFd -> acc <> checkFieldCompat dir msgPath newFd oldFd
+         )
+         mempty
+         newFields
+       <>
+       -- Number reuse check: field numbers in new that were in old but deleted
+       -- and then re-added with a different name
+       foldMap
+         ( \num ->
+             let newFd = newFields Map.! num
+                 oldFd = oldFields Map.! num
+                 path = msgPath <> "." <> fieldName newFd
+             in if fieldName newFd /= fieldName oldFd && not (num `Set.member` reserved)
+                  then
+                    makeWarning
                       ( dirLabel dir
-                          <> ": field '"
-                          <> fieldName oldFd
-                          <> "' (number "
+                          <> ": field number "
                           <> T.pack (show num)
-                          <> ") removed without reserving the number"
+                          <> " changed name from '"
+                          <> fieldName oldFd
+                          <> "' to '"
+                          <> fieldName newFd
+                          <> "'"
                       )
                       path
-                      Error
-                      "FIELD_REMOVED_NOT_RESERVED"
-                      <> case fieldLabel oldFd of
-                        Just Required ->
-                          makeError
-                            (dirLabel dir <> ": required field '" <> fieldName oldFd <> "' removed")
-                            path
-                            Error
-                            "REQUIRED_FIELD_REMOVED"
-                        _ -> mempty
-              ForwardDir -> mempty
-      )
-      (Set.difference oldNums newNums)
-      <>
-      -- Fields added in new
-      foldMap
-        ( \num ->
-            let newFd = newFields Map.! num
-                path = msgPath <> "." <> fieldName newFd
-            in case dir of
-                BackwardDir -> case fieldLabel newFd of
-                  Just Required ->
-                    makeError
-                      (dirLabel dir <> ": required field '" <> fieldName newFd <> "' added")
-                      path
-                      Error
-                      "REQUIRED_FIELD_ADDED"
-                  _ -> mempty
-                ForwardDir -> mempty
-        )
-        (Set.difference newNums oldNums)
-      <>
-      -- Fields present in both: check type compatibility
-      Map.foldlWithKey'
-        ( \acc num newFd ->
-            case Map.lookup num oldFields of
-              Nothing -> acc
-              Just oldFd -> acc <> checkFieldCompat dir msgPath newFd oldFd
-        )
-        mempty
-        newFields
-      <>
-      -- Number reuse check: field numbers in new that were in old but deleted
-      -- and then re-added with a different name
-      foldMap
-        ( \num ->
-            let newFd = newFields Map.! num
-                oldFd = oldFields Map.! num
-                path = msgPath <> "." <> fieldName newFd
-            in if fieldName newFd /= fieldName oldFd && not (num `Set.member` reserved)
-                then
-                  makeWarning
-                    ( dirLabel dir
-                        <> ": field number "
-                        <> T.pack (show num)
-                        <> " changed name from '"
-                        <> fieldName oldFd
-                        <> "' to '"
-                        <> fieldName newFd
-                        <> "'"
-                    )
-                    path
-                    "FIELD_NAME_CHANGED"
-                else mempty
-        )
-        (Set.intersection newNums oldNums)
+                      "FIELD_NAME_CHANGED"
+                  else mempty
+         )
+         (Set.intersection newNums oldNums)
 
 
 -- | Check compatibility of a single field.
@@ -311,74 +311,74 @@ checkFieldCompat dir msgPath newFd oldFd =
   let path = msgPath <> "." <> fieldName newFd
   in -- Type change
      ( if fieldType newFd /= fieldType oldFd
-        then
-          if wireCompatible (fieldType newFd) (fieldType oldFd)
-            then
-              makeWarning
-                ( dirLabel dir
-                    <> ": field '"
-                    <> fieldName newFd
-                    <> "' type changed from "
-                    <> showFieldType (fieldType oldFd)
-                    <> " to "
-                    <> showFieldType (fieldType newFd)
-                    <> " (wire-compatible)"
-                )
-                path
-                "FIELD_TYPE_CHANGED_COMPATIBLE"
-            else
-              makeError
-                ( dirLabel dir
-                    <> ": field '"
-                    <> fieldName newFd
-                    <> "' type changed from "
-                    <> showFieldType (fieldType oldFd)
-                    <> " to "
-                    <> showFieldType (fieldType newFd)
-                    <> " (wire-INCOMPATIBLE)"
-                )
-                path
-                Error
-                "FIELD_TYPE_CHANGED_INCOMPATIBLE"
-        else mempty
+         then
+           if wireCompatible (fieldType newFd) (fieldType oldFd)
+             then
+               makeWarning
+                 ( dirLabel dir
+                     <> ": field '"
+                     <> fieldName newFd
+                     <> "' type changed from "
+                     <> showFieldType (fieldType oldFd)
+                     <> " to "
+                     <> showFieldType (fieldType newFd)
+                     <> " (wire-compatible)"
+                 )
+                 path
+                 "FIELD_TYPE_CHANGED_COMPATIBLE"
+             else
+               makeError
+                 ( dirLabel dir
+                     <> ": field '"
+                     <> fieldName newFd
+                     <> "' type changed from "
+                     <> showFieldType (fieldType oldFd)
+                     <> " to "
+                     <> showFieldType (fieldType newFd)
+                     <> " (wire-INCOMPATIBLE)"
+                 )
+                 path
+                 Error
+                 "FIELD_TYPE_CHANGED_INCOMPATIBLE"
+         else mempty
      )
-      <>
-      -- Label change (required -> optional is OK for backward, not for forward)
-      ( case (fieldLabel oldFd, fieldLabel newFd) of
-          (Just Required, Just Optional) -> case dir of
-            BackwardDir -> mempty
-            ForwardDir ->
-              makeError
-                ( dirLabel dir
-                    <> ": field '"
-                    <> fieldName newFd
-                    <> "' changed from required to optional"
-                )
-                path
-                Error
-                "REQUIRED_TO_OPTIONAL"
-          (Just Optional, Just Required) ->
-            makeError
-              ( dirLabel dir
-                  <> ": field '"
-                  <> fieldName newFd
-                  <> "' changed from optional to required"
-              )
-              path
-              Error
-              "OPTIONAL_TO_REQUIRED"
-          (Nothing, Just Required) ->
-            makeError
-              ( dirLabel dir
-                  <> ": field '"
-                  <> fieldName newFd
-                  <> "' changed to required"
-              )
-              path
-              Error
-              "BECAME_REQUIRED"
-          _ -> mempty
-      )
+       <>
+       -- Label change (required -> optional is OK for backward, not for forward)
+       ( case (fieldLabel oldFd, fieldLabel newFd) of
+           (Just Required, Just Optional) -> case dir of
+             BackwardDir -> mempty
+             ForwardDir ->
+               makeError
+                 ( dirLabel dir
+                     <> ": field '"
+                     <> fieldName newFd
+                     <> "' changed from required to optional"
+                 )
+                 path
+                 Error
+                 "REQUIRED_TO_OPTIONAL"
+           (Just Optional, Just Required) ->
+             makeError
+               ( dirLabel dir
+                   <> ": field '"
+                   <> fieldName newFd
+                   <> "' changed from optional to required"
+               )
+               path
+               Error
+               "OPTIONAL_TO_REQUIRED"
+           (Nothing, Just Required) ->
+             makeError
+               ( dirLabel dir
+                   <> ": field '"
+                   <> fieldName newFd
+                   <> "' changed to required"
+               )
+               path
+               Error
+               "BECAME_REQUIRED"
+           _ -> mempty
+       )
 
 
 -- Enum-level checks
@@ -388,13 +388,13 @@ checkEnums dir new old =
   let newEnums = Map.fromList (fmap (\e -> (enumName e, e)) (allEnums new))
       oldEnums = Map.fromList (fmap (\e -> (enumName e, e)) (allEnums old))
   in Map.foldlWithKey'
-      ( \acc name newEnum ->
-          case Map.lookup name oldEnums of
-            Nothing -> acc
-            Just oldEnum -> acc <> checkEnumCompat dir name newEnum oldEnum
-      )
-      mempty
-      newEnums
+       ( \acc name newEnum ->
+           case Map.lookup name oldEnums of
+             Nothing -> acc
+             Just oldEnum -> acc <> checkEnumCompat dir name newEnum oldEnum
+       )
+       mempty
+       newEnums
 
 
 -- | Check compatibility of an enum definition.
@@ -406,71 +406,71 @@ checkEnumCompat dir enumPath newEnum oldEnum =
       oldNums = Map.keysSet oldVals
   in -- Values removed
      foldMap
-      ( \num ->
-          let name = oldVals Map.! num
-              path = enumPath <> "." <> name
-          in case dir of
-              BackwardDir ->
-                makeError
-                  ( dirLabel dir
-                      <> ": enum value '"
-                      <> name
-                      <> "' (number "
-                      <> T.pack (show num)
-                      <> ") removed"
-                  )
-                  path
-                  Error
-                  "ENUM_VALUE_REMOVED"
-              ForwardDir -> mempty
-      )
-      (Set.difference oldNums newNums)
-      <>
-      -- Values added
-      foldMap
-        ( \num ->
-            let name = newVals Map.! num
-                path = enumPath <> "." <> name
-            in case dir of
-                ForwardDir ->
-                  makeWarning
+       ( \num ->
+           let name = oldVals Map.! num
+               path = enumPath <> "." <> name
+           in case dir of
+                BackwardDir ->
+                  makeError
                     ( dirLabel dir
                         <> ": enum value '"
                         <> name
                         <> "' (number "
                         <> T.pack (show num)
-                        <> ") added; "
-                        <> "old readers will see the numeric value"
+                        <> ") removed"
                     )
                     path
-                    "ENUM_VALUE_ADDED"
-                BackwardDir -> mempty
-        )
-        (Set.difference newNums oldNums)
-      <>
-      -- Values renamed (same number, different name) — problematic for JSON encoding
-      foldMap
-        ( \num ->
-            let newName = newVals Map.! num
-                oldName = oldVals Map.! num
-                path = enumPath <> "." <> newName
-            in if newName /= oldName
-                then
-                  makeWarning
-                    ( dirLabel dir
-                        <> ": enum value at number "
-                        <> T.pack (show num)
-                        <> " renamed from '"
-                        <> oldName
-                        <> "' to '"
-                        <> newName
-                        <> "' (breaks JSON compatibility)"
-                    )
-                    path
-                    "ENUM_VALUE_RENAMED"
-                else mempty
-        )
-        (Set.intersection newNums oldNums)
+                    Error
+                    "ENUM_VALUE_REMOVED"
+                ForwardDir -> mempty
+       )
+       (Set.difference oldNums newNums)
+       <>
+       -- Values added
+       foldMap
+         ( \num ->
+             let name = newVals Map.! num
+                 path = enumPath <> "." <> name
+             in case dir of
+                  ForwardDir ->
+                    makeWarning
+                      ( dirLabel dir
+                          <> ": enum value '"
+                          <> name
+                          <> "' (number "
+                          <> T.pack (show num)
+                          <> ") added; "
+                          <> "old readers will see the numeric value"
+                      )
+                      path
+                      "ENUM_VALUE_ADDED"
+                  BackwardDir -> mempty
+         )
+         (Set.difference newNums oldNums)
+       <>
+       -- Values renamed (same number, different name) — problematic for JSON encoding
+       foldMap
+         ( \num ->
+             let newName = newVals Map.! num
+                 oldName = oldVals Map.! num
+                 path = enumPath <> "." <> newName
+             in if newName /= oldName
+                  then
+                    makeWarning
+                      ( dirLabel dir
+                          <> ": enum value at number "
+                          <> T.pack (show num)
+                          <> " renamed from '"
+                          <> oldName
+                          <> "' to '"
+                          <> newName
+                          <> "' (breaks JSON compatibility)"
+                      )
+                      path
+                      "ENUM_VALUE_RENAMED"
+                  else mempty
+         )
+         (Set.intersection newNums oldNums)
 
 
 -- Wire compatibility: two types are wire-compatible if they use the same

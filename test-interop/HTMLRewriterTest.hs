@@ -59,9 +59,10 @@ decodeResult = TE.decodeUtf8
 main :: IO ()
 main = do
   fixtureTests <- loadFixtureTests
-  sydTest $
-    describe
-      "HTML Rewriter (lol-html port)" $ sequence_
+  sydTest
+    $ describe
+      "HTML Rewriter (lol-html port)"
+    $ sequence_
       [ describe "Selector parser" $ sequence_ selectorParserTests
       , describe "Passthrough" $ sequence_ passthroughTests
       , describe "Element mutation" $ sequence_ elementMutationTests
@@ -800,9 +801,10 @@ loadFixtureTests = do
   smTests <- loadSelectorMatchingTests
   ecrTests <- loadElementContentReplacementTests
   domTests <- loadDOMSelectorTests
-  pure $
-    describe
-      "Fixture tests" $ sequence_
+  pure
+    $ describe
+      "Fixture tests"
+    $ sequence_
       [ describe "Selector matching" $ sequence_ smTests
       , describe "Element content replacement" $ sequence_ ecrTests
       , describe "DOM selector matching" $ sequence_ domTests
@@ -951,12 +953,12 @@ removeAnnotations = go
       let (b1, r1) = T.breakOn "<!--[COMMENT(" txt
           (b2, r2) = T.breakOn "<!--[/COMMENT(" txt
       in case (T.null r1, T.null r2) of
-          (True, True) -> Nothing
-          (True, False) -> Just (b2, skipToEnd r2)
-          (False, True) -> Just (b1, skipToEnd r1)
-          (False, False)
-            | T.length b1 <= T.length b2 -> Just (b1, skipToEnd r1)
-            | otherwise -> Just (b2, skipToEnd r2)
+           (True, True) -> Nothing
+           (True, False) -> Just (b2, skipToEnd r2)
+           (False, True) -> Just (b1, skipToEnd r1)
+           (False, False)
+             | T.length b1 <= T.length b2 -> Just (b1, skipToEnd r1)
+             | otherwise -> Just (b2, skipToEnd r2)
 
     skipToEnd txt =
       case T.breakOn "-->" txt of
@@ -1037,5 +1039,5 @@ countElementMarkers sel = go 0
     go !n txt =
       let (_, rest) = T.breakOn marker txt
       in if T.null rest
-          then n
-          else go (n + 1) (T.drop (T.length marker) rest)
+           then n
+           else go (n + 1) (T.drop (T.length marker) rest)

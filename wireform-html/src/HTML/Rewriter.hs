@@ -485,9 +485,9 @@ cowEscapeAttrVal cow (Text (ByteArray ba#) off len) = go off off
       | otherwise =
           let !b = indexBA ba# i
           in case b of
-              0x22 -> flushSeg segStart i >> cowWriteBS cow "&quot;" >> go (i + 1) (i + 1)
-              0x26 -> flushSeg segStart i >> cowWriteBS cow "&amp;" >> go (i + 1) (i + 1)
-              _ -> go segStart (i + 1)
+               0x22 -> flushSeg segStart i >> cowWriteBS cow "&quot;" >> go (i + 1) (i + 1)
+               0x26 -> flushSeg segStart i >> cowWriteBS cow "&amp;" >> go (i + 1) (i + 1)
+               _ -> go segStart (i + 1)
 {-# INLINE cowEscapeAttrVal #-}
 
 
@@ -508,10 +508,10 @@ cowEscapeText cow (Text (ByteArray ba#) off len) = go off off
       | otherwise =
           let !b = indexBA ba# i
           in case b of
-              0x3C -> flushSeg segStart i >> cowWriteBS cow "&lt;" >> go (i + 1) (i + 1)
-              0x3E -> flushSeg segStart i >> cowWriteBS cow "&gt;" >> go (i + 1) (i + 1)
-              0x26 -> flushSeg segStart i >> cowWriteBS cow "&amp;" >> go (i + 1) (i + 1)
-              _ -> go segStart (i + 1)
+               0x3C -> flushSeg segStart i >> cowWriteBS cow "&lt;" >> go (i + 1) (i + 1)
+               0x3E -> flushSeg segStart i >> cowWriteBS cow "&gt;" >> go (i + 1) (i + 1)
+               0x26 -> flushSeg segStart i >> cowWriteBS cow "&amp;" >> go (i + 1) (i + 1)
+               _ -> go segStart (i + 1)
 {-# INLINE cowEscapeText #-}
 
 
@@ -604,68 +604,68 @@ rewrite rw bs
             | otherwise =
                 let !(ScanTextResult end allAscii) = scanTextAscii addr# off len
                 in if end > off
-                    then do
-                      suppress <- readSuppressUntil st
-                      if suppress >= 0
-                        then cowSkipTo cow end
-                        else do
-                          removeCh <- readRemoveChildrenUntil st
-                          if removeCh >= 0
-                            then cowSkipTo cow end
-                            else goTextRun off end allAscii
-                      goScan end
-                    else case readByteOff addr# off of
-                      0x3C -> goTag (off + 1) off
-                      0x26 -> do
-                        let !windowEnd = min len (off + 65)
-                            !input = toStringFrom bs (off + 1) windowEnd
-                            (ent, rest) = parseEntityRef input
-                            !consumed = length input - length rest
-                            !entEnd = off + 1 + consumed
-                        suppressed <-
-                          if canSuppress
-                            then do
-                              suppressE <- readSuppressUntil st
-                              removeChE <- readRemoveChildrenUntil st
-                              pure (suppressE >= 0 || removeChE >= 0)
-                            else pure False
-                        if suppressed
-                          then do
-                            cowSkipTo cow entEnd
-                            goScan entEnd
-                          else case ent of
-                            [] -> goScan (off + 1)
-                            [c] -> do
-                              goCharToken off entEnd c
-                              goScan entEnd
-                            _ -> do
-                              mapM_ (goCharToken off entEnd) ent
-                              goScan entEnd
-                      0x00 -> do
-                        suppressed0 <-
-                          if canSuppress
-                            then do
-                              suppress0 <- readSuppressUntil st
-                              removeCh0 <- readRemoveChildrenUntil st
-                              pure (suppress0 >= 0 || removeCh0 >= 0)
-                            else pure False
-                        if suppressed0
-                          then do cowSkipTo cow (off + 1); goScan (off + 1)
-                          else do goCharToken off (off + 1) '\0'; goScan (off + 1)
-                      0x0D -> do
-                        let !next = off + 1
-                            !crEnd = if next < len && readByteOff addr# next == 0x0A then next + 1 else next
-                        suppressed0 <-
-                          if canSuppress
-                            then do
-                              suppressR <- readSuppressUntil st
-                              removeChR <- readRemoveChildrenUntil st
-                              pure (suppressR >= 0 || removeChR >= 0)
-                            else pure False
-                        if suppressed0
-                          then do cowSkipTo cow crEnd; goScan crEnd
-                          else do goCharToken off crEnd '\n'; goScan crEnd
-                      _ -> goScan (off + 1)
+                     then do
+                       suppress <- readSuppressUntil st
+                       if suppress >= 0
+                         then cowSkipTo cow end
+                         else do
+                           removeCh <- readRemoveChildrenUntil st
+                           if removeCh >= 0
+                             then cowSkipTo cow end
+                             else goTextRun off end allAscii
+                       goScan end
+                     else case readByteOff addr# off of
+                       0x3C -> goTag (off + 1) off
+                       0x26 -> do
+                         let !windowEnd = min len (off + 65)
+                             !input = toStringFrom bs (off + 1) windowEnd
+                             (ent, rest) = parseEntityRef input
+                             !consumed = length input - length rest
+                             !entEnd = off + 1 + consumed
+                         suppressed <-
+                           if canSuppress
+                             then do
+                               suppressE <- readSuppressUntil st
+                               removeChE <- readRemoveChildrenUntil st
+                               pure (suppressE >= 0 || removeChE >= 0)
+                             else pure False
+                         if suppressed
+                           then do
+                             cowSkipTo cow entEnd
+                             goScan entEnd
+                           else case ent of
+                             [] -> goScan (off + 1)
+                             [c] -> do
+                               goCharToken off entEnd c
+                               goScan entEnd
+                             _ -> do
+                               mapM_ (goCharToken off entEnd) ent
+                               goScan entEnd
+                       0x00 -> do
+                         suppressed0 <-
+                           if canSuppress
+                             then do
+                               suppress0 <- readSuppressUntil st
+                               removeCh0 <- readRemoveChildrenUntil st
+                               pure (suppress0 >= 0 || removeCh0 >= 0)
+                             else pure False
+                         if suppressed0
+                           then do cowSkipTo cow (off + 1); goScan (off + 1)
+                           else do goCharToken off (off + 1) '\0'; goScan (off + 1)
+                       0x0D -> do
+                         let !next = off + 1
+                             !crEnd = if next < len && readByteOff addr# next == 0x0A then next + 1 else next
+                         suppressed0 <-
+                           if canSuppress
+                             then do
+                               suppressR <- readSuppressUntil st
+                               removeChR <- readRemoveChildrenUntil st
+                               pure (suppressR >= 0 || removeChR >= 0)
+                             else pure False
+                         if suppressed0
+                           then do cowSkipTo cow crEnd; goScan crEnd
+                           else do goCharToken off crEnd '\n'; goScan crEnd
+                       _ -> goScan (off + 1)
 
           goTextRun !tOff !tEnd !tAscii
             | needsText = do
@@ -745,117 +745,117 @@ rewrite rw bs
                       then
                         let !(# lcName, _ #) = internTagAddrU addr# off tagLen bs
                         in case scanClassAndSkip addr# nameEnd len of
-                            (# classOff, classLen, selfClose, afterTag #) ->
-                              when (afterTag <= len) $ do
-                                let !selfTM = matchAnyDecomposedClass textSels lcName addr# classOff classLen
-                                resetElementRefDeferred ePool lcName selfClose nameEnd
-                                anyMatched <- runElementHandlersClass rw lcName addr# classOff classLen ePool
-                                writePrimArray (_erInts ePool) 0 (0 :: Int)
-                                if not anyMatched
-                                  then do
-                                    when (not selfClose && not isVoid) $ do
-                                      d1 <- readDepth st
-                                      when needsStack $ do
-                                        pm <- if d1 > 0 then readTextMask st (d1 - 1) else pure 0
-                                        let !mask = if pm /= 0 || selfTM then 1 else 0
-                                        writeTextMask st d1 mask
-                                      writeDepth st (d1 + 1)
-                                    if P.isRawTextTag tid && not selfClose
-                                      then goRawText lcName afterTag
-                                      else goScan afterTag
-                                  else do
-                                    mut <- readIORef (_erMut ePool)
-                                    mElem <- readIORef (_erElem ePool)
-                                    let !isDirty = case mut of MutNone -> False; _ -> True
-                                        !isElemDirty = case mElem of EMNone -> False; _ -> True
-                                    if not isDirty && not isElemDirty
-                                      then do
-                                        when (not selfClose && not isVoid) $ do
-                                          d2 <- readDepth st
-                                          when needsStack $ do
-                                            pm <- if d2 > 0 then readTextMask st (d2 - 1) else pure 0
-                                            let !mask = if pm /= 0 || selfTM then 1 else 0
-                                            writeTextMask st d2 mask
-                                          writeDepth st (d2 + 1)
-                                        if P.isRawTextTag tid && not selfClose
-                                          then goRawText lcName afterTag
-                                          else goScan afterTag
-                                      else case (mut, mElem) of
-                                        (MutNone, EMTag tag') -> do
-                                          cowFlushTo cow bs ltOff
-                                          cowWriteByte cow 0x3C
-                                          cowWriteTextBytes cow tag'
-                                          cowWriteFlushed cow nameEnd
-                                          cowSetDirty cow
-                                          when (not selfClose && not isVoid) $ do
-                                            depth <- readDepth st
-                                            when needsStack $ do
-                                              pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
-                                              let !mask = if pm /= 0 || selfTM then 1 else 0
-                                              writeTextMask st depth mask
-                                            ehs0 <- readIORef (asEndTagHandlers st)
-                                            let deferredRename etr = writeIORef (_etrTag etr) tag'
-                                            writeIORef (asEndTagHandlers st) ((depth, deferredRename) : ehs0)
-                                            writeDepth st (depth + 1)
-                                          if P.isRawTextTag tid && not selfClose
-                                            then goRawText lcName afterTag
-                                            else goScan afterTag
-                                        (MutNone, EMNewAttrs newAs) -> do
-                                          let !gtPos = if selfClose then afterTag - 2 else afterTag - 1
-                                          cowFlushTo cow bs gtPos
-                                          let emitNew [] = pure ()
-                                              emitNew ((n, v) : rest) = emitNew rest >> cowWriteOneAttr cow n v
-                                          emitNew newAs
-                                          if selfClose
-                                            then do cowWriteByte cow 0x2F; cowWriteByte cow 0x3E
-                                            else cowWriteByte cow 0x3E
-                                          cowWriteFlushed cow afterTag
-                                          cowSetDirty cow
-                                          when (not selfClose && not isVoid) $ do
-                                            depth <- readDepth st
-                                            when needsStack $ do
-                                              pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
-                                              let !mask = if pm /= 0 || selfTM then 1 else 0
-                                              writeTextMask st depth mask
-                                            writeDepth st (depth + 1)
-                                          if P.isRawTextTag tid && not selfClose
-                                            then goRawText lcName afterTag
-                                            else goScan afterTag
-                                        (MutNone, EMTagAndAttrs tag' newAs) -> do
-                                          cowFlushTo cow bs ltOff
-                                          cowWriteByte cow 0x3C
-                                          cowWriteTextBytes cow tag'
-                                          let !(Text _ _ lcNameLen) = lcName
-                                              !attrStart = ltOff + 1 + lcNameLen
-                                              !gtPos = if selfClose then afterTag - 2 else afterTag - 1
-                                          cowWriteSlice cow bs attrStart gtPos
-                                          let emitNew [] = pure ()
-                                              emitNew ((n, v) : rest) = emitNew rest >> cowWriteOneAttr cow n v
-                                          emitNew newAs
-                                          if selfClose
-                                            then do cowWriteByte cow 0x2F; cowWriteByte cow 0x3E
-                                            else cowWriteByte cow 0x3E
-                                          cowWriteFlushed cow afterTag
-                                          cowSetDirty cow
-                                          when (not selfClose && not isVoid) $ do
-                                            depth <- readDepth st
-                                            when needsStack $ do
-                                              pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
-                                              let !mask = if pm /= 0 || selfTM then 1 else 0
-                                              writeTextMask st depth mask
-                                            ehs0 <- readIORef (asEndTagHandlers st)
-                                            let deferredRename etr = writeIORef (_etrTag etr) tag'
-                                            writeIORef (asEndTagHandlers st) ((depth, deferredRename) : ehs0)
-                                            writeDepth st (depth + 1)
-                                          if P.isRawTextTag tid && not selfClose
-                                            then goRawText lcName afterTag
-                                            else goScan afterTag
-                                        _ -> do
-                                          attrs <- forceAttrs ePool
-                                          emitModifiedStartTag cow bs rw ePool lcName attrs selfClose isVoid ltOff afterTag mut mElem st needsContextStack textSels
-                                          if P.isRawTextTag tid && not selfClose
-                                            then goRawText lcName afterTag
-                                            else goScan afterTag
+                             (# classOff, classLen, selfClose, afterTag #) ->
+                               when (afterTag <= len) $ do
+                                 let !selfTM = matchAnyDecomposedClass textSels lcName addr# classOff classLen
+                                 resetElementRefDeferred ePool lcName selfClose nameEnd
+                                 anyMatched <- runElementHandlersClass rw lcName addr# classOff classLen ePool
+                                 writePrimArray (_erInts ePool) 0 (0 :: Int)
+                                 if not anyMatched
+                                   then do
+                                     when (not selfClose && not isVoid) $ do
+                                       d1 <- readDepth st
+                                       when needsStack $ do
+                                         pm <- if d1 > 0 then readTextMask st (d1 - 1) else pure 0
+                                         let !mask = if pm /= 0 || selfTM then 1 else 0
+                                         writeTextMask st d1 mask
+                                       writeDepth st (d1 + 1)
+                                     if P.isRawTextTag tid && not selfClose
+                                       then goRawText lcName afterTag
+                                       else goScan afterTag
+                                   else do
+                                     mut <- readIORef (_erMut ePool)
+                                     mElem <- readIORef (_erElem ePool)
+                                     let !isDirty = case mut of MutNone -> False; _ -> True
+                                         !isElemDirty = case mElem of EMNone -> False; _ -> True
+                                     if not isDirty && not isElemDirty
+                                       then do
+                                         when (not selfClose && not isVoid) $ do
+                                           d2 <- readDepth st
+                                           when needsStack $ do
+                                             pm <- if d2 > 0 then readTextMask st (d2 - 1) else pure 0
+                                             let !mask = if pm /= 0 || selfTM then 1 else 0
+                                             writeTextMask st d2 mask
+                                           writeDepth st (d2 + 1)
+                                         if P.isRawTextTag tid && not selfClose
+                                           then goRawText lcName afterTag
+                                           else goScan afterTag
+                                       else case (mut, mElem) of
+                                         (MutNone, EMTag tag') -> do
+                                           cowFlushTo cow bs ltOff
+                                           cowWriteByte cow 0x3C
+                                           cowWriteTextBytes cow tag'
+                                           cowWriteFlushed cow nameEnd
+                                           cowSetDirty cow
+                                           when (not selfClose && not isVoid) $ do
+                                             depth <- readDepth st
+                                             when needsStack $ do
+                                               pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
+                                               let !mask = if pm /= 0 || selfTM then 1 else 0
+                                               writeTextMask st depth mask
+                                             ehs0 <- readIORef (asEndTagHandlers st)
+                                             let deferredRename etr = writeIORef (_etrTag etr) tag'
+                                             writeIORef (asEndTagHandlers st) ((depth, deferredRename) : ehs0)
+                                             writeDepth st (depth + 1)
+                                           if P.isRawTextTag tid && not selfClose
+                                             then goRawText lcName afterTag
+                                             else goScan afterTag
+                                         (MutNone, EMNewAttrs newAs) -> do
+                                           let !gtPos = if selfClose then afterTag - 2 else afterTag - 1
+                                           cowFlushTo cow bs gtPos
+                                           let emitNew [] = pure ()
+                                               emitNew ((n, v) : rest) = emitNew rest >> cowWriteOneAttr cow n v
+                                           emitNew newAs
+                                           if selfClose
+                                             then do cowWriteByte cow 0x2F; cowWriteByte cow 0x3E
+                                             else cowWriteByte cow 0x3E
+                                           cowWriteFlushed cow afterTag
+                                           cowSetDirty cow
+                                           when (not selfClose && not isVoid) $ do
+                                             depth <- readDepth st
+                                             when needsStack $ do
+                                               pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
+                                               let !mask = if pm /= 0 || selfTM then 1 else 0
+                                               writeTextMask st depth mask
+                                             writeDepth st (depth + 1)
+                                           if P.isRawTextTag tid && not selfClose
+                                             then goRawText lcName afterTag
+                                             else goScan afterTag
+                                         (MutNone, EMTagAndAttrs tag' newAs) -> do
+                                           cowFlushTo cow bs ltOff
+                                           cowWriteByte cow 0x3C
+                                           cowWriteTextBytes cow tag'
+                                           let !(Text _ _ lcNameLen) = lcName
+                                               !attrStart = ltOff + 1 + lcNameLen
+                                               !gtPos = if selfClose then afterTag - 2 else afterTag - 1
+                                           cowWriteSlice cow bs attrStart gtPos
+                                           let emitNew [] = pure ()
+                                               emitNew ((n, v) : rest) = emitNew rest >> cowWriteOneAttr cow n v
+                                           emitNew newAs
+                                           if selfClose
+                                             then do cowWriteByte cow 0x2F; cowWriteByte cow 0x3E
+                                             else cowWriteByte cow 0x3E
+                                           cowWriteFlushed cow afterTag
+                                           cowSetDirty cow
+                                           when (not selfClose && not isVoid) $ do
+                                             depth <- readDepth st
+                                             when needsStack $ do
+                                               pm <- if depth > 0 then readTextMask st (depth - 1) else pure 0
+                                               let !mask = if pm /= 0 || selfTM then 1 else 0
+                                               writeTextMask st depth mask
+                                             ehs0 <- readIORef (asEndTagHandlers st)
+                                             let deferredRename etr = writeIORef (_etrTag etr) tag'
+                                             writeIORef (asEndTagHandlers st) ((depth, deferredRename) : ehs0)
+                                             writeDepth st (depth + 1)
+                                           if P.isRawTextTag tid && not selfClose
+                                             then goRawText lcName afterTag
+                                             else goScan afterTag
+                                         _ -> do
+                                           attrs <- forceAttrs ePool
+                                           emitModifiedStartTag cow bs rw ePool lcName attrs selfClose isVoid ltOff afterTag mut mElem st needsContextStack textSels
+                                           if P.isRawTextTag tid && not selfClose
+                                             then goRawText lcName afterTag
+                                             else goScan afterTag
                       else do
                         let !(# lcName, _ #) = internTagAddrU addr# off tagLen bs
                         let (!attrs, !selfClose, !afterTag) = readTagAttrsBS sharedBA bs nameEnd len
@@ -1893,23 +1893,23 @@ escapeAttrBuilder t =
       | otherwise =
           let !b = BS.index bs off
           in case b of
-              0x22 ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&quot;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x26 ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&amp;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x3C ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&lt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x3E ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&gt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              _ -> scanClean bs start (off + 1) len
+               0x22 ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&quot;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               0x26 ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&amp;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               0x3C ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&lt;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               0x3E ->
+                 BB.byteString (BS.take (off - start) (BS.drop start bs))
+                   <> BB.byteString "&gt;"
+                   <> scanClean bs (off + 1) (off + 1) len
+               _ -> scanClean bs start (off + 1) len
 
 
 emitStartTagRaw :: Text -> SmallArray HTMLAttribute -> Bool -> BB.Builder

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-{-|
+{- |
 Module      : Kafka.Streams.Serde.Avro
 Description : Avro-binary payload serde for Confluent Schema Registry
 
@@ -24,49 +24,56 @@ library their organisation already uses (the wireform-avro
 package is one option, but this module has no hard dependency
 on it).
 -}
-module Kafka.Streams.Serde.Avro
-  ( AvroEncoder (..)
-  , AvroDecoder (..)
-  , AvroSerdeConfig (..)
-  , avroSerde
-  ) where
+module Kafka.Streams.Serde.Avro (
+  AvroEncoder (..),
+  AvroDecoder (..),
+  AvroSerdeConfig (..),
+  avroSerde,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.Text as T
-
+import Data.Text qualified as T
 import Kafka.Streams.Serde (Serde (..))
-import qualified Kafka.Streams.Serde.SchemaRegistry as SR
+import Kafka.Streams.Serde.SchemaRegistry qualified as SR
 
--- | A pluggable Avro value encoder. Returns the binary payload
--- /without/ the Confluent envelope; this module wraps it.
-newtype AvroEncoder a = AvroEncoder { runAvroEncoder :: a -> ByteString }
+
+{- | A pluggable Avro value encoder. Returns the binary payload
+/without/ the Confluent envelope; this module wraps it.
+-}
+newtype AvroEncoder a = AvroEncoder {runAvroEncoder :: a -> ByteString}
+
 
 newtype AvroDecoder a = AvroDecoder
   { runAvroDecoder :: ByteString -> Either String a
   }
 
+
 data AvroSerdeConfig a = AvroSerdeConfig
-  { ascClient    :: !SR.SchemaRegistryClient
-  , ascSubject   :: !SR.SchemaSubject
-  , ascSchema    :: !SR.SchemaPayload
-    -- ^ The Avro schema JSON document to register on first use.
-  , ascEncoder   :: !(AvroEncoder a)
-  , ascDecoder   :: !(AvroDecoder a)
+  { ascClient :: !SR.SchemaRegistryClient
+  , ascSubject :: !SR.SchemaSubject
+  , ascSchema :: !SR.SchemaPayload
+  -- ^ The Avro schema JSON document to register on first use.
+  , ascEncoder :: !(AvroEncoder a)
+  , ascDecoder :: !(AvroDecoder a)
   }
 
--- | Wire the Schema Registry envelope around an Avro payload
--- codec. Result is a 'Serde' the streams DSL accepts.
+
+{- | Wire the Schema Registry envelope around an Avro payload
+codec. Result is a 'Serde' the streams DSL accepts.
+-}
 avroSerde :: AvroSerdeConfig a -> IO (Serde a)
-avroSerde AvroSerdeConfig{..} =
-  SR.registrySerde SR.SchemaRegistrySerdeConfig
-    { SR.srscClient  = ascClient
-    , SR.srscSubject = ascSubject
-    , SR.srscSchema  = ascSchema
-    , SR.srscPayload = Serde
-        { serialize   = runAvroEncoder ascEncoder
-        , deserialize = \b -> case runAvroDecoder ascDecoder b of
-            Left e  -> Left (T.pack e)
-            Right a -> Right a
-        , serializeHeaders = const mempty
-        }
-    }
+avroSerde AvroSerdeConfig {..} =
+  SR.registrySerde
+    SR.SchemaRegistrySerdeConfig
+      { SR.srscClient = ascClient
+      , SR.srscSubject = ascSubject
+      , SR.srscSchema = ascSchema
+      , SR.srscPayload =
+          Serde
+            { serialize = runAvroEncoder ascEncoder
+            , deserialize = \b -> case runAvroDecoder ascDecoder b of
+                Left e -> Left (T.pack e)
+                Right a -> Right a
+            , serializeHeaders = const mempty
+            }
+      }

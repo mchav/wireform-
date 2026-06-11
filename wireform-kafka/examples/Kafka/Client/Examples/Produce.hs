@@ -1,17 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Kafka.Client.Examples.Produce
--- Description : The smallest possible producer — open, send, close.
---
--- Mirrors the README's hello-world recipe. Open a producer with
--- 'withProducer', send a single record, the bracket flushes + closes
--- on exit. Run:
---
--- > cabal run wireform-kafka-client-examples produce
+{- |
+Module      : Kafka.Client.Examples.Produce
+Description : The smallest possible producer — open, send, close.
+
+Mirrors the README's hello-world recipe. Open a producer with
+'withProducer', send a single record, the bracket flushes + closes
+on exit. Run:
+
+> cabal run wireform-kafka-client-examples produce
+-}
 module Kafka.Client.Examples.Produce (runDemo) where
 
-import qualified Kafka
+import Kafka qualified
+
 
 runDemo :: IO ()
 runDemo =

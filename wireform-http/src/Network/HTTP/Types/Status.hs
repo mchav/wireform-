@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | HTTP status codes.
 
 Vendored from the hermes library. Hermes used a plain @newtype
@@ -10,38 +12,91 @@ returns the canonical reason phrase. HTTP\/1.x emits the reason phrase
 on the status line; HTTP\/2 and later drop it on the wire but it's
 still useful for diagnostics.
 -}
-{-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.Types.Status
-  ( Status (..)
-  , StatusCategory (..)
-  , statusCategory
-  , statusReason
-    -- * Category predicates (RFC 9110 §15)
-  , statusIsInformational
-  , statusIsSuccessful
-  , statusIsRedirection
-  , statusIsClientError
-  , statusIsServerError
-    -- * 1xx informational
-  , status100, status101, status102, status103
-    -- * 2xx success
-  , status200, status201, status202, status203, status204
-  , status205, status206, status207, status208, status226
-    -- * 3xx redirection
-  , status300, status301, status302, status303, status304
-  , status305, status307, status308
-    -- * 4xx client errors
-  , status400, status401, status402, status403, status404
-  , status405, status406, status407, status408, status409
-  , status410, status411, status412, status413, status414
-  , status415, status416, status417, status418, status421
-  , status422, status423, status424, status425, status426
-  , status428, status429, status431, status451
-    -- * 5xx server errors
-  , status500, status501, status502, status503, status504
-  , status505, status506, status507, status508, status510
-  , status511
-  ) where
+module Network.HTTP.Types.Status (
+  Status (..),
+  StatusCategory (..),
+  statusCategory,
+  statusReason,
+
+  -- * Category predicates (RFC 9110 §15)
+  statusIsInformational,
+  statusIsSuccessful,
+  statusIsRedirection,
+  statusIsClientError,
+  statusIsServerError,
+
+  -- * 1xx informational
+  status100,
+  status101,
+  status102,
+  status103,
+
+  -- * 2xx success
+  status200,
+  status201,
+  status202,
+  status203,
+  status204,
+  status205,
+  status206,
+  status207,
+  status208,
+  status226,
+
+  -- * 3xx redirection
+  status300,
+  status301,
+  status302,
+  status303,
+  status304,
+  status305,
+  status307,
+  status308,
+
+  -- * 4xx client errors
+  status400,
+  status401,
+  status402,
+  status403,
+  status404,
+  status405,
+  status406,
+  status407,
+  status408,
+  status409,
+  status410,
+  status411,
+  status412,
+  status413,
+  status414,
+  status415,
+  status416,
+  status417,
+  status418,
+  status421,
+  status422,
+  status423,
+  status424,
+  status425,
+  status426,
+  status428,
+  status429,
+  status431,
+  status451,
+
+  -- * 5xx server errors
+  status500,
+  status501,
+  status502,
+  status503,
+  status504,
+  status505,
+  status506,
+  status507,
+  status508,
+  status510,
+  status511,
+) where
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
@@ -49,23 +104,33 @@ import Data.Hashable (Hashable)
 import Data.Word (Word16)
 import GHC.Generics (Generic)
 
-newtype Status = Status { statusCode :: Word16 }
+
+newtype Status = Status {statusCode :: Word16}
   deriving stock (Eq, Ord, Generic)
   deriving newtype (Hashable, NFData)
+
 
 instance Show Status where
   showsPrec _ (Status w) = shows w
 
+
 data StatusCategory
-  = Informational  -- ^ 1xx
-  | Successful     -- ^ 2xx
-  | Redirection    -- ^ 3xx
-  | ClientError    -- ^ 4xx
-  | ServerError    -- ^ 5xx
+  = -- | 1xx
+    Informational
+  | -- | 2xx
+    Successful
+  | -- | 3xx
+    Redirection
+  | -- | 4xx
+    ClientError
+  | -- | 5xx
+    ServerError
   | UnknownCategory
   deriving stock (Eq, Show, Generic)
 
+
 instance NFData StatusCategory
+
 
 statusCategory :: Status -> StatusCategory
 statusCategory (Status n)
@@ -74,42 +139,49 @@ statusCategory (Status n)
   | n >= 300 && n < 400 = Redirection
   | n >= 400 && n < 500 = ClientError
   | n >= 500 && n < 600 = ServerError
-  | otherwise           = UnknownCategory
+  | otherwise = UnknownCategory
+
 
 -- | True for 1xx codes.
 statusIsInformational :: Status -> Bool
 statusIsInformational s = let n = statusCode s in n >= 100 && n < 200
 
+
 -- | True for 2xx codes.
 statusIsSuccessful :: Status -> Bool
 statusIsSuccessful s = let n = statusCode s in n >= 200 && n < 300
+
 
 -- | True for 3xx codes.
 statusIsRedirection :: Status -> Bool
 statusIsRedirection s = let n = statusCode s in n >= 300 && n < 400
 
+
 -- | True for 4xx codes.
 statusIsClientError :: Status -> Bool
 statusIsClientError s = let n = statusCode s in n >= 400 && n < 500
+
 
 -- | True for 5xx codes.
 statusIsServerError :: Status -> Bool
 statusIsServerError s = let n = statusCode s in n >= 500 && n < 600
 
--- | The canonical IANA reason phrase for a known status. Falls back
--- to a generic category phrase for unknown codes inside a known
--- range (e.g. 599 → @"Server Error"@), and an empty
--- 'ByteString' for codes outside 100–599.
+
+{- | The canonical IANA reason phrase for a known status. Falls back
+to a generic category phrase for unknown codes inside a known
+range (e.g. 599 → @"Server Error"@), and an empty
+'ByteString' for codes outside 100–599.
+-}
 statusReason :: Status -> ByteString
 statusReason s =
-  let n  = statusCode s
+  let n = statusCode s
       fallback = case statusCategory s of
-        Informational    -> "Informational"
-        Successful       -> "OK"
-        Redirection      -> "Redirection"
-        ClientError      -> "Client Error"
-        ServerError      -> "Server Error"
-        UnknownCategory  -> ""
+        Informational -> "Informational"
+        Successful -> "OK"
+        Redirection -> "Redirection"
+        ClientError -> "Client Error"
+        ServerError -> "Server Error"
+        UnknownCategory -> ""
   in case n of
        100 -> "Continue"
        101 -> "Switching Protocols"
@@ -173,7 +245,8 @@ statusReason s =
        508 -> "Loop Detected"
        510 -> "Not Extended"
        511 -> "Network Authentication Required"
-       _   -> fallback
+       _ -> fallback
+
 
 status100, status101, status102, status103 :: Status
 status100 = Status 100
@@ -181,8 +254,18 @@ status101 = Status 101
 status102 = Status 102
 status103 = Status 103
 
-status200, status201, status202, status203, status204,
-  status205, status206, status207, status208, status226 :: Status
+
+status200
+  , status201
+  , status202
+  , status203
+  , status204
+  , status205
+  , status206
+  , status207
+  , status208
+  , status226
+    :: Status
 status200 = Status 200
 status201 = Status 201
 status202 = Status 202
@@ -194,8 +277,16 @@ status207 = Status 207
 status208 = Status 208
 status226 = Status 226
 
-status300, status301, status302, status303, status304,
-  status305, status307, status308 :: Status
+
+status300
+  , status301
+  , status302
+  , status303
+  , status304
+  , status305
+  , status307
+  , status308
+    :: Status
 status300 = Status 300
 status301 = Status 301
 status302 = Status 302
@@ -205,12 +296,37 @@ status305 = Status 305
 status307 = Status 307
 status308 = Status 308
 
-status400, status401, status402, status403, status404,
-  status405, status406, status407, status408, status409,
-  status410, status411, status412, status413, status414,
-  status415, status416, status417, status418, status421,
-  status422, status423, status424, status425, status426,
-  status428, status429, status431, status451 :: Status
+
+status400
+  , status401
+  , status402
+  , status403
+  , status404
+  , status405
+  , status406
+  , status407
+  , status408
+  , status409
+  , status410
+  , status411
+  , status412
+  , status413
+  , status414
+  , status415
+  , status416
+  , status417
+  , status418
+  , status421
+  , status422
+  , status423
+  , status424
+  , status425
+  , status426
+  , status428
+  , status429
+  , status431
+  , status451
+    :: Status
 status400 = Status 400
 status401 = Status 401
 status402 = Status 402
@@ -241,9 +357,19 @@ status429 = Status 429
 status431 = Status 431
 status451 = Status 451
 
-status500, status501, status502, status503, status504,
-  status505, status506, status507, status508, status510,
-  status511 :: Status
+
+status500
+  , status501
+  , status502
+  , status503
+  , status504
+  , status505
+  , status506
+  , status507
+  , status508
+  , status510
+  , status511
+    :: Status
 status500 = Status 500
 status501 = Status 501
 status502 = Status 502

@@ -77,8 +77,9 @@ class ProtoMessage a where
   protoFieldDescriptors :: Proxy a -> Map Int (SomeFieldDescriptor a)
 
 
-  -- | The raw serialized FileDescriptorProto bytes.
-  -- Can be fed to other proto tools for interop.
+  {- | The raw serialized FileDescriptorProto bytes.
+  Can be fed to other proto tools for interop.
+  -}
   protoFileDescriptorBytes :: Proxy a -> ByteString
   protoFileDescriptorBytes _ = ""
 
@@ -219,8 +220,8 @@ lookupFieldDescriptor :: ProtoMessage a => Text -> Proxy a -> Maybe (SomeFieldDe
 lookupFieldDescriptor name p =
   let descs = Map.elems (protoFieldDescriptors p)
   in case filter (\(SomeField fd) -> fdName fd == name) descs of
-      (d : _) -> Just d
-      [] -> Nothing
+       (d : _) -> Just d
+       [] -> Nothing
 
 
 -- | Look up a field descriptor by field number.

@@ -51,6 +51,7 @@ module Wireform.FFI (
   findByteBS,
 
   -- * SIMD 4-byte repeating-key XOR (WebSocket masking,
+
   --   RFC 6455 sec 5.3)
   xorRepeatingKey,
   xorRepeatingKeyBS,
@@ -326,6 +327,7 @@ findByteBS bs off target = unsafePerformIO $
 foreign import ccall unsafe "hs_ws_mask"
   c_ws_mask :: Ptr Word8 -> CInt -> Word32 -> IO ()
 
+
 {- | In-place XOR of the 4-byte repeating @key@ over @buf[0..len)@.
 
 The key is interpreted in network byte order: byte 0 of the
@@ -342,11 +344,13 @@ xorRepeatingKey :: Ptr Word8 -> Int -> Word32 -> IO ()
 xorRepeatingKey ptr len key = c_ws_mask ptr (fromIntegral len) key
 {-# INLINE xorRepeatingKey #-}
 
--- | 'ByteString' variant: XOR the 4-byte repeating key in-place
--- over the bytes the 'ByteString' references.  The 'ByteString'
--- itself is shared with the caller, so the mutation is visible to
--- everyone else holding the same 'ByteString'.  Callers must own
--- the backing memory exclusively at this point.
+
+{- | 'ByteString' variant: XOR the 4-byte repeating key in-place
+over the bytes the 'ByteString' references.  The 'ByteString'
+itself is shared with the caller, so the mutation is visible to
+everyone else holding the same 'ByteString'.  Callers must own
+the backing memory exclusively at this point.
+-}
 xorRepeatingKeyBS :: ByteString -> Word32 -> IO ()
 xorRepeatingKeyBS bs key = BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
   c_ws_mask (castPtr ptr) (fromIntegral len) key
@@ -359,6 +363,7 @@ xorRepeatingKeyBS bs key = BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
 
 foreign import ccall unsafe "hs_xoshiro256pp_next"
   c_xoshiro256pp_next :: IO Word64
+
 
 {- | Pull a non-cryptographically-random 'Word64' from the calling
 OS thread's xoshiro256++ generator.
@@ -460,14 +465,14 @@ escapeJSONStringBS bs = go 0
           let !escPos = findJsonEscapeBS bs pos
               !safeLen = escPos - pos
           in ( if safeLen > 0
-                then B.byteString (BSU.unsafeTake safeLen (BSU.unsafeDrop pos bs))
-                else mempty
+                 then B.byteString (BSU.unsafeTake safeLen (BSU.unsafeDrop pos bs))
+                 else mempty
              )
-              <> if escPos >= len
-                then mempty
-                else
-                  let !b = BSU.unsafeIndex bs escPos
-                  in escByte b <> go (escPos + 1)
+               <> if escPos >= len
+                 then mempty
+                 else
+                   let !b = BSU.unsafeIndex bs escPos
+                   in escByte b <> go (escPos + 1)
 
     escByte :: Word8 -> B.Builder
     escByte 0x22 = B.byteString "\\\"" -- "

@@ -62,9 +62,10 @@ data PColPredicate
   | PLtEq !PValue
   | PGt !PValue
   | PGtEq !PValue
-  | -- | Membership in a (small) literal set. Treated as an OR
-    -- of 'PEq' for stats-based skipping; consumed directly by
-    -- bloom-filter checks.
+  | {- | Membership in a (small) literal set. Treated as an OR
+    of 'PEq' for stats-based skipping; consumed directly by
+    bloom-filter checks.
+    -}
     PIn ![PValue]
   | PIsNull
   | PIsNotNull

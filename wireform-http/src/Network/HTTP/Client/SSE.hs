@@ -1,3 +1,15 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
 {- | Server-Sent Events (the WHATWG @EventSource@ wire format) for
 the wireform HTTP client and server.
 
@@ -77,259 +89,278 @@ events as a server-side response body. For the (vastly more
 common) streaming case, use 'withSSE' on the client side and
 'sseResponseBody' on the server side.
 -}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-module Network.HTTP.Client.SSE
-  ( -- * Events and frames
-    ServerSentEvent (..)
-  , SseFrame (..)
-    -- * Incremental parser
-  , SseParser
-  , newSseParser
-  , feedSseParser
-  , endSseParser
-    -- * One-shot parsing
-  , parseEventStream
-  , parseEventStreamEvents
-    -- * Popper integration
-  , sseFramePopper
-  , sseEventPopper
-    -- * High-level client entry point
-  , withSSE
-  , withSSEFrames
-    -- * Reconnecting EventSource client
-  , ReconnectPolicy (..)
-  , defaultReconnectPolicy
-  , withReconnectingSSE
-  , withReconnectingSSEFrames
-  , SseError (..)
-  , SseStopReason (..)
-    -- * Server-side encoder
-  , renderSseFrame
-  , renderServerSentEvent
-  , buildSseFrame
-  , buildServerSentEvent
-  , defaultSseEvent
-    -- * Server-side body
-    -- $serverBody
-  , sseBodyPopper
-  , sseBodyPopperFrames
-  , sseResponseBody
-  , sseResponseBodyFrames
-    -- * Server-side push channel
-    -- $serverChannel
-  , SseChannel
-  , newSseChannel
-  , sendSseEvent
-  , sendSseFrame
-  , sendSseRetry
-  , sendSseComment
-  , closeSseChannel
-  , isSseChannelClosed
-  , awaitSseFrame
-  , awaitSseEvent
-    -- * Content-type tag
-  , EventStream
-  ) where
+module Network.HTTP.Client.SSE (
+  -- * Events and frames
+  ServerSentEvent (..),
+  SseFrame (..),
+
+  -- * Incremental parser
+  SseParser,
+  newSseParser,
+  feedSseParser,
+  endSseParser,
+
+  -- * One-shot parsing
+  parseEventStream,
+  parseEventStreamEvents,
+
+  -- * Popper integration
+  sseFramePopper,
+  sseEventPopper,
+
+  -- * High-level client entry point
+  withSSE,
+  withSSEFrames,
+
+  -- * Reconnecting EventSource client
+  ReconnectPolicy (..),
+  defaultReconnectPolicy,
+  withReconnectingSSE,
+  withReconnectingSSEFrames,
+  SseError (..),
+  SseStopReason (..),
+
+  -- * Server-side encoder
+  renderSseFrame,
+  renderServerSentEvent,
+  buildSseFrame,
+  buildServerSentEvent,
+  defaultSseEvent,
+
+  -- * Server-side body
+  -- $serverBody
+  sseBodyPopper,
+  sseBodyPopperFrames,
+  sseResponseBody,
+  sseResponseBodyFrames,
+
+  -- * Server-side push channel
+  -- $serverChannel
+  SseChannel,
+  newSseChannel,
+  sendSseEvent,
+  sendSseFrame,
+  sendSseRetry,
+  sendSseComment,
+  closeSseChannel,
+  isSseChannelClosed,
+  awaitSseFrame,
+  awaitSseEvent,
+
+  -- * Content-type tag
+  EventStream,
+) where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
-import Control.Concurrent.STM
-  ( STM
-  , TBQueue
-  , TVar
-  , atomically
-  , isEmptyTBQueue
-  , newTBQueueIO
-  , newTVarIO
-  , readTBQueue
-  , readTVar
-  , retry
-  , writeTBQueue
-  , writeTVar
-  )
-import qualified Control.Exception
+import Control.Concurrent.STM (
+  STM,
+  TBQueue,
+  TVar,
+  atomically,
+  isEmptyTBQueue,
+  newTBQueueIO,
+  newTVarIO,
+  readTBQueue,
+  readTVar,
+  retry,
+  writeTBQueue,
+  writeTVar,
+ )
 import Control.Exception (Exception, SomeException, bracket, throwIO, try)
+import Control.Exception qualified
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
-import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.IORef
 import Data.Maybe (mapMaybe)
-
-import qualified Wireform.Builder as WB
-import Wireform.Builder (Builder)
-
-import qualified Network.HTTP.Types.Body   as B
-import qualified Network.HTTP.Types.Header as H
-import qualified Network.HTTP.Types.Status as S
-
 import Network.HTTP.Client.Body (Body)
 import Network.HTTP.Client.BodyStream (Popper)
-import Network.HTTP.Client.Media
-  ( Decode (..)
-  , Encode (..)
-  , HasMediaType (..)
-  , MediaType (..)
-  , Quality
-  , contentTypeOf
-  , maxQuality
-  )
+import Network.HTTP.Client.Media (
+  Decode (..),
+  Encode (..),
+  HasMediaType (..),
+  MediaType (..),
+  Quality,
+  contentTypeOf,
+  maxQuality,
+ )
 import Network.HTTP.Client.Request (Request, setHeader)
-import Network.HTTP.Client.Response
-  (RawResponse (bodyPopper, statusCode), headers)
+import Network.HTTP.Client.Response (
+  RawResponse (bodyPopper, statusCode),
+  headers,
+ )
 import Network.HTTP.Client.Send (withResponse)
 import Network.HTTP.Client.Transport (Transport)
+import Network.HTTP.Types.Body qualified as B
+import Network.HTTP.Types.Header qualified as H
+import Network.HTTP.Types.Status qualified as S
+import Wireform.Builder (Builder)
+import Wireform.Builder qualified as WB
+
 
 -- ---------------------------------------------------------------------------
 -- Public types
 -- ---------------------------------------------------------------------------
 
--- | A dispatched server-sent event.
---
--- The @sseEventType@ field is 'Nothing' when no @event:@ line preceded
--- the dispatch — per the spec the implicit event type is then
--- @\"message\"@. We surface the explicit absence so callers can
--- distinguish \"the server told us this is a heartbeat\" from \"the
--- server said nothing\".
---
--- @sseEventId@ carries the last value set by an @id:@ field. The
--- EventSource spec keeps the id across events until explicitly
--- changed, so two consecutive dispatches with no intervening @id:@
--- line will see the same value here. This is also the value clients
--- echo back as @Last-Event-ID@ on reconnection.
+{- | A dispatched server-sent event.
+
+The @sseEventType@ field is 'Nothing' when no @event:@ line preceded
+the dispatch — per the spec the implicit event type is then
+@\"message\"@. We surface the explicit absence so callers can
+distinguish \"the server told us this is a heartbeat\" from \"the
+server said nothing\".
+
+@sseEventId@ carries the last value set by an @id:@ field. The
+EventSource spec keeps the id across events until explicitly
+changed, so two consecutive dispatches with no intervening @id:@
+line will see the same value here. This is also the value clients
+echo back as @Last-Event-ID@ on reconnection.
+-}
 data ServerSentEvent = ServerSentEvent
   { sseEventType :: !(Maybe ByteString)
-  , sseEventId   :: !(Maybe ByteString)
-  , sseData      :: !ByteString
+  , sseEventId :: !(Maybe ByteString)
+  , sseData :: !ByteString
   }
   deriving stock (Eq, Show)
 
--- | A single output of the parser. Most callers only care about
--- 'SseDispatch' and use 'sseEventPopper' to filter the rest out.
---
--- * 'SseDispatch' — a complete event ready for the application.
--- * 'SseRetry' — the server's @retry:@ directive in milliseconds.
---   Clients honoring reconnection backoff use this value as their
---   delay.
--- * 'SseComment' — a line that started with a literal @:@. Most
---   servers use this for keep-alives; surfacing it lets diagnostics
---   and proxies see the heartbeat without having to peek at the
---   wire.
+
+{- | A single output of the parser. Most callers only care about
+'SseDispatch' and use 'sseEventPopper' to filter the rest out.
+
+* 'SseDispatch' — a complete event ready for the application.
+* 'SseRetry' — the server's @retry:@ directive in milliseconds.
+  Clients honoring reconnection backoff use this value as their
+  delay.
+* 'SseComment' — a line that started with a literal @:@. Most
+  servers use this for keep-alives; surfacing it lets diagnostics
+  and proxies see the heartbeat without having to peek at the
+  wire.
+-}
 data SseFrame
   = SseDispatch !ServerSentEvent
   | SseRetry !Int
   | SseComment !ByteString
   deriving stock (Eq, Show)
 
+
 -- ---------------------------------------------------------------------------
 -- Parser state
 -- ---------------------------------------------------------------------------
 
--- | The incremental parser. Opaque on purpose: the carry, BOM state,
--- and per-event buffers are implementation details we want freedom
--- to change.
+{- | The incremental parser. Opaque on purpose: the carry, BOM state,
+and per-event buffers are implementation details we want freedom
+to change.
+-}
 data SseParser = SseParser
-  { spCarry        :: !ByteString
-    -- ^ Bytes seen since the last line terminator. Held as a
-    --   strict 'ByteString' because lines in SSE are typically
-    --   short; the worst case is one giant @data:@ line that we
-    --   never finish, which is the caller's problem.
-  , spJustSawCR    :: !Bool
-    -- ^ Previous byte was @CR@. If the very next byte is @LF@ we
-    --   fold the pair into one terminator (CRLF). This is the
-    --   only piece of state that crosses chunk boundaries.
-  , spEventType    :: !(Maybe ByteString)
-  , spDataBuf      :: !Builder
-    -- ^ Accumulated @data:@ values. Each appended chunk is
-    --   @value <> \"\\n\"@. We materialise once at dispatch via
-    --   'WB.toStrictByteString', which is O(total bytes) — using
-    --   'Wireform.Builder' here keeps repeated @data:@ lines in
-    --   one event from going quadratic the way @BS.append@ would.
+  { spCarry :: !ByteString
+  {- ^ Bytes seen since the last line terminator. Held as a
+  strict 'ByteString' because lines in SSE are typically
+  short; the worst case is one giant @data:@ line that we
+  never finish, which is the caller's problem.
+  -}
+  , spJustSawCR :: !Bool
+  {- ^ Previous byte was @CR@. If the very next byte is @LF@ we
+  fold the pair into one terminator (CRLF). This is the
+  only piece of state that crosses chunk boundaries.
+  -}
+  , spEventType :: !(Maybe ByteString)
+  , spDataBuf :: !Builder
+  {- ^ Accumulated @data:@ values. Each appended chunk is
+  @value <> \"\\n\"@. We materialise once at dispatch via
+  'WB.toStrictByteString', which is O(total bytes) — using
+  'Wireform.Builder' here keeps repeated @data:@ lines in
+  one event from going quadratic the way @BS.append@ would.
+  -}
   , spDataNonEmpty :: !Bool
-    -- ^ Whether any @data:@ field at all was seen. The spec
-    --   suppresses dispatch if the data buffer is empty; we track
-    --   the predicate directly because @data:@ with an empty value
-    --   still appends @\"\\n\"@ (so the bytes-buffer is non-empty
-    --   even when functionally empty).
-  , spLastEventId  :: !(Maybe ByteString)
-  , spBomChecked   :: !Bool
-    -- ^ Whether the optional leading UTF-8 BOM has been consumed.
+  {- ^ Whether any @data:@ field at all was seen. The spec
+  suppresses dispatch if the data buffer is empty; we track
+  the predicate directly because @data:@ with an empty value
+  still appends @\"\\n\"@ (so the bytes-buffer is non-empty
+  even when functionally empty).
+  -}
+  , spLastEventId :: !(Maybe ByteString)
+  , spBomChecked :: !Bool
+  -- ^ Whether the optional leading UTF-8 BOM has been consumed.
   }
 
--- | Initial parser state. No carry, no buffered fields, BOM not yet
--- considered.
+
+{- | Initial parser state. No carry, no buffered fields, BOM not yet
+considered.
+-}
 newSseParser :: SseParser
-newSseParser = SseParser
-  { spCarry        = BS.empty
-  , spJustSawCR    = False
-  , spEventType    = Nothing
-  , spDataBuf      = mempty
-  , spDataNonEmpty = False
-  , spLastEventId  = Nothing
-  , spBomChecked   = False
-  }
+newSseParser =
+  SseParser
+    { spCarry = BS.empty
+    , spJustSawCR = False
+    , spEventType = Nothing
+    , spDataBuf = mempty
+    , spDataNonEmpty = False
+    , spLastEventId = Nothing
+    , spBomChecked = False
+    }
 
--- | Feed a chunk through the parser. Returns the updated state and
--- any frames the chunk completed (in stream order).
---
--- The function is total and never throws — even malformed lines just
--- get ignored per spec.
+
+{- | Feed a chunk through the parser. Returns the updated state and
+any frames the chunk completed (in stream order).
+
+The function is total and never throws — even malformed lines just
+get ignored per spec.
+-}
 feedSseParser :: SseParser -> ByteString -> (SseParser, [SseFrame])
 feedSseParser p0 chunk0 =
-  let (p1, chunk)                  = stripBomIfNeeded p0 chunk0
-      (lines_, carry', sawCR')     = splitLines (spCarry p1) (spJustSawCR p1) chunk
-      pAfter                       = p1 { spCarry = carry', spJustSawCR = sawCR' }
-      (pFinal, framesRev)          = foldLines pAfter [] lines_
+  let (p1, chunk) = stripBomIfNeeded p0 chunk0
+      (lines_, carry', sawCR') = splitLines (spCarry p1) (spJustSawCR p1) chunk
+      pAfter = p1 {spCarry = carry', spJustSawCR = sawCR'}
+      (pFinal, framesRev) = foldLines pAfter [] lines_
   in (pFinal, reverse framesRev)
 
--- | Signal EOF to the parser. Per the EventSource spec, a partial
--- event without its terminating blank line is /not/ dispatched at
--- EOF; this function returns the parser with its in-flight buffers
--- intact and no frames. It's exposed so callers building their own
--- popper wrapper have a place to plumb \"the stream ended\" through.
+
+{- | Signal EOF to the parser. Per the EventSource spec, a partial
+event without its terminating blank line is /not/ dispatched at
+EOF; this function returns the parser with its in-flight buffers
+intact and no frames. It's exposed so callers building their own
+popper wrapper have a place to plumb \"the stream ended\" through.
+-}
 endSseParser :: SseParser -> (SseParser, [SseFrame])
 endSseParser p = (p, [])
+
 
 -- ---------------------------------------------------------------------------
 -- One-shot helpers
 -- ---------------------------------------------------------------------------
 
--- | Parse a complete event-stream body into frames in one shot.
---
--- Convenience wrapper for tests and recorded fixtures. For live
--- streams use 'sseFramePopper' (the parser is incremental and
--- chunk-safe; the one-shot form just feeds the whole buffer at
--- once).
+{- | Parse a complete event-stream body into frames in one shot.
+
+Convenience wrapper for tests and recorded fixtures. For live
+streams use 'sseFramePopper' (the parser is incremental and
+chunk-safe; the one-shot form just feeds the whole buffer at
+once).
+-}
 parseEventStream :: ByteString -> [SseFrame]
 parseEventStream bs = snd (feedSseParser newSseParser bs)
+
 
 -- | 'parseEventStream' filtered to dispatched events only.
 parseEventStreamEvents :: ByteString -> [ServerSentEvent]
 parseEventStreamEvents = mapMaybe pickDispatch . parseEventStream
   where
     pickDispatch (SseDispatch ev) = Just ev
-    pickDispatch _                = Nothing
+    pickDispatch _ = Nothing
+
 
 -- ---------------------------------------------------------------------------
 -- Popper integration
 -- ---------------------------------------------------------------------------
 
--- | Wrap a wire-level 'Popper' as a frame popper.
---
--- The returned action pulls additional bytes from the underlying
--- popper as needed to surface the next frame. It returns
--- 'Nothing' on EOF and continues to return 'Nothing' on every
--- subsequent call.
+{- | Wrap a wire-level 'Popper' as a frame popper.
+
+The returned action pulls additional bytes from the underlying
+popper as needed to surface the next frame. It returns
+'Nothing' on EOF and continues to return 'Nothing' on every
+subsequent call.
+-}
 sseFramePopper :: Popper -> IO (IO (Maybe SseFrame))
 sseFramePopper popper = do
   -- State: parser + a small queue of frames already extracted but
@@ -363,38 +394,43 @@ sseFramePopper popper = do
                         loop
   pure loop
 
--- | Like 'sseFramePopper' but filters to dispatched events,
--- silently swallowing comments and retry directives. This is what
--- most application code wants; reach for the frame popper if you
--- need to honour reconnection backoff or trace heartbeats.
+
+{- | Like 'sseFramePopper' but filters to dispatched events,
+silently swallowing comments and retry directives. This is what
+most application code wants; reach for the frame popper if you
+need to honour reconnection backoff or trace heartbeats.
+-}
 sseEventPopper :: Popper -> IO (IO (Maybe ServerSentEvent))
 sseEventPopper popper = do
   framePopper <- sseFramePopper popper
   let loop = do
         mf <- framePopper
         case mf of
-          Nothing                -> pure Nothing
-          Just (SseDispatch ev)  -> pure (Just ev)
-          Just _                 -> loop
+          Nothing -> pure Nothing
+          Just (SseDispatch ev) -> pure (Just ev)
+          Just _ -> loop
   pure loop
+
 
 -- ---------------------------------------------------------------------------
 -- High-level client helpers
 -- ---------------------------------------------------------------------------
 
--- | Open an SSE stream against a transport.
---
--- Adds @Accept: text\/event-stream@ and @Cache-Control: no-store@
--- to the outgoing request (both per the EventSource spec). The
--- callback receives a popper of dispatched events; the underlying
--- connection is owned for the lifetime of the callback by whatever
--- 'Transport' was passed in (use 'Network.HTTP.Client.Streaming.streamedTransport'
--- for connection-per-request lifetime).
---
--- Throws 'SseError' if the response status is non-2xx or the
--- response @Content-Type@ isn't @text\/event-stream@.
+{- | Open an SSE stream against a transport.
+
+Adds @Accept: text\/event-stream@ and @Cache-Control: no-store@
+to the outgoing request (both per the EventSource spec). The
+callback receives a popper of dispatched events; the underlying
+connection is owned for the lifetime of the callback by whatever
+'Transport' was passed in (use 'Network.HTTP.Client.Streaming.streamedTransport'
+for connection-per-request lifetime).
+
+Throws 'SseError' if the response status is non-2xx or the
+response @Content-Type@ isn't @text\/event-stream@.
+-}
 withSSE
-  :: forall m body a. (MonadUnliftIO m, Body body)
+  :: forall m body a
+   . (MonadUnliftIO m, Body body)
   => Transport IO
   -> Request body
   -> (IO (Maybe ServerSentEvent) -> m a)
@@ -405,16 +441,19 @@ withSSE t req k =
     filterFrames fp = do
       mf <- fp
       case mf of
-        Nothing               -> pure Nothing
+        Nothing -> pure Nothing
         Just (SseDispatch ev) -> pure (Just ev)
-        Just _                -> filterFrames fp
+        Just _ -> filterFrames fp
 
--- | Same as 'withSSE' but the callback sees every frame the parser
--- surfaces, including 'SseRetry' and 'SseComment'. Use this if you
--- need to react to server-controlled reconnection delays or want
--- to observe keep-alive heartbeats explicitly.
+
+{- | Same as 'withSSE' but the callback sees every frame the parser
+surfaces, including 'SseRetry' and 'SseComment'. Use this if you
+need to react to server-controlled reconnection delays or want
+to observe keep-alive heartbeats explicitly.
+-}
 withSSEFrames
-  :: forall m body a. (MonadUnliftIO m, Body body)
+  :: forall m body a
+   . (MonadUnliftIO m, Body body)
   => Transport IO
   -> Request body
   -> (IO (Maybe SseFrame) -> m a)
@@ -428,10 +467,12 @@ withSSEFrames t req k =
     acceptList :: [(MediaType, Quality)]
     acceptList = [(mediaType @EventStream, maxQuality)]
 
+
 sseRequestHeaders :: Request body -> Request body
 sseRequestHeaders =
-    setHeader H.hAccept       "text/event-stream"
-  . setHeader H.hCacheControl "no-store"
+  setHeader H.hAccept "text/event-stream"
+    . setHeader H.hCacheControl "no-store"
+
 
 -- | Surface of failure modes for 'withSSE' \/ 'withSSEFrames'.
 data SseError
@@ -439,11 +480,13 @@ data SseError
   | SseUnexpectedContentType !MediaType
   deriving stock (Show)
 
+
 instance Exception SseError
+
 
 assertSseResponse :: RawResponse -> IO ()
 assertSseResponse raw = do
-  let s    = statusCode raw
+  let s = statusCode raw
       code = S.statusCode s
   -- Per the WHATWG EventSource spec, 204 No Content is the
   -- server's signal to stop reconnecting. For a non-reconnecting
@@ -457,67 +500,81 @@ assertSseResponse raw = do
   unless (mtType ct == "text" && mtSubType ct == "event-stream") $
     throwIO (SseUnexpectedContentType ct)
 
+
 -- ---------------------------------------------------------------------------
 -- Reconnecting EventSource client
 -- ---------------------------------------------------------------------------
 
--- | Reconnection knobs for 'withReconnectingSSE'. Mirrors the
--- behaviour of the WHATWG EventSource interface: on disconnect
--- (or non-fatal status), sleep and reissue the request with a
--- @Last-Event-ID@ header echoing the most recent dispatched id.
+{- | Reconnection knobs for 'withReconnectingSSE'. Mirrors the
+behaviour of the WHATWG EventSource interface: on disconnect
+(or non-fatal status), sleep and reissue the request with a
+@Last-Event-ID@ header echoing the most recent dispatched id.
+-}
 data ReconnectPolicy = ReconnectPolicy
   { rpInitialRetryMs :: !Int
-    -- ^ Default reconnection delay in milliseconds, used until
-    --   the server overrides it via an @SseRetry@ directive.
-    --   Default 3000 ms (the EventSource spec's recommendation).
-  , rpMaxRetryMs     :: !Int
-    -- ^ Clamp on retry intervals (both initial and
-    --   server-supplied) so a buggy or malicious server can't
-    --   pin a client for hours. Default 60 000 ms.
-  , rpMaxAttempts    :: !(Maybe Int)
-    -- ^ When 'Just', give up after this many consecutive failed
-    --   attempts (a connection that returns at least one event
-    --   resets the counter). 'Nothing' = retry indefinitely.
-    --   Default 'Nothing'.
+  {- ^ Default reconnection delay in milliseconds, used until
+  the server overrides it via an @SseRetry@ directive.
+  Default 3000 ms (the EventSource spec's recommendation).
+  -}
+  , rpMaxRetryMs :: !Int
+  {- ^ Clamp on retry intervals (both initial and
+  server-supplied) so a buggy or malicious server can't
+  pin a client for hours. Default 60 000 ms.
+  -}
+  , rpMaxAttempts :: !(Maybe Int)
+  {- ^ When 'Just', give up after this many consecutive failed
+  attempts (a connection that returns at least one event
+  resets the counter). 'Nothing' = retry indefinitely.
+  Default 'Nothing'.
+  -}
   , rpRetryOnException :: !Bool
-    -- ^ When 'True' (default), transport-layer exceptions
-    --   (DNS, TLS, RST, etc.) also trigger a reconnect; when
-    --   'False' they surface immediately as an exception out of
-    --   'withReconnectingSSE'.
+  {- ^ When 'True' (default), transport-layer exceptions
+  (DNS, TLS, RST, etc.) also trigger a reconnect; when
+  'False' they surface immediately as an exception out of
+  'withReconnectingSSE'.
+  -}
   }
   deriving stock (Eq, Show)
 
-defaultReconnectPolicy :: ReconnectPolicy
-defaultReconnectPolicy = ReconnectPolicy
-  { rpInitialRetryMs   = 3000
-  , rpMaxRetryMs       = 60000
-  , rpMaxAttempts      = Nothing
-  , rpRetryOnException = True
-  }
 
--- | Why the reconnecting loop stopped. Carried inside the queue's
--- terminal sentinel so the consumer popper can distinguish
--- normal end-of-stream from giving-up-after-N-failures.
+defaultReconnectPolicy :: ReconnectPolicy
+defaultReconnectPolicy =
+  ReconnectPolicy
+    { rpInitialRetryMs = 3000
+    , rpMaxRetryMs = 60000
+    , rpMaxAttempts = Nothing
+    , rpRetryOnException = True
+    }
+
+
+{- | Why the reconnecting loop stopped. Carried inside the queue's
+terminal sentinel so the consumer popper can distinguish
+normal end-of-stream from giving-up-after-N-failures.
+-}
 data SseStopReason
-  = SseStopServerEnded
-    -- ^ Server returned @204 No Content@ ("don't reconnect").
-  | SseStopMaxAttempts
-    -- ^ 'rpMaxAttempts' exhausted without a successful event.
-  | SseStopException !SomeException
-    -- ^ A transport exception escaped (only when
-    --   'rpRetryOnException' is 'False').
+  = -- | Server returned @204 No Content@ ("don't reconnect").
+    SseStopServerEnded
+  | -- | 'rpMaxAttempts' exhausted without a successful event.
+    SseStopMaxAttempts
+  | {- | A transport exception escaped (only when
+    'rpRetryOnException' is 'False').
+    -}
+    SseStopException !SomeException
   deriving stock (Show)
 
--- | Reconnecting EventSource client. Behaves like 'withSSE' but
--- reissues the request when the server hangs up, sending
--- @Last-Event-ID@ with the most recent dispatched id and honoring
--- the server's @retry:@ directives.
---
--- The callback's popper returns 'Nothing' only when the loop has
--- given up (server sent @204 No Content@, max attempts hit, or a
--- fatal exception); ordinary disconnects are transparent.
+
+{- | Reconnecting EventSource client. Behaves like 'withSSE' but
+reissues the request when the server hangs up, sending
+@Last-Event-ID@ with the most recent dispatched id and honoring
+the server's @retry:@ directives.
+
+The callback's popper returns 'Nothing' only when the loop has
+given up (server sent @204 No Content@, max attempts hit, or a
+fatal exception); ordinary disconnects are transparent.
+-}
 withReconnectingSSE
-  :: forall m body a. (MonadUnliftIO m, Body body)
+  :: forall m body a
+   . (MonadUnliftIO m, Body body)
   => Transport IO
   -> Request body
   -> ReconnectPolicy
@@ -530,15 +587,18 @@ withReconnectingSSE t req policy k =
     filterToEvents fp = do
       mf <- fp
       case mf of
-        Nothing               -> pure Nothing
+        Nothing -> pure Nothing
         Just (SseDispatch ev) -> pure (Just ev)
-        Just _                -> filterToEvents fp
+        Just _ -> filterToEvents fp
 
--- | Like 'withReconnectingSSE' but the callback sees every parsed
--- frame, including 'SseRetry' and 'SseComment'. Heartbeats and
--- the server-supplied reconnect interval are observable here.
+
+{- | Like 'withReconnectingSSE' but the callback sees every parsed
+frame, including 'SseRetry' and 'SseComment'. Heartbeats and
+the server-supplied reconnect interval are observable here.
+-}
 withReconnectingSSEFrames
-  :: forall m body a. (MonadUnliftIO m, Body body)
+  :: forall m body a
+   . (MonadUnliftIO m, Body body)
   => Transport IO
   -> Request body
   -> ReconnectPolicy
@@ -549,13 +609,13 @@ withReconnectingSSEFrames transport req0 policy k = withRunInIO $ \runInIO -> do
   -- popper. The size is small on purpose: SSE is real-time so a
   -- big buffer adds latency without adding value, and the worker
   -- is happy to block when the consumer is slow.
-  q       <- newTBQueueIO 16
-  lastId  <- newIORef Nothing
+  q <- newTBQueueIO 16
+  lastId <- newIORef Nothing
   retryMs <- newIORef (clampRetry (rpInitialRetryMs policy))
   stopRef <- newIORef (Nothing :: Maybe SseStopReason)
   -- A flag the consumer flips when its callback exits so the
   -- worker stops trying to reconnect.
-  done    <- newIORef False
+  done <- newIORef False
 
   let consumer = do
         d <- readIORef done
@@ -564,16 +624,17 @@ withReconnectingSSEFrames transport req0 policy k = withRunInIO $ \runInIO -> do
           else do
             item <- atomically (readTBQueue q)
             case item of
-              Just f  -> pure (Just f)
+              Just f -> pure (Just f)
               Nothing -> do
                 writeIORef done True
                 pure Nothing
 
   bracket
     (forkIO (reconnectLoop q lastId retryMs stopRef done))
-    (\tid -> do
+    ( \tid -> do
         writeIORef done True
-        killThread tid)
+        killThread tid
+    )
     (\_ -> runInIO (k consumer))
   where
     clampRetry n = max 0 (min n (rpMaxRetryMs policy))
@@ -644,12 +705,12 @@ withReconnectingSSEFrames transport req0 policy k = withRunInIO $ \runInIO -> do
           mf <- fp
           case mf of
             Nothing -> pure ()
-            Just f  -> do
+            Just f -> do
               case f of
                 SseDispatch ev -> do
                   case sseEventId ev of
                     Just lid -> writeIORef lastId (Just lid)
-                    Nothing  -> pure ()
+                    Nothing -> pure ()
                   writeIORef succeededRef True
                 SseRetry ms -> do
                   let clamped = max 0 (min ms (rpMaxRetryMs policy))
@@ -661,88 +722,105 @@ withReconnectingSSEFrames transport req0 policy k = withRunInIO $ \runInIO -> do
               when (not d) loop
 
 
-
 -- ---------------------------------------------------------------------------
 -- Content-type tag and instances
 -- ---------------------------------------------------------------------------
 
--- | Phantom tag for @text\/event-stream@. Provides
--- 'HasMediaType' so it slots into the generic media negotiation
--- pipeline, plus 'Encode' \/ 'Decode' for the one-shot list form
--- (useful when fixtures pre-record a full stream and want to feed
--- it through 'send').
+{- | Phantom tag for @text\/event-stream@. Provides
+'HasMediaType' so it slots into the generic media negotiation
+pipeline, plus 'Encode' \/ 'Decode' for the one-shot list form
+(useful when fixtures pre-record a full stream and want to feed
+it through 'send').
+-}
 data EventStream
+
 
 instance HasMediaType EventStream where
   mediaType = "text/event-stream"
 
+
 instance Decode EventStream [ServerSentEvent] where
   decode = Right . parseEventStreamEvents
+
 
 instance Decode EventStream [SseFrame] where
   decode = Right . parseEventStream
 
+
 instance Encode EventStream [ServerSentEvent] where
   encode = WB.toStrictByteString . foldMap buildServerSentEvent
 
+
 instance Encode EventStream [SseFrame] where
   encode = WB.toStrictByteString . foldMap buildSseFrame
+
 
 -- ---------------------------------------------------------------------------
 -- Server-side rendering
 -- ---------------------------------------------------------------------------
 
--- | An empty 'ServerSentEvent' with default values. Useful as a base
--- for record-update syntax.
+{- | An empty 'ServerSentEvent' with default values. Useful as a base
+for record-update syntax.
+-}
 defaultSseEvent :: ServerSentEvent
-defaultSseEvent = ServerSentEvent
-  { sseEventType = Nothing
-  , sseEventId   = Nothing
-  , sseData      = BS.empty
-  }
+defaultSseEvent =
+  ServerSentEvent
+    { sseEventType = Nothing
+    , sseEventId = Nothing
+    , sseData = BS.empty
+    }
 
--- | Render a single dispatched event to the wire. Each line of
--- 'sseData' becomes a separate @data:@ line; the final blank line
--- terminating the event is included. The data payload must not
--- contain @CR@ (the spec disallows it inside data lines and a
--- naive render would produce two events at the consumer);
--- this function does /not/ check.
+
+{- | Render a single dispatched event to the wire. Each line of
+'sseData' becomes a separate @data:@ line; the final blank line
+terminating the event is included. The data payload must not
+contain @CR@ (the spec disallows it inside data lines and a
+naive render would produce two events at the consumer);
+this function does /not/ check.
+-}
 renderServerSentEvent :: ServerSentEvent -> ByteString
 renderServerSentEvent = WB.toStrictByteString . buildServerSentEvent
 
--- | Render any single frame. 'SseDispatch' delegates to
--- 'renderServerSentEvent'; 'SseRetry' becomes a single @retry:@
--- line followed by the trailing blank; 'SseComment' becomes a
--- @:@-prefixed line followed by the trailing blank.
+
+{- | Render any single frame. 'SseDispatch' delegates to
+'renderServerSentEvent'; 'SseRetry' becomes a single @retry:@
+line followed by the trailing blank; 'SseComment' becomes a
+@:@-prefixed line followed by the trailing blank.
+-}
 renderSseFrame :: SseFrame -> ByteString
 renderSseFrame = WB.toStrictByteString . buildSseFrame
 
--- | 'Wireform.Builder' versions of the renderers. The byte-returning
--- 'renderServerSentEvent' \/ 'renderSseFrame' just materialise these,
--- but composing many frames stays O(n) when callers stay in
--- @Builder@-land and only collapse with 'WB.toStrictByteString' (or
--- 'WB.hPutBuilder') once at the end.
+
+{- | 'Wireform.Builder' versions of the renderers. The byte-returning
+'renderServerSentEvent' \/ 'renderSseFrame' just materialise these,
+but composing many frames stays O(n) when callers stay in
+@Builder@-land and only collapse with 'WB.toStrictByteString' (or
+'WB.hPutBuilder') once at the end.
+-}
 buildServerSentEvent :: ServerSentEvent -> Builder
 buildServerSentEvent ev =
   optField "event: " (sseEventType ev)
-    <> optField "id: "    (sseEventId   ev)
+    <> optField "id: " (sseEventId ev)
     <> buildDataPayload (sseData ev)
     <> WB.word8 0x0A
   where
-    optField _    Nothing  = mempty
+    optField _ Nothing = mempty
     optField name (Just v) = WB.byteString name <> WB.byteString v <> WB.word8 0x0A
+
 
 buildSseFrame :: SseFrame -> Builder
 buildSseFrame (SseDispatch ev) = buildServerSentEvent ev
-buildSseFrame (SseRetry n)     =
+buildSseFrame (SseRetry n) =
   WB.byteString "retry: " <> WB.intDec n <> WB.byteString "\n\n"
-buildSseFrame (SseComment c)   =
+buildSseFrame (SseComment c) =
   WB.word8 0x3A <> WB.byteString c <> WB.byteString "\n\n"
 
--- | One @data: <line>\\n@ per LF-separated chunk in @d@. We split
--- /once/ here and feed the resulting slices straight into the
--- builder; each slice is O(1) (strict ByteString slices share the
--- underlying ForeignPtr), so no per-line copy happens.
+
+{- | One @data: <line>\\n@ per LF-separated chunk in @d@. We split
+/once/ here and feed the resulting slices straight into the
+builder; each slice is O(1) (strict ByteString slices share the
+underlying ForeignPtr), so no per-line copy happens.
+-}
 buildDataPayload :: ByteString -> Builder
 buildDataPayload d
   | BS.null d = mempty
@@ -750,140 +828,170 @@ buildDataPayload d
   where
     oneLine l = WB.byteString "data: " <> WB.byteString l <> WB.word8 0x0A
 
+
 -- ---------------------------------------------------------------------------
 -- Server-side body
 -- ---------------------------------------------------------------------------
 
--- $serverBody
--- The body popper expected by 'Network.HTTP.Types.Body.BodyStream' is
--- @IO (Maybe ByteString)@: produce a chunk, or 'Nothing' for EOF.
--- 'sseBodyPopper' adapts an event source — any
--- @IO (Maybe ServerSentEvent)@ — into one of those, materialising
--- exactly one event per popper call so the underlying HTTP encoder
--- emits one wire chunk per event (see the module's \"Flush
--- semantics\" section).
---
--- A typical handler looks like:
---
--- > handler :: Request -> IO Response
--- > handler _req = do
--- >   ch <- newSseChannel 64
--- >   _  <- forkIO (produce ch)         -- producer pushes events
--- >   pure Response
--- >     { responseStatus  = status200
--- >     , responseHeaders = [ (hContentType,  "text/event-stream")
--- >                         , (hCacheControl, "no-store")
--- >                         ]
--- >     , responseBody    = sseResponseBody (awaitSseEvent ch)
--- >     , ...
--- >     }
+{- $serverBody
+The body popper expected by 'Network.HTTP.Types.Body.BodyStream' is
+@IO (Maybe ByteString)@: produce a chunk, or 'Nothing' for EOF.
+'sseBodyPopper' adapts an event source — any
+@IO (Maybe ServerSentEvent)@ — into one of those, materialising
+exactly one event per popper call so the underlying HTTP encoder
+emits one wire chunk per event (see the module's \"Flush
+semantics\" section).
 
--- | Adapt an event source into the chunk popper expected by
--- 'Network.HTTP.Types.Body.BodyStream'. Each popper call pulls
--- exactly one event from the source and renders it; the encoder
--- (HTTP\/1.1 chunked or HTTP\/2 DATA) then flushes that single
--- chunk to the wire.
+A typical handler looks like:
+
+> handler :: Request -> IO Response
+> handler _req = do
+>   ch <- newSseChannel 64
+>   _  <- forkIO (produce ch)         -- producer pushes events
+>   pure Response
+>     { responseStatus  = status200
+>     , responseHeaders = [ (hContentType,  "text/event-stream")
+>                         , (hCacheControl, "no-store")
+>                         ]
+>     , responseBody    = sseResponseBody (awaitSseEvent ch)
+>     , ...
+>     }
+-}
+
+
+{- | Adapt an event source into the chunk popper expected by
+'Network.HTTP.Types.Body.BodyStream'. Each popper call pulls
+exactly one event from the source and renders it; the encoder
+(HTTP\/1.1 chunked or HTTP\/2 DATA) then flushes that single
+chunk to the wire.
+-}
 sseBodyPopper :: IO (Maybe ServerSentEvent) -> IO (Maybe ByteString)
 sseBodyPopper source = fmap (fmap renderServerSentEvent) source
 
--- | 'sseBodyPopper' for sources that also want to surface retry
--- directives and comments (typical for keep-alive heartbeats).
+
+{- | 'sseBodyPopper' for sources that also want to surface retry
+directives and comments (typical for keep-alive heartbeats).
+-}
 sseBodyPopperFrames :: IO (Maybe SseFrame) -> IO (Maybe ByteString)
 sseBodyPopperFrames source = fmap (fmap renderSseFrame) source
 
--- | Build a streaming SSE response body. The 'Content-Type' and
--- 'Cache-Control' headers still need to be set on the 'Response'
--- record by the handler — this helper only constructs the body.
+
+{- | Build a streaming SSE response body. The 'Content-Type' and
+'Cache-Control' headers still need to be set on the 'Response'
+record by the handler — this helper only constructs the body.
+-}
 sseResponseBody :: IO (Maybe ServerSentEvent) -> B.Body
 sseResponseBody = B.BodyStream . sseBodyPopper
+
 
 -- | Frame-aware variant of 'sseResponseBody'.
 sseResponseBodyFrames :: IO (Maybe SseFrame) -> B.Body
 sseResponseBodyFrames = B.BodyStream . sseBodyPopperFrames
 
+
 -- ---------------------------------------------------------------------------
 -- Server-side push channel
 -- ---------------------------------------------------------------------------
 
--- $serverChannel
--- A multi-producer single-consumer event queue with a bounded
--- backlog. Producers push frames with 'sendSseEvent' \/
--- 'sendSseFrame'; the HTTP body popper (typically built via
--- 'awaitSseEvent') drains them in FIFO order. The bound provides
--- back-pressure: when the queue fills, producers block until the
--- consumer drains a slot, so a slow client can't OOM the producer.
---
--- 'closeSseChannel' is non-blocking and idempotent. The consumer
--- finishes draining whatever is still in the queue and then
--- returns 'Nothing'; subsequent sends are silently dropped. This
--- shape lets a handler signal end-of-stream from any thread
--- without worrying about queue fullness, races with the
--- consumer, or running over the cap.
+{- $serverChannel
+A multi-producer single-consumer event queue with a bounded
+backlog. Producers push frames with 'sendSseEvent' \/
+'sendSseFrame'; the HTTP body popper (typically built via
+'awaitSseEvent') drains them in FIFO order. The bound provides
+back-pressure: when the queue fills, producers block until the
+consumer drains a slot, so a slow client can't OOM the producer.
+
+'closeSseChannel' is non-blocking and idempotent. The consumer
+finishes draining whatever is still in the queue and then
+returns 'Nothing'; subsequent sends are silently dropped. This
+shape lets a handler signal end-of-stream from any thread
+without worrying about queue fullness, races with the
+consumer, or running over the cap.
+-}
+
 
 -- | Multi-producer, single-consumer event channel.
 data SseChannel = SseChannel
-  { sseChannelQueue  :: !(TBQueue SseFrame)
+  { sseChannelQueue :: !(TBQueue SseFrame)
   , sseChannelClosed :: !(TVar Bool)
   }
 
--- | Allocate an empty channel with a fixed backlog cap. Producers
--- block in 'sendSseFrame' \/ 'sendSseEvent' when the queue is full.
+
+{- | Allocate an empty channel with a fixed backlog cap. Producers
+block in 'sendSseFrame' \/ 'sendSseEvent' when the queue is full.
+-}
 newSseChannel
-  :: Int  -- ^ backlog cap (in frames; @64@ is a reasonable default)
+  :: Int
+  -- ^ backlog cap (in frames; @64@ is a reasonable default)
   -> IO SseChannel
 newSseChannel cap = do
   q <- newTBQueueIO (fromIntegral (max 1 cap))
   c <- newTVarIO False
-  pure SseChannel
-    { sseChannelQueue  = q
-    , sseChannelClosed = c
-    }
+  pure
+    SseChannel
+      { sseChannelQueue = q
+      , sseChannelClosed = c
+      }
 
--- | Push a frame onto the channel. Blocks if the channel is full;
--- silently drops if the channel has already been closed (which
--- lets producers fire-and-forget after a 'closeSseChannel').
+
+{- | Push a frame onto the channel. Blocks if the channel is full;
+silently drops if the channel has already been closed (which
+lets producers fire-and-forget after a 'closeSseChannel').
+-}
 sendSseFrame :: SseChannel -> SseFrame -> IO ()
 sendSseFrame ch f = atomically $ do
   closed <- readTVar (sseChannelClosed ch)
   unless closed (writeTBQueue (sseChannelQueue ch) f)
 
+
 -- | 'sendSseFrame' for a dispatched event.
 sendSseEvent :: SseChannel -> ServerSentEvent -> IO ()
 sendSseEvent ch = sendSseFrame ch . SseDispatch
+
 
 -- | Push a @retry:@ reconnection-time directive.
 sendSseRetry :: SseChannel -> Int -> IO ()
 sendSseRetry ch = sendSseFrame ch . SseRetry
 
--- | Push a @:@-prefixed comment line. The conventional use is a
--- periodic keep-alive heartbeat against load balancers that idle
--- out quiet connections.
+
+{- | Push a @:@-prefixed comment line. The conventional use is a
+periodic keep-alive heartbeat against load balancers that idle
+out quiet connections.
+-}
 sendSseComment :: SseChannel -> ByteString -> IO ()
 sendSseComment ch = sendSseFrame ch . SseComment
 
--- | Close the channel. Non-blocking, idempotent. The consumer
--- continues to see any already-queued frames and then receives
--- 'Nothing'; subsequent producer sends are silently dropped.
+
+{- | Close the channel. Non-blocking, idempotent. The consumer
+continues to see any already-queued frames and then receives
+'Nothing'; subsequent producer sends are silently dropped.
+-}
 closeSseChannel :: SseChannel -> IO ()
 closeSseChannel ch =
   atomically (writeTVar (sseChannelClosed ch) True)
 
--- | Snapshot of the channel's closed bit. Useful for producers
--- that want to skip work that's about to be dropped.
+
+{- | Snapshot of the channel's closed bit. Useful for producers
+that want to skip work that's about to be dropped.
+-}
 isSseChannelClosed :: SseChannel -> IO Bool
 isSseChannelClosed ch = atomically (readTVar (sseChannelClosed ch))
 
--- | Block until the next frame is available; return 'Nothing' if
--- the channel is closed /and/ empty.
---
--- The semantics — drain then signal close — match how SSE bodies
--- want to behave on the wire: any event the handler queued before
--- shutting down still reaches the client.
+
+{- | Block until the next frame is available; return 'Nothing' if
+the channel is closed /and/ empty.
+
+The semantics — drain then signal close — match how SSE bodies
+want to behave on the wire: any event the handler queued before
+shutting down still reaches the client.
+-}
 awaitSseFrame :: SseChannel -> IO (Maybe SseFrame)
 awaitSseFrame ch = atomically (awaitFrameSTM ch)
 
--- | STM-level variant of 'awaitSseFrame' for callers composing
--- larger 'orElse' choices.
+
+{- | STM-level variant of 'awaitSseFrame' for callers composing
+larger 'orElse' choices.
+-}
 awaitFrameSTM :: SseChannel -> STM (Maybe SseFrame)
 awaitFrameSTM ch = do
   empty <- isEmptyTBQueue (sseChannelQueue ch)
@@ -893,29 +1001,33 @@ awaitFrameSTM ch = do
       closed <- readTVar (sseChannelClosed ch)
       if closed then pure Nothing else retry
 
--- | 'awaitSseFrame' filtered to dispatched events; comments and
--- retry directives are passed through to the wire (when used with
--- 'sseBodyPopperFrames') but skipped here.
+
+{- | 'awaitSseFrame' filtered to dispatched events; comments and
+retry directives are passed through to the wire (when used with
+'sseBodyPopperFrames') but skipped here.
+-}
 awaitSseEvent :: SseChannel -> IO (Maybe ServerSentEvent)
 awaitSseEvent ch = loop
   where
     loop = do
       m <- awaitSseFrame ch
       case m of
-        Nothing               -> pure Nothing
+        Nothing -> pure Nothing
         Just (SseDispatch ev) -> pure (Just ev)
-        Just _                -> loop
+        Just _ -> loop
+
 
 -- ---------------------------------------------------------------------------
 -- Internal: BOM handling
 -- ---------------------------------------------------------------------------
 
--- | If the first three bytes of the very first chunk are the UTF-8
--- BOM (EF BB BF), drop them. The BOM check fires once per parser;
--- a partial BOM that arrives split across chunks still works,
--- because we only mark the BOM as handled once at least one
--- non-BOM byte has been seen (carrying any partial prefix
--- forward).
+{- | If the first three bytes of the very first chunk are the UTF-8
+BOM (EF BB BF), drop them. The BOM check fires once per parser;
+a partial BOM that arrives split across chunks still works,
+because we only mark the BOM as handled once at least one
+non-BOM byte has been seen (carrying any partial prefix
+forward).
+-}
 stripBomIfNeeded :: SseParser -> ByteString -> (SseParser, ByteString)
 stripBomIfNeeded p chunk
   | spBomChecked p = (p, chunk)
@@ -924,31 +1036,41 @@ stripBomIfNeeded p chunk
           len = BS.length combined
       in if len < 3 && combined `BS.isPrefixOf` bom
            then -- entirely a BOM prefix so far: keep it in carry, do
-                -- not flip the BOM flag yet.
-                (p { spCarry = combined }, BS.empty)
-           else if bom `BS.isPrefixOf` combined
-             then (p { spBomChecked = True, spCarry = BS.empty }
-                  , BS.drop 3 combined)
-             else (p { spBomChecked = True, spCarry = BS.empty }
-                  , combined)
+           -- not flip the BOM flag yet.
+             (p {spCarry = combined}, BS.empty)
+           else
+             if bom `BS.isPrefixOf` combined
+               then
+                 ( p {spBomChecked = True, spCarry = BS.empty}
+                 , BS.drop 3 combined
+                 )
+               else
+                 ( p {spBomChecked = True, spCarry = BS.empty}
+                 , combined
+                 )
   where
     bom :: ByteString
     bom = BS.pack [0xEF, 0xBB, 0xBF]
+
 
 -- ---------------------------------------------------------------------------
 -- Internal: line splitting
 -- ---------------------------------------------------------------------------
 
--- | Split a chunk into completed lines + leftover carry, honouring
--- CR \/ LF \/ CRLF line terminators and the CRLF-folding state
--- carried in from the previous chunk.
---
--- The returned line list is in stream order. The boolean is the
--- new \"just saw CR\" flag.
+{- | Split a chunk into completed lines + leftover carry, honouring
+CR \/ LF \/ CRLF line terminators and the CRLF-folding state
+carried in from the previous chunk.
+
+The returned line list is in stream order. The boolean is the
+new \"just saw CR\" flag.
+-}
 splitLines
-  :: ByteString          -- ^ carry from previous chunk
-  -> Bool                -- ^ whether the previous chunk ended on a bare CR
-  -> ByteString          -- ^ new chunk
+  :: ByteString
+  -- ^ carry from previous chunk
+  -> Bool
+  -- ^ whether the previous chunk ended on a bare CR
+  -> ByteString
+  -- ^ new chunk
   -> ([ByteString], ByteString, Bool)
 splitLines carry0 sawCR0 input
   | BS.null input = ([], carry0, sawCR0)
@@ -959,7 +1081,7 @@ splitLines carry0 sawCR0 input
     -- was a CR.
     nextTerm i = case BS.findIndex isTerm (BS.drop i input) of
       Nothing -> Nothing
-      Just j  ->
+      Just j ->
         let idx = i + j
             isCr = BS.index input idx == 0x0D
         in Just (idx, isCr)
@@ -976,33 +1098,39 @@ splitLines carry0 sawCR0 input
                 carry' = if BS.null carry then tail_ else carry <> tail_
             in (reverse framesRev, carry', False)
           Just (termIdx, isCR) ->
-            let pre  = BS.take (termIdx - i) (BS.drop i input)
+            let pre = BS.take (termIdx - i) (BS.drop i input)
                 line = if BS.null carry then pre else carry <> pre
             in go (line : framesRev) BS.empty isCR (termIdx + 1)
+
 
 -- ---------------------------------------------------------------------------
 -- Internal: line processing
 -- ---------------------------------------------------------------------------
 
--- | Fold a batch of completed lines through the parser, accumulating
--- emitted frames in reverse order.
+{- | Fold a batch of completed lines through the parser, accumulating
+emitted frames in reverse order.
+-}
 foldLines :: SseParser -> [SseFrame] -> [ByteString] -> (SseParser, [SseFrame])
-foldLines p acc []       = (p, acc)
+foldLines p acc [] = (p, acc)
 foldLines p acc (l : ls) =
   let (p', emitted) = processLine p l
-      acc'          = prependReverse emitted acc
+      acc' = prependReverse emitted acc
   in foldLines p' acc' ls
 
--- | @prependReverse xs acc@ pushes @xs@ onto @acc@ keeping the
--- per-line emission order. We push @x1, x2, x3@ as
--- @x3 : x2 : x1 : acc@ so the final 'reverse' gives the right
--- order.
+
+{- | @prependReverse xs acc@ pushes @xs@ onto @acc@ keeping the
+per-line emission order. We push @x1, x2, x3@ as
+@x3 : x2 : x1 : acc@ so the final 'reverse' gives the right
+order.
+-}
 prependReverse :: [a] -> [a] -> [a]
-prependReverse []       acc = acc
+prependReverse [] acc = acc
 prependReverse (x : xs) acc = prependReverse xs (x : acc)
 
--- | Classify a completed line and apply it to the parser state,
--- returning any frames that result.
+
+{- | Classify a completed line and apply it to the parser state,
+returning any frames that result.
+-}
 processLine :: SseParser -> ByteString -> (SseParser, [SseFrame])
 processLine p line
   -- Blank line: dispatch any in-flight event.
@@ -1018,28 +1146,34 @@ processLine p line
         -- and the value is the empty string.
         applyField p line BS.empty
       Just i ->
-        let name  = BS.take i line
+        let name = BS.take i line
             after = BS.drop (i + 1) line
             value = stripOneLeadingSpace after
         in applyField p name value
 
+
 stripOneLeadingSpace :: ByteString -> ByteString
 stripOneLeadingSpace bs = case BS.uncons bs of
   Just (0x20, rest) -> rest
-  _                 -> bs
+  _ -> bs
+
 
 applyField
   :: SseParser
-  -> ByteString    -- ^ field name (case-sensitive per spec)
-  -> ByteString    -- ^ field value (already left-trimmed of a
-                   --   single space)
+  -> ByteString
+  -- ^ field name (case-sensitive per spec)
+  -> ByteString
+  {- ^ field value (already left-trimmed of a
+  single space)
+  -}
   -> (SseParser, [SseFrame])
 applyField p name value = case name of
   "event" ->
     let v = if BS.null value then Nothing else Just value
-    in (p { spEventType = v }, [])
+    in (p {spEventType = v}, [])
   "data" ->
-    ( p { spDataBuf      = spDataBuf p <> WB.byteString value <> WB.word8 0x0A
+    ( p
+        { spDataBuf = spDataBuf p <> WB.byteString value <> WB.word8 0x0A
         , spDataNonEmpty = True
         }
     , []
@@ -1048,11 +1182,12 @@ applyField p name value = case name of
     -- Spec: ignore the field entirely if the value contains a NUL.
     if 0x00 `BS.elem` value
       then (p, [])
-      else (p { spLastEventId = Just value }, [])
+      else (p {spLastEventId = Just value}, [])
   "retry" -> case parseAsciiDigits value of
-    Just n  -> (p, [SseRetry n])
+    Just n -> (p, [SseRetry n])
     Nothing -> (p, [])
   _ -> (p, [])
+
 
 dispatch :: SseParser -> (SseParser, [SseFrame])
 dispatch p
@@ -1060,43 +1195,49 @@ dispatch p
   -- event /and/ clear the event-type buffer, but preserve
   -- lastEventId.
   | not (spDataNonEmpty p) =
-      ( p { spEventType = Nothing
-          , spDataBuf   = mempty
+      ( p
+          { spEventType = Nothing
+          , spDataBuf = mempty
           }
       , []
       )
   | otherwise =
-      let raw      = WB.toStrictByteString (spDataBuf p)
-          payload  = stripTrailingLF raw
-          ev       = ServerSentEvent
-            { sseEventType = spEventType p
-            , sseEventId   = spLastEventId p
-            , sseData      = payload
-            }
-          p'       = p
-            { spEventType    = Nothing
-            , spDataBuf      = mempty
-            , spDataNonEmpty = False
-            }
+      let raw = WB.toStrictByteString (spDataBuf p)
+          payload = stripTrailingLF raw
+          ev =
+            ServerSentEvent
+              { sseEventType = spEventType p
+              , sseEventId = spLastEventId p
+              , sseData = payload
+              }
+          p' =
+            p
+              { spEventType = Nothing
+              , spDataBuf = mempty
+              , spDataNonEmpty = False
+              }
       in (p', [SseDispatch ev])
+
 
 stripTrailingLF :: ByteString -> ByteString
 stripTrailingLF bs = case BS.unsnoc bs of
   Just (rest, 0x0A) -> rest
-  _                 -> bs
+  _ -> bs
 
--- | Parse a byte string of ASCII digits (0..9) into a non-negative
--- 'Int'. Returns 'Nothing' for an empty string or any non-digit
--- byte. The EventSource spec demands this exact predicate for the
--- @retry:@ field.
+
+{- | Parse a byte string of ASCII digits (0..9) into a non-negative
+'Int'. Returns 'Nothing' for an empty string or any non-digit
+byte. The EventSource spec demands this exact predicate for the
+@retry:@ field.
+-}
 parseAsciiDigits :: ByteString -> Maybe Int
 parseAsciiDigits bs
   | BS.null bs = Nothing
-  | otherwise  = go 0 0
+  | otherwise = go 0 0
   where
     n = BS.length bs
     go !acc !i
-      | i >= n    = Just acc
+      | i >= n = Just acc
       | otherwise =
           let !b = BS.index bs i
           in if b >= 0x30 && b <= 0x39

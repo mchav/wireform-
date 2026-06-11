@@ -1,33 +1,33 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- |
--- Module      : Kafka.Streams.Examples.Ops.DynamicThreads
--- Description : Add and remove stream-threads inside one process
---
--- This is the /intra-process/ analogue of cluster scaling:
--- 'Kafka.Streams.Runtime.WorkerPool' models the
--- @num.stream.threads@ pool. We start with two workers, submit
--- a batch, then add two more workers under load (KIP-663-style
--- dynamic scale-up), submit another batch, and finally remove
--- one worker.
---
--- The 'submitRecordHashed' path keeps the routing table
--- consistent across worker churn: records for the same partition
--- index always land on the same worker as long as the routing
--- table is stable; adding\/removing workers re-hashes only the
--- affected entries.
-module Kafka.Streams.Examples.Ops.DynamicThreads
-  ( runDemo
-  ) where
+{- |
+Module      : Kafka.Streams.Examples.Ops.DynamicThreads
+Description : Add and remove stream-threads inside one process
+
+This is the /intra-process/ analogue of cluster scaling:
+'Kafka.Streams.Runtime.WorkerPool' models the
+@num.stream.threads@ pool. We start with two workers, submit
+a batch, then add two more workers under load (KIP-663-style
+dynamic scale-up), submit another batch, and finally remove
+one worker.
+
+The 'submitRecordHashed' path keeps the routing table
+consistent across worker churn: records for the same partition
+index always land on the same worker as long as the routing
+table is stable; adding\/removing workers re-hashes only the
+affected entries.
+-}
+module Kafka.Streams.Examples.Ops.DynamicThreads (
+  runDemo,
+) where
 
 import Control.Monad (forM_, replicateM_, void)
-import qualified Data.Text as T
 import Data.Text (Text)
-
+import Data.Text qualified as T
+import Kafka.Streams.Examples.Ops.Helpers
 import Kafka.Streams.Imperative
 import Kafka.Streams.Runtime.WorkerPool
 
-import Kafka.Streams.Examples.Ops.Helpers
 
 runDemo :: IO ()
 runDemo = do
@@ -46,7 +46,7 @@ runDemo = do
   -- balance after scale-up actually shows up in the per-worker
   -- counts at the end.
   bullet "Batch A (partitions 0..15, 2 workers)"
-  submitBatchRange pool "A"   0 16
+  submitBatchRange pool "A" 0 16
   waitForQuiescence pool
 
   bullet "Scaling up: + 2 workers"
@@ -74,16 +74,21 @@ runDemo = do
     bullet ("    worker " <> show (workerId w) <> " -> " <> show n)
   closeWorkerPool pool
 
+
 submitBatchRange
   :: WorkerPool
-  -> String         -- label
-  -> Int            -- partition base
-  -> Int            -- batch size
+  -> String -- label
+  -> Int -- partition base
+  -> Int -- batch size
   -> IO ()
 submitBatchRange pool label base n =
   forM_ [0 .. n - 1] $ \i -> do
     let v :: Text
         v = T.pack (label <> "-" <> show i)
-    submitRecordHashed pool (topicName "in")
+    submitRecordHashed
+      pool
+      (topicName "in")
       (Just (bytes (T.pack ("k" <> show i))))
-      (bytes v) ts0 (base + i)
+      (bytes v)
+      ts0
+      (base + i)

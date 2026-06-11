@@ -1,37 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Bridge from @wireform-proto@ dynamic messages to the CEL value model used
--- by the validator.
---
--- A 'Proto.Dynamic.DynamicMessage' stores fields by number and (being
--- schemaless) cannot by itself tell @int64@ from @uint64@ or name its fields.
--- Callers therefore supply a 'MessageSchema' describing each field's number,
--- name, and shape; this module walks the message and produces a CEL 'VMap'
--- suitable for "Protovalidate.Eval.validate".
-module Protovalidate.Proto
-  ( MessageSchema
-  , FieldSchema (..)
-  , FieldShape (..)
-  , dynamicMessageToCel
-  , dynamicValueToCel
-  ) where
+{- | Bridge from @wireform-proto@ dynamic messages to the CEL value model used
+by the validator.
 
+A 'Proto.Dynamic.DynamicMessage' stores fields by number and (being
+schemaless) cannot by itself tell @int64@ from @uint64@ or name its fields.
+Callers therefore supply a 'MessageSchema' describing each field's number,
+name, and shape; this module walks the message and produces a CEL 'VMap'
+suitable for "Protovalidate.Eval.validate".
+-}
+module Protovalidate.Proto (
+  MessageSchema,
+  FieldSchema (..),
+  FieldShape (..),
+  dynamicMessageToCel,
+  dynamicValueToCel,
+) where
+
+import CEL.Value (Value (..), celMapFromList)
 import Data.Bits (shiftR, xor, (.&.))
 import Data.Int (Int64)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import Data.Word (Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
-
-import qualified Data.Map.Strict as Map
-import CEL.Value (Value (..), celMapFromList)
 import Proto.Dynamic (DynamicMessage (..), DynamicValue (..))
 import Protovalidate.Rules (RuleKind (..))
 
--- | A description of a message's fields, used to name and type-interpret a
--- dynamic message.
+
+{- | A description of a message's fields, used to name and type-interpret a
+dynamic message.
+-}
 type MessageSchema = [FieldSchema]
+
 
 -- | One field's number, name, and shape.
 data FieldSchema = FieldSchema
@@ -41,18 +44,21 @@ data FieldSchema = FieldSchema
   }
   deriving stock (Show)
 
+
 -- | The shape of a field's value.
 data FieldShape
-  = ScalarField !RuleKind
-  -- ^ A scalar; the 'RuleKind' disambiguates signed/unsigned/bool/enum.
-  | MessageField !MessageSchema
-  -- ^ A nested message with its own schema.
-  | RepeatedField !FieldShape
-  -- ^ A repeated field of the given element shape.
+  = -- | A scalar; the 'RuleKind' disambiguates signed/unsigned/bool/enum.
+    ScalarField !RuleKind
+  | -- | A nested message with its own schema.
+    MessageField !MessageSchema
+  | -- | A repeated field of the given element shape.
+    RepeatedField !FieldShape
   deriving stock (Show)
 
--- | Convert a dynamic message into a CEL 'VMap' keyed by field name, using the
--- supplied schema. Fields not present in the schema are ignored.
+
+{- | Convert a dynamic message into a CEL 'VMap' keyed by field name, using the
+supplied schema. Fields not present in the schema are ignored.
+-}
 dynamicMessageToCel :: MessageSchema -> DynamicMessage -> Value
 dynamicMessageToCel schema msg =
   VMap (celMapFromList (mapMaybe convertField schema))
@@ -61,6 +67,7 @@ dynamicMessageToCel schema msg =
       case Map.lookup (fsNumber fsch) (dynFields msg) of
         Nothing -> Nothing
         Just dv -> Just (VString (fsName fsch), convertShaped (fsShape fsch) dv)
+
 
 convertShaped :: FieldShape -> DynamicValue -> Value
 convertShaped shape dv = case shape of
@@ -71,6 +78,7 @@ convertShaped shape dv = case shape of
   RepeatedField elemShape -> case dv of
     DynRepeated xs -> VList (V.fromList (map (convertShaped elemShape) xs))
     _ -> convertShaped elemShape dv
+
 
 -- | Interpret a scalar dynamic value according to a 'RuleKind'.
 coerceScalar :: RuleKind -> DynamicValue -> Value
@@ -105,9 +113,11 @@ coerceScalar k dv = case dv of
       KDouble -> VDouble (wordToDouble w)
       _ -> VInt (fromIntegral w :: Int64)
 
--- | A best-effort, schema-less conversion of a dynamic value. Varints become
--- unsigned, nested messages become field-number-keyed maps. Prefer
--- 'dynamicMessageToCel' with a schema where field names / signedness matter.
+
+{- | A best-effort, schema-less conversion of a dynamic value. Varints become
+unsigned, nested messages become field-number-keyed maps. Prefer
+'dynamicMessageToCel' with a schema where field names / signedness matter.
+-}
 dynamicValueToCel :: DynamicValue -> Value
 dynamicValueToCel = \case
   DynVarint w -> VUInt w
@@ -126,12 +136,15 @@ dynamicValueToCel = \case
   DynMap m ->
     VMap (celMapFromList [(dynamicValueToCel kk, dynamicValueToCel vv) | (kk, vv) <- Map.toList m])
 
+
 zigzag :: Word64 -> Int64
 zigzag w = fromIntegral ((w `shiftR` 1) `xor` negate (w .&. 1))
+
 
 -- Reinterpret the bits of a 32/64-bit word as IEEE-754 float/double.
 wordToFloat :: Word64 -> Float
 wordToFloat w = castWord32ToFloat (fromIntegral w)
+
 
 wordToDouble :: Word64 -> Double
 wordToDouble = castWord64ToDouble

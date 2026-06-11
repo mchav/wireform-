@@ -2,9 +2,11 @@
 
 module Common where
 
-import qualified Data.ByteString as B
+import Data.ByteString qualified as B
+
 
 type Name = B.ByteString
+
 
 data Tm
   = Var Name
@@ -14,4 +16,4 @@ data Tm
   | Int Int
   | Add Tm Tm
   | Mul Tm Tm
-  deriving Show
+  deriving (Show)

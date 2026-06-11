@@ -3,28 +3,34 @@
 
 module Streams.CogroupSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
 import Data.Int (Int64)
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
 import Test.Syd
 
-import Kafka.Streams.Imperative
 
 bytes :: Text -> BSC.ByteString
 bytes = BSC.pack . T.unpack
 
+
 i64Bytes :: Int64 -> BSC.ByteString
 i64Bytes = serialize int64Serde
+
 
 t :: Integer -> Timestamp
 t = Timestamp . fromIntegral
 
+
 tests :: Spec
-tests = describe "Cogroup" $ sequence_
-  [ cogroup_two_sources_share_state
-  , cogroup_three_sources
-  ]
+tests =
+  describe "Cogroup" $
+    sequence_
+      [ cogroup_two_sources_share_state
+      , cogroup_three_sources
+      ]
+
 
 cogroup_two_sources_share_state :: Spec
 cogroup_two_sources_share_state =
@@ -32,11 +38,11 @@ cogroup_two_sources_share_state =
     b <- newStreamsBuilder
     s1 <- streamFromTopic b (topicName "in1") (consumed textSerde textSerde)
     s2 <- streamFromTopic b (topicName "in2") (consumed textSerde textSerde)
-    let g  = grouped textSerde textSerde
+    let g = grouped textSerde textSerde
         kg1 = groupByKey g s1
         kg2 = groupByKey g s2
     let cgs0 = cogroup kg1 (\_ v acc -> acc <> "/" <> v)
-        cgs  = addCogrouped cgs0 kg2 (\_ v acc -> acc <> "+" <> v)
+        cgs = addCogrouped cgs0 kg2 (\_ v acc -> acc <> "+" <> v)
     table <- aggregateCogrouped (pure (T.pack "")) materialized cgs
     topo <- buildTopology b
     driver <- newDriver topo "cog-app"
@@ -50,6 +56,7 @@ cogroup_two_sources_share_state =
     kvsGet kvs "k" >>= (`shouldBe` Just "/a+b/c")
     closeDriver driver
 
+
 cogroup_three_sources :: Spec
 cogroup_three_sources =
   it "cogroup with three int streams sums into one Int64" $ do
@@ -57,17 +64,19 @@ cogroup_three_sources =
     s1 <- streamFromTopic b (topicName "x") (consumed textSerde int64Serde)
     s2 <- streamFromTopic b (topicName "y") (consumed textSerde int64Serde)
     s3 <- streamFromTopic b (topicName "z") (consumed textSerde int64Serde)
-    let g  = grouped textSerde int64Serde
+    let g = grouped textSerde int64Serde
         kg1 = groupByKey g s1
         kg2 = groupByKey g s2
         kg3 = groupByKey g s3
-    let cgs = addCogrouped
-                (addCogrouped
-                   (cogroup kg1 (\_ v a -> a + v))
-                   kg2
-                   (\_ v a -> a + 10 * v))
-                kg3
-                (\_ v a -> a + 100 * v)
+    let cgs =
+          addCogrouped
+            ( addCogrouped
+                (cogroup kg1 (\_ v a -> a + v))
+                kg2
+                (\_ v a -> a + 10 * v)
+            )
+            kg3
+            (\_ v a -> a + 100 * v)
     table <- aggregateCogrouped (pure (0 :: Int64)) materialized cgs
     topo <- buildTopology b
     driver <- newDriver topo "cog-app"

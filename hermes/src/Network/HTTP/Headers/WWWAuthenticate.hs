@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+
 {- |
 RFC 9110 §11.6.1 @WWW-Authenticate@ — the response-side challenge
 list for HTTP authentication.
@@ -43,71 +44,82 @@ list to consume.
   "Network.HTTP.Headers.Authorization" so the request and
   response sides speak the same parameter types.
 -}
-module Network.HTTP.Headers.WWWAuthenticate
-  ( -- * Types
-    WWWAuthenticate (..)
-  , AuthChallenge (..)
-  , ChallengeContents (..)
-    -- * Parsing
-  , wwwAuthenticateParser
-  , challengesParser
-  , challengeParser
-    -- * Rendering
-  , renderWWWAuthenticate
-  , renderAuthChallenge
-    -- * Re-exports
-  , AuthScheme (..)
-  , CredentialParam (..)
-  ) where
+module Network.HTTP.Headers.WWWAuthenticate (
+  -- * Types
+  WWWAuthenticate (..),
+  AuthChallenge (..),
+  ChallengeContents (..),
 
-import qualified Data.ByteString as B
+  -- * Parsing
+  wwwAuthenticateParser,
+  challengesParser,
+  challengeParser,
+
+  -- * Rendering
+  renderWWWAuthenticate,
+  renderAuthChallenge,
+
+  -- * Re-exports
+  AuthScheme (..),
+  CredentialParam (..),
+) where
+
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import qualified Data.CharSet as CharSet
 import qualified Data.List.NonEmpty as NE
 import Data.Text.Short (ShortText)
-import qualified Network.HTTP.Headers.Mason as M
-import qualified Network.HTTP.Headers.Rendering.Util as R
 import Network.HTTP.Headers
+import Network.HTTP.Headers.Authorization (
+  AuthScheme (..),
+  CredentialParam (..),
+ )
 import Network.HTTP.Headers.HeaderFieldName (hWWWAuthenticate)
+import qualified Network.HTTP.Headers.Mason as M
 import Network.HTTP.Headers.Parsing.Util
-import Network.HTTP.Headers.Authorization
-  ( AuthScheme (..)
-  , CredentialParam (..)
-  )
+import qualified Network.HTTP.Headers.Rendering.Util as R
+
 
 -- ---------------------------------------------------------------------------
 -- Data
 -- ---------------------------------------------------------------------------
 
--- | A single challenge: an authentication scheme plus its content,
--- which is either nothing (bare scheme), a @token68@ payload, or
--- a list of @auth-param@s.
+{- | A single challenge: an authentication scheme plus its content,
+which is either nothing (bare scheme), a @token68@ payload, or
+a list of @auth-param@s.
+-}
 data AuthChallenge = AuthChallenge
-  { challengeScheme   :: !AuthScheme
+  { challengeScheme :: !AuthScheme
   , challengeContents :: !ChallengeContents
   }
   deriving stock (Eq, Show)
 
+
 -- | The shape of a challenge's payload.
 data ChallengeContents
-  = ChallengeBare
-    -- ^ Just the scheme (rare; some legacy schemes can omit
-    --   everything after the scheme name).
-  | ChallengeToken68 !ByteString
-    -- ^ Single @token68@ payload (used for schemes like @Bearer@
-    --   that may carry a single opaque token, though the
-    --   challenge form usually still provides parameters).
-  | ChallengeParams ![(ShortText, CredentialParam)]
-    -- ^ @auth-param@ list, in document order.  Parameter names are
-    --   case-insensitive per RFC 9110 §11.2; we preserve the
-    --   on-the-wire spelling so renderers can round-trip.
+  = {- | Just the scheme (rare; some legacy schemes can omit
+    everything after the scheme name).
+    -}
+    ChallengeBare
+  | {- | Single @token68@ payload (used for schemes like @Bearer@
+    that may carry a single opaque token, though the
+    challenge form usually still provides parameters).
+    -}
+    ChallengeToken68 !ByteString
+  | {- | @auth-param@ list, in document order.  Parameter names are
+    case-insensitive per RFC 9110 §11.2; we preserve the
+    on-the-wire spelling so renderers can round-trip.
+    -}
+    ChallengeParams ![(ShortText, CredentialParam)]
   deriving stock (Eq, Show)
 
--- | @WWW-Authenticate@ header value: zero-or-more challenges.
--- An empty list is technically out-of-grammar (RFC 9110 requires
--- at least one challenge on 401), but parsing leniently here
--- lets callers report \"server sent something we couldn't make
--- sense of\" rather than throw.
+
+{- | @WWW-Authenticate@ header value: zero-or-more challenges.
+An empty list is technically out-of-grammar (RFC 9110 requires
+at least one challenge on 401), but parsing leniently here
+lets callers report \"server sent something we couldn't make
+sense of\" rather than throw.
+-}
 newtype WWWAuthenticate = WWWAuthenticate
   { authChallenges :: [AuthChallenge]
   }
@@ -129,9 +141,10 @@ instance KnownHeader WWWAuthenticate where
           | B.null (dropOws leftover) -> Right cs
           | otherwise ->
               Left ("Unconsumed input after parsing WWW-Authenticate: " <> show leftover)
-        Fail    -> Left "Failed to parse WWW-Authenticate header"
+        Fail -> Left "Failed to parse WWW-Authenticate header"
         Err err -> Left err
       dropOws = B.dropWhile (\w -> w == 0x20 || w == 0x09)
+
 
   renderToHeaders _ (WWWAuthenticate cs) =
     [M.toStrictByteString (renderWWWAuthenticate (WWWAuthenticate cs))]
@@ -139,26 +152,30 @@ instance KnownHeader WWWAuthenticate where
 
   headerName _ = hWWWAuthenticate
 
+
 -- ---------------------------------------------------------------------------
 -- Parser
 -- ---------------------------------------------------------------------------
 
--- | Top-level parser for the @WWW-Authenticate@ value.  Returns
--- the challenge list directly so it can be reused for
--- @Proxy-Authenticate@ (same grammar per RFC 9110 §11.7.1).
+{- | Top-level parser for the @WWW-Authenticate@ value.  Returns
+the challenge list directly so it can be reused for
+@Proxy-Authenticate@ (same grammar per RFC 9110 §11.7.1).
+-}
 wwwAuthenticateParser :: ParserT st String WWWAuthenticate
 wwwAuthenticateParser = WWWAuthenticate <$> challengesParser
 
--- | Parse a comma-separated list of challenges with scheme-aware
--- splitting.  Tolerates the RFC 9110 §5.6.1 \"empty list element\"
--- form (leading \/ trailing \/ stacked commas).
+
+{- | Parse a comma-separated list of challenges with scheme-aware
+splitting.  Tolerates the RFC 9110 §5.6.1 \"empty list element\"
+form (leading \/ trailing \/ stacked commas).
+-}
 challengesParser :: ParserT st String [AuthChallenge]
 challengesParser = do
   ows
   _ <- skipMany (ows *> $(char ','))
   ows
   first <- challengeParser
-  rest  <- many continueChallenge
+  rest <- many continueChallenge
   ows
   _ <- skipMany (ows *> $(char ','))
   ows
@@ -172,13 +189,15 @@ challengesParser = do
       ows
       challengeParser
 
--- | Parse a single challenge: an @auth-scheme@ optionally followed
--- by SP+ and then a @token68@ or an @auth-param@ list.
+
+{- | Parse a single challenge: an @auth-scheme@ optionally followed
+by SP+ and then a @token68@ or an @auth-param@ list.
+-}
 challengeParser :: ParserT st String AuthChallenge
 challengeParser = do
   scheme <- AuthScheme <$> rfc9110Token
   contents <- challengePayload <|> pure ChallengeBare
-  pure AuthChallenge { challengeScheme = scheme, challengeContents = contents }
+  pure AuthChallenge {challengeScheme = scheme, challengeContents = contents}
   where
     challengePayload = do
       _ <- skipSome $(char ' ')
@@ -186,13 +205,15 @@ challengeParser = do
       (ChallengeParams <$> authParamList)
         <|> (ChallengeToken68 <$> token68Parser)
 
--- | The auth-param list, scheme-aware: stops at any @\",\"@ that
--- looks like the start of a new challenge rather than another
--- auth-param.
+
+{- | The auth-param list, scheme-aware: stops at any @\",\"@ that
+looks like the start of a new challenge rather than another
+auth-param.
+-}
 authParamList :: ParserT st String [(ShortText, CredentialParam)]
 authParamList = do
   first <- authParamP
-  rest  <- many continueParam
+  rest <- many continueParam
   pure (first : rest)
   where
     continueParam = do
@@ -215,11 +236,13 @@ authParamList = do
       bws
       val <-
         (CredentialParamString <$> rfc8941String)
-          <|> (CredentialParamToken  <$> rfc9110Token)
+          <|> (CredentialParamToken <$> rfc9110Token)
       pure (key, val)
 
--- | RFC 9110 §11.4: @token68 = 1*tchar68 *\"=\"@ where the
--- @tchar68@ set is the unreserved URI chars plus a few more.
+
+{- | RFC 9110 §11.4: @token68 = 1*tchar68 *\"=\"@ where the
+@tchar68@ set is the unreserved URI chars plus a few more.
+-}
 token68Parser :: ParserT st e ByteString
 token68Parser =
   byteStringOf $ do
@@ -227,7 +250,8 @@ token68Parser =
     skipMany (skipSatisfyAscii (== '='))
   where
     token68Chars =
-      CharSet.fromList (['A'..'Z'] <> ['a'..'z'] <> ['0'..'9']) <> "-._~+/"
+      CharSet.fromList (['A' .. 'Z'] <> ['a' .. 'z'] <> ['0' .. '9']) <> "-._~+/"
+
 
 -- ---------------------------------------------------------------------------
 -- Renderer
@@ -237,18 +261,19 @@ renderWWWAuthenticate :: WWWAuthenticate -> M.Builder
 renderWWWAuthenticate (WWWAuthenticate cs) =
   M.intersperse ", " (map renderAuthChallenge cs)
 
+
 renderAuthChallenge :: AuthChallenge -> M.Builder
 renderAuthChallenge (AuthChallenge (AuthScheme scheme) contents) =
   case contents of
-    ChallengeBare       -> R.shortText scheme
-    ChallengeToken68 t  -> R.shortText scheme <> M.char7 ' ' <> M.byteString t
-    ChallengeParams []  -> R.shortText scheme
-    ChallengeParams ps  ->
+    ChallengeBare -> R.shortText scheme
+    ChallengeToken68 t -> R.shortText scheme <> M.char7 ' ' <> M.byteString t
+    ChallengeParams [] -> R.shortText scheme
+    ChallengeParams ps ->
       R.shortText scheme
         <> M.char7 ' '
         <> M.intersperse ", " (map renderParam ps)
   where
     renderParam (k, v) =
       R.shortText k <> M.char7 '=' <> case v of
-        CredentialParamToken  t -> R.shortText t
+        CredentialParamToken t -> R.shortText t
         CredentialParamString s -> R.rfc8941String s

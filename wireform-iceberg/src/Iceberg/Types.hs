@@ -211,11 +211,12 @@ data PartitionSpec = PartitionSpec
 
 data PartitionField = PartitionField
   { pfSourceIds :: !(Vector Int)
-  -- ^ The source columns the transform consumes. In the V1 / V2
-  -- spec exactly one source column is allowed and it's encoded in
-  -- the metadata as @source-id@; in V3 the multi-arg variants of
-  -- @bucket[N]@ and @truncate[W]@ accept several source columns and
-  -- it's encoded as @source-ids@. This single field models both.
+  {- ^ The source columns the transform consumes. In the V1 / V2
+  spec exactly one source column is allowed and it's encoded in
+  the metadata as @source-id@; in V3 the multi-arg variants of
+  @bucket[N]@ and @truncate[W]@ accept several source columns and
+  it's encoded as @source-ids@. This single field models both.
+  -}
   , pfFieldId :: {-# UNPACK #-} !Int
   , pfName :: !Text
   , pfTransform :: !Transform
@@ -245,8 +246,9 @@ data Transform
   | Day
   | Hour
   | Void
-  | -- | Forward-compat: transform whose name is recognised at parse time
-    -- but is not implemented for evaluation.
+  | {- | Forward-compat: transform whose name is recognised at parse time
+    but is not implemented for evaluation.
+    -}
     UnknownTransform !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
@@ -378,8 +380,9 @@ data ManifestEntry = ManifestEntry
   , meRecordCount :: {-# UNPACK #-} !Int64
   , meFileSizeBytes :: {-# UNPACK #-} !Int64
   , meDataFile :: !(Maybe DataFile)
-  -- ^ Full data-file record when the manifest contains the optional
-  -- statistics fields, deletion-vector pointers, etc.
+  {- ^ Full data-file record when the manifest contains the optional
+  statistics fields, deletion-vector pointers, etc.
+  -}
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)

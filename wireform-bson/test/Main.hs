@@ -1,9 +1,13 @@
 module Main (main) where
 
+import Test.BSON.Derive qualified
 import Test.Syd
-import qualified Test.BSON.Derive
+
 
 main :: IO ()
-main = sydTest $ describe "wireform-bson-derive" $ sequence_
-  [ Test.BSON.Derive.tests
-  ]
+main =
+  sydTest $
+    describe "wireform-bson-derive" $
+      sequence_
+        [ Test.BSON.Derive.tests
+        ]

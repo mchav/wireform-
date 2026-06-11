@@ -1,23 +1,26 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
--- | Page-data compression for the Parquet writer.
---
--- The reader's 'Parquet.Read.decompressChunk' supports @Uncompressed@,
--- @GZip@, @Snappy@ (with @-fsnappy@), @ZSTD@ (with @-fzstd@), and
--- @LZ4_RAW@ (with @-flz4@). This module exposes the symmetric writer
--- side: 'compressPageBytes' takes a 'Compression' codec and a page body
--- and returns the compressed bytes.
---
--- The codec set behind cabal flags is identical to the reader's; if the
--- user requests a codec that wasn't enabled at build time, the writer
--- returns @Left@ rather than silently emitting uncompressed data.
-module Parquet.Compress
-  ( compressPageBytes
-  ) where
 
+{- | Page-data compression for the Parquet writer.
+
+The reader's 'Parquet.Read.decompressChunk' supports @Uncompressed@,
+@GZip@, @Snappy@ (with @-fsnappy@), @ZSTD@ (with @-fzstd@), and
+@LZ4_RAW@ (with @-flz4@). This module exposes the symmetric writer
+side: 'compressPageBytes' takes a 'Compression' codec and a page body
+and returns the compressed bytes.
+
+The codec set behind cabal flags is identical to the reader's; if the
+user requests a codec that wasn't enabled at build time, the writer
+returns @Left@ rather than silently emitting uncompressed data.
+-}
+module Parquet.Compress (
+  compressPageBytes,
+) where
+
+import Codec.Compression.GZip qualified as GZip
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BL
-import qualified Codec.Compression.GZip as GZip
+import Data.ByteString.Lazy qualified as BL
+
 
 #ifdef HAVE_SNAPPY
 import qualified Codec.Compression.Snappy as Snappy
@@ -37,12 +40,14 @@ import qualified Codec.Compression.Brotli as Brotli
 
 import Parquet.Types (Compression (..))
 
--- | Compress a page-body byte string with the given codec.
---
--- @Uncompressed@ is always available; @GZip@ uses the built-in @zlib@
--- dependency; @Snappy@\/@ZSTD@\/@LZ4@ require the matching @-f@ flag at
--- build time. Returns @Left@ for codecs we cannot encode (e.g. the
--- deprecated Hadoop-flavoured @LZ4@).
+
+{- | Compress a page-body byte string with the given codec.
+
+@Uncompressed@ is always available; @GZip@ uses the built-in @zlib@
+dependency; @Snappy@\/@ZSTD@\/@LZ4@ require the matching @-f@ flag at
+build time. Returns @Left@ for codecs we cannot encode (e.g. the
+deprecated Hadoop-flavoured @LZ4@).
+-}
 compressPageBytes :: Compression -> ByteString -> Either String ByteString
 compressPageBytes Uncompressed bs = Right bs
 compressPageBytes GZip bs =
@@ -75,10 +80,11 @@ compressPageBytes LZ4Raw _ =
   Left "Parquet.Compress: LZ4_RAW requires building wireform with -flz4"
 #endif
 
+
 compressPageBytes LZ4 _ =
   Left $
     "Parquet.Compress: deprecated Hadoop LZ4 (codec 5) is not supported; "
-    ++ "use LZ4_RAW (codec 7) with -flz4"
+      ++ "use LZ4_RAW (codec 7) with -flz4"
 
 #ifdef HAVE_BROTLI
 compressPageBytes Brotli bs =
@@ -87,6 +93,7 @@ compressPageBytes Brotli bs =
 compressPageBytes Brotli _ =
   Left "Parquet.Compress: Brotli requires building wireform with -fbrotli"
 #endif
+
 
 -- LZO is intentionally unsupported: the Parquet spec lists it (codec 3)
 -- for historical compatibility with Hadoop writers, but none of the

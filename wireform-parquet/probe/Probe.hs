@@ -1,37 +1,39 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
--- | wireform-parquet -> pyarrow / duckdb / polars round-trip
--- probe.
---
--- Writes a fixed catalogue of one-file-per-shape Parquet files
--- under the directory passed as @argv[1]@. The companion
--- 'scripts/parquet_interop.py' driver opens each one with
--- pyarrow, then with duckdb, then with polars and asserts the
--- contents match what we expect.
---
--- Everything written here uses our 'Parquet.HighLevel.encodeParquet'
--- / 'encodeParquetMixed' so the probe exercises the same code path
--- that real users hit.
+{-# LANGUAGE OverloadedStrings #-}
+
+{- | wireform-parquet -> pyarrow / duckdb / polars round-trip
+probe.
+
+Writes a fixed catalogue of one-file-per-shape Parquet files
+under the directory passed as @argv[1]@. The companion
+'scripts/parquet_interop.py' driver opens each one with
+pyarrow, then with duckdb, then with polars and asserts the
+contents match what we expect.
+
+Everything written here uses our 'Parquet.HighLevel.encodeParquet'
+/ 'encodeParquetMixed' so the probe exercises the same code path
+that real users hit.
+-}
 module Main (main) where
 
-import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
-import qualified Data.Vector as V
-import qualified Data.Vector.Primitive as VP
+import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
+import Data.Vector.Primitive qualified as VP
+import Parquet.HighLevel qualified as PHL
+import Parquet.Types qualified as P
+import Parquet.Write (
+  ColumnData (..),
+  OptionalColumn (..),
+  ParquetColumn (..),
+ )
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 
-import qualified Parquet.HighLevel as PHL
-import qualified Parquet.Types as P
-import Parquet.Write
-  ( ColumnData (..)
-  , ParquetColumn (..)
-  , OptionalColumn (..)
-  )
 
 main :: IO ()
 main = do
@@ -43,6 +45,7 @@ main = do
     _ -> do
       putStrLn "usage: wireform-parquet-interop-probe <output-dir>"
       exitFailure
+
 
 -- ============================================================
 -- Probe catalogue
@@ -64,11 +67,11 @@ writeAllProbes outDir = do
   -- annotation tells the reader to surface it as a
   -- date / time / decimal / etc. Every modern engine has to
   -- reconstruct these annotations correctly from our footer.
-  writeReq outDir "date32_required.parquet"        reqDate32
-  writeReq outDir "time_millis_required.parquet"   reqTimeMillis
+  writeReq outDir "date32_required.parquet" reqDate32
+  writeReq outDir "time_millis_required.parquet" reqTimeMillis
   writeReq outDir "timestamp_millis_required.parquet" reqTimestampMillis
-  writeReq outDir "uint32_required.parquet"        reqUInt32
-  writeReq outDir "json_required.parquet"          reqJson
+  writeReq outDir "uint32_required.parquet" reqUInt32
+  writeReq outDir "json_required.parquet" reqJson
 
   -- Compressed required-only.
   writeReqCompressed outDir "int64_zstd.parquet" P.ZSTD reqInt64
@@ -85,59 +88,90 @@ writeAllProbes outDir = do
   writeMixed outDir "optional_int32.parquet" optInt32Schema optInt32Row
   writeMixed outDir "optional_int64.parquet" optInt64Schema optInt64Row
   writeMixed outDir "optional_float.parquet" optFloatSchema optFloatRow
-  writeMixed outDir "optional_bool.parquet"  optBoolSchema  optBoolRow
+  writeMixed outDir "optional_bool.parquet" optBoolSchema optBoolRow
 
   -- Multi-row-group: same column twice in two row groups.
   writeReqMultiRG outDir "int64_two_row_groups.parquet" reqInt64Twice
 
+
 writeReq
-  :: FilePath -> FilePath
+  :: FilePath
+  -> FilePath
   -> ([P.SchemaElement], V.Vector ColumnData)
   -> IO ()
 writeReq outDir fname (schema, cols) = do
-  let !bs = PHL.encodeParquet PHL.defaultWriteOptions
-              (V.fromList schema) [cols]
+  let !bs =
+        PHL.encodeParquet
+          PHL.defaultWriteOptions
+          (V.fromList schema)
+          [cols]
   BS.writeFile (outDir </> fname) bs
 
+
 writeReqMultiRG
-  :: FilePath -> FilePath
+  :: FilePath
+  -> FilePath
   -> ([P.SchemaElement], [V.Vector ColumnData])
   -> IO ()
 writeReqMultiRG outDir fname (schema, rgs) = do
-  let !bs = PHL.encodeParquet PHL.defaultWriteOptions
-              (V.fromList schema) rgs
+  let !bs =
+        PHL.encodeParquet
+          PHL.defaultWriteOptions
+          (V.fromList schema)
+          rgs
   BS.writeFile (outDir </> fname) bs
 
+
 writeReqCompressed
-  :: FilePath -> FilePath -> P.Compression
+  :: FilePath
+  -> FilePath
+  -> P.Compression
   -> ([P.SchemaElement], V.Vector ColumnData)
   -> IO ()
 writeReqCompressed outDir fname codec (schema, cols) = do
-  let !bs = PHL.encodeParquet
-              PHL.defaultWriteOptions { PHL.writeCompression = codec }
-              (V.fromList schema) [cols]
+  let !bs =
+        PHL.encodeParquet
+          PHL.defaultWriteOptions {PHL.writeCompression = codec}
+          (V.fromList schema)
+          [cols]
   BS.writeFile (outDir </> fname) bs
 
+
 writeMixed
-  :: FilePath -> FilePath
-  -> [P.SchemaElement] -> V.Vector ParquetColumn
+  :: FilePath
+  -> FilePath
+  -> [P.SchemaElement]
+  -> V.Vector ParquetColumn
   -> IO ()
 writeMixed outDir fname schema cols = do
-  let !bs = PHL.encodeParquetMixed PHL.defaultWriteOptions
-              (V.fromList schema) [cols]
+  let !bs =
+        PHL.encodeParquetMixed
+          PHL.defaultWriteOptions
+          (V.fromList schema)
+          [cols]
   BS.writeFile (outDir </> fname) bs
+
 
 -- ============================================================
 -- Schemas + payloads
 -- ============================================================
 
 rootElem :: Int32 -> P.SchemaElement
-rootElem n = P.SchemaElement "schema" Nothing Nothing (Just n)
-  Nothing Nothing Nothing
+rootElem n =
+  P.SchemaElement
+    "schema"
+    Nothing
+    Nothing
+    (Just n)
+    Nothing
+    Nothing
+    Nothing
+
 
 leafElem :: P.ParquetType -> Maybe P.ConvertedType -> Text -> P.SchemaElement
 leafElem ty conv name =
   P.SchemaElement name (Just P.Required) (Just ty) Nothing conv Nothing Nothing
+
 
 reqInt32 :: ([P.SchemaElement], V.Vector ColumnData)
 reqInt32 =
@@ -145,19 +179,23 @@ reqInt32 =
   , V.singleton (ColInt32 (VP.fromList [1, 2, 3, 4, 5 :: Int32]))
   )
 
+
 reqInt64 :: ([P.SchemaElement], V.Vector ColumnData)
 reqInt64 =
   ( [rootElem 1, leafElem P.PTInt64 Nothing "x"]
   , V.singleton (ColInt64 (VP.fromList [10, 20, 30, 40, 50 :: Int64]))
   )
 
+
 reqInt64Twice :: ([P.SchemaElement], [V.Vector ColumnData])
 reqInt64Twice =
   ( [rootElem 1, leafElem P.PTInt64 Nothing "x"]
-  ,   [ V.singleton (ColInt64 (VP.fromList [1, 2, 3 :: Int64]))
-      , V.singleton (ColInt64 (VP.fromList [4, 5, 6 :: Int64]))
-      ]
+  ,
+    [ V.singleton (ColInt64 (VP.fromList [1, 2, 3 :: Int64]))
+    , V.singleton (ColInt64 (VP.fromList [4, 5, 6 :: Int64]))
+    ]
   )
+
 
 reqFloat :: ([P.SchemaElement], V.Vector ColumnData)
 reqFloat =
@@ -165,11 +203,13 @@ reqFloat =
   , V.singleton (ColFloat (VP.fromList [1.5, 2.5, 3.5 :: Float]))
   )
 
+
 reqDouble :: ([P.SchemaElement], V.Vector ColumnData)
 reqDouble =
   ( [rootElem 1, leafElem P.PTDouble Nothing "x"]
   , V.singleton (ColDouble (VP.fromList [1.5, -2.5, 3.14159 :: Double]))
   )
+
 
 reqBool :: ([P.SchemaElement], V.Vector ColumnData)
 reqBool =
@@ -177,12 +217,14 @@ reqBool =
   , V.singleton (ColBool (V.fromList [True, False, True, True, False]))
   )
 
+
 reqByteArray :: ([P.SchemaElement], V.Vector ColumnData)
 reqByteArray =
   ( [rootElem 1, leafElem P.PTByteArray Nothing "x"]
   , V.singleton
       (ColByteArray (V.fromList ["alpha", "beta", "gamma" :: ByteString]))
   )
+
 
 reqUtf8 :: ([P.SchemaElement], V.Vector ColumnData)
 reqUtf8 =
@@ -193,31 +235,46 @@ reqUtf8 =
   -- the bytes aren't valid UTF-8.
   ( [rootElem 1, leafElem P.PTByteArray (Just P.CTUtf8) "name"]
   , V.singleton
-      (ColByteArray (V.fromList
-         [ TE.encodeUtf8 "Alice"
-         , TE.encodeUtf8 "Bob"
-         , TE.encodeUtf8 "Carol"
-         , TE.encodeUtf8 "Δοε"  -- Greek "doe"
-         ]))
+      ( ColByteArray
+          ( V.fromList
+              [ TE.encodeUtf8 "Alice"
+              , TE.encodeUtf8 "Bob"
+              , TE.encodeUtf8 "Carol"
+              , TE.encodeUtf8 "Δοε" -- Greek "doe"
+              ]
+          )
+      )
   )
+
 
 -- Mixed required + optional in one row group.
 mixedSchema :: [P.SchemaElement]
 mixedSchema =
   [ rootElem 3
-  , P.SchemaElement "id"   (Just P.Required) (Just P.PTInt64)     Nothing Nothing Nothing Nothing
+  , P.SchemaElement "id" (Just P.Required) (Just P.PTInt64) Nothing Nothing Nothing Nothing
   , P.SchemaElement "name" (Just P.Optional) (Just P.PTByteArray) Nothing (Just P.CTUtf8) Nothing Nothing
-  , P.SchemaElement "score" (Just P.Optional) (Just P.PTDouble)   Nothing Nothing Nothing Nothing
+  , P.SchemaElement "score" (Just P.Optional) (Just P.PTDouble) Nothing Nothing Nothing Nothing
   ]
 
+
 mixedRow :: V.Vector ParquetColumn
-mixedRow = V.fromList
-  [ PCRequired (ColInt64 (VP.fromList [10, 20, 30 :: Int64]))
-  , PCOptional (OptByteArray (V.fromList
-      [ Just "alice", Nothing, Just "carol" :: Maybe ByteString ]))
-  , PCOptional (OptDouble (V.fromList
-      [ Just 1.5, Just 2.5, Nothing :: Maybe Double ]))
-  ]
+mixedRow =
+  V.fromList
+    [ PCRequired (ColInt64 (VP.fromList [10, 20, 30 :: Int64]))
+    , PCOptional
+        ( OptByteArray
+            ( V.fromList
+                [Just "alice", Nothing, Just "carol" :: Maybe ByteString]
+            )
+        )
+    , PCOptional
+        ( OptDouble
+            ( V.fromList
+                [Just 1.5, Just 2.5, Nothing :: Maybe Double]
+            )
+        )
+    ]
+
 
 -- ============================================================
 -- Logical-type variants (Int32 / Int64 / ByteArray with
@@ -229,9 +286,10 @@ mixedRow = V.fromList
 reqDate32 :: ([P.SchemaElement], V.Vector ColumnData)
 reqDate32 =
   ( [rootElem 1, leafElem P.PTInt32 (Just P.CTDate) "d"]
-    -- Days since 1970-01-01. 18000 days ~ 2019-04-13.
-  , V.singleton (ColInt32 (VP.fromList [0, 18000, 19000 :: Int32]))
+  , -- Days since 1970-01-01. 18000 days ~ 2019-04-13.
+    V.singleton (ColInt32 (VP.fromList [0, 18000, 19000 :: Int32]))
   )
+
 
 reqTimeMillis :: ([P.SchemaElement], V.Vector ColumnData)
 reqTimeMillis =
@@ -240,6 +298,7 @@ reqTimeMillis =
       (ColInt32 (VP.fromList [0, 12345, 86400000 - 1 :: Int32]))
   )
 
+
 reqTimestampMillis :: ([P.SchemaElement], V.Vector ColumnData)
 reqTimestampMillis =
   ( [rootElem 1, leafElem P.PTInt64 (Just P.CTTimestampMillis) "ts"]
@@ -247,27 +306,39 @@ reqTimestampMillis =
       (ColInt64 (VP.fromList [0, 1700000000000 :: Int64]))
   )
 
+
 reqUInt32 :: ([P.SchemaElement], V.Vector ColumnData)
 reqUInt32 =
   ( [rootElem 1, leafElem P.PTInt32 (Just P.CTUInt32) "u"]
-    -- Stored as Int32 with an unsigned reinterpretation;
+  , -- Stored as Int32 with an unsigned reinterpretation;
     -- maxBound :: Int32 = 2_147_483_647, fromIntegral
     -- (maxBound :: Word32) wraps to -1.
-  , V.singleton (ColInt32 (VP.fromList
-      [ 0, 1
-      , maxBound :: Int32   -- = 2_147_483_647 unsigned
-      , -1 :: Int32         -- = 4_294_967_295 unsigned
-      ]))
+    V.singleton
+      ( ColInt32
+          ( VP.fromList
+              [ 0
+              , 1
+              , maxBound :: Int32 -- = 2_147_483_647 unsigned
+              , -1 :: Int32 -- = 4_294_967_295 unsigned
+              ]
+          )
+      )
   )
+
 
 reqJson :: ([P.SchemaElement], V.Vector ColumnData)
 reqJson =
   ( [rootElem 1, leafElem P.PTByteArray (Just P.CTJson) "doc"]
-  , V.singleton (ColByteArray (V.fromList
-      [ TE.encodeUtf8 "{\"k\":1}"
-      , TE.encodeUtf8 "{\"k\":2,\"j\":\"hi\"}"
-      ]))
+  , V.singleton
+      ( ColByteArray
+          ( V.fromList
+              [ TE.encodeUtf8 "{\"k\":1}"
+              , TE.encodeUtf8 "{\"k\":2,\"j\":\"hi\"}"
+              ]
+          )
+      )
   )
+
 
 -- ============================================================
 -- Optional-column-only schemas (one column each).
@@ -279,18 +350,40 @@ optColSchema ty conv name =
   , P.SchemaElement name (Just P.Optional) (Just ty) Nothing conv Nothing Nothing
   ]
 
+
 optInt32Schema, optInt64Schema, optFloatSchema, optBoolSchema :: [P.SchemaElement]
-optInt32Schema = optColSchema P.PTInt32   Nothing "x"
-optInt64Schema = optColSchema P.PTInt64   Nothing "x"
-optFloatSchema = optColSchema P.PTFloat   Nothing "x"
-optBoolSchema  = optColSchema P.PTBoolean Nothing "x"
+optInt32Schema = optColSchema P.PTInt32 Nothing "x"
+optInt64Schema = optColSchema P.PTInt64 Nothing "x"
+optFloatSchema = optColSchema P.PTFloat Nothing "x"
+optBoolSchema = optColSchema P.PTBoolean Nothing "x"
+
 
 optInt32Row, optInt64Row, optFloatRow, optBoolRow :: V.Vector ParquetColumn
-optInt32Row = V.singleton $ PCOptional $ OptInt32 (V.fromList
-  [ Just 1, Nothing, Just 3, Just (-1) ])
-optInt64Row = V.singleton $ PCOptional $ OptInt64 (V.fromList
-  [ Just 100, Nothing, Just 300 ])
-optFloatRow = V.singleton $ PCOptional $ OptFloat (V.fromList
-  [ Just 1.5, Just 2.5, Nothing, Just 4.5 ])
-optBoolRow = V.singleton $ PCOptional $ OptBool (V.fromList
-  [ Just True, Nothing, Just False, Just True, Nothing ])
+optInt32Row =
+  V.singleton $
+    PCOptional $
+      OptInt32
+        ( V.fromList
+            [Just 1, Nothing, Just 3, Just (-1)]
+        )
+optInt64Row =
+  V.singleton $
+    PCOptional $
+      OptInt64
+        ( V.fromList
+            [Just 100, Nothing, Just 300]
+        )
+optFloatRow =
+  V.singleton $
+    PCOptional $
+      OptFloat
+        ( V.fromList
+            [Just 1.5, Just 2.5, Nothing, Just 4.5]
+        )
+optBoolRow =
+  V.singleton $
+    PCOptional $
+      OptBool
+        ( V.fromList
+            [Just True, Nothing, Just False, Just True, Nothing]
+        )

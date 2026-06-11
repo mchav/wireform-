@@ -106,10 +106,10 @@ readDatasetManifest fp = do
               prefixed = decodeU32LE (BS.take 4 raw)
               body = BS.take prefixed (BS.drop 4 raw)
           in if prefixed > rawLen - 4
-              then pure (Left "Lance.Manifest: u32 length prefix exceeds body")
-              else case decodeManifest body of
-                Left e -> pure (Left e)
-                Right m -> pure (Right (footer, m))
+               then pure (Left "Lance.Manifest: u32 length prefix exceeds body")
+               else case decodeManifest body of
+                 Left e -> pure (Left e)
+                 Right m -> pure (Right (footer, m))
 
 
 -- Decode a 4-byte little-endian u32 from the head of a
@@ -198,16 +198,18 @@ helper rolls up the most useful fields into a flat shape.
 -}
 data LanceSchemaField = LanceSchemaField
   { lsfName :: !Text
-  -- ^ Fully-qualified field name (Lance writes nested
-  -- fields as e.g. @\"items.value\"@ already).
+  {- ^ Fully-qualified field name (Lance writes nested
+  fields as e.g. @\"items.value\"@ already).
+  -}
   , lsfId :: !Int
   , lsfParentId :: !Int
   -- ^ @-1@ (or another sentinel) for top-level fields.
   , lsfLogicalType :: !Text
-  -- ^ Arrow logical-type tag — see the @logical_type@
-  -- comment in @file.proto@ for the grammar (e.g.
-  -- @\"int64\"@, @\"string\"@, @\"list.struct\"@,
-  -- @\"decimal:128:10:2\"@).
+  {- ^ Arrow logical-type tag — see the @logical_type@
+  comment in @file.proto@ for the grammar (e.g.
+  @\"int64\"@, @\"string\"@, @\"list.struct\"@,
+  @\"decimal:128:10:2\"@).
+  -}
   , lsfNullable :: !Bool
   }
   deriving (Show, Eq)

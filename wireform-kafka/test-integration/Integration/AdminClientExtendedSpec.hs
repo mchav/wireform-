@@ -1,33 +1,34 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Live-broker tests for the AdminClient extensions added in
--- this branch:
---
---   * KIP-78 cluster id surface (mirrored on Producer / Consumer
---     / AdminClient)
---   * KIP-444 'listTopicsExcludeInternal'
---   * KIP-339 'incrementalAlterConfigs'
---   * KIP-460 'electLeaders' (reachability-only on a 1-broker
---     fixture)
---
--- Skipped at run time unless @WIREFORM_KAFKA_BROKER=host:port@ is
--- set; mirrors the rest of the integration suite.
-module Integration.AdminClientExtendedSpec
-  ( tests
-  ) where
+{- | Live-broker tests for the AdminClient extensions added in
+this branch:
+
+  * KIP-78 cluster id surface (mirrored on Producer / Consumer
+    / AdminClient)
+  * KIP-444 'listTopicsExcludeInternal'
+  * KIP-339 'incrementalAlterConfigs'
+  * KIP-460 'electLeaders' (reachability-only on a 1-broker
+    fixture)
+
+Skipped at run time unless @WIREFORM_KAFKA_BROKER=host:port@ is
+set; mirrors the rest of the integration suite.
+-}
+module Integration.AdminClientExtendedSpec (
+  tests,
+) where
 
 import Control.Monad (forM_)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map.Strict as MS
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Time.Clock.POSIX as Time
+import Data.HashMap.Strict qualified as HashMap
+import Data.Map.Strict qualified as MS
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Time.Clock.POSIX qualified as Time
+import Kafka.Client.AdminClient qualified as AC
+import Kafka.Client.Consumer qualified as KC
+import Kafka.Client.Producer qualified as KP
 import System.Environment (lookupEnv)
 import Test.Syd
 
-import qualified Kafka.Client.AdminClient as AC
-import qualified Kafka.Client.Consumer as KC
-import qualified Kafka.Client.Producer as KP
 
 -- (Producer + Consumer are still used by the other scenarios in
 -- this module; only listConsumerGroupOffsets was rewritten to
@@ -38,32 +39,35 @@ import qualified Kafka.Client.Producer as KP
 ----------------------------------------------------------------------
 
 tests :: Spec
-tests = describe "Integration: AdminClient extended (KIP-78/-339/-444/-460/-503)" $ sequence_
-  [ it "cluster id is surfaced via Admin / Producer / Consumer" $
-      withBroker testClusterId
-  , it "listTopicsExcludeInternal hides internal topics" $
-      withBroker testListTopicsNonInternal
-  , it "incrementalAlterConfigs round-trips a topic config" $
-      withBroker testIncrementalAlterConfigs
-  , it "listConsumerGroupOffsets returns committed offsets" $
-      withBroker testListConsumerGroupOffsets
-  , it "listConsumerGroups + describeConsumerGroups (negotiated v5/v6)" $
-      withBroker testListAndDescribeConsumerGroups
-  , it "deleteRecords trims partition log (negotiated v2)" $
-      withBroker testDeleteRecords
-  , it "describeTopics returns partition info (negotiated Metadata v13)" $
-      withBroker testDescribeTopics
-  , it "describeFeatures returns the cluster's KIP-584 feature set" $
-      withBroker testDescribeFeatures
-  , it "listClientMetricsResources returns the broker's configured resources" $
-      withBroker testListClientMetricsResources
-  , it "describeConsumerGroups2 round-trips against KIP-848 broker" $
-      withBroker testDescribeConsumerGroups2
-  , it "adminClientInstanceId is deterministic from client.id" $
-      withBroker testAdminClientInstanceId
-  , it "producerClientInstanceId is deterministic from client.id" $
-      withBroker testProducerClientInstanceId
-  ]
+tests =
+  describe "Integration: AdminClient extended (KIP-78/-339/-444/-460/-503)" $
+    sequence_
+      [ it "cluster id is surfaced via Admin / Producer / Consumer" $
+          withBroker testClusterId
+      , it "listTopicsExcludeInternal hides internal topics" $
+          withBroker testListTopicsNonInternal
+      , it "incrementalAlterConfigs round-trips a topic config" $
+          withBroker testIncrementalAlterConfigs
+      , it "listConsumerGroupOffsets returns committed offsets" $
+          withBroker testListConsumerGroupOffsets
+      , it "listConsumerGroups + describeConsumerGroups (negotiated v5/v6)" $
+          withBroker testListAndDescribeConsumerGroups
+      , it "deleteRecords trims partition log (negotiated v2)" $
+          withBroker testDeleteRecords
+      , it "describeTopics returns partition info (negotiated Metadata v13)" $
+          withBroker testDescribeTopics
+      , it "describeFeatures returns the cluster's KIP-584 feature set" $
+          withBroker testDescribeFeatures
+      , it "listClientMetricsResources returns the broker's configured resources" $
+          withBroker testListClientMetricsResources
+      , it "describeConsumerGroups2 round-trips against KIP-848 broker" $
+          withBroker testDescribeConsumerGroups2
+      , it "adminClientInstanceId is deterministic from client.id" $
+          withBroker testAdminClientInstanceId
+      , it "producerClientInstanceId is deterministic from client.id" $
+          withBroker testProducerClientInstanceId
+      ]
+
 
 ----------------------------------------------------------------------
 -- Scenarios
@@ -79,32 +83,36 @@ testClusterId brokerText = do
   cId <- AC.adminClusterId ac
   case cId of
     Nothing -> expectationFailure "expected admin client to surface a cluster id"
-    Just t  -> (not (T.null t)) `shouldBe` True
+    Just t -> (not (T.null t)) `shouldBe` True
   AC.closeAdminClient ac
 
-  pcfg <- pure $ KP.defaultProducerConfig { KP.producerClientId = "wf-it-clusterid-prod" }
-  pr   <- either error pure =<< KP.createProducer [brokerText] pcfg
+  pcfg <- pure $ KP.defaultProducerConfig {KP.producerClientId = "wf-it-clusterid-prod"}
+  pr <- either error pure =<< KP.createProducer [brokerText] pcfg
   pId <- KP.producerClusterId pr
   KP.closeProducer pr
   case pId of
     Nothing -> expectationFailure "producer should surface a cluster id"
-    Just t  -> (not (T.null t)) `shouldBe` True
+    Just t -> (not (T.null t)) `shouldBe` True
 
-  cR <- KC.createConsumer [brokerText] "wf-it-clusterid-grp"
-          (KC.defaultConsumerConfig { KC.consumerClientId = "wf-it-clusterid-cons" })
+  cR <-
+    KC.createConsumer
+      [brokerText]
+      "wf-it-clusterid-grp"
+      (KC.defaultConsumerConfig {KC.consumerClientId = "wf-it-clusterid-cons"})
   case cR of
-    Left e  -> expectationFailure ("consumer create: " <> e)
+    Left e -> expectationFailure ("consumer create: " <> e)
     Right c -> do
       cIdC <- KC.consumerClusterId c
       KC.closeConsumer c
       case cIdC of
         Nothing -> expectationFailure "consumer should surface a cluster id"
-        Just t  -> (not (T.null t)) `shouldBe` True
+        Just t -> (not (T.null t)) `shouldBe` True
+
 
 testListTopicsNonInternal :: T.Text -> IO ()
 testListTopicsNonInternal brokerText = do
   ac <- mkAdmin brokerText
-  allR  <- AC.listTopics ac
+  allR <- AC.listTopics ac
   realR <- AC.listTopicsExcludeInternal ac
   AC.closeAdminClient ac
   case (allR, realR) of
@@ -118,21 +126,35 @@ testListTopicsNonInternal brokerText = do
       let removed = filter (`notElem` realTs) allTs
       forM_ removed $ \t ->
         (if (T.isPrefixOf "_" t) then pure () else expectationFailure ("expected internal-only topic prefix: " <> T.unpack t))
-    _ -> expectationFailure ("listTopics failed: all=" <> show allR
-                         <> " real=" <> show realR)
+    _ ->
+      expectationFailure
+        ( "listTopics failed: all="
+            <> show allR
+            <> " real="
+            <> show realR
+        )
+
 
 testIncrementalAlterConfigs :: T.Text -> IO ()
 testIncrementalAlterConfigs brokerText = do
   ac <- mkAdmin brokerText
   let topic = "wireform-bench-cmp"
-      cr    = AC.ConfigResource AC.ConfigResourceTopic topic
+      cr = AC.ConfigResource AC.ConfigResourceTopic topic
   -- Set retention.ms to 600000 (10 minutes), then read it back.
-  setR <- AC.incrementalAlterConfigs ac
-            [(cr, [AC.AlterableConfigEntry
-                     { AC.aceName  = "retention.ms"
-                     , AC.aceOp    = AC.AlterConfigOpSet
-                     , AC.aceValue = Just "600000"
-                     }])]
+  setR <-
+    AC.incrementalAlterConfigs
+      ac
+      [
+        ( cr
+        ,
+          [ AC.AlterableConfigEntry
+              { AC.aceName = "retention.ms"
+              , AC.aceOp = AC.AlterConfigOpSet
+              , AC.aceValue = Just "600000"
+              }
+          ]
+        )
+      ]
   case setR of
     Left e -> do
       AC.closeAdminClient ac
@@ -140,7 +162,7 @@ testIncrementalAlterConfigs brokerText = do
     Right rs -> do
       forM_ rs $ \(_, r) -> case r of
         Right () -> pure ()
-        Left e   -> expectationFailure ("incrementalAlterConfigs per-resource: " <> e)
+        Left e -> expectationFailure ("incrementalAlterConfigs per-resource: " <> e)
   -- Read it back.
   descR <- AC.describeConfigs ac [cr]
   AC.closeAdminClient ac
@@ -148,16 +170,20 @@ testIncrementalAlterConfigs brokerText = do
     Left e -> expectationFailure ("describeConfigs: " <> e)
     Right [resR] ->
       case AC.crrError resR of
-        Just e  -> expectationFailure ("describeConfigs per-resource: " <> T.unpack e)
+        Just e -> expectationFailure ("describeConfigs per-resource: " <> T.unpack e)
         Nothing ->
           case [ AC.ceValue ce
-               | ce <- AC.crrEntries resR, AC.ceName ce == "retention.ms"
+               | ce <- AC.crrEntries resR
+               , AC.ceName ce == "retention.ms"
                ] of
             (Just "600000" : _) -> pure ()
-            other -> expectationFailure
-              ("expected retention.ms=600000, got " <> show other)
-    Right xs -> expectationFailure
-      ("expected exactly one ConfigResourceResult, got " <> show (length xs))
+            other ->
+              expectationFailure
+                ("expected retention.ms=600000, got " <> show other)
+    Right xs ->
+      expectationFailure
+        ("expected exactly one ConfigResourceResult, got " <> show (length xs))
+
 
 testListConsumerGroupOffsets :: T.Text -> IO ()
 testListConsumerGroupOffsets brokerText = do
@@ -169,11 +195,14 @@ testListConsumerGroupOffsets brokerText = do
   -- own timing characteristics on freshly-formed groups.
   ts <- round <$> Time.getPOSIXTime :: IO Int
   let groupId = T.pack ("wf-it-acg-" ++ show ts)
-      topic   = T.pack "wireform-bench-cmp"
+      topic = T.pack "wireform-bench-cmp"
   ac <- mkAdmin brokerText
   -- Write an arbitrary offset.
-  alt <- AC.alterConsumerGroupOffsets ac groupId
-           [(topic, 0, 42)]
+  alt <-
+    AC.alterConsumerGroupOffsets
+      ac
+      groupId
+      [(topic, 0, 42)]
   case alt of
     Left e -> do
       AC.closeAdminClient ac
@@ -181,10 +210,12 @@ testListConsumerGroupOffsets brokerText = do
     Right rs ->
       forM_ rs $ \(_, r) -> case r of
         Right () -> pure ()
-        Left ec  -> do
+        Left ec -> do
           AC.closeAdminClient ac
-          expectationFailure ("alterConsumerGroupOffsets per-partition error: "
-                           <> show ec)
+          expectationFailure
+            ( "alterConsumerGroupOffsets per-partition error: "
+                <> show ec
+            )
   -- Read it back.
   rOffs <- AC.listConsumerGroupOffsets ac groupId
   AC.closeAdminClient ac
@@ -192,6 +223,7 @@ testListConsumerGroupOffsets brokerText = do
     Left e -> expectationFailure ("listConsumerGroupOffsets: " <> e)
     Right hm -> do
       (HashMap.lookup (topic, 0) hm) `shouldBe` (Just 42)
+
 
 testListAndDescribeConsumerGroups :: T.Text -> IO ()
 testListAndDescribeConsumerGroups brokerText = do
@@ -202,8 +234,11 @@ testListAndDescribeConsumerGroups brokerText = do
   ts <- round <$> Time.getPOSIXTime :: IO Int
   let groupId = T.pack ("wf-it-listdesc-" ++ show ts)
   ac <- mkAdmin brokerText
-  altR <- AC.alterConsumerGroupOffsets ac groupId
-            [(T.pack "wireform-bench-cmp", 0, 0)]
+  altR <-
+    AC.alterConsumerGroupOffsets
+      ac
+      groupId
+      [(T.pack "wireform-bench-cmp", 0, 0)]
   case altR of
     Left e -> do
       AC.closeAdminClient ac
@@ -219,8 +254,17 @@ testListAndDescribeConsumerGroups brokerText = do
       expectationFailure ("listConsumerGroups: " <> e)
     Right listings -> do
       let ids = map AC.cglGroupId listings
-      (if (groupId `elem` ids) then pure () else expectationFailure ("listConsumerGroups missing seed group "
-                    <> T.unpack groupId <> " (got " <> show ids <> ")"))
+      ( if (groupId `elem` ids)
+          then pure ()
+          else
+            expectationFailure
+              ( "listConsumerGroups missing seed group "
+                  <> T.unpack groupId
+                  <> " (got "
+                  <> show ids
+                  <> ")"
+              )
+        )
   -- Negotiated DescribeGroups v6: round-trip the same group
   -- id and confirm the broker echoes it back. (The group has
   -- no live members because we only used the external commit
@@ -231,25 +275,39 @@ testListAndDescribeConsumerGroups brokerText = do
     Left e -> expectationFailure ("describeConsumerGroups: " <> e)
     Right [d] -> do
       AC.cgdGroupId d `shouldBe` groupId
-      (if (not (T.null (AC.cgdState d))) then pure () else expectationFailure ("expected non-empty state, got "
-                    <> T.unpack (AC.cgdState d)))
-    Right ds -> expectationFailure
-      ("expected exactly one group description, got " <> show (length ds))
+      ( if (not (T.null (AC.cgdState d)))
+          then pure ()
+          else
+            expectationFailure
+              ( "expected non-empty state, got "
+                  <> T.unpack (AC.cgdState d)
+              )
+        )
+    Right ds ->
+      expectationFailure
+        ("expected exactly one group description, got " <> show (length ds))
+
 
 testDeleteRecords :: T.Text -> IO ()
 testDeleteRecords brokerText = do
   -- Produce a few records first so there's something to trim.
   let topic = T.pack "wireform-bench-cmp"
-  pcfg <- pure $ KP.defaultProducerConfig
-            { KP.producerClientId = "wf-it-deleterecords-prod"
-            }
-  pr   <- either error pure =<< KP.createProducer [brokerText] pcfg
+  pcfg <-
+    pure $
+      KP.defaultProducerConfig
+        { KP.producerClientId = "wf-it-deleterecords-prod"
+        }
+  pr <- either error pure =<< KP.createProducer [brokerText] pcfg
   forM_ ([0 .. 4] :: [Int]) $ \i -> do
-    r <- KP.sendMessage pr topic Nothing
-           (T.encodeUtf8 (T.pack ("rec-" <> show i)))
+    r <-
+      KP.sendMessage
+        pr
+        topic
+        Nothing
+        (T.encodeUtf8 (T.pack ("rec-" <> show i)))
     case r of
       Right _ -> pure ()
-      Left  e -> expectationFailure ("produce seed " <> show i <> ": " <> e)
+      Left e -> expectationFailure ("produce seed " <> show i <> ": " <> e)
   KP.closeProducer pr
   -- Now delete every record below offset 1; expect the broker's
   -- low-watermark to come back >= 1.
@@ -262,8 +320,15 @@ testDeleteRecords brokerText = do
       (not (null entries)) `shouldBe` True
       forM_ entries $ \e -> do
         AC.dreErrorCode e `shouldBe` 0
-        (if (AC.dreLowWatermark e >= 1) then pure () else expectationFailure ("expected lowWatermark >= 1, got "
-                      <> show (AC.dreLowWatermark e)))
+        ( if (AC.dreLowWatermark e >= 1)
+            then pure ()
+            else
+              expectationFailure
+                ( "expected lowWatermark >= 1, got "
+                    <> show (AC.dreLowWatermark e)
+                )
+          )
+
 
 testDescribeTopics :: T.Text -> IO ()
 testDescribeTopics brokerText = do
@@ -280,8 +345,10 @@ testDescribeTopics brokerText = do
     Right [td] -> do
       AC.tdName td `shouldBe` T.pack "wireform-bench-cmp"
       (not (null (AC.tdPartitions td))) `shouldBe` True
-    Right tds -> expectationFailure
-      ("expected exactly one TopicDescription, got " <> show (length tds))
+    Right tds ->
+      expectationFailure
+        ("expected exactly one TopicDescription, got " <> show (length tds))
+
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -290,51 +357,56 @@ testDescribeTopics brokerText = do
 testDescribeFeatures :: T.Text -> IO ()
 testDescribeFeatures brokerText = do
   ac <- mkAdmin brokerText
-  r  <- AC.describeFeatures ac
+  r <- AC.describeFeatures ac
   AC.closeAdminClient ac
   case r of
-    Left e   -> expectationFailure ("describeFeatures: " <> e)
+    Left e -> expectationFailure ("describeFeatures: " <> e)
     Right fm ->
       -- A 4.x cluster always advertises at least @metadata.version@
       -- in the supported list; we accept any non-empty supported
       -- set so the test is portable across broker versions.
       (not (MS.null (AC.fmSupportedFeatures fm))) `shouldBe` True
 
+
 testListClientMetricsResources :: T.Text -> IO ()
 testListClientMetricsResources brokerText = do
   ac <- mkAdmin brokerText
-  r  <- AC.listClientMetricsResources ac
+  r <- AC.listClientMetricsResources ac
   AC.closeAdminClient ac
   case r of
-    Left e  -> expectationFailure ("listClientMetricsResources: " <> e)
-    Right _ -> pure ()   -- empty list is a valid response
+    Left e -> expectationFailure ("listClientMetricsResources: " <> e)
+    Right _ -> pure () -- empty list is a valid response
+
 
 testDescribeConsumerGroups2 :: T.Text -> IO ()
 testDescribeConsumerGroups2 brokerText = do
   ac <- mkAdmin brokerText
   -- Empty input ⇒ the broker should return an empty result list.
-  r  <- AC.describeConsumerGroups2 ac [] False
+  r <- AC.describeConsumerGroups2 ac [] False
   AC.closeAdminClient ac
   case r of
-    Left e   -> expectationFailure ("describeConsumerGroups2: " <> e)
+    Left e -> expectationFailure ("describeConsumerGroups2: " <> e)
     Right ds -> (length ds) `shouldBe` 0
+
 
 testAdminClientInstanceId :: T.Text -> IO ()
 testAdminClientInstanceId brokerText = do
   ac <- mkAdmin brokerText
-  a  <- AC.adminClientInstanceId ac
-  b  <- AC.adminClientInstanceId ac
+  a <- AC.adminClientInstanceId ac
+  b <- AC.adminClientInstanceId ac
   AC.closeAdminClient ac
   b `shouldBe` a
 
+
 testProducerClientInstanceId :: T.Text -> IO ()
 testProducerClientInstanceId brokerText = do
-  pcfg <- pure $ KP.defaultProducerConfig { KP.producerClientId = "wf-it-instance" }
-  pr   <- either error pure =<< KP.createProducer [brokerText] pcfg
+  pcfg <- pure $ KP.defaultProducerConfig {KP.producerClientId = "wf-it-instance"}
+  pr <- either error pure =<< KP.createProducer [brokerText] pcfg
   a <- KP.producerClientInstanceId pr
   b <- KP.producerClientInstanceId pr
   KP.closeProducer pr
   b `shouldBe` a
+
 
 ----------------------------------------------------------------------
 
@@ -343,15 +415,16 @@ withBroker k = do
   m <- lookupEnv "WIREFORM_KAFKA_BROKER"
   case m of
     Nothing -> pure ()
-    Just h  -> k (T.pack h)
+    Just h -> k (T.pack h)
+
 
 mkAdmin :: T.Text -> IO AC.AdminClient
 mkAdmin brokerText = do
-  let cfg = AC.defaultAdminClientConfig
-        { AC.adminClientId = "wf-it-admin"
-        }
+  let cfg =
+        AC.defaultAdminClientConfig
+          { AC.adminClientId = "wf-it-admin"
+          }
   r <- AC.createAdminClient [brokerText] cfg
   case r of
-    Left e  -> error ("createAdminClient: " <> e)
+    Left e -> error ("createAdminClient: " <> e)
     Right c -> pure c
-

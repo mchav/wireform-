@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | HTTPS-via-proxy CONNECT tunnel helper (RFC 9110 \u00a79.3.6).
 
 Given a 'Proxy' and a target @host:port@, 'connectThroughProxy' opens a
@@ -17,21 +20,19 @@ Note: this module deliberately uses raw socket I\/O rather than the
 into a connection handle, and we want to hand the post-CONNECT
 socket back to the caller untouched.
 -}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-module Network.HTTP.Client.Proxy.Connect
-  ( connectThroughProxy
-  , ConnectError (..)
-  ) where
+module Network.HTTP.Client.Proxy.Connect (
+  connectThroughProxy,
+  ConnectError (..),
+) where
 
 import Control.Exception (Exception, throwIO)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NSB
-
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Network.HTTP.Client.Proxy (Proxy (..))
+import Network.Socket qualified as NS
+import Network.Socket.ByteString qualified as NSB
+
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -39,45 +40,55 @@ import Network.HTTP.Client.Proxy (Proxy (..))
 
 data ConnectError
   = ConnectProxyDialFailed !String
-  | ConnectProxyBadResponse !ByteString
-    -- ^ The first line did not parse as an HTTP\/1.1 status line.
-  | ConnectProxyRefused !Int !ByteString
-    -- ^ The proxy rejected the tunnel; carries the status code and
-    --   the rest of the start line for diagnostics.
+  | -- | The first line did not parse as an HTTP\/1.1 status line.
+    ConnectProxyBadResponse !ByteString
+  | {- | The proxy rejected the tunnel; carries the status code and
+    the rest of the start line for diagnostics.
+    -}
+    ConnectProxyRefused !Int !ByteString
   deriving stock (Show)
 
+
 instance Exception ConnectError
+
 
 -- ---------------------------------------------------------------------------
 -- The handshake
 -- ---------------------------------------------------------------------------
 
--- | Open a TCP connection to @proxy@, issue @CONNECT host:port@,
--- read until the end of the response header block, and return the
--- live socket. The caller is responsible for layering TLS and
--- closing the socket on teardown.
+{- | Open a TCP connection to @proxy@, issue @CONNECT host:port@,
+read until the end of the response header block, and return the
+live socket. The caller is responsible for layering TLS and
+closing the socket on teardown.
+-}
 connectThroughProxy
   :: Proxy
   -> ByteString
-    -- ^ Target host (the @host@ in @CONNECT host:port@). For an
-    --   IPv6 literal pass it bracketed.
+  {- ^ Target host (the @host@ in @CONNECT host:port@). For an
+  IPv6 literal pass it bracketed.
+  -}
   -> Int
-    -- ^ Target port.
+  -- ^ Target port.
   -> Maybe ByteString
-    -- ^ Optional @Proxy-Authorization@ header value.
+  -- ^ Optional @Proxy-Authorization@ header value.
   -> IO NS.Socket
 connectThroughProxy prx host port mAuth = do
   sock <- dial (BS8.unpack (proxyHost prx)) (show (proxyPort prx))
   let target = host <> ":" <> BS8.pack (show port)
       authHdr = case mAuth of
-        Just v  -> "Proxy-Authorization: " <> v <> "\r\n"
+        Just v -> "Proxy-Authorization: " <> v <> "\r\n"
         Nothing -> ""
-      reqBytes = BS.concat
-        [ "CONNECT ", target, " HTTP/1.1\r\n"
-        , "Host: ", target, "\r\n"
-        , authHdr
-        , "\r\n"
-        ]
+      reqBytes =
+        BS.concat
+          [ "CONNECT "
+          , target
+          , " HTTP/1.1\r\n"
+          , "Host: "
+          , target
+          , "\r\n"
+          , authHdr
+          , "\r\n"
+          ]
   NSB.sendAll sock reqBytes
   status <- readUntilDoubleCRLF sock BS.empty
   case parseStatusLine status of
@@ -87,29 +98,33 @@ connectThroughProxy prx host port mAuth = do
           throwIO (ConnectProxyRefused code status)
     Nothing -> throwIO (ConnectProxyBadResponse status)
 
+
 dial :: String -> String -> IO NS.Socket
 dial host port = do
-  let hints = NS.defaultHints { NS.addrSocketType = NS.Stream }
+  let hints = NS.defaultHints {NS.addrSocketType = NS.Stream}
   addrs <- NS.getAddrInfo (Just hints) (Just host) (Just port)
   case addrs of
-    []     -> throwIO (ConnectProxyDialFailed (host <> ":" <> port))
+    [] -> throwIO (ConnectProxyDialFailed (host <> ":" <> port))
     (a : _) -> do
       sock <- NS.socket (NS.addrFamily a) (NS.addrSocketType a) (NS.addrProtocol a)
       NS.connect sock (NS.addrAddress a)
       NS.setSocketOption sock NS.NoDelay 1
       pure sock
 
--- | Read from the socket until @\\r\\n\\r\\n@ appears, accumulating
--- everything up to and including the terminator.
+
+{- | Read from the socket until @\\r\\n\\r\\n@ appears, accumulating
+everything up to and including the terminator.
+-}
 readUntilDoubleCRLF :: NS.Socket -> ByteString -> IO ByteString
 readUntilDoubleCRLF sock acc
   | "\r\n\r\n" `BS.isInfixOf` acc = pure acc
-  | BS.length acc > 64 * 1024     = pure acc  -- give up; downstream parser will error
+  | BS.length acc > 64 * 1024 = pure acc -- give up; downstream parser will error
   | otherwise = do
       chunk <- NSB.recv sock 4096
       if BS.null chunk
         then pure acc
         else readUntilDoubleCRLF sock (acc <> chunk)
+
 
 parseStatusLine :: ByteString -> Maybe Int
 parseStatusLine bs = do

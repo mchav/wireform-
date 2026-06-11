@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | Percent-encoding helpers (RFC 3986 \u00a72.1, \u00a72.4).
 
 Three escape policies covering the per-component sets defined by
@@ -9,35 +11,37 @@ right \"safe\" set for each component.
 spaces become @+@ and the safe set is smaller. See
 'encodeFormComponent' for that.
 -}
-{-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.PercentEncoding
-  ( -- * Generic
-    percentEncode
-  , percentEncodeWith
-  , percentDecode
-    -- * Predicates
-  , isUnreserved
-  , isPathSafe
-  , isQuerySafe
-    -- * Component-specific
-  , encodePathSegment
-  , encodePath
-  , encodeQueryComponent
-  , encodeFragment
-  , encodeFormComponent
-  , decodeQueryString
-  , decodeQueryStringStrict
-    -- * Query strings
-  , renderQueryString
-  , renderFormBody
-  ) where
+module Network.HTTP.PercentEncoding (
+  -- * Generic
+  percentEncode,
+  percentEncodeWith,
+  percentDecode,
 
-import qualified Data.ByteString as BS
+  -- * Predicates
+  isUnreserved,
+  isPathSafe,
+  isQuerySafe,
+
+  -- * Component-specific
+  encodePathSegment,
+  encodePath,
+  encodeQueryComponent,
+  encodeFragment,
+  encodeFormComponent,
+  decodeQueryString,
+  decodeQueryStringStrict,
+
+  -- * Query strings
+  renderQueryString,
+  renderFormBody,
+) where
+
+import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
-import Data.Bits ((.&.), shiftR)
+import Data.ByteString qualified as BS
 import Data.Word (Word8)
+import Wireform.Builder qualified as B
 
-import qualified Wireform.Builder as B
 
 -- ---------------------------------------------------------------------------
 -- Predicates
@@ -46,36 +50,58 @@ import qualified Wireform.Builder as B
 -- | RFC 3986 \"unreserved\": @A-Z a-z 0-9 - _ . ~@.
 isUnreserved :: Word8 -> Bool
 isUnreserved w =
-     (w >= 0x41 && w <= 0x5A)  -- A-Z
-  || (w >= 0x61 && w <= 0x7A)  -- a-z
-  || (w >= 0x30 && w <= 0x39)  -- 0-9
-  || w == 0x2D                 -- -
-  || w == 0x5F                 -- _
-  || w == 0x2E                 -- .
-  || w == 0x7E                 -- ~
+  (w >= 0x41 && w <= 0x5A) -- A-Z
+    || (w >= 0x61 && w <= 0x7A) -- a-z
+    || (w >= 0x30 && w <= 0x39) -- 0-9
+    || w == 0x2D -- -
+    || w == 0x5F -- _
+    || w == 0x2E -- .
+    || w == 0x7E -- ~
 
--- | Bytes that may appear unescaped in a path segment: unreserved plus
--- the sub-delims @!$&'()*+,;=@ plus @:@ and @\@@.
+
+{- | Bytes that may appear unescaped in a path segment: unreserved plus
+the sub-delims @!$&'()*+,;=@ plus @:@ and @\@@.
+-}
 isPathSafe :: Word8 -> Bool
 isPathSafe w =
-     isUnreserved w
-  || w == 0x21 || w == 0x24 || w == 0x26 || w == 0x27
-  || w == 0x28 || w == 0x29 || w == 0x2A || w == 0x2B
-  || w == 0x2C || w == 0x3B || w == 0x3D
-  || w == 0x3A || w == 0x40
+  isUnreserved w
+    || w == 0x21
+    || w == 0x24
+    || w == 0x26
+    || w == 0x27
+    || w == 0x28
+    || w == 0x29
+    || w == 0x2A
+    || w == 0x2B
+    || w == 0x2C
+    || w == 0x3B
+    || w == 0x3D
+    || w == 0x3A
+    || w == 0x40
 
--- | Bytes that may appear unescaped in a query component value:
--- unreserved plus sub-delims minus @&@ and @=@ (those are reserved
--- for query separators), plus @:@, @\@@, @\/@ and @?@ which the
--- query production explicitly allows.
+
+{- | Bytes that may appear unescaped in a query component value:
+unreserved plus sub-delims minus @&@ and @=@ (those are reserved
+for query separators), plus @:@, @\@@, @\/@ and @?@ which the
+query production explicitly allows.
+-}
 isQuerySafe :: Word8 -> Bool
 isQuerySafe w =
-     isUnreserved w
-  || w == 0x21 || w == 0x24 || w == 0x27
-  || w == 0x28 || w == 0x29 || w == 0x2A || w == 0x2B
-  || w == 0x2C || w == 0x3B
-  || w == 0x3A || w == 0x40
-  || w == 0x2F || w == 0x3F
+  isUnreserved w
+    || w == 0x21
+    || w == 0x24
+    || w == 0x27
+    || w == 0x28
+    || w == 0x29
+    || w == 0x2A
+    || w == 0x2B
+    || w == 0x2C
+    || w == 0x3B
+    || w == 0x3A
+    || w == 0x40
+    || w == 0x2F
+    || w == 0x3F
+
 
 -- ---------------------------------------------------------------------------
 -- Encoding
@@ -86,20 +112,25 @@ percentEncodeWith :: (Word8 -> Bool) -> ByteString -> ByteString
 percentEncodeWith safe = B.toStrictByteString . BS.foldl' step mempty
   where
     step acc w
-      | safe w    = acc <> B.word8 w
-      | otherwise = acc <> B.word8 0x25  -- '%'
-                        <> hexNibble (w `shiftR` 4)
-                        <> hexNibble (w .&. 0x0F)
+      | safe w = acc <> B.word8 w
+      | otherwise =
+          acc
+            <> B.word8 0x25 -- '%'
+            <> hexNibble (w `shiftR` 4)
+            <> hexNibble (w .&. 0x0F)
     hexNibble n
-      | n < 10    = B.word8 (n + 0x30)
-      | otherwise = B.word8 (n + 0x37)  -- A=0x41, so 10+0x37 = 0x41
+      | n < 10 = B.word8 (n + 0x30)
+      | otherwise = B.word8 (n + 0x37) -- A=0x41, so 10+0x37 = 0x41
+
 
 -- | Percent-encode the unreserved set.
 percentEncode :: ByteString -> ByteString
 percentEncode = percentEncodeWith isUnreserved
 
--- | Decode percent-escapes. Bytes that aren't @%xx@ pass through
--- verbatim. Returns 'Nothing' on a truncated or non-hex escape.
+
+{- | Decode percent-escapes. Bytes that aren't @%xx@ pass through
+verbatim. Returns 'Nothing' on a truncated or non-hex escape.
+-}
 percentDecode :: ByteString -> Maybe ByteString
 percentDecode bs0 = go bs0 mempty
   where
@@ -118,7 +149,8 @@ percentDecode bs0 = go bs0 mempty
       | w >= 0x30 && w <= 0x39 = Just (fromIntegral w - 0x30)
       | w >= 0x41 && w <= 0x46 = Just (fromIntegral w - 0x37)
       | w >= 0x61 && w <= 0x66 = Just (fromIntegral w - 0x57)
-      | otherwise              = Nothing
+      | otherwise = Nothing
+
 
 -- ---------------------------------------------------------------------------
 -- Component-specific
@@ -128,31 +160,39 @@ percentDecode bs0 = go bs0 mempty
 encodePathSegment :: ByteString -> ByteString
 encodePathSegment = percentEncodeWith (\w -> isPathSafe w && w /= 0x2F)
 
+
 -- | Encode a path while preserving @\/@ separators.
 encodePath :: ByteString -> ByteString
 encodePath = percentEncodeWith isPathSafe
 
--- | Encode a single query value or key. Reserves @&@, @=@, @+@,
--- @;@, and the path separators are kept by 'isQuerySafe'.
+
+{- | Encode a single query value or key. Reserves @&@, @=@, @+@,
+@;@, and the path separators are kept by 'isQuerySafe'.
+-}
 encodeQueryComponent :: ByteString -> ByteString
 encodeQueryComponent =
   percentEncodeWith (\w -> isQuerySafe w && w /= 0x26 && w /= 0x3D && w /= 0x2B)
 
--- | Encode a URI fragment per RFC 3986 §3.5.  The fragment set
--- is @pchar \/ \"\/\" \/ \"?\"@, i.e. the same as a query
--- (minus the @&@ \/ @=@ \/ @+@ reservation that's
--- query-specific).  Use this when assembling a URI from a
--- user-supplied anchor string — passing the raw bytes through
--- would smuggle @#@ characters into the rendered URI.
+
+{- | Encode a URI fragment per RFC 3986 §3.5.  The fragment set
+is @pchar \/ \"\/\" \/ \"?\"@, i.e. the same as a query
+(minus the @&@ \/ @=@ \/ @+@ reservation that's
+query-specific).  Use this when assembling a URI from a
+user-supplied anchor string — passing the raw bytes through
+would smuggle @#@ characters into the rendered URI.
+-}
 encodeFragment :: ByteString -> ByteString
 encodeFragment = percentEncodeWith isFragmentSafe
   where
     isFragmentSafe w =
       isQuerySafe w || w == 0x26 || w == 0x3D || w == 0x2B
-      -- &, =, + are not reserved inside a fragment.
 
--- | Encode for @application\/x-www-form-urlencoded@: like
--- 'encodeQueryComponent' but spaces become @+@ instead of @%20@.
+
+-- &, =, + are not reserved inside a fragment.
+
+{- | Encode for @application\/x-www-form-urlencoded@: like
+'encodeQueryComponent' but spaces become @+@ instead of @%20@.
+-}
 encodeFormComponent :: ByteString -> ByteString
 encodeFormComponent = B.toStrictByteString . BS.foldl' step mempty
   where
@@ -162,61 +202,70 @@ encodeFormComponent = B.toStrictByteString . BS.foldl' step mempty
           acc <> B.word8 w
       | otherwise = acc <> B.word8 0x25 <> hex (w `shiftR` 4) <> hex (w .&. 0x0F)
     hex n
-      | n < 10    = B.word8 (n + 0x30)
+      | n < 10 = B.word8 (n + 0x30)
       | otherwise = B.word8 (n + 0x37)
+
 
 -- ---------------------------------------------------------------------------
 -- Query strings
 -- ---------------------------------------------------------------------------
 
--- | Render a list of @(key, value)@ pairs as a query string body
--- (without the leading @?@). Each component is percent-encoded
--- following 'encodeQueryComponent'. Use 'renderFormBody' for the
--- form-urlencoded variant (spaces become @+@).
+{- | Render a list of @(key, value)@ pairs as a query string body
+(without the leading @?@). Each component is percent-encoded
+following 'encodeQueryComponent'. Use 'renderFormBody' for the
+form-urlencoded variant (spaces become @+@).
+-}
 renderQueryString :: [(ByteString, ByteString)] -> ByteString
 renderQueryString = renderQS encodeQueryComponent
 
+
 renderFormBody :: [(ByteString, ByteString)] -> ByteString
 renderFormBody = renderQS encodeFormComponent
+
 
 renderQS :: (ByteString -> ByteString) -> [(ByteString, ByteString)] -> ByteString
 renderQS enc = BS.intercalate "&" . map one
   where
     one (k, v) = enc k <> "=" <> enc v
 
--- | Decode a query string into @(key, value)@ pairs. Decodes both
--- @+@ and @%xx@ on the value side (so it works for both query
--- strings and form bodies). Pairs with no @=@ are surfaced with
--- an empty value.
---
--- This variant is lenient: a malformed percent-escape leaves the
--- raw bytes untouched in the returned key or value. Use
--- 'decodeQueryStringStrict' if you want a 'Nothing' on malformed
--- input.
+
+{- | Decode a query string into @(key, value)@ pairs. Decodes both
+@+@ and @%xx@ on the value side (so it works for both query
+strings and form bodies). Pairs with no @=@ are surfaced with
+an empty value.
+
+This variant is lenient: a malformed percent-escape leaves the
+raw bytes untouched in the returned key or value. Use
+'decodeQueryStringStrict' if you want a 'Nothing' on malformed
+input.
+-}
 decodeQueryString :: ByteString -> [(ByteString, ByteString)]
 decodeQueryString bs =
   [ (decodeOrRaw k, decodeOrRaw v)
   | pair <- filter (not . BS.null) (BS.split 0x26 bs)
   , let (k, eqV) = BS.break (== 0x3D) pair
         v = case BS.uncons eqV of
-              Just (0x3D, r) -> r
-              _              -> BS.empty
+          Just (0x3D, r) -> r
+          _ -> BS.empty
   ]
   where
     decodeOrRaw bs0 =
       let plusToSpace = BS.map (\w -> if w == 0x2B then 0x20 else w) bs0
       in case percentDecode plusToSpace of
            Just out -> out
-           Nothing  -> bs0
+           Nothing -> bs0
 
--- | Strict variant of 'decodeQueryString': returns 'Nothing' if
--- /any/ percent-escape in the input is malformed. Use this when
--- you want input validation rather than best-effort parsing
--- (e.g. when feeding the result into a route table or a SQL
--- query).
+
+{- | Strict variant of 'decodeQueryString': returns 'Nothing' if
+/any/ percent-escape in the input is malformed. Use this when
+you want input validation rather than best-effort parsing
+(e.g. when feeding the result into a route table or a SQL
+query).
+-}
 decodeQueryStringStrict :: ByteString -> Maybe [(ByteString, ByteString)]
 decodeQueryStringStrict bs =
-  traverse decodePair
+  traverse
+    decodePair
     [ pair
     | pair <- filter (not . BS.null) (BS.split 0x26 bs)
     ]
@@ -224,8 +273,7 @@ decodeQueryStringStrict bs =
     decodePair pair =
       let (k, eqV) = BS.break (== 0x3D) pair
           v = case BS.uncons eqV of
-                Just (0x3D, r) -> r
-                _              -> BS.empty
+            Just (0x3D, r) -> r
+            _ -> BS.empty
       in (,) <$> decodeStrict k <*> decodeStrict v
     decodeStrict bs0 = percentDecode (BS.map (\w -> if w == 0x2B then 0x20 else w) bs0)
-

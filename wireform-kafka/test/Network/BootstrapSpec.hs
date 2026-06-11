@@ -3,31 +3,40 @@
 module Network.BootstrapSpec (tests) where
 
 import Data.IORef
-import qualified Data.List as L
+import Data.List qualified as L
+import Kafka.Network.Bootstrap qualified as B
+import Kafka.Network.Connection (BrokerAddress (..))
 import Test.Syd
 
-import qualified Kafka.Network.Bootstrap as B
-import Kafka.Network.Connection (BrokerAddress (..))
 
 tests :: Spec
-tests = describe "Bootstrap discoverer (KIP-580 / 899)" $ sequence_
-  [ it "staticDiscoverer returns its argument verbatim"
-      static
-  , it "rotatingDiscoverer returns the first non-empty result"
-      rotating
-  , it "cachedDiscoverer reuses within the TTL window"
-      cached
-  , it "shuffledDiscoverer preserves the broker set"
-      shuffled
-  ]
+tests =
+  describe "Bootstrap discoverer (KIP-580 / 899)" $
+    sequence_
+      [ it
+          "staticDiscoverer returns its argument verbatim"
+          static
+      , it
+          "rotatingDiscoverer returns the first non-empty result"
+          rotating
+      , it
+          "cachedDiscoverer reuses within the TTL window"
+          cached
+      , it
+          "shuffledDiscoverer preserves the broker set"
+          shuffled
+      ]
+
 
 bs :: [BrokerAddress]
 bs = [BrokerAddress "h1" 9092, BrokerAddress "h2" 9092]
+
 
 static :: IO ()
 static = do
   r <- B.runDiscoverer (B.staticDiscoverer bs)
   r `shouldBe` bs
+
 
 rotating :: IO ()
 rotating = do
@@ -35,6 +44,7 @@ rotating = do
       d = B.rotatingDiscoverer [empty, empty, B.staticDiscoverer bs]
   r <- B.runDiscoverer d
   r `shouldBe` bs
+
 
 cached :: IO ()
 cached = do
@@ -48,7 +58,8 @@ cached = do
   _ <- B.runDiscoverer d
   _ <- B.runDiscoverer d
   n <- readIORef countRef
-  n `shouldBe` 1   -- only the first call hit the underlying source
+  n `shouldBe` 1 -- only the first call hit the underlying source
+
 
 shuffled :: IO ()
 shuffled = do

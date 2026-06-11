@@ -50,10 +50,11 @@ module Proto.Extension (
 
   -- * Internal helpers
 
-  -- | Reused by "Proto.Internal.JSON.Extension" to bridge the
-  -- bracket-quoted JSON @[FQN]@ extension key syntax through
-  -- the same encoder \/ decoder used for typed extension
-  -- accessors.
+  {- | Reused by "Proto.Internal.JSON.Extension" to bridge the
+  bracket-quoted JSON @[FQN]@ extension key syntax through
+  the same encoder \/ decoder used for typed extension
+  accessors.
+  -}
   encodeExtensionValue,
   decodeExtensionValue,
   unknownFieldNumber,
@@ -118,8 +119,9 @@ data ExtensionType a where
   ExtString :: ExtensionType Text
   ExtBytes :: ExtensionType ByteString
   ExtMessage :: ExtensionType ByteString
-    -- ^ Sub-message stored as its raw length-delimited payload;
-    -- callers use 'Proto.Decode.decodeMessage' to re-project.
+    {- ^ Sub-message stored as its raw length-delimited payload;
+    callers use 'Proto.Decode.decodeMessage' to re-project.
+    -}
 
 
 deriving stock instance Show (ExtensionType a)
@@ -336,8 +338,8 @@ appendRepeatedExtension
 appendRepeatedExtension ext value msg =
   let !uf = encodeExtensionValue (reNumber ext) (reType ext) value
   in setMessageUnknownFields
-      (messageUnknownFields msg ++ [uf])
-      msg
+       (messageUnknownFields msg ++ [uf])
+       msg
 
 
 -- | Drop every entry for this repeated extension.
@@ -445,8 +447,8 @@ readVarint = step 0 0
           let b = BS.head bs
               acc' = acc + (fromIntegral (b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-              then Just (acc', BS.tail bs)
-              else step acc' (shift + 7) (BS.tail bs)
+               then Just (acc', BS.tail bs)
+               else step acc' (shift + 7) (BS.tail bs)
 
 
 encodeVarint :: Word64 -> ByteString
@@ -501,13 +503,13 @@ readU64 bs =
       b6 = fromIntegral (BS.index bs 6) :: Word64
       b7 = fromIntegral (BS.index bs 7) :: Word64
   in b0
-      .|. (b1 `shiftL` 8)
-      .|. (b2 `shiftL` 16)
-      .|. (b3 `shiftL` 24)
-      .|. (b4 `shiftL` 32)
-      .|. (b5 `shiftL` 40)
-      .|. (b6 `shiftL` 48)
-      .|. (b7 `shiftL` 56)
+       .|. (b1 `shiftL` 8)
+       .|. (b2 `shiftL` 16)
+       .|. (b3 `shiftL` 24)
+       .|. (b4 `shiftL` 32)
+       .|. (b5 `shiftL` 40)
+       .|. (b6 `shiftL` 48)
+       .|. (b7 `shiftL` 56)
 
 
 chunked :: Int -> (ByteString -> a) -> ByteString -> [a]

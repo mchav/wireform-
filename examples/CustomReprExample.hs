@@ -41,24 +41,24 @@ instance Given ExtensionRegistry where
 --   - Attachments.lazy_blobs / short_blobs use lazy / short bytes
 --     for their map values (per-field override on a map<K, bytes>)
 $( loadProtoWith
-    ( defaultLoadOpts
-        { loRepConfig =
-            defaultRepConfig
-              { configFieldOverrides =
-                  Map.fromList
-                    [ (("BlobMsg", "data"), defaultFieldRep {fieldBytes = lazyBytesAdapter})
-                    , (("IdMsg", "identifier"), defaultFieldRep {fieldBytes = shortBytesAdapter})
-                    , (("Attachments", "lazy_blobs"), defaultFieldRep {fieldBytes = lazyBytesAdapter})
-                    , (("Attachments", "short_blobs"), defaultFieldRep {fieldBytes = shortBytesAdapter})
-                    ]
-              , configMessageOverrides =
-                  Map.fromList
-                    [ ("ConfigEntry", defaultFieldRep {fieldRepeated = listAdapter})
-                    ]
-              }
-        }
-    )
-    "examples/proto/repr_demo.proto"
+     ( defaultLoadOpts
+         { loRepConfig =
+             defaultRepConfig
+               { configFieldOverrides =
+                   Map.fromList
+                     [ (("BlobMsg", "data"), defaultFieldRep {fieldBytes = lazyBytesAdapter})
+                     , (("IdMsg", "identifier"), defaultFieldRep {fieldBytes = shortBytesAdapter})
+                     , (("Attachments", "lazy_blobs"), defaultFieldRep {fieldBytes = lazyBytesAdapter})
+                     , (("Attachments", "short_blobs"), defaultFieldRep {fieldBytes = shortBytesAdapter})
+                     ]
+               , configMessageOverrides =
+                   Map.fromList
+                     [ ("ConfigEntry", defaultFieldRep {fieldRepeated = listAdapter})
+                     ]
+               }
+         }
+     )
+     "examples/proto/repr_demo.proto"
  )
 
 

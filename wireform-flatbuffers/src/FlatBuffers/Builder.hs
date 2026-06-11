@@ -1,188 +1,223 @@
 {-# LANGUAGE BangPatterns #-}
--- | Spec-compliant FlatBuffers /builder/ — emits binary buffers
--- that are byte-identical with the reference @flatcc@ /
--- @flatbuffers-cpp@ output for the same input.
---
--- Buffers are constructed back-to-front, like every other
--- FlatBuffers implementation: each call /prepends/ bytes to the
--- accumulator while tracking @minAlign@ and @bufSize@. At
--- 'finish' the buffer is padded to the running @minAlign@
--- (clamped at 4) and a u32 root offset is emitted, yielding the
--- canonical @[root_offset][...padded...][vtables, tables, ...]@
--- layout consumers expect.
---
--- This module is intentionally schema-agnostic. It does /not/
--- understand individual FlatBuffers schemas (e.g. Apache Arrow's
--- @Schema.fbs@); higher layers like "Arrow.FlatBufferIPC"
--- compose 'writeTable' / 'writeString' / 'writeVectorOfOffsets'
--- on top of it.
---
--- Why not the @Encode@ module? "FlatBuffers.Encode" walks a
--- self-describing 'FlatBuffers.Value.Value' AST, which is the
--- right surface for value-shaped use cases. Spec-compliant
--- vtable dedup, soffset chains, and inline-struct alignment all
--- live here so the encode/decode side can stay focused on the
--- AST mapping while Arrow / a future codegen target a precise
--- per-table layout.
---
--- = Build order vs forward layout
---
--- Because the builder is back-to-front, callers emit objects in
--- /reverse/ of the order a hex-dump reads. 'writeTable' encodes
--- this once and for all: it lays out tail padding first, then
--- slots in reverse declaration order, then the soffset_t, then
--- the vtable. Forward layout still ends up
--- @[vtable][soffset_t][slots][pad]@ because each prepend stacks
--- toward the front.
---
--- = Alignment guarantee
---
--- 'prepForObject' bumps @minAlign@ and prepends padding so the
--- about-to-be-emitted object's UOffset (distance from the end)
--- is congruent to 0 modulo its alignment. Combined with the
--- final-buffer pad in 'finish' (which forces total size to a
--- multiple of @minAlign@), every object's /forward/ position
--- @final_size - uoff@ is also aligned, which is what
--- consumers actually inspect.
-module FlatBuffers.Builder
-  ( -- * Builder state
-    Builder
-  , newBuilder
-  , finish
-  , currentUOff
-    -- * Low-level prepend primitives
-  , prependBS
-  , prependU8
-  , prependU16
-  , prependU32
-  , prependU64
-  , prependI16
-  , prependI32
-  , prependI64
-  , prepForObject
-  , noteMinAlign
-    -- * Tables, vtables, fields
-  , Field' (..)
-  , scalar
-  , struct
-  , voff
-  , writeTable
-    -- * Strings, vectors, structs
-  , writeString
-  , writeVectorOfOffsets
-  , writeVectorOfStructs
-  , writeVectorInt32
-  , writeVectorInt64
-    -- * Alignment helper
-  , alignUp
-  ) where
 
-import Data.Bits ((.&.), complement)
+{- | Spec-compliant FlatBuffers /builder/ — emits binary buffers
+that are byte-identical with the reference @flatcc@ /
+@flatbuffers-cpp@ output for the same input.
+
+Buffers are constructed back-to-front, like every other
+FlatBuffers implementation: each call /prepends/ bytes to the
+accumulator while tracking @minAlign@ and @bufSize@. At
+'finish' the buffer is padded to the running @minAlign@
+(clamped at 4) and a u32 root offset is emitted, yielding the
+canonical @[root_offset][...padded...][vtables, tables, ...]@
+layout consumers expect.
+
+This module is intentionally schema-agnostic. It does /not/
+understand individual FlatBuffers schemas (e.g. Apache Arrow's
+@Schema.fbs@); higher layers like "Arrow.FlatBufferIPC"
+compose 'writeTable' / 'writeString' / 'writeVectorOfOffsets'
+on top of it.
+
+Why not the @Encode@ module? "FlatBuffers.Encode" walks a
+self-describing 'FlatBuffers.Value.Value' AST, which is the
+right surface for value-shaped use cases. Spec-compliant
+vtable dedup, soffset chains, and inline-struct alignment all
+live here so the encode/decode side can stay focused on the
+AST mapping while Arrow / a future codegen target a precise
+per-table layout.
+
+= Build order vs forward layout
+
+Because the builder is back-to-front, callers emit objects in
+/reverse/ of the order a hex-dump reads. 'writeTable' encodes
+this once and for all: it lays out tail padding first, then
+slots in reverse declaration order, then the soffset_t, then
+the vtable. Forward layout still ends up
+@[vtable][soffset_t][slots][pad]@ because each prepend stacks
+toward the front.
+
+= Alignment guarantee
+
+'prepForObject' bumps @minAlign@ and prepends padding so the
+about-to-be-emitted object's UOffset (distance from the end)
+is congruent to 0 modulo its alignment. Combined with the
+final-buffer pad in 'finish' (which forces total size to a
+multiple of @minAlign@), every object's /forward/ position
+@final_size - uoff@ is also aligned, which is what
+consumers actually inspect.
+-}
+module FlatBuffers.Builder (
+  -- * Builder state
+  Builder,
+  newBuilder,
+  finish,
+  currentUOff,
+
+  -- * Low-level prepend primitives
+  prependBS,
+  prependU8,
+  prependU16,
+  prependU32,
+  prependU64,
+  prependI16,
+  prependI32,
+  prependI64,
+  prepForObject,
+  noteMinAlign,
+
+  -- * Tables, vtables, fields
+  Field' (..),
+  scalar,
+  struct,
+  voff,
+  writeTable,
+
+  -- * Strings, vectors, structs
+  writeString,
+  writeVectorOfOffsets,
+  writeVectorOfStructs,
+  writeVectorInt32,
+  writeVectorInt64,
+
+  -- * Alignment helper
+  alignUp,
+) where
+
+import Data.Bits (complement, (.&.))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
-import qualified Data.Map.Strict as Map
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BSI
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Int (Int16, Int32, Int64)
-import Data.Word (Word8, Word16, Word32, Word64)
-import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.Storable (pokeByteOff)
+
 
 -- ============================================================
 -- Builder state
 -- ============================================================
 
--- | A builder accumulates bytes in reverse (i.e. the /tail/ of the
--- output is written first). The running 'Int' is the number of
--- bytes emitted so far — equal to the size of the buffer at the
--- moment an object is being placed. We call this its /UOffset/
--- (distance from the /end/ of the buffer to the object's start).
---
--- We also track @minalign@, the largest alignment observed across
--- all objects in this buffer. At finalisation the whole buffer is
--- padded to a multiple of this value, which is what guarantees
--- every object's FORWARD position in the final bytes is a multiple
--- of its alignment (because the forward position of an object =
--- final_size - object_uoff, and we pre-pad so that (object_uoff %
--- alignment) == ((final_size) % alignment) == 0 ⇒ forward-pos %
--- alignment == 0).
+{- | A builder accumulates bytes in reverse (i.e. the /tail/ of the
+output is written first). The running 'Int' is the number of
+bytes emitted so far — equal to the size of the buffer at the
+moment an object is being placed. We call this its /UOffset/
+(distance from the /end/ of the buffer to the object's start).
+
+We also track @minalign@, the largest alignment observed across
+all objects in this buffer. At finalisation the whole buffer is
+padded to a multiple of this value, which is what guarantees
+every object's FORWARD position in the final bytes is a multiple
+of its alignment (because the forward position of an object =
+final_size - object_uoff, and we pre-pad so that (object_uoff %
+alignment) == ((final_size) % alignment) == 0 ⇒ forward-pos %
+alignment == 0).
+-}
 data Builder = Builder
-  { bufPayload  :: !(IORef [BS.ByteString])
-    -- ^ chunks, most recently prepended first — concatenating gives
-    -- the final output when reversed.
-  , bufSize     :: !(IORef Int)
-    -- ^ total number of bytes written so far.
-  , bufVTables  :: !(IORef (Map.Map VTableKey Int))
-    -- ^ vtable deduplication: canonicalised vtable bytes → UOffset of
-    -- the vtable within the buffer (distance from end of buffer).
+  { bufPayload :: !(IORef [BS.ByteString])
+  {- ^ chunks, most recently prepended first — concatenating gives
+  the final output when reversed.
+  -}
+  , bufSize :: !(IORef Int)
+  -- ^ total number of bytes written so far.
+  , bufVTables :: !(IORef (Map.Map VTableKey Int))
+  {- ^ vtable deduplication: canonicalised vtable bytes → UOffset of
+  the vtable within the buffer (distance from end of buffer).
+  -}
   , bufMinAlign :: !(IORef Int)
   }
+
 
 -- | A vtable's dedup key: the (vtable_size, table_size, [field_offsets]).
 newtype VTableKey = VTableKey (Int, Int, [Int])
   deriving stock (Eq, Ord)
 
+
 newBuilder :: IO Builder
 newBuilder = Builder <$> newIORef [] <*> newIORef 0 <*> newIORef Map.empty <*> newIORef 1
 
--- | Note an alignment requirement on the running @minalign@. We'll
--- pad the final buffer to a multiple of the largest @minalign@
--- encountered when finalising, which propagates the alignment
--- guarantee to every sub-object (see 'Builder' haddock).
+
+{- | Note an alignment requirement on the running @minalign@. We'll
+pad the final buffer to a multiple of the largest @minalign@
+encountered when finalising, which propagates the alignment
+guarantee to every sub-object (see 'Builder' haddock).
+-}
 noteMinAlign :: Builder -> Int -> IO ()
 noteMinAlign b a = modifyIORef' (bufMinAlign b) (max a)
 
--- | Pad /before/ writing an object of @objSize@ bytes with
--- alignment @objAlign@, so that after emission the object's
--- @UOffset@ satisfies @uoff % objAlign == 0@ (which combined with
--- the finalisation padding forces the forward position to be
--- aligned).
+
+{- | Pad /before/ writing an object of @objSize@ bytes with
+alignment @objAlign@, so that after emission the object's
+@UOffset@ satisfies @uoff % objAlign == 0@ (which combined with
+the finalisation padding forces the forward position to be
+aligned).
+-}
 prepForObject :: Builder -> Int -> Int -> IO ()
 prepForObject b objSize objAlign = do
   noteMinAlign b objAlign
   !cur <- readIORef (bufSize b)
   let !after = cur + objSize
-      !pad   = (negate after) .&. (objAlign - 1)
+      !pad = (negate after) .&. (objAlign - 1)
   prependBS b (BS.replicate pad 0)
 
--- | Prepend raw bytes to the builder (i.e. they land before any
--- previously-written content).
+
+{- | Prepend raw bytes to the builder (i.e. they land before any
+previously-written content).
+-}
 prependBS :: Builder -> BS.ByteString -> IO ()
 prependBS b bs = do
   modifyIORef' (bufPayload b) (bs :)
   modifyIORef' (bufSize b) (+ BS.length bs)
 
+
 -- | Prepend one little-endian primitive.
-prependU8  :: Builder -> Word8  -> IO ()
-prependU8  b w = prependBS b (BS.singleton w)
+prependU8 :: Builder -> Word8 -> IO ()
+prependU8 b w = prependBS b (BS.singleton w)
+
+
 prependU16 :: Builder -> Word16 -> IO ()
 prependU16 b w = prependBS b $ BS.pack [fromIntegral w, fromIntegral (w `div` 0x100)]
+
+
 prependU32 :: Builder -> Word32 -> IO ()
-prependU32 b w = prependBS b $ BS.pack
-  [ fromIntegral  w
-  , fromIntegral (w `div` 0x100)
-  , fromIntegral (w `div` 0x10000)
-  , fromIntegral (w `div` 0x1000000)
-  ]
+prependU32 b w =
+  prependBS b $
+    BS.pack
+      [ fromIntegral w
+      , fromIntegral (w `div` 0x100)
+      , fromIntegral (w `div` 0x10000)
+      , fromIntegral (w `div` 0x1000000)
+      ]
+
+
 prependU64 :: Builder -> Word64 -> IO ()
 prependU64 b w = do
   prependU32 b (fromIntegral (w `div` 0x100000000))
   prependU32 b (fromIntegral w)
-prependI16 :: Builder -> Int16  -> IO ()
+
+
+prependI16 :: Builder -> Int16 -> IO ()
 prependI16 b i = prependU16 b (fromIntegral i)
-prependI32 :: Builder -> Int32  -> IO ()
+
+
+prependI32 :: Builder -> Int32 -> IO ()
 prependI32 b i = prependU32 b (fromIntegral i)
-prependI64 :: Builder -> Int64  -> IO ()
+
+
+prependI64 :: Builder -> Int64 -> IO ()
 prependI64 b i = prependU64 b (fromIntegral i)
 
--- | Finalise the builder into a single ByteString.
---
--- We pad so that the final buffer size is a multiple of
--- @max(minAlign, 4)@. Because every object's UOffset is already a
--- multiple of its own alignment (see 'Builder'), and
--- @forward_pos = final_size - uoff@, both terms are divisible by
--- the required alignment ⇒ forward_pos too.
+
+{- | Finalise the builder into a single ByteString.
+
+We pad so that the final buffer size is a multiple of
+@max(minAlign, 4)@. Because every object's UOffset is already a
+multiple of its own alignment (see 'Builder'), and
+@forward_pos = final_size - uoff@, both terms are divisible by
+the required alignment ⇒ forward_pos too.
+-}
 finish :: Builder -> Int -> IO ByteString
 finish b rootUOff = do
   !minA <- readIORef (bufMinAlign b)
@@ -196,49 +231,59 @@ finish b rootUOff = do
   chunks <- readIORef (bufPayload b)
   pure $! BS.concat chunks
 
--- | Current UOffset of the bytes we're about to write = current
--- size. After the caller emits their object, the object's UOffset
--- is @bufSize-at-completion@; the /absolute file position/ of the
--- object = @totalSize - UOffset@.
+
+{- | Current UOffset of the bytes we're about to write = current
+size. After the caller emits their object, the object's UOffset
+is @bufSize-at-completion@; the /absolute file position/ of the
+object = @totalSize - UOffset@.
+-}
 currentUOff :: Builder -> IO Int
 currentUOff b = readIORef (bufSize b)
+
 
 -- ============================================================
 -- Tables / vtables
 -- ============================================================
 
--- | A single field slot within a table. @fsAlign@ is the on-disk
--- size of the inline scalar (2, 4, 8, …); for VOffset fields
--- (tables / strings / vectors) it's always 4.
+{- | A single field slot within a table. @fsAlign@ is the on-disk
+size of the inline scalar (2, 4, 8, …); for VOffset fields
+(tables / strings / vectors) it's always 4.
+-}
 data Field' = Field'
   { fsAlign :: !Int
   , fsWrite :: !(Builder -> Int -> IO ())
-    -- ^ @fsWrite builder tableStartUOff@: prepend this field's inline
-    -- data. For VOffset fields, that means writing @target_uoff -
-    -- (bufSize-right-after-we-return)@ as a u32.
+  {- ^ @fsWrite builder tableStartUOff@: prepend this field's inline
+  data. For VOffset fields, that means writing @target_uoff -
+  (bufSize-right-after-we-return)@ as a u32.
+  -}
   }
+
 
 -- | A scalar field: writes a fixed-size primitive.
 scalar :: Int -> (Builder -> IO ()) -> Field'
 scalar !align writer = Field' align $ \b _ -> writer b
 
--- | An inline struct field: writes @size@ bytes at @align@
--- alignment directly in the table's inline data area. @writer@
--- must prepend exactly @size@ bytes of struct data (in reverse
--- field-declaration order, since the builder is back-to-front).
---
--- NOTE: 'writeTable' currently treats 'fsAlign' as both
--- alignment /and/ size; for structs we over-align to @size@ so
--- the slot layout reserves exactly @size@ bytes. This wastes a
--- few bytes of padding when @size > align@ (e.g. a 16-byte
--- buffer struct on 8-byte alignment pads to 16-byte aligned),
--- which is benign for readers and keeps the layout-logic
--- unchanged.
+
+{- | An inline struct field: writes @size@ bytes at @align@
+alignment directly in the table's inline data area. @writer@
+must prepend exactly @size@ bytes of struct data (in reverse
+field-declaration order, since the builder is back-to-front).
+
+NOTE: 'writeTable' currently treats 'fsAlign' as both
+alignment /and/ size; for structs we over-align to @size@ so
+the slot layout reserves exactly @size@ bytes. This wastes a
+few bytes of padding when @size > align@ (e.g. a 16-byte
+buffer struct on 8-byte alignment pads to 16-byte aligned),
+which is benign for readers and keeps the layout-logic
+unchanged.
+-}
 struct :: Int -> Int -> (Builder -> IO ()) -> Field'
 struct !size !_align writer = Field' size $ \b _ -> writer b
 
--- | A VOffset field: writes a u32 relative offset to an already-laid-
--- out sub-object at @targetUOff@.
+
+{- | A VOffset field: writes a u32 relative offset to an already-laid-
+out sub-object at @targetUOff@.
+-}
 voff :: Int -> Field'
 voff !targetUOff = Field' 4 $ \b _ -> do
   cur <- currentUOff b
@@ -251,43 +296,45 @@ voff !targetUOff = Field' 4 $ \b _ -> do
   -- targetUOff.
   prependU32 b (fromIntegral (cur + 4 - targetUOff))
 
--- | A table's forward-order on-disk layout is:
---
--- @
--- [vtable] [soffset_t i32] [slot 0] [slot 1] ... [slot N-1] [tail padding]
--- @
---
--- Slots are laid out in schema-declaration order, each aligned to
--- its own alignment. The vtable records the /inline offset/
--- (relative to the soffset_t, i.e. measured from the start of the
--- table body) of every present slot and 0 for absent slots.
---
--- @soffset_t = table_start_addr - vtable_start_addr > 0@, because
--- the vtable sits physically /before/ the table in forward order.
---
--- Build order (back-to-front emission):
---
---   1. tail padding            (lands at end of buffer)
---   2. slots in reverse order  (slot N-1 first, slot 0 last)
---   3. soffset_t
---   4. vtable
---
--- Returns the UOffset of the table start (= position of the
--- soffset_t in the final buffer).
+
+{- | A table's forward-order on-disk layout is:
+
+@
+[vtable] [soffset_t i32] [slot 0] [slot 1] ... [slot N-1] [tail padding]
+@
+
+Slots are laid out in schema-declaration order, each aligned to
+its own alignment. The vtable records the /inline offset/
+(relative to the soffset_t, i.e. measured from the start of the
+table body) of every present slot and 0 for absent slots.
+
+@soffset_t = table_start_addr - vtable_start_addr > 0@, because
+the vtable sits physically /before/ the table in forward order.
+
+Build order (back-to-front emission):
+
+  1. tail padding            (lands at end of buffer)
+  2. slots in reverse order  (slot N-1 first, slot 0 last)
+  3. soffset_t
+  4. vtable
+
+Returns the UOffset of the table start (= position of the
+soffset_t in the final buffer).
+-}
 writeTable :: Builder -> [Maybe Field'] -> IO Int
 writeTable b slots = do
   let !present = collectPresent 0 slots
-      !nSlots  = length slots
+      !nSlots = length slots
       -- Forward-direction layout: start at offset 4 (after
       -- soffset_t), lay out present slots in declaration order.
       layout !_pos [] = ([], 0)
       layout !pos ((idx, fs) : rest) =
-        let !padPos  = alignUp pos (fsAlign fs)
-            !pos'    = padPos + fsAlign fs
+        let !padPos = alignUp pos (fsAlign fs)
+            !pos' = padPos + fsAlign fs
             (rs, end) = layout pos' rest
         in ((idx, padPos) : rs, max pos' end)
       (inlineOffs, rawEnd) = layout 4 present
-      !maxAlign  = foldr (\(_, fs) m -> max m (fsAlign fs)) 4 present
+      !maxAlign = foldr (\(_, fs) m -> max m (fsAlign fs)) 4 present
       !tableSize = alignUp rawEnd maxAlign
 
   -- Pre-align: the table's soffset_t must land at a forward
@@ -310,10 +357,10 @@ writeTable b slots = do
   let emit !nextExpect [] = prependBS b (BS.replicate (nextExpect - 4) 0)
       emit !expectedEnd ((idx, fs) : rest) = do
         let !off = case lookup idx inlineOffs of
-                     Just o  -> o
-                     Nothing -> error "FlatBuffers.Builder: internal error (missing inlineOff for present slot)"
-            !fieldEnd   = off + fsAlign fs
-            !padAfter   = expectedEnd - fieldEnd
+              Just o -> o
+              Nothing -> error "FlatBuffers.Builder: internal error (missing inlineOff for present slot)"
+            !fieldEnd = off + fsAlign fs
+            !padAfter = expectedEnd - fieldEnd
         prependBS b (BS.replicate padAfter 0)
         fsWrite fs b 0
         emit off rest
@@ -340,87 +387,100 @@ writeTable b slots = do
       modifyIORef' (bufVTables b) (Map.insert vtKey newU)
       pure tableUOff
 
--- | Walk the slot list pairing each slot with its index, keeping
--- only those that are 'Just'. Avoids the @[(i, Just fs) | ...]@
--- list comprehension while preserving the original order.
+
+{- | Walk the slot list pairing each slot with its index, keeping
+only those that are 'Just'. Avoids the @[(i, Just fs) | ...]@
+list comprehension while preserving the original order.
+-}
 collectPresent :: Int -> [Maybe Field'] -> [(Int, Field')]
-collectPresent !_ []           = []
+collectPresent !_ [] = []
 collectPresent !i (Nothing : xs) = collectPresent (i + 1) xs
 collectPresent !i (Just fs : xs) = (i, fs) : collectPresent (i + 1) xs
 
--- | Serialise a vtable as raw bytes + its dedup key. The vtable
--- layout is:
---
--- @
--- [vtable_size : u16] [table_size : u16] [slot 0 inline offset : u16] ...
--- @
---
--- Trailing zero slots may be dropped for compactness (readers
--- interpret missing slots as absent, same as explicit zero).
+
+{- | Serialise a vtable as raw bytes + its dedup key. The vtable
+layout is:
+
+@
+[vtable_size : u16] [table_size : u16] [slot 0 inline offset : u16] ...
+@
+
+Trailing zero slots may be dropped for compactness (readers
+interpret missing slots as absent, same as explicit zero).
+-}
 makeVTableBytes
-  :: [(Int, Int)]   -- (slotIdx, inlineOffset) present
-  -> Int            -- tableSize
-  -> Int            -- nSlots
+  :: [(Int, Int)] -- (slotIdx, inlineOffset) present
+  -> Int -- tableSize
+  -> Int -- nSlots
   -> (VTableKey, Int, BS.ByteString)
 makeVTableBytes present tableSize nSlots =
   let slotMap = Map.fromList present
-      slots   = mkSlots 0 slotMap nSlots
+      slots = mkSlots 0 slotMap nSlots
       trimmed = reverse (dropWhile (== 0) (reverse slots))
-      !nT     = length trimmed
+      !nT = length trimmed
       !vtSize = 2 + 2 + 2 * nT
-      !bytes  = BSI.unsafeCreate vtSize $ \p -> do
-        pokeByteOff p 0 (fromIntegral vtSize       :: Word8)
+      !bytes = BSI.unsafeCreate vtSize $ \p -> do
+        pokeByteOff p 0 (fromIntegral vtSize :: Word8)
         pokeByteOff p 1 (fromIntegral (vtSize `div` 0x100) :: Word8)
-        pokeByteOff p 2 (fromIntegral tableSize    :: Word8)
+        pokeByteOff p 2 (fromIntegral tableSize :: Word8)
         pokeByteOff p 3 (fromIntegral (tableSize `div` 0x100) :: Word8)
-        let writeSlot !i (s:ss) = do
-              pokeByteOff p (4 + 2*i)     (fromIntegral s :: Word8)
-              pokeByteOff p (4 + 2*i + 1) (fromIntegral (s `div` 0x100) :: Word8)
-              writeSlot (i+1) ss
+        let writeSlot !i (s : ss) = do
+              pokeByteOff p (4 + 2 * i) (fromIntegral s :: Word8)
+              pokeByteOff p (4 + 2 * i + 1) (fromIntegral (s `div` 0x100) :: Word8)
+              writeSlot (i + 1) ss
             writeSlot !_ [] = pure ()
         writeSlot 0 trimmed
       !key = VTableKey (vtSize, tableSize, trimmed)
   in (key, vtSize, bytes)
   where
-    mkSlots !i !_  !n | i >= n = []
+    mkSlots !i !_ !n | i >= n = []
     mkSlots !i !sm !n = Map.findWithDefault 0 i sm : mkSlots (i + 1) sm n
+
 
 alignUp :: Int -> Int -> Int
 alignUp n a = (n + a - 1) .&. complement (a - 1)
+
 
 -- ============================================================
 -- Strings, vectors, structs
 -- ============================================================
 
--- | Emit a UTF-8 string: length (u32) + bytes + NUL terminator.
--- Returns the UOffset where the /length/ field begins. The string
--- object is 4-aligned.
+{- | Emit a UTF-8 string: length (u32) + bytes + NUL terminator.
+Returns the UOffset where the /length/ field begins. The string
+object is 4-aligned.
+-}
 writeString :: Builder -> T.Text -> IO Int
 writeString b txt = do
   let !bytes = TE.encodeUtf8 txt
-      !n     = BS.length bytes
+      !n = BS.length bytes
   prepForObject b (4 + n + 1) 4
   prependBS b (BS.snoc bytes 0)
   prependU32 b (fromIntegral n)
   currentUOff b
+
 
 -- | Emit a vector of UOffsets to previously-laid-out objects.
 writeVectorOfOffsets :: Builder -> [Int] -> IO Int
 writeVectorOfOffsets b targetUOffs = do
   let !n = length targetUOffs
   prepForObject b (4 + 4 * n) 4
-  mapM_ (\t -> do
-             cur <- currentUOff b
-             prependU32 b (fromIntegral (cur + 4 - t))
-        ) (reverse targetUOffs)
+  mapM_
+    ( \t -> do
+        cur <- currentUOff b
+        prependU32 b (fromIntegral (cur + 4 - t))
+    )
+    (reverse targetUOffs)
   prependU32 b (fromIntegral n)
   currentUOff b
+
 
 -- | Emit a vector of fixed-size inline structs.
 writeVectorOfStructs
   :: Builder
-  -> Int                         -- ^ per-struct size in bytes
-  -> Int                         -- ^ struct alignment
+  -> Int
+  -- ^ per-struct size in bytes
+  -> Int
+  -- ^ struct alignment
   -> [Builder -> IO ()]
   -> IO Int
 writeVectorOfStructs b elemSize elemAlign writers = do
@@ -432,6 +492,7 @@ writeVectorOfStructs b elemSize elemAlign writers = do
   prependU32 b (fromIntegral n)
   currentUOff b
 
+
 -- | Emit a vector of signed int32 scalars.
 writeVectorInt32 :: Builder -> [Int32] -> IO Int
 writeVectorInt32 b xs = do
@@ -441,19 +502,21 @@ writeVectorInt32 b xs = do
   prependU32 b (fromIntegral n)
   currentUOff b
 
--- | Emit a vector of signed int64 scalars.
---
--- Per the FlatBuffers spec, vector elements must start at an
--- absolute byte position that's a multiple of @elem_size@ in
--- the final buffer. With the u32 length prefix sitting 4 bytes
--- /before/ the elements, we need the length prefix at file
--- position @≡ 4 mod 8@ so the i64 elements land at @≡ 0 mod 8@.
---
--- Because flatbuffers are built backwards, "file position" of
--- the length prefix is @final_size - bufSize_after@; pad here
--- to make @bufSize_before + pad ≡ 0 mod 8@. (The general
--- 'prepForObject' helper assumes no length prefix and is only
--- correct for fixed-size structs.)
+
+{- | Emit a vector of signed int64 scalars.
+
+Per the FlatBuffers spec, vector elements must start at an
+absolute byte position that's a multiple of @elem_size@ in
+the final buffer. With the u32 length prefix sitting 4 bytes
+/before/ the elements, we need the length prefix at file
+position @≡ 4 mod 8@ so the i64 elements land at @≡ 0 mod 8@.
+
+Because flatbuffers are built backwards, "file position" of
+the length prefix is @final_size - bufSize_after@; pad here
+to make @bufSize_before + pad ≡ 0 mod 8@. (The general
+'prepForObject' helper assumes no length prefix and is only
+correct for fixed-size structs.)
+-}
 writeVectorInt64 :: Builder -> [Int64] -> IO Int
 writeVectorInt64 b xs = do
   let !n = length xs
@@ -462,18 +525,20 @@ writeVectorInt64 b xs = do
   prependU32 b (fromIntegral n)
   currentUOff b
 
--- | Pad so that a vector with a 4-byte u32 length prefix
--- followed by @bytes@ bytes of @align@-aligned elements lands
--- with its elements at file-position-multiple-of-@align@.
---
--- See 'writeVectorInt64' for the derivation. The general
--- shape applies to any vector of fixed-size elements:
---
---   pad such that bufSize_before + pad ≡ 0 mod align
---
--- The total number of bytes written into the prepared region
--- is 4 (length) + bytes (data); @bytes@ itself must be a
--- multiple of @align@ (true for fixed-size element vectors).
+
+{- | Pad so that a vector with a 4-byte u32 length prefix
+followed by @bytes@ bytes of @align@-aligned elements lands
+with its elements at file-position-multiple-of-@align@.
+
+See 'writeVectorInt64' for the derivation. The general
+shape applies to any vector of fixed-size elements:
+
+  pad such that bufSize_before + pad ≡ 0 mod align
+
+The total number of bytes written into the prepared region
+is 4 (length) + bytes (data); @bytes@ itself must be a
+multiple of @align@ (true for fixed-size element vectors).
+-}
 prepForVector :: Builder -> Int -> Int -> IO ()
 prepForVector b dataBytes align = do
   noteMinAlign b align

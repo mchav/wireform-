@@ -87,6 +87,8 @@ import Data.Primitive.SmallArray (
   copySmallMutableArray,
   createSmallArray,
   emptySmallArray,
+  freezeSmallArray,
+  getSizeofSmallMutableArray,
   indexSmallArray,
   mapSmallArray',
   newSmallArray,
@@ -94,10 +96,8 @@ import Data.Primitive.SmallArray (
   shrinkSmallMutableArray,
   sizeofSmallArray,
   sizeofSmallMutableArray,
-  getSizeofSmallMutableArray,
   smallArrayFromList,
   unsafeFreezeSmallArray,
-  freezeSmallArray,
   writeSmallArray,
  )
 import Data.Text (Text)
@@ -331,9 +331,11 @@ emptyChildVecRef = unsafePerformIO $ do
   newIORef (ChildVec emptyChildVecPool arr)
 {-# NOINLINE emptyChildVecRef #-}
 
+
 dummyParentRef :: IORef (Maybe TBNode)
 dummyParentRef = unsafePerformIO $ newIORef Nothing
 {-# NOINLINE dummyParentRef #-}
+
 
 dummyAttrsRef :: IORef (SmallArray HTMLAttribute)
 dummyAttrsRef = unsafePerformIO $ newIORef emptySmallArray
@@ -503,9 +505,10 @@ childVecToList ref = do
 -- Open element stack (SmallMutableArray; index 0 = bottom, count-1 = top)
 ------------------------------------------------------------------------
 
--- | Internal: open-elements stack used by the tree builder. Constructed
--- in 'newElementStack' and then only deconstructed positionally — the
--- fields don't have selectors because every consumer pattern-matches.
+{- | Internal: open-elements stack used by the tree builder. Constructed
+in 'newElementStack' and then only deconstructed positionally — the
+fields don't have selectors because every consumer pattern-matches.
+-}
 data ElementStack
   = ElementStack
       !(SmallMutableArray RealWorld TBNode)
@@ -761,6 +764,7 @@ tbEmitEvent tb evt
   | not (tbEmitEvents tb) = pure ()
   | otherwise = tbPushEvent tb evt
 
+
 tbPushEvent :: TreeBuilder -> TreeEvent -> IO ()
 tbPushEvent tb evt = do
   n <- readByteArray (tbEventCntBA tb) 0 :: IO Int
@@ -928,39 +932,40 @@ tokenizeOnlyIO bs = do
       | otherwise =
           let !b = readByteOff addr# off
           in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-              then do
-                let !end = scanTextFast addr# (off + 1) len
-                modifyIORef' countRef (+ 1)
-                go _ba addr# countRef bs end len
-              else case b of
-                0x3C
-                  | off + 1 < len ->
-                      let !b2 = readByteOff addr# (off + 1)
-                      in if isAlphaByte b2
-                          then do
-                            let !nameEnd = scanTagName bs (off + 1) len
-                                !afterTag = skipAttrsBS bs nameEnd len
-                            modifyIORef' countRef (+ 1)
-                            go _ba addr# countRef bs afterTag len
-                          else
-                            if b2 == 0x2F && off + 2 < len && isAlphaByte (readByteOff addr# (off + 2))
-                              then do
-                                let !nameEnd = scanTagName bs (off + 2) len
-                                    !afterGt = skipToGtBS bs nameEnd len
-                                modifyIORef' countRef (+ 1)
-                                go _ba addr# countRef bs afterGt len
-                              else do
-                                modifyIORef' countRef (+ 1)
-                                go _ba addr# countRef bs (off + 1) len
-                _ -> do
-                  modifyIORef' countRef (+ 1)
-                  go _ba addr# countRef bs (off + 1) len
+               then do
+                 let !end = scanTextFast addr# (off + 1) len
+                 modifyIORef' countRef (+ 1)
+                 go _ba addr# countRef bs end len
+               else case b of
+                 0x3C
+                   | off + 1 < len ->
+                       let !b2 = readByteOff addr# (off + 1)
+                       in if isAlphaByte b2
+                            then do
+                              let !nameEnd = scanTagName bs (off + 1) len
+                                  !afterTag = skipAttrsBS bs nameEnd len
+                              modifyIORef' countRef (+ 1)
+                              go _ba addr# countRef bs afterTag len
+                            else
+                              if b2 == 0x2F && off + 2 < len && isAlphaByte (readByteOff addr# (off + 2))
+                                then do
+                                  let !nameEnd = scanTagName bs (off + 2) len
+                                      !afterGt = skipToGtBS bs nameEnd len
+                                  modifyIORef' countRef (+ 1)
+                                  go _ba addr# countRef bs afterGt len
+                                else do
+                                  modifyIORef' countRef (+ 1)
+                                  go _ba addr# countRef bs (off + 1) len
+                 _ -> do
+                   modifyIORef' countRef (+ 1)
+                   go _ba addr# countRef bs (off + 1) len
 {-# NOINLINE tokenizeOnlyIO #-}
 
 
--- | Raw event tokenizer: scans HTML bytes and emits TreeEvents directly
--- without running the HTML5 tree construction algorithm. No mode tracking,
--- no element stack, no implicit elements, no adoption agency.
+{- | Raw event tokenizer: scans HTML bytes and emits TreeEvents directly
+without running the HTML5 tree construction algorithm. No mode tracking,
+no element stack, no implicit elements, no adoption agency.
+-}
 tokenizeRawEventsIO :: ByteString -> IO (SmallArray TreeEvent)
 tokenizeRawEventsIO !bs = do
   let !len = BS.length bs
@@ -993,13 +998,14 @@ tokenizeRawEventsIO !bs = do
     pushOverflow !n !evt = do
       arr <- readIORef evtArrRef
       cap <- getSizeofSmallMutableArray arr
-      arr' <- if n < cap
-        then pure arr
-        else do
-          bigger <- newSmallArray (cap * 2) evt
-          copySmallMutableArray bigger 0 arr 0 n
-          writeIORef evtArrRef bigger
-          pure bigger
+      arr' <-
+        if n < cap
+          then pure arr
+          else do
+            bigger <- newSmallArray (cap * 2) evt
+            copySmallMutableArray bigger 0 arr 0 n
+            writeIORef evtArrRef bigger
+            pure bigger
       writeSmallArray arr' n evt
       pure (n + 1)
     {-# NOINLINE pushOverflow #-}
@@ -1025,30 +1031,30 @@ tokenizeRawEventsIO !bs = do
       | otherwise =
           let !b = readByteOff addr# off
           in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-              then do
-                let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
-                    !firstByteAscii = b < 0x80
-                    !allAscii = firstByteAscii && ascii
-                    !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
-                n' <- push n (TreeText t)
-                go n' end
-              else case b of
-                0x3C -> goTag n (off + 1)
-                0x26 -> do
-                  let !windowEnd = min len (off + 65)
-                      !input = toStringFrom bs (off + 1) windowEnd
-                      (ent, rest) = parseEntityRef input
-                      !consumed = length input - length rest
-                  n' <- pushMany n (map TChar ent)
-                  go n' (off + 1 + consumed)
-                0x00 -> do
-                  n' <- push n (TreeText (T.singleton '\0'))
-                  go n' (off + 1)
-                0x0D -> do
-                  n' <- push n (TreeText (T.singleton '\n'))
-                  let !next = off + 1
-                  go n' (if next < len && readByteOff addr# next == 0x0A then next + 1 else next)
-                _ -> go n (off + 1)
+               then do
+                 let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
+                     !firstByteAscii = b < 0x80
+                     !allAscii = firstByteAscii && ascii
+                     !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
+                 n' <- push n (TreeText t)
+                 go n' end
+               else case b of
+                 0x3C -> goTag n (off + 1)
+                 0x26 -> do
+                   let !windowEnd = min len (off + 65)
+                       !input = toStringFrom bs (off + 1) windowEnd
+                       (ent, rest) = parseEntityRef input
+                       !consumed = length input - length rest
+                   n' <- pushMany n (map TChar ent)
+                   go n' (off + 1 + consumed)
+                 0x00 -> do
+                   n' <- push n (TreeText (T.singleton '\0'))
+                   go n' (off + 1)
+                 0x0D -> do
+                   n' <- push n (TreeText (T.singleton '\n'))
+                   let !next = off + 1
+                   go n' (if next < len && readByteOff addr# next == 0x0A then next + 1 else next)
+                 _ -> go n (off + 1)
 
     goTag :: Int -> Int -> IO Int
     goTag !n !off
@@ -1075,21 +1081,22 @@ tokenizeRawEventsIO !bs = do
           (# lcName, tid #) = internTagAddrU addr# off tagLen bs
           (!attrs, !selfClose, !afterTag) = readTagAttrsBS sharedBA bs nameEnd len
       in if afterTag > len
-          then pure n
-          else do
-            n' <- push n (TreeOpen lcName attrs)
-            n'' <- if selfClose || tagIdIsVoid tid
-              then push n' (TreeClose lcName)
-              else pure n'
-            if isRawTextTag tid && not selfClose
-              then pushMany n'' (tokenizeRawText (toStringFrom bs afterTag len) lcName)
-              else
-                if isRCDataTag tid && not selfClose
-                  then pushMany n'' (tokenizeRCData (toStringFrom bs afterTag len) lcName)
-                  else
-                    if tid == TagPlaintext
-                      then pushMany n'' (tokenizePlaintext (toStringFrom bs afterTag len))
-                      else go n'' afterTag
+           then pure n
+           else do
+             n' <- push n (TreeOpen lcName attrs)
+             n'' <-
+               if selfClose || tagIdIsVoid tid
+                 then push n' (TreeClose lcName)
+                 else pure n'
+             if isRawTextTag tid && not selfClose
+               then pushMany n'' (tokenizeRawText (toStringFrom bs afterTag len) lcName)
+               else
+                 if isRCDataTag tid && not selfClose
+                   then pushMany n'' (tokenizeRCData (toStringFrom bs afterTag len) lcName)
+                   else
+                     if tid == TagPlaintext
+                       then pushMany n'' (tokenizePlaintext (toStringFrom bs afterTag len))
+                       else go n'' afterTag
 
     goEndTag :: Int -> Int -> IO Int
     goEndTag !n !off
@@ -1100,8 +1107,8 @@ tokenizeRawEventsIO !bs = do
               (# lcName, _tid #) = internTagAddrU addr# off tagLen bs
               !afterGt = skipToGtBS bs nameEnd len
           in do
-            n' <- push n (TreeClose lcName)
-            go n' afterGt
+               n' <- push n (TreeClose lcName)
+               go n' afterGt
       | readByteOff addr# off == 0x3E = do
           n' <- push n (TreeComment "")
           go n' (off + 1)
@@ -1115,8 +1122,9 @@ tokenizeRawEventsIO !bs = do
 {-# NOINLINE tokenizeRawEventsIO #-}
 
 
--- | Count tokens in a chunk without allocating Token objects.
--- Uses the same fast-scan approach as tokenizeOnlyIO.
+{- | Count tokens in a chunk without allocating Token objects.
+Uses the same fast-scan approach as tokenizeOnlyIO.
+-}
 tokenizeCountChunk :: ByteString -> IO Int
 tokenizeCountChunk bs = do
   let !len = BS.length bs
@@ -1127,33 +1135,33 @@ tokenizeCountChunk bs = do
         | otherwise =
             let !b = readByteOff addr# off
             in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-                then do
-                  let !end = scanTextFast addr# (off + 1) len
-                  modifyIORef' countRef (+ 1)
-                  go end
-                else case b of
-                  0x3C
-                    | off + 1 < len ->
-                        let !b2 = readByteOff addr# (off + 1)
-                        in if isAlphaByte b2
-                            then do
-                              let !nameEnd = scanTagName bs (off + 1) len
-                                  !afterTag = skipAttrsBS bs nameEnd len
-                              modifyIORef' countRef (+ 1)
-                              go afterTag
-                            else
-                              if b2 == 0x2F && off + 2 < len && isAlphaByte (readByteOff addr# (off + 2))
-                                then do
-                                  let !nameEnd = scanTagName bs (off + 2) len
-                                      !afterGt = skipToGtBS bs nameEnd len
-                                  modifyIORef' countRef (+ 1)
-                                  go afterGt
-                                else do
-                                  modifyIORef' countRef (+ 1)
-                                  go (off + 1)
-                  _ -> do
-                    modifyIORef' countRef (+ 1)
-                    go (off + 1)
+                 then do
+                   let !end = scanTextFast addr# (off + 1) len
+                   modifyIORef' countRef (+ 1)
+                   go end
+                 else case b of
+                   0x3C
+                     | off + 1 < len ->
+                         let !b2 = readByteOff addr# (off + 1)
+                         in if isAlphaByte b2
+                              then do
+                                let !nameEnd = scanTagName bs (off + 1) len
+                                    !afterTag = skipAttrsBS bs nameEnd len
+                                modifyIORef' countRef (+ 1)
+                                go afterTag
+                              else
+                                if b2 == 0x2F && off + 2 < len && isAlphaByte (readByteOff addr# (off + 2))
+                                  then do
+                                    let !nameEnd = scanTagName bs (off + 2) len
+                                        !afterGt = skipToGtBS bs nameEnd len
+                                    modifyIORef' countRef (+ 1)
+                                    go afterGt
+                                  else do
+                                    modifyIORef' countRef (+ 1)
+                                    go (off + 1)
+                   _ -> do
+                     modifyIORef' countRef (+ 1)
+                     go (off + 1)
   go 0
   readIORef countRef
 {-# NOINLINE tokenizeCountChunk #-}
@@ -1208,7 +1216,6 @@ fragmentTokenize ctx ctxNs txt
 
 newTreeBuilder :: Maybe (Text, Maybe Text) -> IO TreeBuilder
 newTreeBuilder = newTreeBuilderWith False True 0
-
 
 
 newTreeBuilderWith :: Bool -> Bool -> Int -> Maybe (Text, Maybe Text) -> IO TreeBuilder
@@ -1279,22 +1286,22 @@ resetInsertionModeForContext :: Text -> Maybe Text -> InsertionMode
 resetInsertionModeForContext name _ns =
   let !tid = tagIdFromText name
   in case tid of
-      TagTd -> MInCell
-      TagTh -> MInCell
-      TagTr -> MInRow
-      TagTbody -> MInTableBody
-      TagThead -> MInTableBody
-      TagTfoot -> MInTableBody
-      TagCaption -> MInCaption
-      TagColgroup -> MInColumnGroup
-      TagTable -> MInTable
-      TagTemplate -> MInTemplate
-      TagHead -> MInBody
-      TagBody -> MInBody
-      TagFrameset -> MInFrameset
-      TagHtml -> MBeforeHead
-      TagSelect -> MInSelect
-      _ -> MInBody
+       TagTd -> MInCell
+       TagTh -> MInCell
+       TagTr -> MInRow
+       TagTbody -> MInTableBody
+       TagThead -> MInTableBody
+       TagTfoot -> MInTableBody
+       TagCaption -> MInCaption
+       TagColgroup -> MInColumnGroup
+       TagTable -> MInTable
+       TagTemplate -> MInTemplate
+       TagHead -> MInBody
+       TagBody -> MInBody
+       TagFrameset -> MInFrameset
+       TagHtml -> MBeforeHead
+       TagSelect -> MInSelect
+       _ -> MInBody
 
 
 {-# INLINE newTBNode #-}
@@ -1391,11 +1398,12 @@ attrsFromList xs = smallArrayFromList (map (\(n, v) -> HTMLAttribute n v) xs)
 -- Build final document
 ------------------------------------------------------------------------
 
--- | Finalise a 'TreeBuilder' and project out the completed
--- 'HTMLDocument'. Renamed from @buildDocument@ to avoid a name
--- collision with the unrelated @HTML.Encode.buildDocument@
--- (@HTMLDocument -> Builder@) when both are re-exported from the
--- @Wireform.HTML@ facade.
+{- | Finalise a 'TreeBuilder' and project out the completed
+'HTMLDocument'. Renamed from @buildDocument@ to avoid a name
+collision with the unrelated @HTML.Encode.buildDocument@
+(@HTMLDocument -> Builder@) when both are re-exported from the
+@Wireform.HTML@ facade.
+-}
 finishDocument :: TreeBuilder -> IO HTMLDocument
 finishDocument tb = do
   allNodes <- buildAllNodes tb
@@ -1530,10 +1538,10 @@ populateSelectedContent node@(HTMLElement tag attrs children)
               (opt : _) -> opt
               [] -> HTMLText ""
       in case mSelectedContent of
-          Just _ ->
-            let newChildren = mapSmallArray' (fillSelectedContent (getOptionChildren selectedOpt)) children'
-            in HTMLElement tag attrs newChildren
-          Nothing -> HTMLElement tag attrs children'
+           Just _ ->
+             let newChildren = mapSmallArray' (fillSelectedContent (getOptionChildren selectedOpt)) children'
+             in HTMLElement tag attrs newChildren
+           Nothing -> HTMLElement tag attrs children'
   | sizeofSmallArray children == 0 = node
   | otherwise =
       let !children' = mapSmallArray' populateSelectedContent children
@@ -1627,12 +1635,12 @@ dispatchToken tb tok = do
     Just current ->
       let ns = nodeNs current
       in if ns == Nothing || ns == Just "" || ns == Just "html"
-          then processInMode tb tok
-          else do
-            useForeign <- shouldUseForeignContent tb tok current
-            if useForeign
-              then processForeignContent tb tok
-              else processInMode tb tok
+           then processInMode tb tok
+           else do
+             useForeign <- shouldUseForeignContent tb tok current
+             if useForeign
+               then processForeignContent tb tok
+               else processInMode tb tok
 
 
 shouldUseForeignContent :: TreeBuilder -> Token -> TBNode -> IO Bool
@@ -2126,8 +2134,8 @@ fosterParentNode tb node =
           Nothing ->
             let above = dropWhile (/= tableNode) elems
             in case drop 1 above of
-                (a : _) -> appendChild a node
-                [] -> pure ()
+                 (a : _) -> appendChild a node
+                 [] -> pure ()
       (Nothing, Nothing) -> case elems of
         (current : _) -> appendChild current node
         [] -> pure ()
@@ -2288,8 +2296,8 @@ removeExcess name attrs entries =
   let (beforeMarker, _) = break isMarker entries
       matching = findMatching 0 beforeMarker
   in if length matching >= 3
-      then removeAt (last matching) entries
-      else entries
+       then removeAt (last matching) entries
+       else entries
   where
     isMarker AFMarker = True
     isMarker _ = False
@@ -2490,8 +2498,8 @@ findFurthestBlock fmtNode openElems =
   let aboveFmt = takeWhile (/= fmtNode) openElems
       specialOnes = filter isSpecial aboveFmt
   in case specialOnes of
-      [] -> Nothing
-      _ -> Just (last specialOnes)
+       [] -> Nothing
+       _ -> Just (last specialOnes)
   where
     isSpecial n = nodeIsHTMLNs n && tagIsSpecial n
     tagIsSpecial n = tagIdIsSpecial (nodeTagId n)
@@ -4083,8 +4091,8 @@ processForeignContent tb tok = case tok of
     | isCDATA t ->
         let content = T.replace "\0" "\xFFFD" (cdataContent t)
         in if T.null content
-            then pure ()
-            else appendTextToCurrentNode tb content
+             then pure ()
+             else appendTextToCurrentNode tb content
     | otherwise -> insertComment tb t
   TStartTag name attrs sc _tid -> do
     let !breakoutTid = tagIdFromText (T.toLower name)
@@ -4282,9 +4290,9 @@ matchesLimitedQuirky pub _sys = case pub of
       (`T.isPrefixOf` p)
       ["-//w3c//dtd xhtml 1.0 frameset//", "-//w3c//dtd xhtml 1.0 transitional//"]
       || ( any
-            (`T.isPrefixOf` p)
-            ["-//w3c//dtd html 4.01 frameset//", "-//w3c//dtd html 4.01 transitional//"]
-            && _sys /= Nothing
+             (`T.isPrefixOf` p)
+             ["-//w3c//dtd html 4.01 frameset//", "-//w3c//dtd html 4.01 transitional//"]
+             && _sys /= Nothing
          )
 
 
@@ -4519,29 +4527,29 @@ tokenizeBS !bs !off !len !svgD !svgH
   | otherwise =
       let !b = BSU.unsafeIndex bs off
       in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-          then
-            let !end = scanText bs (off + 1) len
-                !t = TE.decodeUtf8Lenient (BSU.unsafeTake (end - off) (BSU.unsafeDrop off bs))
-            in TString t : tokenizeBS bs end len svgD svgH
-          else case b of
-            0x3C -> tokenizeTagBS bs (off + 1) len svgD svgH
-            0x26 ->
-              let !windowEnd = min len (off + 65)
-                  !input = toStringFrom bs (off + 1) windowEnd
-                  (ent, rest) = parseEntityRef input
-                  !consumed = length input - length rest
-              in map TChar ent ++ tokenizeBS bs (off + 1 + consumed) len svgD svgH
-            0x00 -> TChar '\0' : tokenizeBS bs (off + 1) len svgD svgH
-            0x0D ->
-              let !next = off + 1
-              in TChar '\n'
-                  : tokenizeBS
-                    bs
-                    (if next < len && BSU.unsafeIndex bs next == 0x0A then next + 1 else next)
-                    len
-                    svgD
-                    svgH
-            _ -> tokenizeBS bs (off + 1) len svgD svgH
+           then
+             let !end = scanText bs (off + 1) len
+                 !t = TE.decodeUtf8Lenient (BSU.unsafeTake (end - off) (BSU.unsafeDrop off bs))
+             in TString t : tokenizeBS bs end len svgD svgH
+           else case b of
+             0x3C -> tokenizeTagBS bs (off + 1) len svgD svgH
+             0x26 ->
+               let !windowEnd = min len (off + 65)
+                   !input = toStringFrom bs (off + 1) windowEnd
+                   (ent, rest) = parseEntityRef input
+                   !consumed = length input - length rest
+               in map TChar ent ++ tokenizeBS bs (off + 1 + consumed) len svgD svgH
+             0x00 -> TChar '\0' : tokenizeBS bs (off + 1) len svgD svgH
+             0x0D ->
+               let !next = off + 1
+               in TChar '\n'
+                    : tokenizeBS
+                      bs
+                      (if next < len && BSU.unsafeIndex bs next == 0x0A then next + 1 else next)
+                      len
+                      svgD
+                      svgH
+             _ -> tokenizeBS bs (off + 1) len svgD svgH
 
 
 -- IO-based fused tokenizer: calls processToken directly, no intermediate list
@@ -4569,109 +4577,109 @@ tokenizeBSIO !bs !off0 !len !svgD0 !svgH0 !tb = go off0 svgD0 svgH0
 
     {-# INLINE emitText #-}
     emitText !t !firstByte = do
-          mode <- readMode scalars
-          case mode of
-            MInBody -> do
-              ignoreLF <- readBoolSlot scalars sIgnoreLF
-              if ignoreLF
-                then emit (TString t)
+      mode <- readMode scalars
+      case mode of
+        MInBody -> do
+          ignoreLF <- readBoolSlot scalars sIgnoreLF
+          if ignoreLF
+            then emit (TString t)
+            else do
+              hasAF <- readScalar scalars sHasAF
+              if hasAF /= 0 then reconstructActiveFormatting tb else pure ()
+              let !(ElementStack esArr esCnt _) = tbStack tb
+              n <- readByteArray esCnt 0 :: IO Int
+              cur <- readSmallArray esArr (n - 1)
+              when (tbBuildDOM tb) $ pushText (nodeChildren cur) t
+              tbEmitEvent tb (TreeText t)
+              if not (isWSByte firstByte)
+                then writeScalar scalars sFramesetOk 0
                 else do
-                  hasAF <- readScalar scalars sHasAF
-                  if hasAF /= 0 then reconstructActiveFormatting tb else pure ()
-                  let !(ElementStack esArr esCnt _) = tbStack tb
-                  n <- readByteArray esCnt 0 :: IO Int
-                  cur <- readSmallArray esArr (n - 1)
-                  when (tbBuildDOM tb) $ pushText (nodeChildren cur) t
-                  tbEmitEvent tb (TreeText t)
-                  if not (isWSByte firstByte)
-                    then writeScalar scalars sFramesetOk 0
-                    else do
-                      fo <- readScalar scalars sFramesetOk
-                      if fo == 0
-                        then pure ()
-                        else
-                          if not (T.all isWS t)
-                            then writeScalar scalars sFramesetOk 0
-                            else pure ()
-            MText -> appendTextToCurrentNode tb t
-            _ -> emit (TString t)
+                  fo <- readScalar scalars sFramesetOk
+                  if fo == 0
+                    then pure ()
+                    else
+                      if not (T.all isWS t)
+                        then writeScalar scalars sFramesetOk 0
+                        else pure ()
+        MText -> appendTextToCurrentNode tb t
+        _ -> emit (TString t)
 
     {-# INLINE emitStartTag #-}
     emitStartTag !lcName attrs !selfClose !tid = do
-          ignoreLF <- readBoolSlot scalars sIgnoreLF
-          if ignoreLF then tbSetIgnoreLF tb False else pure ()
-          mode <- readMode scalars
-          case mode of
-            MInBody -> do
-              let ElementStack _ esCnt tidsBuf = tbStack tb
-              n <- readByteArray esCnt 0 :: IO Int
-              if n > 0
-                then do
-                  packed <- readByteArray tidsBuf (n - 1) :: IO Int
-                  if isHTMLFromPacked packed
-                    then modeInBodyStartTag tb lcName attrs selfClose tid
-                    else emit (TStartTag lcName attrs selfClose tid)
+      ignoreLF <- readBoolSlot scalars sIgnoreLF
+      if ignoreLF then tbSetIgnoreLF tb False else pure ()
+      mode <- readMode scalars
+      case mode of
+        MInBody -> do
+          let ElementStack _ esCnt tidsBuf = tbStack tb
+          n <- readByteArray esCnt 0 :: IO Int
+          if n > 0
+            then do
+              packed <- readByteArray tidsBuf (n - 1) :: IO Int
+              if isHTMLFromPacked packed
+                then modeInBodyStartTag tb lcName attrs selfClose tid
                 else emit (TStartTag lcName attrs selfClose tid)
-            _ -> emit (TStartTag lcName attrs selfClose tid)
+            else emit (TStartTag lcName attrs selfClose tid)
+        _ -> emit (TStartTag lcName attrs selfClose tid)
 
     {-# INLINE emitEndTag #-}
     emitEndTag !lcName !tid = do
-          ignoreLF <- readBoolSlot scalars sIgnoreLF
-          if ignoreLF then tbSetIgnoreLF tb False else pure ()
-          mode <- readMode scalars
-          case mode of
-            MInBody -> do
-              let ElementStack _ esCnt tidsBuf = tbStack tb
-              n <- readByteArray esCnt 0 :: IO Int
-              if n > 0
+      ignoreLF <- readBoolSlot scalars sIgnoreLF
+      if ignoreLF then tbSetIgnoreLF tb False else pure ()
+      mode <- readMode scalars
+      case mode of
+        MInBody -> do
+          let ElementStack _ esCnt tidsBuf = tbStack tb
+          n <- readByteArray esCnt 0 :: IO Int
+          if n > 0
+            then do
+              packed <- readByteArray tidsBuf (n - 1) :: IO Int
+              if isHTMLFromPacked packed
                 then do
-                  packed <- readByteArray tidsBuf (n - 1) :: IO Int
-                  if isHTMLFromPacked packed
+                  let !topTid = tidFromPacked packed
+                  if topTid == tid && endTagCanFastPop tid
                     then do
-                      let !topTid = tidFromPacked packed
-                      if topTid == tid && endTagCanFastPop tid
+                      tbEmitEvent tb (TreeClose lcName)
+                      writeByteArray esCnt 0 (n - 1 :: Int)
+                      if tid == TagP
                         then do
-                          tbEmitEvent tb (TreeClose lcName)
-                          writeByteArray esCnt 0 (n - 1 :: Int)
-                          if tid == TagP
-                            then do
-                              pc <- readScalar scalars sPOnStack
-                              writeScalar scalars sPOnStack (max 0 (pc - 1))
-                            else pure ()
-                        else modeInBodyEndTag tb lcName tid
-                    else emit (TEndTag lcName tid)
+                          pc <- readScalar scalars sPOnStack
+                          writeScalar scalars sPOnStack (max 0 (pc - 1))
+                        else pure ()
+                    else modeInBodyEndTag tb lcName tid
                 else emit (TEndTag lcName tid)
-            _ -> emit (TEndTag lcName tid)
+            else emit (TEndTag lcName tid)
+        _ -> emit (TEndTag lcName tid)
 
     go !off !svgD !svgH
       | off >= len = pure ()
       | otherwise =
           let !b = readByteOff addr# off
           in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-              then do
-                let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
-                    !firstByteAscii = b < 0x80
-                    !allAscii = firstByteAscii && ascii
-                    !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
-                emitText t b
-                go end svgD svgH
-              else case b of
-                0x3C -> goTag (off + 1) svgD svgH
-                0x26 -> do
-                  let !windowEnd = min len (off + 65)
-                      !input = toStringFrom bs (off + 1) windowEnd
-                      (ent, rest) = parseEntityRef input
-                      !consumed = length input - length rest
-                  mapM_ (emit . TChar) ent
-                  go (off + 1 + consumed) svgD svgH
-                0x00 -> do
-                  emit (TChar '\0')
-                  go (off + 1) svgD svgH
-                0x0D -> do
-                  emit (TChar '\n')
-                  let !next = off + 1
-                  go (if next < len && readByteOff addr# next == 0x0A then next + 1 else next) svgD svgH
-                _ -> go (off + 1) svgD svgH
+               then do
+                 let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
+                     !firstByteAscii = b < 0x80
+                     !allAscii = firstByteAscii && ascii
+                     !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
+                 emitText t b
+                 go end svgD svgH
+               else case b of
+                 0x3C -> goTag (off + 1) svgD svgH
+                 0x26 -> do
+                   let !windowEnd = min len (off + 65)
+                       !input = toStringFrom bs (off + 1) windowEnd
+                       (ent, rest) = parseEntityRef input
+                       !consumed = length input - length rest
+                   mapM_ (emit . TChar) ent
+                   go (off + 1 + consumed) svgD svgH
+                 0x00 -> do
+                   emit (TChar '\0')
+                   go (off + 1) svgD svgH
+                 0x0D -> do
+                   emit (TChar '\n')
+                   let !next = off + 1
+                   go (if next < len && readByteOff addr# next == 0x0A then next + 1 else next) svgD svgH
+                 _ -> go (off + 1) svgD svgH
 
     goTag !off !svgD !svgH
       | off >= len = emit (TChar '<')
@@ -4702,37 +4710,37 @@ tokenizeBSIO !bs !off0 !len !svgD0 !svgH0 !tb = go off0 svgD0 svgH0
               then True
               else if tid == TagSvg then False else svgH
       in if afterTag > len
-          then pure ()
-          else
-            if isRawTextTag tid
-              then do
-                if selfClose
-                  then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
-                  else do
-                    emitStartTag lcName attrs selfClose tid
-                    let toks = tokenizeRawText (toStringFrom bs afterTag len) lcName
-                    mapM_ emit toks
-              else
-                if isRCDataTag tid
-                  then do
-                    if selfClose || inSvg
-                      then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
-                      else do
-                        emitStartTag lcName attrs selfClose tid
-                        let toks = tokenizeRCData (toStringFrom bs afterTag len) lcName
-                        mapM_ emit toks
-                  else
-                    if tid == TagPlaintext
-                      then do
-                        if inSvg && not newSvgH
-                          then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
-                          else do
-                            emitStartTag lcName attrs selfClose tid
-                            let toks = tokenizePlaintext (toStringFrom bs afterTag len)
-                            mapM_ emit toks
-                      else do
-                        emitStartTag lcName attrs selfClose tid
-                        go afterTag newSvgD newSvgH
+           then pure ()
+           else
+             if isRawTextTag tid
+               then do
+                 if selfClose
+                   then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
+                   else do
+                     emitStartTag lcName attrs selfClose tid
+                     let toks = tokenizeRawText (toStringFrom bs afterTag len) lcName
+                     mapM_ emit toks
+               else
+                 if isRCDataTag tid
+                   then do
+                     if selfClose || inSvg
+                       then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
+                       else do
+                         emitStartTag lcName attrs selfClose tid
+                         let toks = tokenizeRCData (toStringFrom bs afterTag len) lcName
+                         mapM_ emit toks
+                   else
+                     if tid == TagPlaintext
+                       then do
+                         if inSvg && not newSvgH
+                           then do emitStartTag lcName attrs selfClose tid; go afterTag newSvgD newSvgH
+                           else do
+                             emitStartTag lcName attrs selfClose tid
+                             let toks = tokenizePlaintext (toStringFrom bs afterTag len)
+                             mapM_ emit toks
+                       else do
+                         emitStartTag lcName attrs selfClose tid
+                         go afterTag newSvgD newSvgH
 
     goEndTag !off !svgD !svgH
       | off >= len = do emit (TChar '<'); emit (TChar '/')
@@ -4744,10 +4752,10 @@ tokenizeBSIO !bs !off0 !len !svgD0 !svgH0 !tb = go off0 svgD0 svgH0
               !newSvgD = if tid == TagSvg && svgD > 0 then svgD - 1 else svgD
               !newSvgH = if tid == TagSvg && svgD > 0 then False else svgH
           in if nameEnd >= len
-              then pure ()
-              else do
-                emitEndTag lcName tid
-                go afterGt newSvgD newSvgH
+               then pure ()
+               else do
+                 emitEndTag lcName tid
+                 go afterGt newSvgD newSvgH
       | readByteOff addr# off == 0x3E = do
           emit (TComment "")
           go (off + 1) svgD svgH
@@ -4800,32 +4808,32 @@ tokenizeCallbackIOWith !parseAttrs !bs emit = go 0 0 False
       | otherwise =
           let !b = readByteOff addr# off
           in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
-              then do
-                let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
-                    !firstByteAscii = b < 0x80
-                    !allAscii = firstByteAscii && ascii
-                    !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
-                emit (TString t) off end
-                go end svgD svgH
-              else case b of
-                0x3C -> goTag (off + 1) off svgD svgH
-                0x26 -> do
-                  let !windowEnd = min len (off + 65)
-                      !input = toStringFrom bs (off + 1) windowEnd
-                      (ent, rest) = parseEntityRef input
-                      !consumed = length input - length rest
-                      !entEnd = off + 1 + consumed
-                  mapM_ (\c -> emit (TChar c) off entEnd) ent
-                  go entEnd svgD svgH
-                0x00 -> do
-                  emit (TChar '\0') off (off + 1)
-                  go (off + 1) svgD svgH
-                0x0D -> do
-                  let !next = off + 1
-                      !end = if next < len && readByteOff addr# next == 0x0A then next + 1 else next
-                  emit (TChar '\n') off end
-                  go end svgD svgH
-                _ -> go (off + 1) svgD svgH
+               then do
+                 let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
+                     !firstByteAscii = b < 0x80
+                     !allAscii = firstByteAscii && ascii
+                     !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
+                 emit (TString t) off end
+                 go end svgD svgH
+               else case b of
+                 0x3C -> goTag (off + 1) off svgD svgH
+                 0x26 -> do
+                   let !windowEnd = min len (off + 65)
+                       !input = toStringFrom bs (off + 1) windowEnd
+                       (ent, rest) = parseEntityRef input
+                       !consumed = length input - length rest
+                       !entEnd = off + 1 + consumed
+                   mapM_ (\c -> emit (TChar c) off entEnd) ent
+                   go entEnd svgD svgH
+                 0x00 -> do
+                   emit (TChar '\0') off (off + 1)
+                   go (off + 1) svgD svgH
+                 0x0D -> do
+                   let !next = off + 1
+                       !end = if next < len && readByteOff addr# next == 0x0A then next + 1 else next
+                   emit (TChar '\n') off end
+                   go end svgD svgH
+                 _ -> go (off + 1) svgD svgH
 
     goTag !off !ltOff !svgD !svgH
       | off >= len = emit (TChar '<') ltOff len
@@ -4859,37 +4867,37 @@ tokenizeCallbackIOWith !parseAttrs !bs emit = go 0 0 False
               then True
               else if tid == TagSvg then False else svgH
       in if afterTag > len
-          then pure ()
-          else
-            if isRawTextTag tid
-              then do
-                if selfClose
-                  then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
-                  else do
-                    emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
-                    let toks = tokenizeRawText (toStringFrom bs afterTag len) lcName
-                    mapM_ (\tok -> emit tok (-1) (-1)) toks
-              else
-                if isRCDataTag tid
-                  then do
-                    if selfClose || inSvg
-                      then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
-                      else do
-                        emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
-                        let toks = tokenizeRCData (toStringFrom bs afterTag len) lcName
-                        mapM_ (\tok -> emit tok (-1) (-1)) toks
-                  else
-                    if tid == TagPlaintext
-                      then do
-                        if inSvg && not newSvgH
-                          then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
-                          else do
-                            emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
-                            let toks = tokenizePlaintext (toStringFrom bs afterTag len)
-                            mapM_ (\tok -> emit tok (-1) (-1)) toks
-                      else do
-                        emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
-                        go afterTag newSvgD newSvgH
+           then pure ()
+           else
+             if isRawTextTag tid
+               then do
+                 if selfClose
+                   then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
+                   else do
+                     emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
+                     let toks = tokenizeRawText (toStringFrom bs afterTag len) lcName
+                     mapM_ (\tok -> emit tok (-1) (-1)) toks
+               else
+                 if isRCDataTag tid
+                   then do
+                     if selfClose || inSvg
+                       then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
+                       else do
+                         emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
+                         let toks = tokenizeRCData (toStringFrom bs afterTag len) lcName
+                         mapM_ (\tok -> emit tok (-1) (-1)) toks
+                   else
+                     if tid == TagPlaintext
+                       then do
+                         if inSvg && not newSvgH
+                           then do emit (TStartTag lcName attrs selfClose tid) ltOff afterTag; go afterTag newSvgD newSvgH
+                           else do
+                             emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
+                             let toks = tokenizePlaintext (toStringFrom bs afterTag len)
+                             mapM_ (\tok -> emit tok (-1) (-1)) toks
+                       else do
+                         emit (TStartTag lcName attrs selfClose tid) ltOff afterTag
+                         go afterTag newSvgD newSvgH
 
     goEndTag !off !ltOff !svgD !svgH
       | off >= len = do emit (TChar '<') ltOff (ltOff + 1); emit (TChar '/') (ltOff + 1) (ltOff + 2)
@@ -4901,10 +4909,10 @@ tokenizeCallbackIOWith !parseAttrs !bs emit = go 0 0 False
               !newSvgD = if tid == TagSvg && svgD > 0 then svgD - 1 else svgD
               !newSvgH = if tid == TagSvg && svgD > 0 then False else svgH
           in if nameEnd >= len
-              then pure ()
-              else do
-                emit (TEndTag lcName tid) ltOff afterGt
-                go afterGt newSvgD newSvgH
+               then pure ()
+               else do
+                 emit (TEndTag lcName tid) ltOff afterGt
+                 go afterGt newSvgD newSvgH
       | readByteOff addr# off == 0x3E = do
           emit (TComment "") ltOff (off + 1)
           go (off + 1) svgD svgH
@@ -4922,8 +4930,8 @@ scanText !bs !off !len
   | otherwise =
       let !b = BSU.unsafeIndex bs off
       in if b == 0x3C || b == 0x26 || b == 0x00 || b == 0x0D
-          then off
-          else scanText bs (off + 1) len
+           then off
+           else scanText bs (off + 1) len
 
 
 {-# INLINE scanTextFast #-}
@@ -4978,22 +4986,22 @@ tokenizeStartTagBS !bs !off !len !svgD !svgH =
           then True
           else if lcName == "svg" then False else svgH
   in if afterTag > len
-      then []
-      else case () of
-        _
-          | lcName `elem` ["script", "style", "xmp", "iframe", "noembed", "noframes", "noscript"] ->
-              if selfClose
-                then tok : tokenizeBS bs afterTag len newSvgD newSvgH
-                else tok : tokenizeRawText (toStringFrom bs afterTag len) lcName
-          | lcName == "textarea" || lcName == "title" ->
-              if selfClose || inSvg
-                then tok : tokenizeBS bs afterTag len newSvgD newSvgH
-                else tok : tokenizeRCData (toStringFrom bs afterTag len) lcName
-          | lcName == "plaintext" ->
-              if inSvg && not newSvgH
-                then tok : tokenizeBS bs afterTag len newSvgD newSvgH
-                else tok : tokenizePlaintext (toStringFrom bs afterTag len)
-          | otherwise -> tok : tokenizeBS bs afterTag len newSvgD newSvgH
+       then []
+       else case () of
+         _
+           | lcName `elem` ["script", "style", "xmp", "iframe", "noembed", "noframes", "noscript"] ->
+               if selfClose
+                 then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+                 else tok : tokenizeRawText (toStringFrom bs afterTag len) lcName
+           | lcName == "textarea" || lcName == "title" ->
+               if selfClose || inSvg
+                 then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+                 else tok : tokenizeRCData (toStringFrom bs afterTag len) lcName
+           | lcName == "plaintext" ->
+               if inSvg && not newSvgH
+                 then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+                 else tok : tokenizePlaintext (toStringFrom bs afterTag len)
+           | otherwise -> tok : tokenizeBS bs afterTag len newSvgD newSvgH
 
 
 scanTagName :: ByteString -> Int -> Int -> Int
@@ -5034,8 +5042,8 @@ tokenizeEndTagBS !bs !off !len !svgD !svgH
           !newSvgD = if lcName == "svg" && svgD > 0 then svgD - 1 else svgD
           !newSvgH = if lcName == "svg" && svgD > 0 then False else svgH
       in if nameEnd >= len
-          then []
-          else TEndTag lcName tid : tokenizeBS bs afterGt len newSvgD newSvgH
+           then []
+           else TEndTag lcName tid : tokenizeBS bs afterGt len newSvgD newSvgH
   | BSU.unsafeIndex bs off == 0x3E = TComment "" : tokenizeBS bs (off + 1) len svgD svgH
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (toStringFrom bs off len)
@@ -5077,9 +5085,10 @@ skipTagBS addr# = go
       | otherwise = scanPast q (i + 1) len
 
 
--- | Scan tag attrs, extracting only the class value (as ByteString slice).
--- Returns (# classOff, classLen, selfClose, afterTag #) where classOff = -1
--- means no class attribute found.  Zero allocation.
+{- | Scan tag attrs, extracting only the class value (as ByteString slice).
+Returns (# classOff, classLen, selfClose, afterTag #) where classOff = -1
+means no class attribute found.  Zero allocation.
+-}
 {-# INLINE scanClassAndSkip #-}
 scanClassAndSkip :: Addr# -> Int -> Int -> (# Int, Int, Bool, Int #)
 scanClassAndSkip addr# !off0 !len = go off0 (-1) 0
@@ -5098,39 +5107,43 @@ scanClassAndSkip addr# !off0 !len = go off0 (-1) 0
             let !nameStart = i
                 !nameEnd = scanAttrNameEnd i
                 !nameLen = nameEnd - nameStart
-                !isClass = nameLen == 5
-                         && (rd nameStart .|. 0x20) == 0x63       -- c
-                         && (rd (nameStart+1) .|. 0x20) == 0x6C   -- l
-                         && (rd (nameStart+2) .|. 0x20) == 0x61   -- a
-                         && (rd (nameStart+3) .|. 0x20) == 0x73   -- s
-                         && (rd (nameStart+4) .|. 0x20) == 0x73   -- s
+                !isClass =
+                  nameLen == 5
+                    && (rd nameStart .|. 0x20) == 0x63 -- c
+                    && (rd (nameStart + 1) .|. 0x20) == 0x6C -- l
+                    && (rd (nameStart + 2) .|. 0x20) == 0x61 -- a
+                    && (rd (nameStart + 3) .|. 0x20) == 0x73 -- s
+                    && (rd (nameStart + 4) .|. 0x20) == 0x73 -- s
             in if nameLen == 0
-                then go (max (i + 1) nameEnd) cOff cLen
-                else
-                  let !i2 = skipWSAddr addr# nameEnd len
-                  in if i2 >= len || rd i2 /= 0x3D
-                      then go i2 cOff cLen
-                      else
-                        let !i3 = skipWSAddr addr# (i2 + 1) len
-                        in if i3 >= len
-                            then go i3 cOff cLen
-                            else case rd i3 of
-                              0x22 -> let !vStart = i3 + 1
-                                          !vEnd = scanPastQ 0x22 vStart
-                                          !vLen = max 0 (vEnd - 1 - vStart)
-                                      in if isClass
-                                          then go vEnd vStart vLen
-                                          else go vEnd cOff cLen
-                              0x27 -> let !vStart = i3 + 1
-                                          !vEnd = scanPastQ 0x27 vStart
-                                          !vLen = max 0 (vEnd - 1 - vStart)
-                                      in if isClass
-                                          then go vEnd vStart vLen
-                                          else go vEnd cOff cLen
-                              _ -> let !vEnd = scanUnquotedEnd i3
+                 then go (max (i + 1) nameEnd) cOff cLen
+                 else
+                   let !i2 = skipWSAddr addr# nameEnd len
+                   in if i2 >= len || rd i2 /= 0x3D
+                        then go i2 cOff cLen
+                        else
+                          let !i3 = skipWSAddr addr# (i2 + 1) len
+                          in if i3 >= len
+                               then go i3 cOff cLen
+                               else case rd i3 of
+                                 0x22 ->
+                                   let !vStart = i3 + 1
+                                       !vEnd = scanPastQ 0x22 vStart
+                                       !vLen = max 0 (vEnd - 1 - vStart)
                                    in if isClass
-                                       then go vEnd i3 (vEnd - i3)
-                                       else go vEnd cOff cLen
+                                        then go vEnd vStart vLen
+                                        else go vEnd cOff cLen
+                                 0x27 ->
+                                   let !vStart = i3 + 1
+                                       !vEnd = scanPastQ 0x27 vStart
+                                       !vLen = max 0 (vEnd - 1 - vStart)
+                                   in if isClass
+                                        then go vEnd vStart vLen
+                                        else go vEnd cOff cLen
+                                 _ ->
+                                   let !vEnd = scanUnquotedEnd i3
+                                   in if isClass
+                                        then go vEnd i3 (vEnd - i3)
+                                        else go vEnd cOff cLen
 
     scanAttrNameEnd !j
       | j >= len = j
@@ -5161,9 +5174,9 @@ readTagAttrsBS :: ByteArray -> ByteString -> Int -> Int -> (SmallArray HTMLAttri
 readTagAttrsBS !ba !bs !off !len =
   let !(acc, !n, sc, endOff) = go off [] 0
   in case n of
-      0 -> (emptySmallArray, sc, endOff)
-      1 | (a : _) <- acc -> (createSmallArray 1 a (\_ -> pure ()), sc, endOff)
-      _ -> (smallArrayFromListN_Rev n acc, sc, endOff)
+       0 -> (emptySmallArray, sc, endOff)
+       1 | (a : _) <- acc -> (createSmallArray 1 a (\_ -> pure ()), sc, endOff)
+       _ -> (smallArrayFromListN_Rev n acc, sc, endOff)
   where
     !(BS (ForeignPtr addr# _) _) = bs
     rd :: Int -> Word8
@@ -5183,12 +5196,12 @@ readTagAttrsBS !ba !bs !off !len =
             let (!name, !i2) = scanAttrName i
                 (!val, !i3) = scanAttrVal i2
             in if T.null name
-                then go (max (i + 1) i3) acc n
-                else
-                  let !attr = HTMLAttribute name val
-                  in if n > 0 && any (\(HTMLAttribute na _) -> na == name) acc
-                    then go i3 acc n
-                    else go i3 (attr : acc) (n + 1)
+                 then go (max (i + 1) i3) acc n
+                 else
+                   let !attr = HTMLAttribute name val
+                   in if n > 0 && any (\(HTMLAttribute na _) -> na == name) acc
+                        then go i3 acc n
+                        else go i3 (attr : acc) (n + 1)
 
     scanAttrName !i = sn i
       where
@@ -5206,29 +5219,29 @@ readTagAttrsBS !ba !bs !off !len =
       | otherwise =
           let !i1 = skipWSAddr addr# i len
           in if i1 >= len || rd i1 /= 0x3D
-              then (T.empty, i1)
-              else
-                let !i2 = skipWSAddr addr# (i1 + 1) len
-                in if i2 >= len
-                    then (T.empty, i2)
-                    else case rd i2 of
-                      0x22 -> scanDQuoted (i2 + 1)
-                      0x27 -> scanSQuoted (i2 + 1)
-                      _ -> scanUnquoted i2
+               then (T.empty, i1)
+               else
+                 let !i2 = skipWSAddr addr# (i1 + 1) len
+                 in if i2 >= len
+                      then (T.empty, i2)
+                      else case rd i2 of
+                        0x22 -> scanDQuoted (i2 + 1)
+                        0x27 -> scanSQuoted (i2 + 1)
+                        _ -> scanUnquoted i2
 
     scanDQuoted !i =
       let !(CPtrdiff packed) = c_scan_dquote_ascii addr# (fromIntegral i) (fromIntegral len)
           !h = fromIntegral (unsafeShiftR packed 1)
           !ascii = packed .&. 1 /= 0
       in if h >= len
-          then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
-          else
-            if rd h == 0x22
-              then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
-              else
-                dqEntityLoop
-                  h
-                  (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
+           then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
+           else
+             if rd h == 0x22
+               then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
+               else
+                 dqEntityLoop
+                   h
+                   (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
 
     dqEntityLoop !ampPos !chunks =
       let !windowEnd = min len (ampPos + 65)
@@ -5244,25 +5257,25 @@ readTagAttrsBS !ba !bs !off !len =
               then decodeTextSlice ba addr# nextPos (h - nextPos) bs : entT : chunks
               else entT : chunks
       in if h >= len
-          then (T.concat (reverse chunks'), h)
-          else
-            if BSU.unsafeIndex bs h == 0x22
-              then (T.concat (reverse chunks'), h + 1)
-              else dqEntityLoop h chunks'
+           then (T.concat (reverse chunks'), h)
+           else
+             if BSU.unsafeIndex bs h == 0x22
+               then (T.concat (reverse chunks'), h + 1)
+               else dqEntityLoop h chunks'
 
     scanSQuoted !i =
       let !(CPtrdiff packed) = c_scan_squote_ascii addr# (fromIntegral i) (fromIntegral len)
           !h = fromIntegral (unsafeShiftR packed 1)
           !ascii = packed .&. 1 /= 0
       in if h >= len
-          then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
-          else
-            if rd h == 0x27
-              then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
-              else
-                sqEntityLoop
-                  h
-                  (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
+           then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
+           else
+             if rd h == 0x27
+               then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
+               else
+                 sqEntityLoop
+                   h
+                   (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
 
     sqEntityLoop !ampPos !chunks =
       let !windowEnd = min len (ampPos + 65)
@@ -5278,24 +5291,24 @@ readTagAttrsBS !ba !bs !off !len =
               then decodeTextSlice ba addr# nextPos (h - nextPos) bs : entT : chunks
               else entT : chunks
       in if h >= len
-          then (T.concat (reverse chunks'), h)
-          else
-            if BSU.unsafeIndex bs h == 0x27
-              then (T.concat (reverse chunks'), h + 1)
-              else sqEntityLoop h chunks'
+           then (T.concat (reverse chunks'), h)
+           else
+             if BSU.unsafeIndex bs h == 0x27
+               then (T.concat (reverse chunks'), h + 1)
+               else sqEntityLoop h chunks'
 
     scanUnquoted !i =
       let !(CPtrdiff hit) = c_scan_unquoted addr# (fromIntegral i) (fromIntegral len)
           !h = fromIntegral hit
       in if h >= len
-          then (decodeTextSlice ba addr# i (h - i) bs, h)
-          else
-            if BSU.unsafeIndex bs h /= 0x26
-              then (decodeTextSlice ba addr# i (h - i) bs, h)
-              else
-                uqEntityLoop
-                  h
-                  (if h > i then [decodeTextSlice ba addr# i (h - i) bs] else [])
+           then (decodeTextSlice ba addr# i (h - i) bs, h)
+           else
+             if BSU.unsafeIndex bs h /= 0x26
+               then (decodeTextSlice ba addr# i (h - i) bs, h)
+               else
+                 uqEntityLoop
+                   h
+                   (if h > i then [decodeTextSlice ba addr# i (h - i) bs] else [])
 
     uqEntityLoop !ampPos !chunks =
       let !windowEnd = min len (ampPos + 65)
@@ -5311,11 +5324,11 @@ readTagAttrsBS !ba !bs !off !len =
               then decodeTextSlice ba addr# nextPos (h - nextPos) bs : entT : chunks
               else entT : chunks
       in if h >= len
-          then (T.concat (reverse chunks'), h)
-          else
-            if BSU.unsafeIndex bs h /= 0x26
-              then (T.concat (reverse chunks'), h)
-              else uqEntityLoop h chunks'
+           then (T.concat (reverse chunks'), h)
+           else
+             if BSU.unsafeIndex bs h /= 0x26
+               then (T.concat (reverse chunks'), h)
+               else uqEntityLoop h chunks'
 
 
 {-# INLINE isWSByte #-}
@@ -5469,26 +5482,26 @@ tokenizeAfterLTCtx svgDepth svgHIP (c : rest)
             _ -> True
           rest2' = case rest2 of ('\x00' : r) -> r; _ -> rest2
       in if eofInTag
-          then []
-          else case lcName of
-            n
-              | n `elem` ["script", "style", "xmp", "iframe", "noembed", "noframes", "noscript"] ->
-                  if selfClose
-                    then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
-                    else tok : tokenizeRawText rest2' (T.pack lcName)
-            "textarea" ->
-              if selfClose || inSvg
-                then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
-                else tok : tokenizeRCData rest2' (T.pack lcName)
-            "title" ->
-              if selfClose || inSvg
-                then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
-                else tok : tokenizeRCData rest2' (T.pack lcName)
-            "plaintext" ->
-              if inSvg && not newSvgHIP
-                then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
-                else tok : tokenizePlaintext rest2'
-            _ -> tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+           then []
+           else case lcName of
+             n
+               | n `elem` ["script", "style", "xmp", "iframe", "noembed", "noframes", "noscript"] ->
+                   if selfClose
+                     then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+                     else tok : tokenizeRawText rest2' (T.pack lcName)
+             "textarea" ->
+               if selfClose || inSvg
+                 then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+                 else tok : tokenizeRCData rest2' (T.pack lcName)
+             "title" ->
+               if selfClose || inSvg
+                 then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+                 else tok : tokenizeRCData rest2' (T.pack lcName)
+             "plaintext" ->
+               if inSvg && not newSvgHIP
+                 then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+                 else tok : tokenizePlaintext rest2'
+             _ -> tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
   | otherwise = TChar '<' : tokenizeCtx svgDepth svgHIP (c : rest)
 
 
@@ -5502,10 +5515,10 @@ tokenizeEndTagCtx svgDepth svgHIP (c : rest)
           newSvgDepth = if lcName == "svg" && svgDepth > 0 then svgDepth - 1 else svgDepth
           newSvgHIP = if lcName == "svg" && svgDepth > 0 then False else svgHIP
       in if null rest1 && null rest2
-          then []
-          else
-            let !lcText = T.pack lcName; !tid = tagIdFromText lcText
-            in TEndTag lcText tid : tokenizeCtx newSvgDepth newSvgHIP rest2
+           then []
+           else
+             let !lcText = T.pack lcName; !tid = tagIdFromText lcText
+             in TEndTag lcText tid : tokenizeCtx newSvgDepth newSvgHIP rest2
   | c == '>' = TComment "" : tokenizeCtx svgDepth svgHIP rest
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (c : rest)
@@ -5581,26 +5594,26 @@ readDoctypeIds cs
   | matchCaseI cs "public" =
       let cs1 = dropWhile isWSChar (drop 6 cs)
       in case cs1 of
-          (q : rest)
-            | q == '"' || q == '\'' ->
-                let (pub, rest1) = readQuotedDoc rest q
-                    rest2 = dropWhile isWSChar rest1
-                in case rest2 of
-                    (q2 : rest3)
-                      | q2 == '"' || q2 == '\'' ->
-                          let (sys, rest4) = readQuotedDoc rest3 q2
-                          in (Just (T.pack pub), Just (T.pack sys), False, skipToGtStr rest4)
-                    ('>' : rest3) -> (Just (T.pack pub), Just (T.pack ""), False, rest3)
-                    _ -> (Just (T.pack pub), Just (T.pack ""), False, skipToGtStr rest2)
-          _ -> (Nothing, Nothing, True, skipToGtStr cs1)
+           (q : rest)
+             | q == '"' || q == '\'' ->
+                 let (pub, rest1) = readQuotedDoc rest q
+                     rest2 = dropWhile isWSChar rest1
+                 in case rest2 of
+                      (q2 : rest3)
+                        | q2 == '"' || q2 == '\'' ->
+                            let (sys, rest4) = readQuotedDoc rest3 q2
+                            in (Just (T.pack pub), Just (T.pack sys), False, skipToGtStr rest4)
+                      ('>' : rest3) -> (Just (T.pack pub), Just (T.pack ""), False, rest3)
+                      _ -> (Just (T.pack pub), Just (T.pack ""), False, skipToGtStr rest2)
+           _ -> (Nothing, Nothing, True, skipToGtStr cs1)
   | matchCaseI cs "system" =
       let cs1 = dropWhile isWSChar (drop 6 cs)
       in case cs1 of
-          (q : rest)
-            | q == '"' || q == '\'' ->
-                let (sys, rest1) = readQuotedDoc rest q
-                in (Just (T.pack ""), Just (T.pack sys), False, skipToGtStr rest1)
-          _ -> (Nothing, Nothing, True, skipToGtStr cs1)
+           (q : rest)
+             | q == '"' || q == '\'' ->
+                 let (sys, rest1) = readQuotedDoc rest q
+                 in (Just (T.pack ""), Just (T.pack sys), False, skipToGtStr rest1)
+           _ -> (Nothing, Nothing, True, skipToGtStr cs1)
   | otherwise = (Nothing, Nothing, True, skipToGtStr cs)
   where
     isWSChar c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
@@ -5628,20 +5641,20 @@ readTagAttrs = (\(acc, sc, rest) -> (attrsFromList (reverse acc), sc, rest)) . g
           let (name, rest1) = readAttrName (c : rest)
               rest2 = dropWhile isWSChar rest1
           in if null name
-              then go acc rest2
-              else case rest2 of
-                ('=' : rest3) ->
-                  let rest4 = dropWhile isWSChar rest3
-                      (val, rest5) = readAttrValue rest4
-                      lcName = T.toLower (T.pack name)
-                  in if any (\(n, _) -> n == lcName) acc
-                      then go acc rest5
-                      else go ((lcName, val) : acc) rest5
-                _ ->
-                  let lcName = T.toLower (T.pack name)
-                  in if any (\(n, _) -> n == lcName) acc
-                      then go acc rest2
-                      else go ((lcName, T.empty) : acc) rest2
+               then go acc rest2
+               else case rest2 of
+                 ('=' : rest3) ->
+                   let rest4 = dropWhile isWSChar rest3
+                       (val, rest5) = readAttrValue rest4
+                       lcName = T.toLower (T.pack name)
+                   in if any (\(n, _) -> n == lcName) acc
+                        then go acc rest5
+                        else go ((lcName, val) : acc) rest5
+                 _ ->
+                   let lcName = T.toLower (T.pack name)
+                   in if any (\(n, _) -> n == lcName) acc
+                        then go acc rest2
+                        else go ((lcName, T.empty) : acc) rest2
     isWSChar c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
 
 
@@ -5781,10 +5794,10 @@ tokenizeScriptData cs = scriptNormal [] cs
     scriptEscaped acc ('<' : rest) =
       let (tag, rest') = tryMatchScriptStart rest
       in case tag of
-          Just suffix ->
-            scriptDoubleEscaped (reverse suffix ++ '<' : acc) rest'
-          Nothing ->
-            scriptEscaped ('<' : acc) rest
+           Just suffix ->
+             scriptDoubleEscaped (reverse suffix ++ '<' : acc) rest'
+           Nothing ->
+             scriptEscaped ('<' : acc) rest
     scriptEscaped acc ('\0' : rest) = scriptEscaped ('\xFFFD' : acc) rest
     scriptEscaped acc (c : rest) = scriptEscaped (c : acc) rest
 
@@ -5794,8 +5807,8 @@ tokenizeScriptData cs = scriptNormal [] cs
     scriptDoubleEscaped acc ('<' : '/' : rest) =
       let (isScript, consumed, rest') = tryMatchScriptEnd rest
       in if isScript
-          then scriptEscaped (reverse consumed ++ '/' : '<' : acc) rest'
-          else scriptDoubleEscaped (reverse consumed ++ '/' : '<' : acc) rest'
+           then scriptEscaped (reverse consumed ++ '/' : '<' : acc) rest'
+           else scriptDoubleEscaped (reverse consumed ++ '/' : '<' : acc) rest'
     scriptDoubleEscaped acc ('\0' : rest) = scriptDoubleEscaped ('\xFFFD' : acc) rest
     scriptDoubleEscaped acc (c : rest) = scriptDoubleEscaped (c : acc) rest
 
@@ -5832,9 +5845,9 @@ tokenizePlaintext [] = []
 tokenizePlaintext cs =
   let (text, rest) = span (/= '\0') cs
   in (if null text then [] else [TString (T.pack text)])
-      ++ case rest of
-        ('\0' : rs) -> TChar '\xFFFD' : tokenizePlaintext rs
-        _ -> []
+       ++ case rest of
+         ('\0' : rs) -> TChar '\xFFFD' : tokenizePlaintext rs
+         _ -> []
 
 
 tokenizeRCData :: String -> Text -> [Token]
@@ -5860,17 +5873,18 @@ matchCloseTag :: String -> String -> Bool
 matchCloseTag cs tag =
   let (name, rest) = span (\c -> isAlpha c || isDigit c || c == '-') cs
   in map toLower name == map toLower tag
-      && case rest of
-        [] -> False
-        (c : _) -> c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '/'
+       && case rest of
+         [] -> False
+         (c : _) -> c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '/'
 
 
--- | Remaining input after the first markup declaration when the input is the
--- substring that follows @\<!\@ (same convention as 'tokenizeMarkupDeclCtx').
+{- | Remaining input after the first markup declaration when the input is the
+substring that follows @\<!\@ (same convention as 'tokenizeMarkupDeclCtx').
+-}
 {-# NOINLINE markupDeclRemaining #-}
 markupDeclRemaining :: Int -> Bool -> String -> String
 markupDeclRemaining _ _ = \case
-  ('-':'-':rest) -> snd (readComment rest)
+  ('-' : '-' : rest) -> snd (readComment rest)
   rest
     | matchCaseI rest "doctype" ->
         let rest1 = drop 7 rest
@@ -5878,10 +5892,10 @@ markupDeclRemaining _ _ = \case
             (_name, cs2) = readDoctypeName cs1
             cs3 = dropWhile isSpDoctype cs2
             (_pub, _sys, _fq, cs4) = readDoctypeIds cs3
-         in cs4
+        in cs4
     | matchCaseI rest "[cdata[" ->
         let rest1 = drop 7 rest
-         in snd (readUntilStr "]]>" rest1)
+        in snd (readUntilStr "]]>" rest1)
     | otherwise ->
         snd (readBogusComment rest)
   where
@@ -5906,11 +5920,12 @@ utf8AdvanceNChars !bs !o !n
   | o >= BS.length bs = o
   | otherwise =
       let !w = utf8CharWidth (BSU.unsafeIndex bs o)
-       in utf8AdvanceNChars bs (o + w) (n - 1)
+      in utf8AdvanceNChars bs (o + w) (n - 1)
 
 
--- | String suffix after a raw-text element's closing tag (after @>@), or the
--- original string if no closing tag is found.
+{- | String suffix after a raw-text element's closing tag (after @>@), or the
+original string if no closing tag is found.
+-}
 {-# NOINLINE rawTextRemainingString #-}
 rawTextRemainingString :: String -> Text -> String
 rawTextRemainingString cs tag
@@ -5956,7 +5971,7 @@ scriptDataRemaining cs = scriptNormal cs
     scriptDoubleEscaped ('-' : '-' : '>' : rest) = scriptEscaped rest
     scriptDoubleEscaped ('<' : '/' : rest) =
       let (isScript, _consumed, rest') = tryMatchScriptEnd rest
-       in if isScript then scriptEscaped rest' else scriptDoubleEscaped rest'
+      in if isScript then scriptEscaped rest' else scriptDoubleEscaped rest'
     scriptDoubleEscaped ('\0' : rest) = scriptDoubleEscaped rest
     scriptDoubleEscaped (_ : rest) = scriptDoubleEscaped rest
 
@@ -6012,22 +6027,22 @@ parseHexEntity :: String -> String -> (String, String)
 parseHexEntity prefix rest =
   let (hex, after) = span isHexDigit rest
   in if null hex
-      then ("&" ++ prefix, rest)
-      else
-        let val = foldl' (\a d -> a * 16 + digitToInt d) 0 hex
-            after1 = case after of (';' : r) -> r; _ -> after
-        in ([safeChar val], after1)
+       then ("&" ++ prefix, rest)
+       else
+         let val = foldl' (\a d -> a * 16 + digitToInt d) 0 hex
+             after1 = case after of (';' : r) -> r; _ -> after
+         in ([safeChar val], after1)
 
 
 parseDecEntity :: String -> (String, String)
 parseDecEntity rest =
   let (dec, after) = span isDigit rest
   in if null dec
-      then ("&#", rest)
-      else
-        let val = foldl' (\a d -> a * 10 + digitToInt d) 0 dec
-            after1 = case after of (';' : r) -> r; _ -> after
-        in ([safeChar val], after1)
+       then ("&#", rest)
+       else
+         let val = foldl' (\a d -> a * 10 + digitToInt d) 0 dec
+             after1 = case after of (';' : r) -> r; _ -> after
+         in ([safeChar val], after1)
 
 
 safeChar :: Int -> Char
@@ -6077,12 +6092,12 @@ matchNamedEntity :: String -> Maybe (String, String, String)
 matchNamedEntity cs =
   let (allAlpha, rest) = span isAlphaNum cs
   in if null allAlpha
-      then Nothing
-      else case rest of
-        (';' : after) -> case lookup allAlpha namedEntities of
-          Just rep -> Just (allAlpha, rep, after)
-          Nothing -> tryPrefixesWithSemi allAlpha (';' : after)
-        _ -> tryPrefixesNoSemi allAlpha rest
+       then Nothing
+       else case rest of
+         (';' : after) -> case lookup allAlpha namedEntities of
+           Just rep -> Just (allAlpha, rep, after)
+           Nothing -> tryPrefixesWithSemi allAlpha (';' : after)
+         _ -> tryPrefixesNoSemi allAlpha rest
 
 
 tryPrefixesWithSemi :: String -> String -> Maybe (String, String, String)
@@ -6093,8 +6108,8 @@ tryPrefixesWithSemi name rest = go (length name)
       let prefix = take n name
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
-          Just rep -> Just (prefix, rep, suffix)
-          Nothing -> go (n - 1)
+           Just rep -> Just (prefix, rep, suffix)
+           Nothing -> go (n - 1)
 
 
 tryPrefixesNoSemi :: String -> String -> Maybe (String, String, String)
@@ -6105,11 +6120,11 @@ tryPrefixesNoSemi name rest = go (length name)
       let prefix = take n name
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
-          Just rep ->
-            if prefix `elem` legacyEntities
-              then Just (prefix, rep, suffix)
-              else go (n - 1)
-          Nothing -> go (n - 1)
+           Just rep ->
+             if prefix `elem` legacyEntities
+               then Just (prefix, rep, suffix)
+               else go (n - 1)
+           Nothing -> go (n - 1)
 
 
 legacyEntities :: [String]
@@ -6228,12 +6243,12 @@ matchNamedEntityAttr :: String -> Maybe (String, String, String)
 matchNamedEntityAttr cs =
   let (allAlpha, rest) = span isAlphaNum cs
   in if null allAlpha
-      then Nothing
-      else case rest of
-        (';' : after) -> case lookup allAlpha namedEntities of
-          Just rep -> Just (allAlpha, rep, after)
-          Nothing -> Nothing
-        _ -> tryAttrPrefixesLegacy allAlpha rest
+       then Nothing
+       else case rest of
+         (';' : after) -> case lookup allAlpha namedEntities of
+           Just rep -> Just (allAlpha, rep, after)
+           Nothing -> Nothing
+         _ -> tryAttrPrefixesLegacy allAlpha rest
 
 
 tryAttrPrefixesLegacy :: String -> String -> Maybe (String, String, String)
@@ -6244,16 +6259,16 @@ tryAttrPrefixesLegacy name rest = go (length name)
       let prefix = take n name
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
-          Just rep ->
-            if prefix `elem` legacyEntities
-              then
-                let nextChar = case suffix of (c : _) -> Just c; [] -> Nothing
-                    nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
-                in if nextIsAlnumOrEq
-                    then go (n - 1)
-                    else Just (prefix, rep, suffix)
-              else go (n - 1)
-          Nothing -> go (n - 1)
+           Just rep ->
+             if prefix `elem` legacyEntities
+               then
+                 let nextChar = case suffix of (c : _) -> Just c; [] -> Nothing
+                     nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
+                 in if nextIsAlnumOrEq
+                      then go (n - 1)
+                      else Just (prefix, rep, suffix)
+               else go (n - 1)
+           Nothing -> go (n - 1)
 
 
 namedEntities :: [(String, String)]

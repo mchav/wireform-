@@ -1,86 +1,92 @@
-{-# LANGUAGE BangPatterns      #-}
-{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications  #-}
--- | Cross-library example: write a Parquet file with @wireform-parquet@,
--- then load it back through the @dataframe@ library
--- (<https://hackage.haskell.org/package/dataframe>) and run a few
--- aggregations on it via the typed expression DSL.
---
--- This exists to demonstrate that wireform's Parquet writer produces
--- bytes that other Haskell tooling can consume — there's no API
--- coupling between the two libraries, just the on-disk Parquet
--- format. The example doubles as an interop smoke test: every value
--- the dataframe pipeline reports is also computed in pure Haskell
--- from the source vectors, and the two are compared.
---
--- The dataframe dependency is heavy (cassava, attoparsec, regex-tdfa,
--- snappy-hs, zstd, zlib, granite, vector-algorithms, …) so the
--- example is hidden behind the @+dataframe-bridge@ Cabal flag and
--- excluded from a default @cabal build all@. To build and run it:
---
--- > cabal run example-dataframe-bridge -fdataframe-bridge
+{-# LANGUAGE TypeApplications #-}
+
+{- | Cross-library example: write a Parquet file with @wireform-parquet@,
+then load it back through the @dataframe@ library
+(<https://hackage.haskell.org/package/dataframe>) and run a few
+aggregations on it via the typed expression DSL.
+
+This exists to demonstrate that wireform's Parquet writer produces
+bytes that other Haskell tooling can consume — there's no API
+coupling between the two libraries, just the on-disk Parquet
+format. The example doubles as an interop smoke test: every value
+the dataframe pipeline reports is also computed in pure Haskell
+from the source vectors, and the two are compared.
+
+The dataframe dependency is heavy (cassava, attoparsec, regex-tdfa,
+snappy-hs, zstd, zlib, granite, vector-algorithms, …) so the
+example is hidden behind the @+dataframe-bridge@ Cabal flag and
+excluded from a default @cabal build all@. To build and run it:
+
+> cabal run example-dataframe-bridge -fdataframe-bridge
+-}
 module Main (main) where
 
-import qualified Data.ByteString as BS
-import           Data.Foldable (for_)
-import           Data.Int (Int64)
-import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Vector as V
-import qualified Data.Vector.Primitive as VP
-import           System.Directory
-                   ( createDirectoryIfMissing
-                   , doesFileExist
-                   , removeFile
-                   )
-import           System.FilePath ((</>))
-import           System.IO.Temp (withSystemTempDirectory)
-
-import qualified Parquet.Types as P
-import qualified Parquet.Write as PW
-
+import Data.ByteString qualified as BS
+import Data.Foldable (for_)
+import Data.Int (Int64)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
+import Data.Vector.Primitive qualified as VP
 -- The dataframe library's typed surface is in @DataFrame.Typed@,
 -- which tracks column names and types in a phantom type. We only
 -- touch the untyped @DataFrame@ module for I/O and the initial
 -- describe; everything past 'TDF.freezeWithError' is schema-checked
 -- at compile time.
-import qualified DataFrame as D
-import           DataFrame.Operators ((|>))
-import qualified DataFrame.Typed as TDF
-import           DataFrame.Typed ((.==.), (.>.))
+import DataFrame qualified as D
+import DataFrame.Operators ((|>))
+import DataFrame.Typed ((.==.), (.>.))
+import DataFrame.Typed qualified as TDF
+import Parquet.Types qualified as P
+import Parquet.Write qualified as PW
+import System.Directory (
+  createDirectoryIfMissing,
+  doesFileExist,
+  removeFile,
+ )
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 
--- | The synthetic dataset: a tiny e-commerce order log. Three
--- columns line up with the three Parquet primitive shapes the
--- writer emits below ('PTInt64', 'PTByteArray', 'PTDouble').
+
+{- | The synthetic dataset: a tiny e-commerce order log. Three
+columns line up with the three Parquet primitive shapes the
+writer emits below ('PTInt64', 'PTByteArray', 'PTDouble').
+-}
 data Order = Order
   { orderId :: !Int64
-  , region  :: !Text
-  , amount  :: !Double
-  } deriving (Show, Eq)
+  , region :: !Text
+  , amount :: !Double
+  }
+  deriving (Show, Eq)
+
 
 type OrderSchema =
   '[ TDF.Column "order_id" Int64
-   , TDF.Column "region"   Text
-   , TDF.Column "amount"   Double
+   , TDF.Column "region" Text
+   , TDF.Column "amount" Double
    ]
+
 
 orders :: [Order]
 orders =
-  [ Order  1 "us-west" 12.50
-  , Order  2 "us-west" 17.00
-  , Order  3 "us-east"  5.25
-  , Order  4 "eu"      31.80
-  , Order  5 "us-east"  9.75
-  , Order  6 "eu"      22.40
-  , Order  7 "us-west" 14.10
-  , Order  8 "apac"    44.99
-  , Order  9 "us-east"  7.30
-  , Order 10 "apac"    19.20
-  , Order 11 "eu"      28.65
-  , Order 12 "us-west"  3.45
+  [ Order 1 "us-west" 12.50
+  , Order 2 "us-west" 17.00
+  , Order 3 "us-east" 5.25
+  , Order 4 "eu" 31.80
+  , Order 5 "us-east" 9.75
+  , Order 6 "eu" 22.40
+  , Order 7 "us-west" 14.10
+  , Order 8 "apac" 44.99
+  , Order 9 "us-east" 7.30
+  , Order 10 "apac" 19.20
+  , Order 11 "eu" 28.65
+  , Order 12 "us-west" 3.45
   ]
+
 
 main :: IO ()
 main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
@@ -105,7 +111,7 @@ main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
   print (D.describeColumns raw)
   df <- case TDF.freezeWithError @OrderSchema raw of
     Right typed -> pure typed
-    Left  err   -> error $ "schema mismatch: " <> T.unpack err
+    Left err -> error $ "schema mismatch: " <> T.unpack err
 
   -- 3. Run a typed aggregation: total + order count + mean per
   --    region, sorted by total descending. Column references go
@@ -118,11 +124,11 @@ main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
         df
           |> TDF.groupBy @'["region"]
           |> TDF.aggregate
-               ( TDF.agg @"total"  (TDF.sum   (TDF.col @"amount"))
-               $ TDF.agg @"orders" (TDF.count (TDF.col @"order_id"))
-               $ TDF.agg @"avg"    (TDF.mean  (TDF.col @"amount"))
-               $ TDF.aggNil
-               )
+            ( TDF.agg @"total" (TDF.sum (TDF.col @"amount")) $
+                TDF.agg @"orders" (TDF.count (TDF.col @"order_id")) $
+                  TDF.agg @"avg" (TDF.mean (TDF.col @"amount")) $
+                    TDF.aggNil
+            )
           |> TDF.sortBy [TDF.desc (TDF.col @"total")]
   print perRegion
 
@@ -134,17 +140,22 @@ main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
   let groundTruth = expectedTotals orders
   for_ groundTruth $ \(reg, expectedTot, expectedCount) -> do
     let matched = perRegion |> TDF.filterWhere (TDF.col @"region" .==. TDF.lit reg)
-    case ( TDF.columnAsList @"total"  matched
+    case ( TDF.columnAsList @"total" matched
          , TDF.columnAsList @"orders" matched
          ) of
-      (actualTot:_, actualCount:_) -> do
-        putStrLn $ T.unpack reg
-                ++ ": dataframe total="    ++ showD actualTot
-                ++ "  expected="           ++ showD expectedTot
-                ++ "  dataframe count="    ++ show  actualCount
-                ++ "  expected="           ++ show  expectedCount
+      (actualTot : _, actualCount : _) -> do
+        putStrLn $
+          T.unpack reg
+            ++ ": dataframe total="
+            ++ showD actualTot
+            ++ "  expected="
+            ++ showD expectedTot
+            ++ "  dataframe count="
+            ++ show actualCount
+            ++ "  expected="
+            ++ show expectedCount
         assertClose ("total for " ++ T.unpack reg) expectedTot actualTot
-        assertEq    ("count for " ++ T.unpack reg) expectedCount actualCount
+        assertEq ("count for " ++ T.unpack reg) expectedCount actualCount
       _ -> error $ "ground-truth check: no row for region " <> T.unpack reg
 
   -- 5. A richer pipeline: filter to large orders, derive a
@@ -168,50 +179,70 @@ main = withSystemTempDirectory "wireform-dataframe-bridge" $ \dir -> do
 
   putStrLn "\nOK — wireform → dataframe round-trip passed."
 
+
 -- ---------------------------------------------------------------------------
 -- wireform-parquet writer side
 -- ---------------------------------------------------------------------------
 
--- | Build a single-row-group Parquet file from the order list.
---
--- Three columns:
---
---   order_id : INT64                   / required
---   region   : BYTE_ARRAY (UTF-8)      / required
---   amount   : DOUBLE                  / required
+{- | Build a single-row-group Parquet file from the order list.
+
+Three columns:
+
+  order_id : INT64                   / required
+  region   : BYTE_ARRAY (UTF-8)      / required
+  amount   : DOUBLE                  / required
+-}
 encodeOrders :: [Order] -> BS.ByteString
 encodeOrders rows =
-  let schema = V.fromList
-        [ P.SchemaElement
-            { P.seName          = "schema"
-            , P.seRepetition    = Nothing
-            , P.seType          = Nothing
-            , P.seNumChildren   = Just 3
-            , P.seConvertedType = Nothing
-            , P.seLogicalType   = Nothing
-            , P.seFieldId       = Nothing
-            }
-        , P.SchemaElement "order_id"
-            (Just P.Required) (Just P.PTInt64)
-            Nothing Nothing                Nothing Nothing
-        , P.SchemaElement "region"
-            (Just P.Required) (Just P.PTByteArray)
-            Nothing (Just P.CTUtf8)        Nothing Nothing
-        , P.SchemaElement "amount"
-            (Just P.Required) (Just P.PTDouble)
-            Nothing Nothing                Nothing Nothing
-        ]
+  let schema =
+        V.fromList
+          [ P.SchemaElement
+              { P.seName = "schema"
+              , P.seRepetition = Nothing
+              , P.seType = Nothing
+              , P.seNumChildren = Just 3
+              , P.seConvertedType = Nothing
+              , P.seLogicalType = Nothing
+              , P.seFieldId = Nothing
+              }
+          , P.SchemaElement
+              "order_id"
+              (Just P.Required)
+              (Just P.PTInt64)
+              Nothing
+              Nothing
+              Nothing
+              Nothing
+          , P.SchemaElement
+              "region"
+              (Just P.Required)
+              (Just P.PTByteArray)
+              Nothing
+              (Just P.CTUtf8)
+              Nothing
+              Nothing
+          , P.SchemaElement
+              "amount"
+              (Just P.Required)
+              (Just P.PTDouble)
+              Nothing
+              Nothing
+              Nothing
+              Nothing
+          ]
 
-      idCol     = VP.fromList (map orderId rows)
-      regionCol = V.fromList  (map (TE.encodeUtf8 . region) rows)
+      idCol = VP.fromList (map orderId rows)
+      regionCol = V.fromList (map (TE.encodeUtf8 . region) rows)
       amountCol = VP.fromList (map amount rows)
 
-      cols = V.fromList
-        [ PW.ColInt64     idCol
-        , PW.ColByteArray regionCol
-        , PW.ColDouble    amountCol
-        ]
-  in  PW.buildParquetFile schema (V.singleton cols)
+      cols =
+        V.fromList
+          [ PW.ColInt64 idCol
+          , PW.ColByteArray regionCol
+          , PW.ColDouble amountCol
+          ]
+  in PW.buildParquetFile schema (V.singleton cols)
+
 
 -- ---------------------------------------------------------------------------
 -- Ground-truth (pure-Haskell) reference aggregates
@@ -222,11 +253,13 @@ expectedTotals rows = map summarise (uniq (map region rows))
   where
     summarise reg =
       let matching = filter ((== reg) . region) rows
-      in  (reg, sum (map amount matching), length matching)
+      in (reg, sum (map amount matching), length matching)
+
 
 uniq :: Eq a => [a] -> [a]
-uniq []     = []
-uniq (x:xs) = x : uniq (filter (/= x) xs)
+uniq [] = []
+uniq (x : xs) = x : uniq (filter (/= x) xs)
+
 
 -- ---------------------------------------------------------------------------
 -- Tiny assertion helpers
@@ -235,18 +268,30 @@ uniq (x:xs) = x : uniq (filter (/= x) xs)
 assertClose :: String -> Double -> Double -> IO ()
 assertClose msg expected actual
   | abs (expected - actual) < 1e-6 = pure ()
-  | otherwise = error $ "assertion failed: " <> msg
-              <> " expected " <> showD expected
-              <> " got "      <> showD actual
+  | otherwise =
+      error $
+        "assertion failed: "
+          <> msg
+          <> " expected "
+          <> showD expected
+          <> " got "
+          <> showD actual
+
 
 assertEq :: (Eq a, Show a) => String -> a -> a -> IO ()
 assertEq msg expected actual
   | expected == actual = pure ()
-  | otherwise = error $ "assertion failed: " <> msg
-              <> " expected " <> show expected
-              <> " got "      <> show actual
+  | otherwise =
+      error $
+        "assertion failed: "
+          <> msg
+          <> " expected "
+          <> show expected
+          <> " got "
+          <> show actual
+
 
 showD :: Double -> String
 showD d =
   let !rounded = fromIntegral (round (d * 100) :: Int) / 100 :: Double
-  in  show rounded
+  in show rounded

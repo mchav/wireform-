@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Kafka.Network.Auth.Plain
 Description : SASL/PLAIN authentication implementation
 Copyright   : (c) 2025
@@ -17,35 +17,44 @@ Where authzid is typically empty for Kafka.
 
 See RFC 4616 for the complete PLAIN SASL mechanism specification.
 -}
-module Kafka.Network.Auth.Plain
-  ( generatePlainAuth
-  , generatePlainAuthWithAuthzid
-  , plainAuthData
-  ) where
+module Kafka.Network.Auth.Plain (
+  generatePlainAuth,
+  generatePlainAuthWithAuthzid,
+  plainAuthData,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Word (Word8)
 
--- | Generate SASL/PLAIN authentication data with the Kafka-default
--- empty authorization identity.
+
+{- | Generate SASL/PLAIN authentication data with the Kafka-default
+empty authorization identity.
+-}
 generatePlainAuth
-  :: Text      -- ^ Username
-  -> Text      -- ^ Password
+  :: Text
+  -- ^ Username
+  -> Text
+  -- ^ Password
   -> ByteString
 generatePlainAuth = generatePlainAuthWithAuthzid Nothing
 
--- | Generate SASL/PLAIN authentication data.
---
--- The format is: @[authzid] \\0 username \\0 password@. For Kafka,
--- @authzid@ is usually empty, but RFC 4616 permits callers to request
--- a distinct authorization identity when the broker side supports it.
+
+{- | Generate SASL/PLAIN authentication data.
+
+The format is: @[authzid] \\0 username \\0 password@. For Kafka,
+@authzid@ is usually empty, but RFC 4616 permits callers to request
+a distinct authorization identity when the broker side supports it.
+-}
 generatePlainAuthWithAuthzid
-  :: Maybe Text -- ^ Authorization identity; 'Nothing' keeps it empty.
-  -> Text       -- ^ Username
-  -> Text       -- ^ Password
+  :: Maybe Text
+  -- ^ Authorization identity; 'Nothing' keeps it empty.
+  -> Text
+  -- ^ Username
+  -> Text
+  -- ^ Password
   -> ByteString
 generatePlainAuthWithAuthzid mAuthzid username password =
   let authzidBytes = maybe BS.empty encodeUtf8 mAuthzid
@@ -54,7 +63,7 @@ generatePlainAuthWithAuthzid mAuthzid username password =
       passwordBytes = encodeUtf8 password
   in BS.concat [authzidBytes, nul, usernameBytes, nul, passwordBytes]
 
+
 -- | Alias for 'generatePlainAuth' for clarity.
 plainAuthData :: Text -> Text -> ByteString
 plainAuthData = generatePlainAuth
-

@@ -292,20 +292,20 @@ floatToHalf !w =
       !mant = w .&. 0x7fffff
       !signBit = fromIntegral sign32 `shiftL` 15 :: Word16
   in if expo == 0xff
-      then signBit .|. 0x7c00 .|. (if mant /= 0 then 0x0200 else 0)
-      else
-        if expo > 142
-          then signBit .|. 0x7c00
-          else
-            if expo < 113
-              then
-                if expo < 103
-                  then signBit
-                  else
-                    let !m = mant .|. 0x800000
-                        !shift = fromIntegral (125 - expo) :: Int
-                    in signBit .|. fromIntegral ((m `shiftR` shift) .&. 0x03ff)
-              else
-                let !hexp = fromIntegral (expo - 112) :: Word16
-                    !hmant = fromIntegral ((mant `shiftR` 13) .&. 0x03ff) :: Word16
-                in signBit .|. (hexp `shiftL` 10) .|. hmant
+       then signBit .|. 0x7c00 .|. (if mant /= 0 then 0x0200 else 0)
+       else
+         if expo > 142
+           then signBit .|. 0x7c00
+           else
+             if expo < 113
+               then
+                 if expo < 103
+                   then signBit
+                   else
+                     let !m = mant .|. 0x800000
+                         !shift = fromIntegral (125 - expo) :: Int
+                     in signBit .|. fromIntegral ((m `shiftR` shift) .&. 0x03ff)
+               else
+                 let !hexp = fromIntegral (expo - 112) :: Word16
+                     !hmant = fromIntegral ((mant `shiftR` 13) .&. 0x03ff) :: Word16
+                 in signBit .|. (hexp `shiftL` 10) .|. hmant

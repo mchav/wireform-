@@ -32,42 +32,43 @@ cabal bench wireform-websocket:wireform-websocket-bench -- -m pattern '\/64B\/'
 -}
 module Main (main) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay, ThreadId)
+import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar
 import Control.DeepSeq (NFData (..))
 import Control.Exception (SomeException, try)
-import qualified Data.ByteString as BS
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Network.Socket as NS
-import qualified Network.WebSockets as WS
-
 import Criterion.Main
-
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Network.Socket qualified as NS
 import Network.WebSocket.Client
 import Network.WebSocket.Connection (Connection)
 import Network.WebSocket.Message
 import Network.WebSocket.Server
+import Network.WebSockets qualified as WS
+
 
 ------------------------------------------------------------------------
 -- Payload sizes
 ------------------------------------------------------------------------
 
--- | Round-trip benchmark payloads.  Span the common range:
---
---   * 64 B \u2014 chat-message-sized; framing overhead dominates.
---   * 1 KiB \u2014 typical JSON payload.
---   * 16 KiB \u2014 single ring-bound chunk.
---   * 256 KiB \u2014 forces multiple ring publishes.
+{- | Round-trip benchmark payloads.  Span the common range:
+
+  * 64 B \u2014 chat-message-sized; framing overhead dominates.
+  * 1 KiB \u2014 typical JSON payload.
+  * 16 KiB \u2014 single ring-bound chunk.
+  * 256 KiB \u2014 forces multiple ring publishes.
+-}
 payloadSizes :: [(String, Int)]
 payloadSizes =
-  [ ("64B",   64)
-  , ("1KiB",  1024)
+  [ ("64B", 64)
+  , ("1KiB", 1024)
   , ("16KiB", 16 * 1024)
   , ("128KiB", 128 * 1024)
   ]
+
 
 ------------------------------------------------------------------------
 -- Bench harness
@@ -77,24 +78,31 @@ main :: IO ()
 main = do
   let payloads = [(name, BS.replicate n 0x41) | (name, n) <- payloadSizes]
   defaultMain
-    [ bgroup "wireform-websocket"
+    [ bgroup
+        "wireform-websocket"
         [ withWireformFixture name payload
         | (name, payload) <- payloads
         ]
-    , bgroup "websockets (jaspervdj)"
+    , bgroup
+        "websockets (jaspervdj)"
         [ withWebsocketsFixture name (BSL.fromStrict payload)
         | (name, payload) <- payloads
         ]
     ]
 
--- | Newtype wrapper that lets us hand a heterogeneous fixture
--- tuple to criterion's 'envWithCleanup', which insists on an
--- 'NFData' instance.  None of our fixture fields is meaningfully
--- forceable (they're IO handles and live connections), so the
--- instance is trivial \u2014 'rnf' just evaluates the constructor.
-newtype Opaque a = Opaque { unOpaque :: a }
+
+{- | Newtype wrapper that lets us hand a heterogeneous fixture
+tuple to criterion's 'envWithCleanup', which insists on an
+'NFData' instance.  None of our fixture fields is meaningfully
+forceable (they're IO handles and live connections), so the
+instance is trivial \u2014 'rnf' just evaluates the constructor.
+-}
+newtype Opaque a = Opaque {unOpaque :: a}
+
+
 instance NFData (Opaque a) where
   rnf (Opaque _) = ()
+
 
 ------------------------------------------------------------------------
 -- wireform-websocket fixture
@@ -103,7 +111,8 @@ instance NFData (Opaque a) where
 withWireformFixture :: String -> ByteString -> Benchmark
 withWireformFixture name payload = env acquire $
   \ ~(Opaque (_, _, conn)) ->
-    bgroup name
+    bgroup
+      name
       [ bench "text round-trip" $ whnfIO $ do
           sendTextMessage conn (TE.decodeUtf8 payload)
           _ <- receiveMessage conn defaultMessageLimit
@@ -125,6 +134,7 @@ withWireformFixture name payload = env acquire $
       _ <- warmupWireform conn (TE.decodeUtf8 payload)
       pure (Opaque (sock, tid, conn))
 
+
 warmupWireform :: Connection -> T.Text -> IO ()
 warmupWireform conn t = go (10 :: Int)
   where
@@ -134,13 +144,16 @@ warmupWireform conn t = go (10 :: Int)
       _ <- receiveMessage conn defaultMessageLimit
       go (n - 1)
 
+
 wireformEchoCfg :: WebSocketServerConfig
-wireformEchoCfg = defaultWebSocketServerConfig
-  { wscHandler       = echoHandler
-  , wscRingSizeHint  = 1024 * 1024   -- 1 MiB; comfortably larger
-                                     -- than 128 KiB frames plus
-                                     -- header room.
-  }
+wireformEchoCfg =
+  defaultWebSocketServerConfig
+    { wscHandler = echoHandler
+    , wscRingSizeHint = 1024 * 1024 -- 1 MiB; comfortably larger
+    -- than 128 KiB frames plus
+    -- header room.
+    }
+
 
 echoHandler :: WebSocketHandler
 echoHandler _ conn = loop
@@ -148,14 +161,18 @@ echoHandler _ conn = loop
     loop = do
       r <- try @SomeException (receiveMessage conn defaultMessageLimit)
       case r of
-        Right (TextMessage   t)  -> sendTextMessage   conn t  >> loop
+        Right (TextMessage t) -> sendTextMessage conn t >> loop
         Right (BinaryMessage bs) -> sendBinaryMessage conn bs >> loop
-        Left _                    -> pure ()
+        Left _ -> pure ()
+
 
 openWireformClient :: Int -> IO Connection
-openWireformClient port = openWebSocketClient
-  (defaultWebSocketClientConfig "127.0.0.1" (show port) "/")
-    { wcRingSizeHint = 1024 * 1024 }
+openWireformClient port =
+  openWebSocketClient
+    (defaultWebSocketClientConfig "127.0.0.1" (show port) "/")
+      { wcRingSizeHint = 1024 * 1024
+      }
+
 
 ------------------------------------------------------------------------
 -- websockets fixture
@@ -164,7 +181,8 @@ openWireformClient port = openWebSocketClient
 withWebsocketsFixture :: String -> BSL.ByteString -> Benchmark
 withWebsocketsFixture name payload = env acquire $
   \ ~(Opaque (_, _, conn)) ->
-    bgroup name
+    bgroup
+      name
       [ bench "text round-trip" $ whnfIO $ do
           WS.sendTextData conn payload
           _ <- WS.receiveData conn :: IO BSL.ByteString
@@ -183,6 +201,7 @@ withWebsocketsFixture name payload = env acquire $
       _ <- warmupWebsockets conn payload
       pure (Opaque (sock, tid, conn))
 
+
 warmupWebsockets :: WS.Connection -> BSL.ByteString -> IO ()
 warmupWebsockets conn payload = go (10 :: Int)
   where
@@ -192,10 +211,12 @@ warmupWebsockets conn payload = go (10 :: Int)
       _ <- WS.receiveData conn :: IO BSL.ByteString
       go (n - 1)
 
--- | Echo server using the 'websockets' library.  We bypass
--- 'WS.runServer' because it allocates its own listening socket;
--- here we have a pre-bound socket so the bench harness picks an
--- ephemeral port deterministically.
+
+{- | Echo server using the 'websockets' library.  We bypass
+'WS.runServer' because it allocates its own listening socket;
+here we have a pre-bound socket so the bench harness picks an
+ephemeral port deterministically.
+-}
 runWebSocketsServer :: NS.Socket -> IO ()
 runWebSocketsServer listenSock = acceptLoop
   where
@@ -203,13 +224,15 @@ runWebSocketsServer listenSock = acceptLoop
       (sock, _) <- NS.accept listenSock
       _ <- forkIO $ do
         r <- try @SomeException $ do
-          pending <- WS.makePendingConnection sock
-                       WS.defaultConnectionOptions
+          pending <-
+            WS.makePendingConnection
+              sock
+              WS.defaultConnectionOptions
           conn <- WS.acceptRequest pending
           serveLoop conn
         case r of
           Right () -> pure ()
-          Left _   -> pure ()
+          Left _ -> pure ()
       acceptLoop
     serveLoop conn = do
       msg <- WS.receiveDataMessage conn
@@ -221,11 +244,13 @@ runWebSocketsServer listenSock = acceptLoop
           WS.sendDataMessage conn (WS.Binary bs)
           serveLoop conn
 
--- | The 'websockets' library only ships a bracketed 'WS.runClient',
--- so the comparison side keeps the fork-and-park dance.  Documented
--- so the asymmetry with our 'openWireformClient' is obvious: the
--- wireform-websocket API exposes a non-bracketed
--- 'openWebSocketClient' which we use directly above.
+
+{- | The 'websockets' library only ships a bracketed 'WS.runClient',
+so the comparison side keeps the fork-and-park dance.  Documented
+so the asymmetry with our 'openWireformClient' is obvious: the
+wireform-websocket API exposes a non-bracketed
+'openWebSocketClient' which we use directly above.
+-}
 openWebsocketsClient :: Int -> IO WS.Connection
 openWebsocketsClient port = do
   mv <- newEmptyMVar
@@ -235,16 +260,18 @@ openWebsocketsClient port = do
       blockForever
   takeMVar mv
 
+
 ------------------------------------------------------------------------
 -- Common
 ------------------------------------------------------------------------
 
 bindEphemeral :: IO (NS.Socket, Int)
 bindEphemeral = do
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   let addr = head addrs
   sock <- NS.openSocket addr
@@ -253,21 +280,23 @@ bindEphemeral = do
   NS.listen sock 32
   boundAddr <- NS.getSocketName sock
   let port = case boundAddr of
-        NS.SockAddrInet p _      -> fromIntegral p
+        NS.SockAddrInet p _ -> fromIntegral p
         NS.SockAddrInet6 p _ _ _ -> fromIntegral p
         _ -> error "ephemeral bind: unexpected sockaddr"
   pure (sock, port)
 
--- | Sleep effectively forever (~ 290 years on a 64-bit RTS).
--- We cannot 'takeMVar' on a freshly-created empty MVar here:
--- GHC's runtime would notice the only reference to that MVar is
--- the thread blocking on it, decide the situation is hopeless,
--- and raise 'BlockedIndefinitelyOnMVar'.  The exception would
--- unwind the surrounding 'bracket' that owns the client
--- 'Connection', close the duplex transport, and make every
--- subsequent benchmark iteration trip on a dead socket.
--- 'threadDelay' parks on the IO manager, which the deadlock
--- detector does not inspect.
+
+{- | Sleep effectively forever (~ 290 years on a 64-bit RTS).
+We cannot 'takeMVar' on a freshly-created empty MVar here:
+GHC's runtime would notice the only reference to that MVar is
+the thread blocking on it, decide the situation is hopeless,
+and raise 'BlockedIndefinitelyOnMVar'.  The exception would
+unwind the surrounding 'bracket' that owns the client
+'Connection', close the duplex transport, and make every
+subsequent benchmark iteration trip on a dead socket.
+'threadDelay' parks on the IO manager, which the deadlock
+detector does not inspect.
+-}
 blockForever :: IO ()
 blockForever = do
   threadDelay maxBound

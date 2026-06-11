@@ -80,10 +80,10 @@ encodeMessageBinary (ThriftMessage name mtype seqid payload) =
       let !nameBytes = TE.encodeUtf8 name
           !version = binaryVersion .|. fromIntegral (msgTypeToWord8 mtype)
       in putBE32 version
-          <> putBE32 (fromIntegral (BS.length nameBytes))
-          <> B.byteString nameBytes
-          <> putBE32i (fromIntegral seqid)
-          <> B.byteString (encodeBinary payload)
+           <> putBE32 (fromIntegral (BS.length nameBytes))
+           <> B.byteString nameBytes
+           <> putBE32i (fromIntegral seqid)
+           <> B.byteString (encodeBinary payload)
 
 
 decodeMessageBinary :: ByteString -> Either String ThriftMessage
@@ -92,24 +92,24 @@ decodeMessageBinary !bs
   | otherwise =
       let !w = getBE32 bs 0
       in if w .&. 0x80000000 /= 0
-          then decodeStrictBinary bs w
-          else decodeOldBinary bs
+           then decodeStrictBinary bs w
+           else decodeOldBinary bs
 
 
 decodeStrictBinary :: ByteString -> Word32 -> Either String ThriftMessage
 decodeStrictBinary !bs !versionWord =
   let !mtypeByte = fromIntegral (versionWord .&. 0xFF) :: Word8
   in case msgTypeFromWord8 mtypeByte of
-      Nothing -> Left $ "decodeMessageBinary: invalid message type: " ++ show mtypeByte
-      Just !mtype -> do
-        (nameBytes, off1) <- getStr bs 4
-        case TE.decodeUtf8' nameBytes of
-          Left _ -> Left "decodeMessageBinary: invalid UTF-8 in method name"
-          Right name -> do
-            seqid <- getI32At bs off1
-            let !payloadBs = BS.drop (off1 + 4) bs
-            payload <- decodeBinary payloadBs
-            Right (ThriftMessage name mtype seqid payload)
+       Nothing -> Left $ "decodeMessageBinary: invalid message type: " ++ show mtypeByte
+       Just !mtype -> do
+         (nameBytes, off1) <- getStr bs 4
+         case TE.decodeUtf8' nameBytes of
+           Left _ -> Left "decodeMessageBinary: invalid UTF-8 in method name"
+           Right name -> do
+             seqid <- getI32At bs off1
+             let !payloadBs = BS.drop (off1 + 4) bs
+             payload <- decodeBinary payloadBs
+             Right (ThriftMessage name mtype seqid payload)
 
 
 decodeOldBinary :: ByteString -> Either String ThriftMessage
@@ -150,11 +150,11 @@ encodeMessageCompact (ThriftMessage name mtype seqid payload) =
       let !nameBytes = TE.encodeUtf8 name
           !vtByte = (compactVersion .&. 0x1F) .|. (msgTypeToWord8 mtype `shiftL` 5)
       in B.word8 compactProtocolId
-          <> B.word8 vtByte
-          <> putVarint (fromIntegral (fromIntegral seqid :: Word32))
-          <> putVarint (fromIntegral (BS.length nameBytes))
-          <> B.byteString nameBytes
-          <> B.byteString (encodeCompact payload)
+           <> B.word8 vtByte
+           <> putVarint (fromIntegral (fromIntegral seqid :: Word32))
+           <> putVarint (fromIntegral (BS.length nameBytes))
+           <> B.byteString nameBytes
+           <> B.byteString (encodeCompact payload)
 
 
 decodeMessageCompact :: ByteString -> Either String ThriftMessage
@@ -167,30 +167,30 @@ decodeMessageCompact !bs
           !ver = vtByte .&. 0x1F
           !mtypeBits = (vtByte `shiftR` 5) .&. 0x07
       in if ver /= compactVersion
-          then Left $ "decodeMessageCompact: unsupported version: " ++ show ver
-          else case msgTypeFromWord8 mtypeBits of
-            Nothing -> Left $ "decodeMessageCompact: invalid message type: " ++ show mtypeBits
-            Just !mtype -> do
-              (seqidW, off1) <-
-                maybeToEither
-                  "decodeMessageCompact: failed to read seqid varint"
-                  (getVarint bs 2)
-              let !seqid = fromIntegral seqidW :: Int32
-              (nameLen, off2) <-
-                maybeToEither
-                  "decodeMessageCompact: failed to read name length varint"
-                  (getVarint bs off1)
-              let !nLen = fromIntegral nameLen :: Int
-              if off2 + nLen > BS.length bs
-                then Left "decodeMessageCompact: name extends past end of data"
-                else do
-                  let !nameBytes = BS.take nLen (BS.drop off2 bs)
-                  case TE.decodeUtf8' nameBytes of
-                    Left _ -> Left "decodeMessageCompact: invalid UTF-8 in method name"
-                    Right name -> do
-                      let !payloadBs = BS.drop (off2 + nLen) bs
-                      payload <- decodeCompact payloadBs
-                      Right (ThriftMessage name mtype seqid payload)
+           then Left $ "decodeMessageCompact: unsupported version: " ++ show ver
+           else case msgTypeFromWord8 mtypeBits of
+             Nothing -> Left $ "decodeMessageCompact: invalid message type: " ++ show mtypeBits
+             Just !mtype -> do
+               (seqidW, off1) <-
+                 maybeToEither
+                   "decodeMessageCompact: failed to read seqid varint"
+                   (getVarint bs 2)
+               let !seqid = fromIntegral seqidW :: Int32
+               (nameLen, off2) <-
+                 maybeToEither
+                   "decodeMessageCompact: failed to read name length varint"
+                   (getVarint bs off1)
+               let !nLen = fromIntegral nameLen :: Int
+               if off2 + nLen > BS.length bs
+                 then Left "decodeMessageCompact: name extends past end of data"
+                 else do
+                   let !nameBytes = BS.take nLen (BS.drop off2 bs)
+                   case TE.decodeUtf8' nameBytes of
+                     Left _ -> Left "decodeMessageCompact: invalid UTF-8 in method name"
+                     Right name -> do
+                       let !payloadBs = BS.drop (off2 + nLen) bs
+                       payload <- decodeCompact payloadBs
+                       Right (ThriftMessage name mtype seqid payload)
 
 
 --------------------------------------------------------------------------------
@@ -234,8 +234,8 @@ getStr !bs !off
       let !len = fromIntegral (getBE32 bs off) :: Int
           !start = off + 4
       in if len < 0 || start + len > BS.length bs
-          then Left "string length exceeds available data"
-          else Right (BS.take len (BS.drop start bs), start + len)
+           then Left "string length exceeds available data"
+           else Right (BS.take len (BS.drop start bs), start + len)
 
 
 getI32At :: ByteString -> Int -> Either String Int32
@@ -261,6 +261,6 @@ getVarint !bs !off = go off 0 0
           let !b = fromIntegral (BSU.unsafeIndex bs i) :: Word64
               !acc' = acc .|. ((b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-              then Just (acc', i + 1)
-              else go (i + 1) acc' (shift + 7)
+               then Just (acc', i + 1)
+               else go (i + 1) acc' (shift + 7)
 {-# INLINE getVarint #-}

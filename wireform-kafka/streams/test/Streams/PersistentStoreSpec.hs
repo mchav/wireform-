@@ -2,35 +2,38 @@
 
 module Streams.PersistentStoreSpec (tests) where
 
-import qualified Data.ByteString.Char8 as BSC
+import Data.ByteString.Char8 qualified as BSC
+import Kafka.Streams.State.KeyValue.Persistent (
+  defaultPersistentConfig,
+  persistentKeyValueStore,
+ )
+import Kafka.Streams.State.Store (
+  KeyValueStore (..),
+  StateStore (..),
+  kvIteratorToList,
+  storeName,
+ )
+import System.IO.Temp qualified as Temp
 import Test.Syd
-import qualified System.IO.Temp as Temp
 
-import Kafka.Streams.State.KeyValue.Persistent
-  ( defaultPersistentConfig
-  , persistentKeyValueStore
-  )
-import Kafka.Streams.State.Store
-  ( KeyValueStore (..)
-  , StateStore (..)
-  , kvIteratorToList
-  , storeName
-  )
 
 tests :: Spec
-tests = describe "Persistent KV store" $ sequence_
-  [ basic_persist_and_recover
-  , delete_persisted
-  , range_iterator
-  , two_writers_then_reopen
-  ]
+tests =
+  describe "Persistent KV store" $
+    sequence_
+      [ basic_persist_and_recover
+      , delete_persisted
+      , range_iterator
+      , two_writers_then_reopen
+      ]
+
 
 basic_persist_and_recover :: Spec
 basic_persist_and_recover =
   it "values written then snapshot survive a reopen" $
     Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
       let cfg = defaultPersistentConfig dir
-          nm  = storeName "p"
+          nm = storeName "p"
       kvs <- persistentKeyValueStore nm cfg
       kvsPut kvs "k1" "v1"
       kvsPut kvs "k2" "v2"
@@ -44,12 +47,13 @@ basic_persist_and_recover =
       kvsGet kvs2 "k3" >>= (`shouldBe` Just "v3")
       storeClose (kvsBase kvs2)
 
+
 two_writers_then_reopen :: Spec
 two_writers_then_reopen =
   it "two open/close cycles preserve cumulative state" $
     Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
       let cfg = defaultPersistentConfig dir
-          nm  = storeName "p"
+          nm = storeName "p"
       -- 1st cycle.
       kvs <- persistentKeyValueStore nm cfg
       kvsPut kvs "a" "1"
@@ -68,11 +72,12 @@ two_writers_then_reopen =
       kvsGet kvs3 "c" >>= (`shouldBe` Just "3")
       storeClose (kvsBase kvs3)
 
+
 delete_persisted :: Spec
 delete_persisted = it "deletes persist across snapshot+reopen" $
   Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
     let cfg = defaultPersistentConfig dir
-        nm  = storeName "p"
+        nm = storeName "p"
     kvs <- persistentKeyValueStore nm cfg
     kvsPut kvs "a" "1"
     kvsPut kvs "b" "2"
@@ -84,17 +89,20 @@ delete_persisted = it "deletes persist across snapshot+reopen" $
     kvsGet kvs2 "b" >>= (`shouldBe` Just "2")
     storeClose (kvsBase kvs2)
 
+
 range_iterator :: Spec
 range_iterator = it "range iterator returns sorted slice" $
   Temp.withSystemTempDirectory "kstore-test" $ \dir -> do
     let cfg = defaultPersistentConfig dir
-        nm  = storeName "p"
+        nm = storeName "p"
     kvs <- persistentKeyValueStore nm cfg
     mapM_
       (\(k, v) -> kvsPut kvs (BSC.pack k) (BSC.pack v))
-      (zip ["k01","k02","k03","k04","k05","k06"]
-           ["v01","v02","v03","v04","v05","v06"])
+      ( zip
+          ["k01", "k02", "k03", "k04", "k05", "k06"]
+          ["v01", "v02", "v03", "v04", "v05", "v06"]
+      )
     it <- kvsRange kvs "k02" "k04"
     xs <- kvIteratorToList it
-    xs `shouldBe` [("k02","v02"), ("k03","v03"), ("k04","v04")]
+    xs `shouldBe` [("k02", "v02"), ("k03", "v03"), ("k04", "v04")]
     storeClose (kvsBase kvs)

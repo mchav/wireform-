@@ -162,8 +162,8 @@ instance MessageEncode Repeated where
               let payload = messageToByteString (V.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty ints)
               in putTag 1 WireLengthDelimited <> putLengthDelimited payload
     in packedInts
-        <> V.foldl' (\acc s -> acc <> encodeFieldString 2 s) mempty (rStrings r)
-        <> V.foldl' (\acc item -> acc <> encodeFieldMessage 3 item) mempty (rItems r)
+         <> V.foldl' (\acc s -> acc <> encodeFieldString 2 s) mempty (rStrings r)
+         <> V.foldl' (\acc item -> acc <> encodeFieldMessage 3 item) mempty (rItems r)
 
 
 instance MessageDecode Repeated where

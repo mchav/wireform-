@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{-|
+{- |
 Module      : Main
 Description : Integration test suite entry point
 
@@ -18,31 +18,36 @@ Run via:
 -}
 module Main (main) where
 
-import qualified System.Environment as Env
-import qualified System.Exit as Exit
-import qualified System.IO as IO
-
+import Integration.AdminClientExtendedSpec qualified
+import Integration.BasicSpec qualified
+import Integration.ConsumerOffsetsSpec qualified
+import Integration.TransactionalSpec qualified
+import System.Environment qualified as Env
+import System.Exit qualified as Exit
+import System.IO qualified as IO
 import Test.Syd
-import qualified Integration.AdminClientExtendedSpec
-import qualified Integration.BasicSpec
-import qualified Integration.ConsumerOffsetsSpec
-import qualified Integration.TransactionalSpec
+
 
 main :: IO ()
 main = do
   m <- Env.lookupEnv "WIREFORM_KAFKA_BROKER"
   case m of
-    Just v | not (null v) ->
-      sydTest tests
+    Just v
+      | not (null v) ->
+          sydTest tests
     _ -> do
-      IO.hPutStrLn IO.stderr
+      IO.hPutStrLn
+        IO.stderr
         "wireform-kafka-integration: WIREFORM_KAFKA_BROKER unset, skipping."
       Exit.exitSuccess
 
+
 tests :: Spec
-tests = describe "Kafka Integration Tests" $ sequence_
-  [ Integration.BasicSpec.tests
-  , Integration.ConsumerOffsetsSpec.tests
-  , Integration.AdminClientExtendedSpec.tests
-  , Integration.TransactionalSpec.tests
-  ]
+tests =
+  describe "Kafka Integration Tests" $
+    sequence_
+      [ Integration.BasicSpec.tests
+      , Integration.ConsumerOffsetsSpec.tests
+      , Integration.AdminClientExtendedSpec.tests
+      , Integration.TransactionalSpec.tests
+      ]

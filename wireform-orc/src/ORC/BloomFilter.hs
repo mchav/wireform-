@@ -125,12 +125,14 @@ vs 'BloomFilter_Utf8Bitset') and, by extension, the @Stream.Kind@
 the caller should advertise in the stripe footer.
 -}
 data BloomFilterKind
-  = -- | Emit on @BLOOM_FILTER = 7@ — bit-set goes in proto field 2 as
-    -- /unpacked/ @repeated fixed64@. Use this for byte-compat with
-    -- pre-ORC-101 Java/Hive 1.x readers.
+  = {- | Emit on @BLOOM_FILTER = 7@ — bit-set goes in proto field 2 as
+    /unpacked/ @repeated fixed64@. Use this for byte-compat with
+    pre-ORC-101 Java/Hive 1.x readers.
+    -}
     BloomFilterLegacy
-  | -- | Emit on @BLOOM_FILTER_UTF8 = 8@ — bit-set goes in proto field 3
-    -- as @bytes@ (LE-packed @fixed64@s). Default for any new writer.
+  | {- | Emit on @BLOOM_FILTER_UTF8 = 8@ — bit-set goes in proto field 3
+    as @bytes@ (LE-packed @fixed64@s). Default for any new writer.
+    -}
     BloomFilterUtf8
   deriving stock (Show, Eq)
 
@@ -151,9 +153,9 @@ emptyBloom n fpp =
       !words' = (nb + 63) `quot` 64
       !numHash = optimalNumHashFunctions n nb
   in BloomFilter
-      { bfBits = VU.replicate words' 0
-      , bfNumHashFunctions = fromIntegral numHash
-      }
+       { bfBits = VU.replicate words' 0
+       , bfNumHashFunctions = fromIntegral numHash
+       }
 
 
 -- | @-(n * ln(fpp)) / (ln 2)^2@, rounded up to a multiple of 64.
@@ -465,13 +467,13 @@ readFixed64Words bs =
         let !off = i * 8
             r j = fromIntegral (BS.index bs (off + j)) :: Word64
         in r 0
-            .|. (r 1 `shiftL` 8)
-            .|. (r 2 `shiftL` 16)
-            .|. (r 3 `shiftL` 24)
-            .|. (r 4 `shiftL` 32)
-            .|. (r 5 `shiftL` 40)
-            .|. (r 6 `shiftL` 48)
-            .|. (r 7 `shiftL` 56)
+             .|. (r 1 `shiftL` 8)
+             .|. (r 2 `shiftL` 16)
+             .|. (r 3 `shiftL` 24)
+             .|. (r 4 `shiftL` 32)
+             .|. (r 5 `shiftL` 40)
+             .|. (r 6 `shiftL` 48)
+             .|. (r 7 `shiftL` 56)
   in VU.generate len readAt
 
 

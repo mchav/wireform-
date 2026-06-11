@@ -1,8 +1,8 @@
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StrictData #-}
 
-{-|
+{- |
 Module: Kafka.Client.Transaction
 Description: Group multiple producer sends + consumer offset commits into one atomic write.
 
@@ -64,122 +64,133 @@ Most user code only ever needs the five-step recipe above. The
 exports are for the integration tests and the OpenTelemetry
 instrumentation.
 -}
-module Kafka.Client.Transaction
-  ( -- * The transaction lifecycle
-    --
-    -- | Initialise once per producer process; then begin / commit /
-    -- abort as many times as you like.
-    initTransactions
-  , beginTransaction
-  , commitTransaction
-  , abortTransaction
-  , withTransaction
+module Kafka.Client.Transaction (
+  -- * The transaction lifecycle
 
-    -- * Transactional sends
-  , sendInTransaction
-  , commitOffsetsInTransaction
+  --
 
-    -- * Types
-  , Transaction(..)
-  , TransactionState(..)
-  , ProducerId(..)
-  , ProducerEpoch(..)
-  , TransactionalId(..)
-  , TransactionError(..)
+  {- | Initialise once per producer process; then begin / commit /
+  abort as many times as you like.
+  -}
+  initTransactions,
+  beginTransaction,
+  commitTransaction,
+  abortTransaction,
+  withTransaction,
 
-    -- * Low-level state management
-    --
-    -- | Used by integration tests and the OpenTelemetry
-    -- instrumentation. Most user code does not need to touch these.
-  , createTransaction
-  , getTransactionState
-  , transitionState
+  -- * Transactional sends
+  sendInTransaction,
+  commitOffsetsInTransaction,
 
-    -- * Transactional-id helpers
-  , transactionalIdOptional
+  -- * Types
+  Transaction (..),
+  TransactionState (..),
+  ProducerId (..),
+  ProducerEpoch (..),
+  TransactionalId (..),
+  TransactionError (..),
 
-    -- * Transactional-error classification
-  , TxnErrorRecovery (..)
-  , classifyTxnError
+  -- * Low-level state management
 
-    -- * Bounded txn-op deadlines
-  , TxnDeadline (..)
-  , effectiveTxnDeadlineMs
-  ) where
+  --
+
+  {- | Used by integration tests and the OpenTelemetry
+  instrumentation. Most user code does not need to touch these.
+  -}
+  createTransaction,
+  getTransactionState,
+  transitionState,
+
+  -- * Transactional-id helpers
+  transactionalIdOptional,
+
+  -- * Transactional-error classification
+  TxnErrorRecovery (..),
+  classifyTxnError,
+
+  -- * Bounded txn-op deadlines
+  TxnDeadline (..),
+  effectiveTxnDeadlineMs,
+) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
-import Control.Exception (Exception, try, SomeException)
+import Control.Exception (Exception, SomeException, try)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
-import Control.Monad (unless)
-import Data.IORef
-  ( IORef
-  , atomicModifyIORef'
-  , newIORef
-  , readIORef
-  , writeIORef
-  )
-import Data.Int (Int16, Int32, Int64)
-import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashSet as HashSet
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
+import Data.IORef (
+  IORef,
+  atomicModifyIORef',
+  newIORef,
+  readIORef,
+  writeIORef,
+ )
+import Data.Int (Int16, Int32, Int64)
 import Data.Text (Text)
-import qualified Data.Text as T
-
-import Kafka.Client.Consumer (TopicPartition(..))
+import Data.Text qualified as T
+import Kafka.Client.Consumer (TopicPartition (..))
 import Kafka.Client.Internal.TransactionCoordinator (TransactionCoordinator)
-import qualified Kafka.Client.Internal.TransactionCoordinator as TC
-import qualified Kafka.Client.RetryClassifier as RC
+import Kafka.Client.Internal.TransactionCoordinator qualified as TC
+import Kafka.Client.RetryClassifier qualified as RC
 import Kafka.Network.Connection (BrokerAddress, ConnectionManager)
-import qualified Kafka.Network.Connection as Conn
+import Kafka.Network.Connection qualified as Conn
 import Kafka.Protocol.ApiVersions (ApiVersionCache)
-import qualified Kafka.Protocol.ApiVersions as AV
+import Kafka.Protocol.ApiVersions qualified as AV
+
 
 -- | Producer ID assigned by the transaction coordinator
-newtype ProducerId = ProducerId { unProducerId :: Int64 }
+newtype ProducerId = ProducerId {unProducerId :: Int64}
   deriving (Show, Eq, Ord)
+
 
 -- | Producer epoch for fencing
-newtype ProducerEpoch = ProducerEpoch { unProducerEpoch :: Int16 }
+newtype ProducerEpoch = ProducerEpoch {unProducerEpoch :: Int16}
   deriving (Show, Eq, Ord)
 
+
 -- | Transactional ID for EOS
-newtype TransactionalId = TransactionalId { unTransactionalId :: Text }
+newtype TransactionalId = TransactionalId {unTransactionalId :: Text}
   deriving (Show, Eq, Ord)
+
 
 -- | Transaction state machine
 data TransactionState
-  = Uninitialized
-  -- ^ Transaction not yet initialized
-  | Ready
-  -- ^ Transaction initialized, ready to begin
-  | InTransaction
-  -- ^ Transaction in progress
-  | Committing
-  -- ^ Transaction committing
-  | Aborting
-  -- ^ Transaction aborting
-  | Aborted
-  -- ^ Transaction aborted
-  | Fenced
-  -- ^ Producer has been fenced by a newer instance
-  | Error Text
-  -- ^ Fatal error state
+  = -- | Transaction not yet initialized
+    Uninitialized
+  | -- | Transaction initialized, ready to begin
+    Ready
+  | -- | Transaction in progress
+    InTransaction
+  | -- | Transaction committing
+    Committing
+  | -- | Transaction aborting
+    Aborting
+  | -- | Transaction aborted
+    Aborted
+  | -- | Producer has been fenced by a newer instance
+    Fenced
+  | -- | Fatal error state
+    Error Text
   deriving (Show, Eq)
 
--- | Transaction handle with thread-safe state management.
---
--- Tier 3 of the STM-replacement work moves the per-transaction
--- handoff slots ('txnProducerId', 'txnProducerEpoch', 'txnState',
--- 'txnCoordinator') to 'IORef': they are all single-writer (the
--- transaction-coordinator-driven state machine) / multi-reader
--- (sender thread + close path) handoffs that never composed
--- transactionally with anything else. 'txnPartitions' and
--- 'txnSequenceNumbers' stay 'TVar' because the producer's
--- partition-registration path uses STM to compose
--- check-then-insert atomically with the transactional state.
+
+{- | Transaction handle with thread-safe state management.
+
+Tier 3 of the STM-replacement work moves the per-transaction
+handoff slots ('txnProducerId', 'txnProducerEpoch', 'txnState',
+'txnCoordinator') to 'IORef': they are all single-writer (the
+transaction-coordinator-driven state machine) / multi-reader
+(sender thread + close path) handoffs that never composed
+transactionally with anything else. 'txnPartitions' and
+'txnSequenceNumbers' stay 'TVar' because the producer's
+partition-registration path uses STM to compose
+check-then-insert atomically with the transactional state.
+-}
 data Transaction = Transaction
   { txnTransactionalId :: !TransactionalId
   , txnProducerId :: !(IORef (Maybe ProducerId))
@@ -196,10 +207,11 @@ data Transaction = Transaction
   , txnVersionCache :: !ApiVersionCache
   -- ^ API version cache for version negotiation
   , txnCorrelationId :: !(IORef Int32)
-  -- ^ Correlation ID generator. Single source of monotonically
-  --   increasing correlation IDs handed to TransactionCoordinator
-  --   requests; never composed transactionally with anything else,
-  --   so 'IORef' + 'atomicModifyIORef\'' suffices.
+  {- ^ Correlation ID generator. Single source of monotonically
+  increasing correlation IDs handed to TransactionCoordinator
+  requests; never composed transactionally with anything else,
+  so 'IORef' + 'atomicModifyIORef\'' suffices.
+  -}
   , txnClientId :: !Text
   -- ^ Client ID for requests
   , txnBootstrapBroker :: !BrokerAddress
@@ -207,6 +219,7 @@ data Transaction = Transaction
   , txnTimeoutMs :: !Int32
   -- ^ Transaction timeout in milliseconds
   }
+
 
 -- | Transaction errors
 data TransactionError
@@ -221,17 +234,23 @@ data TransactionError
   | UnknownTransactionError Text
   deriving (Show, Eq)
 
+
 instance Exception TransactionError
 
+
 -- | Create a new transaction handle with all required infrastructure
-createTransaction :: MonadIO m
-                  => TransactionalId
-                  -> ConnectionManager
-                  -> ApiVersionCache
-                  -> Text  -- ^ Client ID
-                  -> BrokerAddress  -- ^ Bootstrap broker
-                  -> Int32  -- ^ Transaction timeout (ms)
-                  -> m Transaction
+createTransaction
+  :: MonadIO m
+  => TransactionalId
+  -> ConnectionManager
+  -> ApiVersionCache
+  -> Text
+  -- ^ Client ID
+  -> BrokerAddress
+  -- ^ Bootstrap broker
+  -> Int32
+  -- ^ Transaction timeout (ms)
+  -> m Transaction
 createTransaction transactionalId connMgr versionCache clientId bootstrapBroker timeoutMs = liftIO $ do
   producerId <- newIORef Nothing
   producerEpoch <- newIORef Nothing
@@ -240,25 +259,28 @@ createTransaction transactionalId connMgr versionCache clientId bootstrapBroker 
   sequences <- newTVarIO HashMap.empty
   coordinator <- newIORef Nothing
   correlationId <- newIORef 0
-  return Transaction
-    { txnTransactionalId = transactionalId
-    , txnProducerId = producerId
-    , txnProducerEpoch = producerEpoch
-    , txnState = state
-    , txnPartitions = partitions
-    , txnSequenceNumbers = sequences
-    , txnCoordinator = coordinator
-    , txnConnectionManager = connMgr
-    , txnVersionCache = versionCache
-    , txnCorrelationId = correlationId
-    , txnClientId = clientId
-    , txnBootstrapBroker = bootstrapBroker
-    , txnTimeoutMs = timeoutMs
-    }
+  return
+    Transaction
+      { txnTransactionalId = transactionalId
+      , txnProducerId = producerId
+      , txnProducerEpoch = producerEpoch
+      , txnState = state
+      , txnPartitions = partitions
+      , txnSequenceNumbers = sequences
+      , txnCoordinator = coordinator
+      , txnConnectionManager = connMgr
+      , txnVersionCache = versionCache
+      , txnCorrelationId = correlationId
+      , txnClientId = clientId
+      , txnBootstrapBroker = bootstrapBroker
+      , txnTimeoutMs = timeoutMs
+      }
+
 
 -- | Get current transaction state
 getTransactionState :: Transaction -> IO TransactionState
 getTransactionState txn = readIORef (txnState txn)
+
 
 -- | Attempt to transition to a new state, returns False if transition is invalid
 transitionState :: Transaction -> TransactionState -> IO Bool
@@ -268,51 +290,50 @@ transitionState txn newState =
       then (newState, True)
       else (currentState, False)
 
+
 -- | Check if state transition is valid
 isValidTransition :: TransactionState -> TransactionState -> Bool
 isValidTransition from to = case (from, to) of
   -- Initialization
   (Uninitialized, Ready) -> True
-  
   -- Begin transaction
   (Ready, InTransaction) -> True
-  
   -- Commit/abort
   (InTransaction, Committing) -> True
   (InTransaction, Aborting) -> True
   (Committing, Ready) -> True
   (Aborting, Aborted) -> True
   (Aborted, Ready) -> True
-  
   -- Error states
   (_, Error _) -> True
   (_, Fenced) -> True
-  
   -- Same state is always valid (idempotent operations)
   _ | from == to -> True
-  
   -- Everything else is invalid
   _ -> False
 
--- | Initialize transactions (KIP-98)
--- This must be called before any transactional operations.
--- It discovers the transaction coordinator and obtains a producer ID.
+
+{- | Initialize transactions (KIP-98)
+This must be called before any transactional operations.
+It discovers the transaction coordinator and obtains a producer ID.
+-}
 initTransactions :: MonadIO m => Transaction -> m (Either TransactionError ())
 initTransactions txn = liftIO $ do
   state <- getTransactionState txn
   case state of
     Uninitialized -> do
       let transactionalId = unTransactionalId $ txnTransactionalId txn
-      
+
       -- Discover transaction coordinator
-      coordResult <- TC.findTransactionCoordinator
-        (txnConnectionManager txn)
-        (txnVersionCache txn)
-        (txnCorrelationId txn)
-        (txnBootstrapBroker txn)
-        (txnClientId txn)
-        transactionalId
-      
+      coordResult <-
+        TC.findTransactionCoordinator
+          (txnConnectionManager txn)
+          (txnVersionCache txn)
+          (txnCorrelationId txn)
+          (txnBootstrapBroker txn)
+          (txnClientId txn)
+          transactionalId
+
       case coordResult of
         Left err -> return $ Left $ CoordinatorNotAvailable $ T.pack $ show err
         Right coordinator -> do
@@ -360,62 +381,64 @@ initTransactions txn = liftIO $ do
               writeIORef (txnState txn) Ready
 
               return $ Right ()
-    
-    Ready -> return $ Right ()  -- Already initialized, idempotent
-    
+    Ready -> return $ Right () -- Already initialized, idempotent
     Error msg -> return $ Left $ UnknownTransactionError msg
-    
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
-    
     _ -> return $ Left $ InvalidStateTransition state Ready
 
--- | InitProducerId with bounded retry for the broker's
--- mid-transition error codes. Mirrors the JVM client's
--- @TransactionManager.initializeTransactions@ loop: retry on
--- @CONCURRENT_TRANSACTIONS@ / @INVALID_PRODUCER_EPOCH@ /
--- @COORDINATOR_LOAD_IN_PROGRESS@ with exponential backoff, surface
--- everything else immediately.
---
--- The retry is bounded so a genuine producer-fenced situation
--- (e.g. a different client really did bump our epoch and we're
--- not allowed in) eventually surfaces as a hard error rather
--- than spinning forever.
+
+{- | InitProducerId with bounded retry for the broker's
+mid-transition error codes. Mirrors the JVM client's
+@TransactionManager.initializeTransactions@ loop: retry on
+@CONCURRENT_TRANSACTIONS@ / @INVALID_PRODUCER_EPOCH@ /
+@COORDINATOR_LOAD_IN_PROGRESS@ with exponential backoff, surface
+everything else immediately.
+
+The retry is bounded so a genuine producer-fenced situation
+(e.g. a different client really did bump our epoch and we're
+not allowed in) eventually surfaces as a hard error rather
+than spinning forever.
+-}
 initProducerIdWithRetry
   :: Transaction
   -> TC.TransactionCoordinator
-  -> Text                              -- ^ transactional id
-  -> Int                               -- ^ remaining attempts
+  -> Text
+  -- ^ transactional id
+  -> Int
+  -- ^ remaining attempts
   -> IO (Either TC.TransactionCoordinatorError (Int64, Int16))
 initProducerIdWithRetry txn coordinator transactionalId attemptsLeft = do
-  pidResult <- TC.initProducerId
-    (txnConnectionManager txn)
-    (txnVersionCache txn)
-    (txnCorrelationId txn)
-    (txnClientId txn)
-    coordinator
-    (Just transactionalId)
-    (txnTimeoutMs txn)
-    Nothing  -- No existing producer ID for first init
-    Nothing  -- No existing epoch for first init
+  pidResult <-
+    TC.initProducerId
+      (txnConnectionManager txn)
+      (txnVersionCache txn)
+      (txnCorrelationId txn)
+      (txnClientId txn)
+      coordinator
+      (Just transactionalId)
+      (txnTimeoutMs txn)
+      Nothing -- No existing producer ID for first init
+      Nothing -- No existing epoch for first init
   case pidResult of
     Right ok -> pure (Right ok)
     Left err
       | attemptsLeft <= 1 -> pure (Left err)
-      | retriable err     -> do
+      | retriable err -> do
           -- 5 attempts: 100ms, 200ms, 400ms, 800ms, give up.
-          let !attempt   = 5 - attemptsLeft
-              !delayUs   = 100_000 * (2 ^ max 0 attempt)
+          let !attempt = 5 - attemptsLeft
+              !delayUs = 100_000 * (2 ^ max 0 attempt)
           threadDelay delayUs
           initProducerIdWithRetry txn coordinator transactionalId (attemptsLeft - 1)
-      | otherwise         -> pure (Left err)
+      | otherwise -> pure (Left err)
   where
     retriable :: TC.TransactionCoordinatorError -> Bool
     retriable e = case e of
-      TC.ConcurrentTransactions _      -> True
-      TC.InvalidProducerEpoch _        -> True
-      TC.CoordinatorLoadInProgress _   -> True
-      TC.CoordinatorNotAvailable _     -> True
-      _                                -> False
+      TC.ConcurrentTransactions _ -> True
+      TC.InvalidProducerEpoch _ -> True
+      TC.CoordinatorLoadInProgress _ -> True
+      TC.CoordinatorNotAvailable _ -> True
+      _ -> False
+
 
 -- | Begin a new transaction (KIP-98)
 beginTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
@@ -430,16 +453,12 @@ beginTransaction txn = liftIO $ do
           atomically $ writeTVar (txnPartitions txn) HashSet.empty
           return $ Right ()
         else return $ Left $ InvalidStateTransition state InTransaction
-    
     InTransaction -> return $ Left $ TransactionAlreadyInProgress "Transaction already in progress"
-    
     Uninitialized -> return $ Left $ TransactionNotInitialized "Must call initTransactions first"
-    
     Error msg -> return $ Left $ UnknownTransactionError msg
-    
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
-    
     _ -> return $ Left $ InvalidStateTransition state InTransaction
+
 
 -- | Commit the current transaction (KIP-98)
 commitTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
@@ -455,14 +474,29 @@ commitTransaction txn = liftIO $ do
           pidM <- readIORef (txnProducerId txn)
           epochM <- readIORef (txnProducerEpoch txn)
           partitions <- readTVarIO (txnPartitions txn)
-          
+
           case (coordM, pidM, epochM) of
             (Just coordinator, Just (ProducerId pid), Just (ProducerEpoch epoch)) -> do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
-              
+
               -- Add partitions to transaction if any exist
               unless (HashSet.null partitions) $ do
-                _ <- TC.addPartitionsToTxn
+                _ <-
+                  TC.addPartitionsToTxn
+                    (txnConnectionManager txn)
+                    (txnVersionCache txn)
+                    (txnCorrelationId txn)
+                    (txnClientId txn)
+                    coordinator
+                    transactionalId
+                    pid
+                    epoch
+                    (HashSet.toList partitions)
+                return ()
+
+              -- End transaction with commit=true
+              endResult <-
+                TC.endTransaction
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
                   (txnCorrelationId txn)
@@ -471,21 +505,7 @@ commitTransaction txn = liftIO $ do
                   transactionalId
                   pid
                   epoch
-                  (HashSet.toList partitions)
-                return ()
-              
-              -- End transaction with commit=true
-              endResult <- TC.endTransaction
-                (txnConnectionManager txn)
-                (txnVersionCache txn)
-                (txnCorrelationId txn)
-                (txnClientId txn)
-                coordinator
-                transactionalId
-                pid
-                epoch
-                True  -- commit
-              
+                  True -- commit
               case endResult of
                 Left err -> do
                   writeIORef (txnState txn) (Error $ T.pack $ show err)
@@ -493,23 +513,17 @@ commitTransaction txn = liftIO $ do
                 Right () -> do
                   writeIORef (txnState txn) Ready
                   return $ Right ()
-            
             _ -> return $ Left $ TransactionNotInitialized "Missing producer ID or coordinator"
         else return $ Left $ InvalidStateTransition state Committing
-    
     Committing -> do
       -- Already committing, just return success (idempotent)
       return $ Right ()
-    
     Ready -> return $ Left $ TransactionNotInProgress "No transaction in progress"
-    
     Uninitialized -> return $ Left $ TransactionNotInitialized "Must call initTransactions first"
-    
     Error msg -> return $ Left $ UnknownTransactionError msg
-    
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
-    
     _ -> return $ Left $ InvalidStateTransition state Committing
+
 
 -- | Abort the current transaction (KIP-98)
 abortTransaction :: MonadIO m => Transaction -> m (Either TransactionError ())
@@ -525,14 +539,29 @@ abortTransaction txn = liftIO $ do
           pidM <- readIORef (txnProducerId txn)
           epochM <- readIORef (txnProducerEpoch txn)
           partitions <- readTVarIO (txnPartitions txn)
-          
+
           case (coordM, pidM, epochM) of
             (Just coordinator, Just (ProducerId pid), Just (ProducerEpoch epoch)) -> do
               let transactionalId = unTransactionalId $ txnTransactionalId txn
-              
+
               -- Add partitions to transaction if any exist
               unless (HashSet.null partitions) $ do
-                _ <- TC.addPartitionsToTxn
+                _ <-
+                  TC.addPartitionsToTxn
+                    (txnConnectionManager txn)
+                    (txnVersionCache txn)
+                    (txnCorrelationId txn)
+                    (txnClientId txn)
+                    coordinator
+                    transactionalId
+                    pid
+                    epoch
+                    (HashSet.toList partitions)
+                return ()
+
+              -- End transaction with commit=false (abort)
+              endResult <-
+                TC.endTransaction
                   (txnConnectionManager txn)
                   (txnVersionCache txn)
                   (txnCorrelationId txn)
@@ -541,21 +570,7 @@ abortTransaction txn = liftIO $ do
                   transactionalId
                   pid
                   epoch
-                  (HashSet.toList partitions)
-                return ()
-              
-              -- End transaction with commit=false (abort)
-              endResult <- TC.endTransaction
-                (txnConnectionManager txn)
-                (txnVersionCache txn)
-                (txnCorrelationId txn)
-                (txnClientId txn)
-                coordinator
-                transactionalId
-                pid
-                epoch
-                False  -- abort
-              
+                  False -- abort
               case endResult of
                 Left err -> do
                   writeIORef (txnState txn) (Error $ T.pack $ show err)
@@ -564,29 +579,24 @@ abortTransaction txn = liftIO $ do
                   writeIORef (txnState txn) Aborted
                   writeIORef (txnState txn) Ready
                   return $ Right ()
-            
             _ -> return $ Left $ TransactionNotInitialized "Missing producer ID or coordinator"
         else return $ Left $ InvalidStateTransition state Aborting
-    
     Aborting -> do
       -- Already aborting, just return success (idempotent)
       return $ Right ()
-    
     Ready -> return $ Left $ TransactionNotInProgress "No transaction in progress"
-    
     Uninitialized -> return $ Left $ TransactionNotInitialized "Must call initTransactions first"
-    
     Error msg -> return $ Left $ UnknownTransactionError msg
-    
     Fenced -> return $ Left $ ProducerFenced "Producer has been fenced"
-    
     _ -> return $ Left $ InvalidStateTransition state Aborting
 
--- | Execute an action within a transaction, automatically
--- committing on success and aborting on exception. The action
--- runs in the caller's monad; commit / abort always run in IO
--- (the broker calls don't need 'MonadIO' polymorphism inside
--- the bracket since they're internal to the lifecycle).
+
+{- | Execute an action within a transaction, automatically
+committing on success and aborting on exception. The action
+runs in the caller's monad; commit / abort always run in IO
+(the broker calls don't need 'MonadIO' polymorphism inside
+the bracket since they're internal to the lifecycle).
+-}
 withTransaction
   :: MonadUnliftIO m
   => Transaction
@@ -608,11 +618,13 @@ withTransaction txn action =
           Left (ex :: SomeException) -> do
             _ <- abortTransaction txn
             pure (Left (TransactionAborted (T.pack (show ex))))
-{-# INLINABLE withTransaction #-}
+{-# INLINEABLE withTransaction #-}
 {-# SPECIALIZE withTransaction :: Transaction -> IO a -> IO (Either TransactionError a) #-}
 
--- | Send a record within a transaction
--- This tracks which partitions are involved in the transaction
+
+{- | Send a record within a transaction
+This tracks which partitions are involved in the transaction
+-}
 sendInTransaction :: MonadIO m => Transaction -> TopicPartition -> m (Either TransactionError ())
 sendInTransaction txn tp = liftIO $ do
   state <- getTransactionState txn
@@ -641,14 +653,17 @@ sendInTransaction txn tp = liftIO $ do
       -- by the producer the first time a record lands on a new
       -- partition) cover that.
       return $ Right ()
-    
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to send records"
 
+
 -- | Commit consumer offsets within a transaction (KIP-447)
-commitOffsetsInTransaction :: Transaction
-                           -> Text  -- ^ Consumer group ID
-                           -> HashMap TopicPartition Int64  -- ^ Offsets to commit
-                           -> IO (Either TransactionError ())
+commitOffsetsInTransaction
+  :: Transaction
+  -> Text
+  -- ^ Consumer group ID
+  -> HashMap TopicPartition Int64
+  -- ^ Offsets to commit
+  -> IO (Either TransactionError ())
 commitOffsetsInTransaction txn groupId offsets = do
   state <- getTransactionState txn
   case state of
@@ -664,8 +679,8 @@ commitOffsetsInTransaction txn groupId offsets = do
       -- offsets should use 'sendOffsetsToTransaction' (the
       -- KIP-447 equivalent), wired through the coordinator.
       pure (Right ())
-
     _ -> return $ Left $ TransactionNotInProgress "Must be in a transaction to commit offsets"
+
 
 ----------------------------------------------------------------------
 -- Additional transactional ergonomics
@@ -673,58 +688,72 @@ commitOffsetsInTransaction txn groupId offsets = do
 -- Previously lived in @Kafka.Client.ProducerExtras@.
 ----------------------------------------------------------------------
 
--- | Optionally derive a @transactional.id@ from a base prefix +
--- a per-process suffix. Keeps the user-facing API symmetric with
--- the JVM client, where @transactional.id@ may be left blank and
--- the client picks one based on host/process ids.
+{- | Optionally derive a @transactional.id@ from a base prefix +
+a per-process suffix. Keeps the user-facing API symmetric with
+the JVM client, where @transactional.id@ may be left blank and
+the client picks one based on host/process ids.
+-}
 transactionalIdOptional
-  :: Maybe Text         -- ^ explicit override (matches the JVM client's @transactional.id@ property)
-  -> Text               -- ^ application prefix
-  -> Text               -- ^ per-process suffix (e.g. host\@pid)
+  :: Maybe Text
+  -- ^ explicit override (matches the JVM client's @transactional.id@ property)
   -> Text
-transactionalIdOptional (Just t) _ _      = t
+  -- ^ application prefix
+  -> Text
+  -- ^ per-process suffix (e.g. host\@pid)
+  -> Text
+transactionalIdOptional (Just t) _ _ = t
 transactionalIdOptional Nothing prefix sf = prefix <> "-" <> sf
 
--- | Recovery action for a non-zero error code returned by the
--- transaction coordinator. Mirrors the abort / retry / fatal
--- partitioning the JVM client uses.
+
+{- | Recovery action for a non-zero error code returned by the
+transaction coordinator. Mirrors the abort / retry / fatal
+partitioning the JVM client uses.
+-}
 data TxnErrorRecovery
-  = TxnRecoverByAbort
-    -- ^ Abort the current transaction and let the producer continue.
-  | TxnRecoverByRetry
-    -- ^ Re-issue the same operation after a short backoff.
-  | TxnRecoverFatal
-    -- ^ The producer must close.
+  = -- | Abort the current transaction and let the producer continue.
+    TxnRecoverByAbort
+  | -- | Re-issue the same operation after a short backoff.
+    TxnRecoverByRetry
+  | -- | The producer must close.
+    TxnRecoverFatal
   deriving stock (Eq, Show)
 
--- | Classify a Kafka error code into a 'TxnErrorRecovery' bucket.
--- Backed by 'Kafka.Client.RetryClassifier.classify' so the
--- mapping stays in sync with the producer's retry logic.
+
+{- | Classify a Kafka error code into a 'TxnErrorRecovery' bucket.
+Backed by 'Kafka.Client.RetryClassifier.classify' so the
+mapping stays in sync with the producer's retry logic.
+-}
 classifyTxnError :: Int16 -> TxnErrorRecovery
 classifyTxnError code = case RC.classify code of
-  RC.ECNoError   -> TxnRecoverByRetry
+  RC.ECNoError -> TxnRecoverByRetry
   RC.ECRetriable -> TxnRecoverByRetry
   RC.ECAbortable -> TxnRecoverByAbort
-  RC.ECFatal     -> TxnRecoverFatal
+  RC.ECFatal -> TxnRecoverFatal
 
--- | Deadline supplied to @commitTransaction@ / @abortTransaction@.
--- Callers can bound the wait so a misbehaving coordinator can't
--- pin the producer open during shutdown.
+
+{- | Deadline supplied to @commitTransaction@ / @abortTransaction@.
+Callers can bound the wait so a misbehaving coordinator can't
+pin the producer open during shutdown.
+-}
 data TxnDeadline
-  = TxnUseProducerDefault
-    -- ^ Fall back to the producer's @transaction.timeout.ms@.
-  | TxnDeadlineMs !Int
-    -- ^ Hard upper bound in ms.
+  = -- | Fall back to the producer's @transaction.timeout.ms@.
+    TxnUseProducerDefault
+  | -- | Hard upper bound in ms.
+    TxnDeadlineMs !Int
   deriving stock (Eq, Show)
 
+
 effectiveTxnDeadlineMs
-  :: Int64        -- ^ now (ms)
-  -> Int          -- ^ producer's @transaction.timeout.ms@
+  :: Int64
+  -- ^ now (ms)
+  -> Int
+  -- ^ producer's @transaction.timeout.ms@
   -> TxnDeadline
   -> Int64
 effectiveTxnDeadlineMs now defaultMs = \case
   TxnUseProducerDefault -> now + fromIntegral defaultMs
-  TxnDeadlineMs ms      -> now + fromIntegral ms
+  TxnDeadlineMs ms -> now + fromIntegral ms
+
 
 ----------------------------------------------------------------------
 -- SPECIALIZE pragmas for the IO hot path
@@ -732,15 +761,25 @@ effectiveTxnDeadlineMs now defaultMs = \case
 -- See "Kafka.Client.Producer" for the rationale.
 ----------------------------------------------------------------------
 
-{-# INLINABLE createTransaction #-}
+{-# INLINEABLE createTransaction #-}
 {-# SPECIALIZE createTransaction :: TransactionalId -> ConnectionManager -> ApiVersionCache -> Text -> BrokerAddress -> Int32 -> IO Transaction #-}
-{-# INLINABLE initTransactions #-}
+
+
+{-# INLINEABLE initTransactions #-}
 {-# SPECIALIZE initTransactions :: Transaction -> IO (Either TransactionError ()) #-}
-{-# INLINABLE beginTransaction #-}
+
+
+{-# INLINEABLE beginTransaction #-}
 {-# SPECIALIZE beginTransaction :: Transaction -> IO (Either TransactionError ()) #-}
-{-# INLINABLE commitTransaction #-}
+
+
+{-# INLINEABLE commitTransaction #-}
 {-# SPECIALIZE commitTransaction :: Transaction -> IO (Either TransactionError ()) #-}
-{-# INLINABLE abortTransaction #-}
+
+
+{-# INLINEABLE abortTransaction #-}
 {-# SPECIALIZE abortTransaction :: Transaction -> IO (Either TransactionError ()) #-}
-{-# INLINABLE sendInTransaction #-}
+
+
+{-# INLINEABLE sendInTransaction #-}
 {-# SPECIALIZE sendInTransaction :: Transaction -> TopicPartition -> IO (Either TransactionError ()) #-}

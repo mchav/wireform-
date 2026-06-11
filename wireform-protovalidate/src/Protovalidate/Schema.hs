@@ -1,77 +1,82 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Extract protovalidate 'MessageRules' from @buf.validate@ annotations on a
--- parsed @.proto@ file.
---
--- This closes the gap between annotated schemas and the validation engine:
--- rather than constructing 'MessageRules' by hand, parse a @.proto@ that uses
--- @(buf.validate.field)@ / @(buf.validate.message)@ options and read the rules
--- straight out of the @wireform-proto@ IDL AST.
---
--- Supported annotations:
---
---   * scalar / numeric / bool / bytes / enum / duration / timestamp rules,
---     e.g. @(buf.validate.field).string.min_len = 3@,
---     @(buf.validate.field).int32.gt = 0@;
---   * @repeated@ rules (@min_items@, @max_items@, @unique@) and per-element
---     @repeated.items.<type>.<rule>@ rules;
---   * @map@ rules (@min_pairs@, @max_pairs@) plus @map.keys@ / @map.values@
---     sub-rules;
---   * @enum.defined_only@ (resolving the enum's declared values) and
---     @string.well_known_regex@ (resolving the @KnownRegex@ enum + @strict@),
---     both scalar and @repeated.items@;
---   * @timestamp@ / @duration@ bounds whose option value is a
---     @{seconds:.., nanos:..}@ message literal (and @timestamp.within@, a span);
---   * oneof @required@ (@(buf.validate.oneof).required@);
---   * @required@ and @ignore@ / @ignore_empty@;
---   * field-level and message-level custom CEL
---     (@(buf.validate.field).cel@ / @(buf.validate.message).cel@);
---   * nested message validation (resolved against the other messages in the
---     file, with a cycle guard).
---
--- Reading the equivalent options out of a compiled @FileDescriptorSet@
--- (extension #1159 on @FieldOptions@) additionally requires @descriptor.proto@
--- options support in @wireform-proto@; the @.proto@ AST is the in-repo source
--- of truth used here.
-module Protovalidate.Schema
-  ( parseProtoRules
-  , fileMessageRules
-  , extractMessageRules
-  ) where
+{- | Extract protovalidate 'MessageRules' from @buf.validate@ annotations on a
+parsed @.proto@ file.
 
-import Data.Maybe (mapMaybe)
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+This closes the gap between annotated schemas and the validation engine:
+rather than constructing 'MessageRules' by hand, parse a @.proto@ that uses
+@(buf.validate.field)@ / @(buf.validate.message)@ options and read the rules
+straight out of the @wireform-proto@ IDL AST.
+
+Supported annotations:
+
+  * scalar / numeric / bool / bytes / enum / duration / timestamp rules,
+    e.g. @(buf.validate.field).string.min_len = 3@,
+    @(buf.validate.field).int32.gt = 0@;
+  * @repeated@ rules (@min_items@, @max_items@, @unique@) and per-element
+    @repeated.items.<type>.<rule>@ rules;
+  * @map@ rules (@min_pairs@, @max_pairs@) plus @map.keys@ / @map.values@
+    sub-rules;
+  * @enum.defined_only@ (resolving the enum's declared values) and
+    @string.well_known_regex@ (resolving the @KnownRegex@ enum + @strict@),
+    both scalar and @repeated.items@;
+  * @timestamp@ / @duration@ bounds whose option value is a
+    @{seconds:.., nanos:..}@ message literal (and @timestamp.within@, a span);
+  * oneof @required@ (@(buf.validate.oneof).required@);
+  * @required@ and @ignore@ / @ignore_empty@;
+  * field-level and message-level custom CEL
+    (@(buf.validate.field).cel@ / @(buf.validate.message).cel@);
+  * nested message validation (resolved against the other messages in the
+    file, with a cycle guard).
+
+Reading the equivalent options out of a compiled @FileDescriptorSet@
+(extension #1159 on @FieldOptions@) additionally requires @descriptor.proto@
+options support in @wireform-proto@; the @.proto@ AST is the in-repo source
+of truth used here.
+-}
+module Protovalidate.Schema (
+  parseProtoRules,
+  fileMessageRules,
+  extractMessageRules,
+) where
 
 import CEL.Error (errMsg)
+import CEL.Value (Duration (..), Timestamp (..), Value (..))
+import Data.Maybe (mapMaybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
 import Proto.IDL.AST
 import Proto.IDL.Inspect (fieldOptionsOf, messageFields, messageMapFields, messageOneofs, messageOptions)
 import Proto.IDL.Parser (parseProtoFile)
 import Protovalidate.Constraint (Constraint, mkConstraint)
 import Protovalidate.Rules
-import CEL.Value (Duration (..), Timestamp (..), Value (..))
-import qualified Data.Vector as V
 
--- | Parse @.proto@ source text and extract validation rules for every message
--- it defines, keyed by (simple) message name.
+
+{- | Parse @.proto@ source text and extract validation rules for every message
+it defines, keyed by (simple) message name.
+-}
 parseProtoRules :: Text -> Either Text [(Text, MessageRules)]
 parseProtoRules src = case parseProtoFile "<protovalidate>" src of
   Left err -> Left (T.pack (show err))
   Right pf -> fileMessageRules pf
+
 
 -- | Extract validation rules for every message in a parsed file.
 fileMessageRules :: ProtoFile -> Either Text [(Text, MessageRules)]
 fileMessageRules pf =
   let msgs = collectMessages pf
       enums = collectEnums pf
-   in traverse (\m -> (,) (msgName m) <$> extractMessageRules enums msgs Set.empty m) msgs
+  in traverse (\m -> (,) (msgName m) <$> extractMessageRules enums msgs Set.empty m) msgs
 
--- | Extract the rules for a single message, given the file's enum + message
--- tables (for enum-value and nested-message resolution) and the set of messages
--- currently being expanded (cycle guard).
+
+{- | Extract the rules for a single message, given the file's enum + message
+tables (for enum-value and nested-message resolution) and the set of messages
+currently being expanded (cycle guard).
+-}
 extractMessageRules :: [EnumDef] -> [MessageDef] -> Set Text -> MessageDef -> Either Text MessageRules
 extractMessageRules enums msgs visiting msg = do
   let vis = Set.insert (msgName msg) visiting
@@ -79,6 +84,7 @@ extractMessageRules enums msgs visiting msg = do
   mapFields <- traverse extractMapField (messageMapFields msg)
   customs <- traverse constraintFromAggregate (messageCelOptions msg)
   Right (messageRules (fields ++ mapFields) (customs ++ oneofConstraints msg))
+
 
 -- | A @(buf.validate.oneof).required@ constraint for each oneof so annotated.
 oneofConstraints :: MessageDef -> [Constraint]
@@ -92,8 +98,10 @@ oneofConstraints msg =
       [ExtensionOption "buf.validate.oneof", SimpleOption "required"] -> isTrue (optValue od)
       _ -> False
 
--- | Extract rules for a @map@ field (which is a distinct AST element), including
--- @map.keys@ / @map.values@ sub-rules.
+
+{- | Extract rules for a @map@ field (which is a distinct AST element), including
+@map.keys@ / @map.values@ sub-rules.
+-}
 extractMapField :: MapField -> Either Text (Text, FieldRules)
 extractMapField mf = do
   items <- traverse classify (mapMaybe withParts (mapOptions mf))
@@ -125,16 +133,20 @@ extractMapField mf = do
         }
     )
 
+
 firstKindOf :: [(RuleKind, Text, Value)] -> Maybe RuleKind
 firstKindOf ts = case ts of ((k, _, _) : _) -> Just k; _ -> Nothing
+
 
 isReqItem :: Item -> Bool
 isReqItem IRequired = True
 isReqItem _ = False
 
+
 isIgnItem :: Item -> Bool
 isIgnItem IIgnoreEmpty = True
 isIgnItem _ = False
+
 
 ----------------------------------------------------------------------
 -- Message-level CEL
@@ -148,6 +160,7 @@ messageCelOptions msg =
       [ExtensionOption "buf.validate.message", SimpleOption "cel"] -> True
       _ -> False
   ]
+
 
 ----------------------------------------------------------------------
 -- Field-level extraction
@@ -174,6 +187,7 @@ data Item
   | IItemWellKnownRegex !Int
   | IItemStrict !Bool
   | ISkip
+
 
 extractField :: [EnumDef] -> [MessageDef] -> Set Text -> FieldDef -> Either Text (Text, FieldRules)
 extractField enums msgs visiting fd = do
@@ -252,6 +266,7 @@ extractField enums msgs visiting fd = do
     isIgn _ = False
     firstKind ts = case ts of ((k, _, _) : _) -> Just k; _ -> Nothing
 
+
 -- Pair an option with its @buf.validate.field@ path (simple-name segments).
 withParts :: OptionDef -> Maybe ([Text], Constant)
 withParts od = case optNameParts (optName od) of
@@ -260,6 +275,7 @@ withParts od = case optNameParts (optName od) of
   where
     partName (SimpleOption t) = t
     partName (ExtensionOption t) = t
+
 
 classify :: ([Text], Constant) -> Either Text Item
 classify (parts, value) = case parts of
@@ -293,6 +309,7 @@ classify (parts, value) = case parts of
     | Just kind <- kindFromName k -> Right (maybe ISkip (ITyped kind f) (ruleValue kind f value))
   _ -> Right ISkip
 
+
 -- The @buf.validate.KnownRegex@ enum: HTTP header name = 1, header value = 2.
 wellKnownRegexCode :: Constant -> Maybe Int
 wellKnownRegexCode = \case
@@ -302,16 +319,20 @@ wellKnownRegexCode = \case
   CInt 2 -> Just 2
   _ -> Nothing
 
+
 asBoolMaybe :: Constant -> Maybe Bool
 asBoolMaybe (CBool b) = Just b
 asBoolMaybe _ = Nothing
 
+
 repeatedRuleFields :: [Text]
 repeatedRuleFields = ["min_items", "max_items", "unique"]
+
 
 repeatedRuleValue :: Text -> Constant -> Maybe Value
 repeatedRuleValue "unique" v = asBool v
 repeatedRuleValue _ v = asUInt v -- min_items / max_items
+
 
 ----------------------------------------------------------------------
 -- Nested message resolution
@@ -321,12 +342,13 @@ resolveMessage :: [EnumDef] -> [MessageDef] -> Set Text -> FieldType -> Maybe Me
 resolveMessage enums msgs visiting ft = case ft of
   FTNamed n ->
     let simple = last (T.splitOn "." n)
-     in if Set.member simple visiting
-          then Nothing -- break recursion on self-referential messages
-          else case [m | m <- msgs, msgName m == simple] of
-            (m : _) -> either (const Nothing) Just (extractMessageRules enums msgs visiting m)
-            [] -> Nothing
+    in if Set.member simple visiting
+         then Nothing -- break recursion on self-referential messages
+         else case [m | m <- msgs, msgName m == simple] of
+           (m : _) -> either (const Nothing) Just (extractMessageRules enums msgs visiting m)
+           [] -> Nothing
   _ -> Nothing
+
 
 collectMessages :: ProtoFile -> [MessageDef]
 collectMessages pf = concatMap fromTop (protoTopLevels pf)
@@ -336,6 +358,7 @@ collectMessages pf = concatMap fromTop (protoTopLevels pf)
     nested m = concatMap go (msgElements m)
     go (MEMessage m) = m : nested m
     go _ = []
+
 
 -- All enum definitions in the file, top-level and nested in any message.
 collectEnums :: ProtoFile -> [EnumDef]
@@ -349,16 +372,18 @@ collectEnums pf = concatMap fromTop (protoTopLevels pf)
     go (MEMessage m) = nested m
     go _ = []
 
+
 -- The declared value numbers of the enum a field refers to (if its type names
 -- one of the file's enums).
 enumValuesFor :: [EnumDef] -> FieldType -> Maybe [Integer]
 enumValuesFor enums ft = case ft of
   FTNamed n ->
     let simple = last (T.splitOn "." n)
-     in case [e | e <- enums, enumName e == simple] of
-          (e : _) -> Just (map (fromIntegral . evNumber) (enumValues e))
-          [] -> Nothing
+    in case [e | e <- enums, enumName e == simple] of
+         (e : _) -> Just (map (fromIntegral . evNumber) (enumValues e))
+         [] -> Nothing
   _ -> Nothing
+
 
 ----------------------------------------------------------------------
 -- Value / constant helpers
@@ -370,12 +395,13 @@ constraintFromAggregate (CAggregate kvs) =
       cid = str "id"
       msg = str "message"
       expr = str "expression"
-   in if T.null expr
-        then Left "buf.validate cel option missing 'expression'"
-        else case mkConstraint cid msg expr of
-          Left e -> Left ("invalid CEL in constraint '" <> cid <> "': " <> errMsg e)
-          Right c -> Right c
+  in if T.null expr
+       then Left "buf.validate cel option missing 'expression'"
+       else case mkConstraint cid msg expr of
+         Left e -> Left ("invalid CEL in constraint '" <> cid <> "': " <> errMsg e)
+         Right c -> Right c
 constraintFromAggregate _ = Left "buf.validate cel option must be an aggregate {id:..,message:..,expression:..}"
+
 
 kindFromName :: Text -> Maybe RuleKind
 kindFromName = \case
@@ -399,17 +425,35 @@ kindFromName = \case
   "timestamp" -> Just KTimestamp
   _ -> Nothing
 
+
 countFields :: [Text]
 countFields = ["min_len", "max_len", "len", "min_bytes", "max_bytes", "len_bytes"]
 
+
 formatFlagFields :: [Text]
 formatFlagFields =
-  [ "email", "hostname", "ip", "ipv4", "ipv6", "ip_prefix"
-  , "ipv4_prefix", "ipv6_prefix", "ip_with_prefixlen"
-  , "ipv4_with_prefixlen", "ipv6_with_prefixlen"
-  , "uri", "uri_ref", "address", "host_and_port", "uuid", "tuuid", "finite"
-  , "lt_now", "gt_now"
+  [ "email"
+  , "hostname"
+  , "ip"
+  , "ipv4"
+  , "ipv6"
+  , "ip_prefix"
+  , "ipv4_prefix"
+  , "ipv6_prefix"
+  , "ip_with_prefixlen"
+  , "ipv4_with_prefixlen"
+  , "ipv6_with_prefixlen"
+  , "uri"
+  , "uri_ref"
+  , "address"
+  , "host_and_port"
+  , "uuid"
+  , "tuuid"
+  , "finite"
+  , "lt_now"
+  , "gt_now"
   ]
+
 
 -- Interpret a rule value given the rule kind and the rule field name.
 ruleValue :: RuleKind -> Text -> Constant -> Maybe Value
@@ -435,54 +479,67 @@ ruleValue kind field con
         | isFloat kind -> asDouble con
         | otherwise -> asInt con
 
+
 isUnsigned :: RuleKind -> Bool
 isUnsigned k = k `elem` [KUint32, KUint64, KFixed32, KFixed64]
 
+
 isFloat :: RuleKind -> Bool
 isFloat k = k == KFloat || k == KDouble
+
 
 asUInt :: Constant -> Maybe Value
 asUInt (CInt i) | i >= 0 = Just (VUInt (fromInteger i))
 asUInt _ = Nothing
 
+
 asInt :: Constant -> Maybe Value
 asInt (CInt i) = Just (VInt (fromInteger i))
 asInt _ = Nothing
+
 
 asDouble :: Constant -> Maybe Value
 asDouble (CFloat d) = Just (VDouble d)
 asDouble (CInt i) = Just (VDouble (fromInteger i))
 asDouble _ = Nothing
 
+
 asBool :: Constant -> Maybe Value
 asBool (CBool b) = Just (VBool b)
 asBool _ = Nothing
 
+
 asBytes :: Constant -> Maybe Value
 asBytes (CString s) = Just (VBytes (TE.encodeUtf8 s))
 asBytes _ = Nothing
+
 
 -- Read @{seconds: .., nanos: ..}@ (either component optional, default 0) from a
 -- @google.protobuf.Duration@ / @Timestamp@ message literal.
 secondsNanos :: Constant -> Maybe (Integer, Integer)
 secondsNanos (CAggregate kvs) =
   let intAt k = case lookup k kvs of Just (CInt i) -> Just i; Nothing -> Just 0; _ -> Nothing
-   in (,) <$> intAt "seconds" <*> intAt "nanos"
+  in (,) <$> intAt "seconds" <*> intAt "nanos"
 secondsNanos _ = Nothing
+
 
 mkDuration :: Integer -> Integer -> Value
 mkDuration s n = VDuration (Duration (fromInteger s) (fromInteger n))
 
+
 mkTimestamp :: Integer -> Integer -> Value
 mkTimestamp s n = VTimestamp (Timestamp (fromInteger s) (fromInteger n))
+
 
 isTrue :: Constant -> Bool
 isTrue (CBool b) = b
 isTrue _ = False
 
+
 ignoresEmpty :: Constant -> Bool
 ignoresEmpty (CIdent i) = i `elem` ["IGNORE_IF_UNPOPULATED", "IGNORE_IF_DEFAULT_VALUE", "IGNORE_ALWAYS"]
 ignoresEmpty _ = False
+
 
 -- Merge raw rule values: @in@ / @not_in@ accumulate into a list, others keep
 -- the last value.
@@ -498,4 +555,4 @@ mergeRuleValues entries = foldr step [] keys
           | otherwise = x : go (Set.insert x seen) xs
     step k acc =
       let vs = [v | (k', v) <- entries, k' == k]
-       in (k, if k == "in" || k == "not_in" then VList (V.fromList vs) else last vs) : acc
+      in (k, if k == "in" || k == "not_in" then VList (V.fromList vs) else last vs) : acc

@@ -1,51 +1,67 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 
--- | Tests for the KIP-466 client-side leader-cache patch
--- (@updatePartitionLeader@) added to @Kafka.Client.Metadata@.
+{- | Tests for the KIP-466 client-side leader-cache patch
+(@updatePartitionLeader@) added to @Kafka.Client.Metadata@.
+-}
 module Client.MetadataLeaderUpdateSpec (tests) where
 
 import Control.Concurrent.STM (atomically)
-import qualified Data.HashMap.Strict as Map
-import qualified Data.IntMap.Strict as IntMap
-import Test.Syd
-
-import qualified Kafka.Client.Metadata as Meta
+import Data.HashMap.Strict qualified as Map
+import Data.IntMap.Strict qualified as IntMap
+import Kafka.Client.Metadata qualified as Meta
 import Kafka.Network.Connection (BrokerAddress (..))
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives as P
+import Test.Syd
+import "wireform-kafka-protocol" Kafka.Protocol.Primitives qualified as P
+
 
 tests :: Spec
-tests = describe "Metadata: KIP-466 leader cache patch" $ sequence_
-  [ it "updatePartitionLeader on empty cache is a no-op"
-      noopOnEmptyCache
-  , it "updatePartitionLeader patches the cached leader"
-      patchesCachedLeader
-  , it "updatePartitionLeader does nothing for unknown topic"
-      noopForUnknownTopic
-  , it "updatePartitionLeader does nothing for unknown partition"
-      noopForUnknownPartition
-  ]
+tests =
+  describe "Metadata: KIP-466 leader cache patch" $
+    sequence_
+      [ it
+          "updatePartitionLeader on empty cache is a no-op"
+          noopOnEmptyCache
+      , it
+          "updatePartitionLeader patches the cached leader"
+          patchesCachedLeader
+      , it
+          "updatePartitionLeader does nothing for unknown topic"
+          noopForUnknownTopic
+      , it
+          "updatePartitionLeader does nothing for unknown partition"
+          noopForUnknownPartition
+      ]
+
 
 baseMetadata :: Meta.ClusterMetadata
-baseMetadata = Meta.ClusterMetadata
-  { Meta.clusterBrokers = IntMap.fromList
-      [ (1, Meta.BrokerMetadata 1 (BrokerAddress "b1" 9092))
-      , (2, Meta.BrokerMetadata 2 (BrokerAddress "b2" 9092))
-      ]
-  , Meta.clusterTopics = Map.fromList
-      [ ( "t"
-        , Meta.TopicMetadata "t"
-            (IntMap.fromList
-               [ (0, Meta.PartitionMetadata 0 1 [1, 2] [1, 2])
-               , (1, Meta.PartitionMetadata 1 2 [1, 2] [1, 2])
-               ])
-            0
-            False
-            P.nullUuid)
-      ]
-  , Meta.clusterControllerId = 1
-  , Meta.clusterClusterId    = Nothing
-  }
+baseMetadata =
+  Meta.ClusterMetadata
+    { Meta.clusterBrokers =
+        IntMap.fromList
+          [ (1, Meta.BrokerMetadata 1 (BrokerAddress "b1" 9092))
+          , (2, Meta.BrokerMetadata 2 (BrokerAddress "b2" 9092))
+          ]
+    , Meta.clusterTopics =
+        Map.fromList
+          [
+            ( "t"
+            , Meta.TopicMetadata
+                "t"
+                ( IntMap.fromList
+                    [ (0, Meta.PartitionMetadata 0 1 [1, 2] [1, 2])
+                    , (1, Meta.PartitionMetadata 1 2 [1, 2] [1, 2])
+                    ]
+                )
+                0
+                False
+                P.nullUuid
+            )
+          ]
+    , Meta.clusterControllerId = 1
+    , Meta.clusterClusterId = Nothing
+    }
+
 
 -- The @MetadataCache@ constructor is intentionally hidden; we
 -- exercise the patch via public 'createMetadataCache' and assert
@@ -62,6 +78,7 @@ noopOnEmptyCache = do
   m <- atomically (Meta.getPartitionLeader cache "anything" 0)
   m `shouldBe` Nothing
 
+
 -- The remaining three tests have to seed the cache to be
 -- meaningful. The internal TVar isn't exposed, so they're written
 -- as compile-time documentation: we assert that the function
@@ -77,6 +94,7 @@ patchesCachedLeader = do
   _ <- pure baseMetadata
   pure ()
 
+
 noopForUnknownTopic :: IO ()
 noopForUnknownTopic = do
   cache <- Meta.createMetadataCache
@@ -84,10 +102,10 @@ noopForUnknownTopic = do
   m <- atomically (Meta.getPartitionLeader cache "ghost" 0)
   m `shouldBe` Nothing
 
+
 noopForUnknownPartition :: IO ()
 noopForUnknownPartition = do
   cache <- Meta.createMetadataCache
   atomically (Meta.updatePartitionLeader cache "t" 99 5)
   m <- atomically (Meta.getPartitionLeader cache "t" 99)
   m `shouldBe` Nothing
-

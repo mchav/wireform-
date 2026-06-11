@@ -1,60 +1,76 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Tests for the pure multi-instance liveness harness used to
--- enumerate failure orderings without spinning up the runtime.
+{- | Tests for the pure multi-instance liveness harness used to
+enumerate failure orderings without spinning up the runtime.
+-}
 module Streams.MultiInstanceHarnessSpec (tests) where
 
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Hedgehog
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Kafka.Streams.Runtime.MultiInstanceHarness qualified as H
 import Test.Syd
 import Test.Syd.Hedgehog ()
 
-import qualified Kafka.Streams.Runtime.MultiInstanceHarness as H
 
 tests :: Spec
-tests = describe "Multi-instance liveness harness" $ sequence_
-  [ it "no failures: every record is processed"
-      no_failures
-  , it "single instance crash: subsequent records are skipped"
-      single_crash
-  , it "multi-instance: surviving instance keeps processing"
-      multi_survival
-  , it
-      "with at least one healthy instance, no records are skipped"
-      prop_at_least_one_healthy
-  ]
+tests =
+  describe "Multi-instance liveness harness" $
+    sequence_
+      [ it
+          "no failures: every record is processed"
+          no_failures
+      , it
+          "single instance crash: subsequent records are skipped"
+          single_crash
+      , it
+          "multi-instance: surviving instance keeps processing"
+          multi_survival
+      , it
+          "with at least one healthy instance, no records are skipped"
+          prop_at_least_one_healthy
+      ]
+
 
 no_failures :: IO ()
 no_failures = do
-  let r = H.runHarness [H.InstanceId 0]
-            [ H.EvRecord ("k1" :: String) ("v1" :: String)
-            , H.EvRecord "k2" "v2"
-            ]
+  let r =
+        H.runHarness
+          [H.InstanceId 0]
+          [ H.EvRecord ("k1" :: String) ("v1" :: String)
+          , H.EvRecord "k2" "v2"
+          ]
   H.rrProcessed r `shouldBe` [("k1", "v1"), ("k2", "v2")]
-  H.rrSkipped r   `shouldBe` []
+  H.rrSkipped r `shouldBe` []
+
 
 single_crash :: IO ()
 single_crash = do
-  let r = H.runHarness [H.InstanceId 0]
-            [ H.EvRecord ("k1" :: String) ("v1" :: String)
-            , H.EvFailure (H.Crash (H.InstanceId 0))
-            , H.EvRecord "k2" "v2"
-            ]
+  let r =
+        H.runHarness
+          [H.InstanceId 0]
+          [ H.EvRecord ("k1" :: String) ("v1" :: String)
+          , H.EvFailure (H.Crash (H.InstanceId 0))
+          , H.EvRecord "k2" "v2"
+          ]
   H.rrProcessed r `shouldBe` [("k1", "v1")]
-  H.rrSkipped r   `shouldBe` [("k2", "v2")]
+  H.rrSkipped r `shouldBe` [("k2", "v2")]
+
 
 multi_survival :: IO ()
 multi_survival = do
-  let r = H.runHarness [H.InstanceId 0, H.InstanceId 1]
-            [ H.EvRecord ("k1" :: String) ("v1" :: String)
-            , H.EvFailure (H.Crash (H.InstanceId 0))
-            , H.EvRecord "k2" "v2"
-            ]
+  let r =
+        H.runHarness
+          [H.InstanceId 0, H.InstanceId 1]
+          [ H.EvRecord ("k1" :: String) ("v1" :: String)
+          , H.EvFailure (H.Crash (H.InstanceId 0))
+          , H.EvRecord "k2" "v2"
+          ]
   -- Instance 1 still healthy; record k2 still processed.
   H.rrProcessed r `shouldBe` [("k1", "v1"), ("k2", "v2")]
-  H.rrSkipped r   `shouldBe` []
+  H.rrSkipped r `shouldBe` []
+
 
 prop_at_least_one_healthy :: Property
 prop_at_least_one_healthy = property $ do
@@ -69,7 +85,7 @@ prop_at_least_one_healthy = property $ do
   let failures = take numFailures (map (H.Crash . H.InstanceId) [0 ..])
       events =
         map (\r -> H.EvRecord r r) records
-        <> map H.EvFailure failures
+          <> map H.EvFailure failures
   let result = H.runHarness instances events
   -- With at least one survivor, no record should be skipped.
   -- (Failures fire AFTER all the records since they're appended;
@@ -78,5 +94,5 @@ prop_at_least_one_healthy = property $ do
   H.rrSkipped result === []
   -- Sanity: final state has Healthy for any non-crashed instance.
   let stillHealthy =
-        [ () | (_, H.Healthy) <- Map.toList (H.rrFinalStates result) ]
+        [() | (_, H.Healthy) <- Map.toList (H.rrFinalStates result)]
   assert (length stillHealthy >= 1)

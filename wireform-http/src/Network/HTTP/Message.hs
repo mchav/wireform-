@@ -55,19 +55,21 @@ data Request = Request
   , requestHeaders :: !Headers
   , requestBody :: !Body
   , requestVersion :: !Version
-  -- ^ For an outgoing client request this is the /preferred/ version
-  -- (the actual on-wire version comes out of negotiation). For an
-  -- incoming server request it is the version that the peer
-  -- actually spoke.
+  {- ^ For an outgoing client request this is the /preferred/ version
+  (the actual on-wire version comes out of negotiation). For an
+  incoming server request it is the version that the peer
+  actually spoke.
+  -}
   , requestTrailers :: !(IO Headers)
-  -- ^ Block on the trailer block carried after the request body.
-  --
-  -- HTTP\/2 trailers arrive as a final HEADERS frame with
-  -- @END_STREAM@; HTTP\/1.x trailers arrive in the field block
-  -- after the chunked terminator (currently dropped by the
-  -- connection-level body reader — see the @Trailer@ docs).
-  -- Returns @[]@ when the request had no trailers.  Must be called
-  -- after 'requestBody' has been fully drained.
+  {- ^ Block on the trailer block carried after the request body.
+
+  HTTP\/2 trailers arrive as a final HEADERS frame with
+  @END_STREAM@; HTTP\/1.x trailers arrive in the field block
+  after the chunked terminator (currently dropped by the
+  connection-level body reader — see the @Trailer@ docs).
+  Returns @[]@ when the request had no trailers.  Must be called
+  after 'requestBody' has been fully drained.
+  -}
   }
 
 
@@ -94,31 +96,35 @@ data Response = Response
   , responseHeaders :: !Headers
   , responseBody :: !Body
   , responseTrailers :: !(IO Headers)
-  -- ^ Trailing headers carried after the body.
-  --
-  -- HTTP\/1.x trailers arrive as part of the chunked body's
-  -- terminator block; HTTP\/2 trailers arrive as a final HEADERS
-  -- frame with @END_STREAM@.  The unified API exposes them as an
-  -- 'IO' action because, in either case, the trailers aren't
-  -- materialised until the body has finished streaming.  Returns
-  -- the empty list when the response had no trailers.
-  --
-  -- Outbound from the unified server: only HTTP\/2 surfaces
-  -- trailers on the wire today (the HTTP\/1.x encoder does not
-  -- yet emit a trailer block on the chunked body's terminator).
+  {- ^ Trailing headers carried after the body.
+
+  HTTP\/1.x trailers arrive as part of the chunked body's
+  terminator block; HTTP\/2 trailers arrive as a final HEADERS
+  frame with @END_STREAM@.  The unified API exposes them as an
+  'IO' action because, in either case, the trailers aren't
+  materialised until the body has finished streaming.  Returns
+  the empty list when the response had no trailers.
+
+  Outbound from the unified server: only HTTP\/2 surfaces
+  trailers on the wire today (the HTTP\/1.x encoder does not
+  yet emit a trailer block on the chunked body's terminator).
+  -}
   , responseH2StreamId :: !Word32
-  -- ^ HTTP\/2 stream id this response was carried on, or @0@
-  --   for non-H2 responses or callers that don't surface it.
+  {- ^ HTTP\/2 stream id this response was carried on, or @0@
+  for non-H2 responses or callers that don't surface it.
+  -}
   , responseCancel :: !(IO ())
-  -- ^ Best-effort cancellation. On HTTP\/2 this emits
-  --   @RST_STREAM(CANCEL)@ to the peer. On HTTP\/1.x and on
-  --   transports that have already drained the body, it's a
-  --   no-op. Idempotent.
+  {- ^ Best-effort cancellation. On HTTP\/2 this emits
+  @RST_STREAM(CANCEL)@ to the peer. On HTTP\/1.x and on
+  transports that have already drained the body, it's a
+  no-op. Idempotent.
+  -}
   , responsePushPromises :: !(IO [ResponsePushPromise])
-  -- ^ Push promises delivered on this HTTP\/2 stream, in arrival
-  --   order. Always @pure []@ for HTTP\/1.x responses. The list
-  --   may grow as the body is consumed (push promises can arrive
-  --   interleaved with DATA frames).
+  {- ^ Push promises delivered on this HTTP\/2 stream, in arrival
+  order. Always @pure []@ for HTTP\/1.x responses. The list
+  may grow as the body is consumed (push promises can arrive
+  interleaved with DATA frames).
+  -}
   }
 
 
@@ -129,11 +135,12 @@ data ResponsePushPromise = ResponsePushPromise
   , rppHeaders :: ![(HeaderName, HeaderValue)]
   -- ^ Decoded push-promise request headers.
   , rppFulfil :: !(IO RawResponse)
-  -- ^ Block until the pushed response arrives and return it
-  --   fully materialised.  The body is drained before returning
-  --   so callers do not need to manage the underlying HTTP\/2
-  --   stream lifetime.  Only valid for the lifetime of the
-  --   surrounding HTTP\/2 connection.
+  {- ^ Block until the pushed response arrives and return it
+  fully materialised.  The body is drained before returning
+  so callers do not need to manage the underlying HTTP\/2
+  stream lifetime.  Only valid for the lifetime of the
+  surrounding HTTP\/2 connection.
+  -}
   }
 
 

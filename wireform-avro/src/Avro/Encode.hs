@@ -100,16 +100,16 @@ encodeAvroBuilder = goBuilder
     encodeArray itemTy items =
       let !cnt = length items
       in avroEncodeLong (fromIntegral cnt)
-          <> foldMap (goBuilder itemTy) items
-          <> avroEncodeLong 0
+           <> foldMap (goBuilder itemTy) items
+           <> avroEncodeLong 0
 
     encodeMap :: AvroType -> [(Text, AV.Value)] -> Builder
     encodeMap _valTy [] = avroEncodeLong 0
     encodeMap valTy entries =
       let !cnt = length entries
       in avroEncodeLong (fromIntegral cnt)
-          <> foldMap (\(k, v) -> avroEncodeString k <> goBuilder valTy v) entries
-          <> avroEncodeLong 0
+           <> foldMap (\(k, v) -> avroEncodeString k <> goBuilder valTy v) entries
+           <> avroEncodeLong 0
 
 
 -- Size computation

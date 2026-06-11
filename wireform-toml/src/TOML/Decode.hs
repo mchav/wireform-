@@ -190,10 +190,10 @@ expectText t = P $ \s ->
   let n = T.length t
       (chunk, rest) = T.splitAt n (psSrc s)
   in if chunk /= t
-      then Left ("TOML: expected literal " ++ T.unpack t)
-      else
-        let (l', col') = bumpLineCol (psLine s) (psCol s) chunk
-        in Right ((), PState rest (psPos s + n) l' col')
+       then Left ("TOML: expected literal " ++ T.unpack t)
+       else
+         let (l', col') = bumpLineCol (psLine s) (psCol s) chunk
+         in Right ((), PState rest (psPos s + n) l' col')
 
 
 {- | A 'mark' captures the source suffix and offset at the current
@@ -1152,12 +1152,12 @@ parseIntLit raw0 = do
         else
           let !mag = T.foldl' (\a c -> a * 10 + toInteger (digitToInt c)) 0 clean
           in pure
-              ( TV.TInteger
-                  ( case signMaybe of
-                      Just True -> negate mag
-                      _ -> mag
-                  )
-              )
+               ( TV.TInteger
+                   ( case signMaybe of
+                       Just True -> negate mag
+                       _ -> mag
+                   )
+               )
 
 
 -- ---------------------------------------------------------------------------
@@ -1188,8 +1188,8 @@ parseFloatLit raw = do
       let cleaned = T.filter (/= '_') body
           str = T.unpack cleaned
       in case reads str :: [(Double, String)] of
-          [(d, "")] -> pure (TV.TFloat (sign * d))
-          _ -> failP $ "invalid float: " ++ T.unpack raw
+           [(d, "")] -> pure (TV.TFloat (sign * d))
+           _ -> failP $ "invalid float: " ++ T.unpack raw
 
 
 -- | Sanity check a float literal body (post-sign).
@@ -1297,8 +1297,8 @@ parseDateTime raw
           offText = T.drop tail0 raw
           offsetOK = T.null offText || validOffset offText
       in if timeOK && offsetOK
-          then Just (TV.TDateTime raw)
-          else Nothing
+           then Just (TV.TDateTime raw)
+           else Nothing
   where
     sep = T.index raw 10
 
@@ -1378,11 +1378,11 @@ validOffset t = case T.unpack t of
     | s == '+' || s == '-' ->
         let body = T.pack rest
         in T.length body == 5
-            && digitsAt 0 2 body
-            && T.index body 2 == ':'
-            && digitsAt 3 5 body
-            && parseDigits 0 2 body <= 23
-            && parseDigits 3 5 body <= 59
+             && digitsAt 0 2 body
+             && T.index body 2 == ':'
+             && digitsAt 3 5 body
+             && parseDigits 0 2 body <= 23
+             && parseDigits 3 5 body <= 59
   _ -> False
 
 
@@ -1452,9 +1452,10 @@ data BuildState = BuildState
   , bsCurrent :: !KeyPath
   -- ^ active header (where pairs live)
   , bsPending :: ![(KeyPath, TV.Value)]
-  -- ^ Reversed list of pairs accumulated under the current header
-  -- that haven't been merged into 'bsRoot' yet. Flushed at every
-  -- header transition and at end-of-document.
+  {- ^ Reversed list of pairs accumulated under the current header
+  that haven't been merged into 'bsRoot' yet. Flushed at every
+  header transition and at end-of-document.
+  -}
   , bsTables :: !(Set KeyPath)
   -- ^ paths defined by [a.b] headers
   , bsArrays :: !(Set KeyPath)

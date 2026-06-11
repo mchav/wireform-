@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-{-|
+{- |
 Module      : Kafka.Time
 Description : Coarse / fast wall-clock readers for the Kafka client hot path
 
@@ -43,12 +43,13 @@ Both 'currentTimeMillis' and 'currentTimeMicros' return
 as suitable for ordering and elapsed-time math; do not assume
 sub-millisecond accuracy from the COARSE clock.
 -}
-module Kafka.Time
-  ( currentTimeMillis
-  , currentTimeMicros
-  ) where
+module Kafka.Time (
+  currentTimeMillis,
+  currentTimeMicros,
+) where
 
 import Data.Int (Int64)
+
 
 #if defined(mingw32_HOST_OS) || defined(__MINGW32__) || defined(__MINGW64__) \
   || defined(_WIN32) || defined(_WIN64)

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 {- | RFC 9110 \u00a75.6.7 HTTP-date helpers.
 
 The preferred format is RFC 5322 IMF-fixdate as restricted by RFC 9110:
@@ -21,46 +23,48 @@ hermes-driven header layer.
 Used by @Date@, @Last-Modified@, @Expires@, @If-Modified-Since@,
 @If-Unmodified-Since@, @If-Range@.
 -}
-{-# LANGUAGE OverloadedStrings #-}
-module Network.HTTP.HttpDate
-  ( -- * Building blocks
-    formatHttpDate
-  , parseHttpDate
-  , parseHttpDateMaybe
-    -- * Header helpers
-  , httpDateHeader
-  , readHttpDateHeader
-  ) where
+module Network.HTTP.HttpDate (
+  -- * Building blocks
+  formatHttpDate,
+  parseHttpDate,
+  parseHttpDateMaybe,
+
+  -- * Header helpers
+  httpDateHeader,
+  readHttpDateHeader,
+) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString.Char8 qualified as BS8
 import Data.Time (UTCTime)
-
+import Network.HTTP.Headers.Date qualified as Hermes
+import Network.HTTP.Headers.Mason qualified as M
 import Network.HTTP.Headers.Parsing.Util (Result (..), runParser)
+import Network.HTTP.Types.Header qualified as H
 
-import qualified Network.HTTP.Headers.Date          as Hermes
-import qualified Network.HTTP.Headers.Mason         as M
-
-import qualified Network.HTTP.Types.Header as H
 
 -- | Render an 'UTCTime' as an IMF-fixdate string (RFC 9110 \u00a75.6.7).
 formatHttpDate :: UTCTime -> ByteString
 formatHttpDate = M.toStrictByteString . Hermes.renderDate
 
--- | Parse an HTTP-date in any of the three RFC 9110 formats
--- (IMF-fixdate, RFC 850, asctime). Delegates to hermes's
--- 'Hermes.dateParser', which uses TH-driven flatparse switches for
--- the day / month tokens.
+
+{- | Parse an HTTP-date in any of the three RFC 9110 formats
+(IMF-fixdate, RFC 850, asctime). Delegates to hermes's
+'Hermes.dateParser', which uses TH-driven flatparse switches for
+the day / month tokens.
+-}
 parseHttpDateMaybe :: ByteString -> Maybe UTCTime
 parseHttpDateMaybe bs = case runParser Hermes.dateParser bs of
   OK t leftover | BS8.null leftover -> Just t
-  _                                 -> Nothing
+  _ -> Nothing
+
 
 -- | Like 'parseHttpDateMaybe' but with a description on failure.
 parseHttpDate :: ByteString -> Either String UTCTime
 parseHttpDate bs = case parseHttpDateMaybe bs of
-  Just t  -> Right t
+  Just t -> Right t
   Nothing -> Left ("malformed HTTP-date: " <> BS8.unpack bs)
+
 
 -- ---------------------------------------------------------------------------
 -- Header convenience
@@ -69,6 +73,7 @@ parseHttpDate bs = case parseHttpDateMaybe bs of
 -- | Build a @(name, value)@ pair for a date-typed header.
 httpDateHeader :: H.HeaderName -> UTCTime -> H.Header
 httpDateHeader name t = (name, formatHttpDate t)
+
 
 -- | Look up a date-typed header by name and parse the value.
 readHttpDateHeader :: H.HeaderName -> H.Headers -> Maybe UTCTime

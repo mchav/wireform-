@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 
-{-|
+{- |
 Module      : Conformance.T0006.Symbols
 Description : librdkafka @tests\/0006-symbols.c@ — exported symbol smoke test
 
@@ -16,47 +16,48 @@ if any of the imports below fail to resolve, the suite won't link.
 -}
 module Conformance.T0006.Symbols (tests) where
 
-import Test.Syd
-
 -- Top-level umbrella (re-exports producer / consumer / transaction
 -- entry points the user is most likely to reach for):
-import qualified Kafka
-
+import Kafka qualified
 -- Lower-level surface, one import per top-level namespace; these
 -- imports are the smoke test.
-import qualified Kafka.Client.AdminClient ()
-import qualified Kafka.Client.Consumer ()
-import qualified Kafka.Client.Group ()
-import qualified Kafka.Client.Metadata ()
-import qualified Kafka.Client.Pipeline ()
-import qualified Kafka.Client.Producer ()
-import qualified Kafka.Client.Transaction ()
-import qualified Kafka.Compression.Gzip ()
-import qualified Kafka.Compression.Lz4 ()
-import qualified Kafka.Compression.Snappy ()
-import qualified Kafka.Compression.Types ()
-import qualified Kafka.Compression.Zstd ()
-import qualified Kafka.Network.Auth.AwsMskIam ()
-import qualified Kafka.Network.Auth.OAuthBearer ()
-import qualified Kafka.Network.Auth.Plain ()
-import qualified Kafka.Network.Auth.SASL ()
-import qualified Kafka.Network.Auth.Scram ()
-import qualified Kafka.Network.Connection ()
-import qualified Kafka.Protocol.ApiVersions ()
-import qualified Kafka.Protocol.CRC32C ()
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Wire ()
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Message ()
-import qualified "wireform-kafka-protocol" Kafka.Protocol.Primitives ()
-import qualified Kafka.Protocol.RecordBatch ()
-import qualified Kafka.Telemetry.OpenTelemetry ()
+import Kafka.Client.AdminClient qualified ()
+import Kafka.Client.Consumer qualified ()
+import Kafka.Client.Group qualified ()
+import Kafka.Client.Metadata qualified ()
+import Kafka.Client.Pipeline qualified ()
+import Kafka.Client.Producer qualified ()
+import Kafka.Client.Transaction qualified ()
+import Kafka.Compression.Gzip qualified ()
+import Kafka.Compression.Lz4 qualified ()
+import Kafka.Compression.Snappy qualified ()
+import Kafka.Compression.Types qualified ()
+import Kafka.Compression.Zstd qualified ()
+import Kafka.Network.Auth.AwsMskIam qualified ()
+import Kafka.Network.Auth.OAuthBearer qualified ()
+import Kafka.Network.Auth.Plain qualified ()
+import Kafka.Network.Auth.SASL qualified ()
+import Kafka.Network.Auth.Scram qualified ()
+import Kafka.Network.Connection qualified ()
+import Kafka.Protocol.ApiVersions qualified ()
+import Kafka.Protocol.CRC32C qualified ()
+import Kafka.Protocol.RecordBatch qualified ()
+import Kafka.Telemetry.OpenTelemetry qualified ()
+import Test.Syd
+import "wireform-kafka-protocol" Kafka.Protocol.Message qualified ()
+import "wireform-kafka-protocol" Kafka.Protocol.Primitives qualified ()
+import "wireform-kafka-protocol" Kafka.Protocol.Wire qualified ()
+
 
 tests :: Spec
-tests = describe "0006-symbols" $ sequence_
-  [ it "umbrella module is importable" $ do
-      -- 'Kafka' is the user-facing entry point; touching it forces
-      -- GHC to resolve its re-exports at link time. If any of the
-      -- imports above are missing, the file would not have compiled.
-      let _ = Kafka.defaultProducerConfig
-          _ = Kafka.defaultConsumerConfig
-      pure () :: IO ()
-  ]
+tests =
+  describe "0006-symbols" $
+    sequence_
+      [ it "umbrella module is importable" $ do
+          -- 'Kafka' is the user-facing entry point; touching it forces
+          -- GHC to resolve its re-exports at link time. If any of the
+          -- imports above are missing, the file would not have compiled.
+          let _ = Kafka.defaultProducerConfig
+              _ = Kafka.defaultConsumerConfig
+          pure () :: IO ()
+      ]

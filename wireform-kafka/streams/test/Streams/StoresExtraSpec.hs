@@ -1,33 +1,37 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Tests for the store-layer additions:
---   * Stores.lruMap (KIP: bounded in-memory LRU)
---   * KeyValueStore.kvsPutAll (bulk insert helper)
---   * VersionedKeyValueStore.vkvDelete (KIP-889)
+{- | Tests for the store-layer additions:
+  * Stores.lruMap (KIP: bounded in-memory LRU)
+  * KeyValueStore.kvsPutAll (bulk insert helper)
+  * VersionedKeyValueStore.vkvDelete (KIP-889)
+-}
 module Streams.StoresExtraSpec (tests) where
 
-import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text qualified as T
+import Kafka.Streams.Imperative
+import Kafka.Streams.State.KeyValue.Versioned (
+  VersionedRecord (..),
+  defaultVersionedConfig,
+  vkvDelete,
+  vkvGetAsOf,
+  vkvGetLatest,
+  vkvPut,
+ )
+import Kafka.Streams.Stores qualified as Stores
 import Test.Syd
 
-import Kafka.Streams.Imperative
-import qualified Kafka.Streams.Stores as Stores
-import Kafka.Streams.State.KeyValue.Versioned
-  ( VersionedRecord (..)
-  , defaultVersionedConfig
-  , vkvDelete
-  , vkvGetAsOf
-  , vkvGetLatest
-  , vkvPut
-  )
 
 tests :: Spec
-tests = describe "Stores extras" $ sequence_
-  [ lru_evicts_oldest_when_full
-  , put_all_inserts_in_one_call
-  , versioned_delete_drops_at_or_after
-  ]
+tests =
+  describe "Stores extras" $
+    sequence_
+      [ lru_evicts_oldest_when_full
+      , put_all_inserts_in_one_call
+      , versioned_delete_drops_at_or_after
+      ]
+
 
 ----------------------------------------------------------------------
 -- 1. LRU
@@ -42,11 +46,12 @@ lru_evicts_oldest_when_full =
     kvsPut kvs "c" 3
     -- Touch "a" so "b" is now the LRU candidate.
     _ <- kvsGet kvs "a"
-    kvsPut kvs "d" 4    -- evicts "b"
+    kvsPut kvs "d" 4 -- evicts "b"
     kvsGet kvs "a" >>= (`shouldBe` Just 1)
     kvsGet kvs "b" >>= (`shouldBe` Nothing)
     kvsGet kvs "c" >>= (`shouldBe` Just 3)
     kvsGet kvs "d" >>= (`shouldBe` Just 4)
+
 
 ----------------------------------------------------------------------
 -- 2. kvsPutAll
@@ -61,6 +66,7 @@ put_all_inserts_in_one_call =
     kvsGet kvs "b" >>= (`shouldBe` Just 2)
     kvsGet kvs "c" >>= (`shouldBe` Just 3)
 
+
 ----------------------------------------------------------------------
 -- 3. VersionedKeyValueStore.vkvDelete
 ----------------------------------------------------------------------
@@ -68,8 +74,10 @@ put_all_inserts_in_one_call =
 versioned_delete_drops_at_or_after :: Spec
 versioned_delete_drops_at_or_after =
   it "vkvDelete: versions >= ts disappear; older versions remain" $ do
-    s <- Stores.versionedKeyValueStore @Text @Int
-            (storeName "v") defaultVersionedConfig
+    s <-
+      Stores.versionedKeyValueStore @Text @Int
+        (storeName "v")
+        defaultVersionedConfig
     vkvPut s "k" 10 (Timestamp 100)
     vkvPut s "k" 20 (Timestamp 200)
     vkvPut s "k" 30 (Timestamp 300)
@@ -79,7 +87,7 @@ versioned_delete_drops_at_or_after =
     rl <- vkvGetLatest s "k"
     case rl of
       Just (VersionedRecord v ts) -> do
-        v  `shouldBe` 20
+        v `shouldBe` 20
         ts `shouldBe` Timestamp 200
       Nothing -> error "expected v=20 latest after delete"
     -- AsOf 100 still returns 10.

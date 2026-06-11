@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 {- | End-to-end integration tests: actually open a socket pair, run our
 server on one side and our client on the other, and verify request /
 response semantics on the wire.
@@ -12,34 +13,36 @@ module Test.Integration (tests) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar
 import Control.Exception (bracket, finally)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.IORef
-import qualified Network.Socket as NS
-import System.Directory (removeFile)
-
-import Test.Syd
-
 import Network.HTTP1.Client
-import qualified Network.HTTP1.Encode as Enc
+import Network.HTTP1.Encode qualified as Enc
 import Network.HTTP1.Method
 import Network.HTTP1.Server
 import Network.HTTP1.Status
 import Network.HTTP1.Types
 import Network.HTTP1.Version
+import Network.Socket qualified as NS
+import System.Directory (removeFile)
+import Test.Syd
+
 
 tests :: Spec
-tests = describe "Integration" $ sequence_
-  [ helloWorldTest
-  , echoBodyTest
-  , chunkedRequestTest
-  , chunkedResponseTest
-  , keepAlivePipelineTest
-  , preEncodedGetTest
-  , preEncodedHeadTest
-  , sendFileGetTest
-  , sendFileHeadTest
-  , sendFileCachedFdTest
-  ]
+tests =
+  describe "Integration" $
+    sequence_
+      [ helloWorldTest
+      , echoBodyTest
+      , chunkedRequestTest
+      , chunkedResponseTest
+      , keepAlivePipelineTest
+      , preEncodedGetTest
+      , preEncodedHeadTest
+      , sendFileGetTest
+      , sendFileHeadTest
+      , sendFileCachedFdTest
+      ]
+
 
 ------------------------------------------------------------------------
 
@@ -51,6 +54,7 @@ helloWorldTest = it "GET hello world" $
     responseStatus r `shouldBe` OK
     bodyOf r >>= (`shouldBe` "Hello, world!\n")
 
+
 echoBodyTest :: Spec
 echoBodyTest = it "POST echo body" $
   withServer echo $ \port -> do
@@ -61,10 +65,14 @@ echoBodyTest = it "POST echo body" $
   where
     echo req = do
       body <- drainAll (requestBody req)
-      pure $ Response OK HTTP_1_1
-              [("Content-Type", "text/plain")]
-              (BodyBytes body)
-              (pure [])
+      pure $
+        Response
+          OK
+          HTTP_1_1
+          [("Content-Type", "text/plain")]
+          (BodyBytes body)
+          (pure [])
+
 
 chunkedRequestTest :: Spec
 chunkedRequestTest = it "POST chunked request body" $
@@ -84,6 +92,7 @@ chunkedRequestTest = it "POST chunked request body" $
       body <- drainAll (requestBody req)
       pure $ Response OK HTTP_1_1 [] (BodyBytes body) (pure [])
 
+
 chunkedResponseTest :: Spec
 chunkedResponseTest = it "streaming chunked response" $
   withServer streaming $ \port -> do
@@ -93,13 +102,14 @@ chunkedResponseTest = it "streaming chunked response" $
     bodyOf r >>= (`shouldBe` "alphabetagamma")
   where
     streaming _ = do
-      chunkRef <- newIORef ["alpha","beta","gamma"]
+      chunkRef <- newIORef ["alpha", "beta", "gamma"]
       pure $ Response OK HTTP_1_1 [] (BodyStream (next chunkRef)) (pure [])
     next ref = do
       xs <- readIORef ref
       case xs of
         [] -> pure Nothing
         (h : t) -> do writeIORef ref t; pure (Just h)
+
 
 keepAlivePipelineTest :: Spec
 keepAlivePipelineTest = it "keep-alive: two requests on one connection" $
@@ -112,6 +122,7 @@ keepAlivePipelineTest = it "keep-alive: two requests on one connection" $
       responseStatus r1 `shouldBe` OK
       responseStatus r2 `shouldBe` OK
 
+
 ------------------------------------------------------------------------
 -- Pre-encoded responses
 ------------------------------------------------------------------------
@@ -119,13 +130,16 @@ keepAlivePipelineTest = it "keep-alive: two requests on one connection" $
 -- A precomputed static response — identical shape to what
 -- bench-server/WireformServer.hs ships.
 staticOk :: Response
-staticOk = Enc.precomputeResponse $ Response
-  { responseStatus  = OK
-  , responseVersion = HTTP_1_1
-  , responseHeaders = [("Content-Type", "text/plain"), ("Server", "test")]
-  , responseBody    = BodyBytes "Hello, world!\n"
-  , responseTrailers = pure []
-  }
+staticOk =
+  Enc.precomputeResponse $
+    Response
+      { responseStatus = OK
+      , responseVersion = HTTP_1_1
+      , responseHeaders = [("Content-Type", "text/plain"), ("Server", "test")]
+      , responseBody = BodyBytes "Hello, world!\n"
+      , responseTrailers = pure []
+      }
+
 
 preEncodedGetTest :: Spec
 preEncodedGetTest = it "pre-encoded response (GET) is byte-identical to encoder output" $
@@ -136,6 +150,7 @@ preEncodedGetTest = it "pre-encoded response (GET) is byte-identical to encoder 
     body `shouldBe` "Hello, world!\n"
     -- Verify the parsed headers match what the encoder would emit.
     BS.length body `shouldBe` 14
+
 
 preEncodedHeadTest :: Spec
 preEncodedHeadTest = it "pre-encoded response served as HEAD drops body but keeps Content-Length" $
@@ -150,29 +165,36 @@ preEncodedHeadTest = it "pre-encoded response served as HEAD drops body but keep
     body <- bodyOf r
     body `shouldBe` ""
 
+
 ------------------------------------------------------------------------
 -- sendfile(2)
 ------------------------------------------------------------------------
 
--- | Bracket-style helper that writes a temp file with given contents,
--- runs an action against it, then removes the file.
+{- | Bracket-style helper that writes a temp file with given contents,
+runs an action against it, then removes the file.
+-}
 withTempFile :: FilePath -> BS.ByteString -> (FilePath -> IO a) -> IO a
 withTempFile path contents action = do
   BS.writeFile path contents
   action path `finally` (removeFile path)
 
--- | Sendfile bodies can be larger than the client's recv buffer, so
--- we drain inside 'withClientConnection' to keep the connection live
--- while we read.
+
+{- | Sendfile bodies can be larger than the client's recv buffer, so
+we drain inside 'withClientConnection' to keep the connection live
+while we read.
+-}
 sendFileGetTest :: Spec
 sendFileGetTest = it "sendfile body: GET delivers file bytes verbatim" $
   withTempFile "/tmp/wireform-http1-sendfile-test.txt" payload $ \path -> do
     let handler _ = do
           fb <- wholeFileBody path
-          pure $ Response OK HTTP_1_1
-                   [("Content-Type", "text/plain"), ("Server", "test")]
-                   (BodyFile fb)
-                   (pure [])
+          pure $
+            Response
+              OK
+              HTTP_1_1
+              [("Content-Type", "text/plain"), ("Server", "test")]
+              (BodyFile fb)
+              (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq GET "/" port BodyEmpty [])
@@ -180,17 +202,21 @@ sendFileGetTest = it "sendfile body: GET delivers file bytes verbatim" $
         body <- bodyOf r
         body `shouldBe` payload
   where
-    payload = BS.replicate 4096 0x61  -- 4 KiB of 'a'
+    payload = BS.replicate 4096 0x61 -- 4 KiB of 'a'
+
 
 sendFileHeadTest :: Spec
 sendFileHeadTest = it "sendfile body: HEAD emits headers, no body" $
   withTempFile "/tmp/wireform-http1-sendfile-head-test.txt" payload $ \path -> do
     let handler _ = do
           fb <- wholeFileBody path
-          pure $ Response OK HTTP_1_1
-                   [("Content-Type", "text/plain"), ("Server", "test")]
-                   (BodyFile fb)
-                   (pure [])
+          pure $
+            Response
+              OK
+              HTTP_1_1
+              [("Content-Type", "text/plain"), ("Server", "test")]
+              (BodyFile fb)
+              (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         Right r <- sendRequestOn conn (mkReq HEAD "/" port BodyEmpty [])
@@ -200,16 +226,21 @@ sendFileHeadTest = it "sendfile body: HEAD emits headers, no body" $
   where
     payload = BS.replicate 256 0x62
 
+
 sendFileCachedFdTest :: Spec
 sendFileCachedFdTest = it "sendfile body: cached fd path (no per-request open/close)" $
   withTempFile "/tmp/wireform-http1-sendfile-cached-test.txt" payload $ \path -> do
     -- Open the fd once and reuse it for multiple requests on the
     -- same keep-alive connection. This is the static-file fast path.
     fb <- wholeFileBodyFd path
-    let handler _ = pure $ Response OK HTTP_1_1
-                             [("Content-Type", "text/plain")]
-                             (BodyFile fb)
-                             (pure [])
+    let handler _ =
+          pure $
+            Response
+              OK
+              HTTP_1_1
+              [("Content-Type", "text/plain")]
+              (BodyFile fb)
+              (pure [])
     withServer handler $ \port -> do
       withClientConnection (clientCfg port) $ \conn -> do
         -- Two requests on the same connection — exercises the fd
@@ -221,28 +252,32 @@ sendFileCachedFdTest = it "sendfile body: cached fd path (no per-request open/cl
         body2 <- bodyOf r2
         body2 `shouldBe` payload
   where
-    payload = BS.replicate 1024 0x63  -- 1 KiB of 'c'
+    payload = BS.replicate 1024 0x63 -- 1 KiB of 'c'
+
 
 ------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------
 
--- | Spin up the server on a free port, run the test, then tear down.
--- Synchronises on the server signalling that it has @listen()@ed.
+{- | Spin up the server on a free port, run the test, then tear down.
+Synchronises on the server signalling that it has @listen()@ed.
+-}
 withServer :: Handler -> (String -> IO ()) -> IO ()
 withServer handler action = do
   readyMV <- newEmptyMVar
-  let cfg = defaultServerConfig
-        { serverHost = "127.0.0.1"
-        , serverPort = "0"  -- placeholder; we'll bind manually
-        , serverHandler = handler
-        }
+  let cfg =
+        defaultServerConfig
+          { serverHost = "127.0.0.1"
+          , serverPort = "0" -- placeholder; we'll bind manually
+          , serverHandler = handler
+          }
   -- Bind ourselves to know the port, then hand the listening socket
   -- to runServerOnSocket via accept loop.
-  let hints = NS.defaultHints
-        { NS.addrFlags = [NS.AI_PASSIVE]
-        , NS.addrSocketType = NS.Stream
-        }
+  let hints =
+        NS.defaultHints
+          { NS.addrFlags = [NS.AI_PASSIVE]
+          , NS.addrSocketType = NS.Stream
+          }
   addrs <- NS.getAddrInfo (Just hints) (Just "127.0.0.1") (Just "0")
   case addrs of
     [] -> expectationFailure "no addr"
@@ -261,6 +296,7 @@ withServer handler action = do
         putMVar readyMV ()
         action (show portInt) `finally` killThread tid
 
+
 acceptForever :: ServerConfig -> NS.Socket -> MVar () -> IO ()
 acceptForever cfg listenSock _ready = loop
   where
@@ -269,24 +305,30 @@ acceptForever cfg listenSock _ready = loop
       _ <- forkIO (runServerOnSocket cfg s)
       loop
 
+
 clientCfg :: String -> ClientConfig
-clientCfg p = defaultClientConfig { clientHost = "127.0.0.1", clientPort = p }
+clientCfg p = defaultClientConfig {clientHost = "127.0.0.1", clientPort = p}
+
 
 mkReq :: Method -> BS.ByteString -> String -> Body -> Headers -> Request
-mkReq m t port body extras = Request
-  { requestMethod   = m
-  , requestTarget   = t
-  , requestVersion  = HTTP_1_1
-  , requestHeaders  = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
-  , requestBody     = body
-  , requestTrailers = pure []
-  }
+mkReq m t port body extras =
+  Request
+    { requestMethod = m
+    , requestTarget = t
+    , requestVersion = HTTP_1_1
+    , requestHeaders = [("Host", BS.pack (map (fromIntegral . fromEnum) ("127.0.0.1:" <> port)))] <> extras
+    , requestBody = body
+    , requestTrailers = pure []
+    }
+
 
 resp200 :: BS.ByteString -> Response
 resp200 b = Response OK HTTP_1_1 [("Content-Type", "text/plain")] (BodyBytes b) (pure [])
 
+
 bodyOf :: Response -> IO BS.ByteString
 bodyOf r = drainAll (responseBody r)
+
 
 drainAll :: Body -> IO BS.ByteString
 drainAll BodyEmpty = pure ""

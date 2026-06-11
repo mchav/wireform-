@@ -710,11 +710,11 @@ analyseCollection !vs =
               let !(T.TypeId tg) = VV.typeIdOf x
                   !tgI = fromIntegral tg :: Int
               in if hasT == (0 :: Int)
-                  then goA (i + 1) st hn (1 :: Int) tgI
-                  else
-                    if tag == tgI
-                      then goA (i + 1) st hn (1 :: Int) tag
-                      else goA (i + 1) (0 :: Int) hn (1 :: Int) tag
+                   then goA (i + 1) st hn (1 :: Int) tgI
+                   else
+                     if tag == tgI
+                       then goA (i + 1) st hn (1 :: Int) tag
+                       else goA (i + 1) (0 :: Int) hn (1 :: Int) tag
   in goA 0 (1 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
 {-# INLINEABLE analyseCollection #-}
 
@@ -794,18 +794,18 @@ homogeneousMap !kvs =
         | otherwise =
             let (k, v) = V.unsafeIndex kvs i
             in if isNoneV k || isNoneV v
-                then goM (i + 1) (0 :: Int) hasK ktag vtag
-                else
-                  let !(T.TypeId kt) = VV.typeIdOf k
-                      !(T.TypeId vt) = VV.typeIdOf v
-                      !ktI = fromIntegral kt :: Int
-                      !vtI = fromIntegral vt :: Int
-                  in if hasK == (0 :: Int)
-                      then goM (i + 1) ok (1 :: Int) ktI vtI
-                      else
-                        if ktag == ktI && vtag == vtI
-                          then goM (i + 1) ok (1 :: Int) ktag vtag
-                          else goM (i + 1) (0 :: Int) hasK ktag vtag
+                 then goM (i + 1) (0 :: Int) hasK ktag vtag
+                 else
+                   let !(T.TypeId kt) = VV.typeIdOf k
+                       !(T.TypeId vt) = VV.typeIdOf v
+                       !ktI = fromIntegral kt :: Int
+                       !vtI = fromIntegral vt :: Int
+                   in if hasK == (0 :: Int)
+                        then goM (i + 1) ok (1 :: Int) ktI vtI
+                        else
+                          if ktag == ktI && vtag == vtI
+                            then goM (i + 1) ok (1 :: Int) ktag vtag
+                            else goM (i + 1) (0 :: Int) hasK ktag vtag
   in goM 0 (1 :: Int) (0 :: Int) (0 :: Int) (0 :: Int)
 {-# INLINEABLE homogeneousMap #-}
 
@@ -997,11 +997,11 @@ emitNamedStructListFast !e !vs =
                       x -> emitUntaggedPayload e x
                     goPermuted (i + 1)
           in if permIsId && allBNN
-              then goFastest 0
-              else
-                if permIsId
-                  then goIdentity 0
-                  else goPermuted 0
+               then goFastest 0
+               else
+                 if permIsId
+                   then goIdentity 0
+                   else goPermuted 0
         Nothing -> V.forM_ vs $ \x -> emitUntaggedPayload e x
     -- Heterogeneous (StructVal vs RegisteredStructVal) or
     -- all-None: fall back to the generic per-element path.
@@ -1049,8 +1049,9 @@ emitRegisteredStructPermuted
   -> Vector ST.FieldSpec
   -> Vector Int
   -> Int
-  -- ^ field count, hoisted from the caller so the per-
-  -- struct emit doesn't pay 'V.length' on every iteration.
+  {- ^ field count, hoisted from the caller so the per-
+  struct emit doesn't pay 'V.length' on every iteration.
+  -}
   -> Int32
   -> VV.StructFields
   -> IO ()
@@ -1129,8 +1130,8 @@ totalListOfStructSize !vs !nFields !nVs = goS 0 0
           VV.RegisteredStructVal _ _ fields ->
             let !fsz = fieldsRawSize fields nFields
             in if fsz < 0
-                then -1
-                else goS (i + 1) (sz + 4 + fsz)
+                 then -1
+                 else goS (i + 1) (sz + 4 + fsz)
           _ -> -1
 {-# INLINE totalListOfStructSize #-}
 
@@ -1147,8 +1148,8 @@ fieldsRawSize !fields !nFields = go 0 0
           let (_, !v) = V.unsafeIndex fields i
               !s = valueRawSize v
           in if s < 0
-              then -1
-              else go (i + 1) (sz + s)
+               then -1
+               else go (i + 1) (sz + s)
 {-# INLINE fieldsRawSize #-}
 
 
