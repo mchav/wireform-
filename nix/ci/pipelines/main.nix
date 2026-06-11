@@ -110,7 +110,8 @@ let
       (ci.command {
         label = ":art: Fourmolu";
         key = "fourmolu";
-        command = "nix develop .#${defaultGHC} --command fourmolu --mode check ${builtins.concatStringsSep " " (map (p: p.path) (builtins.attrValues affected))}";
+        # Wrapper skips CPP files (fourmolu mangles cpp macro calls).
+        command = "nix develop .#${defaultGHC} --command bash scripts/fourmolu-no-cpp.sh check ${builtins.concatStringsSep " " (map (p: p.path) (builtins.attrValues affected))}";
         agents = nixAgents;
         soft_fail = true;
         timeout = 10;

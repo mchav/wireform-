@@ -11,7 +11,10 @@ repos:
     hooks:
       - id: fourmolu
         name: fourmolu
-        entry: fourmolu --mode inplace
+        # Wrapper skips any file enabling CPP — fourmolu mangles cpp
+        # function-like macro invocations (WRAP_F(x) -> WRAP_F (x)),
+        # which disables the macro and breaks the build.
+        entry: scripts/fourmolu-no-cpp.sh inplace
         language: system
         files: '\.l?hs(-boot)?$'
         exclude: >-
@@ -25,7 +28,6 @@ repos:
             |wireform-grpc/
             |grpc-spec/
             |wireform-http2/
-            |wireform-core/src/Wireform/Builder/Internal/Prim\.hs
           )
 
       - id: hlint
