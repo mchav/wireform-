@@ -39,12 +39,14 @@ let
     , plugins         ? []
     , if_             ? null
     , allow_dependency_failure ? false
+    , concurrency       ? null
+    , concurrency_group ? null
     }:
     compact {
       _type = "command";
       inherit label key agents env depends_on soft_fail retry
               artifact_paths parallelism priority skip matrix plugins
-              allow_dependency_failure;
+              allow_dependency_failure concurrency concurrency_group;
       timeout_in_minutes = timeout;
       "if" = if_;
       commands = if builtins.isList command then command else [ command ];

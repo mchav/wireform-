@@ -159,6 +159,11 @@ let
   # ------------------------------------------------------------------
   benchable = ci.withBenchmarks affected;
 
+  # Benchmarks are noisy-neighbour sensitive: a single shared concurrency
+  # group with concurrency 1 serialises every bench job across all builds
+  # so only one ever runs at a time (no two benchmark jobs share a host).
+  # They also depend on the whole test group, so build/test work is done
+  # before any measurement starts.
   benchSteps = ci.forPackagesSorted benchable (pkg:
     ci.command {
       label = ":stopwatch: ${pkg.name} bench";
@@ -168,6 +173,8 @@ let
       depends_on = "test";
       timeout = 45;
       artifact_paths = [ "${pkg.path}/bench-results.json" ];
+      concurrency = 1;
+      concurrency_group = "wireform/benchmarks";
     }
   );
 
