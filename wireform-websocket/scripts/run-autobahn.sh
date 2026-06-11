@@ -37,6 +37,10 @@ cabal build --project-dir "$HERE/.." wireform-websocket:exe:wireform-websocket-a
 ECHO_BIN="$(cabal list-bin --project-dir "$HERE/.." wireform-websocket:exe:wireform-websocket-autobahn-echo)"
 
 # 2. Start the echo server in the background.
+# Ensure the report dir exists: both the server-log redirect below and
+# the docker `-v …/reports:/reports` mount need it present up front
+# (otherwise docker creates it root-owned and the redirect fails first).
+mkdir -p "$HERE/test-conformance/reports"
 PORT=9001
 echo "==> Starting echo server on 127.0.0.1:$PORT …"
 WIREFORM_AUTOBAHN_PORT="$PORT" "$ECHO_BIN" >"$HERE/test-conformance/reports/echo-server.log" 2>&1 &

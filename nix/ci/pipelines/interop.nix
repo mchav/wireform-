@@ -76,11 +76,13 @@ let
     label = ":kafka: Kafka ${version} integration";
     key = "kafka-${builtins.replaceStrings ["."] ["_"] version}";
     command = [
-      "docker compose -f wireform-kafka/docker/docker-compose.yml up -d"
+      "docker compose -f wireform-kafka/test-integration/docker-compose.yml up -d"
       "WIREFORM_KAFKA_BROKER=localhost:9092 nix develop .#${defaultGHC} --command cabal test wireform-kafka-integration"
-      "docker compose -f wireform-kafka/docker/docker-compose.yml down"
+      "docker compose -f wireform-kafka/test-integration/docker-compose.yml down"
     ];
-    env = { KAFKA_VERSION = version; };
+    # The compose file selects the broker image via KAFKA_IMAGE_TAG
+    # (default 4.0.0); set it per matrix leg so 3.7.0 actually runs 3.7.0.
+    env = { KAFKA_IMAGE_TAG = version; };
     agents = dockerAgents;
     timeout = 30;
     retry = {
@@ -102,14 +104,16 @@ let
   autobahn = ci.command {
     label = ":satellite: Autobahn|Testsuite";
     key = "websocket-autobahn";
+    # Use the canonical runner: it builds the right exe
+    # (wireform-websocket-autobahn-echo), starts it, mounts the spec
+    # (test-conformance/config) and report dir into the container, and
+    # summarises the JSON report (python3 — provided by the dev shell).
     command = [
-      "nix develop .#${defaultGHC} --command cabal run wireform-websocket-echo &"
-      "sleep 2"
-      "docker run --rm --net=host crossbario/autobahn-testsuite wstest -m fuzzingclient -s wireform-websocket/autobahn/fuzzingclient.json"
+      "nix develop .#${defaultGHC} --command wireform-websocket/scripts/run-autobahn.sh"
     ];
     agents = dockerAgents;
     timeout = 30;
-    artifact_paths = [ "wireform-websocket/autobahn/reports/**/*" ];
+    artifact_paths = [ "wireform-websocket/test-conformance/reports/**/*" ];
   };
 
   websocketGroup = ci.group ":satellite: WebSocket Conformance" {

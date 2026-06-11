@@ -51,6 +51,10 @@
           # suites pull in. It also unblocks anyone running the
           # protobuf conformance / interop scripts manually.
           pkgs.protobuf
+          # python3 drives the helper scripts in scripts/ and
+          # wireform-websocket/scripts/autobahn-summary.py (the Autobahn
+          # conformance summariser the interop pipeline shells out to).
+          pkgs.python3
         ];
 
         # ------------------------------------------------------------
