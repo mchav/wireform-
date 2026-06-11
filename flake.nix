@@ -157,14 +157,15 @@
           cp -R ${./wireform-kafka/src} $out/wireform-kafka/src
         '';
 
-        # `snappy` is ambiguous: wireform-kafka uses it as a C library
-        # (`pkgconfig-depends: snappy`) while wireform-orc uses the Haskell
-        # binding (`build-depends: snappy`). We bind the global name to the
-        # Haskell package (so orc resolves) and feed kafka the system
-        # library through pkgconfig here. `liblz4`/`libzstd`/`lz4` are
-        # C-only names mapped in the overlay below; `zstd` is Haskell-only.
+        # `snappy` and `zlib` are ambiguous names: wireform-kafka uses them
+        # as C libraries (`pkgconfig-depends: snappy, zlib`) while other
+        # packages use the Haskell bindings (`build-depends: snappy`/`zlib`).
+        # We keep the global names bound to the Haskell packages (so those
+        # resolve) and feed kafka the system libraries through pkgconfig
+        # here. `liblz4`/`libzstd`/`lz4` are C-only names mapped in the
+        # overlay below; `zstd` is Haskell-only.
         cLibPkgconfigDeps = {
-          wireform-kafka = [ pkgs.snappy ];
+          wireform-kafka = [ pkgs.snappy pkgs.zlib ];
         };
 
         # GHC versions on which we strip cabal version bounds with
@@ -240,6 +241,9 @@
               # 9.14 (base 4.22). It is pulled in as a transitive test
               # dependency of some upstream package; jailbreak so it builds.
               tasty-hspec = hlib.doJailbreak super.tasty-hspec;
+              # symbolize (a hermes dependency) has a currently-busted test
+              # suite; skip it so the library still builds.
+              symbolize = hlib.dontCheck super.symbolize;
               # C-library names cabal2nix resolves against the Haskell
               # package set. These are unambiguous C libs (pkgconfig /
               # extra-libraries), with no Haskell package of the same name:
