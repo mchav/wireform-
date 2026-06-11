@@ -248,6 +248,16 @@
               # symbolize (a hermes dependency) has a currently-busted test
               # suite; skip it so the library still builds.
               symbolize = hlib.dontCheck super.symbolize;
+              # http-api-data 0.6.3 (a wireform-http dependency) caps
+              # base <4.22 / containers <0.8, which excludes GHC 9.14
+              # (base 4.22, containers 0.8). Jailbreak so it configures;
+              # harmless on the older GHCs where the bounds already hold.
+              http-api-data = hlib.doJailbreak super.http-api-data;
+              # uri-templater 1.0.0.1 (transitive via http-api-data) ships a
+              # doctest suite that fails on GHC 9.12 with an ambiguous-type
+              # `print it` (a doctest/GHCi defaulting regression, not our
+              # code). Skip the dependency's test suite.
+              uri-templater = hlib.dontCheck super.uri-templater;
               # C-library names cabal2nix resolves against the Haskell
               # package set. These are unambiguous C libs (pkgconfig /
               # extra-libraries), with no Haskell package of the same name:
