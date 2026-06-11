@@ -129,7 +129,10 @@ let
     # -- core --------------------------------------------------------
     wireform-core          = { path = "wireform-core";          emoji = ":gear:";             tier = "core"; };
     wireform-derive        = { path = "wireform-derive";        emoji = ":magic_wand:";       tier = "core"; };
-    wireform-columnar-core = { path = "wireform-columnar-core"; emoji = ":bar_chart:";        tier = "core"; };
+    # sandboxHostileTest: doCheck deadlocks the nix build graph
+    # (dependency-cycle), so its suite can't run as an in-sandbox
+    # `nix build .#checks.<pkg>`; it stays a `nix develop`/interop concern.
+    wireform-columnar-core = { path = "wireform-columnar-core"; emoji = ":bar_chart:";        tier = "core"; sandboxHostileTest = true; };
     wireform-kafka-protocol= { path = "wireform-kafka-protocol";emoji = ":kafka:";            tier = "core"; };
 
     # -- format ------------------------------------------------------

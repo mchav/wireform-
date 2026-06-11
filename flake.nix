@@ -13,6 +13,13 @@
         lib = pkgs.lib;
         hlib = pkgs.haskell.lib.compose;
 
+        # The CI package registry: the same source of truth the Buildkite
+        # pipeline uses to decide which `<pkg>-<ghc>` outputs to build and
+        # which GHC versions each package supports (`ghcVersions`, narrowed
+        # by per-package overrides). Reused below for the `rollup` output so
+        # it stays the exact equivalent of the Buildkite Build group.
+        ciPackages = import ./nix/ci/packages.nix { inherit lib; };
+
         # GHC build matrix — add/remove entries to test against
         # different compilers. Shell names become `nix develop .#ghcXY`.
         # Covers the released GHC 9.6–9.14 line (odd minors are
@@ -206,6 +213,15 @@
                   (hlib.overrideCabal (drv: {
                     doBenchmark = false;
                     doCheck    = false;
+                    # Force haddock on so every package emits a `doc`
+                    # output. nixpkgs defaults `doHaddock` to false for
+                    # multi-public-library cabal packages (wireform-kafka
+                    # ships the `wireform-kafka-streams` and
+                    # `wireform-kafka-codegen` sub-libraries), which is why
+                    # it otherwise produced no docs and broke the haddock
+                    # aggregate. The others already default to true, so this
+                    # only flips kafka.
+                    doHaddock = true;
                     libraryPkgconfigDepends =
                       (drv.libraryPkgconfigDepends or [])
                       ++ (cLibPkgconfigDeps.${name} or []);
@@ -343,6 +359,80 @@
           in perFormat // {
             wireform = hp.wireform;
           };
+
+        # ------------------------------------------------------------
+        # Synthetic CI outputs (tests / lint / benchmarks / docs)
+        # ------------------------------------------------------------
+        # The Buildkite pipeline runs its non-build steps (test, lint,
+        # bench, haddock) on defaultGHC. We express each as a `nix build`
+        # target so the whole pipeline is `nix build`-only (no
+        # `nix develop`) and a single `nix build .#rollup` warms the cache
+        # for every step. The overlaid defaultGHC package set, reused below.
+        hpDefault = (pkgs.haskell.packages.${defaultGHC}).override {
+          overrides = mkHaskellOverlay defaultGHC;
+        };
+
+        # Test suites that cannot run sealed in the nix sandbox (network /
+        # broker / OS-specific / dependency-cycle). Derived from the CI
+        # registry (`sandboxHostileTest = true`) so the flake and the
+        # Buildkite pipeline agree on which suites skip the in-sandbox
+        # `checks.<pkg>` set. Grow the registry flag as sandboxed
+        # `nix build .#checks.<pkg>` failures surface.
+        sandboxHostileTests = map (p: p.name)
+          (lib.filter (p: p.sandboxHostileTest or false)
+            (lib.attrValues ciPackages));
+
+        # Registry-driven lists (same source of truth the pipeline uses).
+        testablePackages = lib.filter
+          (p: (p.hasTests or false)
+              && !(builtins.elem p.name sandboxHostileTests))
+          (lib.attrValues ciPackages);
+        benchPackages = lib.filter
+          (p: p.hasBenchmarks or false)
+          (lib.attrValues ciPackages);
+
+        # `checks.<pkg>` — run the suite in-sandbox during the build.
+        sandboxChecks = lib.listToAttrs (map
+          (p: { name = p.name; value = hlib.doCheck hpDefault.${p.name}; })
+          testablePackages);
+
+        # `packages.<pkg>-bench` — compile-only: `doBenchmark` builds the
+        # benchmark components (pulling criterion etc.) but the haskell
+        # builder never runs them, so this just warms the compile cache.
+        benchPkgsAttrs = lib.listToAttrs (map
+          (p: { name = "${p.name}-bench"; value = hlib.doBenchmark hpDefault.${p.name}; })
+          benchPackages);
+
+        # `packages.haddock` — aggregate of every package's `doc` output.
+        # These are the same derivations as the lib outputs (nixpkgs builds
+        # haddock as a second output of the library derivation), so this
+        # adds no build work beyond the lib matrix; it just gives the docs
+        # step a single `nix build` target.
+        haddockAgg = pkgs.linkFarm "wireform-haddock" (map
+          (name: { inherit name; path = hpDefault.${name}.doc; })
+          (lib.attrNames wireformPackages));
+
+        # Lint as `nix build`: runCommand derivations over the source tree.
+        lintSrc = ./.;
+        lintPaths = lib.concatMapStringsSep " " (p: p.path)
+          (lib.attrValues ciPackages);
+        hlintCheck = pkgs.runCommand "wireform-hlint"
+          { nativeBuildInputs = [ pkgs.hlint ]; } ''
+          cd ${lintSrc}
+          hlint ${lintPaths}
+          touch "$out"
+        '';
+        fourmoluCheck = pkgs.runCommand "wireform-fourmolu"
+          { nativeBuildInputs = [ pkgs.haskellPackages.fourmolu pkgs.bash ]; } ''
+          cd ${lintSrc}
+          bash scripts/fourmolu-no-cpp.sh check ${lintPaths}
+          touch "$out"
+        '';
+
+        checksAttrs = sandboxChecks // {
+          hlint = hlintCheck;
+          fourmolu = fourmoluCheck;
+        };
       in
       {
         devShells = devShells // {
@@ -370,9 +460,53 @@
                   pkgs_;
               in acc // suffixed
             ) {} (lib.attrNames ghcMatrix);
-          in defaultPkgs // matrixPkgs // {
+            # A single aggregate output that is the exact equivalent of the
+            # Buildkite Build group (minus the Docker steps): for every
+            # package in the CI registry, build `<pkg>-<ghc>` for each GHC in
+            # that package's supported list (`ghcVersions`, already narrowed
+            # by the per-package overrides in nix/ci/packages.nix). Building
+            # `.#rollup` therefore forces precisely the same `nix build`
+            # invocations Buildkite fans out, no more (no GHCs a package
+            # can't build on) and no less. `linkFarm` keeps each component
+            # addressable under the result symlink without re-deriving.
+            rollupComponents = lib.concatMap
+              (pkg: map
+                (ghc: {
+                  name = "${pkg.name}-${ghc}";
+                  path = matrixPkgs."${pkg.name}-${ghc}";
+                })
+                pkg.ghcVersions)
+              (lib.attrValues ciPackages);
+            # The rollup also pulls in every synthetic CI output so a single
+            # `nix build .#rollup` warms the cache for the *entire* pipeline:
+            # the build matrix (above), the in-sandbox test checks, the lint
+            # derivations, the compile-only benchmark builds, and the
+            # aggregate haddock. Each stays individually addressable under
+            # the result symlink.
+            #
+            # For cache warming, run `nix build .#rollup --keep-going`: some
+            # components are gates that can legitimately fail (a failing test
+            # check, or a soft lint), and --keep-going still builds and
+            # pushes every other store path instead of aborting on the first
+            # failure.
+            ciComponents =
+              (lib.mapAttrsToList (n: drv: { name = "check-${n}"; path = drv; })
+                checksAttrs)
+              ++ (lib.mapAttrsToList (n: drv: { name = n; path = drv; })
+                benchPkgsAttrs)
+              ++ [ { name = "haddock"; path = haddockAgg; } ];
+            rollup = pkgs.linkFarm "wireform-rollup"
+              (rollupComponents ++ ciComponents);
+          in defaultPkgs // matrixPkgs // benchPkgsAttrs // {
             default = defaultPkgs.wireform;
+            haddock = haddockAgg;
+            inherit rollup;
           };
+
+        # Each test suite (and the lint passes) as a `nix build .#checks.*`
+        # target, so the Buildkite Test / Lint groups are pure `nix build`
+        # steps instead of `nix develop … cabal test`.
+        checks = checksAttrs;
 
         # Buildkite pipeline generators.
         # Preview locally:

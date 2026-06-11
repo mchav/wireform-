@@ -53,35 +53,30 @@ let
   # ------------------------------------------------------------------
   # Test group: cabal test for affected packages with test suites
   # ------------------------------------------------------------------
-  testable = ci.withTests affected;
+  # Sandbox-hostile suites (packages.nix `sandboxHostileTest`) can't run as
+  # an in-sandbox `nix build .#checks.<pkg>`; the interop pipeline covers
+  # them. Everything else becomes a pure `nix build` of its check
+  # derivation — the suite runs inside the build, so no `nix develop`.
+  testable = lib.filterAttrs (_: p: !(p.sandboxHostileTest or false))
+    (ci.withTests affected);
 
   testSteps = ci.forPackagesSorted testable (pkg:
     ci.command {
       label = "${pkg.emoji} ${pkg.name} tests";
       key = "test-${keyOf pkg.name}";
       command = [
-        "nix develop .#${defaultGHC} --command cabal test ${pkg.name} --test-show-details=streaming"
+        "nix build .#checks.x86_64-linux.${pkg.name} --print-build-logs"
         ''buildkite-agent annotate --style success --context "test-${keyOf pkg.name}" --append "| ${pkg.emoji} ${pkg.name} | :white_check_mark: passed |"''
       ];
       agents = nixAgents;
       depends_on = "build-${keyOf pkg.name}";
       timeout = 30;
-      artifact_paths = [ "${pkg.path}/dist-newstyle/**/*.log" ];
     }
   );
 
-  # Conformance / codegen self-tests that always run when proto is affected
-  conformanceSteps =
-    if builtins.hasAttr "wireform-proto" affected then [
-      (ci.command {
-        label = ":white_check_mark: conformance-self-test";
-        key = "test-conformance";
-        command = "nix develop .#${defaultGHC} --command cabal run conformance-self-test";
-        agents = nixAgents;
-        depends_on = "build-wireform_proto";
-        timeout = 15;
-      })
-    ] else [];
+  # Proto conformance runs as part of `nix build .#checks…wireform-proto`
+  # (the protobuf-conformance-test suite), so no dedicated step is needed.
+  conformanceSteps = [];
 
   testGroup = ci.group ":test_tube: Test" {
     key = "test";
@@ -90,11 +85,9 @@ let
   };
 
   # ------------------------------------------------------------------
-  # Lint group: HLint + Fourmolu (runs in parallel with tests)
+  # Lint group: HLint + Fourmolu as `nix build` checks (whole-tree
+  # runCommand derivations defined in flake.nix; cacheable by src hash).
   # ------------------------------------------------------------------
-  changedHsFiles =
-    builtins.filter (f: lib.hasSuffix ".hs" f) changedFiles;
-
   lintGroup = ci.group ":mag: Lint" {
     key = "lint";
     depends_on = "build";
@@ -102,7 +95,7 @@ let
       (ci.command {
         label = ":mag: HLint";
         key = "hlint";
-        command = "nix develop .#${defaultGHC} --command hlint ${builtins.concatStringsSep " " (map (p: p.path + "/src") (builtins.attrValues affected))}";
+        command = "nix build .#checks.x86_64-linux.hlint --print-build-logs";
         agents = nixAgents;
         soft_fail = true;
         timeout = 15;
@@ -110,8 +103,7 @@ let
       (ci.command {
         label = ":art: Fourmolu";
         key = "fourmolu";
-        # Wrapper skips CPP files (fourmolu mangles cpp macro calls).
-        command = "nix develop .#${defaultGHC} --command bash scripts/fourmolu-no-cpp.sh check ${builtins.concatStringsSep " " (map (p: p.path) (builtins.attrValues affected))}";
+        command = "nix build .#checks.x86_64-linux.fourmolu --print-build-logs";
         agents = nixAgents;
         soft_fail = true;
         timeout = 10;
@@ -124,10 +116,13 @@ let
   # ------------------------------------------------------------------
   codegenSteps = lib.optionals (builtins.hasAttr "wireform-proto" affected) [
     (ci.command {
-      label = ":label: gen-wkt verify";
+      label = ":label: regen-wkt verify";
       key = "codegen-wkt";
+      # Build the proto package (ships the regen-wkt exe in bin), run it,
+      # and assert the committed well-known-types tree is unchanged.
       command = [
-        "nix develop .#${defaultGHC} --command cabal run gen-wkt"
+        "nix build .#packages.x86_64-linux.wireform-proto --print-build-logs"
+        "result/bin/regen-wkt"
         "git diff --exit-code wireform-proto/src/Proto/Google/Protobuf/"
       ];
       agents = nixAgents;
@@ -159,22 +154,18 @@ let
   # ------------------------------------------------------------------
   benchable = ci.withBenchmarks affected;
 
-  # Benchmarks are noisy-neighbour sensitive: a single shared concurrency
-  # group with concurrency 1 serialises every bench job across all builds
-  # so only one ever runs at a time (no two benchmark jobs share a host).
-  # They also depend on the whole test group, so build/test work is done
-  # before any measurement starts.
+  # Compile-only: `nix build .#…<pkg>-bench` builds the benchmark
+  # components (warming the cache) without running them — measurement in a
+  # shared CI sandbox is meaningless. No concurrency/artifact handling is
+  # needed since nothing is measured here.
   benchSteps = ci.forPackagesSorted benchable (pkg:
     ci.command {
-      label = ":stopwatch: ${pkg.name} bench";
+      label = ":stopwatch: ${pkg.name} bench (compile)";
       key = "bench-${keyOf pkg.name}";
-      command = "nix develop .#${defaultGHC} --command cabal bench ${pkg.name} --benchmark-options='--json ${pkg.path}/bench-results.json'";
+      command = "nix build .#packages.x86_64-linux.${pkg.name}-bench --print-build-logs";
       agents = nixAgents;
       depends_on = "test";
       timeout = 45;
-      artifact_paths = [ "${pkg.path}/bench-results.json" ];
-      concurrency = 1;
-      concurrency_group = "wireform/benchmarks";
     }
   );
 
@@ -196,10 +187,9 @@ let
       (ci.command {
         label = ":book: Haddock";
         key = "haddock";
-        command = "nix develop .#${defaultGHC} --command cabal v2-haddock all";
+        command = "nix build .#packages.x86_64-linux.haddock --print-build-logs";
         agents = nixAgents;
         timeout = 30;
-        artifact_paths = [ "dist-newstyle/**/doc/html/**/*" ];
       })
     ];
   };
