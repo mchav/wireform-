@@ -1,10 +1,10 @@
 name: CI
 
+# Disabled on push / pull_request: CI now runs on Buildkite
+# (https://buildkite.com/iand675/wireform). Kept as workflow_dispatch so
+# the matrix can still be triggered manually from the Actions tab if needed.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 # A single push to main can queue ~17 jobs across the CI workflow alone
 # (4 GHC versions × Build & Test + HLint + Benchmarks + Codegen

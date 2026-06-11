@@ -1,10 +1,10 @@
 name: gRPC Cross-Language Interop
 
+# Disabled scheduled runs: CI now runs on Buildkite
+# (https://buildkite.com/iand675/wireform). Kept as workflow_dispatch so
+# the cross-language interop suite can still be triggered manually.
 on:
   workflow_dispatch:
-  schedule:
-    # Weekly on Sundays at 04:00 UTC
-    - cron: '0 4 * * 0'
 
 jobs:
   self-test:

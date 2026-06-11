@@ -1,25 +1,9 @@
 name: Docs
 
+# Disabled on push / pull_request: CI now runs on Buildkite
+# (https://buildkite.com/iand675/wireform). Kept as workflow_dispatch so
+# the docs build + gh-pages deploy can still be triggered manually.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - 'docs/**'
-      - 'haddock-fixture/**'
-      - '.github/workflows/docs.yml'
-      - '**.cabal'
-      - '**/src/**.hs'
-  # On pull requests we build the site (which runs the Starlight
-  # dead-link validator) to catch broken cross-doc links before they
-  # land. The Haddock job and the gh-pages deploy are both gated to
-  # non-PR events below, so PRs only pay for the fast fixture build.
-  pull_request:
-    paths:
-      - 'website/**'
-      - 'docs/**'
-      - 'haddock-fixture/**'
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:

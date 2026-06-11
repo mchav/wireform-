@@ -1,13 +1,10 @@
 name: wireform-kafka integration
 
+# Disabled on push / pull_request: CI now runs on Buildkite
+# (https://buildkite.com/iand675/wireform). Kept as workflow_dispatch so
+# the live-broker integration matrix can still be triggered manually.
 on:
-  pull_request:
-    paths:
-      - 'wireform-kafka/**'
-      - '.github/workflows/wireform-kafka-integration.yml'
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 # Live-broker integration suite for wireform-kafka. Runs against a
 # Docker'd KRaft Kafka 3.7 broker spun up via

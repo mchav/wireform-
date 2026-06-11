@@ -1,21 +1,10 @@
 name: wireform-websocket Autobahn conformance
 
+# Disabled on push / pull_request: CI now runs on Buildkite
+# (https://buildkite.com/iand675/wireform). Kept as workflow_dispatch so
+# the Autobahn conformance run can still be triggered manually.
 on:
-  push:
-    paths:
-      - 'wireform-websocket/**'
-      - 'wireform-core/**'
-      - 'wireform-http/**'
-      - 'wireform-http1/**'
-      - 'wireform-network/**'
-      - '.github/workflows/wireform-websocket-autobahn.yml'
-  pull_request:
-    paths:
-      - 'wireform-websocket/**'
-      - 'wireform-core/**'
-      - 'wireform-http/**'
-      - 'wireform-http1/**'
-      - 'wireform-network/**'
+  workflow_dispatch:
 
 jobs:
   autobahn:
